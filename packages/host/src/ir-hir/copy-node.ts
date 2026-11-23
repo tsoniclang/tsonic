@@ -65,10 +65,12 @@ export function holdSyntaxPayload<Value, Image>(value: Value): SyntaxCopyResult<
 
 export function withSyntaxPayload<Payload, Value extends NodeHeader, Stop, Image>(
   project: (value: Payload) => SyntaxCopyResult<PreparedSyntaxSlot<Payload, Image>, Stop>, payload: Payload,
-  build: (payload: Payload) => Value,
+  prepare: () => (payload: Payload) => Value,
 ): SyntaxCopyResult<PreparedSyntaxSlot<Value, Image>, Stop> {
   const projected = project(payload);
-  return projected.kind === "refused" ? projected : copied(image => build(projected.value(image)));
+  if (projected.kind === "refused") return projected;
+  const build = prepare();
+  return copied(image => build(projected.value(image)));
 }
 
 export function borrowedSyntaxPlan<Value extends NodeHeader, Image>(value: Value): SyntaxPlan<Value, never, Image> {

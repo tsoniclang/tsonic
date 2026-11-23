@@ -169,481 +169,737 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
   const JSDocTypeLiteral = new Map<JSDocTypeLiteral<P>, SyntaxPlan<JSDocTypeLiteral<P>, Stop, Image>>();
   const JSDocParameterOrPropertyTag = new Map<JSDocParameterOrPropertyTag<P>, SyntaxPlan<JSDocParameterOrPropertyTag<P>, Stop, Image>>();
   return {
-    ImportDeclaration: node => memoSyntaxPlan(ImportDeclaration, node, () => withSyntaxPayload(phase.ImportDeclaration, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-      importClause: node.importClause === null ? null : ports().ImportClause(node.importClause).read(),
-      moduleSpecifier: ports().Expression(node.moduleSpecifier).read(),
-      attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
-      tsonic,
-    }))),
-    ExternalModuleReference: node => memoSyntaxPlan(ExternalModuleReference, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      expression: ports().Expression(node.expression).read(),
-      tsonic,
-    }))),
-    NamespaceImport: node => memoSyntaxPlan(NamespaceImport, node, () => withSyntaxPayload(phase.NamespaceImport, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      name: ports().Identifier(node.name).read(),
-      tsonic,
-    }))),
-    NamedImports: node => memoSyntaxPlan(NamedImports, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      elements: copyNodeList(node.elements, item => ports().ImportSpecifier(item).read()),
-      tsonic,
-    }))),
-    ExportAssignment: node => memoSyntaxPlan(ExportAssignment, node, () => withSyntaxPayload(phase.ExportAssignment, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-      isExportEquals: node.isExportEquals,
-      type: node.type === null ? null : ports().TypeNode(node.type).read(),
-      expression: ports().Expression(node.expression).read(),
-      tsonic,
-    }))),
-    NamespaceExportDeclaration: node => memoSyntaxPlan(NamespaceExportDeclaration, node, () => withSyntaxPayload(phase.NamespaceExportDeclaration, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-      name: ports().Identifier(node.name).read(),
-      tsonic,
-    }))),
-    NamespaceExport: node => memoSyntaxPlan(NamespaceExport, node, () => withSyntaxPayload(phase.NamespaceExport, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      name: ports().ModuleExportName(node.name).read(),
-      tsonic,
-    }))),
-    NamedExports: node => memoSyntaxPlan(NamedExports, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      elements: copyNodeList(node.elements, item => ports().ExportSpecifier(item).read()),
-      tsonic,
-    }))),
-    ExportSpecifier: node => memoSyntaxPlan(ExportSpecifier, node, () => withSyntaxPayload(phase.ExportSpecifier, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      isTypeOnly: node.isTypeOnly,
-      propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName).read(),
-      name: ports().ModuleExportName(node.name).read(),
-      tsonic,
-    }))),
-    JsxElement: node => memoSyntaxPlan(JsxElement, node, () => withSyntaxPayload(phase.JsxElement, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      openingElement: ports().JsxOpeningElement(node.openingElement).read(),
-      children: copyNodeList(node.children, item => ports().JsxChild(item).read()),
-      closingElement: ports().JsxClosingElement(node.closingElement).read(),
-      tsonic,
-    }))),
-    JsxAttributes: node => memoSyntaxPlan(JsxAttributes, node, () => withSyntaxPayload(phase.JsxAttributes, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      properties: copyNodeList(node.properties, item => ports().JsxAttributeLike(item).read()),
-      tsonic,
-    }))),
-    JsxNamespacedName: node => memoSyntaxPlan(JsxNamespacedName, node, () => withSyntaxPayload(phase.JsxNamespacedName, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      namespace: ports().Identifier(node.namespace).read(),
-      name: ports().Identifier(node.name).read(),
-      tsonic,
-    }))),
-    JsxOpeningElement: node => memoSyntaxPlan(JsxOpeningElement, node, () => withSyntaxPayload(phase.JsxOpeningElement, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().JsxTagNameExpression(node.tagName).read(),
-      typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
-      attributes: ports().JsxAttributes(node.attributes).read(),
-      tsonic,
-    }))),
-    JsxSelfClosingElement: node => memoSyntaxPlan(JsxSelfClosingElement, node, () => withSyntaxPayload(phase.JsxSelfClosingElement, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().JsxTagNameExpression(node.tagName).read(),
-      typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
-      attributes: ports().JsxAttributes(node.attributes).read(),
-      tsonic,
-    }))),
-    JsxFragment: node => memoSyntaxPlan(JsxFragment, node, () => withSyntaxPayload(phase.JsxFragment, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      openingFragment: ports().JsxOpeningFragment(node.openingFragment).read(),
-      children: copyNodeList(node.children, item => ports().JsxChild(item).read()),
-      closingFragment: ports().JsxClosingFragment(node.closingFragment).read(),
-      tsonic,
-    }))),
-    JsxOpeningFragment: node => memoSyntaxPlan(JsxOpeningFragment, node, () => withSyntaxPayload(phase.JsxOpeningFragment, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tsonic,
-    }))),
-    JsxClosingFragment: node => memoSyntaxPlan(JsxClosingFragment, node, () => withSyntaxPayload(phase.JsxClosingFragment, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tsonic,
-    }))),
-    JsxAttribute: node => memoSyntaxPlan(JsxAttribute, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      name: ports().JsxAttributeName(node.name).read(),
-      initializer: node.initializer === null ? null : ports().JsxAttributeValue(node.initializer).read(),
-      tsonic,
-    }))),
-    JsxSpreadAttribute: node => memoSyntaxPlan(JsxSpreadAttribute, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      expression: ports().Expression(node.expression).read(),
-      tsonic,
-    }))),
-    JsxClosingElement: node => memoSyntaxPlan(JsxClosingElement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().JsxTagNameExpression(node.tagName).read(),
-      tsonic,
-    }))),
-    JsxExpression: node => memoSyntaxPlan(JsxExpression, node, () => withSyntaxPayload(phase.JsxExpression, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      dotDotDotToken: node.dotDotDotToken,
-      expression: node.expression === null ? null : ports().Expression(node.expression).read(),
-      tsonic,
-    }))),
-    JsxText: node => memoSyntaxPlan(JsxText, node, () => withSyntaxPayload(phase.JsxText, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      text: node.text,
-      tokenFlags: node.tokenFlags,
-      containsOnlyTriviaWhiteSpaces: node.containsOnlyTriviaWhiteSpaces,
-      tsonic,
-    }))),
-    SyntaxList: node => memoSyntaxPlan(SyntaxList, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      children: node.children.map(item => ports().SyntaxNode(item).read()),
-      tsonic,
-    }))),
-    JSDoc: node => memoSyntaxPlan(JSDoc, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      comment: copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      tags: node.tags === null ? null : copyNodeList(node.tags, item => ports().JSDocTag(item).read()),
-      tsonic,
-    }))),
-    JSDocTypeExpression: node => memoSyntaxPlan(JSDocTypeExpression, node, () => withSyntaxPayload(phase.JSDocTypeExpression, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      type: ports().TypeNode(node.type).read(),
-      tsonic,
-    }))),
-    JSDocNonNullableType: node => memoSyntaxPlan(JSDocNonNullableType, node, () => withSyntaxPayload(phase.JSDocNonNullableType, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      type: ports().TypeNode(node.type).read(),
-      tsonic,
-    }))),
-    JSDocNullableType: node => memoSyntaxPlan(JSDocNullableType, node, () => withSyntaxPayload(phase.JSDocNullableType, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      type: ports().TypeNode(node.type).read(),
-      tsonic,
-    }))),
-    JSDocAllType: node => memoSyntaxPlan(JSDocAllType, node, () => withSyntaxPayload(phase.JSDocAllType, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tsonic,
-    }))),
-    JSDocVariadicType: node => memoSyntaxPlan(JSDocVariadicType, node, () => withSyntaxPayload(phase.JSDocVariadicType, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      type: ports().TypeNode(node.type).read(),
-      tsonic,
-    }))),
-    JSDocOptionalType: node => memoSyntaxPlan(JSDocOptionalType, node, () => withSyntaxPayload(phase.JSDocOptionalType, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      type: ports().TypeNode(node.type).read(),
-      tsonic,
-    }))),
-    JSDocTypeTag: node => memoSyntaxPlan(JSDocTypeTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      typeExpression: ports().SyntaxNode(node.typeExpression).read(),
-      tsonic,
-    }))),
-    JSDocUnknownTag: node => memoSyntaxPlan(JSDocUnknownTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      tsonic,
-    }))),
-    JSDocTemplateTag: node => memoSyntaxPlan(JSDocTemplateTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      constraint: ports().SyntaxNode(node.constraint).read(),
-      typeParameters: copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-      tsonic,
-    }))),
-    JSDocReturnTag: node => memoSyntaxPlan(JSDocReturnTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression).read(),
-      tsonic,
-    }))),
-    JSDocPublicTag: node => memoSyntaxPlan(JSDocPublicTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      tsonic,
-    }))),
-    JSDocPrivateTag: node => memoSyntaxPlan(JSDocPrivateTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      tsonic,
-    }))),
-    JSDocProtectedTag: node => memoSyntaxPlan(JSDocProtectedTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      tsonic,
-    }))),
-    JSDocReadonlyTag: node => memoSyntaxPlan(JSDocReadonlyTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      tsonic,
-    }))),
-    JSDocOverrideTag: node => memoSyntaxPlan(JSDocOverrideTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      tsonic,
-    }))),
-    JSDocDeprecatedTag: node => memoSyntaxPlan(JSDocDeprecatedTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      tsonic,
-    }))),
-    JSDocSeeTag: node => memoSyntaxPlan(JSDocSeeTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      nameExpression: ports().TypeNode(node.nameExpression).read(),
-      tsonic,
-    }))),
-    JSDocImplementsTag: node => memoSyntaxPlan(JSDocImplementsTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      className: ports().ExpressionWithTypeArguments(node.className).read(),
-      tsonic,
-    }))),
-    JSDocAugmentsTag: node => memoSyntaxPlan(JSDocAugmentsTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      className: ports().ExpressionWithTypeArguments(node.className).read(),
-      tsonic,
-    }))),
-    JSDocSatisfiesTag: node => memoSyntaxPlan(JSDocSatisfiesTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      typeExpression: ports().TypeNode(node.typeExpression).read(),
-      tsonic,
-    }))),
-    JSDocThrowsTag: node => memoSyntaxPlan(JSDocThrowsTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression).read(),
-      tsonic,
-    }))),
-    JSDocThisTag: node => memoSyntaxPlan(JSDocThisTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      typeExpression: ports().TypeNode(node.typeExpression).read(),
-      tsonic,
-    }))),
-    JSDocImportTag: node => memoSyntaxPlan(JSDocImportTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      importClause: node.importClause === null ? null : ports().ImportClause(node.importClause).read(),
-      moduleSpecifier: ports().Expression(node.moduleSpecifier).read(),
-      attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
-      tsonic,
-    }))),
-    JSDocCallbackTag: node => memoSyntaxPlan(JSDocCallbackTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      typeExpression: ports().TypeNode(node.typeExpression).read(),
-      name: node.name === null ? null : ports().JSDocFullName(node.name).read(),
-      tsonic,
-    }))),
-    JSDocOverloadTag: node => memoSyntaxPlan(JSDocOverloadTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      typeExpression: ports().TypeNode(node.typeExpression).read(),
-      tsonic,
-    }))),
-    JSDocTypedefTag: node => memoSyntaxPlan(JSDocTypedefTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      typeExpression: node.typeExpression === null ? null : ports().SyntaxNode(node.typeExpression).read(),
-      name: node.name === null ? null : ports().JSDocFullName(node.name).read(),
-      tsonic,
-    }))),
-    JSDocSignature: node => memoSyntaxPlan(JSDocSignature, node, () => withSyntaxPayload(phase.JSDocSignature, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-      parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-      type: node.type === null ? null : ports().TypeNode(node.type).read(),
-      fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
-      tsonic,
-    }))),
-    JSDocNameReference: node => memoSyntaxPlan(JSDocNameReference, node, () => withSyntaxPayload(phase.JSDocNameReference, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      name: ports().EntityName(node.name).read(),
-      tsonic,
-    }))),
-    SourceFile: node => memoSyntaxPlan(SourceFile, node, () => withSyntaxPayload(phase.SourceFile, node.tsonic, tsonic =>
+    ImportDeclaration: node => memoSyntaxPlan(ImportDeclaration, node, () => withSyntaxPayload(phase.ImportDeclaration, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        importClause: node.importClause === null ? null : ports().ImportClause(node.importClause).read(),
+        moduleSpecifier: ports().Expression(node.moduleSpecifier).read(),
+        attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
+        tsonic,
+      });
+    })),
+    ExternalModuleReference: node => memoSyntaxPlan(ExternalModuleReference, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        expression: ports().Expression(node.expression).read(),
+        tsonic,
+      });
+    })),
+    NamespaceImport: node => memoSyntaxPlan(NamespaceImport, node, () => withSyntaxPayload(phase.NamespaceImport, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        name: ports().Identifier(node.name).read(),
+        tsonic,
+      });
+    })),
+    NamedImports: node => memoSyntaxPlan(NamedImports, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        elements: copyNodeList(node.elements, item => ports().ImportSpecifier(item).read()),
+        tsonic,
+      });
+    })),
+    ExportAssignment: node => memoSyntaxPlan(ExportAssignment, node, () => withSyntaxPayload(phase.ExportAssignment, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, isExportEquals } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        isExportEquals,
+        type: node.type === null ? null : ports().TypeNode(node.type).read(),
+        expression: ports().Expression(node.expression).read(),
+        tsonic,
+      });
+    })),
+    NamespaceExportDeclaration: node => memoSyntaxPlan(NamespaceExportDeclaration, node, () => withSyntaxPayload(phase.NamespaceExportDeclaration, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        name: ports().Identifier(node.name).read(),
+        tsonic,
+      });
+    })),
+    NamespaceExport: node => memoSyntaxPlan(NamespaceExport, node, () => withSyntaxPayload(phase.NamespaceExport, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        name: ports().ModuleExportName(node.name).read(),
+        tsonic,
+      });
+    })),
+    NamedExports: node => memoSyntaxPlan(NamedExports, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        elements: copyNodeList(node.elements, item => ports().ExportSpecifier(item).read()),
+        tsonic,
+      });
+    })),
+    ExportSpecifier: node => memoSyntaxPlan(ExportSpecifier, node, () => withSyntaxPayload(phase.ExportSpecifier, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, isTypeOnly } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        isTypeOnly,
+        propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName).read(),
+        name: ports().ModuleExportName(node.name).read(),
+        tsonic,
+      });
+    })),
+    JsxElement: node => memoSyntaxPlan(JsxElement, node, () => withSyntaxPayload(phase.JsxElement, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        openingElement: ports().JsxOpeningElement(node.openingElement).read(),
+        children: copyNodeList(node.children, item => ports().JsxChild(item).read()),
+        closingElement: ports().JsxClosingElement(node.closingElement).read(),
+        tsonic,
+      });
+    })),
+    JsxAttributes: node => memoSyntaxPlan(JsxAttributes, node, () => withSyntaxPayload(phase.JsxAttributes, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        properties: copyNodeList(node.properties, item => ports().JsxAttributeLike(item).read()),
+        tsonic,
+      });
+    })),
+    JsxNamespacedName: node => memoSyntaxPlan(JsxNamespacedName, node, () => withSyntaxPayload(phase.JsxNamespacedName, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        namespace: ports().Identifier(node.namespace).read(),
+        name: ports().Identifier(node.name).read(),
+        tsonic,
+      });
+    })),
+    JsxOpeningElement: node => memoSyntaxPlan(JsxOpeningElement, node, () => withSyntaxPayload(phase.JsxOpeningElement, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().JsxTagNameExpression(node.tagName).read(),
+        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
+        attributes: ports().JsxAttributes(node.attributes).read(),
+        tsonic,
+      });
+    })),
+    JsxSelfClosingElement: node => memoSyntaxPlan(JsxSelfClosingElement, node, () => withSyntaxPayload(phase.JsxSelfClosingElement, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().JsxTagNameExpression(node.tagName).read(),
+        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
+        attributes: ports().JsxAttributes(node.attributes).read(),
+        tsonic,
+      });
+    })),
+    JsxFragment: node => memoSyntaxPlan(JsxFragment, node, () => withSyntaxPayload(phase.JsxFragment, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        openingFragment: ports().JsxOpeningFragment(node.openingFragment).read(),
+        children: copyNodeList(node.children, item => ports().JsxChild(item).read()),
+        closingFragment: ports().JsxClosingFragment(node.closingFragment).read(),
+        tsonic,
+      });
+    })),
+    JsxOpeningFragment: node => memoSyntaxPlan(JsxOpeningFragment, node, () => withSyntaxPayload(phase.JsxOpeningFragment, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tsonic,
+      });
+    })),
+    JsxClosingFragment: node => memoSyntaxPlan(JsxClosingFragment, node, () => withSyntaxPayload(phase.JsxClosingFragment, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tsonic,
+      });
+    })),
+    JsxAttribute: node => memoSyntaxPlan(JsxAttribute, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        name: ports().JsxAttributeName(node.name).read(),
+        initializer: node.initializer === null ? null : ports().JsxAttributeValue(node.initializer).read(),
+        tsonic,
+      });
+    })),
+    JsxSpreadAttribute: node => memoSyntaxPlan(JsxSpreadAttribute, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        expression: ports().Expression(node.expression).read(),
+        tsonic,
+      });
+    })),
+    JsxClosingElement: node => memoSyntaxPlan(JsxClosingElement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().JsxTagNameExpression(node.tagName).read(),
+        tsonic,
+      });
+    })),
+    JsxExpression: node => memoSyntaxPlan(JsxExpression, node, () => withSyntaxPayload(phase.JsxExpression, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, dotDotDotToken } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        dotDotDotToken,
+        expression: node.expression === null ? null : ports().Expression(node.expression).read(),
+        tsonic,
+      });
+    })),
+    JsxText: node => memoSyntaxPlan(JsxText, node, () => withSyntaxPayload(phase.JsxText, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, text, tokenFlags, containsOnlyTriviaWhiteSpaces } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        text,
+        tokenFlags,
+        containsOnlyTriviaWhiteSpaces,
+        tsonic,
+      });
+    })),
+    SyntaxList: node => memoSyntaxPlan(SyntaxList, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        children: node.children.map(item => ports().SyntaxNode(item).read()),
+        tsonic,
+      });
+    })),
+    JSDoc: node => memoSyntaxPlan(JSDoc, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        comment: copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        tags: node.tags === null ? null : copyNodeList(node.tags, item => ports().JSDocTag(item).read()),
+        tsonic,
+      });
+    })),
+    JSDocTypeExpression: node => memoSyntaxPlan(JSDocTypeExpression, node, () => withSyntaxPayload(phase.JSDocTypeExpression, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        type: ports().TypeNode(node.type).read(),
+        tsonic,
+      });
+    })),
+    JSDocNonNullableType: node => memoSyntaxPlan(JSDocNonNullableType, node, () => withSyntaxPayload(phase.JSDocNonNullableType, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        type: ports().TypeNode(node.type).read(),
+        tsonic,
+      });
+    })),
+    JSDocNullableType: node => memoSyntaxPlan(JSDocNullableType, node, () => withSyntaxPayload(phase.JSDocNullableType, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        type: ports().TypeNode(node.type).read(),
+        tsonic,
+      });
+    })),
+    JSDocAllType: node => memoSyntaxPlan(JSDocAllType, node, () => withSyntaxPayload(phase.JSDocAllType, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tsonic,
+      });
+    })),
+    JSDocVariadicType: node => memoSyntaxPlan(JSDocVariadicType, node, () => withSyntaxPayload(phase.JSDocVariadicType, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        type: ports().TypeNode(node.type).read(),
+        tsonic,
+      });
+    })),
+    JSDocOptionalType: node => memoSyntaxPlan(JSDocOptionalType, node, () => withSyntaxPayload(phase.JSDocOptionalType, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        type: ports().TypeNode(node.type).read(),
+        tsonic,
+      });
+    })),
+    JSDocTypeTag: node => memoSyntaxPlan(JSDocTypeTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        typeExpression: ports().SyntaxNode(node.typeExpression).read(),
+        tsonic,
+      });
+    })),
+    JSDocUnknownTag: node => memoSyntaxPlan(JSDocUnknownTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        tsonic,
+      });
+    })),
+    JSDocTemplateTag: node => memoSyntaxPlan(JSDocTemplateTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        constraint: ports().SyntaxNode(node.constraint).read(),
+        typeParameters: copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
+        tsonic,
+      });
+    })),
+    JSDocReturnTag: node => memoSyntaxPlan(JSDocReturnTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression).read(),
+        tsonic,
+      });
+    })),
+    JSDocPublicTag: node => memoSyntaxPlan(JSDocPublicTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        tsonic,
+      });
+    })),
+    JSDocPrivateTag: node => memoSyntaxPlan(JSDocPrivateTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        tsonic,
+      });
+    })),
+    JSDocProtectedTag: node => memoSyntaxPlan(JSDocProtectedTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        tsonic,
+      });
+    })),
+    JSDocReadonlyTag: node => memoSyntaxPlan(JSDocReadonlyTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        tsonic,
+      });
+    })),
+    JSDocOverrideTag: node => memoSyntaxPlan(JSDocOverrideTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        tsonic,
+      });
+    })),
+    JSDocDeprecatedTag: node => memoSyntaxPlan(JSDocDeprecatedTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        tsonic,
+      });
+    })),
+    JSDocSeeTag: node => memoSyntaxPlan(JSDocSeeTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        nameExpression: ports().TypeNode(node.nameExpression).read(),
+        tsonic,
+      });
+    })),
+    JSDocImplementsTag: node => memoSyntaxPlan(JSDocImplementsTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        className: ports().ExpressionWithTypeArguments(node.className).read(),
+        tsonic,
+      });
+    })),
+    JSDocAugmentsTag: node => memoSyntaxPlan(JSDocAugmentsTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        className: ports().ExpressionWithTypeArguments(node.className).read(),
+        tsonic,
+      });
+    })),
+    JSDocSatisfiesTag: node => memoSyntaxPlan(JSDocSatisfiesTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        typeExpression: ports().TypeNode(node.typeExpression).read(),
+        tsonic,
+      });
+    })),
+    JSDocThrowsTag: node => memoSyntaxPlan(JSDocThrowsTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression).read(),
+        tsonic,
+      });
+    })),
+    JSDocThisTag: node => memoSyntaxPlan(JSDocThisTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        typeExpression: ports().TypeNode(node.typeExpression).read(),
+        tsonic,
+      });
+    })),
+    JSDocImportTag: node => memoSyntaxPlan(JSDocImportTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        importClause: node.importClause === null ? null : ports().ImportClause(node.importClause).read(),
+        moduleSpecifier: ports().Expression(node.moduleSpecifier).read(),
+        attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
+        tsonic,
+      });
+    })),
+    JSDocCallbackTag: node => memoSyntaxPlan(JSDocCallbackTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        typeExpression: ports().TypeNode(node.typeExpression).read(),
+        name: node.name === null ? null : ports().JSDocFullName(node.name).read(),
+        tsonic,
+      });
+    })),
+    JSDocOverloadTag: node => memoSyntaxPlan(JSDocOverloadTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        typeExpression: ports().TypeNode(node.typeExpression).read(),
+        tsonic,
+      });
+    })),
+    JSDocTypedefTag: node => memoSyntaxPlan(JSDocTypedefTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        typeExpression: node.typeExpression === null ? null : ports().SyntaxNode(node.typeExpression).read(),
+        name: node.name === null ? null : ports().JSDocFullName(node.name).read(),
+        tsonic,
+      });
+    })),
+    JSDocSignature: node => memoSyntaxPlan(JSDocSignature, node, () => withSyntaxPayload(phase.JSDocSignature, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
+        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
+        type: node.type === null ? null : ports().TypeNode(node.type).read(),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        tsonic,
+      });
+    })),
+    JSDocNameReference: node => memoSyntaxPlan(JSDocNameReference, node, () => withSyntaxPayload(phase.JSDocNameReference, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        name: ports().EntityName(node.name).read(),
+        tsonic,
+      });
+    })),
+    SourceFile: node => memoSyntaxPlan(SourceFile, node, () => withSyntaxPayload(phase.SourceFile, node.tsonic, () => tsonic =>
       copySourceFileHeader<P, NodeList<Statement<P>>>(node,
         () => copyNodeList(node.statements, item => ports().Statement(item).read()), tsonic))),
-    ModuleDeclaration: node => memoSyntaxPlan(ModuleDeclaration, node, () => withSyntaxPayload(phase.ModuleDeclaration, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-      asteriskToken: node.asteriskToken,
-      body: node.body === null ? null : ports().NodeBody(node.body).read(),
-      keyword: node.keyword,
-      name: ports().ModuleName(node.name).read(),
-      tsonic,
-    }))),
-    ImportEqualsDeclaration: node => memoSyntaxPlan(ImportEqualsDeclaration, node, () => withSyntaxPayload(phase.ImportEqualsDeclaration, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-      isTypeOnly: node.isTypeOnly,
-      name: ports().Identifier(node.name).read(),
-      moduleReference: ports().ModuleReference(node.moduleReference).read(),
-      tsonic,
-    }))),
-    ExportDeclaration: node => memoSyntaxPlan(ExportDeclaration, node, () => withSyntaxPayload(phase.ExportDeclaration, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-      isTypeOnly: node.isTypeOnly,
-      exportClause: node.exportClause === null ? null : ports().NamedExportBindings(node.exportClause).read(),
-      moduleSpecifier: node.moduleSpecifier === null ? null : ports().Expression(node.moduleSpecifier).read(),
-      attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
-      tsonic,
-    }))),
-    ImportTypeNode: node => memoSyntaxPlan(ImportTypeNode, node, () => withSyntaxPayload(phase.ImportTypeNode, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
-      isTypeOf: node.isTypeOf,
-      argument: ports().TypeNode(node.argument).read(),
-      attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
-      qualifier: node.qualifier === null ? null : ports().EntityName(node.qualifier).read(),
-      tsonic,
-    }))),
-    ImportClause: node => memoSyntaxPlan(ImportClause, node, () => withSyntaxPayload(phase.ImportClause, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      phaseModifier: node.phaseModifier,
-      name: node.name === null ? null : ports().Identifier(node.name).read(),
-      namedBindings: node.namedBindings === null ? null : ports().NamedImportBindings(node.namedBindings).read(),
-      tsonic,
-    }))),
-    ImportSpecifier: node => memoSyntaxPlan(ImportSpecifier, node, () => withSyntaxPayload(phase.ImportSpecifier, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      isTypeOnly: node.isTypeOnly,
-      propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName).read(),
-      name: ports().Identifier(node.name).read(),
-      tsonic,
-    }))),
-    JSDocText: node => memoSyntaxPlan(JSDocText, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      text: node.text,
-      tsonic,
-    }))),
-    JSDocLink: node => memoSyntaxPlan(JSDocLink, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      text: node.text,
-      name: node.name === null ? null : ports().EntityName(node.name).read(),
-      tsonic,
-    }))),
-    JSDocLinkPlain: node => memoSyntaxPlan(JSDocLinkPlain, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      text: node.text,
-      name: node.name === null ? null : ports().EntityName(node.name).read(),
-      tsonic,
-    }))),
-    JSDocLinkCode: node => memoSyntaxPlan(JSDocLinkCode, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      text: node.text,
-      name: node.name === null ? null : ports().EntityName(node.name).read(),
-      tsonic,
-    }))),
-    JSDocTypeLiteral: node => memoSyntaxPlan(JSDocTypeLiteral, node, () => withSyntaxPayload(phase.JSDocTypeLiteral, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      jsDocPropertyTags: node.jsDocPropertyTags === null ? null : node.jsDocPropertyTags.map(item => ports().JSDocTag(item).read()),
-      isArrayType: node.isArrayType,
-      tsonic,
-    }))),
-    JSDocParameterOrPropertyTag: node => memoSyntaxPlan(JSDocParameterOrPropertyTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      tagName: ports().Identifier(node.tagName).read(),
-      comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-      name: ports().EntityName(node.name).read(),
-      isBracketed: node.isBracketed,
-      typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression).read(),
-      isNameFirst: node.isNameFirst,
-      tsonic,
-    }))),
+    ModuleDeclaration: node => memoSyntaxPlan(ModuleDeclaration, node, () => withSyntaxPayload(phase.ModuleDeclaration, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, asteriskToken, keyword } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        asteriskToken,
+        body: node.body === null ? null : ports().NodeBody(node.body).read(),
+        keyword,
+        name: ports().ModuleName(node.name).read(),
+        tsonic,
+      });
+    })),
+    ImportEqualsDeclaration: node => memoSyntaxPlan(ImportEqualsDeclaration, node, () => withSyntaxPayload(phase.ImportEqualsDeclaration, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, isTypeOnly } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        isTypeOnly,
+        name: ports().Identifier(node.name).read(),
+        moduleReference: ports().ModuleReference(node.moduleReference).read(),
+        tsonic,
+      });
+    })),
+    ExportDeclaration: node => memoSyntaxPlan(ExportDeclaration, node, () => withSyntaxPayload(phase.ExportDeclaration, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, isTypeOnly } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        isTypeOnly,
+        exportClause: node.exportClause === null ? null : ports().NamedExportBindings(node.exportClause).read(),
+        moduleSpecifier: node.moduleSpecifier === null ? null : ports().Expression(node.moduleSpecifier).read(),
+        attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
+        tsonic,
+      });
+    })),
+    ImportTypeNode: node => memoSyntaxPlan(ImportTypeNode, node, () => withSyntaxPayload(phase.ImportTypeNode, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, isTypeOf } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
+        isTypeOf,
+        argument: ports().TypeNode(node.argument).read(),
+        attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
+        qualifier: node.qualifier === null ? null : ports().EntityName(node.qualifier).read(),
+        tsonic,
+      });
+    })),
+    ImportClause: node => memoSyntaxPlan(ImportClause, node, () => withSyntaxPayload(phase.ImportClause, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, phaseModifier } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        phaseModifier,
+        name: node.name === null ? null : ports().Identifier(node.name).read(),
+        namedBindings: node.namedBindings === null ? null : ports().NamedImportBindings(node.namedBindings).read(),
+        tsonic,
+      });
+    })),
+    ImportSpecifier: node => memoSyntaxPlan(ImportSpecifier, node, () => withSyntaxPayload(phase.ImportSpecifier, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, isTypeOnly } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        isTypeOnly,
+        propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName).read(),
+        name: ports().Identifier(node.name).read(),
+        tsonic,
+      });
+    })),
+    JSDocText: node => memoSyntaxPlan(JSDocText, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, text } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        text,
+        tsonic,
+      });
+    })),
+    JSDocLink: node => memoSyntaxPlan(JSDocLink, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, text } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        text,
+        name: node.name === null ? null : ports().EntityName(node.name).read(),
+        tsonic,
+      });
+    })),
+    JSDocLinkPlain: node => memoSyntaxPlan(JSDocLinkPlain, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, text } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        text,
+        name: node.name === null ? null : ports().EntityName(node.name).read(),
+        tsonic,
+      });
+    })),
+    JSDocLinkCode: node => memoSyntaxPlan(JSDocLinkCode, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, text } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        text,
+        name: node.name === null ? null : ports().EntityName(node.name).read(),
+        tsonic,
+      });
+    })),
+    JSDocTypeLiteral: node => memoSyntaxPlan(JSDocTypeLiteral, node, () => withSyntaxPayload(phase.JSDocTypeLiteral, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, isArrayType } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        jsDocPropertyTags: node.jsDocPropertyTags === null ? null : node.jsDocPropertyTags.map(item => ports().JSDocTag(item).read()),
+        isArrayType,
+        tsonic,
+      });
+    })),
+    JSDocParameterOrPropertyTag: node => memoSyntaxPlan(JSDocParameterOrPropertyTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, isBracketed, isNameFirst } = node;
+      return tsonic => ({
+        ...header,
+        kind,
+        tagName: ports().Identifier(node.tagName).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        name: ports().EntityName(node.name).read(),
+        isBracketed,
+        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression).read(),
+        isNameFirst,
+        tsonic,
+      });
+    })),
   };
 }

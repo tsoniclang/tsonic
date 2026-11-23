@@ -3831,6 +3831,14 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
     const earlier = original[0].typeParameter;
     const later = original[1];
     const authored = earlier.tsonic;
+    const name = earlier.name;
+    const text = name.text;
+    const scalar = { sealed: false, reads: 0 };
+    Object.defineProperty(name, "text", { get() {
+      assert.equal(scalar.sealed, false, "typed identifier text must be earned before materialization");
+      scalar.reads += 1;
+      return text;
+    } });
     const reads = [];
     if (instrument) for (const [node, label] of [[earlier, "first payload"], [later, "next sibling"]]) {
       const payload = node.tsonic;
@@ -3840,10 +3848,11 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
       } });
     }
     const result = inventoryBodySyntax(scan, { root, params: [] }, typedSyntaxPhaseCopy(scan, "Instantiation.root", null));
-    return { meter, scan, result, root, earlier, later, reads, authored };
+    return { meter, scan, result, root, earlier, later, reads, authored, scalar, text };
   }
   const full = prepare(beforeBounds, true);
   assert.equal(full.result.kind, "complete");
+  assert.equal(full.scalar.reads, 1);
   const work = beforeBounds.maximumWork - remainingWork(full.meter.account);
   const created = full.meter.created;
   const copyPlan = 1;
@@ -3881,6 +3890,7 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
   const ids = new Map(requested.map((type, index) => [type, solved.value[index]]));
   assert.notEqual(ids.get(full.authored.parameter.constraint), full.authored.parameter.constraint);
   const rejectChecked = () => assert.fail("The authored Typed-only specimen has no Checked slot");
+  full.scalar.sealed = true;
   const copiedSyntax = full.result.value.materialize({ type: value => ids.get(value), signature: identity },
     { moduleOf: rejectChecked, declarationOf: rejectChecked, expressionOf: rejectChecked });
   assert.equal(copiedSyntax.kind, "copied");
@@ -3890,6 +3900,8 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
   const actual = newRoot.statements.nodes[0].node.expression.type.types.nodes[0].typeParameter;
   assert.equal(Object.is(actual, full.earlier), false);
   assert.equal(actual.id, full.earlier.id);
+  assert.equal(actual.name.text, full.text);
+  assert.equal(full.scalar.reads, 1);
   assert.equal(actual.tsonic.parameter.constraint, ids.get(full.authored.parameter.constraint));
   assert.equal(actual.tsonic.parameter.default, ids.get(full.authored.parameter.default));
   assert.deepEqual(full.reads.map(([label]) => label), ["first payload", "next sibling"]);
