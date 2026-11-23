@@ -104,3 +104,15 @@ export type LayoutOf = (deps: LayoutDeps, declaration: LayoutDeclaration) => Lay
 export type ResumeLayout = (deps: LayoutDeps, paused: LayoutPause, answers: readonly LayoutAnswer[]) => LayoutStep;
 export type MaterializeMetadata = (deps: LayoutDeps, layout: ReadyLayout) =>
   { readonly kind: "complete"; readonly value: MetadataRecord } | LayoutRefusal;
+
+export type LayoutObservation = { readonly kind: "size" | "alignment" | "stride" }
+  | { readonly kind: "field-offset"; readonly field: MetadataKey };
+
+export interface ObservedLayout {
+  readonly layout: ReadyMemoryLayout;
+  readonly field: ReadyLayoutField | null;
+  readonly value: bigint;
+}
+
+export type ObserveLayout = (deps: LayoutDeps, layout: ReadyLayout, request: LayoutObservation, origin: Origin) =>
+  { readonly kind: "complete"; readonly value: ObservedLayout } | LayoutRefusal;

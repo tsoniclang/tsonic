@@ -4,7 +4,7 @@ import { createAccount, accountFailure, chargeResultEntries, chargeWork, remaini
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId } from "../../packages/host/dist/ids/index.js";
 import { artifactBindingsKey } from "../../packages/host/dist/ir-types/index.js";
-import { layoutOf, materializeMetadata, resumeLayout } from "../../packages/host/dist/metadata/index.js";
+import { layoutOf, materializeMetadata, observeLayout, resumeLayout } from "../../packages/host/dist/metadata/index.js";
 
 const module = encodeModuleId({ package: encodePackageId({ kind: "project", realRoot: "/layout" }), path: "main.ts" });
 const key = name => ({ definition: encodeDefId({ module, segments: [{ name, ordinal: 0 }] }), bindings: { kind: "parametric" } });
@@ -100,6 +100,56 @@ test("the Layout producer correlates constant and descriptor answers and emits a
   const incompatible = finish(deps, array, [abi, 8n, 4n, 8n, 1n, element]);
   assert.equal(incompatible.value.kind, "refused");
   assert.match(incompatible.value.diagnostics[0].message, /actual element layout/u);
+});
+
+test("a field observation borrows the exact field from its actual containing layout under the original account", () => {
+  const { deps } = fixture();
+  const child = finish(deps, scalar, [abi, 4n, 4n, 4n]).value.value;
+  const field = (name, node, property, offset) => {
+    const declaration = site(name, node);
+    const primary = key(property).definition;
+    return finish(deps, { ...declaration, kind: "field", owner: 0, value: 0, selector: declaration.occurrence,
+      selection: { kind: "item", value: { ...declaration.occurrence.value, node: node + 10 } }, child: child.key,
+      member: { key: { kind: "text", value: property }, origins: [{ kind: "declaration", declaration: primary }],
+        selectedDeclarations: [primary], primary, bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
+      byteOffset: constant("offset"), byteAlignment: constant("field-alignment") }, [child, offset, 4n]).value.value;
+  };
+  const first = field("first", 4, "tag", 0n);
+  const selected = field("selected", 5, "payload", 4n);
+  const other = field("other", 6, "payload", 12n);
+  const parent = (name, layout) => finish(deps, { ...scalar, ...site(name, layout.occurrence.value.node + 20),
+    fields: [first.key, layout.key] }, [abi, 16n, 4n, 16n, first, layout]).value.value;
+  const left = parent("left record", selected);
+  const right = parent("right record", other);
+  assert.equal(left.kind, "value");
+  assert.equal(right.kind, "value");
+  for (const [layout, field, wanted] of [[left, selected, 4n], [right, other, 12n]]) {
+    const observed = observeLayout(fixture().deps, layout, { kind: "field-offset", field: field.key }, scalar.origin);
+    assert.equal(observed.kind, "complete");
+    assert.equal(observed.value.layout === layout && observed.value.field === field, true);
+    assert.equal(observed.value.value, wanted);
+    const record = materializeMetadata(fixture().deps, field);
+    assert.equal(record.value.kind, "memory-field");
+    assert.equal(record.value.fields[record.value.root].occurrence === field.occurrence, true);
+  }
+  assert.equal(observeLayout(fixture().deps, right, { kind: "field-offset", field: selected.key }, scalar.origin).kind, "refused");
+  const request = { kind: "field-offset", field: selected.key };
+  const firstRow = 1 + 1 + 1 + selected.key.definition.length + first.key.definition.length;
+  const complete = firstRow + 1 + 1 + 2 * selected.key.definition.length + 1;
+  for (const [maximum, entries, expected] of [[0, 1, []], [1, 1, []], [firstRow, 1, ["0"]],
+    [complete - 1, 1, ["0", "1"]], [complete, 0, ["0", "1"]]]) {
+    const limit = fixture(maximum, entries);
+    const reads = [];
+    const fields = new Proxy(left.fields, { get(rows, name) {
+      if (name === "0" || name === "1") reads.push(name);
+      return Reflect.get(rows, name);
+    } });
+    assert.equal(observeLayout(limit.deps, { ...left, fields }, request, scalar.origin) === limit.stopped(), true);
+    assert.deepEqual(reads, expected);
+  }
+  const at = fixture(complete, 1);
+  assert.equal(observeLayout(at.deps, left, request, scalar.origin).value.field === selected, true);
+  assert.equal(remainingWork(at.account), 0);
 });
 
 test("Layout stops before the next original operand and retains an actual grounded dependency", () => {

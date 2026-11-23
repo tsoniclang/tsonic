@@ -280,7 +280,7 @@ export function produceStaticValues(inputs: HostAnalysisInputs, typed: TypedSour
         if (first === undefined) return fail("A refused observation retains its originating diagnostic.");
         return { kind: "refused", diagnostics: [first, ...rest] };
       }
-      const { capture, layout, value } = ready.value;
+      const { capture, layout, field, value } = ready.value;
       const abi = project(layout.abi);
       if (abi.kind === "refused") return abi;
       const record = project(layout);
@@ -292,10 +292,23 @@ export function produceStaticValues(inputs: HostAnalysisInputs, typed: TypedSour
         return fail("An observation retains the actual binding scope, memory layout and checked scalar result.");
       const paid = admit(1, 2);
       if (paid !== null) return paid;
+      let fieldRecord: ObservationFact["field"] = null;
+      let fieldEvidence: ObservationSourceEvidence["field"] = null;
+      if (field !== null) {
+        const retained = admit(1, 2);
+        if (retained !== null) return retained;
+        const scoped = source.descriptions.get(field.key.definition)?.generics;
+        const projected = project(field);
+        if (projected.kind === "refused") return projected;
+        if (scoped === undefined || projected.value.kind !== "memory-field")
+          return fail("A field observation retains its actual checked scope and field record.");
+        fieldRecord = { metadata: projected.value.key, field: projected.value.root };
+        fieldEvidence = { occurrence: field.occurrence, bindings: rigidBindings(scoped) };
+      }
       const bindings = rigidBindings(scope);
-      const evidence = { bindings, layout: { occurrence: layout.occurrence, bindings: rigidBindings(layoutScope) }, field: null };
+      const evidence = { bindings, layout: { occurrence: layout.occurrence, bindings: rigidBindings(layoutScope) }, field: fieldEvidence };
       rows.push({ instance: demand.instance, observation: { node: demand.at.node, operation: capture.operation, operand: capture.operand,
-        result: capture.result.value, value, layout: { metadata: record.value.key, layout: record.value.root }, field: null,
+        result: capture.result.value, value, layout: { metadata: record.value.key, layout: record.value.root }, field: fieldRecord,
         bindings }, evidence });
     }
     for (const key of layouts.reached()) {
@@ -304,11 +317,16 @@ export function produceStaticValues(inputs: HostAnalysisInputs, typed: TypedSour
       const settled = database.readCompleted(layouts.observation, key);
       if (settled?.kind !== "completed" || "kind" in settled.value)
         return fail("A demanded layout observation needs its actual completed owner evidence.");
-      if (materialized.has(settled.value.layout)) continue;
-      const abi = project(settled.value.layout.abi);
-      if (abi.kind === "refused") return abi;
-      const layout = project(settled.value.layout);
-      if (layout.kind === "refused") return layout;
+      if (!materialized.has(settled.value.layout)) {
+        const abi = project(settled.value.layout.abi);
+        if (abi.kind === "refused") return abi;
+        const layout = project(settled.value.layout);
+        if (layout.kind === "refused") return layout;
+      }
+      if (settled.value.field !== null && !materialized.has(settled.value.field)) {
+        const field = project(settled.value.field);
+        if (field.kind === "refused") return field;
+      }
     }
   }
   for (const row of reachedGeometry()) {

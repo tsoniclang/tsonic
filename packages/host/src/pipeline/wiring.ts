@@ -16,8 +16,8 @@ import type { LowerToMir } from "../lower-mir/contract.js";
 import { lowerToMir } from "../lower-mir/index.js";
 import type { Evaluate, ResumeEvaluate } from "../evaluate/contract.js";
 import { evaluate, resumeEvaluate } from "../evaluate/index.js";
-import type { LayoutOf, MaterializeMetadata, ResumeLayout } from "../metadata/contract.js";
-import { layoutOf, materializeMetadata, resumeLayout } from "../metadata/index.js";
+import type { LayoutOf, MaterializeMetadata, ObserveLayout, ResumeLayout } from "../metadata/contract.js";
+import { layoutOf, materializeMetadata, observeLayout, resumeLayout } from "../metadata/index.js";
 import type { AnalyzeStorageUse } from "../analyses/liveness/contract.js";
 import { analyzeStorageUse } from "../analyses/liveness/index.js";
 import type { AnalyzeBodyRound, ProveInitialization } from "../analyses/body/contract.js";
@@ -46,7 +46,8 @@ export interface PipelineWiring {
     readonly elaborateSelectedCall: ElaborateSelectedCall };
   readonly lowerMir: { readonly lowerToMir: LowerToMir };
   readonly evaluate: { readonly evaluate: Evaluate; readonly resumeEvaluate: ResumeEvaluate };
-  readonly metadata: { readonly layoutOf: LayoutOf; readonly resumeLayout: ResumeLayout; readonly materializeMetadata: MaterializeMetadata };
+  readonly metadata: { readonly layoutOf: LayoutOf; readonly resumeLayout: ResumeLayout; readonly materializeMetadata: MaterializeMetadata;
+    readonly observeLayout: ObserveLayout };
   readonly liveness: { readonly analyzeStorageUse: AnalyzeStorageUse };
   readonly bodyAnalysis: { readonly analyzeBodyRound: AnalyzeBodyRound; readonly proveInitialization: ProveInitialization };
   readonly summaries: { readonly bindDeclaredSummary: BindDeclaredSummary; readonly componentsOf: ComponentsOf;
@@ -91,7 +92,7 @@ export const pipelineWiring: PipelineWiring = {
   elaborate: { attachFormalDefault, elaborate, elaborateSelectedCall },
   lowerMir: { lowerToMir },
   evaluate: { evaluate, resumeEvaluate },
-  metadata: { layoutOf, resumeLayout, materializeMetadata },
+  metadata: { layoutOf, resumeLayout, materializeMetadata, observeLayout },
   liveness: { analyzeStorageUse },
   bodyAnalysis: { analyzeBodyRound, proveInitialization },
   summaries: { bindDeclaredSummary, componentsOf, dependenciesOf, convergeComponent },

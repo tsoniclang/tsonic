@@ -10,7 +10,7 @@ import type { MetadataKey } from "../ir-facts/contract.js";
 import { admitArtifactIdentity } from "../ir-facts/index.js";
 import type { BodyInstance, ConstantReference, TypeTable } from "../ir-types/contract.js";
 import { artifactBindingsKey, instanceKey } from "../ir-types/index.js";
-import type { LayoutAnswer, LayoutDeclaration, LayoutDeps, LayoutPause, LayoutRequest, ReadyLayout, ReadyMemoryLayout } from "../metadata/contract.js";
+import type { LayoutAnswer, LayoutDeclaration, LayoutDeps, LayoutObservation, LayoutPause, LayoutRequest, ObservedLayout, ReadyLayout } from "../metadata/contract.js";
 import type { Query } from "../query/contract.js";
 import type { DeclaredSignatureErrorData } from "../decls/contract.js";
 import type { HostAnalysisInputs } from "./contract.js";
@@ -30,15 +30,14 @@ export interface ObservationDemand {
   readonly at: NodeRef;
 }
 
-export interface PreparedObservation {
+export interface PreparedObservation extends ObservedLayout {
   readonly demand: ObservationDemand;
   readonly capture: HirObservationCapture;
-  readonly layout: ReadyMemoryLayout;
-  readonly value: bigint;
 }
 
 type PreparedObservationKey = ObservationDemand & { readonly identity: string };
-type ObservationPause = { readonly demand: ObservationDemand; readonly capture: HirObservationCapture; readonly origin: Origin };
+type ObservationPause = { readonly demand: ObservationDemand; readonly capture: HirObservationCapture;
+  readonly operation: LayoutObservation; readonly origin: Origin };
 type ObservationAnswer = { readonly kind: "ready"; readonly layout: ReadyLayout }
   | { readonly kind: "error"; readonly unit: UnitRef };
 
@@ -222,22 +221,29 @@ export function createLayoutQueries(inputs: HostAnalysisInputs, typed: TypedSour
         const capture = captured.value;
         const selected = resolve({ kind: "body", value: capture.operand }, node.origin);
         if (selected.kind === "refused") return { kind: "done", value: selected };
-        return { kind: "paused", requests: [selected.value], paused: { demand, capture, origin: node.origin }, earned: [] };
+        let operation: LayoutObservation;
+        if (capture.operation === "field-offset") {
+          const read = admit(1, 0);
+          if (read !== null) return { kind: "done", value: read };
+          if (capture.selector === null || capture.field.kind !== "available" || capture.field.value === null)
+            return { kind: "done", value: refused(node.origin, "A field offset requires its exact checked field selection.") };
+          const field = resolve(capture.field.value, node.origin);
+          if (field.kind === "refused") return { kind: "done", value: field };
+          if (field.value.source.capture.kind !== "field")
+            return { kind: "done", value: refused(node.origin, "A field offset needs its actual field descriptor.") };
+          operation = { kind: "field-offset", field: field.value.key };
+        } else operation = { kind: capture.operation };
+        return { kind: "paused", requests: [selected.value], paused: { demand, capture, operation, origin: node.origin }, earned: [] };
       },
-      resume: ({ demand, capture, origin }, answers) => {
+      resume: ({ demand, capture, operation, origin }, answers) => {
         const stopped = admit(1, 1);
         if (stopped !== null) return { kind: "done", value: stopped };
         const answer = answers[0];
         if (answers.length !== 1 || answer === undefined) return fail("An observation needs its one exact prepared layout answer.");
         if (answer.kind === "error")
           return { kind: "done", value: ready({ kind: "error", causes: [{ kind: "unit", unit: answer.unit }] }) };
-        const layout = answer.layout;
-        if (layout.kind !== "array" && layout.kind !== "value")
-          return { kind: "done", value: refused(origin, "An observation needs its actual value or array layout.") };
-        if (capture.operation === "field-offset")
-          return { kind: "done", value: refused(origin, "A field offset requires its exact checked field selection.") };
-        const value = capture.operation === "size" ? layout.byteSize : capture.operation === "alignment" ? layout.byteAlignment : layout.stride;
-        return { kind: "done", value: ready({ demand, capture, layout, value }) };
+        const observed = pipelineWiring.metadata.observeLayout(deps, answer.layout, operation, origin);
+        return { kind: "done", value: observed.kind === "refused" ? observed : ready({ demand, capture, ...observed.value }) };
       },
     },
     route: row => factRoute(layout, row, answer => answer.kind === "error"

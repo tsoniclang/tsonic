@@ -3,7 +3,7 @@ import { hostDiagnosticCode, throwInvariant } from "../diag/index.js";
 import type { DefId, Origin } from "../ids/contract.js";
 import type { ConstValue } from "../ir-types/contract.js";
 import { floatingBitsFit, floatingFormatWidth, isNativeBinaryFloatPrimitive } from "../ir-types/index.js";
-import type { LayoutAnswer, LayoutDeps, LayoutOf, LayoutRequest, LayoutStep, MaterializeMetadata, ReadyLayout, ReadyLayoutField, ResumeLayout } from "./contract.js";
+import type { LayoutAnswer, LayoutDeps, LayoutOf, LayoutRequest, LayoutStep, MaterializeMetadata, ObserveLayout, ReadyLayout, ReadyLayoutField, ResumeLayout } from "./contract.js";
 import { materializeMetadata as materialize } from "./materialize.js";
 
 export const materializeMetadata: MaterializeMetadata = materialize;
@@ -20,10 +20,39 @@ function refused(value: Refusal): LayoutStep {
 }
 
 function invalid(origin: Origin, message: string): LayoutStep {
-  const name = hostDiagnosticCode("TSONIC_CONSTANT_EVALUATION_FAILED");
-  return refused({ kind: "refused", diagnostics: [{ code: { kind: "host", name, rendered: name }, severity: "error",
-    site: { kind: "source", origin }, source: "metadata", evidence: [], message, arguments: [], related: [], fix: null }] });
+  return refused(invalidRefusal(origin, message));
 }
+
+function invalidRefusal(origin: Origin, message: string): Refusal {
+  const name = hostDiagnosticCode("TSONIC_CONSTANT_EVALUATION_FAILED");
+  return { kind: "refused", diagnostics: [{ code: { kind: "host", name, rendered: name }, severity: "error",
+    site: { kind: "source", origin }, source: "metadata", evidence: [], message, arguments: [], related: [], fix: null }] };
+}
+
+export const observeLayout: ObserveLayout = (deps, layout, request, origin) => {
+  const initial = deps.admit(1, 0);
+  if (initial !== null) return initial;
+  if (layout.kind !== "array" && layout.kind !== "value")
+    return invalidRefusal(origin, "An observation needs its actual value or array layout.");
+  if (request.kind === "field-offset") {
+    if (layout.kind === "value") for (let position = 0; position < layout.fields.length; position += 1) {
+      const read = deps.admit(1, 0);
+      if (read !== null) return read;
+      const field = layout.fields[position];
+      if (field === undefined) return invariant("A completed value layout must retain its dense field inventory.");
+      const matches = deps.matchesKey(request.field, field.key);
+      if (matches.kind === "refused") return matches;
+      if (!matches.matches) continue;
+      const publish = deps.admit(1, 1);
+      return publish ?? { kind: "complete", value: { layout, field, value: field.byteOffset } };
+    }
+    return invalidRefusal(origin, "The selected field does not belong to its actual containing value layout.");
+  }
+  const publish = deps.admit(1, 1);
+  if (publish !== null) return publish;
+  const value = request.kind === "size" ? layout.byteSize : request.kind === "alignment" ? layout.byteAlignment : layout.stride;
+  return { kind: "complete", value: { layout, field: null, value } };
+};
 
 function ready(value: ReadyLayout | ErrorValue): LayoutStep {
   return { kind: "done", value: { kind: "ok", value, diagnostics: [],
