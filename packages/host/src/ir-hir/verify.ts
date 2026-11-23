@@ -454,7 +454,8 @@ function candidateViolations(inventory: HirInventory, context: HirVerificationCo
           report("body-owner", site, "initializer body must retain its actual syntax initializer");
       }
     }
-    if (node.kind === "EnumDeclaration" && context.nominalOf(node.tsonic.nominal)?.kind !== "enum")
+    if (node.kind === "EnumDeclaration" && node.tsonic.nominal !== node.tsonic.definition
+      && context.nominalOf(node.tsonic.nominal)?.kind !== "enum")
       report("definition-reference", site, "an enum part retains its actual nominal enum owner");
     if (metadata !== null && "signatures" in metadata) for (const endpoint of metadata.signatures) {
       const signature = validHirIndex(endpoint.signature) ? context.types.signatures[endpoint.signature] : undefined;

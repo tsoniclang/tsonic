@@ -10,7 +10,7 @@ import type {
   CallSignatureDeclaration, ConstructSignatureDeclaration, ConstructorDeclaration, GetAccessorDeclaration, SetAccessorDeclaration,
   IndexSignatureDeclaration, MethodSignatureDeclaration, MethodDeclaration, PropertySignatureDeclaration, PropertyDeclaration,
   SemicolonClassElement, ClassStaticBlockDeclaration,
-  BlockOrExpression, NodeList, Phase, SyntaxInitializerImage, SyntaxPhaseCopy,
+  BlockOrExpression, Expression, NodeList, Phase, SingleExpressionSyntax, SyntaxInitializerImage, SyntaxPhaseCopy,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { copied, holdSyntaxPayload, copyNodeList, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
@@ -91,7 +91,9 @@ export interface StatementsPlans<P extends Phase, Stop, Image> {
 
 export function createStatementsPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   ports: () => SyntaxCopyPorts<P, Stop, Image>, copyInitializer: SyntaxInitializerImage<P, Image>,
-  blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>): StatementsPlans<P, Stop, Image> {
+  blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>, returned: (node: ReturnStatement<P>) => Expression<P> | null,
+  expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>):
+  StatementsPlans<P, Stop, Image> {
   const EmptyStatement = new Map<EmptyStatement<P>, SyntaxPlan<EmptyStatement<P>, Stop, Image>>();
   const IfStatement = new Map<IfStatement<P>, SyntaxPlan<IfStatement<P>, Stop, Image>>();
   const DoStatement = new Map<DoStatement<P>, SyntaxPlan<DoStatement<P>, Stop, Image>>();
@@ -250,12 +252,10 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     ReturnStatement: node => memoSyntaxPlan(ReturnStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: node.expression === null ? null : ports().Expression(node.expression).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const expression = returned(node);
+        return { ...header, kind, expression: expression === null ? null : ports().Expression(expression).read(), tsonic };
+      };
     })),
     WithStatement: node => memoSyntaxPlan(WithStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -317,7 +317,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -370,7 +370,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),

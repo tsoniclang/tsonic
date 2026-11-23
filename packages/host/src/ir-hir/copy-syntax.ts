@@ -1,4 +1,4 @@
-import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, BodyRoot, CopySyntaxForest, ModifierLike, Statement, TypeNode,
+import type { BodyRoot, CopySyntaxForest, ModifierLike, Statement, TypeNode, RetainedSyntaxNode, SingleExpressionSyntax, SyntaxStructureReceipt,
   FinishSyntaxCopy, Phase, PrepareSyntaxCopy, SyntaxCopyResult, SyntaxForest, SyntaxImage,
   SyntaxInitializerImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy } from "./contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
@@ -93,12 +93,24 @@ function rootRole<P extends Phase>(_node: SyntaxNode<P>, kind: SyntaxNode<P>["ki
 
 function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   initializer: SyntaxInitializerImage<P, Image>,
-  blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>,
-  binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>): SyntaxCopyPorts<P, Stop, Image> {
-  const statements = createStatementsPlans(phase, () => ports, initializer, blockOf);
-  const expressions = createExpressionsPlans(phase, () => ports, binaryOf);
+  structure: (node: RetainedSyntaxNode<P>) => SyntaxStructureReceipt<P>): SyntaxCopyPorts<P, Stop, Image> {
+  const expressionOf = (node: SingleExpressionSyntax<P>) => {
+    const receipt = structure(node);
+    return receipt.kind === "single-expression" ? receipt.expression() : throwInvariant(missingPreparation);
+  };
+  const statements = createStatementsPlans(phase, () => ports, initializer, node => {
+    const receipt = structure(node);
+    return receipt.kind === "block" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "return" ? receipt.expression() : throwInvariant(missingPreparation);
+  }, expressionOf);
+  const expressions = createExpressionsPlans(phase, () => ports, node => {
+    const receipt = structure(node);
+    return receipt.kind === "binary" ? receipt : throwInvariant(missingPreparation);
+  }, expressionOf);
   const types = createTypesPlans(phase, () => ports);
-  const auxiliary = createAuxiliaryPlans(phase, () => ports);
+  const auxiliary = createAuxiliaryPlans(phase, () => ports, expressionOf);
   const ports: SyntaxCopyPorts<P, Stop, Image> = {
     ...statements, ...expressions, ...types, ...auxiliary,
     SyntaxNode: node => planSyntaxNode(ports, node, forgetKind),
@@ -515,7 +527,7 @@ export function createSyntaxCopyState<P extends Phase, Stop, Image>(
       return stop;
     }
     if (!Number.isSafeInteger(ordinal) || ordinal < 0 || plans.has(ordinal)) return throwInvariant(missingPreparation);
-    ports ??= createSyntaxPlans(phase, source.copyInitializer, source.blockOf, source.binaryOf);
+    ports ??= createSyntaxPlans(phase, source.copyInitializer, source.structure);
     let kind: SyntaxNode<P>["kind"] | undefined;
     const plan = planSyntaxNode(ports, node, selected => { kind = selected; });
     failure = plan.prepare();
@@ -563,8 +575,7 @@ export const prepareSyntaxCopy: PrepareSyntaxCopy = <P extends Phase, Stop, Imag
   const state = createSyntaxCopyState<P, Stop, Image>(phase, beforeNode, {
     wireOf: node => requirePresent(supplied, missingPreparation).wireOf(node),
     copyInitializer: (node, expression, image) => requirePresent(supplied, missingPreparation).copyInitializer(node, expression, image),
-    blockOf: node => requirePresent(supplied, missingPreparation).blockOf(node),
-    binaryOf: node => requirePresent(supplied, missingPreparation).binaryOf(node),
+    structure: node => requirePresent(supplied, missingPreparation).structure(node),
   });
   const prepare = (node: SyntaxNode<P>, ordinal: number): Stop | null => discovering ? state.prepare(node, ordinal) : throwInvariant(consumedPreparation);
   const discovery = discover(prepare);
@@ -584,7 +595,7 @@ export const prepareSyntaxCopy: PrepareSyntaxCopy = <P extends Phase, Stop, Imag
 
 export function bindSyntaxForest<P extends Phase>(nodes: readonly SyntaxNode<P>[],
   postorder: readonly SyntaxNode<P>[], wireOf: (node: SyntaxNode<P>) => number | undefined,
-  blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>, binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>,
+  structure: (node: RetainedSyntaxNode<P>) => SyntaxStructureReceipt<P>,
   copyInitializer: SyntaxInitializerImage<P, unknown>): SyntaxForest<P>["copy"] {
   let claimed = false;
   return <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
@@ -598,7 +609,7 @@ export function bindSyntaxForest<P extends Phase>(nodes: readonly SyntaxNode<P>[
         const stop = prepare(node, requirePresent(wireOf(node), missingPreparation));
         if (stop !== null) return { kind: "refused", stop };
       }
-      return copied({ postorder, wireOf, blockOf, binaryOf, copyInitializer });
+      return copied({ postorder, wireOf, structure, copyInitializer });
     });
     return prepared.kind === "refused" ? prepared : prepared.value(image);
   };

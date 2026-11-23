@@ -6,7 +6,8 @@ import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSo
   PreparedFunctionHeader, PreparedSourceFileHeader, PrepareFunctionHeader, PrepareSourceFileHeader, SourceFileHeader,
   SyntaxChildSlot, TypeParameterDeclaration } from "./contract.js";
 import type { BinaryExpression, BinaryOperatorToken, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, Expression, ModifierLike, ModifierList,
-  PrepareBinaryStructure, PrepareBlockStructure, Statement, SyntaxCopyResult, TextRange, TypeNode } from "./contract.js";
+  PrepareSyntaxStructure, RetainedSyntaxNode, ReturnStatement, ReturnSyntaxReceipt, SingleExpressionReceipt, SingleExpressionSyntax,
+  Statement, SyntaxCopyResult, TextRange, TypeNode } from "./contract.js";
 import { syntaxHeader } from "./copy-node.js";
 export type { SyntaxChildSlot } from "./contract.js";
 
@@ -120,9 +121,9 @@ function* binaryFields<P extends Phase>(node: BinaryExpression<P>, modifiers: ()
     ["right", "required", () => fields.right(node.right)]);
 }
 
-export const prepareBlockStructure: PrepareBlockStructure = <P extends Phase>(
+function prepareBlockStructure<P extends Phase>(
   node: Block<P>, ordinal: number,
-): BlockSyntaxReceipt<P> => {
+): BlockSyntaxReceipt<P> {
   let list: RetainedSyntaxList<Statement<P>> | undefined;
   let length = 0;
   return { kind: "block", ordinal, header: syntaxHeader(node), multiLine: node.multiLine,
@@ -131,11 +132,11 @@ export const prepareBlockStructure: PrepareBlockStructure = <P extends Phase>(
       length = count;
     })),
     statements: read => materializeList(requirePresent(list, missingStructure), length, read) };
-};
+}
 
-export const prepareBinaryStructure: PrepareBinaryStructure = <P extends Phase, Stop>(
+function prepareBinaryStructure<P extends Phase, Stop>(
   node: BinaryExpression<P>, ordinal: number, admitModifiers: () => Stop | null,
-): SyntaxCopyResult<BinarySyntaxReceipt<P>, Stop> => {
+): SyntaxCopyResult<BinarySyntaxReceipt<P>, Stop> {
   const modifiers = node.modifiers;
   if (modifiers !== null) {
     const stop = admitModifiers();
@@ -162,6 +163,52 @@ export const prepareBinaryStructure: PrepareBinaryStructure = <P extends Phase, 
     operator: () => requirePresent(operator, missingStructure),
     right: () => requirePresent(right, missingStructure),
   } };
+}
+
+function isSingleExpressionSyntax<P extends Phase>(node: SyntaxNode<P>): node is SingleExpressionSyntax<P> {
+  switch (node.kind) {
+    case "AwaitExpression": case "ComputedPropertyName": case "DeleteExpression": case "ExpressionStatement":
+    case "ExternalModuleReference": case "JsxSpreadAttribute": case "NonNullExpression":
+    case "ParenthesizedExpression": case "PartiallyEmittedExpression": case "SpreadAssignment": case "SpreadElement":
+    case "ThrowStatement": case "TypeOfExpression": case "VoidExpression": return true;
+    default: return false;
+  }
+}
+
+function singleExpressionSlots<P extends Phase>(node: SingleExpressionSyntax<P>, retain: (child: Expression<P>) => Expression<P>):
+  Iterable<SyntaxChildSlot<P>> {
+  return children<P, SingleExpressionSyntax<P>>(["expression", "required", () => retain(node.expression)]);
+}
+
+function prepareSingleExpression<P extends Phase>(node: SingleExpressionSyntax<P>, ordinal: number): SingleExpressionReceipt<P> {
+  let expression: Expression<P> | undefined;
+  return { kind: "single-expression", ordinal,
+    slots: singleExpressionSlots<P>(node, child => (expression = child)),
+    expression: () => requirePresent(expression, missingStructure) };
+}
+
+function returnSlots<P extends Phase>(node: ReturnStatement<P>, retain: (child: Expression<P> | null) => Expression<P> | null):
+  Iterable<SyntaxChildSlot<P>> {
+  return children<P, ReturnStatement<P>>(["expression", "nullable", () => retain(node.expression)]);
+}
+
+function prepareReturnStructure<P extends Phase>(node: ReturnStatement<P>, ordinal: number): ReturnSyntaxReceipt<P> {
+  let expression: Expression<P> | null | undefined;
+  return { kind: "return", ordinal, slots: returnSlots<P>(node, child => (expression = child)),
+    expression: () => requirePresent(expression, missingStructure) };
+}
+
+export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, Stop>(
+  node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null, admitModifiers: () => Stop | null,
+) => {
+  if (node.kind !== "Block" && node.kind !== "BinaryExpression" && node.kind !== "ReturnStatement" && !isSingleExpressionSyntax<P>(node))
+    return { kind: "copied", value: null };
+  const stop = reserve(node);
+  if (stop !== null) return { kind: "refused", stop };
+  if (node.kind === "Block") return { kind: "copied", value: prepareBlockStructure<P>(node, ordinal) };
+  if (node.kind === "ReturnStatement") return { kind: "copied", value: prepareReturnStructure<P>(node, ordinal) };
+  if (node.kind === "BinaryExpression") return prepareBinaryStructure<P, Stop>(node, ordinal, admitModifiers);
+  return { kind: "copied", value: prepareSingleExpression<P>(node, ordinal) };
 };
 
 export const iterateSourceFileHeaderSlots: IterateSourceFileHeaderSlots = function* <P extends Phase, Slot>(node: SourceFileHeader<P>,
@@ -319,27 +366,14 @@ export const iterateSyntaxChildSlots: IterateSyntaxChildSlots = function* (node,
 function ordinarySlots<PhaseType extends Phase>(
   node: Exclude<SyntaxNode<PhaseType>, { readonly kind: "Parameter" }>,
 ): Iterable<SyntaxChildSlot<PhaseType>> {
+  if (isSingleExpressionSyntax<PhaseType>(node)) return singleExpressionSlots<PhaseType>(node, child => child);
   switch (node.kind) {
     case "QualifiedName":
       return children<PhaseType, typeof node>(["left", "required", () => node.left], ["right", "required", () => node.right]);
-    case "ComputedPropertyName":
     case "Decorator":
-    case "ThrowStatement":
-    case "ExpressionStatement":
-    case "ExternalModuleReference":
-    case "NonNullExpression":
-    case "SpreadElement":
-    case "ParenthesizedExpression":
-    case "SpreadAssignment":
-    case "DeleteExpression":
-    case "TypeOfExpression":
-    case "VoidExpression":
-    case "AwaitExpression":
-    case "PartiallyEmittedExpression":
-    case "JsxSpreadAttribute":
       return children<PhaseType, typeof node>(["expression", "required", () => node.expression]);
     case "ReturnStatement":
-      return children<PhaseType, typeof node>(["expression", "nullable", () => node.expression]);
+      return returnSlots<PhaseType>(node, child => child);
     case "IfStatement":
       return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["thenStatement", "required", () => node.thenStatement], ["elseStatement", "nullable", () => node.elseStatement]);
     case "DoStatement":

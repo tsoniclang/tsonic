@@ -1,7 +1,6 @@
-import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, SyntaxCopyResult,
-  SyntaxNode, SyntaxPhaseCopy } from "../ir-hir/contract.js";
+import type { SyntaxCopyResult, SyntaxNode, SyntaxPhaseCopy, SyntaxStructureReceipt } from "../ir-hir/contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
-import { prepareBinaryStructure, prepareBlockStructure } from "../ir-hir/index.js";
+import { prepareSyntaxStructure } from "../ir-hir/index.js";
 import type { TirChapterSyntax, TypedPhase } from "../ir-tir/contract.js";
 import type { ProjectionInventory } from "./program-values.js";
 import type { InstantiationStop } from "./work.js";
@@ -597,14 +596,6 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
   }
 }
 
-export function prepareTypedStructure(scan: ProjectionInventory, node: Block<TypedPhase> | BinaryExpression<TypedPhase>,
-  ordinal: number): SyntaxCopyResult<BlockSyntaxReceipt<TypedPhase> | BinarySyntaxReceipt<TypedPhase>, InstantiationStop> {
-  const header = admitSyntaxHeader(scan, node) ?? inventoryRecord(scan, 0);
-  if (header !== null) return { kind: "refused", stop: header };
-  return node.kind === "Block" ? { kind: "copied", value: prepareBlockStructure<TypedPhase>(node, ordinal) }
-    : prepareBinaryStructure<TypedPhase, InstantiationStop>(node, ordinal, () => inventoryRecord(scan, 2));
-}
-
 type NamedSyntax = Extract<TirChapterSyntax, { readonly kind: "module-root" | "ready-callable" | "checked" }>;
 
 interface TypedChapterRoles {
@@ -617,12 +608,12 @@ export function prepareTypedNodeCopy(scan: ProjectionInventory, roots: Iterable<
   const setup = inventoryRecord(scan, 0) ?? inventoryRecord(scan, 0);
   if (setup !== null) return { kind: "refused", stop: setup };
   let position = 0;
-  let shape: BlockSyntaxReceipt<TypedPhase> | BinarySyntaxReceipt<TypedPhase> | null = null;
+  let shape: SyntaxStructureReceipt<TypedPhase> | null = null;
   return prepareChapterNodeCopy<TypeReferenceRewrite, InstantiationStop>(roots, phase, node => {
-    const indexed = inventoryRecord(scan, 0);
+    const indexed = inventoryRecord(scan, 0) ?? admitSyntaxHeader(scan, node);
     if (indexed !== null) return indexed;
-    if (node.kind !== "Block" && node.kind !== "BinaryExpression") return admitSyntaxHeader(scan, node);
-    const result = prepareTypedStructure(scan, node, position);
+    const result = prepareSyntaxStructure<TypedPhase, InstantiationStop>(node, position,
+      () => inventoryRecord(scan, 0), () => inventoryRecord(scan, 2));
     if (result.kind === "refused") return result.stop;
     shape = result.value;
     return null;

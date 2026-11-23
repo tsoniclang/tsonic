@@ -12,7 +12,7 @@ import type {
   JSDocSignature, JSDocNameReference, SourceFile, SourceFileHeader, ModuleDeclaration, ImportEqualsDeclaration,
   ExportDeclaration, ImportTypeNode, ImportClause, ImportSpecifier, JSDocText,
   JSDocLink, JSDocLinkPlain, JSDocLinkCode, JSDocTypeLiteral, JSDocParameterOrPropertyTag,
-  NodeList, Phase, Statement, SyntaxPhaseCopy,
+  Expression, NodeList, Phase, SingleExpressionSyntax, Statement, SyntaxPhaseCopy,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
@@ -102,7 +102,9 @@ export interface AuxiliaryPlans<P extends Phase, Stop, Image> {
   readonly JSDocParameterOrPropertyTag: (node: JSDocParameterOrPropertyTag<P>) => SyntaxPlan<JSDocParameterOrPropertyTag<P>, Stop, Image>;
 }
 
-export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>, ports: () => SyntaxCopyPorts<P, Stop, Image>): AuxiliaryPlans<P, Stop, Image> {
+export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
+  ports: () => SyntaxCopyPorts<P, Stop, Image>, expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>):
+  AuxiliaryPlans<P, Stop, Image> {
   const ImportDeclaration = new Map<ImportDeclaration<P>, SyntaxPlan<ImportDeclaration<P>, Stop, Image>>();
   const ExternalModuleReference = new Map<ExternalModuleReference<P>, SyntaxPlan<ExternalModuleReference<P>, Stop, Image>>();
   const NamespaceImport = new Map<NamespaceImport<P>, SyntaxPlan<NamespaceImport<P>, Stop, Image>>();
@@ -188,7 +190,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -372,7 +374,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),

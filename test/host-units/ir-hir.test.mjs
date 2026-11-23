@@ -473,7 +473,8 @@ function constructorMetadata(node) {
     case "ClassDeclaration": case "InterfaceDeclaration": return checkedClass();
     case "ClassExpression": return { ...expressionMetadata(), ...checkedClass() };
     case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": return { ...declaration(), parameters: [], type: unavailable() };
-    case "EnumDeclaration": case "ModuleDeclaration": return { ...declaration(), members: [] };
+    case "EnumDeclaration": return { ...declaration(), nominal: definitionIdentity, members: [] };
+    case "ModuleDeclaration": return { ...declaration(), members: [] };
     case "ImportDeclaration": case "JSImportDeclaration": case "NamespaceImport": case "ImportEqualsDeclaration": case "ImportClause": case "ImportSpecifier":
       return { core: absentCore(), target: unavailable(), bindings: [] };
     case "ExportAssignment": return declaration();
@@ -1006,7 +1007,7 @@ test("HIR public index has exactly the current complete data and binding operati
   assert.deepStrictEqual(Object.keys(product).sort(), [
     "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceObjectFieldOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
-    "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareBinaryStructure", "prepareBlockStructure", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxCopy", "printCheckedDeclarations", "printHir",
+    "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
     "projectCheckedContent", "readWriteRootStorageOf", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
     "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
   ]);
@@ -4493,7 +4494,7 @@ function declarationModule(kind) {
         tsonic: { ...metadata, parameters: [], type: available(0) } });
       break;
     case "EnumDeclaration":
-      node = syntax(kind, 0, { modifiers: null, name, members: nodeList([]), tsonic: { ...metadata, members: [] } });
+      node = syntax(kind, 0, { modifiers: null, name, members: nodeList([]), tsonic: { ...metadata, nominal: definition, members: [] } });
       break;
     case "ModuleDeclaration":
       node = syntax(kind, 0, { modifiers: null, asteriskToken: null, body: syntax("ModuleBlock", 0, { statements: nodeList([]) }),

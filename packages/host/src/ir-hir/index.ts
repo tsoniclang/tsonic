@@ -1,11 +1,10 @@
 import type { BinaryOperatorOf, CallableEndpointKey, CheckedGroupingFrontierOf, CheckedParameterHeadersOf, ChildrenOfSyntax, CompoundAssignmentOperatorOf, HasOverloadEndpoints, IndexSyntaxTree, IterateChildrenOfSyntax, IterateSyntaxChildEdges, OrderPragmaArguments, ParseHir, PrefixOperatorOf, PrintHir, SelectedEndpointRoleFaults, ShortCircuitOperatorOf, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import { childrenOfSyntax as children, iterateChildrenOfSyntax as iterateChildren, iterateSyntaxChildEdges as iterateEdges } from "./children.js";
 import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSourceFileHeaderSlots, IterateSyntaxChildSlots,
-  PrepareBinaryStructure, PrepareBlockStructure, PrepareFunctionHeader, PrepareSourceFileHeader } from "./contract.js";
+  PrepareFunctionHeader, PrepareSourceFileHeader, PrepareSyntaxStructure } from "./contract.js";
 import { iterateFunctionHeaderSlots as functionSlots, iterateParameterHeaderSlots as parameterSlots,
   iterateSourceFileHeaderSlots as sourceFileSlots, iterateSyntaxChildSlots as childSlots,
-  prepareBinaryStructure as binaryShape, prepareBlockStructure as blockShape, prepareFunctionHeader as functionShape,
-  prepareSourceFileHeader as sourceFileShape } from "./children.js";
+  prepareFunctionHeader as functionShape, prepareSourceFileHeader as sourceFileShape, prepareSyntaxStructure as structure } from "./children.js";
 import { indexSyntaxTree as index, unparenthesizedExpression as unparenthesized, walkSyntaxForest as walkForest, walkSyntaxTree as walk } from "./walk.js";
 import type { UnparenthesizedExpression } from "./contract.js";
 import type { CopyCheckedContent, CopyCheckedModule, CopySyntaxForest, PrepareSyntaxCopy, ProjectCheckedContent } from "./contract.js";
@@ -47,8 +46,7 @@ export const iterateSyntaxChildSlots: IterateSyntaxChildSlots = childSlots;
 export const iterateFunctionHeaderSlots: IterateFunctionHeaderSlots = functionSlots;
 export const iterateParameterHeaderSlots: IterateParameterHeaderSlots = parameterSlots;
 export const iterateSourceFileHeaderSlots: IterateSourceFileHeaderSlots = sourceFileSlots;
-export const prepareBlockStructure: PrepareBlockStructure = blockShape;
-export const prepareBinaryStructure: PrepareBinaryStructure = binaryShape;
+export const prepareSyntaxStructure: PrepareSyntaxStructure = structure;
 export const prepareFunctionHeader: PrepareFunctionHeader = functionShape;
 export const prepareSourceFileHeader: PrepareSourceFileHeader = sourceFileShape;
 export const indexSyntaxTree: IndexSyntaxTree = index;

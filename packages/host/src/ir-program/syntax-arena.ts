@@ -3,8 +3,8 @@ import type { TirBodyRoot, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInit
 import { admitFormalInitializer, chapterStatementSyntax, chapterSyntaxSlots, formalInitializerSyntax } from "../ir-tir/index.js";
 import type { ModuleBodies } from "./contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
-import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, CheckedPhase, CheckedUnopenedDeclaration, Expression, HirNode, SourceFile,
-  SyntaxChildSlot, SyntaxCopyResult, SyntaxImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy } from "../ir-hir/contract.js";
+import type { CheckedPhase, CheckedUnopenedDeclaration, Expression, HirNode, RetainedSyntaxNode, SourceFile,
+  SyntaxChildSlot, SyntaxCopyResult, SyntaxImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy, SyntaxStructureReceipt } from "../ir-hir/contract.js";
 import { prepareSyntaxCopy } from "../ir-hir/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
@@ -27,8 +27,7 @@ interface ChapterSyntaxAdmission<Stop> {
   readonly close: (subject: TirTypedSyntax) => void;
 }
 
-export type ChapterNodeShape = BlockSyntaxReceipt<TypedPhase> | BinarySyntaxReceipt<TypedPhase> |
-  PreparedChapterHeader;
+export type ChapterNodeShape = SyntaxStructureReceipt<TypedPhase> | PreparedChapterHeader;
 
 export interface CheckedChapterImage {
   readonly expressionOf: (source: Expression<CheckedPhase>) => Expression<CheckedPhase>;
@@ -236,8 +235,7 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
       headerWires = wires;
       return {
         postorder, wireOf: value.wireOf,
-        blockOf: node => blockReceipt(wires, node),
-        binaryOf: node => binaryReceipt(wires, node),
+        structure: node => structureReceipt(wires, node),
         copyInitializer: (node, expression) => {
           const entry = wires.get(node);
           if (entry === undefined || typeof entry === "number" || entry.kind !== "formal") return throwInvariant(missingParameter);
@@ -270,14 +268,9 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
   } };
 }
 
-function blockReceipt(wires: ChapterWires, node: Block<TypedPhase>): BlockSyntaxReceipt<TypedPhase> {
+function structureReceipt(wires: ChapterWires, node: RetainedSyntaxNode<TypedPhase>): SyntaxStructureReceipt<TypedPhase> {
   const entry = wires.get(node);
-  if (entry !== undefined && typeof entry !== "number" && entry.kind === "block") return entry;
-  return throwInvariant({ owner: "ir-program", query: null, origin: node.origin, message: "Block needs its actual paid chapter receipt." });
-}
-
-function binaryReceipt(wires: ChapterWires, node: BinaryExpression<TypedPhase>): BinarySyntaxReceipt<TypedPhase> {
-  const entry = wires.get(node);
-  if (entry !== undefined && typeof entry !== "number" && entry.kind === "binary") return entry;
-  return throwInvariant({ owner: "ir-program", query: null, origin: node.origin, message: "Binary needs its actual paid chapter receipt." });
+  if (entry !== undefined && typeof entry !== "number" && entry.kind !== "formal" && entry.kind !== "module" && entry.kind !== "callable")
+    return entry;
+  return throwInvariant({ owner: "ir-program", query: null, origin: node.origin, message: "Syntax needs its actual paid chapter receipt." });
 }

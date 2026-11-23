@@ -4888,10 +4888,30 @@ export interface BinarySyntaxReceipt<P extends Phase> {
   readonly right: () => Expression<P>;
 }
 
-export type PrepareBlockStructure = <P extends Phase>(node: Block<P>, ordinal: number) => BlockSyntaxReceipt<P>;
-export type PrepareBinaryStructure = <P extends Phase, Stop>(
-  node: BinaryExpression<P>, ordinal: number, admitModifiers: () => Stop | null,
-) => SyntaxCopyResult<BinarySyntaxReceipt<P>, Stop>;
+export type SingleExpressionSyntax<P extends Phase> = AwaitExpression<P> | ComputedPropertyName<P> | DeleteExpression<P>
+  | ExpressionStatement<P> | ExternalModuleReference<P> | JsxSpreadAttribute<P> | NonNullExpression<P>
+  | ParenthesizedExpression<P> | PartiallyEmittedExpression<P> | SpreadAssignment<P> | SpreadElement<P>
+  | ThrowStatement<P> | TypeOfExpression<P> | VoidExpression<P>;
+
+export interface SingleExpressionReceipt<P extends Phase> {
+  readonly kind: "single-expression";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly expression: () => Expression<P>;
+}
+
+export interface ReturnSyntaxReceipt<P extends Phase> {
+  readonly kind: "return";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly expression: () => Expression<P> | null;
+}
+
+export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P> | ReturnStatement<P> | SingleExpressionSyntax<P>;
+export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P> | SingleExpressionReceipt<P>;
+export type PrepareSyntaxStructure = <P extends Phase, Stop>(
+  node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null, admitModifiers: () => Stop | null,
+) => SyntaxCopyResult<SyntaxStructureReceipt<P> | null, Stop>;
 
 export interface SyntaxRootSlot<P extends Phase> {
   readonly path: string;
@@ -4901,7 +4921,7 @@ export interface SyntaxRootSlot<P extends Phase> {
 export interface SyntaxForest<P extends Phase> {
   readonly nodes: () => Iterable<SyntaxNode<P>>;
   readonly wireOf: (node: SyntaxNode<P>) => number | undefined;
-  readonly structureOf: (node: SyntaxNode<P>) => "block" | "binary" | null;
+  readonly structureOf: (node: SyntaxNode<P>) => "block" | "binary" | "return" | "single-expression" | null;
   readonly firstRootSize: number;
   readonly copy: <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
     beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;
@@ -5065,8 +5085,7 @@ export interface SyntaxMaterialization<P extends Phase, Image> {
   readonly postorder: Iterable<SyntaxNode<P>>;
   readonly wireOf: (node: SyntaxNode<P>) => number | undefined;
   readonly copyInitializer: SyntaxInitializerImage<P, Image>;
-  readonly blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>;
-  readonly binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>;
+  readonly structure: (node: RetainedSyntaxNode<P>) => SyntaxStructureReceipt<P>;
 }
 
 export type CopySyntaxForest = <Stop, Image>(
@@ -5122,7 +5141,7 @@ export interface SyntaxWalkAdmission<P extends Phase, Stop> {
   readonly edge: () => Stop | null;
   readonly node: (node: SyntaxNode<P>) => Stop | null;
   readonly parameter: (node: ParameterDeclaration<P>) => Stop | null;
-  readonly structure: (node: Block<P> | BinaryExpression<P>) => Stop | null;
+  readonly structure: (node: RetainedSyntaxNode<P>) => Stop | null;
   readonly modifiers: () => Stop | null;
 }
 

@@ -9,7 +9,7 @@ import type {
   PropertyAssignment, ShorthandPropertyAssignment, DeleteExpression, TypeOfExpression, VoidExpression,
   AwaitExpression, TypeAssertion, ExpressionWithTypeArguments, TemplateHead, TemplateMiddle,
   TemplateTail, PartiallyEmittedExpression, SyntheticReferenceExpression,
-  Phase, SyntaxPhaseCopy,
+  Expression, Phase, SingleExpressionSyntax, SyntaxPhaseCopy,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
@@ -67,7 +67,8 @@ export interface ExpressionsPlans<P extends Phase, Stop, Image> {
 }
 
 export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
-  ports: () => SyntaxCopyPorts<P, Stop, Image>, binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>): ExpressionsPlans<P, Stop, Image> {
+  ports: () => SyntaxCopyPorts<P, Stop, Image>, binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>,
+  expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>): ExpressionsPlans<P, Stop, Image> {
   const Identifier = new Map<Identifier<P>, SyntaxPlan<Identifier<P>, Stop, Image>>();
   const PrivateIdentifier = new Map<PrivateIdentifier<P>, SyntaxPlan<PrivateIdentifier<P>, Stop, Image>>();
   const QualifiedName = new Map<QualifiedName<P>, SyntaxPlan<QualifiedName<P>, Stop, Image>>();
@@ -175,7 +176,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -452,7 +453,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -462,7 +463,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -507,7 +508,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -539,7 +540,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -578,7 +579,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -588,7 +589,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -598,7 +599,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -608,7 +609,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),
@@ -679,7 +680,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(expressionOf(node)).read(),
         tsonic,
       });
     })),

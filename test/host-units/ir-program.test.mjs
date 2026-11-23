@@ -1701,10 +1701,11 @@ const punctuationFaults = new Map();
 const recordFaults = new Map();
 const extraFieldFaults = new Map();
 const recordChoices = new Map([
-  ...["ProgramIndex", "PackageRecord", "PackageExport", "ModuleRecord", "DefinitionNode", "HirModuleExport", "HirModuleBinding", "CheckerDiagnosticRef", "BodyRecord", "ConstantRecord", "ConstantReference",
+  ...["ProgramIndex", "PackageRecord", "PackageExport", "ModuleRecord", "DefinitionNode", "HirModuleExport", "HirModuleBinding", "CheckerDiagnosticRef", "BodyRecord", "ConstantRecord",
     "Diagnostic", "RelatedDiagnostic", "DiagnosticFix", "TextEdit", "LocalRef", "NodeRef", "ItemNodeRef", "LibraryModuleIdentity",
     "CommentDirective", "HirAttribute", "BindingVector"].map(name => [name, [name]]),
   ...["advertised", "api-signature", "api-body"].map(name => [name, ["advertised", "api-signature", "api-body"]]),
+  ...["ConstantReference", "EnumConstantReference"].map(name => [name, ["ConstantReference", "EnumConstantReference"]]),
   ...["parametric", "instantiated"].map(name => [name, ["parametric", "instantiated"]]),
   ...["bound", "rigid"].map(name => [name, ["bound", "rigid"]]),
   ...["host", "checker", "extension"].map(name => [name, ["host", "checker", "extension"]]),
@@ -1944,7 +1945,8 @@ for (const { text, index } of authoredDocuments) {
               || record.name === "CallExpression" && label === "TypedApplication");
             expectedItems = record.name === "CheckJsDirective" && token[1] === "range"
               ? ["SingleLineCommentTrivia", "MultiLineCommentTrivia"]
-              : nameable ? [label, "DeclarationNameExpression"] : [label];
+              : record.name === "ConstantRecord" && token[1] === "reference" ? ["ConstantReference", "EnumConstantReference"]
+                : nameable ? [label, "DeclarationNameExpression"] : [label];
             replacement = tail[0] === "Z" ? "Y" : "Z";
           }
           if (expectedItems !== undefined && !valueFaults.has(key)) valueFaults.set(key, {
@@ -3537,6 +3539,60 @@ test("final publication constructs its candidate before requesting independent c
   const stopped = run(full.atEvidence - 1);
   assert.equal(stopped.result === stopped.stop && stopped.stop?.dimension === "created-records", true);
   assert.equal(stopped.atEvidence, null);
+});
+
+test("ordinary required expression slots retain their sole paid Typed read across independent publication evidence", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
+  const { publishHostProgram } = await import("../../packages/host/dist/pipeline/publication.js");
+  const fixture = await loadFrontFixture();
+  const run = maximumWork => {
+    const input = analysisInput(fixture, "sdk-minimal", "export function keep(flag:boolean):boolean { return (flag); }");
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const account = createAccount({ ...input.limits.dataflow, maximumWork: maximumWork ?? input.limits.dataflow.maximumWork });
+    const typed = typeSourceBarrier(input, captured.value, account);
+    assert.equal(typed.kind, "ok");
+    const analyzed = analyzeTypedSource(input, typed.value, account);
+    assert.equal(analyzed.kind, "ok");
+    const original = [...typed.value.bodies.values()].find(body => body.root.kind === "Block" && body.bindings.kind === "instantiated");
+    const returned = original.root.statements.nodes[0];
+    const parenthesized = returned.expression;
+    assert.equal(parenthesized.kind, "ParenthesizedExpression");
+    const authored = parenthesized.expression;
+    const reads = [];
+    let opened = false;
+    const observe = (field, value) => {
+      assert.equal(opened, false, "a sealed constructor does not read its original child after the independent callback");
+      reads.push({ field, work: InvocationAccount.stateOf(account).work });
+      return value;
+    };
+    Object.defineProperty(returned, "expression", { get: () => observe("return", parenthesized) });
+    Object.defineProperty(parenthesized, "expression", { get: () => observe("parenthesis", authored) });
+    const result = publishHostProgram(input, { ...typed.value, programEvidence: actual => {
+      assert.equal(actual === account, true);
+      opened = true;
+      return typed.value.programEvidence(actual);
+    } }, analyzed.value, account);
+    return { result, opened, reads, fail: accountFailure(account), body: original.body, module: input.snapshot.entryPoint, node: authored.id };
+  };
+  const full = run();
+  assert.equal(full.result.kind, "ok", JSON.stringify(full.result.diagnostics));
+  assert.equal(full.opened, true);
+  assert.deepEqual(full.reads.map(row => row.field), ["return", "parenthesis"]);
+  const chapter = full.result.value.modules.find(module => module.module === full.module);
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.body === full.body);
+  assert.equal(body.tir.root.statements.nodes[0].expression.expression.id, full.node);
+  for (let position = 0; position < full.reads.length; position += 1) {
+    const maximum = full.reads[position].work - 1;
+    const cut = run(maximum);
+    assert.deepEqual(cut.fail, { kind: "resource-limit", dimension: "work", maximum });
+    assert.equal(cut.result.kind, "refused");
+    assert.equal(cut.opened, false);
+    assert.deepEqual(cut.reads, full.reads.slice(0, position));
+  }
 });
 
 test("Program transports the exact verified construction-part and its independent Decls inventory", async () => {

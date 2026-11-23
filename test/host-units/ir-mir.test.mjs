@@ -131,12 +131,12 @@ test("MIR keys admit the complete signed width before encoding their actual immu
   const limits = { maximumCreatedRecords: 10000, maximumBindingVectorsPerArtifact: 8,
     typeExpansion: { maximumDepth: 8, maximumVisits: 16, maximumUnionMembers: 4, maximumIntersectionMembers: 4 } };
   const expected = value => ({ kind: "copied", value: { type: 0, value, key: product.constantKeyOfMir(0, value) } });
-  const key = (value, account, maximumCreatedRecords = limits.maximumCreatedRecords) => {
+  const key = (value, account, maximumCreatedRecords = limits.maximumCreatedRecords, readType = () => 0) => {
     const meter = ProgramWork.state(createProgramVerificationWork({ ...limits, maximumCreatedRecords }, account));
     const scan = createProjectionInventory(meter, { parameterBinding: value => value, selfBinding: value => value },
       path => assert.fail(path));
     const refusal = stop => stop === null ? null : { kind: "refused", stop };
-    return product.projectMirConstantKey(() => 0, () => value, {
+    return product.projectMirConstantKey(readType, () => value, {
       work: count => refusal(chargeWork(account, count)), record: (fields, build) => projectRecord(scan, fields, build),
       bindings: bindings => finishProjection(scan, prepareMirBindingsProjection(scan, bindings), { type: value => value, signature: value => value }),
       artifact: bindings => refusal(admitArtifactIdentity(bindings, account)),
@@ -202,6 +202,7 @@ test("MIR keys admit the complete signed width before encoding their actual immu
     { kind: "definition", definition: endpoint.declaration, bindings: { kind: "parametric" } },
     { kind: "metadata", definition: endpoint.declaration, bindings: bindingSource }, { kind: "observation", at: nodeRef },
     { kind: "constant", reference: { initializer: { ...instance, bindings: bindingSource }, context: "compile-time" } },
+    { kind: "constant", reference: { context: "enum-member", member: "D[M[P[p];m];Code/Next]", bindings: bindingSource } },
   ]) {
     const accounted = create(10000);
     same(key(other, accounted), expected(other), `paid ${other.kind} key`);
@@ -217,11 +218,21 @@ test("MIR keys admit the complete signed width before encoding their actual immu
   } }, beforeTag);
   assert.equal(tagStop.kind === "refused" && tagStop.stop === accountFailure(beforeTag), true);
   assert.equal("value" in tagStop, false);
-  const unreadContext = { kind: "constant", reference: { initializer: { ...instance, bindings: bindingSource },
-    get context() { return assert.fail("a refused binding projection cannot read the constant context"); },
+  const referenceReads = [];
+  const tracedReference = { kind: "constant", reference: {
+    get context() { referenceReads.push("context"); return "compile-time"; },
+    get initializer() { referenceReads.push("initializer"); return { ...instance, bindings: bindingSource }; },
   } };
-  assert.deepEqual(key(unreadContext, create(10000), 0),
+  for (const [maximum, expected] of [[2, []], [3, ["context"]]]) {
+    referenceReads.length = 0;
+    const account = create(maximum);
+    assert.equal(key(tracedReference, account).stop === accountFailure(account), true);
+    assert.deepEqual(referenceReads, expected);
+  }
+  referenceReads.length = 0;
+  assert.deepEqual(key(tracedReference, create(10000), 0, () => assert.fail("a refused binding projection cannot read the output type")),
     { kind: "refused", stop: { kind: "resource-limit", dimension: "created-records", maximum: 0 } });
+  assert.deepEqual(referenceReads, ["context", "initializer"]);
   let parameterReads = 0;
   let selfReads = 0;
   let tagReads = 0;
