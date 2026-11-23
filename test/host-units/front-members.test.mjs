@@ -122,7 +122,7 @@ test("actual overloaded, readonly and nonidentifier member keys retain every sel
   assert.deepEqual(symbolic.origins.map(origin => origin.access), ["read"]);
   const numeric = table.members.find(member => member.key.kind === "numeric");
   assert.equal(numeric !== undefined, true);
-  assert.deepEqual(numeric.key.value, { kind: "checker-value", value: 1 });
+  assert.equal(numeric.key.value, 1);
   assert.equal(table.members.some(member => member.key.kind === "text" && member.key.value === ""), true);
   const method = table.members.find(member => member.name === "run");
   assert.equal(method !== undefined, true);

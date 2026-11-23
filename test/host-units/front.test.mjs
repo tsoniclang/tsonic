@@ -2262,7 +2262,7 @@ function captureBeforeMemberRead(OpenedProgram, sourceText, maximum, read) {
   const checked = OpenedProgram.checked(opened.program);
   const borrowed = { ...checked, getSourceFileQueries: file => {
     const queries = checked.getSourceFileQueries(file);
-    return { ...queries, typeShape: { ...queries.typeShape, getPropertyInfos: read } };
+    return { ...queries, typeShape: { ...queries.typeShape, forEachObjectPropertyHeader: read } };
   } };
   const files = OpenedProgram.modules(opened.program).modules.map(entry => OpenedProgram.file(opened.program,
     entry.kind === "snapshot" ? entry.module : entry.document.module));
@@ -2367,7 +2367,7 @@ test("K-3361: a receiver is captured apart from the ordinary parameters and lowe
     const association = raw.callableAssociations[0];
     return { raw, signature: raw.types.signatures[association.advertised[0]], nodes: hir.indexSyntaxTree(raw.tree), module, sourceText };
   };
-  const refusalOf = ({ raw, sourceText }) => () => lowerWithReadyExports(lowerDepsFor(front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) }).value, types.createTypeInterner(), sourceText), raw);
+  const lower = ({ raw, sourceText }) => lowerWithReadyExports(lowerDepsFor(front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) }).value, types.createTypeInterner(), sourceText), raw);
   const receiving = captured("export function f(this: number, x: number): number { return x; }\n");
   const parameterNodes = receiving.nodes.filter(node => node.kind === "Parameter").map(node => node.id);
   assert.equal(receiving.signature.receiver.kind, "available");
@@ -2375,7 +2375,7 @@ test("K-3361: a receiver is captured apart from the ordinary parameters and lowe
   assert.equal(receiving.signature.receiver.value.declaration.node, parameterNodes[0]);
   assert.deepEqual(receiving.raw.types.types[receiving.signature.receiver.value.type].form, { kind: "available", value: { kind: "scalar", scalar: "number" } });
   assert.deepEqual(receiving.signature.parameters.map(parameter => parameter.declaration.node), [parameterNodes[1]]);
-  assert.throws(refusalOf(receiving), { name: "TypeError", message: "front: a function with an explicit this receiver, or whose receiver is not captured, is not implemented" });
+  assert.throws(() => lower(receiving), { name: "TypeError", message: "front: a function with an explicit this receiver, or whose receiver is not captured, is not implemented" });
   const plain = captured(addSource);
   assert.deepEqual([plain.signature.receiver, plain.signature.typeParameters], [{ kind: "available", value: null }, { kind: "available", value: [] }]);
   const generic = captured("export function f<T>(x: number): number { return x; }\n");
@@ -2385,7 +2385,13 @@ test("K-3361: a receiver is captured apart from the ordinary parameters and lowe
   const binder = generic.raw.types.types[generic.signature.typeParameters.value[0]];
   assert.deepEqual(binder.form, { kind: "available", value: { kind: "parameter",
     parameter: { module: generic.module, node: typeParameter }, constraint: null, default: null } });
-  assert.throws(refusalOf(generic), { name: "TypeError", message: "front: checked annotation not implemented: FunctionDeclaration with type parameters" });
+  const checked = lower(generic);
+  assert.equal(checked.kind, "ok");
+  const [callable] = checked.value.tree.statements.nodes;
+  const [parameter] = callable.typeParameters.nodes;
+  assert.equal(parameter.id, typeParameter);
+  assert.equal(parameter.tsonic.parent, callable.tsonic.definition);
+  assert.equal(checked.value.items.some(entry => entry.definition === parameter.tsonic.parameter.declaration && entry.node === typeParameter), true);
 });
 
 // R2 M-2: the same five parameters with the last typed `typeof globalThis`. Its facts: the signature row (1), four parameters
