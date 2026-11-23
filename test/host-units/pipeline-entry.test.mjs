@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readyDefaultRoot, readyModuleRoot, readyModuleStatements } from "./fixtures/chapter-syntax.mjs";
 import { createAccount as createDataflowAccount } from "../../packages/host/dist/dataflow/index.js";
 import { test } from "node:test";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
@@ -843,7 +844,7 @@ test("real public Host analysis retains an omitted initializer's actual captured
   assert.notEqual(caller, undefined);
   const child = main.bodies.find(body => body.kind === "selected" && body.instance.body === caller.tir.params[1].tsonic.initializer);
   assert.notEqual(child, undefined);
-  assert.equal(child.tir.root, caller.tir.params[1].initializer);
+  assert.equal(child.tir.root, readyDefaultRoot(caller.tir.params[1]));
   assert.deepEqual(child.tir.captures, [{ local: caller.tir.params[0].tsonic.local, capture: "captured-location" }]);
   const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === child.instance.body);
   assert.notEqual(summary, undefined);
@@ -917,17 +918,17 @@ test("real public Host analysis preserves an imported generic declaration's actu
   assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const foreign = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/foreign.ts"));
-  const box = foreign.tree.statements.nodes[0];
+  const box = readyModuleStatements(readyModuleRoot(foreign.tree))[0];
   const parameter = box.typeParameters.nodes[0];
-  const applied = main.tree.statements.nodes[1];
+  const applied = readyModuleStatements(readyModuleRoot(main.tree))[1];
   const selected = result.value.index.types.terms[applied.tsonic.type];
   assert.equal(selected.kind, "declared");
   assert.equal(selected.definition, box.tsonic.definition);
   assert.deepEqual(selected.arguments.map(type => result.value.index.types.terms[type]), [{ kind: "primitive", primitive: "bool" }]);
   for (const type of [parameter.tsonic.parameter.constraint, parameter.tsonic.parameter.default])
     assert.deepEqual(result.value.index.types.terms[type], { kind: "primitive", primitive: "bool" });
-  assert.equal(foreign.tree.tsonic.module, foreign.module);
-  assert.equal(main.tree.tsonic.module, main.module);
+  assert.equal(readyModuleRoot(foreign.tree).tsonic.module, foreign.module);
+  assert.equal(readyModuleRoot(main.tree).tsonic.module, main.module);
   assert.notEqual(foreign.module, main.module);
   assert.equal(main.bodies.some(body => body.kind === "selected" && body.tir.params.length === 1), true);
 });
@@ -979,7 +980,7 @@ test("real public Host analysis preserves a declared structural alias without in
   assert.equal(module !== undefined, true);
   const root = module.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "SourceFile");
   assert.equal(root !== undefined, true);
-  const alias = root.tir.root.statements.nodes.find(node => node.kind === "TypeAliasDeclaration");
+  const alias = readyModuleStatements(root.tir.root).find(node => node.kind === "TypeAliasDeclaration");
   assert.equal(alias !== undefined, true);
   assert.equal(alias.type.kind, "TypeLiteral");
   assert.equal(alias.type.tsonic.type, alias.tsonic.type);
@@ -1009,7 +1010,7 @@ test("real public Host analysis preserves generic nested structural members and 
   assert.equal(module.bodies.filter(body => body.kind === "template").length, 2);
   const root = selected.find(body => body.tir.root.kind === "SourceFile");
   assert.equal(root !== undefined, true);
-  const alias = root.tir.root.statements.nodes.find(node => node.kind === "TypeAliasDeclaration");
+  const alias = readyModuleStatements(root.tir.root).find(node => node.kind === "TypeAliasDeclaration");
   assert.equal(alias !== undefined && alias.type.kind === "TypeLiteral", true);
   const parameter = alias.typeParameters.nodes[0].tsonic.parameter.declaration;
   const shape = result.value.index.types.terms[alias.tsonic.type];
@@ -1045,7 +1046,7 @@ test("public Host analysis publishes numeric and quoted member keys in the exact
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
   const module = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
-  const [fields, keys] = module.tree.statements.nodes;
+  const [fields, keys] = readyModuleStatements(readyModuleRoot(module.tree));
   assert.deepEqual(fields.type.members.nodes.map(member => [member.name.kind, member.name.text, member.name.tsonic.role]), [
     ["NumericLiteral", "0x20", "declaration-name"],
     ["NumericLiteral", "9007199254740993", "declaration-name"],
@@ -1074,8 +1075,8 @@ test("public Host analysis preserves exact authored union arms through a foreign
   assert.deepEqual(result.diagnostics, []);
   const entry = result.value.modules.find(module => module.module === input.snapshot.entryPoint);
   const origin = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/values.ts"));
-  const [original] = origin.tree.statements.nodes;
-  const [, alias, wrapped, nearby, duplicate] = entry.tree.statements.nodes;
+  const [original] = readyModuleStatements(readyModuleRoot(origin.tree));
+  const [, alias, wrapped, nearby, duplicate] = readyModuleStatements(readyModuleRoot(entry.tree));
   const exact = original.tsonic.type;
   assert.deepEqual([alias.tsonic.type, wrapped.tsonic.type], [exact, exact]);
   assert.notEqual(nearby.tsonic.type, exact);
@@ -1100,8 +1101,8 @@ test("public Host analysis preserves distinct exact values from a closed multi-k
   assert.deepEqual(result.diagnostics, []);
   const entry = result.value.modules.find(module => module.module === input.snapshot.entryPoint);
   const origin = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/values.ts"));
-  const [table, read] = origin.tree.statements.nodes;
-  const [, imported, nearby, equal] = entry.tree.statements.nodes;
+  const [table, read] = readyModuleStatements(readyModuleRoot(origin.tree));
+  const [, imported, nearby, equal] = readyModuleStatements(readyModuleRoot(entry.tree));
   assert.equal(imported.tsonic.type, read.tsonic.type);
   assert.notEqual(nearby.tsonic.type, read.tsonic.type);
   const terms = result.value.index.types.terms;
@@ -1133,7 +1134,7 @@ test("public Host analysis retains authored optional dots in declaration-only ke
   assert.deepEqual(output.diagnostics, []);
   const { index, modules } = output.value;
   const module = modules.find(row => row.module === snapshot.entryPoint);
-  const [property, method] = module.tree.statements.nodes[0].members.nodes;
+  const [property, method] = readyModuleStatements(readyModuleRoot(module.tree))[0].members.nodes;
   for (const [name, chain, key] of [[property.name, property.name.expression, "chosen"],
     [method.name, method.name.expression.expression, "deep"]]) {
     assert.deepEqual(name.tsonic.key, { kind: "available", value: { kind: "text", value: key } });
@@ -1180,7 +1181,7 @@ test("declaration-only non-null syntax retains the authored wrapper without a ru
   assert.equal(typed.kind, "ok");
   const module = typed.value.modules.get(input.snapshot.entryPoint);
   for (const body of module.bodies) {
-    const name = body.root.statements.nodes[0].members.nodes[0].name;
+    const name = readyModuleStatements(body.root)[0].members.nodes[0].name;
     assert.deepEqual(name.tsonic.key, syntax.tsonic.key);
     let [original, written] = [syntax.expression, name.expression];
     let parent = name;
@@ -1211,7 +1212,7 @@ export function keep(value: boolean): boolean { return !value; }`);
   const { index, modules } = program.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   const root = module.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "SourceFile");
-  const owner = root.tir.root.statements.nodes.find(node => node.kind === "InterfaceDeclaration");
+  const owner = readyModuleStatements(root.tir.root).find(node => node.kind === "InterfaceDeclaration");
   const [method] = owner.members.nodes;
   assert.equal(method.kind, "MethodSignature");
   assert.equal(method.type.kind, "ThisType");
@@ -1296,7 +1297,7 @@ test("real public Host analysis publishes a recursive declared alias without unf
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const root = module.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "SourceFile");
-  const alias = root.tir.root.statements.nodes.find(node => node.kind === "TypeAliasDeclaration");
+  const alias = readyModuleStatements(root.tir.root).find(node => node.kind === "TypeAliasDeclaration");
   assert.equal(alias !== undefined, true);
   const shape = result.value.index.types.terms[alias.tsonic.type];
   assert.equal(shape.kind, "shape");
@@ -1600,7 +1601,7 @@ test("real public AnalyzeHostProgram closes supplied and omitted boolean-default
   const header = callable.tir.params[0];
   const initializer = selected.find(body => body.instance.body === header.tsonic.initializer);
   assert.notEqual(initializer, undefined);
-  assert.equal(initializer.tir.root === header.initializer, true);
+  assert.equal(initializer.tir.root === readyDefaultRoot(header), true);
   assert.deepEqual(initializer.mir.entries.map(entry => entry.provided), [0]);
   const calls = callable.mir.blocks.filter(block => block.terminator.kind === "call" && block.terminator.callee.kind === "body");
   assert.equal(calls.length, 1);
@@ -1627,7 +1628,7 @@ test("real public Host analysis retains the qualified outer parameter of a captu
   const header = callable.tir.params[1];
   const initializer = selected.find(body => body.instance.body === header.tsonic.initializer);
   assert.notEqual(initializer, undefined);
-  assert.equal(initializer.tir.root === header.initializer, true);
+  assert.equal(initializer.tir.root === readyDefaultRoot(header), true);
   assert.deepEqual(initializer.tir.captures, [{ local: callable.tir.params[0].tsonic.local, capture: "captured-location" }]);
   assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [1, 2]);
   const calls = callable.mir.blocks.filter(block => block.terminator.kind === "call" && block.terminator.callee.kind === "body");
@@ -1668,7 +1669,7 @@ test("real public Host analysis transports a captured string default through its
   const header = caller.tir.params[1];
   const child = main.bodies.find(body => body.kind === "selected" && body.instance.body === header.tsonic.initializer);
   assert.notEqual(child, undefined);
-  assert.equal(child.tir.root, header.initializer);
+  assert.equal(child.tir.root, readyDefaultRoot(header));
   assert.deepEqual(child.tir.captures, [{ local: caller.tir.params[0].tsonic.local, capture: "captured-location" }]);
   const summaryOf = (body, provided) => result.value.index.summaries.find(summary => summary.key.kind === "body"
     && summary.key.execution.instance.body === body && summary.key.execution.provided === provided);
@@ -1706,7 +1707,7 @@ test("real public Host analysis discharges chained captured defaults against the
   for (const index of [1, 2]) {
     const header = caller.tir.params[index];
     const child = module.bodies.find(body => body.kind === "selected" && body.instance.body === header.tsonic.initializer);
-    assert.equal(child !== undefined && child.tir.root === header.initializer, true);
+    assert.equal(child !== undefined && child.tir.root === readyDefaultRoot(header), true);
     const source = caller.tir.params[index - 1].tsonic.local;
     assert.deepEqual(child.tir.captures, [{ local: source, capture: "captured-location" }]);
     const capture = child.mir.locals.find(local => local.role.kind === "capture");
@@ -1747,7 +1748,7 @@ test("an omitted optional parameter runs its actual Boolean call and converts on
   const { index, modules } = result.value;
   const main = modules.find(row => row.module === input.snapshot.entryPoint);
   const selected = name => {
-    const declaration = main.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+    const declaration = readyModuleStatements(readyModuleRoot(main.tree)).find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
     return main.bodies.find(body => body.kind === "selected" && body.tir.owner === declaration.tsonic.definition);
   };
   const next = selected("next");
@@ -1805,7 +1806,7 @@ test("a default before a required formal does not turn a supplied absence into o
   const { index, modules } = output.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   const selected = name => {
-    const declaration = module.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree)).find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
     return module.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
   };
   const select = selected("select");
@@ -1881,7 +1882,7 @@ test("a later default reads the current optional value in an earlier parameter, 
     const { index, modules } = result.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
     const selected = name => {
-      const declaration = module.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+      const declaration = readyModuleStatements(readyModuleRoot(module.tree)).find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
       return module.bodies.find(body => body.kind === "selected" && body.tir.owner === declaration.tsonic.definition);
     };
     const summaryOf = (body, provided) => index.summaries.find(row => row.key.kind === "body"
@@ -2236,7 +2237,7 @@ test("independent analysis roots retain their own errors and a dependent transpo
     assert.equal(ready.kind, "ok");
     const module = ready.value.modules.get(input.snapshot.entryPoint);
     const unitFor = name => {
-      const declaration = module.tree.statements.nodes.find(node => node.name.text === name);
+      const declaration = readyModuleStatements(readyModuleRoot(module.tree)).find(node => node.name.text === name);
       const body = module.bodies.find(body => body.bindings.kind === "instantiated" && body.body === declaration.tsonic.signatures[0].body);
       const instance = { body: body.body, bindings: body.bindings };
       const key = executionKey({ instance, provided: 0 });
@@ -2259,7 +2260,7 @@ test("independent analysis roots retain their own errors and a dependent transpo
       assert.equal(cause.kind, "unit");
       assert.deepEqual(cause.unit.request, unitFor(name).request);
       const body = module.bodies.find(row => row.bindings.kind === "instantiated"
-        && row.body === module.tree.statements.nodes.find(node => node.name.text === name).tsonic.signatures[0].body);
+        && row.body === readyModuleStatements(readyModuleRoot(module.tree)).find(node => node.name.text === name).tsonic.signatures[0].body);
       assert.deepEqual(cause.unit.position, { kind: "execution-source-node", execution: unitFor(name).position.execution,
         node: { body: body.body, node: body.root.statements.nodes.at(-1).expression.id } });
       assert.deepEqual(ready.value.database.errorOf(cause.unit), { kind: "completed", error: { kind: "error",
@@ -2315,7 +2316,7 @@ test("converged execution errors at one source site retain distinct provided-cou
   const ready = typeSourceBarrier(input, captured.value, account);
   assert.equal(ready.kind, "ok");
   const owner = ready.value.modules.get(input.snapshot.entryPoint);
-  const declaration = owner.tree.statements.nodes[0];
+  const declaration = readyModuleStatements(readyModuleRoot(owner.tree))[0];
   const selected = owner.bodies.find(body => body.bindings.kind === "instantiated" && body.body === declaration.tsonic.signatures[0].body);
   const instance = { body: selected.body, bindings: selected.bindings };
   const result = analyzeTypedSource(input, ready.value, account);
@@ -2365,7 +2366,7 @@ test("one execution retains each independent own-storage read at its actual answ
     const typed = typeSourceBarrier(input, captured.value, account);
     assert.equal(typed.kind, "ok", body);
     const owner = typed.value.modules.get(input.snapshot.entryPoint);
-    const declaration = owner.tree.statements.nodes[0];
+    const declaration = readyModuleStatements(readyModuleRoot(owner.tree))[0];
     const selected = owner.bodies.find(row => row.bindings.kind === "instantiated" && row.body === declaration.tsonic.signatures[0].body);
     const request = { query: "bodyFactsOf", key: executionKey({ instance: { body: selected.body, bindings: selected.bindings }, provided: 1 }) };
     const expectedSites = ["first", "second"].map(name => ({ module: input.snapshot.entryPoint,
@@ -2707,7 +2708,7 @@ test("public argument calls execute left to right and never enter later operands
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const callables = module.tree.statements.nodes.map(declaration => {
+  const callables = readyModuleStatements(readyModuleRoot(module.tree)).map(declaration => {
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     assert.ok(body);
     return body;
@@ -2952,7 +2953,7 @@ export function read(value: ImportedFlag): ImportedFlag { return value; }`,
   const leafId = fixture.moduleOf(fixture.packageOf("/project"), "src/leaf.ts");
   const leaf = modules.find(module => module.module === leafId);
   const root = leaf.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "SourceFile");
-  const alias = root.tir.root.statements.nodes.find(node => node.kind === "TypeAliasDeclaration");
+  const alias = readyModuleStatements(root.tir.root).find(node => node.kind === "TypeAliasDeclaration");
   const exported = main.exports.find(entry => entry.name === "PublicFlag");
   const resolved = resolveModuleExport(createModuleBindingViews(index.modules.map(module => module.bindings)), exported);
   assert.deepEqual(resolved.target, { kind: "available", value: { kind: "declarations", definitions: [alias.tsonic.definition] } });
@@ -3230,7 +3231,7 @@ test("module branches preserve qualified lexical locals, hoisted storage and def
   const main = input.snapshot.entryPoint;
   const body = result.value.modules.find(module => module.module === main).bodies
     .find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
-  const branch = body.tir.root.statements.nodes[2];
+  const branch = readyModuleStatements(body.tir.root)[2];
   assert.equal(branch.kind, "IfStatement");
   const lexical = [branch.thenStatement, branch.elseStatement].map(arm => arm.statements.nodes[0].declarationList.declarations.nodes[0]);
   const [hoisted] = branch.thenStatement.statements.nodes[1].declarationList.declarations.nodes;
@@ -3301,7 +3302,7 @@ test("authored module loops distinguish guaranteed writes from a zero-iteration 
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const body = result.value.modules.find(module => module.module === main).bodies
       .find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
-    const statement = body.tir.root.statements.nodes[2];
+    const statement = readyModuleStatements(body.tir.root)[2];
     assert.equal(statement.kind, kind);
     assert.equal(body.mir.blocks.some(block => block.terminator.kind === "switch" && block.terminator.tir.node === statement.id), true);
     if (field === "seed") {
@@ -3330,7 +3331,7 @@ test("a module label preserves its qualified transfer and follows the actual sta
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const body = result.value.modules.find(module => module.module === input.snapshot.entryPoint).bodies
       .find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
-    const label = body.tir.root.statements.nodes[2];
+    const label = readyModuleStatements(body.tir.root)[2];
     assert.equal(label.kind, "LabeledStatement");
     const block = label.statement.kind === "DoStatement" ? label.statement.statement : label.statement;
     const transfer = block.statements.nodes[1].thenStatement;
@@ -3432,7 +3433,7 @@ test("switch clauses share lexical storage without initializing on bypass", asyn
   assert.equal(module.kind, "ok", JSON.stringify(module.diagnostics));
   const source = module.value.modules.find(row => row.module === input.snapshot.entryPoint).bodies
     .find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
-  const dispatch = source.tir.root.statements.nodes[2];
+  const dispatch = readyModuleStatements(source.tir.root)[2];
   assert.equal(dispatch.kind, "SwitchStatement");
   const held = dispatch.caseBlock.clauses.nodes[0].statements.nodes[0].declarationList.declarations.nodes[0];
   assert.equal(held.tsonic.declaration.kind, "local");
@@ -3489,7 +3490,7 @@ test("lexical for initializers run in order and retain only their own scope acro
     assert.deepEqual(step.value.diagnostics, []);
     assert.deepEqual(step.value.value, { kind: "value", value: expected });
   };
-  const [count, early] = own.tree.statements.nodes.map(declaration =>
+  const [count, early] = readyModuleStatements(readyModuleRoot(own.tree)).map(declaration =>
     selected.find(row => row.instance.body === declaration.tsonic.signatures[0].body));
   const [cursorDeclaration, keptDeclaration, label, after] = count.tir.root.statements.nodes;
   const [outer] = cursorDeclaration.declarationList.declarations.nodes;
@@ -3536,7 +3537,7 @@ test("lexical for initializers run in order and retain only their own scope acro
   assert.equal(module.kind, "ok", JSON.stringify(module.diagnostics));
   const main = module.value.modules.find(row => row.module === input.snapshot.entryPoint);
   const top = main.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
-  const header = top.tir.root.statements.nodes[2].initializer.declarations.nodes[0];
+  const header = readyModuleStatements(top.tir.root)[2].initializer.declarations.nodes[0];
   assert.equal(header.tsonic.declaration.kind, "local");
   assert.equal(header.tsonic.declaration.local.body, top.instance.body);
   const slot = top.mir.locals.find(local => local.source?.local === header.tsonic.declaration.local.local);
@@ -3680,10 +3681,10 @@ test("authored parenthesized storage targets retain their actual leaf and native
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  assert.equal(module.tree.statements.nodes.length, cases.length);
+  assert.equal(readyModuleStatements(readyModuleRoot(module.tree)).length, cases.length);
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: nativeFacts, limits: input.limits.evaluation };
-  for (const [index, declaration] of module.tree.statements.nodes.entries()) {
+  for (const [index, declaration] of readyModuleStatements(readyModuleRoot(module.tree)).entries()) {
     const [name, , , , args, expected, access] = cases[index];
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const expression = body.tir.root.statements.nodes[0].expression;
@@ -3736,7 +3737,7 @@ test("wrapped static targets use the qualified definition and reject crossed MIR
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [state, ...declarations] = module.tree.statements.nodes;
+  const [state, ...declarations] = readyModuleStatements(readyModuleRoot(module.tree));
   const definition = state.declarationList.declarations.nodes[0].tsonic.declaration.definition;
   const checked = captureSourceBarrier(selected);
   assert.equal(checked.kind, "ok");
@@ -3784,7 +3785,7 @@ test("an authored module assignment stays in source order before a separately pl
     const entry = positive.value.index.initialization.modules.at(-1);
     const module = positive.value.modules.flatMap(row => row.bodies)
       .find(row => row.kind === "selected" && row.instance.body === entry.instance.body);
-    const expression = module.tir.root.statements.nodes[2].expression;
+    const expression = readyModuleStatements(module.tir.root)[2].expression;
     assert.equal(expression.kind, wrapped ? "VoidExpression" : "BinaryExpression");
     const assignment = wrapped ? expression.expression.expression : expression;
     assert.equal(assignment.tsonic.role, "assignment");
@@ -3880,7 +3881,7 @@ test("a fresh inferred Boolean static accepts the opposite value without widenin
     const typed = typeSourceBarrier(input, captured.value, createTypedAccount(input));
     assert.equal(typed.kind, "ok");
     const module = typed.value.modules.get(input.snapshot.entryPoint);
-    const [mutable, constant, assignment] = module.tree.statements.nodes;
+    const [mutable, constant, assignment] = readyModuleStatements(readyModuleRoot(module.tree));
     const storage = entry => fixture.types.readType(typed.value.source.types, entry.declarationList.declarations.nodes[0].tsonic.storage);
     assert.deepEqual(storage(mutable), { kind: "primitive", primitive: "bool" });
     assert.deepEqual(storage(constant).value, { kind: "boolean", value: true });
@@ -3927,7 +3928,8 @@ test("unannotated integral initializers select native int64 before materializing
     [root, 2, 9223372036854775807n, "9_223_372_036_854_775_807"],
     [local, 0, 1n, "0b1"],
   ]) {
-    const declaration = owner.tir.root.statements.nodes[statement].declarationList.declarations.nodes[0];
+    const statements = owner === local ? owner.tir.root.statements.nodes : readyModuleStatements(owner.tir.root);
+    const declaration = statements[statement].declarationList.declarations.nodes[0];
     assert.equal(declaration.type, null);
     const { storage, initializer } = declaration.tsonic;
     assert.deepEqual(index.types.terms[storage], int64);
@@ -3960,7 +3962,8 @@ test("numeric assignment fits the authored literal into finalized native static 
   for (const [kind, token, expected, rootKind] of [["SourceFile", "9_007_199_254_740_995", 9007199254740995n, "static"],
     ["Block", "0x20_0000_0000_0001", 9007199254740993n, "local"]]) {
     const body = bodies.find(row => row.tir.root.kind === kind);
-    const tree = body.tir.root.statements.nodes[1].expression;
+    const statements = kind === "SourceFile" ? readyModuleStatements(body.tir.root) : body.tir.root.statements.nodes;
+    const tree = statements[1].expression;
     const storage = tree.left.tsonic.access.storage;
     assert.equal(tree.tsonic.storage, storage);
     assert.deepEqual(index.types.terms[storage], { kind: "primitive", primitive: "int64" });
@@ -3998,7 +4001,7 @@ test("a callable with an inferred return publishes its actual placed int64 signa
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const declaration = module.tree.statements.nodes[1];
+  const declaration = readyModuleStatements(readyModuleRoot(module.tree))[1];
   const [checked] = declaration.tsonic.signatures;
   const selected = module.bodies.find(row => row.kind === "selected" && row.instance.body === checked.body);
   const placed = index.signatures.find(row => row.kind === "api-body" && row.bindings.kind === "instantiated" && row.body === checked.body);
@@ -4029,7 +4032,7 @@ test("a direct call consumes an inferred native result through the original chec
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [, declaration, observed] = module.tree.statements.nodes;
+  const [, declaration, observed] = readyModuleStatements(readyModuleRoot(module.tree));
   const [checked] = declaration.tsonic.signatures;
   const initializer = observed.declarationList.declarations.nodes[0].tsonic;
   const bodies = module.bodies.filter(row => row.kind === "selected");
@@ -4088,7 +4091,7 @@ test("calls use the actual native inferred argument or the separately placed inf
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [wide, read, viaDefault, supplied] = module.tree.statements.nodes;
+  const [wide, read, viaDefault, supplied] = readyModuleStatements(readyModuleRoot(module.tree));
   const bodies = module.bodies.filter(row => row.kind === "selected");
   const storage = wide.declarationList.declarations.nodes[0].tsonic.storage;
   const called = bodies.find(row => row.instance.body === read.tsonic.signatures[0].body);
@@ -4128,7 +4131,7 @@ test("an inferred return materializes its own authored integer before publishing
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [declaration, observed] = module.tree.statements.nodes;
+  const [declaration, observed] = readyModuleStatements(readyModuleRoot(module.tree));
   const selected = module.bodies.filter(row => row.kind === "selected");
   const callee = selected.find(row => row.instance.body === declaration.tsonic.signatures[0].body);
   const caller = selected.find(row => row.instance.body === observed.declarationList.declarations.nodes[0].tsonic.initializer);
@@ -4155,7 +4158,7 @@ test("an omitted inferred parameter runs its own exact native integer initialize
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [declaration, omitted] = module.tree.statements.nodes;
+  const [declaration, omitted] = readyModuleStatements(readyModuleRoot(module.tree));
   const selected = module.bodies.filter(row => row.kind === "selected");
   const callee = selected.find(row => row.instance.body === declaration.tsonic.signatures[0].body);
   const caller = selected.find(row => row.instance.body === omitted.declarationList.declarations.nodes[0].tsonic.initializer);
@@ -4186,7 +4189,7 @@ test("authored native int64 addition publishes an exact wrapping operation and e
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [declaration] = module.tree.statements.nodes;
+  const [declaration] = readyModuleStatements(readyModuleRoot(module.tree));
   const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
   const type = body.tir.completion;
   const row = body.mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign" && statement.value.kind === "binary");
@@ -4221,7 +4224,7 @@ test("process-ending native addition initializes its result only on the normal e
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [declaration] = module.tree.statements.nodes;
+  const [declaration] = readyModuleStatements(readyModuleRoot(module.tree));
   const selected = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
   const block = selected.mir.blocks.find(row => row.terminator.kind === "invoke");
   const invoke = block.terminator;
@@ -4345,7 +4348,7 @@ test(`authored native ${name} uses its own selected overflow law end to end`, as
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const [declaration] = module.tree.statements.nodes;
+    const [declaration] = readyModuleStatements(readyModuleRoot(module.tree));
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const expression = body.tir.root.statements.nodes[0].expression;
     const type = body.tir.completion;
@@ -4391,7 +4394,7 @@ test("authored literal operands select native defaults before the real operator"
     [1, ["9_007_199_254_740_992", "9_007_199_254_740_993"], true],
     [2, ["0x20_0000_0000_0001"], 9007199254740993n],
   ]) {
-    const statement = module.tree.statements.nodes[ordinal];
+    const statement = readyModuleStatements(readyModuleRoot(module.tree))[ordinal];
     const initializer = statement.declarationList.declarations.nodes[0].tsonic.initializer;
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === initializer);
     assert.equal(body.mir.constants.length, tokens.length);
@@ -4443,7 +4446,7 @@ test(`authored integer ${name} uses the actual unary native semantics`, async ()
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const [declaration] = module.tree.statements.nodes;
+    const [declaration] = readyModuleStatements(readyModuleRoot(module.tree));
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const type = body.tir.completion;
     const expression = body.tir.root.statements.nodes[0].expression;
@@ -4482,7 +4485,7 @@ test(`authored floating unary ${operation} preserves the selected encoding witho
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === module.tree.statements.nodes[0].tsonic.signatures[0].body);
+  const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === readyModuleStatements(readyModuleRoot(module.tree))[0].tsonic.signatures[0].body);
   const type = body.tir.completion;
   assert.deepEqual(types.terms[type], { kind: "primitive", primitive: "float64" });
   const expression = body.tir.root.statements.nodes[0].expression;
@@ -4536,7 +4539,7 @@ test("authored floating comparisons use the selected IEEE ordering and unordered
     [0x7ff8000000000007n, 0x7ff8000000000007n, "unordered"], [0n, 0xfff0000000000003n, "unordered"],
   ];
   for (const [ordinal, [operator, trueOn]] of operators.entries()) {
-    const header = module.tree.statements.nodes[ordinal];
+    const header = readyModuleStatements(readyModuleRoot(module.tree))[ordinal];
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === header.tsonic.signatures[0].body);
     const operation = body.mir.blocks.flatMap(block => block.statements).find(row => row.kind === "assign" && row.value.kind === "binary").value.operation.decision;
     const [type] = operation.operands;
@@ -4575,7 +4578,7 @@ test("authored bitwise operations preserve native integer widths without selecti
   const module = modules.find(row => row.module === snapshot.entryPoint);
   const types = index.types;
   for (const [ordinal, [operator, token, expected]] of cases.entries()) {
-    const declaration = module.tree.statements.nodes[ordinal];
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree))[ordinal];
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const type = body.tir.completion;
     const expression = body.tir.root.statements.nodes[0].expression;
@@ -4616,7 +4619,7 @@ test(`authored integer ${label} preserves width and its independent count behavi
     assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
     const { index, modules } = program.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const [declaration, observed] = module.tree.statements.nodes;
+    const [declaration, observed] = readyModuleStatements(readyModuleRoot(module.tree));
     const types = index.types;
     for (const [bodyId, numbers, expected] of [
       [observed.declarationList.declarations.nodes[0].tsonic.initializer, [], 1n],
@@ -4756,7 +4759,7 @@ for (const [syntax, statement, minimum, detail = ""] of [
     const { index, modules } = program.value;
     const { types } = index;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const declaration = module.tree.statements.nodes[0];
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree))[0];
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const initializerId = body.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].tsonic.initializer;
     const initializer = module.bodies.find(row => row.kind === "selected" && row.instance.body === initializerId);
@@ -4813,7 +4816,7 @@ test("loop-condition writes initialize storage only on the actual evaluation pat
     assert.equal(result.kind, "ok", syntax);
     const { index: { types }, modules } = result.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const declaration = module.tree.statements.nodes[0];
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree))[0];
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const [, loop, completion] = body.tir.root.statements.nodes;
     assert.equal(loop.kind, syntax);
@@ -4870,7 +4873,7 @@ test("unlabelled break and continue retain their own loop and native successor",
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const declaration = module.tree.statements.nodes[0];
+  const declaration = readyModuleStatements(readyModuleRoot(module.tree))[0];
   const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
   const source = captureSourceBarrier(input);
   assert.equal(source.kind, "ok");
@@ -4878,11 +4881,14 @@ test("unlabelled break and continue retain their own loop and native successor",
   assert.equal(typed.kind, "ok");
   const verifier = typed.value.verifierOf(module.module);
   const typedBody = [...typed.value.bodies.values()].find(row => row.body === body.instance.body && row.bindings.kind === "instantiated");
+  assert.deepEqual(verifyTir(verifier, typedBody), []);
   const parsed = parseTir(printTir(typedBody));
   assert.equal(parsed.kind, "parsed");
+  assert.equal(printTir(parsed.value), printTir(typedBody));
   const decodedVerifier = { ...verifier, module: { ...verifier.module,
     bodies: verifier.module.bodies.map(row => row === typedBody ? parsed.value : row) } };
-  assert.deepEqual(verifyTir(decodedVerifier, parsed.value), []);
+  assert.deepEqual(verifyTir(decodedVerifier, parsed.value).map(issue => [issue.rule, issue.site.node]),
+    typedBody.params.filter(formal => formal.initializer.kind === "ready-default").map(formal => ["nested-template-identity", formal.id]));
   const outer = parsed.value.root.statements.nodes[1];
   const inner = outer.statement.statements.nodes[0];
   const stop = inner.statement.statements.nodes[0];
@@ -4933,7 +4939,7 @@ test("a for-var initializer uses one function-owned slot still visible after the
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const declaration = module.tree.statements.nodes[0];
+  const declaration = readyModuleStatements(readyModuleRoot(module.tree))[0];
   const selected = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
   const [loop, returned] = selected.tir.root.statements.nodes;
   const variable = loop.initializer.declarations.nodes[0];
@@ -5012,7 +5018,7 @@ test(`native local compound ${name} reads before its right-hand write and stores
     const { index, modules } = program.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
     const { types } = index;
-    for (const [ordinal, authored] of module.tree.statements.nodes.entries()) {
+    for (const [ordinal, authored] of readyModuleStatements(readyModuleRoot(module.tree)).entries()) {
       const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === authored.tsonic.signatures[0].body);
       const assignment = body.tir.root.statements.nodes[0].expression;
       const type = body.tir.completion;
@@ -5089,7 +5095,7 @@ test("native local Boolean conditional assignment skips the RHS and target write
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  for (const [ordinal, declaration] of module.tree.statements.nodes.entries()) {
+  for (const [ordinal, declaration] of readyModuleStatements(readyModuleRoot(module.tree)).entries()) {
     const [kind, , token, take] = cases[Math.floor(ordinal / 2)];
     const observes = ordinal % 2 === 0;
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
@@ -5162,7 +5168,7 @@ test(`ordinary native ${family} selection skips unselected RHS effects without a
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    for (const [ordinal, declaration] of module.tree.statements.nodes.entries()) {
+    for (const [ordinal, declaration] of readyModuleStatements(readyModuleRoot(module.tree)).entries()) {
       const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
       const expression = body.tir.root.statements.nodes[0].expression;
       const type = body.tir.completion;
@@ -5231,7 +5237,7 @@ test("discarded short-circuit results need no slot but keep the actual guard rea
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const [callee, caller] = module.tree.statements.nodes.map(declaration =>
+    const [callee, caller] = readyModuleStatements(readyModuleRoot(module.tree)).map(declaration =>
       module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body));
     const selection = caller.tir.root.statements.nodes[0].expression;
     const entry = caller.mir.blocks[caller.mir.entries[0].block];
@@ -5294,7 +5300,7 @@ test("discarded ternaries preserve the selected call without materializing eithe
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types }, modules } = output.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [yes, no, choice, reads] = module.tree.statements.nodes.map(declaration =>
+  const [yes, no, choice, reads] = readyModuleStatements(readyModuleRoot(module.tree)).map(declaration =>
     module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body));
   const selected = choice.tir.root.statements.nodes[0].expression;
   const entry = choice.mir.blocks[choice.mir.entries[0].block];
@@ -5353,7 +5359,7 @@ test("dynamic short-circuit reads its guard once after earlier operands and befo
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === module.tree.statements.nodes[0].tsonic.signatures[0].body);
+    const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === readyModuleStatements(readyModuleRoot(module.tree))[0].tsonic.signatures[0].body);
     const comparison = body.tir.root.statements.nodes[0].expression;
     const selection = comparison.right.expression;
     const entry = body.mir.blocks[body.mir.entries[0].block];
@@ -5412,7 +5418,7 @@ test("known Boolean selectors keep only the reachable result and still read the 
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
     const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
       selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
-    for (const [ordinal, declaration] of module.tree.statements.nodes.entries()) {
+    for (const [ordinal, declaration] of readyModuleStatements(readyModuleRoot(module.tree)).entries()) {
       const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
       const expression = body.tir.root.statements.nodes.at(-1).expression;
       assert.equal(body.mir.blocks.every(block => block.terminator.kind !== "switch"), true);
@@ -5458,7 +5464,7 @@ test("selected Boolean arms retain their actual static reads and stores without 
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const module = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
-  const functions = module.tree.statements.nodes.filter(row => row.kind === "FunctionDeclaration");
+  const functions = readyModuleStatements(readyModuleRoot(module.tree)).filter(row => row.kind === "FunctionDeclaration");
   assert.equal(functions.length, cases.length);
   for (const [index, declaration] of functions.entries()) {
     const { name, reads, writes, ownedCopies } = cases[index];
@@ -5521,7 +5527,7 @@ test("native ternary selection preserves its authored arms and same-carrier resu
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    for (const [ordinal, declaration] of module.tree.statements.nodes.entries()) {
+    for (const [ordinal, declaration] of readyModuleStatements(readyModuleRoot(module.tree)).entries()) {
       const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
       const expression = body.tir.root.statements.nodes[0].expression;
       const type = body.tir.completion;
@@ -5647,7 +5653,7 @@ test("native literal Boolean switch dispatches once and preserves authored claus
     ["middle", (flag, first, second) => flag ? second : first],
     ["transfers", (flag, first, second) => flag && !first ? second : first],
   ]);
-  for (const declaration of module.tree.statements.nodes) {
+  for (const declaration of readyModuleStatements(readyModuleRoot(module.tree))) {
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const name = declaration.name.text;
     const outer = body.tir.root.statements.nodes[0];
@@ -5708,7 +5714,23 @@ test("native literal Boolean switch dispatches once and preserves authored claus
   assert.equal(uninitialized.diagnostics.some(diagnostic => diagnostic.code.rendered === "TSONIC_READ_BEFORE_INITIALIZATION"), true);
   const effectful = analysisInput(fixture, "sdk-minimal",
     "export function read(flag: boolean, other: boolean): boolean { switch (flag) { case (other = true): return other; default: return false; } }");
-  assert.throws(() => analyzeHostProgram(effectful), /a switch case without a selected Boolean literal/u);
+  const dynamic = analyzeHostProgram(effectful);
+  assert.equal(dynamic.kind, "ok", JSON.stringify(dynamic.diagnostics));
+  const selected = dynamic.value.modules.find(row => row.module === effectful.snapshot.entryPoint).bodies
+    .find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+  const comparison = selected.mir.blocks.flatMap(block => block.statements)
+    .filter(row => row.kind === "assign" && row.value.kind === "binary");
+  assert.equal(comparison.length, 1);
+  const selectedTypes = dynamic.value.index.types;
+  const ready = { ...deps, types: selectedTypes, typeOf: id => selectedTypes.terms[id], signatureOf: id => selectedTypes.signatures[id] };
+  for (const flag of [false, true]) for (const other of [false, true]) {
+    const literal = value => ({ kind: "boolean", type: selected.tir.completion, value });
+    const run = evaluate(ready, selected.instance, selected.mir, [literal(flag), literal(other)], "compile-time",
+      { query: "constValue", key: [selected.instance, "compile-time"] });
+    assert.equal(run.kind, "done");
+    assert.equal(run.value.kind, "ok");
+    assert.deepEqual(run.value.value, { kind: "value", value: literal(flag) });
+  }
 });
 
 test("native string and Float64 coalescing branches only on their selected absence", async () => {
@@ -5734,7 +5756,7 @@ test("native string and Float64 coalescing branches only on their selected absen
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
     const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
       selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
-    for (const declaration of module.tree.statements.nodes) {
+    for (const declaration of readyModuleStatements(readyModuleRoot(module.tree))) {
       const name = declaration.name.text;
       const body = module.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
       const statement = body.tir.root.statements.nodes[0];
@@ -5794,7 +5816,7 @@ test("Evaluate materializes a selected exact Float64 literal without rounding", 
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
   for (const [position, [name, token, bits]] of authored.entries()) {
-    const declaration = module.tree.statements.nodes[position];
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree))[position];
     assert.equal(declaration.name.text, name);
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const type = body.tir.completion;
@@ -5870,7 +5892,7 @@ test("a contextual Float64 assignment produces native bits before the stored val
     assert.equal(constant.type, from);
     return { storage, store };
   };
-  for (const declaration of module.tree.statements.nodes.filter(row => row.kind === "FunctionDeclaration")) {
+  for (const declaration of readyModuleStatements(readyModuleRoot(module.tree)).filter(row => row.kind === "FunctionDeclaration")) {
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const { storage } = verifyAssignment(body, body.tir.root.statements.nodes[1].expression, "local");
     const run = arguments_ => evaluate(deps, body.instance, body.mir, arguments_, "compile-time",
@@ -5887,7 +5909,7 @@ test("a contextual Float64 assignment produces native bits before the stored val
       expect([{ kind: "floating", type: storage, bits }], { kind: "boolean", type: body.tir.completion, value });
   }
   const moduleBody = module.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
-  const authoredStore = moduleBody.tir.root.statements.nodes.find(row => row.kind === "ExpressionStatement");
+  const authoredStore = readyModuleStatements(moduleBody.tir.root).find(row => row.kind === "ExpressionStatement");
   const { store } = verifyAssignment(moduleBody, authoredStore.expression, "static");
   const initialized = moduleBody.mir.blocks.find(block => block.statements.includes(store)).terminator;
   assert.equal(initialized.kind, "call");
@@ -5917,7 +5939,7 @@ test("fixed Float64 formals receive their authored exact literal values before t
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [callee, caller] = module.tree.statements.nodes.map(declaration =>
+  const [callee, caller] = readyModuleStatements(readyModuleRoot(module.tree)).map(declaration =>
     module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body));
   const call = caller.tir.root.statements.nodes[0].expression;
   const { decision } = call.tsonic.application;
@@ -5986,7 +6008,7 @@ test("case-free switches evaluate the authored subject once without selecting a 
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
-  for (const declaration of module.tree.statements.nodes) {
+  for (const declaration of readyModuleStatements(readyModuleRoot(module.tree))) {
     const name = declaration.name.text;
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const statement = body.tir.root.statements.nodes[0];
@@ -6017,7 +6039,20 @@ test("case-free switches evaluate the authored subject once without selecting a 
   assert.equal(uninitialized.diagnostics.some(diagnostic => diagnostic.code.rendered === "TSONIC_READ_BEFORE_INITIALIZATION"), true);
   const needsComparison = analysisInput(fixture, "sdk-minimal",
     "export function read(value: number): boolean { switch (value) { case 0: return true; default: return false; } }");
-  assert.throws(() => analyzeHostProgram(needsComparison), /a switch case without a selected Boolean literal/u);
+  const numeric = analyzeHostProgram(needsComparison);
+  assert.equal(numeric.kind, "ok", JSON.stringify(numeric.diagnostics));
+  const selected = numeric.value.modules.find(row => row.module === needsComparison.snapshot.entryPoint).bodies
+    .find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+  const selectedTypes = numeric.value.index.types;
+  const ready = { ...deps, types: selectedTypes, typeOf: id => selectedTypes.terms[id], signatureOf: id => selectedTypes.signatures[id] };
+  for (const [bits, value] of [[0n, true], [0x8000000000000000n, true],
+    [0x3ff0000000000000n, false], [0x7ff8000000000000n, false]]) {
+    const run = evaluate(ready, selected.instance, selected.mir, [{ kind: "floating", type: selected.tir.params[0].tsonic.storage, bits }],
+      "compile-time", { query: "constValue", key: [selected.instance, "compile-time"] });
+    assert.equal(run.kind, "done");
+    assert.equal(run.value.kind, "ok");
+    assert.deepEqual(run.value.value, { kind: "value", value: { kind: "boolean", type: selected.tir.completion, value } });
+  }
 });
 
 test("authored empty loop bodies preserve each form's actual control and effects without an instruction", async () => {
@@ -6035,7 +6070,7 @@ test("authored empty loop bodies preserve each form's actual control and effects
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
-  for (const [ordinal, declaration] of module.tree.statements.nodes.entries()) {
+  for (const [ordinal, declaration] of readyModuleStatements(readyModuleRoot(module.tree)).entries()) {
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const [empty, loop] = body.tir.root.statements.nodes;
     assert.equal(loop.kind, ["ForStatement", "WhileStatement", "DoStatement"][ordinal]);
@@ -6065,7 +6100,7 @@ test("module-level empty statements survive publication without adding executabl
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === module.tree.tsonic.template.body);
+    const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === readyModuleRoot(module.tree).tsonic.template.body);
     const text = printModuleBodies(index, module);
     const parsed = parseModuleBodies(index, text);
     assert.equal(parsed.kind, "parsed");
@@ -6077,14 +6112,14 @@ test("module-level empty statements survive publication without adding executabl
   const withEmpties = ";;\r\nexport let state: boolean;\r\n; state = true;\r\n; export const observed: boolean = state;\r\n;";
   for (const [source, count, effects] of [["", 0, false], [";\r\n;;", 3, false], [withEmpties, 5, true]]) {
     const { index, module, body, statements } = run(source);
-    const empty = module.tree.statements.nodes.filter(statement => statement.kind === "EmptyStatement");
+    const empty = readyModuleStatements(readyModuleRoot(module.tree)).filter(statement => statement.kind === "EmptyStatement");
     const spans = source === withEmpties ? [0, 1, source.indexOf("\r\n; state") + 2,
       source.indexOf("\r\n; export") + 2, source.length - 1] : source === "" ? [] : [0, 3, 4];
     assert.equal(empty.length, count);
     assert.deepEqual(empty.map(node => node.origin.start), spans);
     const template = module.bodies.find(row => row.kind === "template" && row.instance.body === body.instance.body);
-    assert.equal(template.tir.root === module.tree, true);
-    assert.deepEqual(body.tir.root.statements.nodes.filter(statement => statement.kind === "EmptyStatement"), empty);
+    assert.equal(template.tir.root === readyModuleRoot(module.tree), true);
+    assert.deepEqual(readyModuleStatements(body.tir.root).filter(statement => statement.kind === "EmptyStatement"), empty);
     for (const node of empty) {
       assert.equal(node.tsonic, null);
       assert.equal(node.origin.length, 1);
@@ -6098,7 +6133,7 @@ test("module-level empty statements survive publication without adding executabl
       assert.deepEqual(statements, []);
       assert.deepEqual(body.mir.blocks.map(block => block.terminator.kind), ["return"]);
     } else {
-      const write = module.tree.statements.nodes.find(statement => statement.kind === "ExpressionStatement").expression;
+      const write = readyModuleStatements(readyModuleRoot(module.tree)).find(statement => statement.kind === "ExpressionStatement").expression;
       const store = statements.find(row => row.tir.node === write.id);
       assert.equal(store.kind, "assign");
       assert.deepEqual(body.mir.places[store.place].base, { kind: "static", definition: write.left.tsonic.resolution.declaration.owner });
@@ -6132,7 +6167,7 @@ test("lexical type-only declarations survive publication without runtime work", 
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const callable = module.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration");
+  const callable = readyModuleStatements(readyModuleRoot(module.tree)).find(node => node.kind === "FunctionDeclaration");
   const selected = module.bodies.find(row => row.kind === "selected" && row.tir.owner === callable.tsonic.definition);
   const [outer, block] = selected.tir.root.statements.nodes;
   const [shape, local, variable] = block.statements.nodes;
@@ -6159,7 +6194,7 @@ test("lexical type-only declarations survive publication without runtime work", 
   }`);
   assert.equal(inSwitch.result.kind, "ok", JSON.stringify(inSwitch.result.diagnostics));
   const switchModule = inSwitch.result.value.modules.find(row => row.module === inSwitch.input.snapshot.entryPoint);
-  const switchCallable = switchModule.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration");
+  const switchCallable = readyModuleStatements(readyModuleRoot(switchModule.tree)).find(node => node.kind === "FunctionDeclaration");
   const switchBody = switchModule.bodies.find(row => row.kind === "selected" && row.tir.owner === switchCallable.tsonic.definition);
   const selection = switchBody.tir.root.statements.nodes[0];
   const declarations = selection.caseBlock.clauses.nodes.map(clause => clause.statements.nodes[0]);
@@ -6214,8 +6249,8 @@ test("authored same-carrier assertions preserve the operand and written type exa
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
-  assert.equal(module.tree.statements.nodes.length, authored.length);
-  for (const [index, declaration] of module.tree.statements.nodes.entries()) {
+  assert.equal(readyModuleStatements(readyModuleRoot(module.tree)).length, authored.length);
+  for (const [index, declaration] of readyModuleStatements(readyModuleRoot(module.tree)).entries()) {
     const { kind, annotation, values, expected } = authored[index];
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const wrapper = body.tir.root.statements.nodes[0].expression;
@@ -6274,7 +6309,7 @@ test("non-null assertions over already-present native values preserve the operan
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [toggle, ...callers] = module.tree.statements.nodes.map(declaration =>
+  const [toggle, ...callers] = readyModuleStatements(readyModuleRoot(module.tree)).map(declaration =>
     module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body));
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
@@ -6390,7 +6425,7 @@ test("inferred no-value signatures preserve each actual normal and unwind exit",
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types, summaries }, modules } = output.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const declarations = module.tree.statements.nodes;
+  const declarations = readyModuleStatements(readyModuleRoot(module.tree));
   assert.equal(declarations.length, 4);
   for (const [position, declaration] of declarations.entries()) {
     const endpoint = declaration.tsonic.signatures[0];
@@ -6460,7 +6495,7 @@ test("a public open conditional publishes its actual key domain and constrained 
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   assert.deepEqual(result.diagnostics, []);
   const module = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
-  const [alias] = module.tree.statements.nodes;
+  const [alias] = readyModuleStatements(readyModuleRoot(module.tree));
   const { terms } = result.value.index.types;
   const conditional = terms[alias.tsonic.type];
   assert.equal(conditional.projection.kind, "conditional");
@@ -6545,7 +6580,7 @@ test("discarding a selected call result keeps its effects and both continuations
     assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
     const { index: { types }, modules } = output.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const [callee, discard, forward] = module.tree.statements.nodes.map(declaration =>
+    const [callee, discard, forward] = readyModuleStatements(readyModuleRoot(module.tree)).map(declaration =>
       module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body));
     const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
       selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
@@ -6585,7 +6620,7 @@ test("discarding a selected call result keeps its effects and both continuations
   const output = analyzeHostProgram(input);
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const module = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
-  const through = module.tree.statements.nodes.at(-1);
+  const through = readyModuleStatements(readyModuleRoot(module.tree)).at(-1);
   const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === through.tsonic.signatures[0].body);
   assert.equal(body.mir.blocks.find(block => block.terminator.kind === "call").terminator.destination, null);
   const summary = output.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === body.instance.body);
@@ -6613,7 +6648,7 @@ test("a destination-free never call unwinds without observing the later read", a
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const declaration = module.tree.statements.nodes.find(row => row.kind === "FunctionDeclaration" && row.name.text === "run");
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree)).find(row => row.kind === "FunctionDeclaration" && row.name.text === "run");
     const body = module.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
     const call = body.mir.blocks.find(block => block.terminator.kind === "call").terminator;
     assert.equal(call.destination, null);
@@ -6652,7 +6687,7 @@ test("destination-free void calls execute before continuation without a dummy ab
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
-  const [callee, ...callers] = module.tree.statements.nodes.map(declaration => module.bodies.find(row => row.kind === "selected"
+  const [callee, ...callers] = readyModuleStatements(readyModuleRoot(module.tree)).map(declaration => module.bodies.find(row => row.kind === "selected"
     && row.instance.body === declaration.tsonic.signatures[0].body));
   assert.equal(callers.length, 2);
   for (const [index, body] of callers.entries()) {
@@ -6692,7 +6727,7 @@ test("destination-free void calls execute before continuation without a dummy ab
   const effects = analyzeHostProgram(effectsInput);
   assert.equal(effects.kind, "ok", JSON.stringify(effects.diagnostics));
   const effectModule = effects.value.modules.find(row => row.module === effectsInput.snapshot.entryPoint);
-  const through = effectModule.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration" && node.name.text === "through");
+  const through = readyModuleStatements(readyModuleRoot(effectModule.tree)).find(node => node.kind === "FunctionDeclaration" && node.name.text === "through");
   const effectBody = effectModule.bodies.find(row => row.kind === "selected" && row.instance.body === through.tsonic.signatures[0].body);
   const called = effectBody.mir.blocks.find(block => block.terminator.kind === "call").terminator;
   assert.equal(called.destination, null);
@@ -6716,7 +6751,7 @@ test("parenthesized type annotations retain authored wrappers without changing n
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const declaration = module.tree.statements.nodes[0];
+  const declaration = readyModuleStatements(readyModuleRoot(module.tree))[0];
   const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
   const type = body.tir.completion;
   assert.equal(body.tir.params[0].tsonic.storage, type);
@@ -6756,7 +6791,7 @@ test("authored singleton type annotations keep exact Boolean and quoted string p
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [disabled, label, echo] = module.tree.statements.nodes;
+  const [disabled, label, echo] = readyModuleStatements(readyModuleRoot(module.tree));
   const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === echo.tsonic.signatures[0].body);
   for (const [annotation, kind, value, base] of [
     [disabled.type, "FalseKeyword", { kind: "boolean", value: false }, { kind: "primitive", primitive: "bool" }],
@@ -6809,7 +6844,7 @@ test("a no-substitution template type retains its authored token and shares exac
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [quoted, template, forward] = module.tree.statements.nodes;
+  const [quoted, template, forward] = readyModuleStatements(readyModuleRoot(module.tree));
   const type = quoted.type.tsonic.type;
   const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === forward.tsonic.signatures[0].body);
   for (const annotation of [template.type, body.tir.params[0].type]) {
@@ -6861,8 +6896,8 @@ test("authored backtick strings without substitutions retain cooked values throu
   assert.equal(ready.kind, "ok");
   const observed = new Map();
   const lower = pipelineWiring.lowerMir.lowerToMir;
-  pipelineWiring.lowerMir.lowerToMir = (deps, tir, internal) => {
-    const result = lower(deps, tir, internal);
+  pipelineWiring.lowerMir.lowerToMir = (deps, tir, internal, requiredEntries) => {
+    const result = lower(deps, tir, internal, requiredEntries);
     if (tir.bindings.kind === "instantiated" && result.kind === "ok") observed.set(tir.body, { tir, mir: result.value,
       instance: { body: tir.body, bindings: tir.bindings } });
     return result;
@@ -6876,7 +6911,7 @@ test("authored backtick strings without substitutions retain cooked values throu
   const types = viewTypes(checked.value.types);
   const module = ready.value.modules.get(input.snapshot.entryPoint);
   const bodyFor = name => {
-    const declaration = module.tree.statements.nodes.find(row => row.name.text === name);
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree)).find(row => row.name.text === name);
     return observed.get(declaration.tsonic.signatures[0].body);
   };
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
@@ -6927,7 +6962,7 @@ test("discarded string literals preserve authored syntax without materializing u
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const declaration = module.tree.statements.nodes[0];
+  const declaration = readyModuleStatements(readyModuleRoot(module.tree))[0];
   const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
   const [quoted, template] = body.tir.root.statements.nodes;
   assert.equal(quoted.expression.kind, "StringLiteral");
@@ -6961,7 +6996,7 @@ test("finite template type annotations retain the checked literals, operands and
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [product, expected, single, exact] = module.tree.statements.nodes;
+  const [product, expected, single, exact] = readyModuleStatements(readyModuleRoot(module.tree));
   const annotation = product.type;
   assert.equal(annotation.kind, "TemplateLiteralType");
   assert.equal(annotation.tsonic.type, expected.type.tsonic.type, "the actual selected string literals intern as the same explicit union");
@@ -7005,7 +7040,7 @@ test("closed keyof and indexed access annotations publish the actual checker res
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [shape, key, marker, pass] = module.tree.statements.nodes;
+  const [shape, key, marker, pass] = readyModuleStatements(readyModuleRoot(module.tree));
   assert.equal(key.type.kind, "TypeOperator");
   assert.equal(key.type.operator, "KeyOfKeyword");
   assert.equal(key.type.type.tsonic.type, shape.type.tsonic.type);
@@ -7053,7 +7088,7 @@ test("mutually recursive declared member types preserve both exact qualified dep
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [left, right, nextLeft, nextRight] = module.tree.statements.nodes;
+  const [left, right, nextLeft, nextRight] = readyModuleStatements(readyModuleRoot(module.tree));
   assert.notEqual(left.tsonic.definition, right.tsonic.definition);
   for (const [owner, other, query] of [[left, right, nextLeft], [right, left, nextRight]]) {
     const member = owner.members.nodes[0].type;
@@ -7092,7 +7127,7 @@ test("grounded recursive structural aliases publish their real canonical type cy
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [link, first, second, next, back] = module.tree.statements.nodes;
+  const [link, first, second, next, back] = readyModuleStatements(readyModuleRoot(module.tree));
   const identities = [link, first, second].map(declaration => declaration.type.tsonic.type);
   assert.equal(new Set(identities).size, 3);
   for (const [index, [declaration, target, selection]] of [[link, link, null], [first, second, next], [second, first, back]].entries()) {
@@ -7164,7 +7199,7 @@ test("identifier type queries retain each selected type and declaration without 
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [variable, alias, hold] = module.tree.statements.nodes;
+  const [variable, alias, hold] = readyModuleStatements(readyModuleRoot(module.tree));
   const declaration = variable.declarationList.declarations.nodes[0].name.tsonic.declaration;
   assert.equal(declaration.kind, "definition");
   const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === hold.tsonic.signatures[0].body);
@@ -7204,7 +7239,7 @@ test("closed conditional type annotations preserve both authored branches and bo
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [selected, hold] = module.tree.statements.nodes;
+  const [selected, hold] = readyModuleStatements(readyModuleRoot(module.tree));
   const annotation = selected.type;
   assert.equal(annotation.kind, "ConditionalType");
   assert.equal(annotation.checkType.literal.kind, "TrueKeyword");
@@ -7310,8 +7345,9 @@ test("an imported failed indexed type preserves the original document's UTF-16 d
     const ready = analyzeHostProgram({ ...input, snapshot: snapshot(text(validKey)) });
     assert.equal(ready.kind, "ok");
     assert.deepEqual(ready.diagnostics, []);
-    const declaration = ready.value.modules.find(row => row.module === foreign).tree.statements.nodes.at(-1);
-    const [, read] = ready.value.modules.find(row => row.module === failed.snapshot.entryPoint).tree.statements.nodes;
+    const foreignTree = ready.value.modules.find(row => row.module === foreign).tree;
+    const declaration = readyModuleStatements(readyModuleRoot(foreignTree)).at(-1);
+    const [, read] = readyModuleStatements(readyModuleRoot(ready.value.modules.find(row => row.module === failed.snapshot.entryPoint).tree));
     assert.equal(declaration.type.kind, "IndexedAccessType");
     assert.equal(read.type.tsonic.type, declaration.type.tsonic.type);
     assert.deepEqual(ready.value.index.types.terms[read.type.tsonic.type], { kind: "string" });
@@ -7330,7 +7366,7 @@ test("authored unique symbol fields and their indexed type queries preserve dist
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [keys, left, right] = module.tree.statements.nodes;
+  const [keys, left, right] = readyModuleStatements(readyModuleRoot(module.tree));
   const [first, second, general] = keys.members.nodes;
   const base = general.type.tsonic.type;
   assert.deepEqual(types.terms[base], { kind: "intrinsic", intrinsic: "symbol" });
@@ -7365,7 +7401,7 @@ test("unlabelled tuple annotations keep slot omission distinct from a required s
   assert.equal(initializer !== undefined && initializer.mir.constants.length === 0
     && initializer.mir.blocks.every(block => block.statements.length === 0), true,
     "The selected module initializer contains no work for type-only tuple syntax");
-  const [mutable, readonly, required] = module.tree.statements.nodes;
+  const [mutable, readonly, required] = readyModuleStatements(readyModuleRoot(module.tree));
   const slots = [mutable.type, readonly.type.type, required.type];
   assert.deepEqual(slots.map(annotation => annotation.kind), ["TupleType", "TupleType", "TupleType"]);
   assert.equal(readonly.type.kind, "TypeOperator");
@@ -7403,7 +7439,7 @@ test("native local bitwise compound assignment keeps the pre-RHS value at its se
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   for (const [ordinal, [operator, token, positive, negative]] of cases.entries()) {
-    const declaration = module.tree.statements.nodes[ordinal];
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree))[ordinal];
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const assignment = body.tir.root.statements.nodes[0].expression;
     const type = body.tir.completion;
@@ -7466,7 +7502,7 @@ test(`native local compound ${family} preserves its own faults and stores only o
     assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
     const { index: { types }, modules } = program.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const [declaration] = module.tree.statements.nodes;
+    const [declaration] = readyModuleStatements(readyModuleRoot(module.tree));
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const assignment = body.tir.root.statements.nodes[0].expression;
     const type = body.tir.completion;
@@ -7524,7 +7560,7 @@ test("authored integer left shift keeps count and result overflow as separate se
     assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
     const { index: { types }, modules } = program.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const [declaration] = module.tree.statements.nodes;
+    const [declaration] = readyModuleStatements(readyModuleRoot(module.tree));
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const type = body.tir.completion;
     const invokes = body.mir.blocks.map(row => row.terminator).filter(row => row.kind === "invoke");
@@ -7581,7 +7617,7 @@ test("authored integer division uses independently selected rounding, zero and q
     assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
     const { index, modules } = program.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const [declaration, observed] = module.tree.statements.nodes;
+    const [declaration, observed] = readyModuleStatements(readyModuleRoot(module.tree));
     const callable = declaration.tsonic.signatures[0].body;
     const initializer = observed.declarationList.declarations.nodes[0].tsonic.initializer;
     const types = index.types;
@@ -7635,7 +7671,7 @@ test("authored integer remainder preserves its independent sign and zero-divisor
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
     const module = modules.find(row => row.module === original.snapshot.entryPoint);
-    const [declaration] = module.tree.statements.nodes;
+    const [declaration] = readyModuleStatements(readyModuleRoot(module.tree));
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const expression = body.tir.root.statements.nodes[0].expression;
     const type = body.tir.completion;
@@ -7685,7 +7721,7 @@ test(`native integer ${name} compares adjacent exact integers without double rou
   const module = modules.find(row => row.module === snapshot.entryPoint);
   const types = index.types;
   for (const [ordinal, [operator, adjacent, equal]] of rows.entries()) {
-    const declaration = module.tree.statements.nodes[ordinal];
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree))[ordinal];
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const [formal] = types.signatures[body.tir.signature].parameters;
     const type = body.tir.completion;
@@ -7723,7 +7759,7 @@ test("two inferred callable groups verify the transitive initialization read at 
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [, read, forward, observed] = module.tree.statements.nodes;
+  const [, read, forward, observed] = readyModuleStatements(readyModuleRoot(module.tree));
   const readBody = read.tsonic.signatures.find(row => row.role === "api-body").body;
   const forwardBody = forward.tsonic.signatures.find(row => row.role === "api-body").body;
   const initializer = observed.declarationList.declarations.nodes[0].tsonic;
@@ -8004,6 +8040,45 @@ test("checked dependency diagnostics follow exact required executions, not packa
   }
 });
 
+test("an unresolved eager link reports only when its owning dependency initializer is required", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const root = "/project/node_modules/dependency";
+  const name = "dependency";
+  const dependency = 'import "./missing.js"; export type Ready = boolean;';
+  const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
+  for (const eager of [false, true]) {
+    const source = eager ? 'import "dependency";' : 'import type { Ready } from "dependency"; export type Result = Ready;';
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+      extraFiles: { [root + "/package.json"]: JSON.stringify({ name, version: "1.0.0", types: "index.ts" }) },
+      otherPackages: [{ root, name, modules: { "index.ts": ["source", dependency, false] } }] });
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const [original] = captured.value.modules.find(row => row.module.module === module).module.checkerDiagnostics;
+    assert.equal(original.code.rendered, "TS2882");
+    const typed = typeSourceBarrier(input, captured.value, createTypedAccount(input));
+    const result = analyzeHostProgram(input);
+    if (eager) {
+      assert.equal(typed.kind, "refused");
+      assert.equal(typed.diagnostics.length, 1);
+      assert.equal(typed.diagnostics[0], original);
+      assert.equal(result.kind, "refused");
+      assert.deepEqual(result.diagnostics, [original]);
+    } else {
+      assert.equal(typed.kind, "ok");
+      assert.equal(result.kind, "ok");
+      assert.deepEqual(result.diagnostics, []);
+      const chapter = result.value.modules.find(row => row.module === module);
+      assert.equal(chapter.tree.kind, "checked-root");
+      assert.deepEqual(chapter.bodies, []);
+    }
+  }
+});
+
 test("dependency defaults are opened only by the selected provided counts", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -8189,13 +8264,20 @@ test("typed modules retain only their own ready templates and selected bodies in
   assert.equal(modules.size, captured.value.modules.length);
   const selected = [...bodies.values()].filter(body => body.bindings.kind === "instantiated");
   assert.ok(selected.length > Object.keys(sourceFiles).length * 2);
-  for (const { module: checked } of captured.value.modules) {
+  for (const { module: checked, role } of captured.value.modules) {
     const published = modules.get(checked.module);
     const ownSelected = selected.filter(body => body.root.origin.module === checked.module);
+    if (role === "declaration") {
+      assert.equal(published.tree.kind, "checked-root");
+      assert.equal(published.tree.root, checked.tree);
+      assert.deepEqual(published.bodies, []);
+      assert.deepEqual(ownSelected, []);
+      continue;
+    }
     const templates = checked.bodies.map(body => instanceKey({ body: body.body, bindings: { kind: "parametric" } }));
     const keyOf = body => instanceKey({ body: body.body, bindings: body.bindings });
     assert.deepEqual(published.bodies.map(keyOf), [...templates, ...ownSelected.map(keyOf)]);
-    assert.equal(published.tree === published.bodies.find(body => body.root.kind === "SourceFile").root, true);
+    assert.equal(readyModuleRoot(published.tree) === published.bodies.find(body => body.root.kind === "SourceFile").root, true);
     assert.equal(published.bodies.every(body => body.root.origin.module === checked.module && body === bodies.get(keyOf(body))), true);
   }
 });
@@ -8615,7 +8697,7 @@ test("typed dependencies retain the exact call entry and default even when the n
     const { index, modules } = result.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
     const selected = name => {
-      const declaration = module.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+      const declaration = readyModuleStatements(readyModuleRoot(module.tree)).find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
       return module.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
     };
     const leaf = selected("leaf");
@@ -8636,13 +8718,13 @@ test("typed dependencies retain the exact call entry and default even when the n
   }
 });
 
-test("one qualified offered-entry inventory serves both activation and external entry selection", async () => {
+test("external entries use the selected qualified declaration without activating unopened siblings", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const shapes = [
-    ...Array.from({ length: 8 }, (_, position) => [`leaf${position}`, "input: boolean", "input", [1]]),
-    ["optional", "input: boolean, tail?: boolean", "input", [1, 2]],
-    ["target", "input: boolean, first: boolean = input, second: boolean = first", "second", [1, 2, 3]],
+    ...Array.from({ length: 8 }, (_, position) => [`leaf${position}`, "input: boolean", "input"]),
+    ["optional", "input: boolean, tail?: boolean", "input"],
+    ["target", "input: boolean, first: boolean = input, second: boolean = first", "second"],
   ];
   const text = shapes.map(([name, parameters, body]) =>
     `function ${name}(${parameters}): boolean { return ${body}; }`).join("\n") + "\nexport { target as selected };";
@@ -8658,27 +8740,20 @@ test("one qualified offered-entry inventory serves both activation and external 
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   const root = module.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
   assert.equal(index.initialization.modules.some(row => row.instance.body === root.instance.body), true);
-  const activations = index.dependencyInventory.dependencies.filter(row => row.reason === "activation"
-    && row.dependent.instance.body === root.instance.body);
-  const byProvided = (left, right) => left.provided - right.provided;
-  assert.equal(activations.length, shapes.reduce((count, row) => count + row[3].length, 0));
-  for (const [name, , , offered] of shapes) {
-    const declaration = module.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
-    const selected = module.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
-    const expected = offered.map(provided => ({ instance: selected.instance, provided }));
-    const actual = activations.filter(row => row.at.node === declaration.id).map(row => row.target.execution);
-    assert.deepEqual(actual.toSorted(byProvided), expected, name);
-    if (name === "target") assert.deepEqual(index.initialization.entries.toSorted(byProvided), expected);
+  assert.deepEqual(index.dependencyInventory.dependencies.filter(row => row.reason === "activation"), []);
+  for (const [name] of shapes) {
+    const declaration = readyModuleStatements(readyModuleRoot(module.tree)).find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+    const offered = index.initialization.entries.filter(entry => entry.instance.body === declaration.tsonic.signatures[0].body);
+    if (name === "target") {
+      const selected = module.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+      assert.deepEqual(offered, index.initialization.entries);
+      assert.deepEqual(offered.toSorted((left, right) => left.provided - right.provided),
+        [1, 2, 3].map(provided => ({ instance: selected.instance, provided })));
+    } else assert.deepEqual(offered, [], name);
   }
   const shadow = modules.find(row => row.module === fixture.moduleOf(fixture.packageOf("/project"), "src/shadow.ts"));
-  const shadowRoot = shadow.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
-  const shadowDeclaration = shadow.tree.statements.nodes.find(row => row.kind === "FunctionDeclaration");
-  const shadowTarget = shadow.bodies.find(row => row.kind === "selected" && row.tir.owner === shadowDeclaration.tsonic.definition);
-  const shadowActivations = index.dependencyInventory.dependencies.filter(row => row.reason === "activation"
-    && row.dependent.instance.body === shadowRoot.instance.body);
-  assert.deepEqual(shadowActivations.map(row => [row.at.node, row.target]), [
-    [shadowDeclaration.id, { kind: "body", execution: { instance: shadowTarget.instance, provided: 1 } }],
-  ]);
+  const shadowDeclaration = readyModuleStatements(readyModuleRoot(shadow.tree)).find(row => row.kind === "FunctionDeclaration");
+  assert.equal(index.initialization.entries.some(entry => entry.instance.body === shadowDeclaration.tsonic.signatures[0].body), false);
 });
 
 test("the actual selected-call analysis admits its indices before growth and retains the original account refusal", async () => {

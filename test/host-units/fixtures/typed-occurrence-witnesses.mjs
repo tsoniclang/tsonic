@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readyModuleRoot, readyModuleStatements } from "./chapter-syntax.mjs";
 import { createAccount } from "../../../packages/host/dist/dataflow/index.js";
 import { loadFrontFixture } from "./front/checked-module.mjs";
 import { analysisInput } from "./front/analysis-input.mjs";
@@ -87,7 +88,7 @@ export async function checkCommaSequence() {
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [combine, literal] = module.tree.statements.nodes.map(declaration => module.bodies.find(row =>
+  const [combine, literal] = readyModuleStatements(readyModuleRoot(module.tree)).map(declaration => module.bodies.find(row =>
     row.kind === "selected" && row.tir.body === declaration.tsonic.signatures[0].body));
   assert.ok(combine && literal);
   const expression = body => body.tir.root.statements.nodes[0].expression.expression;
@@ -179,7 +180,7 @@ export async function checkCoalescingAssignment() {
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index: { types }, modules } = result.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    for (const [ordinal, declaration] of module.tree.statements.nodes.entries()) {
+    for (const [ordinal, declaration] of readyModuleStatements(readyModuleRoot(module.tree)).entries()) {
       const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
       const assignment = body.tir.root.statements.nodes[0].expression;
       const type = body.tir.completion;
@@ -249,7 +250,7 @@ export async function checkOptionalEmbedding() {
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
   const absenceEndpoints = [];
-  for (const declaration of module.tree.statements.nodes) {
+  for (const declaration of readyModuleStatements(readyModuleRoot(module.tree))) {
     const name = declaration.name.text;
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const resultType = body.tir.completion;
@@ -372,7 +373,7 @@ export async function checkLabelledTransfers() {
     const choice = outer.statement.statements.nodes[0].statement.statements.nodes[0];
     return { labels: [outer], transfers: [[choice.caseBlock.clauses.nodes[0].statements.nodes[0], outer]] };
   };
-  for (const declaration of module.tree.statements.nodes) {
+  for (const declaration of readyModuleStatements(readyModuleRoot(module.tree))) {
     const name = declaration.name.text;
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const original = [...typed.value.bodies.values()].find(row => row.body === body.instance.body && row.bindings.kind === "instantiated");
@@ -446,7 +447,7 @@ export async function checkVoidOperand() {
   assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
   const { index: { types }, modules } = output.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [act, effect, used, discarded, usedEffect, discardedEffect, store, usedStore] = module.tree.statements.nodes.map(declaration =>
+  const [act, effect, used, discarded, usedEffect, discardedEffect, store, usedStore] = readyModuleStatements(readyModuleRoot(module.tree)).map(declaration =>
     module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body));
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };

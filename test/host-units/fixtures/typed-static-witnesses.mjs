@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readyModuleRoot, readyModuleStatements } from "./chapter-syntax.mjs";
 import { createAccount } from "../../../packages/host/dist/dataflow/index.js";
 import { loadFrontFixture } from "./front/checked-module.mjs";
 import { analysisInput } from "./front/analysis-input.mjs";
@@ -129,7 +130,7 @@ export async function checkStaticUpdates() {
     assert.equal(typed.kind, "ok");
     for (const [position, operator, postfix] of [[1, "++", false], [2, "++", true], [3, "--", false], [4, "--", true]]) {
       const label = `${law} ${postfix ? "postfix" : "prefix"} ${operator}`;
-      const declaration = module.tree.statements.nodes[position];
+      const declaration = readyModuleStatements(readyModuleRoot(module.tree))[position];
       const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
       const returned = body.tir.root.statements.nodes[0];
       const update = returned.expression;

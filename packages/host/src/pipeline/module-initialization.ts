@@ -52,6 +52,7 @@ export function planModuleInitialization(entryPoint: ModuleId, source: SourceBar
       if (statement?.kind !== "ImportDeclaration" && statement?.kind !== "JSImportDeclaration" && statement?.kind !== "ExportDeclaration")
         return fail("An eager module link must retain its actual authored import or export.");
       const target = statement.tsonic.target;
+      if (target.kind === "unavailable" && target.reason === "checker-error") continue;
       if (target.kind !== "available" || target.value === null) return fail("An eager module link requires its actual checked target.");
       if (target.value.target !== "project") continue;
       const destination = positions.get(target.value.module);

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readyModuleRoot, readyModuleStatements } from "./chapter-syntax.mjs";
 import { analysisInput } from "./front/analysis-input.mjs";
 import { loadFrontFixture } from "./front/checked-module.mjs";
 
@@ -20,7 +21,7 @@ export async function checkComputedDeclarationNames() {
   const { index, modules } = outcome.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   assert.ok(module);
-  const [shape] = module.tree.statements.nodes;
+  const [shape] = readyModuleStatements(readyModuleRoot(module.tree));
   assert.equal(shape.kind, "InterfaceDeclaration");
   const [property, method, named, qualified] = shape.members.nodes;
   const expected = [{ kind: "text", value: "label" },
@@ -82,7 +83,7 @@ export async function checkNestedComputedDeclarationNames() {
   const { index, modules } = result.value;
   const module = modules.find(entry => entry.module === input.snapshot.entryPoint);
   assert.ok(module);
-  const [alias, box] = module.tree.statements.nodes;
+  const [alias, box] = readyModuleStatements(readyModuleRoot(module.tree));
   assert.equal(alias.kind, "TypeAliasDeclaration");
   assert.equal(box.kind, "InterfaceDeclaration");
   const [nested] = box.members.nodes;
@@ -142,7 +143,7 @@ export async function checkParenthesizedComputedDeclarationNames() {
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const [shape, echo] = module.tree.statements.nodes;
+  const [shape, echo] = readyModuleStatements(readyModuleRoot(module.tree));
   const [property] = shape.members.nodes;
   const name = property.name;
   assert.equal(name.kind, "ComputedPropertyName");
@@ -230,7 +231,7 @@ export async function checkCallShapedComputedDeclarationName() {
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === snapshot.entryPoint);
-  const [box, identity, invoke] = module.tree.statements.nodes;
+  const [box, identity, invoke] = readyModuleStatements(readyModuleRoot(module.tree));
   const { name } = box.members.nodes[0];
   const wrapper = name.expression;
   const call = wrapper.expression;
@@ -262,7 +263,7 @@ export async function checkCallShapedComputedDeclarationName() {
   assert.deepEqual(parseModuleBodies(index, printModuleBodies(index, module)), { kind: "parsed", value: module });
   const template = module.bodies.find(row => row.kind === "template" && row.instance.body === moduleBody.instance.body);
   assert.ok(template);
-  const activationOf = body => body.root.statements.nodes[2].body.statements.nodes[0].expression.tsonic.application.decision.callee.activation;
+  const activationOf = body => readyModuleStatements(body.root)[2].body.statements.nodes[0].expression.tsonic.application.decision.callee.activation;
   const templateActivation = activationOf(template.tir);
   assert.equal(templateActivation.body, called.instance.body);
   assert.equal(templateActivation.bindings.kind, "parametric");

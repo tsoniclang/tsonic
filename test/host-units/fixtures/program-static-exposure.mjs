@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readyModuleStatements } from "./chapter-syntax.mjs";
 import { analysisInput } from "./front/analysis-input.mjs";
 import { loadFrontFixture } from "./front/checked-module.mjs";
 
@@ -318,7 +319,7 @@ export async function checkInterruptedModuleInitialization() {
   const main = index.initialization.entry;
   assert.equal(modules.find(module => module.module === main).bodies
     .some(body => body.kind === "selected" && body.instance.body === later.instance.body), true);
-  const [thrown] = firstBody.tir.root.statements.nodes;
+  const [thrown] = readyModuleStatements(firstBody.tir.root);
   assert.equal(thrown.kind, "ThrowStatement");
   assert.equal(thrown.expression.kind, "FalseKeyword");
   assert.deepEqual(firstBody.mir.blocks.map(block => block.terminator.kind), ["throw"]);
