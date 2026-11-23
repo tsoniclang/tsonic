@@ -18,6 +18,11 @@ const authored = 'export type Select<Key extends "done" | "recur"> = { done: boo
   + 'export type Done = { done: boolean; recur: string }["done"];'
   + 'export type Recur = { done: boolean; recur: string }["recur"];';
 
+function publishedStatements(module) {
+  const { kind, root } = module.tree;
+  return kind === "checked-root" ? root.statements.nodes : root.statements.nodes.map(slot => slot.node);
+}
+
 test("Stage 3 retains exact authored numeric singleton types without executing their minus syntax", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -33,7 +38,7 @@ test("Stage 3 retains exact authored numeric singleton types without executing t
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
   const module = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
-  const [plain, minus, zero, fraction, projected, keep] = module.tree.statements.nodes;
+  const [plain, minus, zero, fraction, projected, keep] = publishedStatements(module);
   const terms = result.value.index.types.terms;
   const exact = (type, numerator, denominator = 1n, negativeZero = false) => {
     const term = terms[type];
@@ -130,10 +135,10 @@ test("Stage 3 keeps colliding native numeric alias answers separate through re-e
   assert.deepEqual(result.diagnostics, []);
   const seedId = fixture.moduleOf(fixture.packageOf("/project"), "src/seed.ts");
   const seed = result.value.modules.find(module => module.module === seedId);
-  const [exact, nearby] = seed.tree.statements.nodes.map(node => node.tsonic.type);
+  const [exact, nearby] = publishedStatements(seed).map(node => node.tsonic.type);
   assert.notEqual(exact, nearby);
   const target = result.value.modules.find(module => module.module === snapshot.entryPoint);
-  const [first, second, local, fraction, other] = target.tree.statements.nodes.slice(1).map(node => node.tsonic.type);
+  const [first, second, local, fraction, other] = publishedStatements(target).slice(1).map(node => node.tsonic.type);
   assert.deepEqual([first, second, local, other], [exact, nearby, exact, fraction]);
   const terms = result.value.index.types.terms;
   for (const [identity, numerator, denominator] of [[first, 9007199254740993n, 1n], [second, 9007199254740992n, 1n], [other, -1n, 10n]])
@@ -157,7 +162,7 @@ test("Stage 3 keeps the exact checked source of a closed indexed property instea
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
   const module = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
-  const [exact, nearby, fraction, , ...reads] = module.tree.statements.nodes;
+  const [exact, nearby, fraction, , ...reads] = publishedStatements(module);
   assert.notEqual(exact.tsonic.type, nearby.tsonic.type);
   assert.deepEqual(reads.map(read => read.tsonic.type), [exact, nearby, fraction, fraction].map(alias => alias.tsonic.type));
   assert.equal(reads.every(read => read.type.kind === "IndexedAccessType"), true);
@@ -176,7 +181,7 @@ test("Stage 3 publishes the exact authored read and ordinary write types of stru
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
   const module = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
-  const [exact, nearby, fraction, shape] = module.tree.statements.nodes.map(alias => alias.tsonic.type);
+  const [exact, nearby, fraction, shape] = publishedStatements(module).map(alias => alias.tsonic.type);
   assert.notEqual(exact, nearby);
   const term = result.value.index.types.terms[shape];
   assert.equal(term.kind, "shape");
@@ -198,7 +203,7 @@ test("Stage 3 retains the exact authored formals and returns of executing signat
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
   const module = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
-  const [, ...functions] = module.tree.statements.nodes;
+  const [, ...functions] = publishedStatements(module);
   const types = result.value.index.types;
   const identities = [];
   for (const [declaration, numerator, denominator] of [
@@ -240,7 +245,7 @@ for (const [operator, definition] of [
     assert.deepEqual(result.diagnostics, []);
     const { index, modules } = result.value;
     const module = modules.find(row => row.module === input.snapshot.entryPoint);
-    const [alias, ...functions] = module.tree.statements.nodes;
+    const [alias, ...functions] = publishedStatements(module);
     const template = index.types.terms[alias.tsonic.type];
     assert.equal(template.kind, "projection");
     assert.equal(template.projection.kind, operator);
@@ -637,7 +642,7 @@ test("Stage 3 preserves the actual mutable and readonly declared array annotatio
   assert.deepEqual(result.diagnostics, []);
   const { index, modules } = result.value;
   const module = modules.find(row => row.module === snapshot.entryPoint);
-  const [mutable, immutable, ready] = module.tree.statements.nodes;
+  const [mutable, immutable, ready] = publishedStatements(module);
   assert.equal(mutable.type.kind, "ArrayType");
   assert.equal(immutable.type.kind, "TypeOperator");
   assert.equal(immutable.type.operator, "ReadonlyKeyword");
@@ -645,8 +650,8 @@ test("Stage 3 preserves the actual mutable and readonly declared array annotatio
   const carrier = node => index.types.terms[node.tsonic.type];
   const declared = [carrier(mutable.type), carrier(immutable.type)];
   const library = modules.find(row => row.module !== snapshot.entryPoint
-    && row.tree.statements.nodes.some(node => node.kind === "InterfaceDeclaration" && node.name.text === "ReadonlyArray"));
-  const expected = ["Array", "ReadonlyArray"].map(name => library.tree.statements.nodes
+    && publishedStatements(row).some(node => node.kind === "InterfaceDeclaration" && node.name.text === "ReadonlyArray"));
+  const expected = ["Array", "ReadonlyArray"].map(name => publishedStatements(library)
     .find(node => node.kind === "InterfaceDeclaration" && node.name.text === name).tsonic.definition);
   assert.deepEqual(declared.map(term => term.definition), expected);
   assert.notEqual(expected[0], expected[1]);
@@ -761,7 +766,7 @@ test("Stage 3 retains an authored infer binder while closed checker answers cros
   }
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  const [typedAlias, yes, no] = moduleOf(result.value.modules).tree.statements.nodes;
+  const [typedAlias, yes, no] = publishedStatements(moduleOf(result.value.modules));
   const { terms } = result.value.index.types;
   assert.equal(typedAlias.type.extendsType.type.elementType.type.typeParameter.tsonic.parameter.declaration, binder);
   assert.equal(terms[typedAlias.tsonic.type].projection.inferParameter, binder);
@@ -798,7 +803,7 @@ test("same-spelled conditional parameters keep their own definitions across true
       + "export type Match = Element<readonly boolean[]>; export type Miss = Element<string>;");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  const [element, match, miss] = result.value.modules.find(row => row.module === input.snapshot.entryPoint).tree.statements.nodes;
+  const [element, match, miss] = publishedStatements(result.value.modules.find(row => row.module === input.snapshot.entryPoint));
   const { terms } = result.value.index.types;
   const outer = element.typeParameters.nodes[0].tsonic.parameter.declaration;
   const inner = element.type.extendsType.type.elementType.type.typeParameter.tsonic.parameter.declaration;

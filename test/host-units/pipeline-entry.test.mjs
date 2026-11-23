@@ -285,15 +285,26 @@ test("checked Source completes before a package library document can require rol
 
   const packages = input.snapshot.source.input.packages;
   const path = "/project/library.json";
-  const withLibrary = { ...input.snapshot, source: fixture.preparedSource({ ...input.snapshot.source.input, packages: { ...packages,
+  const withLibrary = roles => ({ ...input.snapshot, source: fixture.preparedSource({ ...input.snapshot.source.input, packages: { ...packages,
     packages: packages.packages.map(owner => owner.id === packages.rootPackage ? { ...owner, libraryEntry: path } : owner),
     files: [...packages.files, { kind: "physical", path, realPath: path, text: "{}" }]
       .sort((left, right) => left.path < right.path ? -1 : 1),
-    libraryData: [{ package: packages.rootPackage, path, roles: [], declaredSummaries: [] }],
-  } }) };
-  assert.deepEqual(fixture.snapshots.verifySnapshot(withLibrary, fixture.front.extensionReferencesOf(input.extensions)), []);
-  assert.deepEqual(captureSourceBarrier({ ...limited, snapshot: withLibrary }), sourceRefusal);
-  assert.throws(() => captureSourceBarrier({ ...input, snapshot: withLibrary }), /actual checked export groups and selected endpoints/);
+    libraryData: [{ package: packages.rootPackage, path, roles, declaredSummaries: [] }],
+  } }) });
+  const empty = withLibrary([]);
+  const unregistered = withLibrary([{ role: "default-value", identity: {
+    module: { providerId: "missing-provider", providerVersion: "1", packageName: null, moduleSpecifier: "missing", providerModuleId: "missing" },
+    exportId: "defaultValue", memberId: null, signatureId: null,
+  } }]);
+  for (const snapshot of [empty, unregistered]) {
+    assert.deepEqual(fixture.snapshots.verifySnapshot(snapshot, fixture.front.extensionReferencesOf(input.extensions)), []);
+    assert.deepEqual(captureSourceBarrier({ ...limited, snapshot }), sourceRefusal);
+  }
+  assert.equal(captureSourceBarrier({ ...input, snapshot: empty }).kind, "ok");
+  const rejected = captureSourceBarrier({ ...input, snapshot: unregistered });
+  assert.equal(rejected.kind, "refused");
+  assert.deepEqual(rejected.diagnostics.map(row => row.message),
+    ["A role must be assigned by the package that registered its actual provider module."]);
 });
 
 test("public Host analysis reports the actual original readonly assignment diagnostic at its consuming fact", async () => {
