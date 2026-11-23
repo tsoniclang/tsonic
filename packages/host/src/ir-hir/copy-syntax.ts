@@ -374,7 +374,7 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
   }, node => {
     const receipt = structure(node);
     return receipt.kind === "binding-element" ? receipt : throwInvariant(missingPreparation);
-  });
+  }, structure);
   const expressions = createExpressionsPlans(phase, () => ports, node => {
     const receipt = structure(node);
     return receipt.kind === "binary" ? receipt : throwInvariant(missingPreparation);

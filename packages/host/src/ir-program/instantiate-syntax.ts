@@ -116,14 +116,10 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "SwitchStatement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "CaseBlock":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "CaseClause":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2);
     case "DefaultClause":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "ThrowStatement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "TryStatement":

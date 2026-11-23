@@ -1356,6 +1356,118 @@ test("Checked branch, operand and annotation slots are read once before the comp
   }
 });
 
+test("Checked control flow seals authored operands, clause lists and exception roles under their original cuts", async () => {
+  const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
+  const { accountFailure, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const { checked } = fixture.checkedModuleOf(`
+    export function control(flag: boolean): boolean {
+      loop: for (let start: boolean = flag; start && flag; flag = false) { if (flag) break loop; continue; }
+      while (flag) { flag = false; }
+      do { flag = true; } while (false);
+      switch (flag) { case true: flag = false; break; default: flag = true; }
+      return flag;
+    }`);
+  const emptyBlock = () => syntax("Block", 0, { statements: nodeList([]), multiLine: false });
+  const exceptionModule = moduleWith([syntax("TryStatement", 0, { tryBlock: emptyBlock(),
+    catchClause: syntax("CatchClause", 0, { variableDeclaration: null, block: emptyBlock() }), finallyBlock: emptyBlock() })]);
+  const exceptions = roundtrip(exceptionModule, "prepared exception roles").value;
+  assert.deepEqual(product.verifyHir(exceptions, contextFor(exceptions)), []);
+  const statements = checked.tree.statements.nodes[0].body.statements.nodes;
+  const [labeled, whileStatement, doStatement, selection] = statements;
+  const guarded = exceptions.tree.statements.nodes[0];
+  const loop = labeled.statement;
+  const jump = loop.statement.statements.nodes[0].thenStatement;
+  const continued = loop.statement.statements.nodes[1];
+  const caseBlock = selection.caseBlock;
+  const clauses = caseBlock.clauses;
+  const [ordinary, fallback] = clauses.nodes;
+  const ordinaryStatements = ordinary.statements;
+  const fallbackStatements = fallback.statements;
+  const caught = guarded.catchClause;
+  const reads = [];
+  let sealed = false;
+  const expect = [];
+  const watch = (owner, field, label) => {
+    const original = owner[field];
+    expect.push(label);
+    Object.defineProperty(owner, field, { get() {
+      assert.equal(sealed, false, label);
+      reads.push(label);
+      return original;
+    } });
+    return original;
+  };
+  watch(labeled, "label", "label");
+  watch(labeled, "statement", "labeled body");
+  for (const field of ["initializer", "condition", "incrementor", "statement"]) watch(loop, field, "for " + field);
+  const target = watch(jump, "label", "break target");
+  watch(continued, "label", "continue target");
+  watch(whileStatement, "expression", "while test");
+  watch(whileStatement, "statement", "while body");
+  watch(doStatement, "statement", "do body");
+  watch(doStatement, "expression", "do test");
+  const subject = watch(selection, "expression", "switch subject");
+  watch(selection, "caseBlock", "switch clauses");
+  watch(caseBlock, "clauses", "clause list");
+  watch(clauses, "loc", "clause range");
+  watch(clauses.nodes, 0, "case row");
+  const expression = watch(ordinary, "expression", "case operand");
+  watch(ordinary, "statements", "case statements");
+  watch(ordinaryStatements, "loc", "case statement range");
+  watch(ordinaryStatements.nodes, 0, "case assignment");
+  watch(ordinaryStatements.nodes, 1, "case break");
+  watch(clauses.nodes, 1, "default row");
+  watch(fallback, "expression", "default has no operand");
+  watch(fallback, "statements", "default statements");
+  watch(fallbackStatements.nodes, 0, "default assignment");
+  watch(guarded, "tryBlock", "try block");
+  watch(guarded, "catchClause", "catch role");
+  watch(caught, "variableDeclaration", "catch variable");
+  watch(caught, "block", "catch block");
+  const finalizer = watch(guarded, "finallyBlock", "finally block");
+  const limits = { maximumWork: 10000, maximumCreatedRecords: 10000, maximumBindingVectorsPerArtifact: 1,
+    typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } };
+  const hold = value => ({ kind: "copied", value });
+  const run = bounds => {
+    sealed = false;
+    reads.length = 0;
+    const meter = createInstantiationMeter(bounds);
+    const unit = () => chargeInstantiationWork(meter);
+    const admit = (work, records) => admitCheckedProjection(meter, work, records);
+    const forest = product.walkSyntaxForest([{ path: "control", read: () => checked.tree }, { path: "exceptions", read: () => exceptions.tree }], {
+      root: unit, edge: unit, node: unit, parameter: () => admit(1, 1),
+      structure: () => admit(7, 2), list: () => admit(3, 1),
+    });
+    const stop = () => meter.failure ?? accountFailure(meter.account);
+    if (forest.kind !== "complete") return { result: { kind: "refused", stop: forest }, stop: stop() };
+    sealed = true;
+    const result = product.copyCheckedContent(forest.value,
+      { admit, syntaxNode: () => admit(1, 1), type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
+    return { result, stop: stop(), work: bounds.maximumWork - remainingWork(meter.account), records: meter.created };
+  };
+  const earned = run(limits);
+  assert.equal(earned.result.kind, "copied");
+  assert.deepEqual(reads, expect);
+  const image = earned.result.value.syntax;
+  const projected = image.statementOf(selection);
+  const handlers = image.statementOf(guarded);
+  assert.equal(projected.expression === image.nodeOf(subject), true);
+  assert.equal(projected.caseBlock === image.nodeOf(caseBlock), true);
+  assert.equal(projected.caseBlock.clauses.nodes[0].expression === image.nodeOf(expression), true);
+  assert.equal(projected.caseBlock.clauses.nodes[1].expression, null);
+  assert.equal(handlers.catchClause === image.nodeOf(caught) && handlers.catchClause.variableDeclaration === null, true);
+  assert.equal(handlers.finallyBlock === image.nodeOf(finalizer), true);
+  assert.equal(image.statementOf(jump).label === image.nodeOf(target), true);
+  for (const [field, value] of [["maximumWork", earned.work], ["maximumCreatedRecords", earned.records]]) {
+    for (let maximum = 0; maximum < value; maximum += 1) {
+      const denied = run({ ...limits, [field]: maximum });
+      assert.equal(denied.result.kind === "refused" && denied.result.stop === denied.stop, true, `${field}:${maximum}`);
+      assert.deepEqual(reads, expect.slice(0, reads.length), `${field}:${maximum}`);
+    }
+  }
+});
+
 test("Block and Binary materialize only actual paid fields, not post-admission getters", async () => {
   const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
   const { createProjectionInventory, inventoryRecord } = await import("../../packages/host/dist/ir-program/program-values.js");

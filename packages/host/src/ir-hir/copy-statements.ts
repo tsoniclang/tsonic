@@ -12,10 +12,15 @@ import type {
   SemicolonClassElement, ClassStaticBlockDeclaration,
   Expression, Phase, SingleExpressionSyntax, SyntaxInitializerImage, SyntaxPhaseCopy,
   BindingElementSyntaxReceipt, BindingPatternSyntaxReceipt, VariableDeclarationSyntaxReceipt, VariableListSyntaxReceipt,
-  VariableStatementSyntaxReceipt,
+  VariableStatementSyntaxReceipt, ControlSyntax, ControlSyntaxReceipt, SyntaxStructureReceipt,
 } from "./contract.js";
+import type { InvariantFailure } from "../diag/contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { copied, holdSyntaxPayload, copyNodeList, finishFunctionSyntax, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { throwInvariant } from "../diag/index.js";
+
+const missingControl: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
+  message: "A control statement requires its admitted field receipt." };
 
 export interface StatementsPlans<P extends Phase, Stop, Image> {
   readonly EmptyStatement: (node: EmptyStatement<P>) => SyntaxPlan<EmptyStatement<P>, Stop, Image>;
@@ -82,7 +87,8 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
   variableOf: (node: VariableDeclaration<P>) => VariableDeclarationSyntaxReceipt<P>,
   variableListOf: (node: VariableDeclarationList<P>) => VariableListSyntaxReceipt<P>,
   patternOf: (node: BindingPattern<P>) => BindingPatternSyntaxReceipt<P>,
-  bindingOf: (node: BindingElement<P>) => BindingElementSyntaxReceipt<P>):
+  bindingOf: (node: BindingElement<P>) => BindingElementSyntaxReceipt<P>,
+  controlOf: (node: ControlSyntax<P>) => SyntaxStructureReceipt<P>):
   StatementsPlans<P, Stop, Image> {
   const EmptyStatement = new Map<EmptyStatement<P>, SyntaxPlan<EmptyStatement<P>, Stop, Image>>();
   const IfStatement = new Map<IfStatement<P>, SyntaxPlan<IfStatement<P>, Stop, Image>>();
@@ -136,6 +142,17 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
   const PropertyDeclaration = new Map<PropertyDeclaration<P>, SyntaxPlan<PropertyDeclaration<P>, Stop, Image>>();
   const SemicolonClassElement = new Map<SemicolonClassElement<P>, SyntaxPlan<SemicolonClassElement<P>, Stop, Image>>();
   const ClassStaticBlockDeclaration = new Map<ClassStaticBlockDeclaration<P>, SyntaxPlan<ClassStaticBlockDeclaration<P>, Stop, Image>>();
+  function control<Kind extends ControlSyntaxReceipt<P>["kind"]>(node: ControlSyntax<P>, kind: Kind) {
+    const receipt = controlOf(node);
+    function matches(value: SyntaxStructureReceipt<P>): value is Extract<ControlSyntaxReceipt<P>, { readonly kind: Kind }> {
+      return value.kind === kind;
+    }
+    return matches(receipt) ? receipt : throwInvariant(missingControl);
+  }
+
+  function nullable<Source, Destination>(value: Source | null, read: (source: Source) => Destination): Destination | null {
+    return value === null ? null : read(value);
+  }
   return {
     EmptyStatement: node => memoSyntaxPlan(EmptyStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -160,82 +177,62 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     DoStatement: node => memoSyntaxPlan(DoStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        statement: ports().Statement(node.statement),
-        expression: ports().Expression(node.expression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = control(node, "tested-statement");
+        return { ...header, kind, statement: ports().Statement(fields.statement()), expression: ports().Expression(fields.expression()), tsonic };
+      };
     })),
     WhileStatement: node => memoSyntaxPlan(WhileStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        statement: ports().Statement(node.statement),
-        expression: ports().Expression(node.expression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = control(node, "tested-statement");
+        return { ...header, kind, statement: ports().Statement(fields.statement()), expression: ports().Expression(fields.expression()), tsonic };
+      };
     })),
     ForStatement: node => memoSyntaxPlan(ForStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        statement: ports().Statement(node.statement),
-        initializer: node.initializer === null ? null : ports().ForInitializer(node.initializer),
-        condition: node.condition === null ? null : ports().Expression(node.condition),
-        incrementor: node.incrementor === null ? null : ports().Expression(node.incrementor),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = control(node, "for");
+        return { ...header, kind, statement: ports().Statement(fields.statement()),
+          initializer: nullable(fields.initializer(), ports().ForInitializer), condition: nullable(fields.condition(), ports().Expression),
+          incrementor: nullable(fields.incrementor(), ports().Expression), tsonic };
+      };
     })),
     ForInStatement: node => memoSyntaxPlan(ForInStatement, node, () => withSyntaxPayload(phase.ForInOrOfStatement, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, awaitModifier } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        awaitModifier,
-        initializer: ports().ForInitializer(node.initializer),
-        expression: ports().Expression(node.expression),
-        statement: ports().Statement(node.statement),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = control(node, "for-in-or-of");
+        const awaitModifier = fields.awaitModifier();
+        if (awaitModifier !== null) return throwInvariant(missingControl);
+        return { ...header, kind, awaitModifier, initializer: ports().ForInitializer(fields.initializer()),
+          expression: ports().Expression(fields.expression()), statement: ports().Statement(fields.statement()), tsonic };
+      };
     })),
     ForOfStatement: node => memoSyntaxPlan(ForOfStatement, node, () => withSyntaxPayload(phase.ForInOrOfStatement, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, awaitModifier } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        awaitModifier,
-        initializer: ports().ForInitializer(node.initializer),
-        expression: ports().Expression(node.expression),
-        statement: ports().Statement(node.statement),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = control(node, "for-in-or-of");
+        return { ...header, kind, awaitModifier: fields.awaitModifier(),
+          initializer: ports().ForInitializer(fields.initializer()), expression: ports().Expression(fields.expression()),
+          statement: ports().Statement(fields.statement()), tsonic };
+      };
     })),
     BreakStatement: node => memoSyntaxPlan(BreakStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => ({
-        ...header,
-        kind,
-        label: node.label === null ? null : ports().Identifier(node.label).read(),
-        tsonic,
+        ...header, kind, label: nullable(control(node, "jump").label(), label => ports().Identifier(label).read()), tsonic,
       });
     })),
     ContinueStatement: node => memoSyntaxPlan(ContinueStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => ({
-        ...header,
-        kind,
-        label: node.label === null ? null : ports().Identifier(node.label).read(),
-        tsonic,
+        ...header, kind, label: nullable(control(node, "jump").label(), label => ports().Identifier(label).read()), tsonic,
       });
     })),
     ReturnStatement: node => memoSyntaxPlan(ReturnStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
@@ -249,56 +246,43 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     WithStatement: node => memoSyntaxPlan(WithStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression),
-        statement: ports().Statement(node.statement),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = control(node, "tested-statement");
+        return { ...header, kind, expression: ports().Expression(fields.expression()), statement: ports().Statement(fields.statement()), tsonic };
+      };
     })),
     SwitchStatement: node => memoSyntaxPlan(SwitchStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression),
-        caseBlock: ports().CaseBlock(node.caseBlock).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = control(node, "switch");
+        return { ...header, kind, expression: ports().Expression(fields.expression()), caseBlock: ports().CaseBlock(fields.caseBlock()).read(), tsonic };
+      };
     })),
     CaseBlock: node => memoSyntaxPlan(CaseBlock, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        clauses: copyNodeList(node.clauses, item => ports().CaseOrDefaultClause(item)),
-        tsonic,
-      });
+      return tsonic => ({ ...header, kind, clauses: control(node, "case-block").clauses(ports().CaseOrDefaultClause), tsonic });
     })),
     CaseClause: node => memoSyntaxPlan(CaseClause, node, () => withSyntaxPayload(phase.CaseClause, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression),
-        statements: copyNodeList(node.statements, item => ports().Statement(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = control(node, "case-clause");
+        const expression = fields.expression();
+        if (expression === null) return throwInvariant(missingControl);
+        return { ...header, kind, expression: ports().Expression(expression), statements: fields.statements(ports().Statement), tsonic };
+      };
     })),
     DefaultClause: node => memoSyntaxPlan(DefaultClause, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, expression } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression,
-        statements: copyNodeList(node.statements, item => ports().Statement(item)),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = control(node, "case-clause");
+        const expression = fields.expression();
+        if (expression !== null) return throwInvariant(missingControl);
+        return { ...header, kind, expression, statements: fields.statements(ports().Statement), tsonic };
+      };
     })),
     ThrowStatement: node => memoSyntaxPlan(ThrowStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -313,25 +297,21 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     TryStatement: node => memoSyntaxPlan(TryStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tryBlock: ports().Block(node.tryBlock).read(),
-        catchClause: node.catchClause === null ? null : ports().CatchClause(node.catchClause).read(),
-        finallyBlock: node.finallyBlock === null ? null : ports().Block(node.finallyBlock).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = control(node, "try");
+        return { ...header, kind, tryBlock: ports().Block(fields.tryBlock()).read(),
+          catchClause: nullable(fields.catchClause(), clause => ports().CatchClause(clause).read()),
+          finallyBlock: nullable(fields.finallyBlock(), block => ports().Block(block).read()), tsonic };
+      };
     })),
     CatchClause: node => memoSyntaxPlan(CatchClause, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        variableDeclaration: node.variableDeclaration === null ? null : ports().VariableDeclaration(node.variableDeclaration).read(),
-        block: ports().Block(node.block).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = control(node, "catch");
+        return { ...header, kind, variableDeclaration: nullable(fields.variableDeclaration(), declaration => ports().VariableDeclaration(declaration).read()),
+          block: ports().Block(fields.block()).read(), tsonic };
+      };
     })),
     DebuggerStatement: node => memoSyntaxPlan(DebuggerStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -345,13 +325,10 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     LabeledStatement: node => memoSyntaxPlan(LabeledStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        label: ports().Identifier(node.label).read(),
-        statement: ports().Statement(node.statement),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = control(node, "labeled");
+        return { ...header, kind, label: ports().Identifier(fields.label()).read(), statement: ports().Statement(fields.statement()), tsonic };
+      };
     })),
     ExpressionStatement: node => memoSyntaxPlan(ExpressionStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);

@@ -18,6 +18,9 @@ import type { ApplicationSyntaxReceipt, BinaryExpression, BinaryOperatorToken, B
   Statement, SyntaxCopyResult, TextRange, TypeNode, VariableDeclaration, VariableDeclarationList, VariableDeclarationSyntaxFields,
   VariableDeclarationSyntaxReceipt, VariableListSyntaxReceipt, VariableStatement, VariableStatementSyntaxReceipt } from "./contract.js";
 import { syntaxHeader } from "./copy-node.js";
+import type { AwaitKeyword, CaseBlock, CaseClause, CaseOrDefaultClause, CatchClause, ControlSyntax, ControlSyntaxReceipt,
+  DefaultClause, DoStatement, ForInitializer, ForInOrOfStatement, ForStatement, LabeledStatement, SwitchStatement,
+  TryStatement, WhileStatement, WithStatement } from "./contract.js";
 export type { SyntaxChildSlot } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
@@ -210,6 +213,156 @@ function prepareReturnStructure<P extends Phase>(node: ReturnStatement<P>, ordin
 function heldChild<Value>(source: () => Value): { readonly pull: () => Value; readonly read: () => Value } {
   let held: Value | undefined;
   return { pull: () => (held = source()), read: () => requirePresent(held, missingStructure) };
+}
+
+function heldList<P extends Phase, Value extends SyntaxNode<P>>(field: string, source: () => NodeList<Value>) {
+  let list: RetainedSyntaxList<Value> | undefined;
+  let length = 0;
+  return {
+    slots: function* () {
+      yield* readRetainedList<P, Value>(field, source(), (retained, count) => {
+        list = retained;
+        length = count;
+      });
+    },
+    finish: (read: (node: Value) => Value) => materializeList(requirePresent(list, missingStructure), length, read),
+  };
+}
+
+function isControlSyntax<P extends Phase>(node: SyntaxNode<P>): node is ControlSyntax<P> {
+  switch (node.kind) {
+    case "DoStatement": case "WhileStatement": case "WithStatement": case "ForStatement": case "ForInStatement": case "ForOfStatement":
+    case "BreakStatement": case "ContinueStatement": case "SwitchStatement": case "CaseBlock": case "CaseClause":
+    case "DefaultClause": case "TryStatement": case "CatchClause": case "LabeledStatement": return true;
+    default: return false;
+  }
+}
+
+function testedStatementSlots<P extends Phase>(bodyFirst: boolean, statement: () => Statement<P>, expression: () => Expression<P>) {
+  const body = ["statement", "required", statement] satisfies ExactPart<DoStatement<P>>;
+  const test = ["expression", "required", expression] satisfies ExactPart<DoStatement<P>>;
+  return bodyFirst ? children<P, DoStatement<P>>(body, test) : children<P, WhileStatement<P> | WithStatement<P>>(test, body);
+}
+
+function forSlots<P extends Phase>(initializer: () => ForInitializer<P> | null, condition: () => Expression<P> | null,
+  incrementor: () => Expression<P> | null, statement: () => Statement<P>) {
+  return children<P, ForStatement<P>>(["initializer", "nullable", initializer], ["condition", "nullable", condition],
+    ["incrementor", "nullable", incrementor], ["statement", "required", statement]);
+}
+
+function forInOrOfSlots<P extends Phase>(awaitModifier: () => AwaitKeyword<P> | null, initializer: () => ForInitializer<P>,
+  expression: () => Expression<P>, statement: () => Statement<P>) {
+  return children<P, ForInOrOfStatement<P>>(["awaitModifier", "nullable", awaitModifier], ["initializer", "required", initializer],
+    ["expression", "required", expression], ["statement", "required", statement]);
+}
+
+type JumpSyntax<P extends Phase> = Extract<ControlSyntax<P>, { readonly kind: "BreakStatement" | "ContinueStatement" }>;
+
+function jumpSlots<P extends Phase>(label: () => Identifier<P> | null) {
+  return children<P, JumpSyntax<P>>(["label", "nullable", label]);
+}
+
+function switchSlots<P extends Phase>(expression: () => Expression<P>, caseBlock: () => CaseBlock<P>) {
+  return children<P, SwitchStatement<P>>(["expression", "required", expression], ["caseBlock", "required", caseBlock]);
+}
+
+function* caseClauseSlots<P extends Phase>(node: CaseOrDefaultClause<P>, expression: (value: Expression<P> | null) => unknown,
+  statements: () => Iterable<SyntaxChildSlot<P>>) {
+  if (node.kind === "CaseClause") yield { fields: ["expression"], read: () => {
+    const value = node.expression;
+    expression(value);
+    return value;
+  } } satisfies SyntaxChildSlot<P>;
+  else expression(node.expression);
+  yield* statements();
+}
+
+function trySlots<P extends Phase>(tryBlock: () => Block<P>, catchClause: () => CatchClause<P> | null,
+  finallyBlock: () => Block<P> | null) {
+  return children<P, TryStatement<P>>(["tryBlock", "required", tryBlock], ["catchClause", "nullable", catchClause],
+    ["finallyBlock", "nullable", finallyBlock]);
+}
+
+function catchSlots<P extends Phase>(variableDeclaration: () => VariableDeclaration<P> | null, block: () => Block<P>) {
+  return children<P, CatchClause<P>>(["variableDeclaration", "nullable", variableDeclaration], ["block", "required", block]);
+}
+
+function labeledSlots<P extends Phase>(label: () => Identifier<P>, statement: () => Statement<P>) {
+  return children<P, LabeledStatement<P>>(["label", "required", label], ["statement", "required", statement]);
+}
+
+function prepareControl<P extends Phase, Stop>(node: ControlSyntax<P>, ordinal: number,
+  admitList: (field: "clauses" | "statements") => Stop | null): SyntaxCopyResult<ControlSyntaxReceipt<P>, Stop> {
+  switch (node.kind) {
+    case "DoStatement": case "WhileStatement": case "WithStatement": {
+      const statement = heldChild(() => node.statement);
+      const expression = heldChild(() => node.expression);
+      return { kind: "copied", value: { kind: "tested-statement", ordinal,
+        slots: testedStatementSlots<P>(node.kind === "DoStatement", statement.pull, expression.pull),
+        statement: statement.read, expression: expression.read } };
+    }
+    case "ForStatement": {
+      const initializer = heldChild(() => node.initializer);
+      const condition = heldChild(() => node.condition);
+      const incrementor = heldChild(() => node.incrementor);
+      const statement = heldChild(() => node.statement);
+      return { kind: "copied", value: { kind: "for", ordinal, slots: forSlots<P>(initializer.pull, condition.pull, incrementor.pull, statement.pull),
+        initializer: initializer.read, condition: condition.read, incrementor: incrementor.read, statement: statement.read } };
+    }
+    case "ForInStatement": case "ForOfStatement": {
+      const awaitModifier = heldChild(() => node.awaitModifier);
+      const initializer = heldChild(() => node.initializer);
+      const expression = heldChild(() => node.expression);
+      const statement = heldChild(() => node.statement);
+      return { kind: "copied", value: { kind: "for-in-or-of", ordinal,
+        slots: forInOrOfSlots<P>(awaitModifier.pull, initializer.pull, expression.pull, statement.pull),
+        awaitModifier: awaitModifier.read, initializer: initializer.read, expression: expression.read, statement: statement.read } };
+    }
+    case "BreakStatement": case "ContinueStatement": {
+      const label = heldChild(() => node.label);
+      return { kind: "copied", value: { kind: "jump", ordinal, slots: jumpSlots<P>(label.pull), label: label.read } };
+    }
+    case "SwitchStatement": {
+      const expression = heldChild(() => node.expression);
+      const caseBlock = heldChild(() => node.caseBlock);
+      return { kind: "copied", value: { kind: "switch", ordinal, slots: switchSlots<P>(expression.pull, caseBlock.pull),
+        expression: expression.read, caseBlock: caseBlock.read } };
+    }
+    case "CaseBlock": {
+      const stop = admitList("clauses");
+      if (stop !== null) return { kind: "refused", stop };
+      const clauses = heldList<P, CaseOrDefaultClause<P>>("clauses", () => node.clauses);
+      return { kind: "copied", value: { kind: "case-block", ordinal, slots: clauses.slots(), clauses: clauses.finish } };
+    }
+    case "CaseClause": case "DefaultClause": {
+      const stop = admitList("statements");
+      if (stop !== null) return { kind: "refused", stop };
+      let expression: Expression<P> | null | undefined;
+      const statements = heldList<P, Statement<P>>("statements", () => node.statements);
+      return { kind: "copied", value: { kind: "case-clause", ordinal,
+        slots: caseClauseSlots<P>(node, value => { expression = value; }, statements.slots),
+        expression: () => requirePresent(expression, missingStructure), statements: statements.finish } };
+    }
+    case "TryStatement": {
+      const tryBlock = heldChild(() => node.tryBlock);
+      const catchClause = heldChild(() => node.catchClause);
+      const finallyBlock = heldChild(() => node.finallyBlock);
+      return { kind: "copied", value: { kind: "try", ordinal, slots: trySlots<P>(tryBlock.pull, catchClause.pull, finallyBlock.pull),
+        tryBlock: tryBlock.read, catchClause: catchClause.read, finallyBlock: finallyBlock.read } };
+    }
+    case "CatchClause": {
+      const variableDeclaration = heldChild(() => node.variableDeclaration);
+      const block = heldChild(() => node.block);
+      return { kind: "copied", value: { kind: "catch", ordinal, slots: catchSlots<P>(variableDeclaration.pull, block.pull),
+        variableDeclaration: variableDeclaration.read, block: block.read } };
+    }
+    case "LabeledStatement": {
+      const label = heldChild(() => node.label);
+      const statement = heldChild(() => node.statement);
+      return { kind: "copied", value: { kind: "labeled", ordinal, slots: labeledSlots<P>(label.pull, statement.pull),
+        label: label.read, statement: statement.read } };
+    }
+  }
 }
 
 function unarySlots<P extends Phase>(operand: () => Expression<P>): Iterable<SyntaxChildSlot<P>> {
@@ -472,7 +625,8 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
       node.kind !== "PropertyAccessExpression" && node.kind !== "ElementAccessExpression" &&
       node.kind !== "ArrayLiteralExpression" && node.kind !== "ObjectLiteralExpression" &&
       node.kind !== "VariableStatement" && node.kind !== "VariableDeclaration" && node.kind !== "VariableDeclarationList" &&
-      node.kind !== "ObjectBindingPattern" && node.kind !== "ArrayBindingPattern" && node.kind !== "BindingElement" && !isSingleExpressionSyntax<P>(node))
+      node.kind !== "ObjectBindingPattern" && node.kind !== "ArrayBindingPattern" && node.kind !== "BindingElement" &&
+      !isControlSyntax<P>(node) && !isSingleExpressionSyntax<P>(node))
     return { kind: "copied", value: null };
   const stop = reserve(node);
   if (stop !== null) return { kind: "refused", stop };
@@ -513,6 +667,7 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
     return list === null ? { kind: "copied", value: prepareBindingPattern<P>(node, ordinal) } : { kind: "refused", stop: list };
   }
   if (node.kind === "BindingElement") return { kind: "copied", value: prepareBindingElement<P>(node, ordinal) };
+  if (isControlSyntax<P>(node)) return prepareControl<P, Stop>(node, ordinal, field => admitList(node, field));
   if (!isSingleExpressionSyntax<P>(node)) return throwInvariant(missingStructure);
   return { kind: "copied", value: prepareSingleExpression<P>(node, ordinal) };
 };
@@ -756,32 +911,31 @@ function ordinarySlots<PhaseType extends Phase>(
     case "IfStatement":
       return ifSlots<PhaseType>(() => node.expression, () => node.thenStatement, () => node.elseStatement);
     case "DoStatement":
-      return children<PhaseType, typeof node>(["statement", "required", () => node.statement], ["expression", "required", () => node.expression]);
     case "WhileStatement":
     case "WithStatement":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["statement", "required", () => node.statement]);
+      return testedStatementSlots<PhaseType>(node.kind === "DoStatement", () => node.statement, () => node.expression);
     case "ForStatement":
-      return children<PhaseType, typeof node>(["initializer", "nullable", () => node.initializer], ["condition", "nullable", () => node.condition], ["incrementor", "nullable", () => node.incrementor], ["statement", "required", () => node.statement]);
+      return forSlots<PhaseType>(() => node.initializer, () => node.condition, () => node.incrementor, () => node.statement);
     case "ForInStatement":
     case "ForOfStatement":
-      return children<PhaseType, typeof node>(["awaitModifier", "nullable", () => node.awaitModifier], ["initializer", "required", () => node.initializer], ["expression", "required", () => node.expression], ["statement", "required", () => node.statement]);
+      return forInOrOfSlots<PhaseType>(() => node.awaitModifier, () => node.initializer, () => node.expression, () => node.statement);
     case "BreakStatement":
     case "ContinueStatement":
-      return children<PhaseType, typeof node>(["label", "nullable", () => node.label]);
+      return jumpSlots<PhaseType>(() => node.label);
     case "SwitchStatement":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["caseBlock", "required", () => node.caseBlock]);
+      return switchSlots<PhaseType>(() => node.expression, () => node.caseBlock);
     case "CaseBlock":
       return children<PhaseType, typeof node>(["clauses", "list", () => node.clauses]);
     case "CaseClause":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["statements", "list", () => node.statements]);
     case "DefaultClause":
-      return children<PhaseType, typeof node>(["expression", "nullable", () => node.expression], ["statements", "list", () => node.statements]);
+      return caseClauseSlots<PhaseType>(node, () => undefined,
+        () => children<PhaseType, CaseClause<PhaseType> | DefaultClause<PhaseType>>(["statements", "list", () => node.statements]));
     case "TryStatement":
-      return children<PhaseType, typeof node>(["tryBlock", "required", () => node.tryBlock], ["catchClause", "nullable", () => node.catchClause], ["finallyBlock", "nullable", () => node.finallyBlock]);
+      return trySlots<PhaseType>(() => node.tryBlock, () => node.catchClause, () => node.finallyBlock);
     case "CatchClause":
-      return children<PhaseType, typeof node>(["variableDeclaration", "nullable", () => node.variableDeclaration], ["block", "required", () => node.block]);
+      return catchSlots<PhaseType>(() => node.variableDeclaration, () => node.block);
     case "LabeledStatement":
-      return children<PhaseType, typeof node>(["label", "required", () => node.label], ["statement", "required", () => node.statement]);
+      return labeledSlots<PhaseType>(() => node.label, () => node.statement);
     case "Block":
       return blockFields<PhaseType>(node, (field, list) => children<PhaseType, typeof node>([field, "list", () => list]));
     case "ModuleBlock":

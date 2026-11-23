@@ -5035,6 +5035,31 @@ export interface BindingElementSyntaxReceipt<P extends Phase> extends BindingEle
   readonly slots: Iterable<SyntaxChildSlot<P>>;
 }
 
+export type ControlSyntax<P extends Phase> = DoStatement<P> | WhileStatement<P> | WithStatement<P>
+  | ForStatement<P> | ForInOrOfStatement<P> | BreakStatement<P> | ContinueStatement<P>
+  | SwitchStatement<P> | CaseBlock<P> | CaseOrDefaultClause<P> | TryStatement<P> | CatchClause<P> | LabeledStatement<P>;
+
+export type ControlSyntaxReceipt<P extends Phase> = {
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+} & (
+  | { readonly kind: "tested-statement"; readonly statement: () => Statement<P>; readonly expression: () => Expression<P> }
+  | { readonly kind: "for"; readonly initializer: () => ForInitializer<P> | null; readonly condition: () => Expression<P> | null;
+      readonly incrementor: () => Expression<P> | null; readonly statement: () => Statement<P> }
+  | { readonly kind: "for-in-or-of"; readonly awaitModifier: () => AwaitKeyword<P> | null;
+      readonly initializer: () => ForInitializer<P>; readonly expression: () => Expression<P>; readonly statement: () => Statement<P> }
+  | { readonly kind: "jump"; readonly label: () => Identifier<P> | null }
+  | { readonly kind: "switch"; readonly expression: () => Expression<P>; readonly caseBlock: () => CaseBlock<P> }
+  | { readonly kind: "case-block"; readonly clauses: (read: (node: CaseOrDefaultClause<P>) => CaseOrDefaultClause<P>) =>
+      NodeList<CaseOrDefaultClause<P>> }
+  | { readonly kind: "case-clause"; readonly expression: () => Expression<P> | null;
+      readonly statements: (read: (node: Statement<P>) => Statement<P>) => NodeList<Statement<P>> }
+  | { readonly kind: "try"; readonly tryBlock: () => Block<P>; readonly catchClause: () => CatchClause<P> | null;
+      readonly finallyBlock: () => Block<P> | null }
+  | { readonly kind: "catch"; readonly variableDeclaration: () => VariableDeclaration<P> | null; readonly block: () => Block<P> }
+  | { readonly kind: "labeled"; readonly label: () => Identifier<P>; readonly statement: () => Statement<P> }
+);
+
 export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
@@ -5081,15 +5106,15 @@ export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P>
   | CallOrNewExpression<P> | ParameterDeclaration<P> | SourceFile<P> | FunctionDeclaration<P> | FunctionExpression<P>
   | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>
   | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>
-  | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P>;
+  | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P> | ControlSyntax<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
   | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
   | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>
   | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>
   | VariableStatementSyntaxReceipt<P> | VariableDeclarationSyntaxReceipt<P> | VariableListSyntaxReceipt<P>
-  | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P>;
+  | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P> | ControlSyntaxReceipt<P>;
 export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements"
-  | "elements" | "properties" | "declarations";
+  | "elements" | "properties" | "declarations" | "clauses";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
   admitList: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null,
@@ -5106,7 +5131,8 @@ export interface SyntaxForest<P extends Phase> {
   readonly structureOf: (node: SyntaxNode<P>) => "block" | "binary" | "return" | "single-expression" | "application" |
     "formal-header" | "source-header" | "function-header" | "unary" | "annotated-expression" | "conditional" | "if" |
     "property-access" | "element-access" | "array-literal" | "object-literal" | "variable-statement" | "variable-declaration" |
-    "variable-list" | "binding-pattern" | "binding-element" | null;
+    "variable-list" | "binding-pattern" | "binding-element" | "tested-statement" | "for" | "for-in-or-of" | "jump" | "switch" |
+    "case-block" | "case-clause" | "try" | "catch" | "labeled" | null;
   readonly firstRootSize: number;
   readonly copy: <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
     beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;
