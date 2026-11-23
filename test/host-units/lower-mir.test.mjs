@@ -50,6 +50,10 @@ const directField = selection("flag", T.bool, T.bool, direct("in-place"));
 directField.decision.decision.origins = [fieldOrigin];
 directField.decision.decision.selectedDeclarations = [field];
 directField.decision.decision.primary = field;
+const withFieldLocation = location => ({ kind: "decided", decision: {
+  ...directField.decision, decision: { ...directField.decision.decision, location },
+} });
+const referenceField = withFieldLocation(direct("by-reference"));
 const directBox = declareType("directFieldBox", { kind: "shape", members: [{ key: directField.decision.decision.key,
   origins: [fieldOrigin], readOrigins: [fieldOrigin], writeOrigins: [fieldOrigin], kind: "property",
   read: T.bool, write: T.bool, optional: false, readonly: false }], indexes: [], calls: [], constructs: [] });
@@ -72,6 +76,7 @@ const test = (name, ...rest) => {
 };
 let produced;
 let lowerToMir;
+let lowerRequired;
 /** The query unit a hand-run lowering reports against: the result of a request of the `mirBody` row. */
 const UNIT = { request: { query: "mirBody", key: ["unit"] }, position: { kind: "result" } };
 
@@ -93,7 +98,7 @@ before(async () => {
   await post("Debugger.enable");
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
-  const { lowerToMir: lowerRequired } = await import("../../packages/host/dist/lower-mir/index.js");
+  ({ lowerToMir: lowerRequired } = await import("../../packages/host/dist/lower-mir/index.js"));
   const { offeredEntries } = await import("./fixtures/lower-mir/typed.mjs");
   produced = (deps, body, internal) => lowerRequired(deps, body, internal, offeredEntries(deps.signatureOf(body.signature)));
   lowerToMir = (...given) => {
@@ -201,8 +206,12 @@ test("authored MIR: switch evaluates selected labels in order and reads the subj
     const parsed = parseModuleBodies(index, text);
     assert.equal(parsed.kind, "parsed", name);
     assert.equal(printModuleBodies(index, parsed.value), text, name);
-    const declarations = module.tree.statements.nodes;
-    const bodyOf = declaration => module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
+    assert.equal(module.tree.kind, "ready-root", name);
+    const declarations = module.tree.root.statements.nodes;
+    const bodyOf = declaration => {
+      assert.equal(declaration.kind, "ready-callable");
+      return module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.node.tsonic.signatures[0].body);
+    };
     const body = bodyOf(declarations.at(-1));
     const { tir, mir, instance } = body;
     const [statement] = tir.root.statements.nodes;
@@ -330,8 +339,11 @@ test("authored MIR: an effect-only void operand pays only for a consumed absence
     typeOf: type => readType(interner, type),
     signatureOf: signature => readSignature(interner, signature),
   };
-  const [effect, discard, use, direct, forwarded] = module.tree.statements.nodes.map(declaration =>
-    module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body));
+  assert.equal(module.tree.kind, "ready-root");
+  const [effect, discard, use, direct, forwarded] = module.tree.root.statements.nodes.map(declaration => {
+    assert.equal(declaration.kind, "ready-callable");
+    return module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.node.tsonic.signatures[0].body);
+  });
   for (const [body, expected] of [[discard, 2], [use, 3], [direct, 2], [forwarded, 2]]) {
     const [entry, continuation] = body.mir.blocks;
     assert.deepEqual([body.mir.blocks.length, body.mir.locals.length, body.mir.places.length, body.mir.constants.length,
@@ -702,16 +714,13 @@ test("a read preceding a selected call saves the field exactly once only if the 
   }
 });
 
-test("direct field lowering does not replace a different holding, check or accessor selection", () => {
+test("direct field lowering does not replace a check or accessor selection", () => {
   const make = (name, build) => shaped(`directField.opposite.${name}`, [["box", "required", directBox]], T.bool,
     b => b.block(b.returns(build(b))));
-  const withLocation = location => ({ kind: "decided", decision: {
-    ...directField.decision, decision: { ...directField.decision.decision, location },
-  } });
   for (const [name, selected, message] of [
-    ["checked", withLocation({ kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "in-place" }), /selected checked or by-reference field read/],
-    ["reference", withLocation(direct("by-reference")), /selected checked or by-reference field read/],
-    ["accessor", withLocation({ kind: "accessor" }), /selected accessor invocation/],
+    ["checked", withFieldLocation({ kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "in-place" }), /selected checked field read/],
+    ["checked-reference", withFieldLocation({ kind: "data", check: { kind: "required", failure: "abort" }, receiver: "by-reference" }), /selected checked field read/],
+    ["accessor", withFieldLocation({ kind: "accessor" }), /selected accessor invocation/],
     ["deferred", { kind: "deferred", deferred: null }, /deferred member read/],
   ]) {
     const program = make(name, b => b.property(b.id("box", 0, directBox), "flag", b.read(T.bool, selected)));
@@ -763,6 +772,53 @@ const lowerAtBounds = (program, records) => {
   assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
   return mir;
 };
+
+test("a selected reference field keeps exactly one owned receiver value and its real field", () => {
+  for (const [kind, rows, reads, receiver] of [
+    ["local", [["box", "required", directBox, "byref-readwrite"]], 8, builder => builder.id("box", 0, directBox)],
+    ["held", [], 7, () => staticIdentifier("Box", directBox)],
+  ]) {
+    const program = shaped(`referenceField.${kind}`, rows, T.bool, builder => builder.block(builder.returns(
+      builder.property({ $: "receiver", ...receiver(builder) }, "flag", builder.read(T.bool, referenceField)))));
+    const mir = lowerAtBounds(program, reads);
+    const [entry] = mir.blocks;
+    const [live, save] = entry.statements;
+    assert.deepEqual(entry.statements.map(row => row.kind), ["storage-live", "assign"], kind);
+    assert.equal(save.tir.node, program.at("receiver"), kind);
+    assert.equal(live.tir.node, save.tir.node, kind);
+    assert.deepEqual(mir.places[save.place].base, { kind: "local", local: live.local }, kind);
+    assert.equal(mir.locals[live.local].role.kind, "temporary", kind);
+    assert.equal(mir.places[save.place].storage, directBox, kind);
+    assert.equal(mir.places[save.value.operand.place].base.kind, kind === "local" ? "local" : "static", kind);
+    const projected = mir.places[entry.terminator.value.place];
+    assert.equal(projected.base.place, save.place, kind);
+    assert.equal(projected.base.projection.kind, "field", kind);
+    assert.equal(projected.base.projection.member.decision.location.receiver, "by-reference", kind);
+  }
+});
+
+test("a selected reference field reads before an intervening call despite a stable receiver slot", () => {
+  const target = "referenceField.writer";
+  const sig = signature(target, [["box", directBox, "required", null, "byref-readwrite"]], T.bool);
+  const program = shaped("referenceField.call", [["box", "required", directBox, "byref-readwrite"]], T.bool,
+    builder => builder.block(builder.returns(compareBool(builder,
+      { $: "field", ...builder.property({ $: "receiver", ...builder.id("box", 0, directBox) }, "flag", builder.read(T.bool, referenceField)) },
+      { $: "call", ...builder.call(builder.global(target, target, T.unknown),
+        [{ $: "argument", ...builder.id("box", 0, directBox) }], T.bool,
+        at => ({ callee: callee(target, sig, [mapped(0, 0, "byref-readwrite")], T.bool), receiver: null,
+          arguments: [{ kind: "provided", parameter: 0, expression: at("argument") }] })) }))));
+  program.tir.locals[0].mutable = true;
+  const mir = lower(program);
+  const [entry] = mir.blocks;
+  const saves = entry.statements.filter(row => row.kind === "assign");
+  assert.deepEqual(saves.map(save => save.tir.node), [program.at("receiver"), program.at("field")]);
+  const [receiver, field] = saves;
+  assert.equal(mir.places[field.value.operand.place].base.place, receiver.place);
+  assert.equal(entry.terminator.kind, "call");
+  assert.equal(entry.terminator.tir.node, program.at("call"));
+  const comparison = mir.blocks[entry.terminator.next].statements.find(row => row.value?.kind === "binary");
+  assert.deepEqual(comparison.value.left, { kind: "place", place: field.place });
+});
 
 test("selected static field: direct return and exact root writes preserve the authored value", () => {
   const read = shaped("staticField.return", [], T.bool, b => b.block(b.returns(selectedStaticField(b))));
@@ -956,7 +1012,7 @@ test("selected static field: ordinary receiver evaluation remains for aliases, w
     const { decision } = directField.decision;
     field.tsonic.selection = { kind: "decided", decision: { ...directField.decision,
       decision: { ...decision, location: { kind: "data", receiver: "in-place", check: { kind: "required", failure: "abort" } } } } };
-  }).tir, []), /selected checked or by-reference field read/u);
+  }).tir, []), /selected checked field read/u);
   assert.throws(() => produced(deps, rejected("selection", field => {
     field.expression.tsonic.demand = { kind: "never" };
   }).tir, []), /value demanded under a selection/u);
@@ -2757,7 +2813,9 @@ function initializedModule(name, count = 2) {
     root: { kind: "SourceFile", statements: { $list: true, nodes: declarations },
       endOfFileToken: { kind: "EndOfFile", tsonic: null }, languageVariant: "Standard", scriptKind: "TS",
       commentDirectives: [], pragmas: [], checkJsDirective: null, tsonic: { module: MODULE, template: null } } });
-  for (const [index, child] of children.entries()) child.tir.root = program.tir.root.statements.nodes[index].declarationList.declarations.nodes[0].initializer;
+  const statements = program.tir.root.statements.nodes;
+  program.tir.root.statements.nodes = statements.map(node => ({ kind: "ready-statement", node }));
+  for (const [index, child] of children.entries()) child.tir.root = statements[index].declarationList.declarations.nodes[0].initializer;
   const inputs = children.map(child => ({ instance: { body: child.tir.body, bindings: child.tir.bindings }, captures: [], signature: child.tir.signature }));
   program.bodyOf = instance => children.find(child => instanceKey(instance) === instanceKey({ body: child.tir.body, bindings: child.tir.bindings }))?.tir ?? null;
   return { program, children, inputs };
@@ -2790,7 +2848,7 @@ test("selected module variables execute separate initializers once in authored o
 
 test("module declarations without initializers have no fabricated value, local lifetime or child execution", () => {
   const { program, inputs } = initializedModule("module.uninitialized", 1);
-  const list = program.tir.root.statements.nodes[0].declarationList;
+  const list = program.tir.root.statements.nodes[0].node.declarationList;
   list.flags = ["Let"];
   const declaration = list.declarations.nodes[0];
   declaration.initializer = null;
@@ -2811,7 +2869,7 @@ test("module declarations without initializers have no fabricated value, local l
 test("uninitialized static absence uses exactly the actual selected carrier and no child", () => {
   for (const storage of [optionalBool, T.absence]) {
     const { program } = initializedModule(`triage.module.absence.${storage}`, 1);
-    const list = program.tir.root.statements.nodes[0].declarationList;
+    const list = program.tir.root.statements.nodes[0].node.declarationList;
     const declaration = list.declarations.nodes[0];
     list.flags = ["Let"];
     declaration.initializer = null;
@@ -2839,7 +2897,7 @@ test("module callable-header and sparse statement inputs are actual caller defec
 test("module declaration streaming stops before later statement or declaration reads on the original record refusal", () => {
   for (const vector of ["statements", "declarations"]) {
     const { program, inputs } = initializedModule(`module.stream.${vector}`, 1);
-    const statement = program.tir.root.statements.nodes[0];
+    const statement = program.tir.root.statements.nodes[0].node;
     const nodes = vector === "statements" ? program.tir.root.statements.nodes : statement.declarationList.declarations.nodes;
     nodes.length = 10000;
     Object.defineProperty(nodes, 1, { configurable: true, get() { throw new Error("later module input read after refusal"); } });
@@ -2848,7 +2906,7 @@ test("module declaration streaming stops before later statement or declaration r
     assert.equal(result.diagnostics.length, 1);
   }
   const { program, inputs } = initializedModule("module.destructured", 1);
-  program.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].name = { kind: "ObjectBindingPattern", elements: { nodes: [] }, tsonic: null };
+  program.tir.root.statements.nodes[0].node.declarationList.declarations.nodes[0].name = { kind: "ObjectBindingPattern", elements: { nodes: [] }, tsonic: null };
   assert.throws(() => produced(deps, program.tir, inputs), notLoweredYet("a destructuring variable declaration"));
 });
 
@@ -2880,6 +2938,8 @@ test("module callable and binding declarations do not execute nested bodies or i
       tsonic: { definition: def("module.declarations.export"), target } }];
   const sealed = seal("module.declarations", { ...program.tir.root, statements: { $list: true, nodes: statements },
     endOfFileToken: { kind: "EndOfFile", tsonic: null } }, "module");
+  sealed.root.statements.nodes = sealed.root.statements.nodes.map(node =>
+    ({ kind: node.kind === "FunctionDeclaration" ? "ready-callable" : "ready-statement", node }));
   program.tir.root = sealed.root;
   const mir = lower(program);
   assert.deepEqual([mir.locals, mir.places, mir.constants, mir.blocks[0].statements], [[], [], [], []]);
@@ -3405,7 +3465,8 @@ test("module switch reports a hole at its first reached clause or statement pull
   assert.deepEqual(lower(tir, records), { kind: "ok", value: mir, diagnostics: [] });
   for (const [kind, message] of [["clause", "a switch clause list has a hole"], ["statement", "a switch clause statement list has a hole"]]) {
     const tree = structuredClone(tir);
-    const statement = tree.root.statements.nodes[0];
+    assert.equal(tree.root.statements.nodes[0].kind, "ready-statement");
+    const statement = tree.root.statements.nodes[0].node;
     const clauses = statement.caseBlock.clauses.nodes;
     const origin = kind === "clause" ? statement.origin : clauses[1].origin;
     const label = clauses[0].expression.tsonic.type;
@@ -4039,10 +4100,11 @@ test("malformed for declarations and invalid selected continue owners remain exp
 
 test("first producer: a record limit that is not a count is the caller's defect, raised before any record is made (K-3338)", () => {
   const program = add("first.add.limit", T.float64, plus("float64", T.float64));
-  const unread = { get root() { assert.fail("malformed counts must be rejected before the body is read"); } };
+  const unread = { get root() { assert.fail("malformed counts must be rejected before the body is read"); },
+    get signature() { assert.fail("malformed counts must be rejected before the signature is read"); } };
   for (const maximumRecords of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -0, -1, 1.5, 8.999,
     Number.MAX_SAFE_INTEGER + 1, undefined, "1", 1n])
-    assert.throws(() => produced({ ...deps, limits: { maximumRecords } }, unread, []),
+    assert.throws(() => lowerRequired({ ...deps, limits: { maximumRecords } }, unread, [], [2]),
       error => error instanceof TypeError && error.message === "lower-mir: maximumRecords must be a safe nonnegative count", String(maximumRecords));
   // Zero is a count: the body is refused with the size-limit diagnostic, not raised. The exact need is admitted.
   const zero = produced({ ...deps, limits: { maximumRecords: 0 } }, program.tir, []);

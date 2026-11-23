@@ -8,9 +8,9 @@ import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { TirBody, TirLocal, TypedBinary, TypedPhase, TypedUnary, TypedValue } from "../ir-tir/contract.js";
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
-import type { ControlScope, Discard, Lowering, Work } from "./model.js";
+import type { ControlScope, Discard, Evaluated, Lowering, Work } from "./model.js";
 import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, rawType, siteOf } from "./model.js";
-import { held, observePendingRead, popOperand, pushOperand, readPlace, saveBeforeControl, saveBeforeStore, saveRead, temporary } from "./operands.js";
+import { held, holdReceiver, observePendingRead, popOperand, pushOperand, readPlace, saveBeforeControl, saveBeforeStore, saveRead, temporary } from "./operands.js";
 import { breaks, continues, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endLabel, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterShortCircuit, enterSwitch, enterWhile, finishSwitchTest, loopCondition, nextFor, nextSwitchClause } from "./control.js";
 import { argumentPlace, enterCall, finishCall } from "./calls.js";
 import { beginLocalScope, declareLocal, declarations, endLocalScope, enterLocalBlock, initializeAbsence, initializeLocal, nextDeclaration, prepareFunctionLocals } from "./bindings.js";
@@ -51,7 +51,7 @@ export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly 
   if (body.asynchronous || body.generator) return notLoweredYet("an asynchronous body or a generator", root.origin);
   const lowering: Lowering = { state: createState(body.body, body.bindings, body.completion, deps.limits), typeOf: deps.typeOf,
     signatureOf: deps.signatureOf, internal, internalOf: null, body, work: [], operands: [],
-    exposed: new Set(), reads: new Map(), staticReads: new Set(), selections: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null,
+    exposed: new Set(), reads: new Map(), sharedReads: new Set(), selections: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null,
     outerLocals: new Map(), scope: null };
   const mir = enter(lowering, root) && walk(lowering) ? finish(lowering, provided) : null;
   return mir === null ? { kind: "refused", diagnostics: [sizeLimit(deps, body)] } : { kind: "ok", value: mir, diagnostics: [] };
@@ -426,22 +426,23 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       const member = payload.selection.decision;
       const access = member.decision.location;
       if (access.kind !== "data") return notLoweredYet("a selected accessor invocation", node.origin);
-      if (access.receiver !== "in-place" || access.check.kind !== "none")
-        return notLoweredYet("a selected checked or by-reference field read", node.origin);
+      if (access.check.kind !== "none") return notLoweredYet("a selected checked field read", node.origin);
       const storage = rawType(payload);
       if (member.decision.read !== storage) return callerDefect("a field read inconsistent with its selected storage", node.origin);
       value(lowering, payload, node);
       const receiver = node.expression;
-      if (receiver.kind === "Identifier" && receiver.tsonic.role === "value") {
+      if (access.receiver === "in-place" && receiver.kind === "Identifier" && receiver.tsonic.role === "value") {
         const selected = receiver.tsonic;
         const resolution = selected.resolution;
         if (resolution.kind === "static" && resolution.aliases.length === 0 && selected.demand.kind === "always"
           && selected.conversion.kind === "identity" && selected.type === selected.convertedType && selected.narrowing === null) {
           const staticRoot = placeOfStatic(state, resolution.declaration.owner, selected.type, receiver.origin);
-          return staticRoot !== null && fieldRead(lowering, { kind: "field-read", node, member, storage, staticRoot });
+          return staticRoot !== null && fieldRead(lowering, { kind: "field-read", node, member, storage,
+            receiver: { kind: "in-place", staticRoot } });
         }
       }
-      lowering.work.push({ kind: "field-read", node, member, storage, staticRoot: null }, { kind: "expression", node: receiver });
+      lowering.work.push({ kind: "field-read", node, member, storage, receiver: access.receiver === "in-place"
+        ? { kind: "in-place", staticRoot: null } : { kind: "by-reference" } }, { kind: "expression", node: receiver });
       return true;
     }
     case "ParenthesizedExpression":
@@ -602,7 +603,7 @@ function assignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, payl
 function store(lowering: Lowering, pending: Extract<Work, { readonly kind: "store" }>): boolean {
   let right = popOperand(lowering, failure("an assignment completed without its value", pending.node.origin));
   let discard = false;
-  if (pending.result === "new" && right.kind === "static-field") {
+  if (pending.result === "new" && right.kind === "shared-field") {
     discard = lowering.work.at(-1)?.kind === "discard";
     if (!discard) {
       const saved = saveRead(lowering, right);
@@ -665,7 +666,7 @@ function narrow(lowering: Lowering, node: NodeHeader, decision: Extract<NonNulla
   const { state, body } = lowering;
   const site = siteOf(body, node);
   const consumer = lowering.work.at(-1);
-  if (raw.kind === "static-field" && consumer?.kind !== "discard") {
+  if (raw.kind === "shared-field" && consumer?.kind !== "discard") {
     const saved = saveRead(lowering, raw);
     if (saved === null) return false;
     raw = saved;
@@ -693,21 +694,32 @@ function narrow(lowering: Lowering, node: NodeHeader, decision: Extract<NonNulla
   return true;
 }
 
-function fieldRead(lowering: Lowering, { node, member, storage, staticRoot }: Extract<Work, { readonly kind: "field-read" }>): boolean {
-  let receiver = staticRoot === null ? popOperand(lowering, failure("a field read was reached without its receiver", node.origin)) : null;
-  if (receiver?.kind === "static-field") {
-    receiver = saveRead(lowering, receiver);
-    if (receiver === null) return false;
+function fieldRead(lowering: Lowering, { node, member, storage, receiver }: Extract<Work, { readonly kind: "field-read" }>): boolean {
+  const staticRoot = receiver.kind === "in-place" ? receiver.staticRoot : null;
+  let source: Evaluated | null = null;
+  let base: PlaceId;
+  if (receiver.kind === "by-reference") {
+    const value = popOperand(lowering, failure("a field read was reached without its receiver", node.origin));
+    const holder = holdReceiver(lowering, value);
+    if (holder === null) return false;
+    base = holder;
+  } else if (staticRoot !== null) base = staticRoot;
+  else {
+    source = popOperand(lowering, failure("a field read was reached without its receiver", node.origin));
+    if (source.kind === "shared-field") {
+      source = saveRead(lowering, source);
+      if (source === null) return false;
+    }
+    if (source.operand.kind !== "place") return callerDefect("an in-place field read requires an evaluated storage place", node.origin);
+    base = source.operand.place;
   }
-  const base = staticRoot ?? (receiver?.operand.kind === "place" ? receiver.operand.place : undefined);
-  if (base === undefined) return callerDefect("an in-place field read requires an evaluated storage place", node.origin);
   const site = siteOf(lowering.body, node);
   const place = newPlace(lowering.state,
     { kind: "place", place: base, projection: { kind: "field", member }, tir: site.tir }, storage, node.origin);
   if (place === null) return false;
   const result = { operand: { kind: "place", place } satisfies MirOperand, pendingRead: true, storage, site };
-  pushOperand(lowering, staticRoot !== null ? { ...result, kind: "static-field", root: staticRoot }
-    : receiver?.kind === "local-read" ? { ...result, kind: "local-read", root: receiver.root, local: receiver.local }
+  pushOperand(lowering, receiver.kind === "by-reference" || staticRoot !== null ? { ...result, kind: "shared-field", root: base }
+    : source?.kind === "local-read" ? { ...result, kind: "local-read", root: source.root, local: source.local }
       : { ...result, kind: "plain" });
   return true;
 }

@@ -68,7 +68,8 @@ export type Work =
   | { readonly kind: "declarations"; readonly node: VariableDeclarationList<TypedPhase>; readonly lexical: boolean; readonly position: number }
   | { readonly kind: "scope-end"; readonly node: NodeHeader; readonly scope: LocalScope }
   | { readonly kind: "call"; readonly node: CallExpression<TypedPhase> | NewExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
-  | { readonly kind: "field-read"; readonly node: NodeHeader; readonly member: MemberSelection; readonly storage: TyId; readonly staticRoot: PlaceId | null }
+  | { readonly kind: "field-read"; readonly node: NodeHeader; readonly member: MemberSelection; readonly storage: TyId;
+    readonly receiver: { readonly kind: "in-place"; readonly staticRoot: PlaceId | null } | { readonly kind: "by-reference" } }
   | { readonly kind: "void-result"; readonly node: NodeHeader; readonly storage: TyId }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "unary" | "binary" }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "convert"; readonly to: TyId }
@@ -102,7 +103,7 @@ export type Evaluated = {
   | { readonly kind: "plain"; readonly pendingRead: false; readonly operand: MirOperand; readonly anchor?: never }
   | { readonly kind: "plain"; readonly pendingRead: true; readonly operand: PlaceOperand; readonly anchor?: never }
   | { readonly kind: "local-read"; readonly pendingRead: boolean; readonly operand: PlaceOperand; readonly root: PlaceId; readonly local: LocalId; anchor?: ReadAnchor }
-  | { readonly kind: "static-field"; readonly pendingRead: boolean; readonly operand: PlaceOperand; readonly root: PlaceId; anchor?: ReadAnchor }
+  | { readonly kind: "shared-field"; readonly pendingRead: boolean; readonly operand: PlaceOperand; readonly root: PlaceId; anchor?: ReadAnchor }
 );
 
 interface TargetScope {
@@ -144,7 +145,7 @@ export interface Lowering {
    */
   readonly exposed: Set<number>;
   readonly reads: Map<PlaceId, Set<number>>;
-  readonly staticReads: Set<number>;
+  readonly sharedReads: Set<number>;
   /** The MIR local of each source local that has one. */
   readonly localOf: Map<LocalId, LocalId>;
   readonly labels: Map<NodeId, ControlScope>;

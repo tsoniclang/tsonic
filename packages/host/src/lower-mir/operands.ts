@@ -16,7 +16,7 @@ export function pushOperand(lowering: Lowering, evaluated: Evaluated): void {
     if (positions === undefined) { positions = new Set(); lowering.reads.set(evaluated.root, positions); }
     const position = lowering.operands.length;
     positions.add(position);
-    if (evaluated.kind === "static-field") lowering.staticReads.add(position);
+    if (evaluated.kind === "shared-field") lowering.sharedReads.add(position);
     else if (lowering.preservedLocals.has(evaluated.local)) lowering.exposed.add(position);
   }
   lowering.operands.push(evaluated);
@@ -24,7 +24,7 @@ export function pushOperand(lowering: Lowering, evaluated: Evaluated): void {
 
 function forgetRead(lowering: Lowering, position: number, evaluated: Evaluated): void {
   if (evaluated.kind === "plain") return;
-  if (evaluated.kind === "static-field") lowering.staticReads.delete(position);
+  if (evaluated.kind === "shared-field") lowering.sharedReads.delete(position);
   else lowering.exposed.delete(position);
   const positions = requirePresent(lowering.reads.get(evaluated.root), failure("a waiting read has no owning place relation", null));
   positions.delete(position);
@@ -52,10 +52,14 @@ export function temporary(lowering: Lowering, storage: TyId, site: MirSite, befo
 /** A temporary as an operand. It is written by one record and by nothing else, so it is read in place and never saved. */
 export const held = (place: PlaceId, storage: TyId, site: MirSite): Evaluated => ({ kind: "plain", operand: { kind: "place", place }, pendingRead: false, storage, site });
 
-function materializeRead(lowering: Lowering, operand: MirOperand, storage: TyId, site: MirSite, anchor: ReadAnchor | null): Evaluated | null {
+function materializeReadPlace(lowering: Lowering, operand: MirOperand, storage: TyId, site: MirSite, anchor: ReadAnchor | null): PlaceId | null {
   const saved = temporary(lowering, storage, site, anchor);
-  if (saved === null || !copyRead(lowering, operand, saved, site, anchor)) return null;
-  return held(saved, storage, site);
+  return saved !== null && copyRead(lowering, operand, saved, site, anchor) ? saved : null;
+}
+
+function materializeRead(lowering: Lowering, operand: MirOperand, storage: TyId, site: MirSite, anchor: ReadAnchor | null): Evaluated | null {
+  const place = materializeReadPlace(lowering, operand, storage, site, anchor);
+  return place === null ? null : held(place, storage, site);
 }
 
 export function readPlace(lowering: Lowering, place: PlaceId, storage: TyId, site: MirSite): Evaluated | null {
@@ -65,6 +69,17 @@ export function readPlace(lowering: Lowering, place: PlaceId, storage: TyId, sit
 export function saveRead(lowering: Lowering, pending: Evaluated): Evaluated | null {
   const anchor = requirePresent(pending.anchor, failure("a pending place read has no authored position", pending.site.origin));
   return materializeRead(lowering, pending.operand, pending.storage, pending.site, anchor);
+}
+
+export function holdReceiver(lowering: Lowering, value: Evaluated): PlaceId | null {
+  if (value.kind === "plain" && !value.pendingRead && value.operand.kind === "place") {
+    const source = requirePresent(lowering.state.places[value.operand.place], failure("an evaluated receiver has no place", value.site.origin));
+    if (source.base.kind === "local") {
+      const local = requirePresent(lowering.state.locals[source.base.local], failure("an evaluated receiver has no local", value.site.origin));
+      if (local.role.kind === "temporary") return source.id;
+    }
+  }
+  return materializeReadPlace(lowering, value.operand, value.storage, value.site, value.anchor ?? null);
 }
 
 function emitReadRecord(lowering: Lowering, before: BlockId | ReadAnchor | null, statement: MirStatement): boolean {
@@ -103,14 +118,14 @@ function saveReads(lowering: Lowering, positions: Set<number> | undefined): bool
 
 export function saveBeforeControl(lowering: Lowering, writesStorage: boolean, canLeave: boolean): boolean {
   if (writesStorage && !saveReads(lowering, lowering.exposed)) return false;
-  return !writesStorage && !canLeave || saveReads(lowering, lowering.staticReads);
+  return !writesStorage && !canLeave || saveReads(lowering, lowering.sharedReads);
 }
 
 export function saveBeforeStore(lowering: Lowering, place: PlaceId, local: LocalId | null): boolean {
   if (local === null || !lowering.preservedLocals.has(local)) return saveReads(lowering, lowering.reads.get(place));
   if (!saveReads(lowering, lowering.exposed)) return false;
   const owner = requirePresent(lowering.state.locals[local], failure("a written local has no storage", null));
-  return localOwnershipOfMir(owner.mode) === "body" || saveReads(lowering, lowering.staticReads);
+  return localOwnershipOfMir(owner.mode) === "body" || saveReads(lowering, lowering.sharedReads);
 }
 
 export function exposeLocal(lowering: Lowering, local: LocalId): void {
