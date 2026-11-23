@@ -452,6 +452,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts", "arena.ts", "data.ts", "publication-fields.ts", "publication-read.ts", "work.ts", "value.ts", "interner.ts", "canonical.ts", "copy.ts", "text-readers.ts", "text-values.ts", "text-components.ts", "text-records.ts",
       "substitute.ts", "graph-stage.ts", "intern-graph.ts", "print.ts", "parse.ts", "verify.ts", "verify-bindings.ts", "selector-path.ts", "native-facts.ts", "native-facts-data.ts", "native-carrier.ts", "literal-compatibility.ts", "source-choice.ts"].map(name => `${host}/ir-types/${name}`),
     ...["index.ts", "pragmas.ts", "endpoints.ts", "children.ts", "walk.ts", "declaration-scopes.ts", "grouping-frontier.ts", "print.ts", "parse.ts", "verify.ts", "verify-syntax.ts",
+      "child-slot-storage.ts", "control-slots.ts", "declaration-slots.ts", "documentation-slots.ts", "expression-slots.ts", "header-slots.ts", "jsx-slots.ts", "module-slots.ts", "type-slots.ts",
       "copy-auxiliary.ts", "copy-expressions.ts", "copy-node.ts", "copy-statements.ts", "copy-syntax.ts", "copy-types.ts", "checked-phase-copy.ts",
       "binding-data.ts", "bindings.ts", "capture-data.ts", "verify-export-bindings.ts", "text-read-bindings.ts", "text-causes.ts",
       "verify-bindings.ts", "verify-captures.ts", "storage.ts", "text-data.ts", "text-syntax.ts", "text-construction.ts", "text-read-model.ts",
