@@ -111,8 +111,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const fieldProjection = preparedSource === null || fieldPlaces === null ? null : heldFieldReads(deps, input, preparedSource.value, fieldPlaces);
   if (fieldProjection !== null && fieldProjection.kind !== "complete") return fieldProjection;
   const fieldReads = fieldProjection?.value ?? null;
-  const fieldSetup = fieldReads === null ? null : chargeResultEntries(account, 3);
-  if (fieldSetup !== null) return fieldSetup;
+  let objectFormals: Set<number> | null = null;
   for (const local of mir.locals) {
     if (local.role.kind === "capture") {
       const captureWork = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
@@ -125,11 +124,21 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       capturedEntries[local.role.index] = local.id;
     } else if (localOwnershipOfMir(local.mode) !== "body")
       return bodyFrontier("BodyAnalysis requires the actual caller-cell binding of this external storage mode.");
-    const kind = fieldReads?.references.has(local.id) === true ? "reference" : valueKind(deps, local.storage);
-    if (kind === null) {
-      const stop = accountFailure(account);
-      return stop ?? bodyFrontier("BodyAnalysis requires the actual Origins reference/cell producer for this selected local.");
+    let kind = fieldReads?.references.has(local.id) === true ? "reference" : valueKind(deps, local.storage);
+    const afterKind = accountFailure(account);
+    if (afterKind !== null) return afterKind;
+    if (kind === null && local.role.kind === "parameter" && local.mode === "by-value" && local.source?.body === tir.body) {
+      const formal = deps.sourceObjectFormal(account, local.source, local.storage);
+      if (formal.kind !== "complete") return formal;
+      if (formal.value) {
+        const retained = chargeResultEntries(account, objectFormals === null ? 2 : 1);
+        if (retained !== null) return retained;
+        objectFormals ??= new Set();
+        objectFormals.add(local.role.index);
+        kind = "reference";
+      }
     }
+    if (kind === null) return bodyFrontier("BodyAnalysis requires the actual Origins reference/cell producer for this selected local.");
     if (kind === "primitive-optional" || kind === "reference-optional") {
       if (local.role.kind === "receiver")
         return bodyFrontier("BodyAnalysis requires the actual optional receiver value binding.");
@@ -330,7 +339,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     arguments: signature.parameters.map((_, index) => index >= execution.provided ? { kind: "omitted" }
       : { kind: "provided", origins: requirePresent(parameterOrigins[index],
         { owner: "analyses/body", query: null, origin: null, message: "Every supplied formal retains its entry origins." }) }), captures: captureLocations }];
-  const fieldEffects = fieldReads === null ? null : fieldReadEffects(deps, (records, references): DataflowStop | null => {
+  if (fieldReads !== null && objectFormals === null)
+    return bodyFrontier("A held field needs its independently verified object formal.");
+  const fieldSetup = objectFormals === null ? null : chargeResultEntries(account, 3);
+  if (fieldSetup !== null) return fieldSetup;
+  const fieldEffects = objectFormals === null ? null : fieldReadEffects(deps, objectFormals, (records, references): DataflowStop | null => {
     const stop = bounded("maximumRelationalRecordsPerBody", records, arena.cells.length + arena.boundProducers.length
       + arena.producers.length + arena.contexts.length + arena.origins.length + arena.projections.length + lifetimeRecords)
       ?? bounded("maximumRelationalReferencesPerBody", references, contextReferences);
@@ -434,7 +447,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const held = requirePresent(arena.origins[requirePresent(currentOrigins[local], { owner: "analyses/body", query: null,
           origin: witness.origin, message: "A held receiver requires its actual local Origins." })], { owner: "analyses/body",
           query: null, origin: witness.origin, message: "A held reference requires its actual Origins row." });
-        const read = effect.read(field, held, boundProducers, producers);
+        const read = effect.read(field.member, held, boundProducers, producers);
         if (read !== null) return read;
       }
       let occurrences = initialized.get(node);
@@ -725,7 +738,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       }
       const context = valueContextId(contexts.length);
       contexts.push({ id: context, receiver: null, arguments: arguments_, captures: callCaptures });
-      const applied = applyScalarCall(deps, input, terminator, point, summary, arena, context, entryBindings, cellBindings);
+      const applied = applyScalarCall(deps, input, terminator, point, summary, arena, context, entryBindings, cellBindings,
+        parameter => fieldEffects === null ? bodyFrontier("An applied field read has no verified caller reference producer.")
+          : fieldEffects.call(parameter, summary.arena, arena));
       if (applied.kind !== "complete") return applied;
       const unmet = callNeeds(summary, applied.value.initialization, terminator, cellBindings, assigned, point);
       if (unmet !== null) return unmet;

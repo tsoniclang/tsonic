@@ -1,8 +1,9 @@
 import type { CallerRefusal, DataflowAccount, DataflowStop } from "../dataflow/contract.js";
-import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Diagnostic, Result, UnitAnswerPosition, UnitDiagnostic, UnitRequest } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId } from "../ids/contract.js";
+import { checkedSourceObjectFormalOf } from "../ir-hir/index.js";
 import type { BodyFacts, BodyObservations, DependencyInventory, FactsVerificationContext,
   SummaryAnswer, SummaryKey } from "../ir-facts/contract.js";
 import { admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
@@ -273,6 +274,23 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
           signatureOf: signature => readSignature(source.types, signature),
           staticModuleBindingsOf: module => moduleExecutions.get(module)?.instance.bindings ?? null,
           staticTypeOf: reference => reference.kind === "item" ? typed.staticStorageOf(reference.value) : null,
+          sourceObjectFormal: (account, local, storage) => {
+            const admitted = chargeWork(account, 1 + local.body.length);
+            if (admitted !== null) return admitted;
+            const body = sources.bodies.get(local.body);
+            if (body === undefined) return fail("An executable source formal belongs to its actual checked body.");
+            const localRead = chargeWork(account, 5);
+            if (localRead !== null) return localRead;
+            const formal = checkedSourceObjectFormalOf(body, local, reference => {
+              const owner = reference.kind === "item" ? reference.value.owner : reference.value.body;
+              return chargeWork(account, 18 + owner.length) === null ? sources.nodeOf(reference) : null;
+            }, definition => {
+              if (chargeWork(account, 12 + definition.length) !== null) return null;
+              const reference = sources.declarationSourceOf(definition);
+              return reference === null ? null : sources.nodeOf(reference);
+            });
+            return accountFailure(account) ?? { kind: "complete", value: formal?.receiver === storage };
+          },
           limits: inputs.limits.analyses },
         verification, resources: { account, conditionRefusal },
       }, { inventory: components.value, component: index, members,

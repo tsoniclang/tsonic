@@ -1,4 +1,4 @@
-import type { CallerRefusal, DataflowResult } from "../../dataflow/contract.js";
+import type { CallerRefusal, DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { UnitRef } from "../../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
@@ -218,7 +218,8 @@ export function bindCallInitialization(deps: BodyRoundDeps, operation: Extract<M
 export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint,
   summary: Summary, arena: RelationalArena, context: ValueContextId,
-  entries: readonly ValueEntryBinding[], cells: SummaryApplicationInput["cells"]): DataflowResult<AppliedSummary> {
+  entries: readonly ValueEntryBinding[], cells: SummaryApplicationInput["cells"],
+  onParameterRead: (parameter: AppliedSummary["parameters"][number]) => DataflowStop | null): DataflowResult<AppliedSummary> {
   const admission = chargeWork(deps.account, 2) ?? chargeResultEntries(deps.account, 24);
   if (admission !== null) return admission;
   if (summary.arena.cells.length !== cells.length)
@@ -258,9 +259,14 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const parameter of value.parameters) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    if (parameter.source.reads.kind !== "complete" || parameter.source.reads.paths.length !== 0
+    if (parameter.source.reads.kind !== "complete"
+      || (parameter.source.reads.paths.length !== 0 && parameter.source.slot.kind !== "parameter")
       || parameter.source.writes.kind !== "complete" || parameter.source.writes.paths.length !== 0)
       return frontier(operation, "BodyAnalysis requires the actual parameter subobject read/write transport for these applied effects.");
+    if (parameter.source.reads.paths.length !== 0) {
+      const stopped = onParameterRead(parameter);
+      if (stopped !== null) return stopped;
+    }
   }
   for (const retained of value.retention) {
     const work = chargeWork(deps.account, 1);
@@ -368,7 +374,7 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
   }
   const context = valueContextId(arena.contexts.length);
   const caller = { ...arena, contexts: [...arena.contexts, { id: context, receiver: null, arguments: arguments_, captures }] };
-  const applied = applyScalarCall(deps, input, operation, point, summary, caller, context, entries, cells);
+  const applied = applyScalarCall(deps, input, operation, point, summary, caller, context, entries, cells, () => null);
   if (applied.kind !== "complete") return applied;
   const output = chargeResultEntries(deps.account, 1);
   if (output !== null) return output;

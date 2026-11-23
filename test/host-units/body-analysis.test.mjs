@@ -132,7 +132,8 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   const storage = analyzeStorageUse({ account }, { execution, body: lowered.value });
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
-  const deps = { types: TABLE, typeOf, signatureOf, summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
+  const deps = { types: TABLE, typeOf, signatureOf, sourceObjectFormal: () => ({ kind: "complete", value: false }),
+    summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
     account, limits: analysisLimits, unit };
   return { program, execution, input, deps, bindingScope: program.bindingScope };
 }
@@ -1656,7 +1657,8 @@ test("call identity, selected storage and missing effect relations are checked b
     assert.throws(() => run({ ...operation, unwind }, { ...summary, unwinds: true }), /actual selected callee failure continuation/u);
   const arena = analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input).value.value.facts.arena;
   const apply = (answer, overrides = {}) => applyScalarCall({ ...current.deps, account: createAccount(limits), ...overrides },
-    current.input, operation, point, answer, arena, 1, [], []);
+    current.input, operation, point, answer, arena, 1, [], [],
+    () => assert.fail("These scalar argument fixtures have no selected parameter field read."));
   assert.throws(() => apply({ ...summary, arena: { ...summary.arena, cells: [{}] } }), /actual caller-cell bindings/);
   const absent = { ...summary.arena.origins[0], id: 1, includesAbsence: true };
   const absentArena = { ...summary.arena, origins: [...summary.arena.origins, absent] };
@@ -4330,17 +4332,22 @@ test("applied reference results preserve sorted caller alternatives and refuse m
     () => refuseAccount(account, refusal)), refusal);
 });
 
-test("nonempty parameter footprints and external retention remain genuine unimplemented call effects", () => {
+test("unsupported projections, parameter writes and external retention remain explicit call boundaries", async () => {
+  const { fieldReadEffects } = await import("../../packages/host/dist/analyses/body/field-reads.js");
   const { current, pair, operation, point, summary } = referenceRound("body-round.reference-effects");
   const arena = pair.facts.arena;
   const context = pair.facts.origins.activations[0].context;
   const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0].origins }];
-  const apply = value => applyScalarCall({ ...current.deps, account: createAccount(limits) }, current.input,
-    operation, point, value, arena, context, entries, []);
+  const apply = value => {
+    const deps = { ...current.deps, account: createAccount(limits) };
+    const fields = fieldReadEffects(deps, new Set(), () => assert.fail("An unsupported read must not retain a projection."));
+    return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
+      parameter => fields.call(parameter, value.arena, arena));
+  };
   for (const field of ["reads", "writes"]) assert.throws(() => apply({ ...summary,
     arena: { ...summary.arena, projections: [{ id: 0, parent: null, projection: { kind: "element" } }] },
     parameters: summary.parameters.map(row => ({ ...row, [field]: { kind: "complete", paths: [0] } })),
-  }), /parameter subobject read\/write transport/);
+  }), field === "reads" ? /actual direct callee field projection/ : /parameter subobject read\/write transport/);
   assert.throws(() => apply({ ...summary, retention: summary.retention.map(row => ({ ...row, into: { kind: "parameter", index: 0, path: null } })) }),
     /external retention transport/);
   assert.throws(() => apply({ ...summary, initialization: { ...summary.initialization,

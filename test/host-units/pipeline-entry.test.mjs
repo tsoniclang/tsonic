@@ -1451,6 +1451,75 @@ test("real public Host analysis reads a declared structural field through its ac
   assert.deepEqual(caller.facts[0].arena.origins[fact.origins].producers, [], "a scalar field read is not the receiver reference");
 });
 
+test("applied field reads follow the actual forwarded object rather than the callee formal index", async () => {
+  const { accountFailure, createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `export type Box = { flag: boolean };
+    function peek(box: Box): boolean { return box.flag; }
+    function forward(unused: Box, selected: Box): boolean { return peek(selected); }
+    export function top(selected: Box, unused: Box): boolean { selected.flag; return forward(unused, selected); }`);
+  const original = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+  let witness = null;
+  let result;
+  try {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, round) => {
+      if (round.tir.params.length === 2 && round.tir.root.statements.nodes.length === 1) {
+        const local = round.mir.locals.find(row => row.role.kind === "parameter" && row.role.index === 1);
+        witness = { ...local, sourceObjectFormal: deps.sourceObjectFormal, scalar: deps.signatureOf(round.tir.signature).result };
+      }
+      return original(deps, round);
+    };
+    result = analyzeHostProgram(input);
+  } finally {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = original;
+  }
+  assert.equal(result.kind, "ok");
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const bodies = chapter.bodies.filter(row => row.kind === "selected" && row.tir.params.length !== 0);
+  const summaries = result.value.index.summaries.filter(row => row.key.kind === "body");
+  const peek = bodies.find(row => row.tir.params.length === 1);
+  const forward = bodies.find(row => row.tir.params.length === 2 && row.tir.root.statements.nodes.length === 1);
+  const top = bodies.find(row => row.tir.params.length === 2 && row.tir.root.statements.nodes.length === 2);
+  assert.equal(bodies.length, 3);
+  const leaf = peek.tir.root.statements.nodes[0].expression.tsonic.selection.decision.decision.primary;
+  for (const [body, selected] of [[peek, 0], [forward, 1], [top, 0]]) {
+    const summary = summaries.find(row => row.key.execution.instance.body === body.instance.body);
+    assert.equal(summary.arena.projections.length, 1);
+    const projection = summary.arena.projections[0];
+    assert.equal(projection.parent, null);
+    assert.equal(projection.projection.kind, "field");
+    assert.equal(projection.projection.member.decision.primary, leaf);
+    assert.deepEqual(summary.parameters.map(row => [row.slot.index, row.reads.paths, row.writes.paths]),
+      body.tir.params.map((_, index) => [index, index === selected ? [projection.id] : [], []]));
+    assert.deepEqual(summary.arena.origins[summary.result].producers, []);
+  }
+  for (const [caller, callee, slot, actual] of [[forward, peek, 0, 1], [top, forward, 1, 0]]) {
+    const [facts] = caller.facts;
+    const activation = facts.origins.activations.find(row => row.activation.body === callee.instance.body && row.entry === null);
+    assert.equal(activation !== undefined, true);
+    const argument = facts.arena.contexts[activation.context].arguments[slot];
+    assert.equal(argument.kind, "provided");
+    const [bound] = facts.arena.origins[argument.origins].producers;
+    assert.equal(facts.arena.producers[facts.arena.boundProducers[bound].producer].index, actual);
+  }
+  assert.equal(witness !== null, true);
+  const { sourceObjectFormal, source, storage, scalar } = witness;
+  const limits = input.limits.dataflow;
+  const account = createAccount(limits);
+  assert.deepEqual(sourceObjectFormal(account, source, storage), { kind: "complete", value: true });
+  const { work } = InvocationAccount.stateOf(account);
+  assert.deepEqual(sourceObjectFormal(createAccount({ ...limits, maximumWork: work }), source, storage), { kind: "complete", value: true });
+  assert.deepEqual(sourceObjectFormal(createAccount(limits), source, scalar), { kind: "complete", value: false });
+  for (let maximumWork = 0; maximumWork < work; maximumWork += 1) {
+    const cut = createAccount({ ...limits, maximumWork });
+    const refusal = sourceObjectFormal(cut, source, storage);
+    assert.equal(refusal === accountFailure(cut), true);
+    assert.equal(sourceObjectFormal(cut, source, storage) === refusal, true);
+  }
+});
+
 test("a verified object parameter field cannot be changed to in-place storage", async () => {
   const { accountFailure, createAccount } = await import("../../packages/host/dist/dataflow/index.js");
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");

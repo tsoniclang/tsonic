@@ -1,6 +1,6 @@
 import type { CallerRefusal, DataflowAccount, DataflowResult } from "../../dataflow/contract.js";
 import type { ErrorValue, UnitRef, UnitRequest, UnitResult } from "../../diag/contract.js";
-import type { DefId, ModuleId, Origin, SigId, SourceNodeRef, TyId } from "../../ids/contract.js";
+import type { DefId, LocalRef, ModuleId, Origin, SigId, SourceNodeRef, TyId } from "../../ids/contract.js";
 import type { AnalysisLimits, BodyFacts, LivenessFacts, ModuleStaticCellRef, Summary, SummaryAnswer, SummaryKey, SummaryPosition } from "../../ir-facts/contract.js";
 import type { MirBody, MirEntry } from "../../ir-mir/contract.js";
 import type { TirBody } from "../../ir-tir/contract.js";
@@ -12,6 +12,7 @@ export interface BodyRoundEnvironment {
   readonly signatureOf: SignatureOf;
   readonly staticModuleBindingsOf: (module: ModuleId) => ArtifactBindings | null;
   readonly staticTypeOf: (declaration: SourceNodeRef) => TyId | null;
+  readonly sourceObjectFormal: (account: DataflowAccount, local: LocalRef, storage: TyId) => DataflowResult<boolean>;
   readonly limits: AnalysisLimits;
 }
 

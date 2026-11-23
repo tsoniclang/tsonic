@@ -1004,7 +1004,7 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
   assert.deepStrictEqual(Object.keys(product).sort(), [
-    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedParameterHeadersOf", "checkedSourceObjectParameterOf", "checkedVariableStorageOf", "childrenOfSyntax", "compoundAssignmentOperatorOf",
+    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedParameterHeadersOf", "checkedSourceObjectFormalOf", "checkedSourceObjectParameterOf", "checkedVariableStorageOf", "childrenOfSyntax", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareBinaryStructure", "prepareBlockStructure", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxCopy", "printCheckedDeclarations", "printHir",
     "projectCheckedContent", "readWriteRootStorageOf", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
