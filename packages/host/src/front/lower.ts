@@ -9,7 +9,7 @@ import type { PassingMode } from "../ir-types/contract.js";
 import { admitTypePublicationStep, readSignature, readType } from "../ir-types/index.js";
 import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawEnum, RawFact, RawMemberUse, RawModule, RawModuleLink, RawNodeRef, RawNumericLiteral, RawPropertyName, RawReference, RawStorageCapture } from "./contract.js";
 import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
-import { bindingOccurrence, lowerBindingFact, lowerBindingTarget, lowerBindings, lowerMemberKey, lowerMemberOrigin, sourceOccurrence } from "./bindings.js";
+import { bindingOccurrence, lowerBindingFact, lowerBindingTarget, lowerBindings, lowerMemberKey, lowerMemberOrigin, sameSource, sourceOccurrence } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
 import { childSourceBody, enterSourceBody } from "./source-bodies.js";
 import type { SourceBodyScope, SourceBodyTransition } from "./source-bodies.js";
@@ -204,7 +204,20 @@ function coreOf(lowering: Lowering, node: NodeId): Hir.HirCoreCapture {
 function memoryOf(lowering: Lowering, node: NodeId): Hir.CapturedFact<Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCapture | null> {
   const raw = lowering.core.get(node);
   if (raw === undefined) return throwInvariant(invariant("A node of a lowered module has no captured core facts."));
-  return capturedFact(raw.metadata, absenceOnly("memory metadata"));
+  return capturedFact(raw.metadata, value => {
+    if (value === null) return null;
+    if (value.kind !== "data-layout") throw new TypeError("front: the lowering of a present fact (memory metadata) is not implemented");
+    const layout = lowering.raw.types.dataLayouts[value.dataLayout];
+    if (!sameSource(value.occurrence, raw.node) || layout?.id !== value.dataLayout ||
+      raw.provider.kind !== "available" || raw.provider.value === null || !sameSource(raw.provider.value.node, raw.node) ||
+      layout.identity !== raw.provider.value.identity)
+      return throwInvariant(invariant("A data layout must retain the registration of its actual canonical provider declaration."));
+    const definition = definitionOf(lowering, node);
+    return { kind: "data-layout", occurrence: { kind: "item", value: { owner: definition, node } },
+      bindings: { kind: "available", value: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
+      declaration: { kind: "available", value: definition }, fingerprint: { kind: "available", value: layout.fingerprint },
+      byteOrder: { kind: "available", value: layout.byteOrder }, addressWidth: { kind: "available", value: layout.addressWidth } };
+  });
 }
 
 /** The definition identities of one module, read from its raw tree alone. */

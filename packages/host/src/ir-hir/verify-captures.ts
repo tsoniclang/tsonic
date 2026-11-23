@@ -663,6 +663,11 @@ export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCa
       const occurrence = readers.nodeOf(capture.occurrence);
       if (occurrence === null)
         report("memory-capture-owner", site, "capture occurrence must exist in the canonical checked-node inventory");
+      if (capture.kind === "data-layout" && (occurrence?.kind !== "local" || occurrence.node !== node ||
+        capture.occurrence.kind !== "item" || capture.declaration.kind !== "available" ||
+        capture.occurrence.value.owner !== capture.declaration.value || metadata.core.provider.kind !== "available" ||
+        metadata.core.provider.value !== capture.declaration.value))
+        report("memory-capture-owner", site, "a platform layout must retain its own canonical provider declaration");
       if (capture.kind === "field" && capture.primary.kind === "available" && capture.primary.value !== null &&
         capture.selectedDeclarations.kind === "available" && !capture.selectedDeclarations.value.includes(capture.primary.value))
         report("memory-capture-reference", site, "primary field declaration must belong to its selected declaration group");

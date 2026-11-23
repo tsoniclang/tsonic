@@ -8912,6 +8912,35 @@ test("actual checker session declarations survive all Host barriers without runn
   const declaration = canonical.tree.statements.nodes[0].declarationList.declarations.nodes[0];
   const definition = declaration.tsonic.declaration.definition;
   assert.deepEqual(declaration.tsonic.core.provider, { kind: "available", value: definition });
+  const registered = { providerId: provider.identity.id, providerVersion: provider.identity.version,
+    providerModuleId, moduleSpecifier: specifier, exportId: "Value" };
+  const layout = { fingerprint: "native-layout:v1", byteOrder: "big", addressWidth: 64 };
+  const layoutSnapshot = snapshotOf({ "main.ts": 'import type { Value as NativeValue } from "native:thing"; '
+    + "export type Ready = typeof NativeValue; export const Value: number = 1;" });
+  const layoutInput = { ...input, snapshot: { ...layoutSnapshot,
+    contributions: { ...layoutSnapshot.contributions, dataLayouts: [registered] },
+    nativeFacts: { ...layoutSnapshot.nativeFacts, geometry: { layouts: [{ declaration: registered, layout }] } } } };
+  const layoutSource = captureSourceBarrier(layoutInput);
+  assert.equal(layoutSource.kind, "ok", JSON.stringify(layoutSource.diagnostics));
+  const layoutOwner = layoutSource.value.modules.find(row => row.module.module === canonical.module).module;
+  const layoutValue = layoutOwner.tree.statements.nodes[0].declarationList.declarations.nodes[0];
+  assert.deepEqual(layoutValue.tsonic.memory, { kind: "available", value: {
+    kind: "data-layout", occurrence: { kind: "item", value: { owner: definition, node: layoutValue.id } },
+    bindings: { kind: "available", value: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
+    declaration: { kind: "available", value: definition }, fingerprint: { kind: "available", value: layout.fingerprint },
+    byteOrder: { kind: "available", value: layout.byteOrder }, addressWidth: { kind: "available", value: layout.addressWidth },
+  } });
+  const sameName = layoutSource.value.modules.find(row => row.module.module === layoutSnapshot.entryPoint).module
+    .tree.statements.nodes.at(-1).declarationList.declarations.nodes[0];
+  assert.equal(sameName.name.text, layoutValue.name.text);
+  assert.equal(sameName.tsonic.memory.kind, "unavailable");
+  const layoutProgram = analyzeHostProgram(layoutInput);
+  assert.equal(layoutProgram.kind, "ok", JSON.stringify(layoutProgram.diagnostics));
+  assert.deepEqual(layoutProgram.value.index.metadata, [], "an unopened registration is not a metadata demand");
+  const layoutChapter = layoutProgram.value.modules.find(module => module.module === layoutOwner.module);
+  assert.equal(layoutChapter.tree.kind, "checked-root");
+  assert.deepEqual(layoutChapter.tree.root.statements.nodes[0].declarationList.declarations.nodes[0].tsonic.memory,
+    layoutValue.tsonic.memory);
   const entry = providerModules.find(module => module.module === publicDocument.module).exports[0];
   const views = createModuleBindingViews(index.modules.map(module => module.bindings));
   const resolved = resolveModuleExport(views, entry);

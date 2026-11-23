@@ -2,6 +2,7 @@ import type { CheckedSourceProgram, CompilerExtension, Node, ProviderDeclaration
 import type { Diagnostic } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
+import type { PlatformLayout } from "../ir-types/contract.js";
 import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, ProjectSnapshot } from "../snapshot/contract.js";
 import type { ProgramModule, ProgramModuleSet } from "./program-data.js";
 
@@ -11,6 +12,7 @@ export interface OpenedFile {
   readonly text: string;
   readonly displacement: number;
   readonly providerModel: ProviderDeclarationModel | null;
+  readonly platformLayouts: ReadonlyMap<string, PlatformLayout> | null;
 }
 
 /** One file's numbering: its nodes in identity order (preorder) and each node's identity. */

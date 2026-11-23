@@ -5,13 +5,13 @@ import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirt
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
-import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignatureId, rawSymbolId, rawTypeId } from "../ids/index.js";
+import { nodeId, rawCandidateListId, rawComponentId, rawDataLayoutId, rawMemberTableId, rawSignatureId, rawSymbolId, rawTypeId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
-import type { RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
+import type { RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { projectProviderModel } from "./provider-model.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -4085,6 +4085,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   }
   const core: RawCoreCapture[] = [];
   const providerDeclarations: RawProviderDeclaration[] = [];
+  const dataLayouts: RawDataLayout[] = [];
   for (const [node, id] of ownNodes) {
     if (!admit(scope, "facts")) break;
     const reference = { module, node: id };
@@ -4103,6 +4104,19 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     const row = provider !== undefined ? { ...base, provider: available(provider) }
       : application === "ordinary" ? { ...base, provider: available(null) }
         : application?.role === "provider" ? { ...base, provider: available(application.receipt) } : base;
+    if (input.platformLayouts !== null && kind === "KindVariableDeclaration" && provider !== undefined &&
+      provider.identity.memberId === null && provider.identity.signatureId === null) {
+      if (!admit(scope, "edges")) break;
+      const selected = input.platformLayouts.get(provider.identity.exportId);
+      if (selected !== undefined) {
+        if (!admit(scope, "facts", 2)) break;
+        const dataLayout = rawDataLayoutId(dataLayouts.length);
+        dataLayouts.push({ id: dataLayout, identity: provider.identity, fingerprint: selected.fingerprint,
+          byteOrder: selected.byteOrder, addressWidth: selected.addressWidth });
+        core.push({ ...row, metadata: available({ kind: "data-layout", occurrence: reference, dataLayout }) });
+        continue;
+      }
+    }
     const passing = kind === "KindParameter" ? declarationPassing(scope, node) : undefined;
     core.push(passing === undefined ? row : { ...row, argumentPassing: available(passing) });
   }
@@ -4148,7 +4162,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const raw: RawModule = {
     module, tree,
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
-      symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts: [], memoryLayouts: [], memoryFields: [] },
+      symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts, memoryLayouts: [], memoryFields: [] },
     checkerViews: views, calls, callableAssociations: associations, providerDeclarations, publicLibraryModule, references, links, exports, bindings,
     implementations: [], heritage: [], constructors: [], enums, propertyNames, memberUses, protocols: [], storage, core,
     checkerDiagnostics, diagnosticCoverage,

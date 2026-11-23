@@ -4,6 +4,8 @@ import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { hostDiagnosticCode, requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, PackageId } from "../ids/contract.js";
 import { encodeKey, encodeModuleId } from "../ids/index.js";
+import type { PlatformFacts, PlatformLayout } from "../ir-types/contract.js";
+import { platformDeclarationKey } from "../ir-types/index.js";
 import type { ExtensionReference, ExtensionReferenceEntry, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
 import { verifyPreparedSource } from "../snapshot/index.js";
 import type { CaptureDeps, CheckedProgram, CheckerExtensions, CheckerRegistration, PrepareSourceImports, ProgramModuleSet, SessionDocument } from "./contract.js";
@@ -185,7 +187,7 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot): Resul
   });
   const checked = session.checkSource();
   const actualPath = (path: string): string => inputs.useCaseSensitiveFileNames ? path : session.host.FS().Realpath(path);
-  const program = OpenedProgram.create(checked, deps.extensions, programFiles(checked, deps.extensions, inputs, actualPath),
+  const program = OpenedProgram.create(checked, deps.extensions, programFiles(checked, deps.extensions, inputs, actualPath, snapshot.nativeFacts.geometry),
     snapshot.source.input.packages.libraryData, snapshot.contributions);
   const diagnostics = captureSessionDiagnostics(program);
   return diagnostics === null ? { kind: "ok", value: program, diagnostics: [] } : { kind: "refused", diagnostics };
@@ -197,8 +199,10 @@ export function programModules(deps: CaptureDeps, program: CheckedProgram): Prog
 }
 
 function programFiles(checked: CheckedSourceProgram, table: CheckerExtensions, inputs: SessionInputs,
-  actualPath: (path: string) => string): readonly Omit<OpenedFile, "displacement">[] {
+  actualPath: (path: string) => string, geometry: PlatformFacts): readonly Omit<OpenedFile, "displacement">[] {
   const providers = ExtensionTable.providers(table);
+  const layoutRegistry = geometry.layouts.length === 0 ? null :
+    new Map(geometry.layouts.map(row => [platformDeclarationKey(row.declaration), row.layout]));
   const found = new Map<ModuleId, Omit<OpenedFile, "displacement">>();
   const add = (module: ModuleId, value: Omit<OpenedFile, "displacement">): void => {
     if (found.has(module)) throwInvariant(invariant("Two files of the opened program have one module identity."));
@@ -211,7 +215,7 @@ function programFiles(checked: CheckedSourceProgram, table: CheckerExtensions, i
     const module = inputs.modules.get(path);
     if (module !== undefined) {
       const text = requirePresent(inputs.files.get(path), invariant("A snapshot module of the opened program has no captured text."));
-      add(module, { file, origin: { kind: "snapshot", module }, text, providerModel: null });
+      add(module, { file, origin: { kind: "snapshot", module }, text, providerModel: null, platformLayouts: null });
       return;
     }
     const document = checked.sourceFacts.getVirtualDeclarationDocument(name);
@@ -228,8 +232,18 @@ function programFiles(checked: CheckedSourceProgram, table: CheckerExtensions, i
       artifact: document.artifactKind,
       text: document.sourceText,
     };
+    let platformLayouts: Map<string, PlatformLayout> | null = null;
+    if (layoutRegistry !== null && session.artifact === "canonical-export-owner") {
+      for (const entry of document.declarationModel.exports) if (entry.kind === "value") {
+        const layout = layoutRegistry.get(platformDeclarationKey({ ...session.provider, exportId: entry.id }));
+        if (layout !== undefined) {
+          platformLayouts ??= new Map();
+          platformLayouts.set(entry.id, layout);
+        }
+      }
+    }
     add(session.module, { file, origin: { kind: "session-document", document: session }, text: session.text,
-      providerModel: session.artifact === "public" ? document.declarationModel : null });
+      providerModel: session.artifact === "public" ? document.declarationModel : null, platformLayouts });
   });
   return [...found.entries()].sort((left, right) => left[0] < right[0] ? -1 : 1).map(entry => entry[1]);
 }
