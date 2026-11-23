@@ -2650,7 +2650,7 @@ function captureBeforeMemberRead(OpenedProgram, sourceText, maximum, read) {
   const checked = OpenedProgram.checked(opened.program);
   const borrowed = { ...checked, getSourceFileQueries: file => {
     const queries = checked.getSourceFileQueries(file);
-    return { ...queries, typeShape: { ...queries.typeShape, forEachObjectPropertyHeader: read } };
+    return { ...queries, typeShape: { ...queries.typeShape, getObjectPropertyHeaders: read } };
   } };
   const files = OpenedProgram.modules(opened.program).modules.map(entry => OpenedProgram.file(opened.program,
     entry.kind === "snapshot" ? entry.module : entry.document.module));

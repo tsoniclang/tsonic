@@ -475,7 +475,7 @@ test("recursive receiver admission preserves the actual source-reader stop befor
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 58], ["maximumCapturedEdgesPerModule", 67]]) {
+  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 66], ["maximumCapturedEdgesPerModule", 71]]) {
     const captureAt = maximum => fixture.front.captureModule({ ...deps,
       navigationCapture: { ...deps.navigationCapture, [limit]: maximum } }, observed, module);
     primeCaptureReader(captureAt, deps.navigationCapture[limit], stop);
@@ -626,7 +626,7 @@ test("the exact callback evidence limits preserve the actual annotation reader s
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 46], ["maximumCapturedEdgesPerModule", 49]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 52], ["maximumCapturedEdgesPerModule", 52]]) {
     const run = cap => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
     primeCaptureReader(run, deps.navigationCapture[limit], stop);
     reads = 0;
@@ -911,7 +911,7 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped callback r
     assert.equal(readAfter, false);
     return;
   }
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 62], ["maximumCapturedEdgesPerModule", 77]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 68], ["maximumCapturedEdgesPerModule", 80]]) {
     primeCaptureReader(cap => run(limit, cap), deps.navigationCapture[limit], stop);
     originalReads = 0;
     selectedReads = 0;
@@ -1832,7 +1832,7 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot
     assert.equal(read.length === 2 && read[0] === first && read[1] === binder, true);
     return;
   }
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 48], ["maximumCapturedEdgesPerModule", 58]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 54], ["maximumCapturedEdgesPerModule", 61]]) {
     primeCaptureReader(cap => run(limit, cap), deps.navigationCapture[limit], stop);
     tupleReads = 0;
     propertyReads = 0;
@@ -1956,7 +1956,7 @@ for (const forged of [false, true]) test(forged ? "an alias result cannot borrow
     assert.equal(readAfter, false);
     return;
   }
-  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 44], ["maximumCapturedEdgesPerModule", 48]]) {
+  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 50], ["maximumCapturedEdgesPerModule", 51]]) {
     const run = maximum => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: maximum } },
       observed, module);
     primeCaptureReader(run, deps.navigationCapture[limit], stop);
@@ -2067,7 +2067,7 @@ test("the exact union result limits preserve the original signature reader stop"
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 48], ["maximumCapturedEdgesPerModule", 49]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 54], ["maximumCapturedEdgesPerModule", 52]]) {
     const run = cap => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
     primeCaptureReader(run, deps.navigationCapture[limit], stop);
     reads = 0;

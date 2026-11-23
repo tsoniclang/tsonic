@@ -2051,53 +2051,58 @@ function sourceEnvironment(scope: CaptureScope, type: Type): RawTypeForm | null 
   const existing = scope.tables.globalEnvironment;
   if (existing !== null) return existing;
   const members: RawMemberHeader[] = [];
-  const state = scope.shape.forEachObjectPropertyHeader(type,
-    () => admit(scope, "facts") && admit(scope, "edges"), header => {
-      const declarations: RawNodeRef[] = [];
-      const origins: RawMemberOrigin[] = [];
-      if (header.intrinsicOrigin !== undefined) {
-        if (!admit(scope, "facts")) return false;
-        origins.push({ kind: "intrinsic", symbol: header.intrinsicOrigin, access: "read" });
-        if (!header.readonly) {
-          if (!admit(scope, "facts")) return false;
-          origins.push({ kind: "intrinsic", symbol: header.intrinsicOrigin, access: "write" });
-        }
-      } else {
-        const seen = new Set<Node>();
-        for (let rootIndex = 0; rootIndex < header.rootSymbols.length; rootIndex += 1) {
-          if (!admit(scope, "edges")) return false;
-          const root = header.rootSymbols[rootIndex];
-          if (root === undefined) return throwInvariant(invariant("A global property requires its actual root symbols."));
-          const nodes = scope.checker.getSymbolDeclarations(root);
-          for (let index = 0; index < nodes.length; index += 1) {
-            if (!admit(scope, "edges")) return false;
-            const node = nodes[index];
-            if (node === undefined) return throwInvariant(invariant("A global declaration group must be dense."));
-            if (seen.has(node)) continue;
-            seen.add(node);
-            const kind = scope.checked.ast.kindName(node);
-            if (kind === "KindInterfaceDeclaration" || kind === "KindTypeAliasDeclaration") continue;
-            const declaration = referenceTo(scope, scope.program, node);
-            if (scope.meter.refusal !== null) return false;
-            if (declaration === null)
-              return throwInvariant(invariant("A global value declaration must retain its actual admitted source."));
-            if (!admit(scope, "facts") || !admit(scope, "facts")) return false;
-            declarations.push(declaration);
-            origins.push({ kind: "declaration", declaration, access: "read" });
-            if (!header.readonly) {
-              if (!admit(scope, "facts")) return false;
-              origins.push({ kind: "declaration", declaration, access: "write" });
-            }
+  const admission = nativeCaptureAdmission(scope);
+  const acquired = scope.shape.getObjectPropertyHeaders(type, admission);
+  if (acquired.kind === "refused") return null;
+  if (acquired.kind === "unavailable") return throwInvariant(invariant("The actual checked global object requires its complete member inventory."));
+  for (let position = 0; position < acquired.value.length; position += 1) {
+    if (!admit(scope, "facts")) return null;
+    const selected = acquired.value.read(position, admission);
+    if (selected.kind === "refused") return null;
+    if (selected.kind === "unavailable") return throwInvariant(invariant("The actual global property retains its owning checker."));
+    const header = selected.value;
+    const declarations: RawNodeRef[] = [];
+    const origins: RawMemberOrigin[] = [];
+    if (header.intrinsicOrigin !== undefined) {
+      if (!admit(scope, "facts")) return null;
+      origins.push({ kind: "intrinsic", symbol: header.intrinsicOrigin, access: "read" });
+      if (!header.readonly) {
+        if (!admit(scope, "facts")) return null;
+        origins.push({ kind: "intrinsic", symbol: header.intrinsicOrigin, access: "write" });
+      }
+    } else {
+      const seen = new Set<Node>();
+      for (let rootIndex = 0; rootIndex < header.rootSymbols.length; rootIndex += 1) {
+        if (!admit(scope, "edges")) return null;
+        const root = header.rootSymbols[rootIndex];
+        if (root === undefined) return throwInvariant(invariant("A global property requires its actual root symbols."));
+        const nodes = scope.checker.getSymbolDeclarations(root);
+        for (let index = 0; index < nodes.length; index += 1) {
+          if (!admit(scope, "edges")) return null;
+          const node = nodes[index];
+          if (node === undefined) return throwInvariant(invariant("A global declaration group must be dense."));
+          if (seen.has(node)) continue;
+          seen.add(node);
+          const kind = scope.checked.ast.kindName(node);
+          if (kind === "KindInterfaceDeclaration" || kind === "KindTypeAliasDeclaration") continue;
+          const declaration = referenceTo(scope, scope.program, node);
+          if (scope.meter.refusal !== null) return null;
+          if (declaration === null)
+            return throwInvariant(invariant("A global value declaration must retain its actual admitted source."));
+          if (!admit(scope, "facts") || !admit(scope, "facts")) return null;
+          declarations.push(declaration);
+          origins.push({ kind: "declaration", declaration, access: "read" });
+          if (!header.readonly) {
+            if (!admit(scope, "facts")) return null;
+            origins.push({ kind: "declaration", declaration, access: "write" });
           }
         }
-        if (declarations.length === 0) return throwInvariant(invariant("A global property requires its actual value origins."));
       }
-      members.push({ key: { kind: "text", value: header.name }, name: header.name, origins,
-        declarations, getters: [], setters: [], optional: header.optional, readonly: header.readonly, readKind: "property" });
-      return true;
-    });
-  if (state === "stopped" && scope.meter.refusal !== null) return null;
-  if (state !== "complete") return throwInvariant(invariant("The actual checked global object requires its complete member inventory."));
+      if (declarations.length === 0) return throwInvariant(invariant("A global property requires its actual value origins."));
+    }
+    members.push({ key: { kind: "text", value: header.name }, name: header.name, origins,
+      declarations, getters: [], setters: [], optional: header.optional, readonly: header.readonly, readKind: "property" });
+  }
   const result: Extract<RawTypeForm, { readonly kind: "source-environment" }> = { kind: "source-environment", members };
   scope.tables.globalEnvironment = result;
   return result;

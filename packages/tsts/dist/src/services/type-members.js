@@ -8,7 +8,6 @@ import { Checker_isErrorType } from "../internal/checker/checker/diagnostics.js"
 import { admitNativeChecker, markNativeCheckerProvisional } from "../internal/checker/resource-admission.js";
 import { Checker_getPropertyOfObjectType, Checker_getPropertyOfType, Checker_getTypeOfSymbol, Checker_isReadonlySymbol } from "../internal/checker/checker/symbols.js";
 import { completedRequiredPropertySource } from "../internal/checker/checker/source-type-answers.js";
-import { Checker_getPropertiesOfObjectType } from "../internal/checker/checker/types.js";
 import { Type_AsMappedType } from "../internal/checker/types.js";
 import { LinkStore_TryGet } from "../internal/core/linkstore.js";
 import { typeIndexComponents } from "./type-index-components.js";
@@ -33,18 +32,10 @@ export function readObjectPropertyInfo(checker, type, name) {
         return undefined;
     return Object.freeze(property);
 }
-export function walkObjectPropertyHeaders(checker, type, admit, visit) {
-    const properties = Checker_getPropertiesOfObjectType(checker, type) ?? [];
-    for (let index = 0; index < properties.length; index += 1) {
-        if (!admit())
-            return "stopped";
-        const symbol = properties[index];
-        if (symbol === undefined)
-            throw new Error("The checker returned an absent property symbol in an object inventory.");
-        if (!visit(selectedPropertyInfo(checker, symbol, undefined)))
-            return "stopped";
-    }
-    return "complete";
+export function readTypePropertyHeader(checker, symbol) {
+    if (symbol === undefined)
+        throw new Error("The checker returned an absent property symbol in an object inventory.");
+    return selectedPropertyInfo(checker, symbol, undefined);
 }
 function selectedPropertyInfo(checker, symbol, selected) {
     const propertyType = selected === undefined ? undefined : Checker_getTypeOfSymbol(checker, selected);

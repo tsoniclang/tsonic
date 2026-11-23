@@ -1,3 +1,4 @@
+import { admitNativeChecker } from "./resource-admission.js";
 import { Index } from "../../go/strings.js";
 import { SourceFile_Path, SourceFile_Text } from "../ast/ast.js";
 import { byteAt, byteLen, byteSlice } from "../parser/utilities.js";
@@ -883,11 +884,23 @@ export function Checker_GetRootSymbols(receiver, symbol_) {
     if (roots.length === 0) {
         return [symbol_];
     }
-    let result = [];
-    for (const root of roots) {
-        result = result.concat(Checker_GetRootSymbols(receiver, root));
-    }
+    admitNativeChecker(receiver, "retained");
+    const result = [];
+    appendRootSymbols(receiver, roots, result);
     return result;
+}
+function appendRootSymbols(receiver, roots, result) {
+    for (let index = 0; index < roots.length; index += 1) {
+        admitNativeChecker(receiver, "work");
+        const root = roots[index];
+        const nested = Checker_getImmediateRootSymbols(receiver, root);
+        if (nested.length !== 0)
+            appendRootSymbols(receiver, nested, result);
+        else {
+            admitNativeChecker(receiver, "retained");
+            result.push(root);
+        }
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::method::Checker.GetMappedTypeSymbolOfProperty","kind":"method","status":"implemented","sigHash":"718c631c382952f54b79f9b26278966abea52ff7d42dec8e063eec8ccd9556c7","bodyHash":"39355d0c7db074444297116c9e4a5e28fb96c35eb14995f8e4d36fc07494442f"}
@@ -943,9 +956,18 @@ export function Checker_GetMappedTypeSymbolOfProperty(receiver, symbol_) {
  */
 export function Checker_getImmediateRootSymbols(receiver, symbol_) {
     if ((symbol_.CheckFlags & CheckFlagsSynthetic) !== 0) {
-        return MapNonNil(Type_Types(LinkStore_Get(receiver.valueSymbolLinks, symbol_).containingType), (t) => {
-            return Checker_getPropertyOfType(receiver, t, symbol_.Name);
-        });
+        const types = Type_Types(LinkStore_Get(receiver.valueSymbolLinks, symbol_).containingType);
+        admitNativeChecker(receiver, "retained");
+        const roots = [];
+        for (let index = 0; index < types.length; index += 1) {
+            admitNativeChecker(receiver, "work");
+            const root = Checker_getPropertyOfType(receiver, types[index], symbol_.Name);
+            if (root !== undefined) {
+                admitNativeChecker(receiver, "retained");
+                roots.push(root);
+            }
+        }
+        return roots;
     }
     if ((symbol_.Flags & SymbolFlagsTransient) !== 0) {
         if (LinkStore_Has(receiver.spreadLinks, symbol_)) {

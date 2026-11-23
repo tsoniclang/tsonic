@@ -1,4 +1,4 @@
-import { readObjectPropertyInfo, readTypeIndexInfo, readTypePropertyInfo, walkObjectPropertyHeaders } from "./type-members.js";
+import { readObjectPropertyInfo, readTypeIndexInfo, readTypePropertyInfo, readTypePropertyHeader } from "./type-members.js";
 import { readTypeIndexedAccessComponents, selectTypeIndexedAccess } from "./type-indexed-access.js";
 import { readTypeKeyOfComponents, readTypeSubstitutionComponents } from "./type-dependent-operands.js";
 import { readConditionalApplication, readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
@@ -8,7 +8,7 @@ import { IsLiteralTypeNode } from "../internal/ast/generated/predicates.js";
 import { Node_AsNode } from "../internal/ast/spine.js";
 import { GetSourceFileOfNode, IsFunctionLike } from "../internal/ast/utilities.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
-import { Program_GetSourceFile, Program_GetTypeCheckerForFile, Program_HasUsableCheckerSession, Program_SourceFiles } from "../internal/compiler/program.js";
+import { Program_GetSourceFile, Program_GetTypeCheckerForFile, Program_HasUsableCheckerSession, Program_OfChecker, Program_SourceFiles } from "../internal/compiler/program.js";
 import { CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
 import { LinkStore_TryGet } from "../internal/core/linkstore.js";
 import { withOwnedChecker, withCheckerById, withOwnedCheckerAcquisition } from "./checker-ownership.js";
@@ -19,7 +19,7 @@ import { resolveSourceTypeAnswer } from "./source-type-answer.js";
 import { Background } from "../go/context.js";
 import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetIndexInfosOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
 import { Checker_getTypeOfSymbol, Checker_getInstantiatedBaseTypes, Checker_resolveStructuredTypeMembers, } from "../internal/checker/checker/symbols.js";
-import { Checker_getBaseTypeOfLiteralType, Checker_getPropertiesOfUnionOrIntersectionType, Checker_getReducedApparentType, Checker_GetNonNullableType } from "../internal/checker/checker/types.js";
+import { Checker_getBaseTypeOfLiteralType, Checker_getPropertiesOfObjectType, Checker_getPropertiesOfUnionOrIntersectionType, Checker_getReducedApparentType, Checker_GetNonNullableType } from "../internal/checker/checker/types.js";
 import { Checker_isOptionalParameter } from "../internal/checker/utilities.js";
 import { Checker_getSignatureFromDeclaration } from "../internal/checker/checker/signatures.js";
 import { getBigIntLiteralValue, getNumberLiteralValue, getStringLiteralValue, signatureHasRestParameter, } from "../internal/checker/checker/state.js";
@@ -156,7 +156,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
         getSubstitutionComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeSubstitutionComponents(checker, type)),
         getTupleInfo: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypeTupleInfo(checker, type)),
         getObjectPropertyInfo: (type, name) => withObject(type, (checker, object) => readObjectPropertyInfo(checker, object, name)),
-        forEachObjectPropertyHeader: (type, admit, visit) => withObject(type, (checker, object) => walkObjectPropertyHeaders(checker, object, admit, visit)),
+        getObjectPropertyHeaders: (type, admit) => getObjectPropertyHeaders(program, type, defaultOptions, admit),
         getStructuredInventory: (type, admit) => getStructuredTypeInventory(program, type, defaultOptions, admit),
         getCallSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindCall)) ?? [],
         getConstructSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindConstruct)) ?? [],
@@ -261,22 +261,40 @@ function getStructuredTypeInventory(program, type, options, admit) {
         const properties = (effective.flags & (TypeFlagsUnion | TypeFlagsIntersection)) !== 0
             ? Checker_getPropertiesOfUnionOrIntersectionType(checker, effective)
             : (effective.flags & TypeFlagsObject) !== 0 ? StructuredType_Properties(structured) ?? [] : [];
-        const length = properties.length;
         admitNativeChecker(checker, "retained", 2);
-        const inventory = {
-            length,
-            read: (index, admitRow) => {
-                if (!Number.isSafeInteger(index) || index < 0 || Object.is(index, -0) || index >= length)
-                    throw new RangeError("A property read requires an actual inventory ordinal.");
-                const stop = admitRow("work", 1);
-                if (stop !== null)
-                    return { kind: "refused", stop };
-                return withOwnedCheckerAcquisition(program, source, checker, context, admitRow, current => readTypePropertyInfo(current, type, properties[index]));
-            },
-        };
+        const inventory = propertyInventory(program, source, checker, context, properties, (current, symbol) => readTypePropertyInfo(current, type, symbol));
         return Object.freeze({ signatures: structured?.signatures ?? [], callSignatureCount: structured?.callSignatureCount ?? 0,
-            indexes: Object.freeze(indexes), properties: Object.freeze(inventory) });
+            indexes: Object.freeze(indexes), properties: inventory });
     });
+}
+function getObjectPropertyHeaders(program, type, options, admit) {
+    const owner = type?.checker;
+    if (type === undefined || !hasFlags(type, TypeFlagsObject) || type.data.AsType() !== type ||
+        owner === undefined || Program_OfChecker(owner) !== program)
+        return { kind: "unavailable" };
+    const source = options.sourceFile;
+    const context = options.context ?? Background();
+    return withOwnedCheckerAcquisition(program, source, owner, context, admit, checker => {
+        admitNativeChecker(checker, "work");
+        const properties = Checker_getPropertiesOfObjectType(checker, type) ?? [];
+        admitNativeChecker(checker, "retained");
+        return propertyInventory(program, source, checker, context, properties, readTypePropertyHeader);
+    });
+}
+function propertyInventory(program, source, owner, context, properties, project) {
+    const length = properties.length;
+    const inventory = {
+        length,
+        read: (index, admit) => {
+            if (!Number.isSafeInteger(index) || index < 0 || Object.is(index, -0) || index >= length)
+                throw new RangeError("A property read requires an actual inventory ordinal.");
+            return withOwnedCheckerAcquisition(program, source, owner, context, admit, checker => {
+                admitNativeChecker(checker, "work");
+                return project(checker, properties[index]);
+            });
+        },
+    };
+    return Object.freeze(inventory);
 }
 function getTypeTupleInfo(checker, type) {
     if (checker === undefined || type === undefined || !isTupleType(type))

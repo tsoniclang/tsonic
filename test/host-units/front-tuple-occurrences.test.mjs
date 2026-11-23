@@ -225,7 +225,7 @@ test("the exact bracketed result allowance bounds every cut before the actual or
       return checker.getTypeFromTypeNode(node);
     },
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 145], ["maximumCapturedEdgesPerModule", 131]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 149], ["maximumCapturedEdgesPerModule", 133]]) {
     const run = cap => capture(overrides, { ...limits, [dimension]: cap });
     primeCaptureReader(run, limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
@@ -370,7 +370,7 @@ test("the callback formal proof stops at its actual original root without readin
     if (symbol === left) { reads.push("left"); throw stop; }
     return checker.getRootSymbols(symbol);
   } };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 201], ["maximumCapturedEdgesPerModule", 188]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 207], ["maximumCapturedEdgesPerModule", 191]]) {
     const run = cap => capture(overrides, { ...limits, [dimension]: cap });
     primeCaptureReader(run, limits[dimension], stop);
     reads.length = 0;
@@ -483,7 +483,7 @@ test("the changed nested slot reads only after its unchanged sibling and the exa
     if (node === changed) { reads.push("changed"); throw stop; }
     return checker.getTypeFromTypeNode(node);
   } };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 195], ["maximumCapturedEdgesPerModule", 182]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 201], ["maximumCapturedEdgesPerModule", 185]]) {
     const run = cap => capture(overrides, { ...limits, [dimension]: cap });
     primeCaptureReader(run, limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
@@ -639,8 +639,8 @@ test("direct result and index value binders preserve the exact paid stops", asyn
   const callbackAnnotation = callback.ast.typeNode(callback.ast.parameters(callbackOwner)[0]);
   const indexDeclaration = index.typeShape.getIndexInfos(index.arrays[0])[0].declaration;
   const endpoints = [
-    [member, member.checker.getSignatureDeclaration(member.produce.target), undefined, 113, 91],
-    [callback, callbackAnnotation, undefined, 127, 109],
+    [member, member.checker.getSignatureDeclaration(member.produce.target), undefined, 115, 92],
+    [callback, callbackAnnotation, undefined, 129, 110],
     [index, indexDeclaration, index.ast.typeNode(index.ast.parameters(indexDeclaration)[0]), 85, 73],
   ];
   for (const [probe, declaration, key, facts, edges] of endpoints) {
@@ -785,7 +785,7 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
 
 test("the changed dependency target and slot readers preserve their paid original stops", async () => {
   const { rest: [first], capture, limits, typeShape, checker, element } = await restDependencyProbe();
-  for (const [reader, facts, edges] of [["target", 126, 109], ["slot", 126, 111]]) {
+  for (const [reader, facts, edges] of [["target", 128, 110], ["slot", 128, 112]]) {
     const stop = new Error(`actual changed dependency ${reader} reader stopped`);
     const run = navigationCapture => {
       let targets = 0;
@@ -947,7 +947,7 @@ test("the original declared rest inner target stop is paid before selected slots
       },
     });
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 125], ["maximumCapturedEdgesPerModule", 108]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 127], ["maximumCapturedEdgesPerModule", 109]]) {
     primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
       const result = run({ ...limits, [dimension]: cap });
@@ -1042,7 +1042,7 @@ test("an active inventory key is paid before the next native inventory reader an
       },
     });
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 173], ["maximumCapturedEdgesPerModule", 168]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 179], ["maximumCapturedEdgesPerModule", 171]]) {
     primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
       const result = run({ ...limits, [dimension]: cap });
@@ -1161,7 +1161,7 @@ test("the joint rest and result declaration proof keeps its first paid reader st
       },
     }, navigationCapture);
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 183], ["maximumCapturedEdgesPerModule", 167]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 191], ["maximumCapturedEdgesPerModule", 171]]) {
     primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
       const result = run({ ...limits, [dimension]: cap });

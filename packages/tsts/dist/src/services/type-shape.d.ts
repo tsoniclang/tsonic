@@ -60,10 +60,12 @@ export interface TypePropertyInfo extends TypePropertyHeader {
     readonly mapped?: TypeMappedPropertyInfo;
 }
 export type TypePropertyRead<Stop extends object> = NativeCheckerResult<TypePropertyInfo, Stop>;
-export interface TypePropertyInventory {
+interface NativePropertyInventory<Value> {
     readonly length: number;
-    readonly read: <Stop extends object>(index: number, admit: NativeCheckerAdmission<Stop>) => TypePropertyRead<Stop>;
+    readonly read: <Stop extends object>(index: number, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<Value, Stop>;
 }
+export type TypePropertyInventory = NativePropertyInventory<TypePropertyInfo>;
+export type TypePropertyHeaderInventory = NativePropertyInventory<TypePropertyHeader>;
 export interface StructuredTypeInventory {
     readonly signatures: readonly GoPtr<Signature>[];
     readonly callSignatureCount: number;
@@ -146,7 +148,7 @@ export interface TypeShapeQueries {
     readonly getSubstitutionComponents: (type: GoPtr<Type>) => TypeSubstitutionComponents | undefined;
     readonly getTupleInfo: (type: GoPtr<Type>) => TypeTupleInfo | undefined;
     readonly getObjectPropertyInfo: (type: GoPtr<Type>, name: string) => TypePropertyInfo | null | undefined;
-    readonly forEachObjectPropertyHeader: (type: GoPtr<Type>, admit: () => boolean, visit: (header: TypePropertyHeader) => boolean) => "complete" | "stopped" | undefined;
+    readonly getObjectPropertyHeaders: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<TypePropertyHeaderInventory, Stop>;
     readonly getStructuredInventory: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<StructuredTypeInventory, Stop>;
     readonly getCallSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
@@ -166,4 +168,5 @@ export interface TypeShapeQueries {
     readonly getNonNullableType: (type: GoPtr<Type>) => GoPtr<Type>;
 }
 export declare function createTypeShapeQueries(program: GoPtr<Program>, defaultOptions: CreateTypeShapeQueriesOptions): TypeShapeQueries;
+export {};
 //# sourceMappingURL=type-shape.d.ts.map
