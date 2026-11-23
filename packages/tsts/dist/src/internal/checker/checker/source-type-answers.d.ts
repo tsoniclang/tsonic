@@ -8,6 +8,13 @@ export interface ResolvedSourceTypeInfo {
     readonly causes: readonly Diagnostic[];
     readonly typeSource?: Node;
     readonly indexedRead?: IndexedTypeReadSource;
+    readonly projectedReturn?: SelectedSignatureReturnProjection;
+}
+export interface SelectedSignatureReturnProjection {
+    readonly declaration: Node;
+    readonly annotation: Node;
+    readonly original: Type;
+    readonly selected: Type;
 }
 type BorrowedTypeSource = Node | readonly [Node, Node];
 export interface SourceTypeAnswer extends ResolvedSourceTypeInfo {

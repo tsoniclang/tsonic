@@ -3475,6 +3475,7 @@ export function Checker_getMinArgumentCount(receiver, signature) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/relater.go::method::Checker.getMinArgumentCountEx","kind":"method","status":"implemented","sigHash":"a1b090713b00c6c797070c857d196d11adfe8b3a93c14c6f875ad279970361b4","bodyHash":"bebcda3a594dbb3eb0ba0c6fafa013132338dd8311a9d4844d5b03726cbedb0d"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Admit the reached rest, tuple and void omission rows before reading them under the caller's native acquisition."}
  *
  * Go source:
  * func (c *Checker) getMinArgumentCountEx(signature *Signature, flags MinArgumentCountFlags) int {
@@ -3519,15 +3520,24 @@ export function Checker_getMinArgumentCount(receiver, signature) {
  * }
  */
 export function Checker_getMinArgumentCountEx(receiver, signature, flags) {
+    admitNativeChecker(receiver, "work");
     const strongArityForUntypedJS = flags & MinArgumentCountFlagsStrongArityForUntypedJS;
     const voidIsNonOptional = flags & MinArgumentCountFlagsVoidIsNonOptional;
     if (voidIsNonOptional !== 0 || signature.resolvedMinArgumentCount === -1) {
         let minArgumentCount = -1;
         if (signatureHasRestParameter(signature)) {
+            admitNativeChecker(receiver, "work");
             const restType = Checker_getTypeOfSymbol(receiver, signature.parameters[signature.parameters.length - 1]);
             if (isTupleType(restType)) {
                 const tupleType = Type_TargetTupleType(restType);
-                const firstOptionalIndex = FindIndex(tupleType.elementInfos, (info) => (info.flags & ElementFlagsRequired) === 0);
+                let firstOptionalIndex = -1;
+                for (let index = 0; index < tupleType.elementInfos.length; index += 1) {
+                    admitNativeChecker(receiver, "work");
+                    if ((tupleType.elementInfos[index].flags & ElementFlagsRequired) !== 0)
+                        continue;
+                    firstOptionalIndex = index;
+                    break;
+                }
                 const requiredCount = firstOptionalIndex < 0 ? tupleType.fixedLength : firstOptionalIndex;
                 if (requiredCount > 0) {
                     minArgumentCount = signature.parameters.length - 1 + requiredCount;
@@ -3544,8 +3554,20 @@ export function Checker_getMinArgumentCountEx(receiver, signature, flags) {
             return minArgumentCount;
         }
         for (let i = minArgumentCount - 1; i >= 0; i--) {
+            admitNativeChecker(receiver, "work");
             const t = Checker_getTypeAtPosition(receiver, signature, i);
-            if (!someType(t, (t) => (t.flags & TypeFlagsVoid) !== 0)) {
+            let hasVoid = (t.flags & TypeFlagsVoid) !== 0;
+            if ((t.flags & TypeFlagsUnion) !== 0) {
+                const choices = Type_Types(t);
+                for (let index = 0; index < choices.length; index += 1) {
+                    admitNativeChecker(receiver, "work");
+                    if ((choices[index].flags & TypeFlagsVoid) === 0)
+                        continue;
+                    hasVoid = true;
+                    break;
+                }
+            }
+            if (!hasVoid) {
                 break;
             }
             minArgumentCount = i;

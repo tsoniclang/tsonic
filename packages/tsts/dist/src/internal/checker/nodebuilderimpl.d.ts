@@ -2346,6 +2346,7 @@ export interface SignatureToSignatureDeclarationOptions {
 export declare function NodeBuilderImpl_signatureToSignatureDeclarationHelper(receiver: GoPtr<NodeBuilderImpl>, signature: GoPtr<Signature>, kind: Kind, options: GoPtr<SignatureToSignatureDeclarationOptions>): GoPtr<Node>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::Checker.getExpandedParameters","kind":"method","status":"implemented","sigHash":"445d61ebc8f61cf773eb825ce8a50af6065b9a63eb2f819395c68bd78621cfd3","bodyHash":"5015e85ef6bae014f29bcd1786dc1eef5e438d4c2b01f80ee713327449c6dd8f"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Admit the reached effective formal ordinals, native work and expansion rows before consuming or retaining them."}
  *
  * Go source:
  * func (c *Checker) getExpandedParameters(sig *Signature, skipUnionExpanding bool) [][]*ast.Symbol {

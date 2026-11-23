@@ -1957,7 +1957,8 @@ test("wrong-arity overload capture retains all actual declarations and the origi
   const signatureResults = 3 * 3;
   const annotations = 17 + 5;
   const expressionAndContext = 6 + 3 + 4 + 1;
-  const exact = authoredEdges + signatureResults + annotations + expressionAndContext;
+  const signatureParameters = 3 * 2 + 2 * 2;
+  const exact = authoredEdges + signatureResults + annotations + expressionAndContext + signatureParameters;
   const diagnostic = source.raw.checkerDiagnostics[original.index];
   for (let maximum = 0; maximum < exact; maximum += 1) {
     const stop = resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedEdgesPerModule", maximum,
@@ -1969,6 +1970,36 @@ test("wrong-arity overload capture retains all actual declarations and the origi
   assert.equal(atExact.kind, "ok");
   assert.deepEqual(atExact.diagnostics, [diagnostic]);
   assert.deepEqual(atExact.value.calls, source.raw.calls);
+});
+
+test("a selected signature return names its actual merged parameter cohort, not its original annotation", () => {
+  const text = `interface Template<Value> { at(): Value; }
+    interface Holder<Left, Right> { left: Template<Left>["at"]; right: Template<Right>["at"]; }
+    interface Holder<Left, Right> { }`;
+  const { deps, program, module } = openedModule(text);
+  const captured = front.captureModule(deps, program, module);
+  assert.equal(captured.kind, "ok");
+  assert.deepEqual(captured.diagnostics, []);
+  const raw = captured.value;
+  const [template, first, second] = raw.tree.statements.nodes;
+  const source = template.members.nodes[0];
+  const binder = template.typeParameters.nodes[0];
+  const ref = node => ({ module, node: node.id });
+  const signatures = raw.types.signatures.filter(row => row.declaration?.node === source.id);
+  const [original] = signatures.filter(row => row.target === null);
+  const earlier = raw.types.types[original.result.value];
+  assert.equal(earlier.form.value.kind, "parameter");
+  assert.deepEqual(earlier.form.value.parameter, ref(binder));
+  const selected = signatures.filter(row => row.target === original.id);
+  assert.equal(selected.length, 2);
+  const cohorts = selected.map(row => {
+    const result = raw.types.types[row.result.value];
+    assert.equal(result.authoredTypeNode, null);
+    assert.deepEqual(raw.types.components[result.component].path.step, { kind: "result", signature: row.id });
+    assert.equal(result.form.value.kind, "merged-slot-parameter");
+    return result.form.value.declarations;
+  }).sort((left, right) => left[0].node - right[0].node);
+  assert.deepEqual(cohorts, first.typeParameters.nodes.map((parameter, index) => [ref(parameter), ref(second.typeParameters.nodes[index])]));
 });
 
 test("enum definitions retain their nominal owner and only the authored initializer bodies", async () => {
@@ -2887,8 +2918,10 @@ test("capture limits: nodes, syntax depth, facts and edges are each refused at z
     const { deps, program } = openedModule(addSource);
     return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [name]: value } }, program, module);
   };
-  const nativeFacts = 2 + 2 + 2;
-  const nativeEdges = 3 + 14 + 8 + 3 + 2 * 5 + 2;
+  const signatureFacts = 1 + 2 * 2;
+  const signatureEdges = 2 + 2 + 2 * 2;
+  const nativeFacts = 2 + 2 + 2 + signatureFacts;
+  const nativeEdges = 3 + 14 + 8 + 3 + 2 * 5 + 2 + signatureEdges;
   for (const [name, limit, exact] of [["maximumCapturedNodesPerModule", "front.maximumCapturedNodesPerModule", 18], ["maximumSyntaxDepth", "front.maximumSyntaxDepth", 6],
     ["maximumCapturedFactsPerModule", "front.maximumCapturedFactsPerModule", 47 + nativeFacts],
     ["maximumCapturedEdgesPerModule", "front.maximumCapturedEdgesPerModule", 5 + nativeEdges]]) {
@@ -3010,7 +3043,8 @@ test("K-3341 many parameters: refused at zero and one under the fact count, acce
     const { deps, program } = openedModule(sourceText);
     return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule: value } }, program, module);
   };
-  const exact = 65 + 2;
+  const effectiveParameters = 1 + 5 * 2;
+  const exact = 65 + 2 + effectiveParameters;
   for (const value of [0, exact - 1]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
     limit: "front.maximumCapturedFactsPerModule", maximum: value, site: { kind: "file", path: "/project/src/main.ts" },
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
@@ -3116,11 +3150,13 @@ test("K-3341 many parameters preserve the exact fact boundary before their last 
   let reads = 0;
   const boundary = new TypeError("the actual last structural member reader was reached");
   const under = value => captureBeforeMemberRead(OpenedProgram, sourceText, value, () => { reads += 1; throw boundary; });
-  for (const value of [0, 20]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
+  const effectiveParameters = 1 + 5 * 2;
+  const exact = 21 + effectiveParameters;
+  for (const value of [0, exact - 1]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
     limit: "front.maximumCapturedFactsPerModule", maximum: value, site: { kind: "file", path: "/project/src/main.ts" },
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
   assert.equal(reads, 0, "both refused captures stop before their actual structural lookup");
-  assert.throws(() => under(21), error => error === boundary);
+  assert.throws(() => under(exact), error => error === boundary);
   assert.equal(reads, 1);
 });
 

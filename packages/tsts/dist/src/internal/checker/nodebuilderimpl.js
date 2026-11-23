@@ -1,4 +1,5 @@
 import { NewGoStructMap } from "../../go/compat.js";
+import { admitNativeChecker, markNativeCheckerProvisional } from "./resource-admission.js";
 import { AsBindingElement, AsConditionalTypeNode, AsElementAccessExpression, AsExpressionWithTypeArguments, AsIdentifier, AsImportEqualsDeclaration, AsImportTypeNode, AsIndexedAccessTypeNode, AsLiteralTypeNode, AsMappedTypeNode, AsQualifiedName, AsStringLiteral, AsTypeParameterDeclaration, AsTypeQueryNode, AsTypeReferenceNode, AsVariableDeclaration } from "../ast/generated/casts.js";
 import { IsBindingElement, IsBinaryExpression, IsClassDeclaration, IsComputedPropertyName, IsElementAccessExpression, IsExpressionWithTypeArguments, IsIdentifier, IsImportTypeNode, IsIndexedAccessTypeNode, IsParameterDeclaration, IsPrivateIdentifier, IsPropertyAccessExpression, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsQualifiedName, IsStringLiteral, IsTypeAliasDeclaration, IsTypeParameterDeclaration, IsTypeQueryNode, IsTypeReferenceNode } from "../ast/generated/predicates.js";
 import { KindAccessorKeyword, KindAnyKeyword, KindArrowFunction, KindBindingElement, KindBigIntKeyword, KindBooleanKeyword, KindCallSignature, KindClassExpression, KindConstructor, KindConstructorType, KindConstructSignature, KindDotDotDotToken, KindExportDeclaration, KindExportSpecifier, KindExternalModuleReference, KindFalseKeyword, KindFunctionDeclaration, KindFunctionExpression, KindFunctionType, KindGetAccessor, KindIndexSignature, KindImportClause, KindImportDeclaration, KindImportEqualsDeclaration, KindImportSpecifier, KindImportType, KindIntrinsicKeyword, KindKeyOfKeyword, KindJSDocImportTag, KindJSDocParameterTag, KindMinusToken, KindModuleBlock, KindMultiLineCommentTrivia, KindNeverKeyword, KindPropertyDeclaration, KindMethodDeclaration, KindMethodSignature, KindNamespaceExport, KindNamespaceImport, KindNullKeyword, KindNumberKeyword, KindObjectKeyword, KindParameter, KindQuestionToken, KindAssertsKeyword, KindReadonlyKeyword, KindSetAccessor, KindSourceFile, KindStringKeyword, KindSymbolKeyword, KindTrueKeyword, KindTypeParameter, KindUndefinedKeyword, KindUniqueKeyword, KindUnknownKeyword, KindVariableDeclaration, KindVoidKeyword, KindWithKeyword, } from "../ast/generated/kinds.js";
@@ -3498,6 +3499,7 @@ export function NodeBuilderImpl_signatureToSignatureDeclarationHelper(receiver, 
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::Checker.getExpandedParameters","kind":"method","status":"implemented","sigHash":"445d61ebc8f61cf773eb825ce8a50af6065b9a63eb2f819395c68bd78621cfd3","bodyHash":"5015e85ef6bae014f29bcd1786dc1eef5e438d4c2b01f80ee713327449c6dd8f"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Admit the reached effective formal ordinals, native work and expansion rows before consuming or retaining them."}
  *
  * Go source:
  * func (c *Checker) getExpandedParameters(sig *Signature, skipUnionExpanding bool) [][]*ast.Symbol {
@@ -3589,18 +3591,32 @@ export function NodeBuilderImpl_signatureToSignatureDeclarationHelper(receiver, 
  * }
  */
 export function Checker_getExpandedParameters(receiver, sig, skipUnionExpanding) {
+    admitNativeChecker(receiver, "work");
     if (signatureHasRestParameter(sig)) {
         const restIndex = sig.parameters.length - 1;
+        admitNativeChecker(receiver, "work");
         const restSymbol = sig.parameters[restIndex];
         const restType = Checker_getTypeOfSymbol(receiver, restSymbol);
         const getUniqAssociatedNamesFromTupleType = (t, tupleRestSymbol) => {
-            const names = Type_Target(t) !== undefined
-                ? Type_AsTupleType(Type_Target(t)).elementInfos.map((info, index) => Checker_getTupleElementLabel(receiver, info, tupleRestSymbol, index))
-                : [];
+            admitNativeChecker(receiver, "retained");
+            const names = [];
+            const target = Type_Target(t);
+            if (target !== undefined) {
+                const infos = Type_AsTupleType(target).elementInfos;
+                for (let index = 0; index < infos.length; index += 1) {
+                    admitNativeChecker(receiver, "work");
+                    const label = Checker_getTupleElementLabel(receiver, infos[index], tupleRestSymbol, index);
+                    admitNativeChecker(receiver, "retained");
+                    names.push(label);
+                }
+            }
             if (names.length > 0) {
+                admitNativeChecker(receiver, "retained", 2);
                 const duplicates = [];
                 const uniqueNames = new globalThis.Map();
                 for (let i = 0; i < names.length; i++) {
+                    admitNativeChecker(receiver, "work");
+                    admitNativeChecker(receiver, "retained");
                     if (uniqueNames.has(names[i])) {
                         duplicates.push(i);
                     }
@@ -3608,21 +3624,28 @@ export function Checker_getExpandedParameters(receiver, sig, skipUnionExpanding)
                         uniqueNames.set(names[i], true);
                     }
                 }
+                admitNativeChecker(receiver, "retained");
                 const counters = new globalThis.Map();
                 for (const i of duplicates) {
+                    admitNativeChecker(receiver, "work");
                     let counter = counters.get(names[i]) ?? 1;
                     let name = "";
                     while (true) {
+                        admitNativeChecker(receiver, "work");
                         name = `${names[i]}_${counter}`;
                         if (uniqueNames.has(name)) {
                             counter++;
                             continue;
                         }
+                        admitNativeChecker(receiver, "retained");
                         uniqueNames.set(name, true);
                         break;
                     }
                     names[i] = name;
-                    counters.set(names[i], counter + 1);
+                    const key = names[i];
+                    if (!counters.has(key))
+                        admitNativeChecker(receiver, "retained");
+                    counters.set(key, counter + 1);
                 }
             }
             return names;
@@ -3631,7 +3654,11 @@ export function Checker_getExpandedParameters(receiver, sig, skipUnionExpanding)
             const elementTypes = Checker_getTypeArguments(receiver, tupleRestType);
             const associatedNames = getUniqAssociatedNamesFromTupleType(tupleRestType, tupleRestSymbol);
             const targetTuple = Type_AsTupleType(Type_Target(tupleRestType));
-            const restParams = elementTypes.map((type_, index) => {
+            admitNativeChecker(receiver, "retained");
+            const restParams = [];
+            for (let index = 0; index < elementTypes.length; index += 1) {
+                admitNativeChecker(receiver, "work");
+                const type_ = elementTypes[index];
                 const name = associatedNames[index];
                 const flags = targetTuple.elementInfos[index].flags;
                 let checkFlags = CheckFlagsNone;
@@ -3641,20 +3668,36 @@ export function Checker_getExpandedParameters(receiver, sig, skipUnionExpanding)
                 else if ((flags & ElementFlagsOptional) !== 0) {
                     checkFlags = CheckFlagsOptionalParameter;
                 }
+                admitNativeChecker(receiver, "retained", 3);
+                markNativeCheckerProvisional(receiver);
                 const symbol_ = Checker_newSymbolEx(receiver, SymbolFlagsFunctionScopedVariable, name, checkFlags);
                 const links = LinkStore_Get(receiver.valueSymbolLinks, symbol_);
                 links.resolvedType = (flags & ElementFlagsRest) !== 0 ? Checker_createArrayType(receiver, type_) : type_;
-                return symbol_;
-            });
-            return [...sig.parameters.slice(0, tupleRestIndex), ...restParams];
+                restParams.push(symbol_);
+            }
+            admitNativeChecker(receiver, "retained");
+            const expanded = [];
+            for (let index = 0; index < tupleRestIndex; index += 1) {
+                admitNativeChecker(receiver, "work");
+                admitNativeChecker(receiver, "retained");
+                expanded.push(sig.parameters[index]);
+            }
+            for (let index = 0; index < restParams.length; index += 1) {
+                admitNativeChecker(receiver, "work");
+                admitNativeChecker(receiver, "retained");
+                expanded.push(restParams[index]);
+            }
+            return expanded;
         };
         if (isTupleType(restType)) {
+            admitNativeChecker(receiver, "retained");
             return [expandSignatureParametersWithTupleMembers(restType, restIndex, restSymbol)];
         }
         if (!skipUnionExpanding && (restType.flags & TypeFlagsUnion) !== 0 && Every(Type_Types(restType), isTupleType)) {
             return Type_Types(restType).map((type_) => expandSignatureParametersWithTupleMembers(type_, restIndex, restSymbol));
         }
     }
+    admitNativeChecker(receiver, "retained");
     return [sig.parameters];
 }
 /**

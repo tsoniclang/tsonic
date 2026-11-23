@@ -316,7 +316,7 @@ interface CaptureScope extends CaptureAdmission {
   readonly numericLiterals: Map<Node, RawNumericLiteral>;
   readonly checked: OpenedProgramView;
   readonly checker: Omit<TypeCheckerQueries, "getTypeAtLocation" | "getTypeFromTypeNode" | "getContextualType" | "getReturnTypeOfSignature">;
-  readonly shape: Omit<TypeShapeQueries, "getTypeFromTypeNode" | "getReturnTypeOfSignature">;
+  readonly shape: Omit<TypeShapeQueries, "getTypeFromTypeNode" | "getReturnTypeOfSignature" | "getSignatureParameterInfos">;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
   readonly emptyCoreInventory: boolean;
   readonly emptyObservationInventory: boolean;
@@ -447,6 +447,14 @@ function sourceType(scope: CaptureScope, request: SourceTypeRequest): ResolvedSo
   if (result.kind === "refused" && result.stop !== scope.meter.refusal)
     return throwInvariant(invariant("A source-type acquisition must retain its actual first capture refusal."));
   return result.kind === "complete" ? result.value : undefined;
+}
+
+function signatureParameters(scope: CaptureScope, signature: Signature): SignatureDraft["parameterInfos"] | null {
+  if (scope.meter.refusal !== null) return null;
+  const result = scope.shape.acquireSignatureParameters(signature, nativeCaptureAdmission(scope));
+  if (result.kind === "complete") return result.value;
+  if (result.kind === "refused" && result.stop === scope.meter.refusal) return null;
+  return throwInvariant(invariant("A signature parameter acquisition needs its actual checked owner or original refusal."));
 }
 
 function moduleOfFile(program: CheckedProgram, file: SourceFile, ast: OpenedProgramView["ast"]): ModuleId | undefined {
@@ -3247,8 +3255,10 @@ function selectedCallableDeclarationMatches(scope: CaptureScope, target: Applied
 function appliedFormalUses(scope: CaptureScope, target: AppliedCallableTarget, use: CallableUse): ReadonlyMap<number, FormalUse> | null {
   const { original, selected: signature, declaration: owner } = target;
   const receiver = use.receiver;
-  const sources = scope.shape.getSignatureParameterInfos(original);
-  const applied = scope.shape.getSignatureParameterInfos(signature);
+  const sources = signatureParameters(scope, original);
+  if (sources === null) return null;
+  const applied = signatureParameters(scope, signature);
+  if (applied === null) return null;
   if (sources.length !== applied.length) return null;
   let uses: Map<number, FormalUse> | undefined;
   for (let index = 0; index < sources.length; index += 1) {
@@ -3389,8 +3399,10 @@ function captureSignature(scope: CaptureScope, id: RawSignatureId, signature: Si
   if (original === signature) return throwInvariant(invariant("A signature cannot be its own original target."));
   const target = original === undefined ? null : rawSignature(scope, original, owner, kind);
   if (original !== undefined && target === null) return;
+  const parameterInfos = signatureParameters(scope, signature);
+  if (parameterInfos === null) return;
   scope.tables.pending.push({ kind: "signature-parameter", index: 0, draft: { id, signature, target, owner, kind, declaration,
-    parameterInfos: scope.shape.getSignatureParameterInfos(signature), parameters: [], use } });
+    parameterInfos, parameters: [], use } });
 }
 
 function signatureAnnotationOperator(scope: CaptureScope, annotation: Node | null | undefined, checkedSource: Node | undefined): RawNodeRef | null {
@@ -3581,9 +3593,19 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
   if (scope.meter.refusal !== null) return;
   const direct = resultSyntax !== undefined && answer?.typeSource === resultSyntax
     && scope.checked.ast.kindName(resultSyntax) === "KindTypeReference" ? resultSyntax : null;
-  const use = draft.use?.result ?? (answer === undefined || answer.causes.length !== 0
+  let use: TypeBindingUse | null = draft.use?.result ?? (answer === undefined || answer.causes.length !== 0
     ? null : unchangedResultArguments(scope, signature, answer.type));
   if (scope.meter.refusal !== null) return;
+  const projected = answer?.projectedReturn;
+  if (use === null && declaration !== null && projected !== undefined) {
+    const authored = referenceTo(scope, program, projected.declaration);
+    if (scope.meter.refusal !== null) return;
+    if (authored !== declaration || projected.selected !== answer?.type)
+      return throwInvariant(invariant("A selected signature result must retain its actual declaration and native parameter."));
+    const declarations = mergedArgumentGroup(scope, projected.selected);
+    if (scope.meter.refusal !== null) return;
+    if (declarations !== null) use = { kind: "merged-slot", type: projected.selected, declarations };
+  }
   const result = enqueueRawType(scope, answer, resultPosition, operator ?? originalUse ?? direct, use, null);
   scope.tables.signatures[id] = {
     id, target, owner, declaration, kind, typeParameters: available(typeParameters), receiver: available(receiver), parameters,

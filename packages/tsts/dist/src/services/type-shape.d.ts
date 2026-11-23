@@ -156,6 +156,7 @@ export interface TypeShapeQueries {
     readonly getSignatureInfos: (type: GoPtr<Type>, kind: "call" | "construct") => readonly TypeSignatureInfo[];
     readonly getDeclarationSignatureInfo: (declaration: GoPtr<Node>) => TypeSignatureInfo | undefined;
     readonly getSignatureParameterInfos: (signature: GoPtr<Signature>) => readonly TypeSignatureParameterInfo[];
+    readonly acquireSignatureParameters: <Stop extends object>(signature: GoPtr<Signature>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<readonly TypeSignatureParameterInfo[], Stop>;
     readonly getSignatureThisParameterInfo: (signature: GoPtr<Signature>) => TypeSignatureThisParameterInfo | undefined;
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly getIndexInfos: (type: GoPtr<Type>) => readonly TypeIndexInfo[];

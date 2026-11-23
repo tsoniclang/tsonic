@@ -2208,6 +2208,7 @@ export declare function Checker_getParameterCount(receiver: GoPtr<Checker>, sign
 export declare function Checker_getMinArgumentCount(receiver: GoPtr<Checker>, signature: GoPtr<Signature>): int;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/relater.go::method::Checker.getMinArgumentCountEx","kind":"method","status":"implemented","sigHash":"a1b090713b00c6c797070c857d196d11adfe8b3a93c14c6f875ad279970361b4","bodyHash":"bebcda3a594dbb3eb0ba0c6fafa013132338dd8311a9d4844d5b03726cbedb0d"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Admit the reached rest, tuple and void omission rows before reading them under the caller's native acquisition."}
  *
  * Go source:
  * func (c *Checker) getMinArgumentCountEx(signature *Signature, flags MinArgumentCountFlags) int {
