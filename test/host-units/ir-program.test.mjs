@@ -2671,6 +2671,48 @@ test("Program pre-copy allowance does not count a borrowed checked marker applic
   }
 });
 
+test("Program binding lookup admits each original row before its indexed getter", async () => {
+  const { createBindingLookup } = await import("../../packages/host/dist/ir-program/program-values.js");
+  const { createInstantiationMeter } = await import("../../packages/host/dist/ir-program/work.js");
+  const { definition, context } = moduleFixture();
+  const original = [
+    { kind: "bound", parameter: typeParameterDeclaration(definition, 0), type: tyId(0) },
+    { kind: "rigid", parameter: typeParameterDeclaration(definition, 1) },
+    { kind: "rigid", owner: definition },
+  ];
+  for (const maximumWork of [0, 1, 2, 3]) {
+    const meter = createInstantiationMeter({ ...ProgramWork.state(context.resources).limits, maximumWork });
+    const pulls = [];
+    const indexed = (value, label) => {
+      const rows = [value];
+      Object.defineProperty(rows, 0, { get() {
+        pulls.push([label, maximumWork - remainingWork(meter.account)]);
+        return value;
+      } });
+      return rows;
+    };
+    const bindings = {
+      classBindings: indexed(original[0], "class"),
+      methodBindings: indexed(original[1], "method"),
+      capturedBindings: [],
+      selfBindings: indexed(original[2], "self"),
+    };
+    const result = createBindingLookup(meter, bindings);
+    assert.deepEqual(pulls, [["class", 1], ["method", 2], ["self", 3]].slice(0, maximumWork));
+    if (maximumWork < 3) {
+      assert.equal(result === accountFailure(meter.account), true);
+      assert.equal("lookup" in result, false);
+      const crossed = { get classBindings() { assert.fail("a stopped lookup cannot reopen the input"); } };
+      assert.equal(createBindingLookup(meter, crossed) === result, true);
+    } else {
+      assert.equal(result.kind, "complete");
+      assert.equal(result.lookup.parameterBinding({ kind: "rigid", parameter: original[0].parameter }) === original[0], true);
+      assert.equal(result.lookup.parameterBinding({ ...original[1] }) === original[1], true);
+      assert.equal(result.lookup.selfBinding({ ...original[2] }) === original[2], true);
+    }
+  }
+});
+
 test("Program index and type seed retain a source member's exact body occurrence", () => {
   const fixture = moduleFixture();
   const occurrence = { body: fixture.bodyId, node: 3 };

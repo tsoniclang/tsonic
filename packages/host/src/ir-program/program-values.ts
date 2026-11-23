@@ -1,6 +1,6 @@
 import type { DefinitionLocation, InstantiationMeter, InstantiationStop, ProgramLookup } from "./work.js";
 import { chargeInstantiationWork, emitInstantiationRecord, reserveInstantiationRecord } from "./work.js";
-import { chargeWork } from "../dataflow/index.js";
+import { accountFailure, chargeWork } from "../dataflow/index.js";
 import { summaryKey } from "../ir-facts/index.js";
 import type { InvariantFailure, MessageArgument } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
@@ -32,23 +32,34 @@ export function admitBindingVector(meter: InstantiationMeter, distinctCount: num
   return null;
 }
 
+const missingBinding: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "A requested binding vector must have dense rows." };
+
 export function createBindingLookup(
   meter: InstantiationMeter, bindings: BindingVector,
 ): { readonly kind: "complete"; readonly lookup: BindingLookup } | InstantiationStop {
+  const previous = meter.failure ?? accountFailure(meter.account);
+  if (previous !== null) return previous;
   const parameters = new Map<string, TypeBinding>();
   const selves = new Map<DefId, SelfBinding>();
-  for (const family of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings]) {
-    for (const binding of family) {
+  const addParameters = (family: readonly TypeBinding[]): InstantiationStop | null => {
+    for (let position = 0; position < family.length; position += 1) {
       const stop = chargeInstantiationWork(meter);
       if (stop !== null) return stop;
+      const binding = requirePresent(family[position], missingBinding);
       const key = binding.parameter;
       if (parameters.has(key)) throw new TypeError("Duplicate requested parameter binding");
       parameters.set(key, binding);
     }
-  }
-  for (const binding of bindings.selfBindings) {
+    return null;
+  };
+  const stopped = addParameters(bindings.classBindings) ?? addParameters(bindings.methodBindings) ?? addParameters(bindings.capturedBindings);
+  if (stopped !== null) return stopped;
+  const self = bindings.selfBindings;
+  for (let position = 0; position < self.length; position += 1) {
     const stop = chargeInstantiationWork(meter);
     if (stop !== null) return stop;
+    const binding = requirePresent(self[position], missingBinding);
     if (selves.has(binding.owner)) throw new TypeError("Duplicate requested self binding");
     selves.set(binding.owner, binding);
   }
