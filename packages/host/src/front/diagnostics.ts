@@ -1,5 +1,5 @@
 import { flattenDiagnosticMessageText, getDiagnosticRunMembers } from "@tsonic/tsts";
-import type { Diagnostic as CheckerDiagnostic, ExtensionDiagnostic, Node } from "@tsonic/tsts";
+import type { Diagnostic as CheckerDiagnostic, ExtensionDiagnostic, Node, PreparedImportDiagnostic } from "@tsonic/tsts";
 import type { CheckerDiagnosticRef, Diagnostic, DiagnosticSite, InvariantFailure, RelatedDiagnostic, Severity } from "../diag/contract.js";
 import { orderDiagnostics, requirePresent, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
@@ -22,8 +22,8 @@ function siteOf(program: CheckedProgram, diagnostic: CheckerDiagnostic): Diagnos
   return { kind: "source", origin: { module, start: range.start + input.displacement, length: range.end - range.start, derived: [] } };
 }
 
-function severityOf(diagnostic: CheckerDiagnostic): Severity {
-  switch (diagnostic.category) {
+function severityOf(category: CheckerDiagnostic["category"]): Severity {
+  switch (category) {
     case 0: return "warning";
     case 1: return "error";
     case 2: return "suggestion";
@@ -38,9 +38,22 @@ function relatedDiagnostic(program: CheckedProgram, entry: CheckerDiagnostic | u
 }
 
 function checkerDiagnostic(program: CheckedProgram, diagnostic: CheckerDiagnostic, related: readonly RelatedDiagnostic[]): Diagnostic {
-  return { code: { kind: "checker", number: diagnostic.code, rendered: `TS${diagnostic.code}` }, severity: severityOf(diagnostic),
+  return { code: { kind: "checker", number: diagnostic.code, rendered: `TS${diagnostic.code}` }, severity: severityOf(diagnostic.category),
     site: siteOf(program, diagnostic), source: null, evidence: [], message: flattenDiagnosticMessageText(diagnostic),
     arguments: diagnostic.messageArgs.map(value => ({ kind: "text", value })), related, fix: null };
+}
+
+export function importDiagnostic(input: PreparedImportDiagnostic,
+  resolve: (path: string) => { readonly module: ModuleId; readonly displacement: number } | undefined): Diagnostic {
+  const note = (entry: Pick<PreparedImportDiagnostic, "code" | "message" | "site">): RelatedDiagnostic => {
+    const site = entry.site;
+    const file = site === null ? undefined : resolve(site.fileName);
+    return { code: { kind: "checker", number: entry.code, rendered: `TS${entry.code}` }, message: entry.message,
+      site: site === null ? { kind: "none" } : file === undefined ? { kind: "file", path: site.fileName }
+        : { kind: "source", origin: { module: file.module, start: site.start + file.displacement, length: site.length, derived: [] } } };
+  };
+  return { ...note(input), severity: severityOf(input.category), source: null, evidence: [],
+    arguments: input.arguments.map(value => ({ kind: "text", value })), related: input.related.map(note), fix: null };
 }
 
 export function captureCheckerDiagnostic(program: CheckedProgram, diagnostic: CheckerDiagnostic, charge: () => boolean): Diagnostic | null {

@@ -1,15 +1,16 @@
-import { createCompilerSessionFromFiles, createSourceSemanticsExtension } from "@tsonic/tsts";
+import { createCompilerSessionFromFiles, createSourceSemanticsExtension, prepareSourceImports as prepareCheckerImports } from "@tsonic/tsts";
 import type { CheckedSourceProgram, CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
-import type { InvariantFailure, Result } from "../diag/contract.js";
-import { requirePresent, throwInvariant } from "../diag/index.js";
+import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
+import { hostDiagnosticCode, requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, PackageId } from "../ids/contract.js";
 import { encodeKey, encodeModuleId } from "../ids/index.js";
-import type { ExtensionReference, ExtensionReferenceEntry, ImportPreparation, ProjectSnapshot } from "../snapshot/contract.js";
-import type { CaptureDeps, CheckedProgram, CheckerExtensions, CheckerRegistration, ProgramModuleSet, SessionDocument } from "./contract.js";
+import type { ExtensionReference, ExtensionReferenceEntry, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
+import { verifyPreparedSource } from "../snapshot/index.js";
+import type { CaptureDeps, CheckedProgram, CheckerExtensions, CheckerRegistration, PrepareSourceImports, ProgramModuleSet, SessionDocument } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { OpenedFile, ProviderRegistration } from "./handles.js";
 import { optionSet } from "./options.js";
-import { captureSessionDiagnostics } from "./diagnostics.js";
+import { captureSessionDiagnostics, importDiagnostic } from "./diagnostics.js";
 
 const invariant = (message: string): InvariantFailure => ({ owner: "front", query: null, origin: null, message });
 
@@ -72,6 +73,7 @@ export function extensionReferences(table: CheckerExtensions): readonly Extensio
 /** What one compiler session is created from, computed from the snapshot alone. */
 export interface SessionInputs {
   readonly currentDirectory: string;
+  readonly useCaseSensitiveFileNames: boolean;
   readonly files: ReadonlyMap<string, string>;
   readonly rootFiles: readonly string[];
   readonly selectedLibraries: ReadonlyMap<string, string>;
@@ -91,22 +93,19 @@ export interface SessionInputs {
  * A configuration file the project captured is an ordinary file of the session: the session is opened in the
  * checker's options mode, which reads no file as configuration (SDK 86b0512f, K-3265).
  */
-export function sessionInputs(snapshot: ProjectSnapshot): SessionInputs {
+export function sessionInputs(source: SourcePreparationInput): SessionInputs {
   const modules = new Map<string, ModuleId>();
   const paths = new Map<ModuleId, string>();
-  snapshot.packages.modules.forEach(module => {
+  source.packages.modules.forEach(module => {
     modules.set(module.path, module.id);
     paths.set(module.id, module.path);
   });
   const packageNames = new Map<PackageId, string | null>();
-  let projectRoot: string | undefined;
-  snapshot.packages.packages.forEach(entry => {
+  source.packages.packages.forEach(entry => {
     packageNames.set(entry.id, entry.name);
-    if (entry.id === snapshot.packages.rootPackage) projectRoot = entry.packageRoot;
   });
-  if (projectRoot === undefined) throw new TypeError("front: the snapshot's root package is not among its packages");
   const files = new Map<string, string>();
-  snapshot.packages.files.forEach(file => { files.set(file.path, file.text); });
+  source.packages.files.forEach(file => { files.set(file.path, file.text); });
   const rootFiles: string[] = [];
   const rooted = new Set<string>();
   const root = (path: string | undefined): string => {
@@ -117,44 +116,76 @@ export function sessionInputs(snapshot: ProjectSnapshot): SessionInputs {
     }
     return path;
   };
-  snapshot.roots.forEach(module => { root(paths.get(module)); });
-  snapshot.contributions.declarationModules.forEach(module => { root(paths.get(module)); });
+  source.roots.forEach(module => { root(paths.get(module)); });
+  source.declarationModules.forEach(module => { root(paths.get(module)); });
   const selectedLibraries = new Map<string, string>();
-  snapshot.contributions.declarationPolicy.bundledLibraries.forEach(binding => {
+  source.declarationPolicy.bundledLibraries.forEach(binding => {
     selectedLibraries.set(binding.name, root(paths.get(binding.module)));
   });
   const options: Record<string, boolean | string | readonly string[]> = {};
-  optionSet(snapshot.contributions.declarationPolicy.installedDeclarations).forEach(option => { options[option.name] = option.value; });
-  return ({ currentDirectory: projectRoot, files, rootFiles, selectedLibraries, options, modules, packageNames });
+  optionSet(source.declarationPolicy.installedDeclarations).forEach(option => { options[option.name] = option.value; });
+  return { currentDirectory: source.currentDirectory, useCaseSensitiveFileNames: source.caseSensitive,
+    files, rootFiles, selectedLibraries, options, modules, packageNames };
 }
+
+function compilerFiles(inputs: SessionInputs) {
+  return { currentDirectory: inputs.currentDirectory, files: inputs.files, rootFiles: inputs.rootFiles,
+    compilerOptions: inputs.options, selectedLibraries: inputs.selectedLibraries, includeBundledLibraries: false,
+    useCaseSensitiveFileNames: inputs.useCaseSensitiveFileNames };
+}
+
+function preparedFailure(source: PreparedSource): { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] } | null {
+  const first = verifyPreparedSource(source)[0];
+  if (first === undefined) return null;
+  const code = hostDiagnosticCode("TSONIC_SOURCE_PREPARATION_INVALID");
+  return { kind: "refused", diagnostics: [{ code: { kind: "host", name: code, rendered: code },
+    severity: "error", site: first.site.kind === "file" ? first.site : { kind: "none" }, source: "front", evidence: [],
+    message: `The prepared source does not match the captured project (${first.rule}).`,
+    arguments: [], related: [], fix: null }] };
+}
+
+export const prepareImports: PrepareSourceImports = ({ navigationCapture }, input) => {
+  const inputs = sessionInputs(input);
+  const prepared = prepareCheckerImports(compilerFiles(inputs));
+  for (const file of prepared.files) {
+    const maximum = navigationCapture.maximumCapturedEdgesPerModule;
+    if (file.references.length > maximum) return { kind: "refused", diagnostics: [resourceLimitDiagnostic({
+      owner: "front", limit: "front.maximumCapturedEdgesPerModule", maximum,
+      site: { kind: "file", path: file.fileName },
+      unit: { request: { query: "prepareSourceImports", key: file.fileName }, position: { kind: "result" } },
+    })] };
+  }
+  const diagnostics = prepared.diagnostics.map(entry => importDiagnostic(entry, path => {
+    const module = inputs.modules.get(path);
+    const text = inputs.files.get(path);
+    return module === undefined || text === undefined ? undefined
+      : { module, displacement: text.charCodeAt(0) === 0xfeff ? 1 : 0 };
+  }));
+  const source = { input, preparation: { roots: prepared.roots, files: prepared.files, diagnostics } };
+  return preparedFailure(source) ?? { kind: "ok", value: source, diagnostics: [] };
+};
 
 /**
  * One compiler session on the inputs above and the extension table, in the checker's options mode: the options are
  * the table's and no file of the session is read as configuration, whatever the snapshot captured. A diagnostic that
  * names no file (an option the checker rejects among them) belongs to no module: the program is not opened.
- * The import preparation is an input of the run and is not read here.
  */
-export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, preparation: ImportPreparation): Result<CheckedProgram> {
-  void preparation;
-  const inputs = sessionInputs(snapshot);
+export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot): Result<CheckedProgram> {
+  const mismatch = preparedFailure(snapshot.source);
+  if (mismatch !== null) return mismatch;
+  const inputs = sessionInputs(snapshot.source.input);
   const session = createCompilerSessionFromFiles({
-    currentDirectory: inputs.currentDirectory,
-    files: inputs.files,
-    rootFiles: inputs.rootFiles,
-    compilerOptions: inputs.options,
-    selectedLibraries: inputs.selectedLibraries,
-    includeBundledLibraries: false,
+    ...compilerFiles(inputs),
     extensionHostOptions: {
       extensions: ExtensionTable.extensions(deps.extensions),
       requiredProviderModules: snapshot.contributions.requiredProviderModules.map(required => required.providerId === null
         ? { specifierPrefix: required.specifierPrefix, message: required.message }
         : { specifierPrefix: required.specifierPrefix, providerId: required.providerId, message: required.message }),
     },
-    useCaseSensitiveFileNames: true,
   });
   const checked = session.checkSource();
   const program = OpenedProgram.create(checked, deps.extensions, programFiles(checked, deps.extensions, inputs),
-    snapshot.packages.libraryData, snapshot.contributions);
+    snapshot.source.input.packages.libraryData, snapshot.contributions);
   const diagnostics = captureSessionDiagnostics(program);
   return diagnostics === null ? { kind: "ok", value: program, diagnostics: [] } : { kind: "refused", diagnostics };
 }

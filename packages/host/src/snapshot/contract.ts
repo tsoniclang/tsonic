@@ -270,8 +270,6 @@ export interface SourceExternalEntry {
 }
 
 export interface SourceContributions {
-  readonly declarationModules: readonly ModuleId[];
-  readonly declarationPolicy: SourceDeclarationPolicy;
   readonly requiredProviderModules: readonly RequiredProviderModule[];
   readonly compilerExtensions: readonly ExtensionReference[];
   readonly declarationProviders: readonly ExtensionReference[];
@@ -282,9 +280,8 @@ export interface SourceContributions {
 }
 
 export interface ProjectSnapshot {
-  readonly packages: PackageSnapshot;
+  readonly source: PreparedSource;
   readonly entryPoint: ModuleId;
-  readonly roots: readonly ModuleId[];
   readonly selection: SelectedTarget;
   readonly contributions: SourceContributions;
   readonly nativeFacts: SelectedNativeFacts;
@@ -327,6 +324,9 @@ export type SnapshotRule =
   | "external-entry-resolves"
   | "external-entry-unique"
   | "roots-unique"
+  | "prepared-roots-exact"
+  | "prepared-file-exact"
+  | "prepared-reference-exact"
   | "entry-point-root"
   | "selection-capability-unique"
   | "selection-surface-unique"
@@ -395,3 +395,19 @@ export interface ImportPreparation {
   readonly files: readonly ImportFile[];
   readonly diagnostics: readonly Diagnostic[];
 }
+
+export interface SourcePreparationInput {
+  readonly packages: PackageSnapshot;
+  readonly roots: readonly ModuleId[];
+  readonly declarationModules: readonly ModuleId[];
+  readonly declarationPolicy: SourceDeclarationPolicy;
+  readonly currentDirectory: string;
+  readonly caseSensitive: boolean;
+}
+
+export interface PreparedSource {
+  readonly input: SourcePreparationInput;
+  readonly preparation: ImportPreparation;
+}
+
+export type VerifyPreparedSource = (source: PreparedSource) => readonly Violation<SnapshotRule, SnapshotSite>[];

@@ -20,7 +20,7 @@ export function fromType(): boolean { return select<Flag>(); }
   });
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const provider = fixture.moduleOf(fixture.packageOf(providerRoot), "index.d.ts");
-  const entries = [module, provider].map(id => snapshot.packages.modules.find(entry => entry.id === id));
+  const entries = [module, provider].map(id => snapshot.source.input.packages.modules.find(entry => entry.id === id));
   const { captured, deps, interner } = fixture.captureModulesOf(snapshot, entries);
   const [consumer, endpoints] = captured;
   assert.deepEqual(consumer.raw.checkerDiagnostics, []);

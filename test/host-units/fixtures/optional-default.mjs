@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { loadFrontFixture, navigationCapture, preparation } from "./front/checked-module.mjs";
+import { loadFrontFixture, navigationCapture } from "./front/checked-module.mjs";
 import { summaryKey } from "../../../packages/host/dist/ir-facts/index.js";
 import { parseModuleBodies, printModuleBodies } from "../../../packages/host/dist/ir-program/index.js";
 import { analyzeHostProgram } from "../../../packages/host/dist/pipeline/index.js";
@@ -52,7 +52,7 @@ export async function analyzeOptionalSource(source, dependencies = {}) {
   const fixture = await loadFrontFixture();
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source, ...dependencies },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  return analyzeHostProgram({ snapshot, extensions: fixture.front.createCheckerExtensions([]), preparation, limits });
+  return analyzeHostProgram({ snapshot, extensions: fixture.front.createCheckerExtensions([]), limits });
 }
 
 export async function checkOptionalDefault(mode) {

@@ -542,7 +542,7 @@ test("an imported data property's source occurrence stays in its own module even
   const mainDefinitions = fixture.front.lowerModuleDefinitions({ module: main, componentRoots: main.types.components
     .map(component => component.root).filter(root => root.module === main.module) });
   assert.equal(mainDefinitions.kind, "ok");
-  const local = fixture.lowerDepsFor(mainDefinitions.value, fixture.types.createTypeInterner(), snapshot.packages.files
+  const local = fixture.lowerDepsFor(mainDefinitions.value, fixture.types.createTypeInterner(), snapshot.source.input.packages.files
     .find(file => file.path.endsWith("/main.ts")).text);
   const deps = { ...local, sourceOccurrenceOf: reference => reference.module === origin.module && reference.node === originNode.id
     ? ready : local.sourceOccurrenceOf(reference) };

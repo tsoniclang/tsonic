@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { navigationCapture, preparation } from "./checked-module.mjs";
+import { navigationCapture } from "./checked-module.mjs";
 
 export function analysisInput(fixture, library, source = "export function add(a: number, b: number): number { return a + b; }\n") {
   const snapshot = fixture.projectSnapshot({
@@ -11,7 +11,7 @@ export function analysisInput(fixture, library, source = "export function add(a:
   assert.deepEqual(fixture.snapshots.verifySnapshot(snapshot, fixture.front.extensionReferencesOf(extensions)), []);
   const typeExpansion = { maximumDepth: 128, maximumVisits: 100000, maximumUnionMembers: 1024, maximumIntersectionMembers: 1024 };
   return {
-    snapshot, preparation, extensions,
+    snapshot, extensions,
     limits: {
       navigationCapture,
       query: { maximumRecords: 1000000 },

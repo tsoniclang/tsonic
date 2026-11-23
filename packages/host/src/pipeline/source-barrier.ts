@@ -38,15 +38,15 @@ export interface SourceBarrier extends HirBindingViews {
 export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceBarrier> {
   const front = pipelineWiring.front;
   const capture = { extensions: inputs.extensions, navigationCapture: inputs.limits.navigationCapture };
-  const opened = front.openCheckedProgram(capture, inputs.snapshot, inputs.preparation);
+  const opened = front.openCheckedProgram(capture, inputs.snapshot);
   if (opened.kind === "refused") return opened;
   const set = front.captureProgramModules(capture, opened.value);
   const raw = new Map<ModuleId, RawModule>();
   const definitions = new Map<ModuleId, ModuleDefinitions>();
   const paths = new Map<DefId, DefinitionPath>();
   const documents = new Map<ModuleId, { readonly text: string; readonly role: PackageModule["role"] }>();
-  const fileText = new Map(inputs.snapshot.packages.files.map(file => [file.path, file.text]));
-  const snapshotModules = new Map(inputs.snapshot.packages.modules.map(module => [module.id, module]));
+  const fileText = new Map(inputs.snapshot.source.input.packages.files.map(file => [file.path, file.text]));
+  const snapshotModules = new Map(inputs.snapshot.source.input.packages.modules.map(module => [module.id, module]));
   for (const entry of set.modules) {
     const module = entry.kind === "snapshot" ? entry.module : entry.document.module;
     const captured = front.captureModule(capture, opened.value, module);
@@ -170,7 +170,7 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     const described = pipelineWiring.decls.describeDefinitions(module, declarationScopes, names);
     for (const row of described.definitions) descriptions.set(row.definition, row);
   }
-  if (inputs.snapshot.packages.libraryData.length !== 0)
+  if (inputs.snapshot.source.input.packages.libraryData.length !== 0)
     return fail("Library binding requires the actual checked export groups and selected endpoints.");
   const catalogue: LibraryCatalogue = { sources: [] };
   const bound = bindRoles(catalogue, () => fail("A selected library role requires its actual checked export group and endpoint."));

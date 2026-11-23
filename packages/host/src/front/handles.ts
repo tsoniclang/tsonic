@@ -2,7 +2,7 @@ import type { CheckedSourceProgram, CompilerExtension, Node, SourceDeclarationPr
 import type { Diagnostic } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
-import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, SourceContributions } from "../snapshot/contract.js";
+import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, ProjectSnapshot } from "../snapshot/contract.js";
 import type { ProgramModule, ProgramModuleSet } from "./program-data.js";
 
 export interface OpenedFile {
@@ -67,11 +67,11 @@ export class OpenedProgram {
   private readonly fileByModule = new Map<ModuleId, OpenedFile>();
   private readonly moduleRows: ProgramModuleSet;
   private readonly roleRows: readonly PackageLibraryData[];
-  private readonly contributionRows: SourceContributions;
+  private readonly contributionRows: ProjectSnapshot["contributions"];
   private readonly syntaxRows = new Map<string, FileSyntaxEntry>();
 
   private constructor(checked: CheckedSourceProgram, table: ExtensionTable, files: readonly Omit<OpenedFile, "displacement">[], libraryData: readonly PackageLibraryData[],
-    contributions: SourceContributions) {
+    contributions: ProjectSnapshot["contributions"]) {
     this.checkedProgram = checked;
     this.extensionTable = table;
     for (const entry of files) {
@@ -90,13 +90,13 @@ export class OpenedProgram {
   }
 
   static create(checked: CheckedSourceProgram, table: ExtensionTable, files: readonly Omit<OpenedFile, "displacement">[], libraryData: readonly PackageLibraryData[],
-    contributions: SourceContributions): OpenedProgram {
+    contributions: ProjectSnapshot["contributions"]): OpenedProgram {
     return new OpenedProgram(checked, table, files, libraryData, contributions);
   }
   /** The snapshot's library data: the closed inventory of library roles of the packages it captured. */
   static libraryData(program: OpenedProgram): readonly PackageLibraryData[] { return program.roleRows; }
   /** The snapshot's source contributions (safety providers, semantics modules, declaration providers). */
-  static contributions(program: OpenedProgram): SourceContributions { return program.contributionRows; }
+  static contributions(program: OpenedProgram): ProjectSnapshot["contributions"] { return program.contributionRows; }
   static checked(program: OpenedProgram): CheckedSourceProgram { return program.checkedProgram; }
   static table(program: OpenedProgram): ExtensionTable { return program.extensionTable; }
   static modules(program: OpenedProgram): ProgramModuleSet { return program.moduleRows; }

@@ -7,6 +7,7 @@ import type { Program, ProgramOptions } from "../internal/compiler/program.js";
 import type { ParsedCommandLine } from "../internal/tsoptions/parsedcommandline.js";
 import { type ExtensionHostOptions } from "../extensions/host.js";
 import type { CheckedSourceProgram } from "../extensions/source-program.js";
+import type { SourceImportPreparation as LoadedSourceImports } from "./source-import-preparation.js";
 export type CompilerDiagnosticKind = "config" | "program" | "global" | "syntactic" | "bind" | "semantic" | "suggestion" | "declaration" | "all";
 export interface CompilerSessionOptions {
     readonly programOptions: ProgramOptions;
@@ -54,5 +55,27 @@ export interface CompilerSession {
 }
 export declare function createCompilerSession(options: CompilerSessionOptions): CompilerSession;
 export declare function createCompilerSessionFromProgram(program: GoPtr<Program>, host: CompilerHost, config: GoPtr<ParsedCommandLine>, context?: Context): CompilerSession;
+export type SourceImportPreparationInput = Omit<InMemoryCompilerSessionOptions, "configFileName" | "extensionHostOptions" | "context"> & {
+    readonly rootFiles: readonly string[];
+};
+interface PreparedDiagnosticNote {
+    readonly code: number;
+    readonly message: string;
+    readonly site: {
+        readonly fileName: string;
+        readonly start: number;
+        readonly length: number;
+    } | null;
+}
+export interface PreparedImportDiagnostic extends PreparedDiagnosticNote {
+    readonly category: Diagnostic["category"];
+    readonly arguments: readonly string[];
+    readonly related: readonly PreparedDiagnosticNote[];
+}
+export interface SourceImportPreparation extends Omit<LoadedSourceImports, "diagnostics"> {
+    readonly diagnostics: readonly PreparedImportDiagnostic[];
+}
+export declare function prepareSourceImports(input: SourceImportPreparationInput): SourceImportPreparation;
 export declare function createCompilerSessionFromFiles(options: InMemoryCompilerSessionOptions): CompilerSession;
+export {};
 //# sourceMappingURL=compiler-session.d.ts.map

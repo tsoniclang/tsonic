@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createAccount } from "../../packages/host/dist/dataflow/index.js";
 import { test } from "node:test";
-import { loadFrontFixture, navigationCapture, preparation } from "./fixtures/front/checked-module.mjs";
+import { loadFrontFixture, navigationCapture } from "./fixtures/front/checked-module.mjs";
 import { analyzeHostProgram } from "../../packages/host/dist/pipeline/index.js";
 import { parseModuleBodies, printModuleBodies } from "../../packages/host/dist/ir-program/index.js";
 
@@ -23,7 +23,7 @@ async function inputs(source) {
   const fixture = await loadFrontFixture();
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  return { snapshot, extensions: fixture.front.createCheckerExtensions([]), preparation, limits };
+  return { snapshot, extensions: fixture.front.createCheckerExtensions([]), limits };
 }
 
 async function analyze(source) {

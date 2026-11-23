@@ -13,6 +13,9 @@ import { ProviderMaterializationCoordinator, } from "../extensions/provider-mate
 import { createSourceFactQueries } from "../extensions/consumer.js";
 import { getProviderVirtualArtifactForCompiler } from "../extensions/provider-virtual-internal.js";
 import { createCompilerHost, createInMemoryFileSystem } from "./embedding-host.js";
+import { prepareSourceImports as loadSourceImports } from "./source-import-preparation.js";
+import { createAstReader } from "./ast-reader.js";
+import { flattenDiagnosticMessageText } from "./transpile.js";
 export function createCompilerSession(options) {
     const context = options.context ?? Background();
     return createCompilerSessionForProgramOwner(createMaterializingProgramOwner(options.programOptions, options.extensionHostOptions ?? {}, context), options.programOptions.Host, options.programOptions.Config, context);
@@ -181,7 +184,7 @@ function diagnosticKindRequiresSemanticProgram(kind) {
         || kind === "declaration"
         || kind === "all";
 }
-export function createCompilerSessionFromFiles(options) {
+function createFilesProgramInputs(options) {
     const files = options.files instanceof Map ? new Map(options.files) : new Map(Object.entries(options.files));
     const fileSystem = createInMemoryFileSystem({
         files,
@@ -223,12 +226,43 @@ export function createCompilerSessionFromFiles(options) {
         supplied.Errors = [...optionErrors];
         config = supplied;
     }
+    return { Config: config, Host: host,
+        ...(options.selectedLibraries !== undefined ? { SelectedLibraries: options.selectedLibraries } : {}) };
+}
+export function prepareSourceImports(input) {
+    if ("configFileName" in input)
+        throw new TypeError("Source import preparation accepts options and explicit roots, not a configuration file.");
+    if (!Array.isArray(input.rootFiles))
+        throw new TypeError("Source import preparation requires explicit roots.");
+    const { Config, Host, SelectedLibraries } = createFilesProgramInputs(input);
+    if (Config === undefined)
+        throw new Error("Source import preparation requires a parsed command line.");
+    const prepared = loadSourceImports({ host: Host, config: Config,
+        ...(SelectedLibraries === undefined ? {} : { libraryFiles: SelectedLibraries }) });
+    const ast = createAstReader();
+    const note = (diagnostic) => {
+        const file = diagnostic.file;
+        const message = flattenDiagnosticMessageText(diagnostic);
+        if (file === undefined)
+            return { code: diagnostic.code, message, site: null };
+        const range = ast.sourceRange(file, diagnostic.loc.pos, diagnostic.loc.end);
+        if (range.kind !== "source")
+            throw new Error("An import diagnostic must have a source range.");
+        return { code: diagnostic.code, message,
+            site: { fileName: ast.getFileName(file), start: range.start, length: range.end - range.start } };
+    };
+    return { roots: prepared.roots, files: prepared.files, diagnostics: prepared.diagnostics.map(diagnostic => ({
+            ...note(diagnostic), category: diagnostic.category, arguments: diagnostic.messageArgs,
+            related: diagnostic.relatedInformation.map(entry => {
+                if (entry === undefined)
+                    throw new Error("An import diagnostic contains an absent related diagnostic.");
+                return note(entry);
+            }),
+        })) };
+}
+export function createCompilerSessionFromFiles(options) {
     return createCompilerSession({
-        programOptions: {
-            Config: config,
-            Host: host,
-            ...(options.selectedLibraries !== undefined ? { SelectedLibraries: options.selectedLibraries } : {}),
-        },
+        programOptions: createFilesProgramInputs(options),
         ...(options.extensionHostOptions !== undefined ? { extensionHostOptions: options.extensionHostOptions } : {}),
         ...(options.context !== undefined ? { context: options.context } : {}),
     });

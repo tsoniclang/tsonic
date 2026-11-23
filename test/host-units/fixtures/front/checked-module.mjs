@@ -9,7 +9,6 @@ export const navigationCapture = { maximumCallableExpressionDepth: 64, maximumCa
   maximumCallableReceiverDeclarations: 64, maximumCallableReceiverSteps: 64, maximumCallableMemberReferences: 64, maximumLexicalEnvironmentSteps: 64,
   maximumLexicalEvaluationSteps: 64, maximumSyntaxDepth: 256, maximumCapturedNodesPerModule: 100000, maximumCapturedFactsPerModule: 100000,
   maximumCapturedEdgesPerModule: 100000 };
-export const preparation = { roots: [], files: [], diagnostics: [] };
 const byId = (left, right) => left.id < right.id ? -1 : 1;
 
 export function rawComponentPath(components, component) {
@@ -73,24 +72,34 @@ export async function loadFrontFixture() {
     for (const [path, text] of Object.entries(extraFiles)) files.push({ kind: "physical", path, realPath: path, text });
     modules.sort(byId);
     files.sort((left, right) => left.path < right.path ? -1 : 1);
-    return {
+    const input = {
       packages: { fingerprint: "captured", rootPackage: project, packages, modules, files, libraryData: [],
         components: packages.map(entry => ({ representative: entry.id, packages: [entry.id], dependencies: [] })) },
-      entryPoint: moduleOf(project, `src/${Object.keys(sourceFiles)[0]}`),
       roots: [...Object.keys(sourceFiles).map(name => moduleOf(project, `src/${name}`)), ...otherRoots].sort(),
-      selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
-      contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: libraries.map(library => ({ name: library.name, module: moduleOf(checker, library.name) }))
+      currentDirectory: "/project", caseSensitive: true,
+      declarationModules: [], declarationPolicy: { bundledLibraries: libraries.map(library => ({ name: library.name, module: moduleOf(checker, library.name) }))
         .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0), installedDeclarations },
-        requiredProviderModules, compilerExtensions, declarationProviders, semanticModules, safetyProviders: [], dataLayouts: [], externalEntries },
+    };
+    return {
+      source: preparedSource(input),
+      entryPoint: moduleOf(project, `src/${Object.keys(sourceFiles)[0]}`),
+      selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
+      contributions: { requiredProviderModules, compilerExtensions, declarationProviders, semanticModules, safetyProviders: [], dataLayouts: [], externalEntries },
       nativeFacts: nativeFactsFixture(),
     };
+  }
+
+  function preparedSource(input) {
+    const prepared = front.prepareSourceImports({ navigationCapture }, input);
+    assert.equal(prepared.kind, "ok", JSON.stringify(prepared.diagnostics));
+    return prepared.value;
   }
 
   /** Opens the snapshot through Front (after the snapshot verifier accepts it) and captures the program's module set. */
   function openAndCapture(snapshot, registrations = []) {
     const deps = { extensions: front.createCheckerExtensions(registrations), navigationCapture };
     assert.deepEqual(snapshots.verifySnapshot(snapshot, front.extensionReferencesOf(deps.extensions)), [], "the case's snapshot is one the snapshot verifier accepts");
-    const opened = front.openCheckedProgram(deps, snapshot, preparation);
+    const opened = front.openCheckedProgram(deps, snapshot);
     assert.equal(opened.kind, "ok");
     return { deps, program: opened.value, set: front.captureProgramModules(deps, opened.value) };
   }
@@ -153,10 +162,10 @@ export async function loadFrontFixture() {
       exports: exported.value, checked: checked.value };
   }
 
-  function captureModulesOf(snapshot, modules = snapshot.packages.modules) {
+  function captureModulesOf(snapshot, modules = snapshot.source.input.packages.modules) {
     const opened = openAndCapture(snapshot);
     const interner = types.createTypeInterner();
-    const fileTexts = new Map(snapshot.packages.files.map(file => [file.path, file.text]));
+    const fileTexts = new Map(snapshot.source.input.packages.files.map(file => [file.path, file.text]));
     const captures = modules.map(({ id: module, path }) => {
       const raw = front.captureModule(opened.deps, opened.program, module);
       assert.equal(raw.kind, "ok");
@@ -196,7 +205,7 @@ export async function loadFrontFixture() {
 
   function checkedModulesOf(sourceFiles) {
     const snapshot = projectSnapshot({ sourceFiles, libraries: bundled() });
-    const available = new Map(snapshot.packages.modules.map(module => [module.id, module]));
+    const available = new Map(snapshot.source.input.packages.modules.map(module => [module.id, module]));
     const requested = Object.keys(sourceFiles).map(name => available.get(moduleOf(packageOf("/project"), "src/" + name)));
     const { interner, captured, deps } = captureModulesOf(snapshot, requested);
     const modules = captured.map(entry => {
@@ -233,5 +242,5 @@ export async function loadFrontFixture() {
     });
   }
 
-  return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, captureModulesOf, checkedModulesOf, verifyChecked };
+  return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, preparedSource, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, captureModulesOf, checkedModulesOf, verifyChecked };
 }

@@ -41,7 +41,7 @@ export interface AnalysisBarrier {
 }
 
 export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, account: DataflowAccount): Result<AnalysisBarrier> {
-  const unit: UnitRequest = { query: "AnalyzeHostProgram", key: inputs.snapshot.packages.fingerprint };
+  const unit: UnitRequest = { query: "AnalyzeHostProgram", key: inputs.snapshot.source.input.packages.fingerprint };
   const setup = chargeResultEntries(account, 4);
   if (setup !== null) return analysisStop(setup, unit);
   const { source } = typed;

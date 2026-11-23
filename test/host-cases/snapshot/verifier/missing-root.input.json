@@ -1,58 +1,85 @@
 {
   "snapshot": {
-    "packages": {
-      "fingerprint": "captured-project-bytes",
-      "rootPackage": "P[%002Fmissing]",
-      "packages": [
-        {
-          "id": "P[%002Fproject]",
-          "name": null,
-          "version": null,
-          "packageRoot": "/project",
-          "sourceRoot": "/project/src",
-          "manifestPath": null,
-          "dependencies": [],
-          "exports": [
+    "source": {
+      "input": {
+        "packages": {
+          "fingerprint": "captured-project-bytes",
+          "rootPackage": "P[%002Fmissing]",
+          "packages": [
             {
-              "specifier": "./main.js",
-              "module": "M[P[%002Fproject];src%002Fmain.ts]"
+              "id": "P[%002Fproject]",
+              "name": null,
+              "version": null,
+              "packageRoot": "/project",
+              "sourceRoot": "/project/src",
+              "manifestPath": null,
+              "dependencies": [],
+              "exports": [
+                {
+                  "specifier": "./main.js",
+                  "module": "M[P[%002Fproject];src%002Fmain.ts]"
+                }
+              ],
+              "pluginEntry": null,
+              "libraryEntry": null
             }
           ],
-          "pluginEntry": null,
-          "libraryEntry": null
-        }
-      ],
-      "components": [
-        {
-          "representative": "P[%002Fproject]",
-          "packages": [
-            "P[%002Fproject]"
+          "components": [
+            {
+              "representative": "P[%002Fproject]",
+              "packages": [
+                "P[%002Fproject]"
+              ],
+              "dependencies": []
+            }
           ],
-          "dependencies": []
-        }
-      ],
-      "modules": [
-        {
-          "id": "M[P[%002Fproject];src%002Fmain.ts]",
-          "package": "P[%002Fproject]",
-          "path": "/project/src/main.ts",
-          "role": "source"
-        }
-      ],
-      "files": [
-        {
-          "kind": "physical",
-          "path": "/project/src/main.ts",
-          "realPath": "/real/project/src/main.ts",
-          "text": "export {};\n"
-        }
-      ],
-      "libraryData": []
+          "modules": [
+            {
+              "id": "M[P[%002Fproject];src%002Fmain.ts]",
+              "package": "P[%002Fproject]",
+              "path": "/project/src/main.ts",
+              "role": "source"
+            }
+          ],
+          "files": [
+            {
+              "kind": "physical",
+              "path": "/project/src/main.ts",
+              "realPath": "/real/project/src/main.ts",
+              "text": "export {};\n"
+            }
+          ],
+          "libraryData": []
+        },
+        "roots": [
+          "M[P[%002Fproject];src%002Fmain.ts]"
+        ],
+        "declarationModules": [],
+        "declarationPolicy": {
+          "bundledLibraries": [],
+          "installedDeclarations": "none"
+        },
+        "currentDirectory": "/project",
+        "caseSensitive": true
+      },
+      "preparation": {
+        "roots": [
+          {
+            "fileName": "/project/src/main.ts",
+            "state": "loaded"
+          }
+        ],
+        "files": [
+          {
+            "fileName": "/project/src/main.ts",
+            "declarationFile": false,
+            "references": []
+          }
+        ],
+        "diagnostics": []
+      }
     },
     "entryPoint": "M[P[%002Fproject];src%002Fmain.ts]",
-    "roots": [
-      "M[P[%002Fproject];src%002Fmain.ts]"
-    ],
     "selection": {
       "target": {
         "id": "native",
@@ -65,20 +92,6 @@
       "providerId": "native-provider",
       "capabilityIds": [],
       "surfaceIds": []
-    },
-    "contributions": {
-      "externalEntries": [],
-      "declarationModules": [],
-      "declarationPolicy": {
-        "bundledLibraries": [],
-        "installedDeclarations": "none"
-      },
-      "requiredProviderModules": [],
-      "compilerExtensions": [],
-      "declarationProviders": [],
-      "semanticModules": [],
-      "safetyProviders": [],
-      "dataLayouts": []
     },
     "nativeFacts": {
       "carrierHolding": [],
@@ -108,6 +121,15 @@
         "layouts": []
       },
       "floatingFormats": []
+    },
+    "contributions": {
+      "externalEntries": [],
+      "requiredProviderModules": [],
+      "compilerExtensions": [],
+      "declarationProviders": [],
+      "semanticModules": [],
+      "safetyProviders": [],
+      "dataLayouts": []
     }
   },
   "actualExtensionReferences": []

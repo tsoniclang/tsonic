@@ -2,7 +2,7 @@ import type { Result } from "../diag/contract.js";
 import type { HostProgram, InstantiationLimits } from "../ir-program/contract.js";
 import type { AnalysisLimits } from "../ir-facts/contract.js";
 import type { QueryLimits } from "../query/contract.js";
-import type { ImportPreparation, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
+import type { PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
 import type { CheckerExtensions, NavigationCaptureLimits, PreparationDeps } from "../front/contract.js";
 import type { InferenceLimits } from "../infer/contract.js";
 import type { EvaluatorLimits } from "../evaluate/contract.js";
@@ -28,14 +28,10 @@ export interface CompilerLimits {
   readonly mirVerification: MirVerificationLimits;
 }
 
-export type PrepareImports = (
-  deps: PreparationDeps,
-  packages: PackageSnapshot,
-) => Result<ImportPreparation>;
+export type PrepareImports = (deps: PreparationDeps, input: SourcePreparationInput) => Result<PreparedSource>;
 
 export interface HostAnalysisInputs {
   readonly snapshot: ProjectSnapshot;
-  readonly preparation: ImportPreparation;
   readonly extensions: CheckerExtensions;
   readonly limits: CompilerLimits;
 }

@@ -1140,7 +1140,7 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped self resul
     componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === module) });
   assert.equal(definitions.kind, "ok");
   const interner = fixture.types.createTypeInterner();
-  const deps = fixture.lowerDepsFor(definitions.value, interner, snapshot.packages.files.find(file => file.path === "/project/src/main.ts").text);
+  const deps = fixture.lowerDepsFor(definitions.value, interner, snapshot.source.input.packages.files.find(file => file.path === "/project/src/main.ts").text);
   const { createTypeConversion, convertRawType } = await import("../../packages/host/dist/front/type-conversion.js");
   const conversion = createTypeConversion(deps, raw);
   const inventory = row => raw.types.members[row.form.value.inventory];

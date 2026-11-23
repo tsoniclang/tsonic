@@ -19,7 +19,7 @@ test(`public Host analysis source barrier captures the complete actual ${library
   const input = analysisInput(fixture, library);
   const result = captureSourceBarrier(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length, "the first production barrier cannot skip loaded declaration modules");
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length, "the first production barrier cannot skip loaded declaration modules");
   assert.equal(result.value.modules.some(module => module.module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts")), true);
 });
 
@@ -32,10 +32,10 @@ test("checked Source verifies the actual foreign generic scope before declaratio
   const declarations = "export declare function keep<Value>(value: Value): Value;";
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source, "native.d.ts": declarations, "foreign.d.ts": declarations },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  for (const entry of snapshot.packages.modules) if (entry.path.endsWith(".d.ts")) entry.role = "declaration";
+  for (const entry of snapshot.source.input.packages.modules) if (entry.path.endsWith(".d.ts")) entry.role = "declaration";
   const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
-  const native = snapshot.packages.modules.find(entry => entry.path === "/project/src/native.d.ts").id;
-  const foreign = snapshot.packages.modules.find(entry => entry.path === "/project/src/foreign.d.ts").id;
+  const native = snapshot.source.input.packages.modules.find(entry => entry.path === "/project/src/native.d.ts").id;
+  const foreign = snapshot.source.input.packages.modules.find(entry => entry.path === "/project/src/foreign.d.ts").id;
   const lower = pipelineWiring.front.lowerModule;
   const describe = pipelineWiring.decls.describeDefinitions;
   const modules = new Map();
@@ -49,7 +49,7 @@ test("checked Source verifies the actual foreign generic scope before declaratio
       return result;
     };
     assert.equal(captureSourceBarrier(input).kind, "ok");
-    assert.equal(described, snapshot.packages.modules.length);
+    assert.equal(described, snapshot.source.input.packages.modules.length);
     described = 0;
     pipelineWiring.front.lowerModule = (deps, raw) => {
       const result = lower(deps, raw);
@@ -88,14 +88,14 @@ test("checked Source completes before a package library document can require rol
   assert.equal(sourceRefusal.kind, "refused");
   assert.ok(sourceRefusal.diagnostics.length > 0);
 
-  const packages = input.snapshot.packages;
+  const packages = input.snapshot.source.input.packages;
   const path = "/project/library.json";
-  const withLibrary = { ...input.snapshot, packages: { ...packages,
+  const withLibrary = { ...input.snapshot, source: fixture.preparedSource({ ...input.snapshot.source.input, packages: { ...packages,
     packages: packages.packages.map(owner => owner.id === packages.rootPackage ? { ...owner, libraryEntry: path } : owner),
     files: [...packages.files, { kind: "physical", path, realPath: path, text: "{}" }]
       .sort((left, right) => left.path < right.path ? -1 : 1),
     libraryData: [{ package: packages.rootPackage, path, roles: [], declaredSummaries: [] }],
-  } };
+  } }) };
   assert.deepEqual(fixture.snapshots.verifySnapshot(withLibrary, fixture.front.extensionReferencesOf(input.extensions)), []);
   assert.deepEqual(captureSourceBarrier({ ...limited, snapshot: withLibrary }), sourceRefusal);
   assert.throws(() => captureSourceBarrier({ ...input, snapshot: withLibrary }), /actual checked export groups and selected endpoints/);
@@ -837,7 +837,7 @@ test("real public Host analysis retains an omitted initializer's actual captured
   const input = analysisInput(fixture, "sdk-minimal", "export function choose(a:boolean,b:boolean=(a=true)):boolean{return a;}");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const caller = main.bodies.find(body => body.kind === "selected" && body.tir.params.length === 2);
   assert.notEqual(caller, undefined);
@@ -914,7 +914,7 @@ test("real public Host analysis preserves an imported generic declaration's actu
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.diagnostics.some(diagnostic => diagnostic.severity === "error"), false);
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const foreign = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/foreign.ts"));
   const box = foreign.tree.statements.nodes[0];
@@ -942,8 +942,8 @@ test("real public AnalyzeHostProgram closes the exported float64 add and every a
   assert.equal(result.diagnostics.some(diagnostic => diagnostic.severity === "error"), false);
   const { index, modules } = result.value;
   assert.equal(index.schema, 1);
-  assert.equal(index.modules.length, input.snapshot.packages.modules.length);
-  assert.equal(modules.length, input.snapshot.packages.modules.length);
+  assert.equal(index.modules.length, input.snapshot.source.input.packages.modules.length);
+  assert.equal(modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = modules.find(module => module.module === main);
   assert.notEqual(module, undefined);
@@ -973,7 +973,7 @@ test("real public Host analysis preserves a declared structural alias without in
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
   assert.equal(result.diagnostics.some(diagnostic => diagnostic.severity === "error"), false);
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   assert.equal(module !== undefined, true);
@@ -1001,7 +1001,7 @@ test("real public Host analysis preserves generic nested structural members and 
   const input = analysisInput(fixture, "sdk-minimal", source);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const selected = module.bodies.filter(body => body.kind === "selected");
@@ -1227,7 +1227,7 @@ test("real public Host analysis reads a declared structural field through its ac
     "export type Box = { flag: boolean; }; export function read(box: Box): boolean { return box.flag; }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const caller = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
@@ -1247,7 +1247,7 @@ test(`real public Host analysis retains ${form} boolean negation as its selected
   const input = analysisInput(fixture, "sdk-minimal", `export function negate(flag: boolean): boolean { return ${value}; }\n`);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
@@ -1269,7 +1269,7 @@ test("real public Host analysis selects the native Boolean carrier for actual li
     const input = analysisInput(fixture, "sdk-minimal", `export function negate(): boolean { return !${literal}; }`);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok");
-    assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+    assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
     const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
     const selected = main.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "Block");
     const expression = selected.tir.root.statements.nodes[0].expression;
@@ -1292,7 +1292,7 @@ test("real public Host analysis publishes a recursive declared alias without unf
     "export type Link = { next: Link }; export function identity(value: boolean): boolean { return value; }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const root = module.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "SourceFile");
@@ -1351,7 +1351,7 @@ test("real public Host analysis returns a string parameter with its actual entry
   const input = analysisInput(fixture, "sdk-minimal", "export function echo(value: string): string { return value; }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
@@ -1503,7 +1503,7 @@ test("real public Host analysis transports a string argument and return through 
     "export function pass(value: string): string { return value; } export function call(value: string): string { return pass(value); }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const selected = main.bodies.filter(body => body.kind === "selected");
   const caller = selected.find(body => body.mir.blocks.some(block => block.terminator.kind === "call"));
@@ -1540,7 +1540,7 @@ test("real public Host analysis returns the second actual string-call argument r
     "export function second(left: string, right: string): string { return right; } export function call(left: string, right: string): string { return second(left, right); }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
   assert.equal(caller !== undefined, true);
@@ -1568,7 +1568,7 @@ test("real public Host analysis uses a selected native boolean negation as its b
     "export function choose(flag: boolean, a: number, b: number): number { if (!flag) return a; else return b; }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 3);
@@ -1618,7 +1618,7 @@ test("real public Host analysis retains the qualified outer parameter of a captu
   const input = analysisInput(fixture, "sdk-minimal", "export function select(a: boolean, b = a): boolean { return b; }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const selected = module.bodies.filter(body => body.kind === "selected");
@@ -1661,7 +1661,7 @@ test("real public Host analysis transports a captured string default through its
   const input = analysisInput(fixture, "sdk-minimal", "export function select(a: string, b = a): string { return b; }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const caller = main.bodies.find(body => body.kind === "selected" && body.tir.params.length === 2);
   assert.notEqual(caller, undefined);
@@ -1696,7 +1696,7 @@ test("real public Host analysis discharges chained captured defaults against the
     "export function chain(a: boolean, b = a, c = b): boolean { return c; }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const caller = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 3);
@@ -1991,7 +1991,7 @@ test(`real public Host publication orders all ${count + 1} default entries numer
   const input = analysisInput(fixture, "sdk-minimal", `export function value(${parameters}): boolean { return argument0; }\n`);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === count);
@@ -2016,7 +2016,7 @@ test(`real public Host analysis closes a scalar boolean ${form} branch with both
   const input = analysisInput(fixture, "sdk-minimal", `export function choose(flag: boolean, a: number, b: number): number { ${statements} }\n`);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 3);
@@ -2091,7 +2091,7 @@ test("real public Host analysis discharges a body-local captured initializer thr
     "export function local(input: boolean): boolean { let a: boolean = input; const b: boolean = a; return b; }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const caller = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
@@ -2128,7 +2128,7 @@ test("real public Host analysis retains one current local cell across two distin
     "export function local(input: boolean): boolean { let a: boolean = input; const b: boolean = a; const c: boolean = a; return c; }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const caller = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
@@ -2436,7 +2436,7 @@ test("real public Host analysis closes a direct zero-argument scalar call throug
     "export function value(): boolean { return true; } export function read(): boolean { return value(); }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const module = result.value.modules.find(module => module.module === main);
   const selected = module.bodies.filter(body => body.kind === "selected");
@@ -2573,7 +2573,7 @@ test(`real public Host analysis closes ${count} fixed by-value scalar call argum
   const input = analysisInput(fixture, "sdk-minimal", source);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
   assert.equal(caller !== undefined, true);
@@ -2597,7 +2597,7 @@ test(`real public Host analysis composes native boolean negation with a scalar c
     `export function value(input: boolean): boolean { return input; } export function read(input: boolean): boolean { return ${expression}; }\n`);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
   assert.notEqual(caller, undefined);
@@ -2630,7 +2630,7 @@ test("real public Host analysis closes a twelve-call dependency chain with every
   const input = analysisInput(fixture, "sdk-minimal", declarations.join("\n"));
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const selected = main.bodies.filter(body => body.kind === "selected");
   assert.equal(selected.length, links + 2);
@@ -2658,7 +2658,7 @@ test("real public Host analysis preserves every repeated callee occurrence acros
     + "export function choose(input: boolean): boolean { if (value(!input)) { return !value(input); } return value(value(input)); }\n");
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   assert.equal(main !== undefined, true);
   const selected = main.bodies.filter(body => body.kind === "selected");
@@ -2754,7 +2754,7 @@ test("real public Host analysis joins a named import to its actual selected call
   });
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const leaf = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/leaf.ts"));
   assert.equal(main !== undefined && leaf !== undefined, true);
@@ -2798,7 +2798,7 @@ test(`real public Host analysis preserves the actual ${reexport ? "three-module 
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok");
-  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  assert.equal(result.value.modules.length, input.snapshot.source.input.packages.modules.length);
   const moduleOf = name => fixture.moduleOf(fixture.packageOf("/project"), `src/${name}.ts`);
   const main = result.value.modules.find(module => module.module === moduleOf("main"));
   const leaf = result.value.modules.find(module => module.module === moduleOf("leaf"));
@@ -2849,7 +2849,7 @@ for (const [syntax, aliasCount] of [
   assert.equal(result.kind, "ok");
   const moduleOf = name => fixture.moduleOf(fixture.packageOf("/project"), `src/${name}.ts`);
   const modules = result.value.index.modules;
-  assert.equal(modules.length, input.snapshot.packages.modules.length);
+  assert.equal(modules.length, input.snapshot.source.input.packages.modules.length);
   const main = modules.find(module => module.module === moduleOf("main"));
   const entry = main.exports.find(candidate => candidate.name === "tools");
   assert.equal(entry.target.kind, "binding");
@@ -2885,7 +2885,7 @@ export function value(input: boolean): boolean { return input; }`,
   assert.equal(result.kind, "ok");
   const moduleOf = name => fixture.moduleOf(fixture.packageOf("/project"), `src/${name}.ts`);
   const modules = result.value.index.modules;
-  assert.equal(modules.length, input.snapshot.packages.modules.length);
+  assert.equal(modules.length, input.snapshot.source.input.packages.modules.length);
   const leaf = modules.find(module => module.module === moduleOf("leaf"));
   const relay = modules.find(module => module.module === moduleOf("relay"));
   const main = result.value.modules.find(module => module.module === moduleOf("main"));
@@ -8063,7 +8063,7 @@ test("initialization follows the runtime dependency graph, not the compilation r
     "earlier.ts": "export {first as early} from './auxiliary.js';",
   }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
   externalEntries: [{ module: moduleOf("later"), name: "late" }, { module: moduleOf("earlier"), name: "early" }] });
-  const declarative = input.snapshot.packages.modules.find(row => row.path === "/project/src/declarations.d.ts");
+  const declarative = input.snapshot.source.input.packages.modules.find(row => row.path === "/project/src/declarations.d.ts");
   declarative.role = "declaration";
   const expected = ["common", "zeta", "alpha", "entry", "auxiliary", "later", "earlier"].map(moduleOf);
   const prove = pipelineWiring.bodyAnalysis.proveInitialization;
@@ -8235,7 +8235,7 @@ test("actual checker session declarations survive all Host barriers without runn
   const providerModules = index.modules.filter(module => module.package === packageId);
   assert.equal(providerModules.length, 2);
   for (const module of providerModules) {
-    assert.equal(snapshot.packages.modules.some(row => row.id === module.module), false);
+    assert.equal(snapshot.source.input.packages.modules.some(row => row.id === module.module), false);
     assert.equal(modules.find(row => row.module === module.module).bodies.every(body => body.kind === "template"), true);
   }
   const providerTrees = captured.value.modules.filter(row => providerModules.some(module => module.module === row.module.module))
@@ -8303,7 +8303,7 @@ test("a wrong-arity overload call returns the original checker diagnostic withou
   const inputOf = text => {
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": text, "native.d.ts": declarations },
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-    snapshot.packages.modules.find(row => row.path === "/project/src/native.d.ts").role = "declaration";
+    snapshot.source.input.packages.modules.find(row => row.path === "/project/src/native.d.ts").role = "declaration";
     return { ...analysisInput(fixture, "sdk-minimal"), snapshot };
   };
   const input = inputOf(source);
@@ -8387,7 +8387,7 @@ test("an authored type error survives a genuine checked generic recovery selecti
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source,
       "native.d.ts": "export declare function choose<Value extends boolean>(value: Value): boolean;" },
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-    snapshot.packages.modules.find(row => row.path === "/project/src/native.d.ts").role = "declaration";
+    snapshot.source.input.packages.modules.find(row => row.path === "/project/src/native.d.ts").role = "declaration";
     const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
     const checked = captureSourceBarrier(input);
     assert.equal(checked.kind, "ok");
@@ -8468,7 +8468,7 @@ test("a binary join retains a foreign original exactly once at all its uses", as
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok");
   const module = checked.value.modules.find(row => row.module.module === snapshot.entryPoint).module;
-  const bridgeId = snapshot.packages.modules.find(row => row.path.endsWith("/bridge.ts")).id;
+  const bridgeId = snapshot.source.input.packages.modules.find(row => row.path.endsWith("/bridge.ts")).id;
   const bridge = checked.value.modules.find(row => row.module.module === bridgeId).module;
   const fn = module.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration");
   const result = fn.body.statements.nodes[0].expression.tsonic.value.views.read;

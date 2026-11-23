@@ -37,6 +37,7 @@ export type { ContextFlags, Signature, Type } from "./internal/checker/types.js"
 export type { ResolvedCallApplicationEvidence, ResolvedCallArgumentEvidence, ResolvedCallArgumentMap, ResolvedCallEvidence, ResolvedCallInferenceContribution, ResolvedCallInferenceEvidence, ResolvedCallInferenceOrigin, ResolvedCallInferencePathPart, ResolvedCallSelectionEvidence, ResolvedCallTypeArgumentEvidence, ResolvedCheckedCallCandidateEvidence, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedCheckerDiagnosticOwnership, ResolvedCheckerDiagnosticCoverage, ResolvedOriginalSignatureEvidence, } from "./internal/checker/types.js";
 export { readOriginalSignature } from "./internal/checker/original-signature-evidence.js";
 export { ContextFlagsSkipBindingPatterns, TypeFlagsConditional, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "./internal/checker/types.js";
-export { prepareSourceImports } from "./services/source-import-preparation.js";
-export type { SourceImportPreparationInput, SourceImportPreparationReference, SourceImportPreparationFile, SourceImportPreparation, } from "./services/source-import-preparation.js";
+export { prepareSourceImports } from "./services/compiler-session.js";
+export type { PreparedImportDiagnostic, SourceImportPreparation, SourceImportPreparationInput } from "./services/compiler-session.js";
+export type { SourceImportPreparationReference, SourceImportPreparationFile, } from "./services/source-import-preparation.js";
 //# sourceMappingURL=index.d.ts.map

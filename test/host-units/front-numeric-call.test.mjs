@@ -12,7 +12,7 @@ test("numeric declaration bounds keep the exact checker value apart from the aut
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
   });
   const { deps, captured, interner } = fixture.captureModulesOf(snapshot,
-    snapshot.packages.modules.filter(row => row.id === snapshot.entryPoint));
+    snapshot.source.input.packages.modules.filter(row => row.id === snapshot.entryPoint));
   const { raw } = captured[0];
   const declarations = raw.tree.statements.nodes.map(statement => statement.declarationList.declarations.nodes[0]);
   const read = node => raw.checkerViews.find(view => view.node.node === node.id).read.value;
@@ -78,7 +78,7 @@ test("a checked numeric bound in a foreign type query retains the foreign site a
     },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
   });
-  const { deps, captured, interner } = fixture.captureModulesOf(snapshot, snapshot.packages.modules.filter(row => row.path.endsWith(".ts")
+  const { deps, captured, interner } = fixture.captureModulesOf(snapshot, snapshot.source.input.packages.modules.filter(row => row.path.endsWith(".ts")
     && !row.path.endsWith(".d.ts")));
   const { raw } = captured.find(row => row.module === snapshot.entryPoint);
   const foreign = captured.find(row => row.module !== snapshot.entryPoint).raw;
@@ -211,7 +211,7 @@ test("lowerModule admits authored numeric work and sizes the canonical rational 
       + `export function call(): number | undefined { return pass(${token}); }`;
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": text },
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-    const { deps, captured } = fixture.captureModulesOf(snapshot, snapshot.packages.modules.filter(row => row.id === snapshot.entryPoint));
+    const { deps, captured } = fixture.captureModulesOf(snapshot, snapshot.source.input.packages.modules.filter(row => row.id === snapshot.entryPoint));
     const raw = captured[0].raw;
     const syntax = raw.tree.statements.nodes.at(-1).body.statements.nodes[0].expression.arguments.nodes[0];
     assert.equal(text.slice(syntax.origin.start, syntax.origin.start + syntax.origin.length), token);

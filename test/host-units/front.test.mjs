@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { loadFrontFixture, navigationCapture, preparation, rawComponentPath } from "./fixtures/front/checked-module.mjs";
+import { loadFrontFixture, navigationCapture, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeFiles = ["index.js", "options.js", "checker.js", "handles.js", "lower-imports.js", "diagnostics.js"].map(name => resolve(repository, "packages/host/dist/front", name));
@@ -25,6 +25,7 @@ let packageOf;
 let moduleOf;
 let bundled;
 let projectSnapshot;
+let preparedSource;
 let openAndCapture;
 let openedModule;
 let lowerDepsFor;
@@ -50,7 +51,7 @@ before(async () => {
   sdk = await import("@tsonic/tsts");
   ids = await import("../../packages/host/dist/ids/index.js");
   snapshots = await import("../../packages/host/dist/snapshot/index.js");
-  ({ packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, checkedModulesOf, verifyChecked } = await loadFrontFixture());
+  ({ packageOf, moduleOf, bundled, projectSnapshot, preparedSource, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, checkedModulesOf, verifyChecked } = await loadFrontFixture());
 });
 
 after(async () => {
@@ -366,7 +367,7 @@ test("the module set is the modules of the opened program: the snapshot's source
   const snapshot = projectSnapshot({ sourceFiles: plainSources, libraries });
   const { deps, program, set } = openAndCapture(snapshot);
   assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(set))), ["modules"]);
-  assert.deepEqual(set.modules, snapshot.packages.modules.map(module => ({ kind: "snapshot", module: module.id })),
+  assert.deepEqual(set.modules, snapshot.source.input.packages.modules.map(module => ({ kind: "snapshot", module: module.id })),
     "every module of the snapshot is a program module here, once, in ascending order of identity");
   const checker = packageOf("/checker");
   const libraryModules = set.modules.filter(entry => ids.decodeModuleId(entry.module).value.package === checker);
@@ -414,7 +415,7 @@ test("provenance that is not a loaded declaration-provider registration is an in
   const capture = (snapshot, registrations) => {
     const deps = { extensions: front.createCheckerExtensions(registrations), navigationCapture };
     return () => {
-      const opened = front.openCheckedProgram(deps, snapshot, preparation);
+      const opened = front.openCheckedProgram(deps, snapshot);
       return front.captureProgramModules(deps, opened.value);
     };
   };
@@ -431,17 +432,19 @@ test("provenance that is not a loaded declaration-provider registration is an in
 test("a program file that is no module of the snapshot is an invariant failure; two files with one module identity likewise", () => {
   const libraries = bundled();
   const stray = projectSnapshot({ sourceFiles: { "main.mts": "import { helper } from \"./helper.mjs\";\nexport const h: number = helper;\n" }, libraries });
-  stray.packages.files.push({ kind: "physical", path: "/project/src/helper.mts", realPath: "/project/src/helper.mts", text: "export const helper: number = 1;\n" });
-  stray.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
+  stray.source.input.packages.files.push({ kind: "physical", path: "/project/src/helper.mts", realPath: "/project/src/helper.mts", text: "export const helper: number = 1;\n" });
+  stray.source.input.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
+  stray.source = preparedSource(stray.source.input);
   const deps = { extensions: front.createCheckerExtensions([]), navigationCapture };
-  assert.throws(() => front.openCheckedProgram(deps, stray, preparation),
+  assert.throws(() => front.openCheckedProgram(deps, stray),
     error => { assert.deepEqual(error.cause, failure("A file of the opened program is neither a module of the snapshot nor a session document.")); return true; });
   const repeated = projectSnapshot({ sourceFiles: plainSources, libraries });
-  const sources = ["/project/src/util.mts", "/project/src/main.mts"].map(path => repeated.packages.modules.find(module => module.path === path));
+  const sources = ["/project/src/util.mts", "/project/src/main.mts"].map(path => repeated.source.input.packages.modules.find(module => module.path === path));
   sources[0].id = repeated.entryPoint;
-  repeated.packages.modules = [...sources, ...repeated.packages.modules.filter(module => !sources.includes(module))];
-  repeated.roots = [repeated.entryPoint];
-  assert.throws(() => front.openCheckedProgram(deps, repeated, preparation),
+  repeated.source.input.packages.modules = [...sources, ...repeated.source.input.packages.modules.filter(module => !sources.includes(module))];
+  repeated.source.input.roots = [repeated.entryPoint];
+  repeated.source = preparedSource(repeated.source.input);
+  assert.throws(() => front.openCheckedProgram(deps, repeated),
     error => { assert.deepEqual(error.cause, failure("Two files of the opened program have one module identity.")); return true; });
 });
 
@@ -556,7 +559,7 @@ test("provider session files share the actual opened source domain and retain re
  * cases read them from such a session; the module set is always read through Front.
  */
 function sessionDiagnostics(snapshot) {
-  const inputs = checkerModule.sessionInputs(snapshot);
+  const inputs = checkerModule.sessionInputs(snapshot.source.input);
   const session = sdk.createCompilerSessionFromFiles({ currentDirectory: inputs.currentDirectory, files: inputs.files,
     rootFiles: inputs.rootFiles, compilerOptions: inputs.options, selectedLibraries: inputs.selectedLibraries,
     includeBundledLibraries: false, useCaseSensitiveFileNames: true });
@@ -565,21 +568,22 @@ function sessionDiagnostics(snapshot) {
 }
 const usesMap = { "main.mts": "export const m = new Map<string, number>();\n" };
 const collection = "lib.es2015.collection.d.ts";
-const snapshotModules = snapshot => snapshot.packages.modules.map(module => ({ kind: "snapshot", module: module.id }));
+const snapshotModules = snapshot => snapshot.source.input.packages.modules.map(module => ({ kind: "snapshot", module: module.id }));
 
 test("logical library names bind arbitrary captured basenames through the one explicit selected map", () => {
   const snapshot = projectSnapshot({ sourceFiles: usesMap, libraries: bundled() });
   let index = 0;
-  for (const module of snapshot.packages.modules.filter(module => module.package === packageOf("/checker"))) {
-    const file = snapshot.packages.files.find(file => file.path === module.path);
+  for (const module of snapshot.source.input.packages.modules.filter(module => module.package === packageOf("/checker"))) {
+    const file = snapshot.source.input.packages.files.find(file => file.path === module.path);
     const path = `/checker/captured-${index++}.d.ts`;
     file.path = path;
     module.path = path;
   }
-  snapshot.packages.files.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
-  const inputs = checkerModule.sessionInputs(snapshot);
-  assert.deepEqual([...inputs.selectedLibraries], snapshot.contributions.declarationPolicy.bundledLibraries.map(binding =>
-    [binding.name, snapshot.packages.modules.find(module => module.id === binding.module).path]));
+  snapshot.source.input.packages.files.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  snapshot.source = preparedSource(snapshot.source.input);
+  const inputs = checkerModule.sessionInputs(snapshot.source.input);
+  assert.deepEqual([...inputs.selectedLibraries], snapshot.source.input.declarationPolicy.bundledLibraries.map(binding =>
+    [binding.name, snapshot.source.input.packages.modules.find(module => module.id === binding.module).path]));
   assert.equal([...inputs.selectedLibraries.values()].every(path => path.startsWith("/checker/captured-")), true);
   assert.deepEqual(sessionDiagnostics(snapshot), []);
   assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot));
@@ -587,9 +591,10 @@ test("logical library names bind arbitrary captured basenames through the one ex
 
 test("an explicit empty library map stays empty while contributed captured declarations remain roots", () => {
   const snapshot = projectSnapshot({ sourceFiles: usesMap, libraries: bundled() });
-  snapshot.contributions.declarationModules = snapshot.contributions.declarationPolicy.bundledLibraries.map(binding => binding.module).sort();
-  snapshot.contributions.declarationPolicy.bundledLibraries = [];
-  assert.equal(checkerModule.sessionInputs(snapshot).selectedLibraries.size, 0);
+  snapshot.source.input.declarationModules = snapshot.source.input.declarationPolicy.bundledLibraries.map(binding => binding.module).sort();
+  snapshot.source.input.declarationPolicy.bundledLibraries = [];
+  snapshot.source = preparedSource(snapshot.source.input);
+  assert.equal(checkerModule.sessionInputs(snapshot.source.input).selectedLibraries.size, 0);
   assert.deepEqual(sessionDiagnostics(snapshot), []);
   assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot));
 });
@@ -598,10 +603,10 @@ test("a direct SDK-library import reads no uncaptured text and captured-only ses
   const installed = sdk.getBundledLibraryClosure(["lib.dom.d.ts"]).find(library => library.name === "lib.dom.d.ts");
   assert.equal(installed !== undefined, true);
   const snapshot = projectSnapshot({ sourceFiles: { "main.mts": `import { Document } from ${JSON.stringify(installed.path)};\nexport const d: Document | null = null;\n` }, libraries: bundled() });
-  assert.equal(snapshot.packages.files.some(file => file.path === installed.path), false);
+  assert.equal(snapshot.source.input.packages.files.some(file => file.path === installed.path), false);
   assert.deepEqual(sessionDiagnostics(snapshot), ["TS2307 /project/src/main.mts"]);
   assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot));
-  const inputs = checkerModule.sessionInputs(snapshot);
+  const inputs = checkerModule.sessionInputs(snapshot.source.input);
   const ordinary = sdk.createCompilerSessionFromFiles({ currentDirectory: inputs.currentDirectory, files: inputs.files,
     rootFiles: inputs.rootFiles, compilerOptions: inputs.options, selectedLibraries: inputs.selectedLibraries });
   assert.equal(ordinary.host.FS().ReadFile(installed.path)[1], true);
@@ -628,13 +633,11 @@ test("libraries, missing: a referenced library that the snapshot does not hold i
   assert.deepEqual(sessionDiagnostics(used), ["TS2585 /project/src/main.mts"], "the absent declarations are absent; no installed text stands in for them");
 });
 
-// PENDING, with its exact dependency: SDK-1 (`prepareSourceImports`, absent from the vendored checker SDK). The rule that closes this
-// case: every reference-lib row that the import preparation reports for a bundled library module of the declaration policy is resolved, and
-// to a module of that same set; an open one is reported at the preparation boundary. Its other half is not pending: that every member of
-// the set is a captured declaration-role module is the Snapshot verifier's rule bundled-library-declaration (snapshot unit file).
-test("libraries, missing and unused, PENDING on SDK-1: the session itself reports nothing for a library reference that the captured set does not close", () => {
+test("import preparation retains a real unresolved library reference without adding a library to the selected checker session", () => {
   const libraries = bundled().filter(library => library.name !== collection);
   const unused = projectSnapshot({ sourceFiles: { "main.mts": "export const n: number = 1;\n" }, libraries });
+  assert.equal(unused.source.preparation.files.some(file => file.references.some(reference => reference.kind === "reference-lib"
+    && reference.specifier === "es2015.collection" && reference.resolution.kind === "unresolved")), true);
   assert.deepEqual(openAndCapture(unused).set.modules, snapshotModules(unused));
   assert.deepEqual(sessionDiagnostics(unused), [],
     "what the checker does today, under these options and equally under its own library root: the open reference is stated only by the import preparation's reference rows, where its report belongs");
@@ -646,11 +649,12 @@ test("libraries, transitive: the checker follows no library reference; the modul
   assert.deepEqual(sessionDiagnostics(stillListed), [], "the collection library is listed, so its declarations are present without the library whose reference led to it");
   assert.deepEqual(openAndCapture(stillListed).set.modules, snapshotModules(stillListed));
   const onlyTop = projectSnapshot({ sourceFiles: usesMap, libraries: bundled() });
-  onlyTop.contributions.declarationPolicy.bundledLibraries = [{ name: "lib.es2024.d.ts", module: moduleOf(packageOf("/checker"), "lib.es2024.d.ts") }];
+  onlyTop.source.input.declarationPolicy.bundledLibraries = [{ name: "lib.es2024.d.ts", module: moduleOf(packageOf("/checker"), "lib.es2024.d.ts") }];
+  onlyTop.source = preparedSource(onlyTop.source.input);
   assert.deepEqual(snapshots.verifySnapshot(onlyTop, []), []);
   assert.deepEqual([...new Set(sessionDiagnostics(onlyTop))], ["TS2318 (no file)", "TS2583 /project/src/main.mts"],
     "captured but unlisted libraries are not reached through the listed one's references: its chain of references is not followed");
-  const rejected = front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, onlyTop, preparation);
+  const rejected = front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, onlyTop);
   assert.equal(rejected.kind, "refused");
   assert.equal(rejected.diagnostics.every(diagnostic => diagnostic.code.kind === "checker" && diagnostic.code.number === 2318), true);
 });
@@ -677,21 +681,20 @@ test("caller defects of the extension table and of opening are refused as defect
     "the reference view is the registrations in their order");
   const table = front.createCheckerExtensions([]);
   const noModule = projectSnapshot({ sourceFiles: plainSources, libraries });
-  noModule.roots = [moduleOf(packageOf("/project"), "src/absent.mts")];
-  assert.throws(() => front.openCheckedProgram({ extensions: table, navigationCapture }, noModule, preparation),
-    { name: "TypeError", message: "front: a root, contributed declaration or bundled library of the snapshot names no module of the snapshot" });
+  noModule.source.input.roots = [moduleOf(packageOf("/project"), "src/absent.mts")];
+  assert.equal(front.openCheckedProgram({ extensions: table, navigationCapture }, noModule).diagnostics[0].code.name,
+    "TSONIC_SOURCE_PREPARATION_INVALID");
   const noRoot = projectSnapshot({ sourceFiles: plainSources, libraries });
-  noRoot.packages.rootPackage = packageOf("/absent");
-  assert.throws(() => front.openCheckedProgram({ extensions: table, navigationCapture }, noRoot, preparation),
-    { name: "TypeError", message: "front: the snapshot's root package is not among its packages" });
+  noRoot.source.input.packages.rootPackage = packageOf("/absent");
+  assert.equal(snapshots.verifySnapshot(noRoot, []).some(finding => finding.rule === "root-package-resolves"), true);
   const twiceRooted = projectSnapshot({ sourceFiles: plainSources, libraries });
-  twiceRooted.contributions.declarationModules = [twiceRooted.contributions.declarationPolicy.bundledLibraries[0].module];
+  twiceRooted.source.input.declarationModules = [twiceRooted.source.input.declarationPolicy.bundledLibraries[0].module];
   assert.equal(openAndCapture(twiceRooted).set.modules.length, 2 + libraries.length, "a module that is a root twice over (a bundled library that is also contributed) is one root");
 });
 
 test("session-level checker and extension roots refuse opening with their actual original messages and codes", () => {
   const snapshot = projectSnapshot({ sourceFiles: plainSources, libraries: [] });
-  const missing = front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, snapshot, preparation);
+  const missing = front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, snapshot);
   assert.equal(missing.kind, "refused");
   assert.equal(missing.diagnostics.length > 1, true, "same-code independent global roots are not collapsed");
   assert.equal(new Set(missing.diagnostics.map(diagnostic => diagnostic.message)).size, missing.diagnostics.length);
@@ -706,7 +709,7 @@ test("session-level checker and extension roots refuse opening with their actual
     providerRegistration("/provider-two", declarationProvider("test.provider.two", "native:other", "native.other"))];
   const withProviders = projectSnapshot({ sourceFiles, libraries: bundled(), providerPackages: [{ root: "/provider-one", name: "one" }, { root: "/provider-two", name: "two" }],
     declarationProviders: overlapping.map(entry => entry.reference) });
-  const overlap = front.openCheckedProgram({ extensions: front.createCheckerExtensions(overlapping), navigationCapture }, withProviders, preparation);
+  const overlap = front.openCheckedProgram({ extensions: front.createCheckerExtensions(overlapping), navigationCapture }, withProviders);
   assert.equal(overlap.kind, "refused");
   assert.deepEqual(overlap.diagnostics.map(diagnostic => [diagnostic.code.kind, diagnostic.code.extensionCode, diagnostic.site.kind]),
     [["extension", "DIAGNOSTIC_RANGE_INVALID", "none"]]);
@@ -716,7 +719,7 @@ test("session-level checker and extension roots refuse opening with their actual
     providerRegistration("/provider-two", declarationProvider("test.provider", "native:elsewhere", "native.elsewhere", 9_900_100))];
   const sameProvider = projectSnapshot({ sourceFiles, libraries: bundled(), providerPackages: [{ root: "/provider-one", name: "one" }, { root: "/provider-two", name: "two" }],
     declarationProviders: twice.map(entry => entry.reference) });
-  const duplicate = front.openCheckedProgram({ extensions: front.createCheckerExtensions(twice), navigationCapture }, sameProvider, preparation);
+  const duplicate = front.openCheckedProgram({ extensions: front.createCheckerExtensions(twice), navigationCapture }, sameProvider);
   assert.equal(duplicate.kind, "refused");
   assert.deepEqual(duplicate.diagnostics.map(diagnostic => [diagnostic.code.kind, diagnostic.code.extensionCode]),
     [["extension", "DUPLICATE_EXTENSION_ID"]]);
@@ -734,7 +737,7 @@ test("a real extension's session receipt preserves its public code, category, ow
     },
   } } };
   const snapshot = projectSnapshot({ sourceFiles: plainSources, libraries: bundled(), compilerExtensions: [registration.reference] });
-  const result = front.openCheckedProgram({ extensions: front.createCheckerExtensions([registration]), navigationCapture }, snapshot, preparation);
+  const result = front.openCheckedProgram({ extensions: front.createCheckerExtensions([registration]), navigationCapture }, snapshot);
   assert.equal(result.kind, "refused");
   assert.deepEqual(result.diagnostics.map(diagnostic => ({ code: diagnostic.code, severity: diagnostic.severity,
     site: diagnostic.site, source: diagnostic.source, evidence: diagnostic.evidence, message: diagnostic.message })), [
@@ -753,7 +756,7 @@ test("a real extension's session receipt preserves its public code, category, ow
     },
   } } };
   const atFile = projectSnapshot({ sourceFiles: plainSources, libraries: bundled(), compilerExtensions: [fileExtension.reference] });
-  assert.equal(front.openCheckedProgram({ extensions: front.createCheckerExtensions([fileExtension]), navigationCapture }, atFile, preparation).kind, "ok");
+  assert.equal(front.openCheckedProgram({ extensions: front.createCheckerExtensions([fileExtension]), navigationCapture }, atFile).kind, "ok");
 });
 
 test("file-scoped extension diagnostics retain actual sites and reindex the exact foreign checker cause", async () => {
@@ -992,7 +995,7 @@ test("the session's configuration is Front's: a configuration file captured at t
   const projectConfiguration = "{ \"compilerOptions\": { \"strict\": false, \"noLib\": false }, \"files\": [\"src/main.mts\"] }\n";
   const snapshot = projectSnapshot({ sourceFiles, libraries: bundled(),
     extraFiles: { "/project/tsconfig.json": projectConfiguration, "/project/src/tsconfig.json": "{ \"compilerOptions\": { \"strict\": false } }\n" } });
-  const inputs = checkerModule.sessionInputs(snapshot);
+  const inputs = checkerModule.sessionInputs(snapshot.source.input);
   assert.equal(inputs.files.get("/project/tsconfig.json"), projectConfiguration, "the captured bytes are in the session");
   assert.equal(inputs.files.has("/project/src/tsconfig.json"), true, "as is every other captured file");
   assert.deepEqual(sessionDiagnostics(snapshot), ["TS2322 /project/src/main.mts"], "strict, from the table");
@@ -1009,7 +1012,7 @@ test("a module is its captured path: one text captured under two paths is two mo
   const text = "export const copy: number = 1;\n";
   const snapshot = projectSnapshot({ sourceFiles: { "main.mts": "import { copy as a } from \"../../copy-a/x.mjs\";\nimport { copy as b } from \"../../copy-b/x.mjs\";\nexport const sum: number = a + b;\n" },
     libraries: bundled(), otherPackages: [{ root: "/copy-a", name: "copy-a", modules: { "x.mts": ["source", text, true] } }, { root: "/copy-b", name: "copy-b", modules: { "x.mts": ["source", text, true] } }] });
-  snapshot.packages.files.find(file => file.path === "/copy-b/x.mts").realPath = "/copy-a/x.mts";
+  snapshot.source.input.packages.files.find(file => file.path === "/copy-b/x.mts").realPath = "/copy-a/x.mts";
   const { set } = openAndCapture(snapshot);
   assert.deepEqual(set.modules, snapshotModules(snapshot));
   const copies = [moduleOf(packageOf("/copy-a"), "x.mts"), moduleOf(packageOf("/copy-b"), "x.mts")];
@@ -1026,14 +1029,51 @@ test("a contributed declaration module is a root of the program: its declaration
   assert.deepEqual(sessionDiagnostics(captured), ["TS2304 /project/src/main.mts"], "captured and not contributed: not a file of the program");
   assert.equal(openAndCapture(captured).set.modules.some(entry => entry.module === identity), false);
   const rooted = projectSnapshot({ sourceFiles, libraries: bundled(), otherPackages: [contributed] });
-  rooted.contributions.declarationModules = [identity];
+  rooted.source.input.declarationModules = [identity];
+  rooted.source = preparedSource(rooted.source.input);
   assert.deepEqual(sessionDiagnostics(rooted), []);
   assert.deepEqual(openAndCapture(rooted).set.modules, snapshotModules(rooted));
   const unknown = projectSnapshot({ sourceFiles, libraries: bundled() });
-  unknown.contributions.declarationModules = [identity];
+  unknown.source.input.declarationModules = [identity];
   assert.deepEqual(snapshots.verifySnapshot(unknown, []).map(violation => violation.rule), ["contributed-declaration-module"], "the Snapshot verifier refuses it");
-  assert.throws(() => front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, unknown, preparation),
-    { name: "TypeError", message: "front: a root, contributed declaration or bundled library of the snapshot names no module of the snapshot" });
+  assert.equal(front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, unknown).diagnostics[0].code.name,
+    "TSONIC_SOURCE_PREPARATION_INVALID");
+});
+
+test("the public import boundary prepares distinct configured roots from the same bytes and rejects a crossed receipt before checking", async () => {
+  const { prepareImports } = await import("../../packages/host/dist/pipeline/index.js");
+  const snapshot = projectSnapshot({ sourceFiles: {
+    "first.mts": '\uFEFF/* 🚀 */ import { alpha } from "./alpha.mjs"; export { alpha };',
+    "second.mts": 'import { beta } from "./beta.mjs"; export { beta };',
+    "alpha.mts": "export const alpha: boolean = true;",
+    "beta.mts": "export const beta: boolean = false;",
+  }, libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }] });
+  const input = snapshot.source.input;
+  const run = name => {
+    const entryPoint = moduleOf(packageOf("/project"), `src/${name}.mts`);
+    const result = prepareImports({ navigationCapture }, { ...input, roots: [entryPoint] });
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    return { ...snapshot, entryPoint, source: result.value };
+  };
+  const first = run("first");
+  const second = run("second");
+  const tiny = prepareImports({ navigationCapture: { ...navigationCapture, maximumCapturedEdgesPerModule: 0 } }, first.source.input);
+  assert.equal(tiny.kind, "refused");
+  assert.equal(tiny.diagnostics[0].code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
+  assert.deepEqual(tiny.diagnostics[0].site, { kind: "file", path: "/project/src/first.mts" });
+  assert.equal(first.source.input.packages, second.source.input.packages);
+  const importsOf = current => current.source.preparation.files.flatMap(file => file.references)
+    .filter(reference => reference.kind === "import");
+  assert.deepEqual(importsOf(first).map(reference => reference.resolution), [{ kind: "resolved", fileName: "/project/src/alpha.mts" }]);
+  assert.deepEqual(importsOf(second).map(reference => reference.resolution), [{ kind: "resolved", fileName: "/project/src/beta.mts" }]);
+  const opened = openAndCapture(first);
+  assert.ok(opened.set.modules.some(entry => entry.kind === "snapshot" && entry.module === moduleOf(packageOf("/project"), "src/alpha.mts")));
+  assert.equal(opened.set.modules.some(entry => entry.kind === "snapshot" && entry.module === second.entryPoint), false);
+  const crossed = { ...first, source: { input: first.source.input, preparation: second.source.preparation } };
+  assert.equal(snapshots.verifyPreparedSource(crossed.source)[0].rule, "prepared-roots-exact");
+  const refused = front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, crossed);
+  assert.equal(refused.kind, "refused");
+  assert.equal(refused.diagnostics[0].code.name, "TSONIC_SOURCE_PREPARATION_INVALID");
 });
 
 // The program R2 named for the provider join. Its outcome was derived before it was run (package W5-7 part A): one identity names one
@@ -1051,7 +1091,7 @@ test("two providers of one identity never open a program: a provider registered 
     declarationProviders: [direct.reference], compilerExtensions: [viaInitializer.reference] });
   const deps = { extensions: front.createCheckerExtensions([direct, viaInitializer]), navigationCapture };
   assert.deepEqual(snapshots.verifySnapshot(snapshot, front.extensionReferencesOf(deps.extensions)), []);
-  const open = () => front.openCheckedProgram(deps, snapshot, preparation);
+  const open = () => front.openCheckedProgram(deps, snapshot);
   const rejected = open();
   assert.equal(rejected.kind, "refused");
   assert.deepEqual(rejected.diagnostics.map(diagnostic => [diagnostic.code.kind, diagnostic.code.extensionCode, diagnostic.source]),
@@ -1063,7 +1103,7 @@ test("the module set is the opened program's, not the snapshot's: declaration mo
   const snapshot = projectSnapshot({ sourceFiles: plainSources, libraries: bundled(), otherPackages: [unreached] });
   const { set } = openAndCapture(snapshot);
   const absent = ["one.d.ts", "two.d.ts"].map(name => moduleOf(packageOf("/unreached"), name));
-  assert.equal(snapshot.packages.modules.length, set.modules.length + 2);
+  assert.equal(snapshot.source.input.packages.modules.length, set.modules.length + 2);
   assert.deepEqual(set.modules, snapshotModules(snapshot).filter(entry => !absent.includes(entry.module)));
 });
 

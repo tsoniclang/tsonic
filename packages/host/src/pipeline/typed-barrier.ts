@@ -75,7 +75,7 @@ export interface TypedSourceBarrier {
 
 export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarrier, account: DataflowAccount): Result<TypedSourceBarrier> {
   const roots = source.modules;
-  const project = new Set(inputs.snapshot.packages.modules.filter(module => module.package === inputs.snapshot.packages.rootPackage)
+  const project = new Set(inputs.snapshot.source.input.packages.modules.filter(module => module.package === inputs.snapshot.source.input.packages.rootPackage)
     .map(module => module.id));
   const base: SourceSemanticInputs = { declarations: { modules: source.modules, types: source.types, typeWork: source.typeWork,
     typeExpansion: inputs.limits.instantiation.typeExpansion }, instantiation: inputs.limits.instantiation };
@@ -249,7 +249,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     | { readonly kind: "elaborate"; readonly body: HirBody; readonly instance: BodyInstance; readonly key: string;
         readonly scope: BindingScope; readonly publication: ScopedInferencePublication | QueryRefusal; readonly template: TirBody | null;
         readonly initializers: readonly BodyId[] };
-  const unit = { query: "AnalyzeHostProgram", key: inputs.snapshot.packages.fingerprint };
+  const unit = { query: "AnalyzeHostProgram", key: inputs.snapshot.source.input.packages.fingerprint };
   const exposure = selectExternalEntries(source, sources, inputs.snapshot.contributions.externalEntries, account);
   if (exposure.kind !== "complete") return analysisStop(exposure, unit);
   const initialization = planModuleInitialization(inputs.snapshot.entryPoint, source, exposure.value.selections, account);

@@ -35,6 +35,7 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
     violations.push({ rule, site, detail: details.map(value => ({ kind: "text", value })) });
   };
   const contributions = snapshot.contributions;
+  const input = snapshot.source.input;
   const declared: readonly ExtensionReferenceEntry[] = [
     ...snapshotRows(contributions.compilerExtensions, snapshotSite, "compilerExtensions", violations)
       .map((reference): ExtensionReferenceEntry => ({ kind: "compiler-extension", reference })),
@@ -73,13 +74,13 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
     add("extension-table-equality", snapshotSite, "extensions");
   }
   const declarationModules = new Set<ModuleId>();
-  for (const module of snapshot.packages.modules) {
+  for (const module of input.packages.modules) {
     if (module !== undefined && module !== null && module.role === "declaration") declarationModules.add(module.id);
   }
   const contributed = new Set<ModuleId>();
   let previousContributed: ModuleId | null = null;
   let unorderedContributed = false;
-  for (const module of snapshotRows(contributions.declarationModules, snapshotSite, "declarationModules", violations)) {
+  for (const module of snapshotRows(input.declarationModules, snapshotSite, "declarationModules", violations)) {
     if (!declarationModules.has(module)) add("contributed-declaration-module", { kind: "module", module }, module);
     if (contributed.has(module)) add("contributed-declaration-unique", { kind: "module", module }, module);
     contributed.add(module);
@@ -90,7 +91,7 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
   const libraries = new Set<string>();
   let previousLibrary: string | null = null;
   let unorderedLibraries = false;
-  for (const binding of snapshotRows(contributions.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
+  for (const binding of snapshotRows(input.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
     if (typeof binding !== "object" || typeof binding.name !== "string" || binding.name.length === 0
       || typeof binding.module !== "string") {
       add("bundled-library-binding", snapshotSite, "bundledLibraries");

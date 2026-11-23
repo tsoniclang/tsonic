@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture, navigationCapture, preparation } from "./fixtures/front/checked-module.mjs";
+import { loadFrontFixture, navigationCapture } from "./fixtures/front/checked-module.mjs";
 
 const limits = {
   navigationCapture,
@@ -26,7 +26,7 @@ export function call(): boolean { ${provided === 0 ? "" : "const supplied: boole
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
     const extensions = fixture.front.createCheckerExtensions([]);
-    const inputs = { snapshot, extensions, preparation, limits };
+    const inputs = { snapshot, extensions, limits };
     const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
     const { parseModuleBodies, printModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
     const result = analyzeHostProgram(inputs);
@@ -116,7 +116,7 @@ test("the actual call only admits the initializer of its matching omitted formal
 export function choose(first: boolean = true, second: boolean = false): boolean { return second; }
 export function call(): boolean { const supplied: boolean = true; return choose(supplied); }` },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const inputs = { snapshot, extensions: fixture.front.createCheckerExtensions([]), preparation, limits };
+  const inputs = { snapshot, extensions: fixture.front.createCheckerExtensions([]), limits };
   const captured = captureSourceBarrier(inputs);
   assert.equal(captured.kind, "ok");
   const account = createAccount(inputs.limits.dataflow);

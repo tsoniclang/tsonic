@@ -15,5 +15,5 @@ export { LanguageVariant_String } from "./internal/core/languagevariant_stringer
 export { CommentDirectiveKindExpectError, CommentDirectiveKindIgnore, CommentDirectiveKindUnknown } from "./internal/ast/ast.js";
 export { readOriginalSignature } from "./internal/checker/original-signature-evidence.js";
 export { ContextFlagsSkipBindingPatterns, TypeFlagsConditional, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "./internal/checker/types.js";
-export { prepareSourceImports } from "./services/source-import-preparation.js";
+export { prepareSourceImports } from "./services/compiler-session.js";
 //# sourceMappingURL=index.js.map

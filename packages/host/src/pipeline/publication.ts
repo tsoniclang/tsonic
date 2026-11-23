@@ -239,7 +239,7 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
 export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourceBarrier,
   analysis: AnalysisBarrier, account: DataflowAccount): Result<HostProgram> {
   const { source } = typed;
-  const unit = { query: "AnalyzeHostProgram", key: inputs.snapshot.packages.fingerprint };
+  const unit = { query: "AnalyzeHostProgram", key: inputs.snapshot.source.input.packages.fingerprint };
   const bodies: BodyRecord[] = [];
   const modules: ModuleBodies[] = [];
   const signatures = new Map<string, SignatureRecord>();
@@ -289,8 +289,8 @@ export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourc
   modules.sort((left, right) => compareText(left.module, right.module));
   const selectedNativeFactsKey = nativeFactsKey(inputs.snapshot.nativeFacts);
   const index: ProgramIndex = {
-    schema: 1, nativeFactsKey: selectedNativeFactsKey, rootPackage: inputs.snapshot.packages.rootPackage,
-    packages: inputs.snapshot.packages.packages.map(record => ({ id: record.id, name: record.name,
+    schema: 1, nativeFactsKey: selectedNativeFactsKey, rootPackage: inputs.snapshot.source.input.packages.rootPackage,
+    packages: inputs.snapshot.source.input.packages.packages.map(record => ({ id: record.id, name: record.name,
       packageRoot: record.packageRoot, sourceRoot: record.sourceRoot,
       dependencies: record.dependencies.flatMap(dependency => dependency.resolved === null ? [] : [dependency.resolved]).sort(compareText), exports: record.exports })),
     modules: source.modules.map(({ module }) => {

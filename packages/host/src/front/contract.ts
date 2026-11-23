@@ -4,7 +4,7 @@ import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIden
 import type { IntrinsicMemberOrigin, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import type { HirModule, HirModuleBinding, HirModuleExport, IntrinsicValueResolution, ModuleEvaluation, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
 import type { WellKnownSymbol } from "../libraries/contract.js";
-import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
+import type { ExtensionReferenceEntry, LibraryRoleEntry, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
 import type { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { ProgramModuleSet } from "./program-data.js";
 export type { ProgramModule, ProgramModuleSet, SessionDocument } from "./program-data.js";
@@ -53,14 +53,12 @@ export interface LiteralCaptureLimits {
   readonly maximumArithmeticWork: number;
 }
 
-export interface PreparationDeps {
-  readonly currentDirectory: string;
-  readonly caseSensitive: boolean;
+export interface CaptureDeps {
+  readonly extensions: CheckerExtensions;
   readonly navigationCapture: NavigationCaptureLimits;
 }
 
-export interface CaptureDeps {
-  readonly extensions: CheckerExtensions;
+export interface PreparationDeps {
   readonly navigationCapture: NavigationCaptureLimits;
 }
 
@@ -832,15 +830,11 @@ export interface ConvertedCheckedType {
   readonly evidence: TypeEvidence;
 }
 
-export type PrepareSourceImports = (
-  deps: PreparationDeps,
-  snapshot: PackageSnapshot,
-) => Result<ImportPreparation>;
+export type PrepareSourceImports = (deps: PreparationDeps, input: SourcePreparationInput) => Result<PreparedSource>;
 
 export type OpenCheckedProgram = (
   deps: CaptureDeps,
   snapshot: ProjectSnapshot,
-  preparation: ImportPreparation,
 ) => Result<CheckedProgram>;
 
 export type CaptureModule = (

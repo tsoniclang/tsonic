@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { tirFixtureBodyVerifier } from "./fixtures/typed-occurrence-witnesses.mjs";
 import { test } from "node:test";
-import { loadFrontFixture, navigationCapture, preparation } from "./fixtures/front/checked-module.mjs";
+import { loadFrontFixture, navigationCapture } from "./fixtures/front/checked-module.mjs";
 import { createAccount } from "../../packages/host/dist/dataflow/index.js";
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { OpenedProgram } from "../../packages/host/dist/front/handles.js";
@@ -140,7 +140,7 @@ export function supplied(): undefined { return choose(undefined); }
 export function omitted(): undefined { return choose(); }
 export function shadow(undefined: undefined): undefined { return choose(undefined); }` },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const inputs = { snapshot, extensions: fixture.front.createCheckerExtensions([]), preparation, limits };
+  const inputs = { snapshot, extensions: fixture.front.createCheckerExtensions([]), limits };
   const checked = captureSourceBarrier(inputs);
   assert.equal(checked.kind, "ok");
   const hir = checked.value.modules.find(row => row.module.module === snapshot.entryPoint)?.module;

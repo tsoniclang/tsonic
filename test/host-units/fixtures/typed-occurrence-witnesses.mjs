@@ -349,7 +349,7 @@ export async function checkLabelledTransfers() {
   assert.equal(typed.kind, "ok");
   const verifier = typed.value.verifierOf(module.module);
   const frontDeps = { extensions: input.extensions, navigationCapture: input.limits.navigationCapture };
-  const opened = fixture.front.openCheckedProgram(frontDeps, input.snapshot, input.preparation);
+  const opened = fixture.front.openCheckedProgram(frontDeps, input.snapshot);
   assert.equal(opened.kind, "ok");
   const captured = fixture.front.captureModule(frontDeps, opened.value, module.module);
   assert.equal(captured.kind, "ok");

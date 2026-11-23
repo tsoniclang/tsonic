@@ -339,7 +339,7 @@ for (const [foreign, conditional] of [[false, false], [true, false], [false, tru
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
     const { deps, program } = fixture.openAndCapture(snapshot);
     const main = snapshot.entryPoint;
-    const aliasModule = foreign ? snapshot.packages.modules.find(row => row.path === "/project/src/lookup.ts").id : main;
+    const aliasModule = foreign ? snapshot.source.input.packages.modules.find(row => row.path === "/project/src/lookup.ts").id : main;
     const selected = fixture.front.captureModule(deps, program, main);
     assert.equal(selected.kind, "ok");
     const aliases = foreign ? fixture.front.captureModule(deps, program, aliasModule) : selected;
@@ -488,7 +488,7 @@ for (const [objectKind, objectSyntax, keyType, projectedKey = false] of [
     },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
   });
-  const moduleOf = name => snapshot.packages.modules.find(row => row.path === `/project/src/${name}.ts`).id;
+  const moduleOf = name => snapshot.source.input.packages.modules.find(row => row.path === `/project/src/${name}.ts`).id;
   const main = moduleOf("main");
   const foreign = moduleOf("aliases");
   const { deps, program } = fixture.openAndCapture(snapshot);
@@ -571,7 +571,7 @@ test("Raw property conditionals distinguish the original authored branches from 
     },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
   });
-  const moduleOf = name => snapshot.packages.modules.find(row => row.path === `/project/src/${name}.ts`).id;
+  const moduleOf = name => snapshot.source.input.packages.modules.find(row => row.path === `/project/src/${name}.ts`).id;
   const main = moduleOf("main");
   const foreign = moduleOf("aliases");
   const { deps, program } = fixture.openAndCapture(snapshot);
