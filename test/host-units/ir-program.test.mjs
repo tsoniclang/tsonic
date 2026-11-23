@@ -4004,7 +4004,8 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
   const ordinaryNodes = 21;
   const expressionStatementReceipt = 1;
   const castReceipt = 1;
-  const retained = preparedPlanIndex + ordinaryNodes + expressionStatementReceipt + castReceipt;
+  const typeReceipts = ["union", "mapped type", "mapped parameter", "infer", "inferred parameter", "predicate"].length;
+  const retained = preparedPlanIndex + ordinaryNodes + expressionStatementReceipt + castReceipt + typeReceipts;
   assert.equal(work, 428 + copyPlan + moduleReceipt + statementRecord + statementFields - 1 + retained);
   assert.equal(created, 61 + copyPlan + moduleReceipt + statementRecord + retained);
   const [[first, requiredFirst], [second, requiredSecond]] = full.reads;

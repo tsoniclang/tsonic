@@ -262,10 +262,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "YieldExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "ArrowFunction":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15);
     case "FunctionExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15);
     case "AsExpression":
@@ -287,13 +284,11 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "SpreadElement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "TemplateExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TemplateSpan":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TaggedTemplateExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "ParenthesizedExpression": case "NonNullExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ArrayLiteralExpression":
@@ -302,11 +297,9 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "SpreadAssignment":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "PropertyAssignment":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "ShorthandPropertyAssignment":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13);
     case "DeleteExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "TypeOfExpression":
@@ -335,8 +328,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "TypeReference":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "ExpressionWithTypeArguments":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "LiteralType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ThisType":

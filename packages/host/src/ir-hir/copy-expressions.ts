@@ -11,11 +11,11 @@ import type {
   TemplateTail, PartiallyEmittedExpression, SyntheticReferenceExpression,
   AnnotatedExpressionSyntax, AnnotatedExpressionSyntaxReceipt, ApplicationSyntaxReceipt, ArraySyntaxReceipt, CallOrNewExpression,
   ConditionalSyntaxReceipt, ElementSyntaxReceipt, Expression, FunctionSyntaxReceipt, ObjectSyntaxReceipt, Phase, PropertySyntaxReceipt,
-  SingleExpressionSyntax, SyntaxPhaseCopy, UnarySyntax, UnarySyntaxReceipt,
+  ExpressionStructureSyntax, SingleExpressionSyntax, SyntaxPhaseCopy, SyntaxStructureReceipt, UnarySyntax, UnarySyntaxReceipt,
 } from "./contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { holdSyntaxPayload, copyNodeList, finishFunctionSyntax, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { holdSyntaxPayload, finishFunctionSyntax, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 
 export interface ExpressionsPlans<P extends Phase, Stop, Image> {
   readonly Identifier: (node: Identifier<P>) => SyntaxPlan<Identifier<P>, Stop, Image>;
@@ -80,7 +80,11 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
   propertyOf: (node: PropertyAccessExpression<P>) => PropertySyntaxReceipt<P>,
   elementOf: (node: ElementAccessExpression<P>) => ElementSyntaxReceipt<P>,
   arrayOf: (node: ArrayLiteralExpression<P>) => ArraySyntaxReceipt<P>,
-  objectOf: (node: ObjectLiteralExpression<P>) => ObjectSyntaxReceipt<P>): ExpressionsPlans<P, Stop, Image> {
+  objectOf: (node: ObjectLiteralExpression<P>) => ObjectSyntaxReceipt<P>,
+  structureOf: (node: ExpressionStructureSyntax<P>) => SyntaxStructureReceipt<P>): ExpressionsPlans<P, Stop, Image> {
+  function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: ExpressionStructureSyntax<P>, kind: Kind) {
+    return requireSyntaxStructure<P, Kind>(structureOf(node), kind);
+  }
   const Identifier = new Map<Identifier<P>, SyntaxPlan<Identifier<P>, Stop, Image>>();
   const PrivateIdentifier = new Map<PrivateIdentifier<P>, SyntaxPlan<PrivateIdentifier<P>, Stop, Image>>();
   const QualifiedName = new Map<QualifiedName<P>, SyntaxPlan<QualifiedName<P>, Stop, Image>>();
@@ -174,13 +178,10 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
     QualifiedName: node => memoSyntaxPlan(QualifiedName, node, () => withSyntaxPayload(phase.QualifiedName, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        left: ports().EntityName(node.left),
-        right: ports().Identifier(node.right).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "qualified-name");
+        return { ...header, kind, left: ports().EntityName(fields.left()), right: ports().Identifier(fields.right()).read(), tsonic };
+      };
     })),
     ComputedPropertyName: node => memoSyntaxPlan(ComputedPropertyName, node, () => withSyntaxPayload(phase.ComputedPropertyName, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -320,31 +321,27 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
     })),
     YieldExpression: node => memoSyntaxPlan(YieldExpression, node, () => withSyntaxPayload(phase.YieldExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, asteriskToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        asteriskToken,
-        expression: node.expression === null ? null : ports().Expression(node.expression),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "yield");
+        const expression = fields.expression();
+        return { ...header, kind, asteriskToken: fields.asterisk(), expression: expression === null ? null : ports().Expression(expression), tsonic };
+      };
     })),
     ArrowFunction: node => memoSyntaxPlan(ArrowFunction, node, () => withSyntaxPayload(phase.ArrowFunction, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, asteriskToken, equalsGreaterThanToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body),
-        equalsGreaterThanToken,
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "arrow");
+        const type = fields.type();
+        const full = fields.full();
+        const body = fields.body();
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike),
+          typeParameters: fields.typeParameters(value => ports().TypeParameterDeclaration(value).read()),
+          parameters: fields.parameters(value => ports().ParameterDeclaration(value).read()),
+          type: type === null ? null : ports().TypeNode(type), fullSignature: full === null ? null : ports().TypeNode(full),
+          asteriskToken: fields.asterisk(), body: body === null ? null : ports().BlockOrExpression(body), equalsGreaterThanToken: fields.arrow(), tsonic };
+      };
     })),
     FunctionExpression: node => memoSyntaxPlan(FunctionExpression, node, () => withSyntaxPayload(phase.FunctionExpression, node.tsonic, () => tsonic =>
       ({ kind: "FunctionExpression", ...finishFunctionSyntax(functionOf(node), ports()), tsonic }))),
@@ -412,7 +409,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
         ...header,
         kind,
         keywordToken,
-        name: ports().Identifier(node.name).read(),
+        name: ports().Identifier(structure(node, "meta-property").name()).read(),
         tsonic,
       });
     })),
@@ -439,37 +436,28 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
     TemplateExpression: node => memoSyntaxPlan(TemplateExpression, node, () => withSyntaxPayload(phase.TemplateExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        head: ports().TemplateHead(node.head).read(),
-        templateSpans: copyNodeList(node.templateSpans, item => ports().TemplateSpan(item).read()),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "template-expression");
+        return { ...header, kind, head: ports().TemplateHead(fields.head()).read(),
+          templateSpans: fields.spans(item => ports().TemplateSpan(item).read()), tsonic };
+      };
     })),
     TemplateSpan: node => memoSyntaxPlan(TemplateSpan, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression),
-        literal: ports().TemplateMiddleOrTail(node.literal),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "template-span");
+        return { ...header, kind, expression: ports().Expression(fields.expression()), literal: ports().TemplateMiddleOrTail(fields.literal()), tsonic };
+      };
     })),
     TaggedTemplateExpression: node => memoSyntaxPlan(TaggedTemplateExpression, node, () => withSyntaxPayload(phase.TaggedTemplateExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, questionDotToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tag: ports().Expression(node.tag),
-        questionDotToken,
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
-        template: ports().TemplateLiteral(node.template),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "tagged-template");
+        return { ...header, kind, tag: ports().Expression(fields.tag()), questionDotToken: fields.question(), typeArguments: fields.args(ports().TypeNode),
+          template: ports().TemplateLiteral(fields.template()), tsonic };
+      };
     })),
     ParenthesizedExpression: node => memoSyntaxPlan(ParenthesizedExpression, node, () => withSyntaxPayload(phase.ParenthesizedExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -515,32 +503,25 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
     })),
     PropertyAssignment: node => memoSyntaxPlan(PropertyAssignment, node, () => withSyntaxPayload(phase.PropertyAssignment, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, postfixToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().PropertyName(node.name),
-        postfixToken,
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        initializer: ports().Expression(node.initializer),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "property-assignment");
+        const type = fields.type();
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), name: ports().PropertyName(fields.name()), postfixToken: fields.postfix(),
+          type: type === null ? null : ports().TypeNode(type), initializer: ports().Expression(fields.initializer()), tsonic };
+      };
     })),
     ShorthandPropertyAssignment: node => memoSyntaxPlan(ShorthandPropertyAssignment, node, () => withSyntaxPayload(phase.ShorthandPropertyAssignment, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, postfixToken, equalsToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().PropertyName(node.name),
-        postfixToken,
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        equalsToken,
-        objectAssignmentInitializer: node.objectAssignmentInitializer === null ? null : ports().Expression(node.objectAssignmentInitializer),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "shorthand-assignment");
+        const type = fields.type();
+        const initializer = fields.initializer();
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), name: ports().PropertyName(fields.name()), postfixToken: fields.postfix(),
+          type: type === null ? null : ports().TypeNode(type), equalsToken: fields.equals(),
+          objectAssignmentInitializer: initializer === null ? null : ports().Expression(initializer), tsonic };
+      };
     })),
     DeleteExpression: node => memoSyntaxPlan(DeleteExpression, node, () => withSyntaxPayload(phase.DeleteExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -585,24 +566,18 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
     TypeAssertion: node => memoSyntaxPlan(TypeAssertion, node, () => withSyntaxPayload(phase.TypeAssertion, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        type: ports().TypeNode(node.type),
-        expression: ports().Expression(node.expression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "type-assertion");
+        return { ...header, kind, type: ports().TypeNode(fields.type()), expression: ports().Expression(fields.expression()), tsonic };
+      };
     })),
     ExpressionWithTypeArguments: node => memoSyntaxPlan(ExpressionWithTypeArguments, node, () => withSyntaxPayload(phase.ExpressionWithTypeArguments, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression),
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "expression-type-arguments");
+        return { ...header, kind, expression: ports().Expression(fields.expression()), typeArguments: fields.args(ports().TypeNode), tsonic };
+      };
     })),
     TemplateHead: node => memoSyntaxPlan(TemplateHead, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -656,13 +631,10 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
     SyntheticReferenceExpression: node => memoSyntaxPlan(SyntheticReferenceExpression, node, () => withSyntaxPayload(phase.SyntheticReferenceExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression),
-        thisArg: ports().Expression(node.thisArg),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "synthetic-reference");
+        return { ...header, kind, expression: ports().Expression(fields.expression()), thisArg: ports().Expression(fields.thisArg()), tsonic };
+      };
     })),
     LiteralKeywordExpression: node => literalKeyword(node, node.kind),
   };

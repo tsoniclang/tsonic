@@ -624,7 +624,7 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         const members = watch(selected, "members");
         expectFields("readonlyToken", "typeParameter", "nameType", "questionToken", "type");
         expectList("members", members);
-      } else if (selected.kind === "FunctionType" || selected.kind === "ConstructorType") {
+      } else if (selected.kind === "FunctionType" || selected.kind === "ConstructorType" || selected.kind === "ArrowFunction") {
         expectedReads.push("modifiers", "typeParameters");
         const modifiers = watch(selected, "modifiers");
         const typeParameters = watch(selected, "typeParameters");
@@ -633,6 +633,7 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         expectedReads.push("parameters");
         expectList("parameters", watch(selected, "parameters"));
         expectFields("type", "fullSignature");
+        if (selected.kind === "ArrowFunction") expectFields("asteriskToken", "equalsGreaterThanToken", "body");
       } else if (selected.kind === "TypeParameter") {
         expectedReads.push("modifiers");
         expectList("modifiers", watch(selected, "modifiers"));
@@ -641,13 +642,38 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         expectFields("assertsModifier", "parameterName", "type");
       } else if (selected.kind === "ImportAttribute") {
         expectFields("name", "value");
-      } else if (selected.kind === "ImportAttributes" || selected.kind === "TemplateLiteralType") {
-        if (selected.kind === "TemplateLiteralType") expectFields("head");
-        const field = selected.kind === "TemplateLiteralType" ? "templateSpans" : "attributes";
+      } else if (selected.kind === "ImportAttributes" || selected.kind === "TemplateLiteralType" || selected.kind === "TemplateExpression") {
+        if (selected.kind !== "ImportAttributes") expectFields("head");
+        const field = selected.kind === "ImportAttributes" ? "attributes" : "templateSpans";
         expectedReads.push(field);
         expectList(field, watch(selected, field));
       } else if (selected.kind === "TemplateLiteralTypeSpan") {
         expectFields("type", "literal");
+      } else if (selected.kind === "TemplateSpan") {
+        expectFields("expression", "literal");
+      } else if (selected.kind === "QualifiedName") {
+        expectFields("left", "right");
+      } else if (selected.kind === "MetaProperty") {
+        expectFields("name");
+      } else if (selected.kind === "YieldExpression") {
+        expectFields("asteriskToken", "expression");
+      } else if (selected.kind === "SyntheticReferenceExpression") {
+        expectFields("expression", "thisArg");
+      } else if (selected.kind === "TypeAssertionExpression") {
+        expectFields("type", "expression");
+      } else if (selected.kind === "TaggedTemplateExpression" || selected.kind === "ExpressionWithTypeArguments") {
+        expectedReads.push("typeArguments");
+        const args = watch(selected, "typeArguments");
+        if (selected.kind === "TaggedTemplateExpression") expectFields("tag", "questionDotToken");
+        else expectFields("expression");
+        expectList("typeArguments", args);
+        if (selected.kind === "TaggedTemplateExpression") expectFields("template");
+      } else if (selected.kind === "PropertyAssignment" || selected.kind === "ShorthandPropertyAssignment") {
+        expectedReads.push("modifiers");
+        expectList("modifiers", watch(selected, "modifiers"));
+        expectFields("name", "postfixToken", "type");
+        if (selected.kind === "PropertyAssignment") expectFields("initializer");
+        else expectFields("equalsToken", "objectAssignmentInitializer");
       } else if (selected.kind === "PropertyAccessExpression" || selected.kind === "ElementAccessExpression") {
         expectedReads.push("expression", "questionDotToken", selected.kind === "PropertyAccessExpression" ? "name" : "argumentExpression");
         for (const field of expectedReads) watch(selected, field);

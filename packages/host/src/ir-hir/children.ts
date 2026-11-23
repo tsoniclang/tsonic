@@ -29,6 +29,9 @@ import type { ArrayTypeNode, ConditionalTypeNode, EntityName, IndexedAccessTypeN
 import type { AssertsKeyword, ConstructorTypeNode, FunctionTypeNode, ImportAttribute, ImportAttributeName, MappedTypeNode, MinusToken,
   PlusToken, ReadonlyKeyword, TemplateHead, TemplateLiteralTypeNode, TemplateLiteralTypeSpan, TemplateMiddleOrTail,
   TypePredicateNode, TypePredicateParameterName } from "./contract.js";
+import type { ArrowFunction, CallableSyntaxFields, EqualsGreaterThanToken, EqualsToken, ExpressionStructureReceipt, ExpressionStructureSyntax,
+  MetaProperty, PropertyAssignment, QualifiedName, ShorthandPropertyAssignment, SyntheticReferenceExpression, TaggedTemplateExpression,
+  TemplateExpression, TemplateLiteral, TemplateSpan, TypeAssertion, YieldExpression } from "./contract.js";
 export type { SyntaxChildSlot } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
@@ -465,14 +468,31 @@ function* typeParameterSlots<P extends Phase>(modifiers: () => Iterable<SyntaxCh
     ["expression", "nullable", expression], ["defaultType", "nullable", defaultType]);
 }
 
-function* templateTypeSlots<P extends Phase>(head: () => TemplateHead<P>,
+function* templateHeadSlots<P extends Phase>(head: () => TemplateHead<P>,
   spans: () => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
-  yield* children<P, TemplateLiteralTypeNode<P>>(["head", "required", head]);
+  yield* children<P, TemplateLiteralTypeNode<P> | TemplateExpression<P>>(["head", "required", head]);
   yield* spans();
 }
 
 function templateTypeSpanSlots<P extends Phase>(type: () => TypeNode<P>, literal: () => TemplateMiddleOrTail<P>) {
   return children<P, TemplateLiteralTypeSpan<P>>(["type", "required", type], ["literal", "required", literal]);
+}
+
+function prepareCallableStructure<P extends Phase, Stop>(node: FunctionTypeNode<P> | ConstructorTypeNode<P> | ArrowFunction<P>,
+  admitList: (field: SyntaxChildListField) => Stop | null): SyntaxCopyResult<CallableSyntaxFields<P> & { readonly slots: Iterable<SyntaxChildSlot<P>> }, Stop> {
+  const rawModifiers = node.modifiers;
+  const modifierStop = rawModifiers === null ? null : admitList("modifiers");
+  if (modifierStop !== null) return { kind: "refused", stop: modifierStop };
+  const rawTypeParameters = node.typeParameters;
+  const stop = (rawTypeParameters === null ? null : admitList("typeParameters")) ?? admitList("parameters");
+  if (stop !== null) return { kind: "refused", stop };
+  const modifiers = heldOptionalList<P, ModifierLike<P>>("modifiers", rawModifiers);
+  const typeParameters = heldOptionalList<P, TypeParameterDeclaration<P>>("typeParameters", rawTypeParameters);
+  const parameters = heldList<P, ParameterDeclaration<P>>("parameters", () => node.parameters);
+  const type = heldChild(() => node.type);
+  const full = heldChild(() => node.fullSignature);
+  return { kind: "copied", value: { slots: callableTypeSlots<P>(modifiers.slots, typeParameters.slots, parameters.slots, type.pull, full.pull),
+    modifiers: modifiers.finish, typeParameters: typeParameters.finish, parameters: parameters.finish, type: type.read, full: full.read } };
 }
 
 function prepareTypeStructure<P extends Phase, Stop>(node: TypeStructureSyntax<P>, ordinal: number,
@@ -583,20 +603,8 @@ function prepareTypeStructure<P extends Phase, Stop>(node: TypeStructureSyntax<P
         type: type.read, members: members.finish } };
     }
     case "FunctionType": case "ConstructorType": {
-      const rawModifiers = node.modifiers;
-      const modifierStop = rawModifiers === null ? null : admitList("modifiers");
-      if (modifierStop !== null) return { kind: "refused", stop: modifierStop };
-      const rawTypeParameters = node.typeParameters;
-      const stop = (rawTypeParameters === null ? null : admitList("typeParameters")) ?? admitList("parameters");
-      if (stop !== null) return { kind: "refused", stop };
-      const modifiers = heldOptionalList<P, ModifierLike<P>>("modifiers", rawModifiers);
-      const typeParameters = heldOptionalList<P, TypeParameterDeclaration<P>>("typeParameters", rawTypeParameters);
-      const parameters = heldList<P, ParameterDeclaration<P>>("parameters", () => node.parameters);
-      const type = heldChild(() => node.type);
-      const full = heldChild(() => node.fullSignature);
-      return { kind: "copied", value: { kind: "callable-type", ordinal,
-        slots: callableTypeSlots<P>(modifiers.slots, typeParameters.slots, parameters.slots, type.pull, full.pull),
-        modifiers: modifiers.finish, typeParameters: typeParameters.finish, parameters: parameters.finish, type: type.read, full: full.read } };
+      const prepared = prepareCallableStructure<P, Stop>(node, admitList);
+      return prepared.kind === "refused" ? prepared : { kind: "copied", value: { kind: "callable-type", ordinal, ...prepared.value } };
     }
     case "TypeParameter": {
       const rawModifiers = node.modifiers;
@@ -616,7 +624,7 @@ function prepareTypeStructure<P extends Phase, Stop>(node: TypeStructureSyntax<P
       if (stop !== null) return { kind: "refused", stop };
       const head = heldChild(() => node.head);
       const spans = heldList<P, TemplateLiteralTypeSpan<P>>("templateSpans", () => node.templateSpans);
-      return { kind: "copied", value: { kind: "template-type", ordinal, slots: templateTypeSlots<P>(head.pull, spans.slots),
+      return { kind: "copied", value: { kind: "template-type", ordinal, slots: templateHeadSlots<P>(head.pull, spans.slots),
         head: head.read, spans: spans.finish } };
     }
     case "TemplateLiteralTypeSpan": {
@@ -624,6 +632,165 @@ function prepareTypeStructure<P extends Phase, Stop>(node: TypeStructureSyntax<P
       const literal = heldChild(() => node.literal);
       return { kind: "copied", value: { kind: "template-type-span", ordinal, slots: templateTypeSpanSlots<P>(type.pull, literal.pull),
         type: type.read, literal: literal.read } };
+    }
+  }
+}
+
+function isExpressionStructure<P extends Phase>(node: SyntaxNode<P>): node is ExpressionStructureSyntax<P> {
+  switch (node.kind) {
+    case "QualifiedName": case "YieldExpression": case "ArrowFunction": case "MetaProperty": case "TemplateExpression":
+    case "TemplateSpan": case "TaggedTemplateExpression": case "PropertyAssignment": case "ShorthandPropertyAssignment":
+    case "TypeAssertionExpression": case "ExpressionWithTypeArguments": case "SyntheticReferenceExpression": return true;
+    default: return false;
+  }
+}
+
+function qualifiedNameSlots<P extends Phase>(left: () => EntityName<P>, right: () => Identifier<P>) {
+  return children<P, QualifiedName<P>>(["left", "required", left], ["right", "required", right]);
+}
+
+function yieldSlots<P extends Phase>(asterisk: () => AsteriskToken<P> | null, expression: () => Expression<P> | null) {
+  return children<P, YieldExpression<P>>(["asteriskToken", "nullable", asterisk], ["expression", "nullable", expression]);
+}
+
+function* arrowSlots<P extends Phase>(signature: Iterable<SyntaxChildSlot<P>>, asterisk: () => AsteriskToken<P> | null,
+  arrow: () => EqualsGreaterThanToken<P>, body: () => BlockOrExpression<P> | null): Generator<SyntaxChildSlot<P>> {
+  yield* signature;
+  yield* children<P, ArrowFunction<P>>(["asteriskToken", "nullable", asterisk], ["equalsGreaterThanToken", "required", arrow], ["body", "nullable", body]);
+}
+
+function metaPropertySlots<P extends Phase>(name: () => Identifier<P>) {
+  return children<P, MetaProperty<P>>(["name", "required", name]);
+}
+
+function templateSpanSlots<P extends Phase>(expression: () => Expression<P>, literal: () => TemplateMiddleOrTail<P>) {
+  return children<P, TemplateSpan<P>>(["expression", "required", expression], ["literal", "required", literal]);
+}
+
+function* taggedTemplateSlots<P extends Phase>(tag: () => Expression<P>, question: () => QuestionDotToken<P> | null,
+  args: () => Iterable<SyntaxChildSlot<P>>, template: () => TemplateLiteral<P>): Generator<SyntaxChildSlot<P>> {
+  yield* children<P, TaggedTemplateExpression<P>>(["tag", "required", tag], ["questionDotToken", "nullable", question]);
+  yield* args();
+  yield* children<P, TaggedTemplateExpression<P>>(["template", "required", template]);
+}
+
+function* propertyAssignmentSlots<P extends Phase>(modifiers: () => Iterable<SyntaxChildSlot<P>>, name: () => PropertyName<P>,
+  postfix: () => QuestionToken<P> | ExclamationToken<P> | null, type: () => TypeNode<P> | null,
+  tail: Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* modifiers();
+  yield* children<P, PropertyAssignment<P> | ShorthandPropertyAssignment<P>>(["name", "required", name],
+    ["postfixToken", "nullable", postfix], ["type", "nullable", type]);
+  yield* tail;
+}
+
+function initializerSlots<P extends Phase>(initializer: () => Expression<P>) {
+  return children<P, PropertyAssignment<P>>(["initializer", "required", initializer]);
+}
+
+function shorthandSlots<P extends Phase>(equals: () => EqualsToken<P> | null, initializer: () => Expression<P> | null) {
+  return children<P, ShorthandPropertyAssignment<P>>(["equalsToken", "nullable", equals], ["objectAssignmentInitializer", "nullable", initializer]);
+}
+
+function assertionSlots<P extends Phase>(type: () => TypeNode<P>, expression: () => Expression<P>) {
+  return children<P, TypeAssertion<P>>(["type", "required", type], ["expression", "required", expression]);
+}
+
+function* expressionArgumentsSlots<P extends Phase>(expression: () => Expression<P>,
+  args: () => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* children<P, ExpressionWithTypeArguments<P>>(["expression", "required", expression]);
+  yield* args();
+}
+
+function syntheticReferenceSlots<P extends Phase>(expression: () => Expression<P>, thisArg: () => Expression<P>) {
+  return children<P, SyntheticReferenceExpression<P>>(["expression", "required", expression], ["thisArg", "required", thisArg]);
+}
+
+function prepareExpressionStructure<P extends Phase, Stop>(node: ExpressionStructureSyntax<P>, ordinal: number,
+  admitList: (field: SyntaxChildListField) => Stop | null): SyntaxCopyResult<ExpressionStructureReceipt<P>, Stop> {
+  switch (node.kind) {
+    case "QualifiedName": {
+      const left = heldChild(() => node.left);
+      const right = heldChild(() => node.right);
+      return { kind: "copied", value: { kind: "qualified-name", ordinal, slots: qualifiedNameSlots<P>(left.pull, right.pull), left: left.read, right: right.read } };
+    }
+    case "YieldExpression": {
+      const asterisk = heldChild(() => node.asteriskToken);
+      const expression = heldChild(() => node.expression);
+      return { kind: "copied", value: { kind: "yield", ordinal, slots: yieldSlots<P>(asterisk.pull, expression.pull), asterisk: asterisk.read, expression: expression.read } };
+    }
+    case "ArrowFunction": {
+      const signature = prepareCallableStructure<P, Stop>(node, admitList);
+      if (signature.kind === "refused") return signature;
+      const asterisk = heldChild(() => node.asteriskToken);
+      const arrow = heldChild(() => node.equalsGreaterThanToken);
+      const body = heldChild(() => node.body);
+      return { kind: "copied", value: { kind: "arrow", ordinal, ...signature.value,
+        slots: arrowSlots<P>(signature.value.slots, asterisk.pull, arrow.pull, body.pull), asterisk: asterisk.read, arrow: arrow.read, body: body.read } };
+    }
+    case "MetaProperty": {
+      const name = heldChild(() => node.name);
+      return { kind: "copied", value: { kind: "meta-property", ordinal, slots: metaPropertySlots<P>(name.pull), name: name.read } };
+    }
+    case "TemplateExpression": {
+      const stop = admitList("templateSpans");
+      if (stop !== null) return { kind: "refused", stop };
+      const head = heldChild(() => node.head);
+      const spans = heldList<P, TemplateSpan<P>>("templateSpans", () => node.templateSpans);
+      return { kind: "copied", value: { kind: "template-expression", ordinal, slots: templateHeadSlots<P>(head.pull, spans.slots), head: head.read, spans: spans.finish } };
+    }
+    case "TemplateSpan": {
+      const expression = heldChild(() => node.expression);
+      const literal = heldChild(() => node.literal);
+      return { kind: "copied", value: { kind: "template-span", ordinal, slots: templateSpanSlots<P>(expression.pull, literal.pull),
+        expression: expression.read, literal: literal.read } };
+    }
+    case "TaggedTemplateExpression": case "ExpressionWithTypeArguments": {
+      const rawArguments = node.typeArguments;
+      const stop = rawArguments === null ? null : admitList("typeArguments");
+      if (stop !== null) return { kind: "refused", stop };
+      const args = heldOptionalList<P, TypeNode<P>>("typeArguments", rawArguments);
+      if (node.kind === "TaggedTemplateExpression") {
+        const tag = heldChild(() => node.tag);
+        const question = heldChild(() => node.questionDotToken);
+        const template = heldChild(() => node.template);
+        return { kind: "copied", value: { kind: "tagged-template", ordinal, slots: taggedTemplateSlots<P>(tag.pull, question.pull, args.slots, template.pull),
+          tag: tag.read, question: question.read, args: args.finish, template: template.read } };
+      }
+      const expression = heldChild(() => node.expression);
+      return { kind: "copied", value: { kind: "expression-type-arguments", ordinal,
+        slots: expressionArgumentsSlots<P>(expression.pull, args.slots), expression: expression.read, args: args.finish } };
+    }
+    case "PropertyAssignment": case "ShorthandPropertyAssignment": {
+      const rawModifiers = node.modifiers;
+      const stop = rawModifiers === null ? null : admitList("modifiers");
+      if (stop !== null) return { kind: "refused", stop };
+      const modifiers = heldOptionalList<P, ModifierLike<P>>("modifiers", rawModifiers);
+      const name = heldChild(() => node.name);
+      const postfix = heldChild(() => node.postfixToken);
+      const type = heldChild(() => node.type);
+      if (node.kind === "PropertyAssignment") {
+        const initializer = heldChild(() => node.initializer);
+        return { kind: "copied", value: { kind: "property-assignment", ordinal,
+          slots: propertyAssignmentSlots<P>(modifiers.slots, name.pull, postfix.pull, type.pull, initializerSlots<P>(initializer.pull)),
+          modifiers: modifiers.finish, name: name.read, postfix: postfix.read, type: type.read, initializer: initializer.read } };
+      }
+      const equals = heldChild(() => node.equalsToken);
+      const initializer = heldChild(() => node.objectAssignmentInitializer);
+      return { kind: "copied", value: { kind: "shorthand-assignment", ordinal,
+        slots: propertyAssignmentSlots<P>(modifiers.slots, name.pull, postfix.pull, type.pull, shorthandSlots<P>(equals.pull, initializer.pull)),
+        modifiers: modifiers.finish, name: name.read, postfix: postfix.read, type: type.read, equals: equals.read, initializer: initializer.read } };
+    }
+    case "TypeAssertionExpression": {
+      const type = heldChild(() => node.type);
+      const expression = heldChild(() => node.expression);
+      return { kind: "copied", value: { kind: "type-assertion", ordinal, slots: assertionSlots<P>(type.pull, expression.pull),
+        type: type.read, expression: expression.read } };
+    }
+    case "SyntheticReferenceExpression": {
+      const expression = heldChild(() => node.expression);
+      const thisArg = heldChild(() => node.thisArg);
+      return { kind: "copied", value: { kind: "synthetic-reference", ordinal, slots: syntheticReferenceSlots<P>(expression.pull, thisArg.pull),
+        expression: expression.read, thisArg: thisArg.read } };
     }
   }
 }
@@ -999,6 +1166,10 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
     const stop = reserve(node);
     return stop === null ? prepareTypeStructure<P, Stop>(node, ordinal, field => admitList(node, field)) : { kind: "refused", stop };
   }
+  if (isExpressionStructure<P>(node)) {
+    const stop = reserve(node);
+    return stop === null ? prepareExpressionStructure<P, Stop>(node, ordinal, field => admitList(node, field)) : { kind: "refused", stop };
+  }
   if (isDeclarationStructure<P>(node)) {
     const stop = reserve(node);
     return stop === null ? prepareDeclaration<P, Stop>(node, ordinal, field => admitList(node, field)) : { kind: "refused", stop };
@@ -1289,7 +1460,7 @@ function ordinarySlots<PhaseType extends Phase>(
   if (isSingleExpressionSyntax<PhaseType>(node)) return singleExpressionSlots<PhaseType>(node, child => child);
   switch (node.kind) {
     case "QualifiedName":
-      return children<PhaseType, typeof node>(["left", "required", () => node.left], ["right", "required", () => node.right]);
+      return qualifiedNameSlots<PhaseType>(() => node.left, () => node.right);
     case "Decorator":
       return children<PhaseType, typeof node>(["expression", "required", () => node.expression]);
     case "ReturnStatement":
@@ -1421,7 +1592,8 @@ function ordinarySlots<PhaseType extends Phase>(
     case "PropertyDeclaration":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["type", "nullable", () => node.type], ["initializer", "nullable", () => node.initializer]);
     case "PropertyAssignment":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["type", "nullable", () => node.type], ["initializer", "required", () => node.initializer]);
+      return propertyAssignmentSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => node.name, () => node.postfixToken, () => node.type, initializerSlots<PhaseType>(() => node.initializer));
     case "ClassStaticBlockDeclaration":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["body", "required", () => node.body]);
     case "BinaryExpression":
@@ -1433,10 +1605,12 @@ function ordinarySlots<PhaseType extends Phase>(
     case "PostfixUnaryExpression":
       return unarySlots<PhaseType>(() => node.operand);
     case "YieldExpression":
-      return children<PhaseType, typeof node>(["asteriskToken", "nullable", () => node.asteriskToken], ["expression", "nullable", () => node.expression]);
+      return yieldSlots<PhaseType>(() => node.asteriskToken, () => node.expression);
     case "ArrowFunction":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters],
-        ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["asteriskToken", "nullable", () => node.asteriskToken], ["equalsGreaterThanToken", "required", () => node.equalsGreaterThanToken], ["body", "nullable", () => node.body]);
+      return arrowSlots<PhaseType>(callableTypeSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters]),
+        () => children<PhaseType, typeof node>(["parameters", "list", () => node.parameters]), () => node.type, () => node.fullSignature),
+      () => node.asteriskToken, () => node.equalsGreaterThanToken, () => node.body);
     case "AsExpression":
     case "SatisfiesExpression":
       return annotatedExpressionSlots<PhaseType>(() => node.expression, () => node.type);
@@ -1453,24 +1627,24 @@ function ordinarySlots<PhaseType extends Phase>(
         () => children<PhaseType, typeof node>(["typeArguments", "list", () => node.typeArguments]),
         () => children<PhaseType, typeof node>(["arguments", "list", () => node.arguments]));
     case "MetaProperty":
-      return children<PhaseType, typeof node>(["name", "required", () => node.name]);
+      return metaPropertySlots<PhaseType>(() => node.name);
     case "TemplateExpression":
-      return children<PhaseType, typeof node>(["head", "required", () => node.head], ["templateSpans", "list", () => node.templateSpans]);
     case "TemplateLiteralType":
-      return templateTypeSlots<PhaseType>(() => node.head, () => children<PhaseType, typeof node>(["templateSpans", "list", () => node.templateSpans]));
+      return templateHeadSlots<PhaseType>(() => node.head, () => children<PhaseType, typeof node>(["templateSpans", "list", () => node.templateSpans]));
     case "TemplateSpan":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["literal", "required", () => node.literal]);
+      return templateSpanSlots<PhaseType>(() => node.expression, () => node.literal);
     case "TaggedTemplateExpression":
-      return children<PhaseType, typeof node>(["tag", "required", () => node.tag], ["questionDotToken", "nullable", () => node.questionDotToken], ["typeArguments", "list", () => node.typeArguments], ["template", "required", () => node.template]);
+      return taggedTemplateSlots<PhaseType>(() => node.tag, () => node.questionDotToken,
+        () => children<PhaseType, typeof node>(["typeArguments", "list", () => node.typeArguments]), () => node.template);
     case "ArrayLiteralExpression":
       return arraySlots<PhaseType>(node, (field, list) => children<PhaseType, typeof node>([field, "list", () => list]));
     case "ObjectLiteralExpression":
       return objectSlots<PhaseType>(node, (field, list) => children<PhaseType, typeof node>([field, "list", () => list]));
     case "ShorthandPropertyAssignment":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["type", "nullable", () => node.type],
-        ["equalsToken", "nullable", () => node.equalsToken], ["objectAssignmentInitializer", "nullable", () => node.objectAssignmentInitializer]);
+      return propertyAssignmentSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => node.name, () => node.postfixToken, () => node.type, shorthandSlots<PhaseType>(() => node.equalsToken, () => node.objectAssignmentInitializer));
     case "TypeAssertionExpression":
-      return children<PhaseType, typeof node>(["type", "required", () => node.type], ["expression", "required", () => node.expression]);
+      return assertionSlots<PhaseType>(() => node.type, () => node.expression);
     case "UnionType":
     case "IntersectionType":
       return children<PhaseType, typeof node>(["types", "list", () => node.types]);
@@ -1497,7 +1671,7 @@ function ordinarySlots<PhaseType extends Phase>(
       return namedTypeSlots<PhaseType>("typeName", () => node.typeName,
         () => children<PhaseType, typeof node>(["typeArguments", "list", () => node.typeArguments]));
     case "ExpressionWithTypeArguments":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["typeArguments", "list", () => node.typeArguments]);
+      return expressionArgumentsSlots<PhaseType>(() => node.expression, () => children<PhaseType, typeof node>(["typeArguments", "list", () => node.typeArguments]));
     case "LiteralType":
       return literalTypeSlots<PhaseType>(() => node.literal);
     case "TypePredicate":
@@ -1587,7 +1761,7 @@ function ordinarySlots<PhaseType extends Phase>(
       return typeParameterSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]), () => node.name,
         () => node.constraint, () => node.expression, () => node.defaultType);
     case "SyntheticReferenceExpression":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["thisArg", "required", () => node.thisArg]);
+      return syntheticReferenceSlots<PhaseType>(() => node.expression, () => node.thisArg);
     case "JSDocTypeLiteral":
       return children<PhaseType, typeof node>(["jsDocPropertyTags", "array", () => node.jsDocPropertyTags]);
     case "JSDocParameterTag":

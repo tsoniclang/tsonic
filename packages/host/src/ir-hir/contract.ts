@@ -5128,15 +5128,51 @@ export type TypeStructureReceipt<P extends Phase> = {
       readonly parameter: () => TypeParameterDeclaration<P>; readonly nameType: () => TypeNode<P> | null;
       readonly question: () => QuestionToken<P> | PlusToken<P> | MinusToken<P> | null; readonly type: () => TypeNode<P> | null;
       readonly members: (read: (value: TypeElement<P>) => TypeElement<P>) => NodeList<TypeElement<P>> | null }
-  | ({ readonly kind: "callable-type";
-      readonly parameters: (read: (value: ParameterDeclaration<P>) => ParameterDeclaration<P>) => NodeList<ParameterDeclaration<P>>;
-      readonly type: () => TypeNode<P> | null; readonly full: () => TypeNode<P> | null }
-      & ModifiedSyntaxFields<P> & TypeParametersSyntaxFields<P>)
+  | ({ readonly kind: "callable-type" } & CallableSyntaxFields<P>)
   | ({ readonly kind: "type-parameter"; readonly name: () => Identifier<P>; readonly constraint: () => TypeNode<P> | null;
       readonly expression: () => Expression<P> | null; readonly defaultType: () => TypeNode<P> | null } & ModifiedSyntaxFields<P>)
   | { readonly kind: "template-type"; readonly head: () => TemplateHead<P>;
       readonly spans: (read: (value: TemplateLiteralTypeSpan<P>) => TemplateLiteralTypeSpan<P>) => NodeList<TemplateLiteralTypeSpan<P>> }
   | { readonly kind: "template-type-span"; readonly type: () => TypeNode<P>; readonly literal: () => TemplateMiddleOrTail<P> }
+);
+
+export interface CallableSyntaxFields<P extends Phase> extends ModifiedSyntaxFields<P>, TypeParametersSyntaxFields<P> {
+  readonly parameters: (read: (value: ParameterDeclaration<P>) => ParameterDeclaration<P>) => NodeList<ParameterDeclaration<P>>;
+  readonly type: () => TypeNode<P> | null;
+  readonly full: () => TypeNode<P> | null;
+}
+
+export type ExpressionStructureSyntax<P extends Phase> = QualifiedName<P> | YieldExpression<P> | ArrowFunction<P>
+  | MetaProperty<P> | TemplateExpression<P> | TemplateSpan<P> | TaggedTemplateExpression<P>
+  | PropertyAssignment<P> | ShorthandPropertyAssignment<P> | TypeAssertion<P> | ExpressionWithTypeArguments<P> | SyntheticReferenceExpression<P>;
+
+export interface PropertyAssignmentFields<P extends Phase> extends ModifiedSyntaxFields<P> {
+  readonly name: () => PropertyName<P>;
+  readonly postfix: () => QuestionToken<P> | ExclamationToken<P> | null;
+  readonly type: () => TypeNode<P> | null;
+}
+
+export type ExpressionStructureReceipt<P extends Phase> = {
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+} & (
+  | { readonly kind: "qualified-name"; readonly left: () => EntityName<P>; readonly right: () => Identifier<P> }
+  | { readonly kind: "yield"; readonly asterisk: () => AsteriskToken<P> | null; readonly expression: () => Expression<P> | null }
+  | ({ readonly kind: "arrow"; readonly asterisk: () => AsteriskToken<P> | null;
+      readonly arrow: () => EqualsGreaterThanToken<P>; readonly body: () => BlockOrExpression<P> | null } & CallableSyntaxFields<P>)
+  | { readonly kind: "meta-property"; readonly name: () => Identifier<P> }
+  | { readonly kind: "template-expression"; readonly head: () => TemplateHead<P>;
+      readonly spans: (read: (value: TemplateSpan<P>) => TemplateSpan<P>) => NodeList<TemplateSpan<P>> }
+  | { readonly kind: "template-span"; readonly expression: () => Expression<P>; readonly literal: () => TemplateMiddleOrTail<P> }
+  | { readonly kind: "tagged-template"; readonly tag: () => Expression<P>; readonly question: () => QuestionDotToken<P> | null;
+      readonly args: (read: (value: TypeNode<P>) => TypeNode<P>) => NodeList<TypeNode<P>> | null; readonly template: () => TemplateLiteral<P> }
+  | ({ readonly kind: "property-assignment"; readonly initializer: () => Expression<P> } & PropertyAssignmentFields<P>)
+  | ({ readonly kind: "shorthand-assignment"; readonly equals: () => EqualsToken<P> | null;
+      readonly initializer: () => Expression<P> | null } & PropertyAssignmentFields<P>)
+  | { readonly kind: "type-assertion"; readonly type: () => TypeNode<P>; readonly expression: () => Expression<P> }
+  | { readonly kind: "expression-type-arguments"; readonly expression: () => Expression<P>;
+      readonly args: (read: (value: TypeNode<P>) => TypeNode<P>) => NodeList<TypeNode<P>> | null }
+  | { readonly kind: "synthetic-reference"; readonly expression: () => Expression<P>; readonly thisArg: () => Expression<P> }
 );
 
 export interface ApplicationSyntaxReceipt<P extends Phase> {
@@ -5186,14 +5222,14 @@ export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P>
   | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>
   | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>
   | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P> | ControlSyntax<P>
-  | DeclarationStructureSyntax<P> | TypeStructureSyntax<P>;
+  | DeclarationStructureSyntax<P> | TypeStructureSyntax<P> | ExpressionStructureSyntax<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
   | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
   | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>
   | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>
   | VariableStatementSyntaxReceipt<P> | VariableDeclarationSyntaxReceipt<P> | VariableListSyntaxReceipt<P>
   | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P> | ControlSyntaxReceipt<P> | DeclarationStructureReceipt<P>
-  | TypeStructureReceipt<P>;
+  | TypeStructureReceipt<P> | ExpressionStructureReceipt<P>;
 export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements"
   | "elements" | "properties" | "declarations" | "clauses" | "types" | "members" | "heritageClauses" | "attributes" | "templateSpans";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
