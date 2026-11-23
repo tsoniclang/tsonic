@@ -1187,6 +1187,37 @@ test("actual formal tables and canonical endpoint associations are independent o
   ], "a genuinely different declaration cannot replace the selected original candidate");
 });
 
+test("a placed generic body and its independently selected application keep their own completion", () => {
+  const binder = `D[${moduleIdentity};run/T]`;
+  const scope = { ...emptyScope, methodParameters: [binder] };
+  const formal = { declaration: `D[${moduleIdentity};run/value]`, kind: "required", type: 0, passing: "by-value",
+    initializer: null, acceptsOmission: false };
+  const original = { ...signature, typeParameters: [{ declaration: binder, constraint: null, default: null }], parameters: [formal] };
+  const applied = { ...signature, id: 1, parameters: [{ ...formal, type: 1 }], result: 1 };
+  const [advertised, api] = declarationFacts.endpoints;
+  const bindings = { ...emptyBindings, methodBindings: [{ kind: "bound", parameter: binder, type: 1 }] };
+  const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 1 },
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null },
+    contributions: [], endpoints: { kind: "available", value: { advertised, api, advertisedSignature: 1, apiSignature: 1 } } };
+  const application = { captured: captureGolden.value, permissionScope: null, callee: 2, receiver: null, typeArguments: [],
+    arguments: [{ occurrence: { body, node: 1 }, kind: "value", type: 1, tuple: null, closure: null }], candidates: 0, result: 1 };
+  const decision = { ...applicationGolden().value, bindings, implementationBindings: bindings, result: 1,
+    parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }],
+    completion: { signature: 1, completion: 1, yielded: null, sent: null } };
+  const solved = completion => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 },
+    decision: { kind: "call", application: { ...decision, completion }, operation: null } }] });
+  const types = { terms: [{ kind: "param", parameter: binder }, { kind: "primitive", primitive: "bool" },
+    { kind: "callable", calls: [0], constructs: [] }], signatures: [original, applied] };
+  const input = { types, declarations: [[definition, { ...declarationFacts, scope, parameterCount: 1 }], ...parameterFacts([binder])],
+    nodes: [{ owner: source, ids: [0, 1] }], bindingScopes: [scope, scope],
+    constraints: [{ ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0, candidates: [candidate] }] }],
+    solution: solved(decision.completion) };
+  ruleCase("body-completion-endpoints", input, { ...input, solution: solved({ ...decision.completion, completion: 0 }) },
+    [violation("body-completion-endpoints", constraintSite(0), "completion")]);
+  ruleCase("endpoint-agreement", input, { ...input, solution: solved({ ...decision.completion, signature: 0 }) },
+    [violation("endpoint-agreement", constraintSite(0), "completion"), violation("body-completion-endpoints", constraintSite(0), "completion")]);
+});
+
 test("overloads map optional, default and rest implementation formals rather than the advertised empty signature", () => {
   const initializer = `B[D[${moduleIdentity};run/defaulted];default-argument;0]`;
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },

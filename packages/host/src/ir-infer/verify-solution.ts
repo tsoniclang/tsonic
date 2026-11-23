@@ -115,9 +115,19 @@ function mappingReferences(input: InferVerificationInput, decision: ApplicationD
   if (decision.completion.signature !== applied) emit(output, "endpoint-agreement", site, "completion");
   if (decision.api.body !== null) {
     const body = bodies.get(decision.api.body);
-    if (body !== undefined && (body.signature !== decision.completion.signature || body.completion !== decision.completion.completion ||
-      body.yielded !== decision.completion.yielded || body.sent !== decision.completion.sent))
-      emit(output, "body-completion-endpoints", site, "completion");
+    if (body !== undefined) {
+      const completion = decision.completion;
+      let exact = body.signature === applied && applied === completion.signature && body.completion === completion.completion
+        && body.yielded === completion.yielded && body.sent === completion.sent;
+      if (body.signature !== applied && body.signature === decision.api.signature && ordinal(body.signature)
+        && signature?.declaration === decision.api.declaration && completion.signature === applied) {
+        const original = input.types.signatures[body.signature];
+        exact = original?.declaration === decision.api.declaration
+          && body.completion === original.result && completion.completion === signature.result
+          && body.yielded === null && completion.yielded === null && body.sent === null && completion.sent === null;
+      }
+      if (!exact) emit(output, "body-completion-endpoints", site, "completion");
+    }
   }
 }
 
