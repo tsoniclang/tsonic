@@ -29,8 +29,8 @@ import type { ArrayTypeNode, ConditionalTypeNode, EntityName, IndexedAccessTypeN
 import type { AssertsKeyword, ConstructorTypeNode, FunctionTypeNode, ImportAttribute, ImportAttributeName, MappedTypeNode, MinusToken,
   PlusToken, ReadonlyKeyword, TemplateHead, TemplateLiteralTypeNode, TemplateLiteralTypeSpan, TemplateMiddleOrTail,
   TypePredicateNode, TypePredicateParameterName } from "./contract.js";
-import type { ArrowFunction, CallableSyntaxFields, EqualsGreaterThanToken, EqualsToken, ExpressionStructureReceipt, ExpressionStructureSyntax,
-  MetaProperty, PropertyAssignment, QualifiedName, ShorthandPropertyAssignment, SyntheticReferenceExpression, TaggedTemplateExpression,
+import type { ArrowFunction, CallableSyntaxFields, Decorator, EqualsGreaterThanToken, EqualsToken, ExpressionStructureReceipt, ExpressionStructureSyntax,
+  LeftHandSideExpression, MetaProperty, PropertyAssignment, QualifiedName, ShorthandPropertyAssignment, SyntheticReferenceExpression, TaggedTemplateExpression,
   TemplateExpression, TemplateLiteral, TemplateSpan, TypeAssertion, YieldExpression } from "./contract.js";
 import type { ClassStaticBlockDeclaration, ConstructorDeclaration, GetAccessorDeclaration, MethodDeclaration,
   MethodSignatureDeclaration, PropertyDeclaration, PropertySignatureDeclaration, SetAccessorDeclaration, SignatureSyntaxFields } from "./contract.js";
@@ -41,6 +41,10 @@ import type { ExportAssignment, ExportDeclaration, ExportSpecifier, ImportAttrib
 import type { JsxAttribute, JsxAttributeLike, JsxAttributeName, JsxAttributeValue, JsxAttributes, JsxChild, JsxClosingElement,
   JsxClosingFragment, JsxElement, JsxExpression, JsxFragment, JsxNamespacedName, JsxOpeningElement, JsxOpeningFragment,
   JsxSelfClosingElement, JsxStructureReceipt, JsxStructureSyntax, JsxTagNameExpression } from "./contract.js";
+import type { DocumentationStructureReceipt, DocumentationStructureSyntax, JSDocAugmentsTag, JSDocCallbackTag, JSDocComment,
+  JSDocFullName, JSDocImplementsTag, JSDocImportTag, JSDocLink, JSDocLinkCode, JSDocLinkPlain, JSDocNameReference,
+  JSDocParameterOrPropertyTag, JSDocReturnTag, JSDocSeeTag, JSDocTag, JSDocTemplateTag,
+  JSDocThrowsTag, JSDocTypeTag, JSDocTypedefTag } from "./contract.js";
 export type { SyntaxChildSlot } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
@@ -390,9 +394,34 @@ function heldOptionalList<P extends Phase, Value extends SyntaxNode<P>>(field: s
   return { slots: () => present?.slots() ?? [], finish: (read: (node: Value) => Value) => present?.finish(read) ?? null };
 }
 
+function heldVector<P extends Phase, Value extends SyntaxNode<P>>(field: string, source: () => readonly Value[]) {
+  let length: number | undefined;
+  const admitted: Value[] = [];
+  return {
+    slots: function* (): Generator<SyntaxChildSlot<P>> {
+      const raw = source();
+      length = raw.length;
+      for (let index = 0; index < length; index += 1) {
+        const position = index;
+        yield { fields: [field, position], read: () => {
+          const value = requirePresent(raw[position], missingChild);
+          admitted.push(value);
+          return value;
+        } };
+      }
+    },
+    finish: (read: (value: Value) => Value): readonly Value[] => {
+      if (admitted.length !== length) return throwInvariant(missingStructure);
+      for (let index = 0; index < length; index += 1) admitted[index] = read(requirePresent(admitted[index], missingStructure));
+      return admitted;
+    },
+  };
+}
+
 function isTypeStructure<P extends Phase>(node: SyntaxNode<P>): node is TypeStructureSyntax<P> {
   switch (node.kind) {
     case "TypeOperator": case "OptionalType": case "RestType": case "ParenthesizedType": case "ArrayType":
+    case "JSDocTypeExpression": case "JSDocNonNullableType": case "JSDocNullableType": case "JSDocVariadicType": case "JSDocOptionalType":
     case "UnionType": case "IntersectionType": case "TupleType": case "TypeLiteral": case "ConditionalType":
     case "IndexedAccessType": case "TypeReference": case "TypeQuery": case "LiteralType": case "InferType": case "NamedTupleMember":
     case "TypePredicate": case "ImportAttribute": case "ImportAttributes": case "MappedType": case "TypeParameter":
@@ -526,7 +555,8 @@ function prepareCallableStructure<P extends Phase, Stop>(node: FunctionTypeNode<
 function prepareTypeStructure<P extends Phase, Stop>(node: TypeStructureSyntax<P>, ordinal: number,
   admitList: (field: SyntaxChildListField) => Stop | null): SyntaxCopyResult<TypeStructureReceipt<P>, Stop> {
   switch (node.kind) {
-    case "TypeOperator": case "OptionalType": case "RestType": case "ParenthesizedType": {
+    case "TypeOperator": case "OptionalType": case "RestType": case "ParenthesizedType":
+    case "JSDocTypeExpression": case "JSDocNonNullableType": case "JSDocNullableType": case "JSDocVariadicType": case "JSDocOptionalType": {
       const type = heldChild(() => node.type);
       return { kind: "copied", value: { kind: "type-wrapper", ordinal, slots: wrappedTypeSlots<P>(type.pull), value: type.read } };
     }
@@ -668,7 +698,7 @@ function isExpressionStructure<P extends Phase>(node: SyntaxNode<P>): node is Ex
   switch (node.kind) {
     case "QualifiedName": case "YieldExpression": case "ArrowFunction": case "MetaProperty": case "TemplateExpression":
     case "TemplateSpan": case "TaggedTemplateExpression": case "PropertyAssignment": case "ShorthandPropertyAssignment":
-    case "TypeAssertionExpression": case "ExpressionWithTypeArguments": case "SyntheticReferenceExpression": return true;
+    case "TypeAssertionExpression": case "ExpressionWithTypeArguments": case "SyntheticReferenceExpression": case "Decorator": return true;
     default: return false;
   }
 }
@@ -731,6 +761,10 @@ function* expressionArgumentsSlots<P extends Phase>(expression: () => Expression
 
 function syntheticReferenceSlots<P extends Phase>(expression: () => Expression<P>, thisArg: () => Expression<P>) {
   return children<P, SyntheticReferenceExpression<P>>(["expression", "required", expression], ["thisArg", "required", thisArg]);
+}
+
+function decoratorSlots<P extends Phase>(expression: () => LeftHandSideExpression<P>) {
+  return children<P, Decorator<P>>(["expression", "required", expression]);
 }
 
 function prepareExpressionStructure<P extends Phase, Stop>(node: ExpressionStructureSyntax<P>, ordinal: number,
@@ -819,6 +853,10 @@ function prepareExpressionStructure<P extends Phase, Stop>(node: ExpressionStruc
       const thisArg = heldChild(() => node.thisArg);
       return { kind: "copied", value: { kind: "synthetic-reference", ordinal, slots: syntheticReferenceSlots<P>(expression.pull, thisArg.pull),
         expression: expression.read, thisArg: thisArg.read } };
+    }
+    case "Decorator": {
+      const expression = heldChild(() => node.expression);
+      return { kind: "copied", value: { kind: "decorator", ordinal, slots: decoratorSlots<P>(expression.pull), expression: expression.read } };
     }
   }
 }
@@ -1075,13 +1113,177 @@ function prepareJsxStructure<P extends Phase, Stop>(node: JsxStructureSyntax<P>,
   }
 }
 
+function isDocumentationStructure<P extends Phase>(node: SyntaxNode<P>): node is DocumentationStructureSyntax<P> {
+  switch (node.kind) {
+    case "SyntaxList": case "JSDoc": case "JSDocNameReference": case "JSDocLink": case "JSDocLinkCode":
+    case "JSDocLinkPlain": case "JSDocTypeLiteral": case "JSDocTypeTag": case "JSDocUnknownTag": case "JSDocTemplateTag":
+    case "JSDocReturnTag": case "JSDocPublicTag": case "JSDocPrivateTag": case "JSDocProtectedTag": case "JSDocReadonlyTag":
+    case "JSDocOverrideTag": case "JSDocDeprecatedTag": case "JSDocSeeTag": case "JSDocImplementsTag": case "JSDocAugmentsTag":
+    case "JSDocSatisfiesTag": case "JSDocThrowsTag": case "JSDocThisTag": case "JSDocImportTag": case "JSDocCallbackTag":
+    case "JSDocOverloadTag": case "JSDocTypedefTag": case "JSDocParameterTag": case "JSDocPropertyTag": return true;
+    default: return false;
+  }
+}
+
+function docReferenceSlots<P extends Phase>(name: () => EntityName<P>) {
+  return children<P, JSDocNameReference<P>>(["name", "required", name]);
+}
+
+function docLinkSlots<P extends Phase>(name: () => EntityName<P> | null) {
+  return children<P, JSDocLink<P> | JSDocLinkPlain<P> | JSDocLinkCode<P>>(["name", "nullable", name]);
+}
+
+function* docTagSlots<P extends Phase>(name: () => Identifier<P>, body: Iterable<SyntaxChildSlot<P>>,
+  comment: () => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* children<P, JSDocTag<P>>(["tagName", "required", name]);
+  yield* body;
+  yield* comment();
+}
+
+function docTypeSlots<P extends Phase>(type: () => SyntaxNode<P>) {
+  return children<P, JSDocTypeTag<P>>(["typeExpression", "required", type]);
+}
+
+function docOptionalTypeSlots<P extends Phase>(type: () => TypeNode<P> | null) {
+  return children<P, JSDocReturnTag<P> | JSDocThrowsTag<P>>(["typeExpression", "nullable", type]);
+}
+
+function docTemplateSlots<P extends Phase>(constraint: () => SyntaxNode<P>, parameters: () => Iterable<SyntaxChildSlot<P>>) {
+  return prependSlots<P>(children<P, JSDocTemplateTag<P>>(["constraint", "required", constraint]), parameters());
+}
+
+function docSeeSlots<P extends Phase>(name: () => TypeNode<P>) {
+  return children<P, JSDocSeeTag<P>>(["nameExpression", "required", name]);
+}
+
+function docHeritageSlots<P extends Phase>(name: () => ExpressionWithTypeArguments<P>) {
+  return children<P, JSDocAugmentsTag<P> | JSDocImplementsTag<P>>(["className", "required", name]);
+}
+
+function docImportSlots<P extends Phase>(clause: () => ImportClause<P> | null, specifier: () => Expression<P>,
+  attributes: () => ImportAttributes<P> | null) {
+  return children<P, JSDocImportTag<P>>(["importClause", "nullable", clause], ["moduleSpecifier", "required", specifier], ["attributes", "nullable", attributes]);
+}
+
+function docCallbackSlots<P extends Phase>(type: () => TypeNode<P>, name: () => JSDocFullName<P> | null) {
+  return children<P, JSDocCallbackTag<P>>(["typeExpression", "required", type], ["name", "nullable", name]);
+}
+
+function docTypedefSlots<P extends Phase>(type: () => SyntaxNode<P> | null, name: () => JSDocFullName<P> | null) {
+  return children<P, JSDocTypedefTag<P>>(["typeExpression", "nullable", type], ["name", "nullable", name]);
+}
+
+function docParameterSlots<P extends Phase>(name: () => EntityName<P>, type: () => TypeNode<P> | null) {
+  return children<P, JSDocParameterOrPropertyTag<P>>(["name", "required", name], ["typeExpression", "nullable", type]);
+}
+
+function prepareDocumentationStructure<P extends Phase, Stop>(node: DocumentationStructureSyntax<P>, ordinal: number,
+  admitList: (field: SyntaxChildListField) => Stop | null): SyntaxCopyResult<DocumentationStructureReceipt<P>, Stop> {
+  switch (node.kind) {
+    case "SyntaxList": {
+      const stop = admitList("children");
+      if (stop !== null) return { kind: "refused", stop };
+      const contents = heldVector<P, SyntaxNode<P>>("children", () => node.children);
+      return { kind: "copied", value: { kind: "syntax-list", ordinal, slots: contents.slots(), children: contents.finish } };
+    }
+    case "JSDoc": {
+      const contentStop = admitList("comment");
+      if (contentStop !== null) return { kind: "refused", stop: contentStop };
+      const rawTags = node.tags;
+      const stop = rawTags === null ? null : admitList("tags");
+      if (stop !== null) return { kind: "refused", stop };
+      const content = heldList<P, JSDocComment<P>>("comment", () => node.comment);
+      const tags = heldOptionalList<P, JSDocTag<P>>("tags", rawTags);
+      return { kind: "copied", value: { kind: "documentation", ordinal, slots: prependSlots<P>(content.slots(), tags.slots()), content: content.finish, tags: tags.finish } };
+    }
+    case "JSDocNameReference": {
+      const name = heldChild(() => node.name);
+      return { kind: "copied", value: { kind: "doc-reference", ordinal, slots: docReferenceSlots<P>(name.pull), name: name.read } };
+    }
+    case "JSDocLink": case "JSDocLinkPlain": case "JSDocLinkCode": {
+      const name = heldChild(() => node.name);
+      return { kind: "copied", value: { kind: "doc-link", ordinal, slots: docLinkSlots<P>(name.pull), name: name.read } };
+    }
+    case "JSDocTypeLiteral": {
+      const rawTags = node.jsDocPropertyTags;
+      if (rawTags === null) return { kind: "copied", value: { kind: "doc-literal", ordinal, slots: [], tags: () => null } };
+      const stop = admitList("jsDocPropertyTags");
+      if (stop !== null) return { kind: "refused", stop };
+      const tags = heldVector<P, JSDocTag<P>>("jsDocPropertyTags", () => rawTags);
+      return { kind: "copied", value: { kind: "doc-literal", ordinal, slots: tags.slots(), tags: tags.finish } };
+    }
+  }
+  const rawComment = node.comment;
+  const stop = rawComment === null ? null : admitList("comment");
+  if (stop !== null) return { kind: "refused", stop };
+  const comment = heldOptionalList<P, JSDocComment<P>>("comment", rawComment);
+  const tag = heldChild(() => node.tagName);
+  const base = { ordinal, tagName: tag.read, comment: comment.finish };
+  const slots = (body: Iterable<SyntaxChildSlot<P>>) => docTagSlots<P>(tag.pull, body, comment.slots);
+  switch (node.kind) {
+    case "JSDocUnknownTag": case "JSDocPublicTag": case "JSDocPrivateTag": case "JSDocProtectedTag":
+    case "JSDocReadonlyTag": case "JSDocOverrideTag": case "JSDocDeprecatedTag":
+      return { kind: "copied", value: { kind: "doc-tag", ...base, slots: slots([]) } };
+    case "JSDocTypeTag": {
+      const type = heldChild(() => node.typeExpression);
+      return { kind: "copied", value: { kind: "doc-syntax-type-tag", ...base, slots: slots(docTypeSlots<P>(type.pull)), type: type.read } };
+    }
+    case "JSDocSatisfiesTag": case "JSDocThisTag": case "JSDocOverloadTag": {
+      const type = heldChild(() => node.typeExpression);
+      return { kind: "copied", value: { kind: "doc-type-tag", ...base, slots: slots(docTypeSlots<P>(type.pull)), type: type.read } };
+    }
+    case "JSDocReturnTag": case "JSDocThrowsTag": {
+      const type = heldChild(() => node.typeExpression);
+      return { kind: "copied", value: { kind: "doc-optional-type-tag", ...base, slots: slots(docOptionalTypeSlots<P>(type.pull)), type: type.read } };
+    }
+    case "JSDocTemplateTag": {
+      const stop = admitList("typeParameters");
+      if (stop !== null) return { kind: "refused", stop };
+      const constraint = heldChild(() => node.constraint);
+      const parameters = heldList<P, TypeParameterDeclaration<P>>("typeParameters", () => node.typeParameters);
+      return { kind: "copied", value: { kind: "doc-template", ...base, slots: slots(docTemplateSlots<P>(constraint.pull, parameters.slots)),
+        constraint: constraint.read, parameters: parameters.finish } };
+    }
+    case "JSDocSeeTag": {
+      const name = heldChild(() => node.nameExpression);
+      return { kind: "copied", value: { kind: "doc-see", ...base, slots: slots(docSeeSlots<P>(name.pull)), name: name.read } };
+    }
+    case "JSDocImplementsTag": case "JSDocAugmentsTag": {
+      const name = heldChild(() => node.className);
+      return { kind: "copied", value: { kind: "doc-heritage", ...base, slots: slots(docHeritageSlots<P>(name.pull)), name: name.read } };
+    }
+    case "JSDocImportTag": {
+      const clause = heldChild(() => node.importClause);
+      const specifier = heldChild(() => node.moduleSpecifier);
+      const attributes = heldChild(() => node.attributes);
+      return { kind: "copied", value: { kind: "doc-import", ...base, slots: slots(docImportSlots<P>(clause.pull, specifier.pull, attributes.pull)),
+        clause: clause.read, specifier: specifier.read, attributes: attributes.read } };
+    }
+    case "JSDocCallbackTag": {
+      const type = heldChild(() => node.typeExpression);
+      const name = heldChild(() => node.name);
+      return { kind: "copied", value: { kind: "doc-callback", ...base, slots: slots(docCallbackSlots<P>(type.pull, name.pull)), type: type.read, name: name.read } };
+    }
+    case "JSDocTypedefTag": {
+      const type = heldChild(() => node.typeExpression);
+      const name = heldChild(() => node.name);
+      return { kind: "copied", value: { kind: "doc-typedef", ...base, slots: slots(docTypedefSlots<P>(type.pull, name.pull)), type: type.read, name: name.read } };
+    }
+    case "JSDocPropertyTag": case "JSDocParameterTag": {
+      const name = heldChild(() => node.name);
+      const type = heldChild(() => node.typeExpression);
+      return { kind: "copied", value: { kind: "doc-parameter", ...base, slots: slots(docParameterSlots<P>(name.pull, type.pull)), type: type.read, name: name.read } };
+    }
+  }
+}
+
 function isDeclarationStructure<P extends Phase>(node: SyntaxNode<P>): node is DeclarationStructureSyntax<P> {
   switch (node.kind) {
     case "ClassDeclaration": case "ClassExpression": case "InterfaceDeclaration": case "HeritageClause":
     case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": case "EnumDeclaration": case "EnumMember":
     case "ModuleBlock": case "MissingDeclaration": case "CallSignature": case "ConstructSignature": case "Constructor":
     case "GetAccessor": case "SetAccessor": case "IndexSignature": case "MethodSignature": case "MethodDeclaration":
-    case "PropertySignature": case "PropertyDeclaration": case "ClassStaticBlockDeclaration": return true;
+    case "PropertySignature": case "PropertyDeclaration": case "ClassStaticBlockDeclaration": case "JSDocSignature": return true;
     default: return false;
   }
 }
@@ -1150,7 +1352,7 @@ function prepareDeclaration<P extends Phase, Stop>(node: DeclarationStructureSyn
       const types = heldList<P, ExpressionWithTypeArguments<P>>("types", () => node.types);
       return { kind: "copied", value: { kind: "heritage", ordinal, slots: types.slots(), types: types.finish } };
     }
-    case "CallSignature": case "ConstructSignature": {
+    case "CallSignature": case "ConstructSignature": case "JSDocSignature": {
       const signature = prepareSignatureStructure<P, Stop>(node, admitList);
       return signature.kind === "refused" ? signature : { kind: "copied", value: { kind: "bare-signature", ordinal, ...signature.value } };
     }
@@ -1526,6 +1728,10 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
     const stop = reserve(node);
     return stop === null ? prepareJsxStructure<P, Stop>(node, ordinal, field => admitList(node, field)) : { kind: "refused", stop };
   }
+  if (isDocumentationStructure<P>(node)) {
+    const stop = reserve(node);
+    return stop === null ? prepareDocumentationStructure<P, Stop>(node, ordinal, field => admitList(node, field)) : { kind: "refused", stop };
+  }
   if (isDeclarationStructure<P>(node)) {
     const stop = reserve(node);
     return stop === null ? prepareDeclaration<P, Stop>(node, ordinal, field => admitList(node, field)) : { kind: "refused", stop };
@@ -1818,7 +2024,7 @@ function ordinarySlots<PhaseType extends Phase>(
     case "QualifiedName":
       return qualifiedNameSlots<PhaseType>(() => node.left, () => node.right);
     case "Decorator":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression]);
+      return decoratorSlots<PhaseType>(() => node.expression);
     case "ReturnStatement":
       return returnSlots<PhaseType>(node, child => child);
     case "IfStatement":
@@ -1908,11 +2114,11 @@ function ordinarySlots<PhaseType extends Phase>(
     case "NamespaceExport":
       return namespaceNameSlots<PhaseType>(() => node.name);
     case "JSDocNameReference":
-      return children<PhaseType, typeof node>(["name", "required", () => node.name]);
+      return docReferenceSlots<PhaseType>(() => node.name);
     case "JSDocLink":
     case "JSDocLinkPlain":
     case "JSDocLinkCode":
-      return children<PhaseType, typeof node>(["name", "nullable", () => node.name]);
+      return docLinkSlots<PhaseType>(() => node.name);
     case "NamedImports":
     case "NamedExports":
       return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
@@ -2007,7 +2213,6 @@ function ordinarySlots<PhaseType extends Phase>(
     case "JSDocNullableType":
     case "JSDocVariadicType":
     case "JSDocOptionalType":
-      return children<PhaseType, typeof node>(["type", "required", () => node.type]);
     case "TypeOperator":
     case "OptionalType":
     case "RestType":
@@ -2071,10 +2276,12 @@ function ordinarySlots<PhaseType extends Phase>(
     case "JSDocSatisfiesTag":
     case "JSDocThisTag":
     case "JSDocOverloadTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeExpression", "required", () => node.typeExpression], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, docTypeSlots<PhaseType>(() => node.typeExpression),
+        () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "JSDocReturnTag":
     case "JSDocThrowsTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeExpression", "nullable", () => node.typeExpression], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, docOptionalTypeSlots<PhaseType>(() => node.typeExpression),
+        () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "JSDocUnknownTag":
     case "JSDocPublicTag":
     case "JSDocPrivateTag":
@@ -2082,21 +2289,27 @@ function ordinarySlots<PhaseType extends Phase>(
     case "JSDocReadonlyTag":
     case "JSDocOverrideTag":
     case "JSDocDeprecatedTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, [], () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "JSDocSeeTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["nameExpression", "required", () => node.nameExpression], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, docSeeSlots<PhaseType>(() => node.nameExpression),
+        () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "JSDocTemplateTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["constraint", "required", () => node.constraint], ["typeParameters", "list", () => node.typeParameters], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, docTemplateSlots<PhaseType>(() => node.constraint,
+        () => children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters])),
+      () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "JSDocImplementsTag":
     case "JSDocAugmentsTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["className", "required", () => node.className], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, docHeritageSlots<PhaseType>(() => node.className),
+        () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "JSDocImportTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["importClause", "nullable", () => node.importClause], ["moduleSpecifier", "required", () => node.moduleSpecifier],
-        ["attributes", "nullable", () => node.attributes], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, docImportSlots<PhaseType>(() => node.importClause, () => node.moduleSpecifier, () => node.attributes),
+        () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "JSDocCallbackTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeExpression", "required", () => node.typeExpression], ["name", "nullable", () => node.name], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, docCallbackSlots<PhaseType>(() => node.typeExpression, () => node.name),
+        () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "JSDocTypedefTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeExpression", "nullable", () => node.typeExpression], ["name", "nullable", () => node.name], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, docTypedefSlots<PhaseType>(() => node.typeExpression, () => node.name),
+        () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "SourceFile":
       return iterateSourceFileHeaderSlots(node, sameSlot<PhaseType>, field => children<PhaseType, typeof node>([field, "list", () => node.statements]));
     case "ModuleDeclaration":
@@ -2122,7 +2335,8 @@ function ordinarySlots<PhaseType extends Phase>(
       return children<PhaseType, typeof node>(["jsDocPropertyTags", "array", () => node.jsDocPropertyTags]);
     case "JSDocParameterTag":
     case "JSDocPropertyTag":
-      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["name", "required", () => node.name], ["typeExpression", "nullable", () => node.typeExpression], ["comment", "list", () => node.comment]);
+      return docTagSlots<PhaseType>(() => node.tagName, docParameterSlots<PhaseType>(() => node.name, () => node.typeExpression),
+        () => children<PhaseType, typeof node>(["comment", "list", () => node.comment]));
     case "AnyKeyword":
     case "BigIntKeyword":
     case "BooleanKeyword":

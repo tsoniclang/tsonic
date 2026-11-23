@@ -199,7 +199,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().LeftHandSideExpression(node.expression),
+        expression: ports().LeftHandSideExpression(structure(node, "decorator").expression()),
         tsonic,
       });
     })),

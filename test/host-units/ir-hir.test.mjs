@@ -607,6 +607,10 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         const rows = watch(list, "nodes", field + " vector");
         watch(list, "loc", field + " range");
         expectedReads.push(field + " vector", field + " range");
+        expectVector(field, rows);
+      };
+      const expectVector = (field, rows) => {
+        if (rows === null) return;
         for (let position = 0; position < rows.length; position += 1) {
           const label = field + " " + position;
           watch(rows, position, label);
@@ -634,8 +638,8 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         expectList("parameters", watch(selected, "parameters"));
         expectFields("type", "fullSignature");
         if (selected.kind === "ArrowFunction") expectFields("asteriskToken", "equalsGreaterThanToken", "body");
-      } else if (["CallSignature", "ConstructSignature", "Constructor", "IndexSignature", "MethodSignature", "MethodDeclaration", "GetAccessor", "SetAccessor"].includes(selected.kind)) {
-        const modified = selected.kind !== "CallSignature" && selected.kind !== "ConstructSignature";
+      } else if (["CallSignature", "ConstructSignature", "Constructor", "IndexSignature", "MethodSignature", "MethodDeclaration", "GetAccessor", "SetAccessor", "JSDocSignature"].includes(selected.kind)) {
+        const modified = selected.kind !== "CallSignature" && selected.kind !== "ConstructSignature" && selected.kind !== "JSDocSignature";
         const method = selected.kind === "MethodDeclaration" || selected.kind === "GetAccessor" || selected.kind === "SetAccessor";
         if (modified) expectedReads.push("modifiers");
         expectedReads.push("typeParameters");
@@ -704,6 +708,38 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         expectFields("name", "initializer");
       } else if (selected.kind === "JsxExpression") {
         expectFields("dotDotDotToken", "expression");
+      } else if (selected.kind === "JSDoc") {
+        expectedReads.push("tags", "comment");
+        const tags = watch(selected, "tags");
+        expectList("comment", watch(selected, "comment"));
+        expectList("tags", tags);
+      } else if (selected.kind === "SyntaxList" || selected.kind === "JSDocTypeLiteral") {
+        const field = selected.kind === "SyntaxList" ? "children" : "jsDocPropertyTags";
+        expectedReads.push(field);
+        expectVector(field, watch(selected, field));
+      } else if (selected.kind.startsWith("JSDoc") && selected.kind.endsWith("Tag")) {
+        expectedReads.push("comment");
+        const comment = watch(selected, "comment");
+        expectFields("tagName");
+        switch (selected.kind) {
+          case "JSDocTypeTag": case "JSDocReturnTag": case "JSDocSatisfiesTag": case "JSDocThrowsTag": case "JSDocThisTag": case "JSDocOverloadTag":
+            expectFields("typeExpression"); break;
+          case "JSDocTemplateTag":
+            expectFields("constraint");
+            expectedReads.push("typeParameters");
+            expectList("typeParameters", watch(selected, "typeParameters"));
+            break;
+          case "JSDocSeeTag": expectFields("nameExpression"); break;
+          case "JSDocImplementsTag": case "JSDocAugmentsTag": expectFields("className"); break;
+          case "JSDocImportTag": expectFields("importClause", "moduleSpecifier", "attributes"); break;
+          case "JSDocCallbackTag": case "JSDocTypedefTag": expectFields("typeExpression", "name"); break;
+          case "JSDocParameterTag": case "JSDocPropertyTag": expectFields("name", "typeExpression"); break;
+        }
+        expectList("comment", comment);
+      } else if (["JSDocNameReference", "JSDocLink", "JSDocLinkPlain", "JSDocLinkCode"].includes(selected.kind)) {
+        expectFields("name");
+      } else if (["JSDocTypeExpression", "JSDocNonNullableType", "JSDocNullableType", "JSDocVariadicType", "JSDocOptionalType"].includes(selected.kind)) {
+        expectFields("type");
       } else if (selected.kind === "TypeParameter") {
         expectedReads.push("modifiers");
         expectList("modifiers", watch(selected, "modifiers"));
@@ -729,6 +765,8 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         expectFields("asteriskToken", "expression");
       } else if (selected.kind === "SyntheticReferenceExpression") {
         expectFields("expression", "thisArg");
+      } else if (selected.kind === "Decorator") {
+        expectFields("expression");
       } else if (selected.kind === "TypeAssertionExpression") {
         expectFields("type", "expression");
       } else if (selected.kind === "TaggedTemplateExpression" || selected.kind === "ExpressionWithTypeArguments") {

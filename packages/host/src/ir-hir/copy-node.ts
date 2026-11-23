@@ -30,7 +30,7 @@ import type {
   ModifierLike, ModuleBlock, ModuleDeclaration, ModuleExportName, ModuleName,
   ModuleReference, NamedExportBindings, NamedExports, NamedImportBindings, NamedImports,
   NamedTupleMember, NamespaceExport, NamespaceExportDeclaration, NamespaceImport, NewExpression,
-  NoSubstitutionTemplateLiteral, NodeBody, NodeHeader, NodeList, NonNullExpression,
+  NoSubstitutionTemplateLiteral, NodeBody, NodeHeader, NonNullExpression,
   NotEmittedStatement, NotEmittedTypeElement, NumericLiteral, ObjectLiteralElementLike, ObjectLiteralExpression,
   OmittedExpression, OptionalTypeNode, ParameterDeclaration, ParenthesizedExpression, ParenthesizedTypeNode,
   PartiallyEmittedExpression, PostfixUnaryExpression, PrefixUnaryExpression, PrivateIdentifier, PropertyAccessExpression,
@@ -321,10 +321,6 @@ export interface SyntaxCopyPorts<P extends Phase, Stop, Image> {
 
 export function syntaxHeader(node: NodeHeader): NodeHeader {
   return { id: node.id, origin: node.origin, parent: node.parent, flags: node.flags, loc: node.loc };
-}
-
-export function copyNodeList<Value>(list: NodeList<Value>, copy: (value: Value) => Value): NodeList<Value> {
-  return { loc: list.loc, nodes: list.nodes.map(copy) };
 }
 
 export function finishFunctionSyntax<P extends Phase, Stop, Image>(shape: FunctionSyntaxReceipt<P>, ports: SyntaxCopyPorts<P, Stop, Image>) {

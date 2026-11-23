@@ -12,10 +12,10 @@ import type {
   JSDocSignature, JSDocNameReference, SourceFile, SourceFileSyntaxReceipt, ModuleDeclaration, ImportEqualsDeclaration,
   ExportDeclaration, ImportTypeNode, ImportClause, ImportSpecifier, JSDocText,
   JSDocLink, JSDocLinkPlain, JSDocLinkCode, JSDocTypeLiteral, JSDocParameterOrPropertyTag,
-  Expression, JsxStructureSyntax, ModuleStructureSyntax, Phase, SingleExpressionSyntax, SyntaxPhaseCopy, SyntaxStructureReceipt,
+  Expression, Phase, RetainedSyntaxNode, SingleExpressionSyntax, SyntaxPhaseCopy, SyntaxStructureReceipt,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { finishSignatureSyntax, holdSyntaxPayload, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 
 export interface AuxiliaryPlans<P extends Phase, Stop, Image> {
   readonly ImportDeclaration: (node: ImportDeclaration<P>) => SyntaxPlan<ImportDeclaration<P>, Stop, Image>;
@@ -87,9 +87,10 @@ export interface AuxiliaryPlans<P extends Phase, Stop, Image> {
 
 export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   ports: () => SyntaxCopyPorts<P, Stop, Image>, expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
-  sourceOf: (node: SourceFile<P>) => SourceFileSyntaxReceipt<P>, structureOf: (node: ModuleStructureSyntax<P> | JsxStructureSyntax<P>) => SyntaxStructureReceipt<P>):
+  sourceOf: (node: SourceFile<P>) => SourceFileSyntaxReceipt<P>,
+  structureOf: (node: RetainedSyntaxNode<P>) => SyntaxStructureReceipt<P>):
   AuxiliaryPlans<P, Stop, Image> {
-  function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: ModuleStructureSyntax<P> | JsxStructureSyntax<P>, kind: Kind) {
+  function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: RetainedSyntaxNode<P>, kind: Kind) {
     return requireSyntaxStructure<P, Kind>(structureOf(node), kind);
   }
   const optional = <Value, Copied>(value: Value | null, read: (value: Value) => Copied): Copied | null => value === null ? null : read(value);
@@ -365,53 +366,68 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
     SyntaxList: node => memoSyntaxPlan(SyntaxList, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        children: node.children.map(item => ports().SyntaxNode(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "syntax-list");
+        return {
+          ...header,
+          kind,
+          children: fields.children(ports().SyntaxNode),
+          tsonic,
+        };
+      };
     })),
     JSDoc: node => memoSyntaxPlan(JSDoc, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        comment: copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        tags: node.tags === null ? null : copyNodeList(node.tags, item => ports().JSDocTag(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "documentation");
+        return {
+          ...header,
+          kind,
+          comment: fields.content(ports().JSDocComment),
+          tags: fields.tags(ports().JSDocTag),
+          tsonic,
+        };
+      };
     })),
     JSDocTypeExpression: node => memoSyntaxPlan(JSDocTypeExpression, node, () => withSyntaxPayload(phase.JSDocTypeExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        type: ports().TypeNode(node.type),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "type-wrapper");
+        return {
+          ...header,
+          kind,
+          type: ports().TypeNode(fields.value()),
+          tsonic,
+        };
+      };
     })),
     JSDocNonNullableType: node => memoSyntaxPlan(JSDocNonNullableType, node, () => withSyntaxPayload(phase.JSDocNonNullableType, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        type: ports().TypeNode(node.type),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "type-wrapper");
+        return {
+          ...header,
+          kind,
+          type: ports().TypeNode(fields.value()),
+          tsonic,
+        };
+      };
     })),
     JSDocNullableType: node => memoSyntaxPlan(JSDocNullableType, node, () => withSyntaxPayload(phase.JSDocNullableType, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        type: ports().TypeNode(node.type),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "type-wrapper");
+        return {
+          ...header,
+          kind,
+          type: ports().TypeNode(fields.value()),
+          tsonic,
+        };
+      };
     })),
     JSDocAllType: node => memoSyntaxPlan(JSDocAllType, node, () => withSyntaxPayload(phase.JSDocAllType, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -425,283 +441,352 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
     JSDocVariadicType: node => memoSyntaxPlan(JSDocVariadicType, node, () => withSyntaxPayload(phase.JSDocVariadicType, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        type: ports().TypeNode(node.type),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "type-wrapper");
+        return {
+          ...header,
+          kind,
+          type: ports().TypeNode(fields.value()),
+          tsonic,
+        };
+      };
     })),
     JSDocOptionalType: node => memoSyntaxPlan(JSDocOptionalType, node, () => withSyntaxPayload(phase.JSDocOptionalType, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        type: ports().TypeNode(node.type),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "type-wrapper");
+        return {
+          ...header,
+          kind,
+          type: ports().TypeNode(fields.value()),
+          tsonic,
+        };
+      };
     })),
     JSDocTypeTag: node => memoSyntaxPlan(JSDocTypeTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        typeExpression: ports().SyntaxNode(node.typeExpression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-syntax-type-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          typeExpression: ports().SyntaxNode(fields.type()),
+          tsonic,
+        };
+      };
     })),
     JSDocUnknownTag: node => memoSyntaxPlan(JSDocUnknownTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          tsonic,
+        };
+      };
     })),
     JSDocTemplateTag: node => memoSyntaxPlan(JSDocTemplateTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        constraint: ports().SyntaxNode(node.constraint),
-        typeParameters: copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-template");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          constraint: ports().SyntaxNode(fields.constraint()),
+          typeParameters: fields.parameters(item => ports().TypeParameterDeclaration(item).read()),
+          tsonic,
+        };
+      };
     })),
     JSDocReturnTag: node => memoSyntaxPlan(JSDocReturnTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-optional-type-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          typeExpression: optional(fields.type(), ports().TypeNode),
+          tsonic,
+        };
+      };
     })),
     JSDocPublicTag: node => memoSyntaxPlan(JSDocPublicTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          tsonic,
+        };
+      };
     })),
     JSDocPrivateTag: node => memoSyntaxPlan(JSDocPrivateTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          tsonic,
+        };
+      };
     })),
     JSDocProtectedTag: node => memoSyntaxPlan(JSDocProtectedTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          tsonic,
+        };
+      };
     })),
     JSDocReadonlyTag: node => memoSyntaxPlan(JSDocReadonlyTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          tsonic,
+        };
+      };
     })),
     JSDocOverrideTag: node => memoSyntaxPlan(JSDocOverrideTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          tsonic,
+        };
+      };
     })),
     JSDocDeprecatedTag: node => memoSyntaxPlan(JSDocDeprecatedTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          tsonic,
+        };
+      };
     })),
     JSDocSeeTag: node => memoSyntaxPlan(JSDocSeeTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        nameExpression: ports().TypeNode(node.nameExpression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-see");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          nameExpression: ports().TypeNode(fields.name()),
+          tsonic,
+        };
+      };
     })),
     JSDocImplementsTag: node => memoSyntaxPlan(JSDocImplementsTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        className: ports().ExpressionWithTypeArguments(node.className).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-heritage");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          className: ports().ExpressionWithTypeArguments(fields.name()).read(),
+          tsonic,
+        };
+      };
     })),
     JSDocAugmentsTag: node => memoSyntaxPlan(JSDocAugmentsTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        className: ports().ExpressionWithTypeArguments(node.className).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-heritage");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          className: ports().ExpressionWithTypeArguments(fields.name()).read(),
+          tsonic,
+        };
+      };
     })),
     JSDocSatisfiesTag: node => memoSyntaxPlan(JSDocSatisfiesTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        typeExpression: ports().TypeNode(node.typeExpression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-type-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          typeExpression: ports().TypeNode(fields.type()),
+          tsonic,
+        };
+      };
     })),
     JSDocThrowsTag: node => memoSyntaxPlan(JSDocThrowsTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-optional-type-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          typeExpression: optional(fields.type(), ports().TypeNode),
+          tsonic,
+        };
+      };
     })),
     JSDocThisTag: node => memoSyntaxPlan(JSDocThisTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        typeExpression: ports().TypeNode(node.typeExpression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-type-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          typeExpression: ports().TypeNode(fields.type()),
+          tsonic,
+        };
+      };
     })),
     JSDocImportTag: node => memoSyntaxPlan(JSDocImportTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        importClause: node.importClause === null ? null : ports().ImportClause(node.importClause).read(),
-        moduleSpecifier: ports().Expression(node.moduleSpecifier),
-        attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-import");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          importClause: optional(fields.clause(), value => ports().ImportClause(value).read()),
+          moduleSpecifier: ports().Expression(fields.specifier()),
+          attributes: optional(fields.attributes(), value => ports().ImportAttributes(value).read()),
+          tsonic,
+        };
+      };
     })),
     JSDocCallbackTag: node => memoSyntaxPlan(JSDocCallbackTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        typeExpression: ports().TypeNode(node.typeExpression),
-        name: node.name === null ? null : ports().JSDocFullName(node.name),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-callback");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          typeExpression: ports().TypeNode(fields.type()),
+          name: optional(fields.name(), ports().JSDocFullName),
+          tsonic,
+        };
+      };
     })),
     JSDocOverloadTag: node => memoSyntaxPlan(JSDocOverloadTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        typeExpression: ports().TypeNode(node.typeExpression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-type-tag");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          typeExpression: ports().TypeNode(fields.type()),
+          tsonic,
+        };
+      };
     })),
     JSDocTypedefTag: node => memoSyntaxPlan(JSDocTypedefTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        typeExpression: node.typeExpression === null ? null : ports().SyntaxNode(node.typeExpression),
-        name: node.name === null ? null : ports().JSDocFullName(node.name),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-typedef");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          typeExpression: optional(fields.type(), ports().SyntaxNode),
+          name: optional(fields.name(), ports().JSDocFullName),
+          tsonic,
+        };
+      };
     })),
     JSDocSignature: node => memoSyntaxPlan(JSDocSignature, node, () => withSyntaxPayload(phase.JSDocSignature, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "bare-signature");
+        return {
+          ...header,
+          kind,
+          ...finishSignatureSyntax(fields, ports()),
+          tsonic,
+        };
+      };
     })),
     JSDocNameReference: node => memoSyntaxPlan(JSDocNameReference, node, () => withSyntaxPayload(phase.JSDocNameReference, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        name: ports().EntityName(node.name),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-reference");
+        return {
+          ...header,
+          kind,
+          name: ports().EntityName(fields.name()),
+          tsonic,
+        };
+      };
     })),
     SourceFile: node => memoSyntaxPlan(SourceFile, node, () => withSyntaxPayload(phase.SourceFile, node.tsonic, () => tsonic =>
       ({ kind: "SourceFile", ...sourceOf(node).finish(item => ports().Statement(item)), tsonic }))),
@@ -774,61 +859,76 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
     JSDocLink: node => memoSyntaxPlan(JSDocLink, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, text } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        text,
-        name: node.name === null ? null : ports().EntityName(node.name),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-link");
+        return {
+          ...header,
+          kind,
+          text,
+          name: optional(fields.name(), ports().EntityName),
+          tsonic,
+        };
+      };
     })),
     JSDocLinkPlain: node => memoSyntaxPlan(JSDocLinkPlain, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, text } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        text,
-        name: node.name === null ? null : ports().EntityName(node.name),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-link");
+        return {
+          ...header,
+          kind,
+          text,
+          name: optional(fields.name(), ports().EntityName),
+          tsonic,
+        };
+      };
     })),
     JSDocLinkCode: node => memoSyntaxPlan(JSDocLinkCode, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, text } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        text,
-        name: node.name === null ? null : ports().EntityName(node.name),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-link");
+        return {
+          ...header,
+          kind,
+          text,
+          name: optional(fields.name(), ports().EntityName),
+          tsonic,
+        };
+      };
     })),
     JSDocTypeLiteral: node => memoSyntaxPlan(JSDocTypeLiteral, node, () => withSyntaxPayload(phase.JSDocTypeLiteral, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, isArrayType } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        jsDocPropertyTags: node.jsDocPropertyTags === null ? null : node.jsDocPropertyTags.map(item => ports().JSDocTag(item)),
-        isArrayType,
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-literal");
+        return {
+          ...header,
+          kind,
+          jsDocPropertyTags: fields.tags(ports().JSDocTag),
+          isArrayType,
+          tsonic,
+        };
+      };
     })),
     JSDocParameterOrPropertyTag: node => memoSyntaxPlan(JSDocParameterOrPropertyTag, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, isBracketed, isNameFirst } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
-        name: ports().EntityName(node.name),
-        isBracketed,
-        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression),
-        isNameFirst,
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "doc-parameter");
+        return {
+          ...header,
+          kind,
+          tagName: ports().Identifier(fields.tagName()).read(),
+          comment: fields.comment(ports().JSDocComment),
+          name: ports().EntityName(fields.name()),
+          isBracketed,
+          typeExpression: optional(fields.type(), ports().TypeNode),
+          isNameFirst,
+          tsonic,
+        };
+      };
     })),
   };
 }

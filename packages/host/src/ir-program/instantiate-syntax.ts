@@ -359,9 +359,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "SyntaxList":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "JSDoc":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2)
-        ?? (node.tags === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocTypeExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "JSDocNonNullableType":
@@ -375,70 +373,47 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "JSDocOptionalType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "JSDocTypeTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JSDocUnknownTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocTemplateTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "JSDocReturnTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JSDocPublicTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocPrivateTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocProtectedTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocReadonlyTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocOverrideTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocDeprecatedTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocSeeTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JSDocImplementsTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JSDocAugmentsTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JSDocSatisfiesTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JSDocThrowsTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JSDocThisTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JSDocImportTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "JSDocCallbackTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "JSDocOverloadTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JSDocTypedefTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "JSDocSignature":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "JSDocNameReference":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "SourceFile":
@@ -470,8 +445,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "JSDocTypeLiteral":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocParameterTag":     case "JSDocPropertyTag":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13)
-        ?? (node.comment === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13);
   }
 }
 

@@ -5066,7 +5066,7 @@ export type DeclarationStructureSyntax<P extends Phase> = ClassDeclaration<P> | 
   | HeritageClause<P> | TypeAliasDeclaration<P> | EnumDeclaration<P> | EnumMember<P> | ModuleBlock<P> | MissingDeclaration<P>
   | CallSignatureDeclaration<P> | ConstructSignatureDeclaration<P> | ConstructorDeclaration<P> | GetAccessorDeclaration<P>
   | SetAccessorDeclaration<P> | IndexSignatureDeclaration<P> | MethodSignatureDeclaration<P> | MethodDeclaration<P>
-  | PropertySignatureDeclaration<P> | PropertyDeclaration<P> | ClassStaticBlockDeclaration<P>;
+  | PropertySignatureDeclaration<P> | PropertyDeclaration<P> | ClassStaticBlockDeclaration<P> | JSDocSignature<P>;
 
 export interface ModifiedSyntaxFields<P extends Phase> {
   readonly modifiers: (read: (value: ModifierLike<P>) => ModifierLike<P>) => ModifierList<P> | null;
@@ -5111,7 +5111,8 @@ export type DeclarationStructureReceipt<P extends Phase> = {
   | ({ readonly kind: "static-block"; readonly body: () => Block<P> } & ModifiedSyntaxFields<P>)
 );
 
-export type WrappedTypeSyntax<P extends Phase> = TypeOperatorNode<P> | OptionalTypeNode<P> | RestTypeNode<P> | ParenthesizedTypeNode<P>;
+export type WrappedTypeSyntax<P extends Phase> = TypeOperatorNode<P> | OptionalTypeNode<P> | RestTypeNode<P> | ParenthesizedTypeNode<P>
+  | JSDocTypeExpression<P> | JSDocNonNullableType<P> | JSDocNullableType<P> | JSDocVariadicType<P> | JSDocOptionalType<P>;
 export type TypeStructureSyntax<P extends Phase> = WrappedTypeSyntax<P> | ArrayTypeNode<P> | UnionTypeNode<P> | IntersectionTypeNode<P>
   | TupleTypeNode<P> | TypeLiteralNode<P> | ConditionalTypeNode<P> | IndexedAccessTypeNode<P> | TypeReferenceNode<P> | TypeQueryNode<P>
   | LiteralTypeNode<P> | InferTypeNode<P> | NamedTupleMember<P> | TypePredicateNode<P> | MappedTypeNode<P> | TypeParameterDeclaration<P>
@@ -5159,7 +5160,7 @@ export interface CallableSyntaxFields<P extends Phase> extends SignatureSyntaxFi
 
 export type ExpressionStructureSyntax<P extends Phase> = QualifiedName<P> | YieldExpression<P> | ArrowFunction<P>
   | MetaProperty<P> | TemplateExpression<P> | TemplateSpan<P> | TaggedTemplateExpression<P>
-  | PropertyAssignment<P> | ShorthandPropertyAssignment<P> | TypeAssertion<P> | ExpressionWithTypeArguments<P> | SyntheticReferenceExpression<P>;
+  | PropertyAssignment<P> | ShorthandPropertyAssignment<P> | TypeAssertion<P> | ExpressionWithTypeArguments<P> | SyntheticReferenceExpression<P> | Decorator<P>;
 
 export interface MemberNameSyntaxFields<P extends Phase> {
   readonly name: () => PropertyName<P>;
@@ -5191,6 +5192,7 @@ export type ExpressionStructureReceipt<P extends Phase> = {
   | { readonly kind: "expression-type-arguments"; readonly expression: () => Expression<P>;
       readonly args: (read: (value: TypeNode<P>) => TypeNode<P>) => NodeList<TypeNode<P>> | null }
   | { readonly kind: "synthetic-reference"; readonly expression: () => Expression<P>; readonly thisArg: () => Expression<P> }
+  | { readonly kind: "decorator"; readonly expression: () => LeftHandSideExpression<P> }
 );
 
 export type ModuleStructureSyntax<P extends Phase> = ImportDeclaration<P> | ExportDeclaration<P> | ImportEqualsDeclaration<P>
@@ -5243,6 +5245,39 @@ export type JsxStructureReceipt<P extends Phase> = {
   | { readonly kind: "jsx-expression"; readonly dots: () => DotDotDotToken<P> | null; readonly expression: () => Expression<P> | null }
 );
 
+export type DocumentationStructureSyntax<P extends Phase> = SyntaxList<P> | JSDoc<P> | JSDocTag<P>
+  | JSDocNameReference<P> | JSDocLink<P> | JSDocLinkPlain<P> | JSDocLinkCode<P> | JSDocTypeLiteral<P>;
+
+export interface DocTagSyntaxFields<P extends Phase> {
+  readonly tagName: () => Identifier<P>;
+  readonly comment: (read: (value: JSDocComment<P>) => JSDocComment<P>) => NodeList<JSDocComment<P>> | null;
+}
+
+export type DocumentationStructureReceipt<P extends Phase> = {
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+} & (
+  | { readonly kind: "syntax-list"; readonly children: (read: (value: SyntaxNode<P>) => SyntaxNode<P>) => readonly SyntaxNode<P>[] }
+  | { readonly kind: "documentation"; readonly content: (read: (value: JSDocComment<P>) => JSDocComment<P>) => NodeList<JSDocComment<P>>;
+      readonly tags: (read: (value: JSDocTag<P>) => JSDocTag<P>) => NodeList<JSDocTag<P>> | null }
+  | { readonly kind: "doc-reference"; readonly name: () => EntityName<P> }
+  | { readonly kind: "doc-link"; readonly name: () => EntityName<P> | null }
+  | { readonly kind: "doc-literal"; readonly tags: (read: (value: JSDocTag<P>) => JSDocTag<P>) => readonly JSDocTag<P>[] | null }
+  | ({ readonly kind: "doc-tag" } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-syntax-type-tag"; readonly type: () => SyntaxNode<P> } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-type-tag"; readonly type: () => TypeNode<P> } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-optional-type-tag"; readonly type: () => TypeNode<P> | null } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-template"; readonly constraint: () => SyntaxNode<P>;
+      readonly parameters: (read: (value: TypeParameterDeclaration<P>) => TypeParameterDeclaration<P>) => NodeList<TypeParameterDeclaration<P>> } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-see"; readonly name: () => TypeNode<P> } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-heritage"; readonly name: () => ExpressionWithTypeArguments<P> } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-import"; readonly clause: () => ImportClause<P> | null;
+      readonly specifier: () => Expression<P>; readonly attributes: () => ImportAttributes<P> | null } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-callback"; readonly type: () => TypeNode<P>; readonly name: () => JSDocFullName<P> | null } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-typedef"; readonly type: () => SyntaxNode<P> | null; readonly name: () => JSDocFullName<P> | null } & DocTagSyntaxFields<P>)
+  | ({ readonly kind: "doc-parameter"; readonly name: () => EntityName<P>; readonly type: () => TypeNode<P> | null } & DocTagSyntaxFields<P>)
+);
+
 export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
@@ -5290,16 +5325,18 @@ export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P>
   | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>
   | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>
   | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P> | ControlSyntax<P>
-  | DeclarationStructureSyntax<P> | TypeStructureSyntax<P> | ExpressionStructureSyntax<P> | ModuleStructureSyntax<P> | JsxStructureSyntax<P>;
+  | DeclarationStructureSyntax<P> | TypeStructureSyntax<P> | ExpressionStructureSyntax<P> | ModuleStructureSyntax<P> | JsxStructureSyntax<P>
+  | DocumentationStructureSyntax<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
   | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
   | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>
   | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>
   | VariableStatementSyntaxReceipt<P> | VariableDeclarationSyntaxReceipt<P> | VariableListSyntaxReceipt<P>
   | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P> | ControlSyntaxReceipt<P> | DeclarationStructureReceipt<P>
-  | TypeStructureReceipt<P> | ExpressionStructureReceipt<P> | ModuleStructureReceipt<P> | JsxStructureReceipt<P>;
+  | TypeStructureReceipt<P> | ExpressionStructureReceipt<P> | ModuleStructureReceipt<P> | JsxStructureReceipt<P> | DocumentationStructureReceipt<P>;
 export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements"
-  | "elements" | "properties" | "declarations" | "clauses" | "types" | "members" | "heritageClauses" | "attributes" | "templateSpans" | "children";
+  | "elements" | "properties" | "declarations" | "clauses" | "types" | "members" | "heritageClauses" | "attributes" | "templateSpans" | "children"
+  | "comment" | "tags" | "jsDocPropertyTags";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
   admitList: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null,
