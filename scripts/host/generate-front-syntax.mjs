@@ -5,15 +5,15 @@
 // Run `node scripts/host/generate-front-syntax.mjs --write` after a change to any of the three inputs.
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseSources } from "../../test/architecture/host/import-graph.mjs";
 
 export const frontSyntaxPath = "packages/host/src/front/syntax-capture.ts";
 
 /** The text of syntax-capture.ts for the repository at `root`, and the inputs it could not use (both lists empty when complete). */
-export function generateFrontSyntax(root) {
+export async function generateFrontSyntax(root) {
 const hirText = readFileSync(resolve(root, "packages/host/src/ir-hir/contract.ts"), "utf8");
-const childrenText = readFileSync(resolve(root, "packages/host/src/ir-hir/children.ts"), "utf8");
+const { iterateNullableSyntaxSlots } = await import(pathToFileURL(resolve(root, "packages/host/dist/ir-hir/children.js")).href);
 const castsText = readFileSync(resolve(root, "packages/tsts/dist/src/internal/ast/generated/casts.d.ts"), "utf8");
 const casts = new Set([...castsText.matchAll(/export declare function As(\w+)\(/g)].map(m => m[1]));
 const parsed = parseSources(new Map([["hir.ts", hirText]]));
@@ -43,16 +43,19 @@ const unionNode = ast.typeNode(decls.get("SyntaxNode"));
 const members = ast.children(unionNode).filter(Boolean);
 const header = new Set(["id", "origin", "parent", "flags", "loc", "kind", "tsonic"]);
 
-// HIR child order per kind, from children.ts.
-const childOrder = new Map();
-let pendingLabels = [];
-for (const block of childrenText.split(/\n(?=\s+case ")/)) {
-  const labels = [...pendingLabels, ...[...block.matchAll(/case "(\w+)":/g)].map(m => m[1])];
-  const fields = [...block.matchAll(/\["(\w+)", node\.(\w+)\]/g)].map(m => m[1]);
-  if (fields.length === 0 && !/return /u.test(block)) { pendingLabels = labels; continue; }
-  pendingLabels = [];
-  for (const label of labels) if (!childOrder.has(label)) childOrder.set(label, fields);
-}
+const inheritedProperties = declaration => {
+  const base = ast.heritageElements(declaration, "extends").flatMap(heritage => {
+    const name = ast.as.AsExpressionWithTypeArguments(heritage)?.Expression;
+    const parent = name === undefined ? undefined : decls.get(ast.text(name));
+    return parent === undefined ? [] : inheritedProperties(parent);
+  });
+  return [...base, ...ast.members(declaration).filter(ast.is.IsPropertySignatureDeclaration)];
+};
+const childOrder = (kind, fields) => {
+  const list = Object.assign([null], { nodes: [null] });
+  const seed = Object.fromEntries(fields.map(field => [field, list]));
+  return [...new Set(Array.from(iterateNullableSyntaxSlots({ ...seed, kind }), slot => slot.fields[0]))];
+};
 const unordered = [];
 
 const prefix = typeText => typeText.replace(/("[^"]*")|\b([A-Z]\w*)\b/g, (match, quoted, name) => quoted !== undefined ? quoted
@@ -114,7 +117,7 @@ for (const member of expanded) {
   const name = text(member).replace(/<.*$/su, "");
   const declaration = decls.get(name);
   const kinds = [...new Set(kindsOfType(shape.getTypeFromTypeNode(member)?.type))].sort();
-  const props = ast.members(declaration).filter(m => ast.is.IsPropertySignatureDeclaration(m));
+  const props = inheritedProperties(declaration);
   const fields = props.filter(p => !header.has(ast.text(ast.name(p))));
   if (fields.length === 0) {
     cases.push({ labels: kinds, body: kinds.length === 1
@@ -124,16 +127,17 @@ for (const member of expanded) {
   }
   const castName = { ForInStatement: "ForInOrOfStatement", ForOfStatement: "ForInOrOfStatement", CaseClause: "CaseOrDefaultClause", DefaultClause: "CaseOrDefaultClause" }[name] ?? name;
   if (!casts.has(castName) && name !== "SourceFile") missingCasts.push(name);
-  const order = childOrder.get(kinds[0]) ?? [];
-  if (!childOrder.has(kinds[0])) unordered.push(kinds[0]);
   const byName = new Map(fields.map(p => [ast.text(ast.name(p)), p]));
+  const order = childOrder(kinds[0], [...byName.keys()]);
   const ordered = [...order.filter(f => byName.has(f)), ...[...byName.keys()].filter(f => !order.includes(f))];
   const lines = [name === "SourceFile" ? "      const view = context.file;" : `      const view = context.ast.as.As${castName}(node);`, `      if (view === undefined) return defect("the checker gave no ${name} view of a ${kinds[0]} node");`,
     `      const id = context.next(node);`, `      const header = headerOf(context, node, id, parent);`];
   const assigned = [];
   for (const field of ordered) {
     const property = byName.get(field);
-    const typeNode = ast.typeNode(property);
+    const typeNode = name === "ParameterDeclaration" && field === "initializer"
+      ? ast.typeNode(ast.members(decls.get("SyntaxPhase")).find(member => ast.text(ast.name(member)) === "ParameterInitializer"))
+      : ast.typeNode(property);
     const typeText = text(typeNode);
     const nullable = /\|\s*null$/u.test(typeText);
     const sdk = sdkName(field);
@@ -149,7 +153,7 @@ for (const member of expanded) {
       expression = `${nullable ? "oneOrNull" : "one"}(context, view.${sdk}, id, ${guardOf(typeNode, `${name}.${field}`)})`;
     } else if (scalarSource[field] !== undefined) expression = scalarSource[field]();
     else throw new Error(`no source for scalar ${name}.${field}: ${typeText}`);
-    if (/(^one|^oneOrNull|^list|^listOrNull|^modifierList)\(/u.test(expression) && !order.includes(field)) throw new Error(`node field ${name}.${field} has no place in HIR's child order`);
+    if (/(^one|^oneOrNull|^list|^listOrNull|^modifierList)\(/u.test(expression) && !order.includes(field)) unordered.push(`${name}.${field}`);
     lines.push(`      const ${field}_ = ${expression};`);
     assigned.push(`${field}: ${field}_`);
   }
@@ -258,7 +262,7 @@ return { text: `${out.join("\n")}\n`, unordered, missingCasts };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
-  const generated = generateFrontSyntax(root);
+  const generated = await generateFrontSyntax(root);
   if (generated.unordered.length > 0 || generated.missingCasts.length > 0)
     throw new Error(`kinds with fields and no child order: ${generated.unordered.join(" ")}; missing casts: ${generated.missingCasts.join(" ")}`);
   if (process.argv.includes("--write")) writeFileSync(resolve(root, frontSyntaxPath), generated.text);

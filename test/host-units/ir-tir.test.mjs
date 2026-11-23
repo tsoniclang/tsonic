@@ -1302,14 +1302,43 @@ test("the paid verification scope visitor stops before subsequent binding roles 
   assert.equal(rejected.result.violations.some(finding => finding.rule === "binding-vector-complete"), true);
 });
 
-test("body and chapter paid readers preserve the original refusal at every reached boundary", () => {
-  const empty = bodylessModuleScenario();
-  assert.deepEqual(checkTirVerifierAdmissionCuts(admitFixtureRead, product.verifyTirModule, empty.input, empty.module), ["bindingScopesOf"]);
-  for (const [fixture, reader] of [[callScenario(), "bodyOf"], [argumentScenario("default"), "bodyOf"],
-    [memberScenario("construction"), "memberTableOf"]]) {
-    const reads = checkTirBodyAdmissionCuts(admitFixtureRead, product.verifyTir, fixture.input, fixture.body);
-    assert.equal(reads.includes(reader), true);
+test("body and chapter paid readers preserve the original refusal at every reached boundary", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function callee(value: boolean = true): boolean { return value; }
+    export function supplied(value: boolean): boolean { return callee(value); }
+    export function omitted(): boolean { return callee(); }
+  `);
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok");
+  const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const empty = [...typed.value.modules.values()].find(module => module.tree.kind === "checked-root");
+  assert.ok(empty);
+  assert.equal(empty.bodies.length, 0);
+  const independent = typed.value.verifierOf(empty.module);
+  assert.ok(independent);
+  assert.deepEqual(verifyChapter(independent, empty), []);
+  assert.deepEqual(checkTirVerifierAdmissionCuts(admitFixtureRead, product.verifyTirModule, independent, empty), ["bodyOf", "bindingScopesOf"]);
+  const ready = typed.value.modules.get(input.snapshot.entryPoint);
+  const readyEvidence = typed.value.verifierOf(input.snapshot.entryPoint);
+  assert.equal(ready.tree.kind, "ready-root");
+  assert.ok(readyEvidence);
+  for (const name of ["supplied", "omitted"]) {
+    const callable = ready.tree.root.statements.nodes.find(slot =>
+      slot.kind === "ready-callable" && slot.node.name.text === name).node;
+    const actual = ready.bodies.find(body => body.body === callable.tsonic.signatures[0].body && body.bindings.kind === "instantiated");
+    assert.ok(actual);
+    assert.deepEqual(verifyBody(readyEvidence, actual), []);
+    const reads = checkTirBodyAdmissionCuts(admitFixtureRead, product.verifyTir, readyEvidence, actual);
+    assert.equal(reads.includes("bodyOf"), true);
   }
+  const member = memberScenario("construction");
+  assert.deepEqual(verifyBody(member.input, member.body), []);
+  assert.equal(checkTirBodyAdmissionCuts(admitFixtureRead, product.verifyTir, member.input, member.body).includes("memberTableOf"), true);
 });
 
 test("normal TIR verification rejects a crossed throw parenthesis and selected application endpoint", async () => {

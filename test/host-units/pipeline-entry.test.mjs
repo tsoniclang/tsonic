@@ -4684,7 +4684,10 @@ test("authored native local updates return the correct snapshot and store only o
       ["--", false, -9223372036854775808n, 6n, 9223372036854775807n],
       ["--", true, -9223372036854775808n, 13n, -1n],
     ].entries()) {
-      const declaration = module.tree.statements.nodes[position];
+      assert.equal(module.tree.kind, "ready-root");
+      const slot = module.tree.root.statements.nodes[position];
+      assert.equal(slot.kind, "ready-callable");
+      const declaration = slot.node;
       const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
       const returned = body.tir.root.statements.nodes[0].expression;
       const update = postfix ? returned.left : returned;
@@ -6485,7 +6488,10 @@ test("necessary snapshots keep earlier operand reads in authored order when late
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const { index: { types }, modules } = result.value;
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
-  const declaration = module.tree.statements.nodes[0];
+  assert.equal(module.tree.kind, "ready-root");
+  const slot = module.tree.root.statements.nodes[0];
+  assert.equal(slot.kind, "ready-callable");
+  const declaration = slot.node;
   const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
   const head = body.mir.blocks[0];
   assert.equal(head.terminator.kind, "switch");

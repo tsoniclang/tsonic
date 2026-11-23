@@ -2,7 +2,7 @@ import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { ChildrenOfSyntax, IterateChildrenOfSyntax, IterateSyntaxChildEdges, NullableInitializerPhase, Phase, SyntaxNode, NodeList, SyntaxChild } from "./contract.js";
 import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSourceFileHeaderSlots, IterateSyntaxChildSlots,
-  AsteriskToken, EndOfFile, FunctionDeclarationHeader, FunctionExpression, Identifier, ParameterDeclarationHeader,
+  AsteriskToken, EndOfFile, FunctionDeclarationHeader, FunctionExpression, Identifier, ParameterDeclaration,
   PreparedFunctionHeader, PreparedSourceFileHeader, PrepareFunctionHeader, PrepareSourceFileHeader, SourceFileHeader,
   SyntaxChildSlot, TypeParameterDeclaration } from "./contract.js";
 import type { BinaryExpression, BinaryOperatorToken, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, Expression, ModifierLike, ModifierList,
@@ -183,13 +183,13 @@ export const prepareSourceFileHeader: PrepareSourceFileHeader = <P extends Phase
   let endOfFileToken: EndOfFile<P> | undefined;
   return {
     slots: sourceFileFields<P, Slot>(ordinary, statements, () => (endOfFileToken = node.endOfFileToken)),
-    finish: (statements, tsonic) => ({ ...header, kind: "SourceFile", statements,
-      endOfFileToken: requirePresent(endOfFileToken, missingStructure), languageVariant, scriptKind,
-      commentDirectives, pragmas, checkJsDirective, tsonic }),
+    finish: (statements, endOfFile) => ({ ...header, statements,
+      endOfFileToken: endOfFile(requirePresent(endOfFileToken, missingStructure)), languageVariant, scriptKind,
+      commentDirectives, pragmas, checkJsDirective }),
   };
 };
 
-export const iterateParameterHeaderSlots: IterateParameterHeaderSlots = function* <P extends Phase, Slot>(node: ParameterDeclarationHeader<P>,
+export const iterateParameterHeaderSlots: IterateParameterHeaderSlots = function* <P extends Phase, Slot>(node: ParameterDeclaration<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot, initializer: (field: "initializer") => Iterable<Slot>) {
   for (const slot of children<P, typeof node>(["modifiers", "list", () => node.modifiers], ["dotDotDotToken", "nullable", () => node.dotDotDotToken],
     ["name", "required", () => node.name], ["questionToken", "nullable", () => node.questionToken], ["type", "nullable", () => node.type]))
@@ -263,16 +263,18 @@ export const prepareFunctionHeader: PrepareFunctionHeader = <P extends Phase, Sl
       asterisk: () => (asterisk = node.asteriskToken), name: () => (name = node.name),
       type: () => (type = node.type), fullSignature: () => (fullSignature = node.fullSignature),
     }),
-    finish: (parameters, body, tsonic, modifier, parameter, typeImage, nameImage) => {
+    finish: (parameters, body, modifier, parameter, typeImage, nameImage, asteriskImage) => {
       const sourceName = requirePresent(name, missingStructure);
       const sourceType = requirePresent(type, missingStructure);
       const sourceFullSignature = requirePresent(fullSignature, missingStructure);
-      return { ...header, kind: "FunctionDeclaration",
+      const sourceAsterisk = requirePresent(asterisk, missingStructure);
+      return { ...header,
         modifiers: modifiers === null ? null : materializeList(requirePresent(retainedModifiers, missingStructure), modifierCount, modifier),
         typeParameters: typeParameters === null ? null : materializeList(requirePresent(retainedTypes, missingStructure), typeCount, parameter),
         parameters, type: sourceType === null ? null : typeImage(sourceType),
         fullSignature: sourceFullSignature === null ? null : typeImage(sourceFullSignature),
-        asteriskToken: requirePresent(asterisk, missingStructure), body, name: sourceName === null ? null : nameImage(sourceName), tsonic };
+        asteriskToken: sourceAsterisk === null ? null : asteriskImage(sourceAsterisk),
+        body, name: sourceName === null ? null : nameImage(sourceName) };
     },
   } };
 };

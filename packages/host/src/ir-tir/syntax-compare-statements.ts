@@ -164,7 +164,7 @@ export function sameNamespaceExportDeclaration(left: Hir.NamespaceExportDeclarat
   return (left.modifiers === null ? right.modifiers === null : right.modifiers !== null && sameNodeList(left.modifiers, right.modifiers));
 }
 
-export function sameParameterDeclarationHeader(left: Hir.ParameterDeclarationHeader<Hir.Phase>, right: Hir.ParameterDeclarationHeader<Hir.Phase>): boolean {
+export function sameParameterDeclarationHeader(left: Hir.ParameterDeclaration<Hir.Phase>, right: Hir.ParameterDeclaration<Hir.Phase>): boolean {
   return (left.modifiers === null ? right.modifiers === null : right.modifiers !== null && sameNodeList(left.modifiers, right.modifiers)) &&
     ((left.dotDotDotToken === null) === (right.dotDotDotToken === null)) &&
     sameNodeKind(left.name, right.name) &&

@@ -1084,18 +1084,15 @@ export interface BindingPattern<P extends Phase, K extends "ObjectBindingPattern
   readonly tsonic: P["BindingPattern"];
 }
 
-export interface ParameterDeclarationHeader<P extends Phase> extends NodeHeader {
+export interface ParameterDeclaration<P extends Phase> extends NodeHeader {
   readonly kind: "Parameter";
   readonly modifiers: ModifierList<P> | null;
   readonly dotDotDotToken: DotDotDotToken<P> | null;
   readonly name: BindingName<P>;
   readonly questionToken: QuestionToken<P> | null;
   readonly type: TypeNode<P> | null;
-  readonly tsonic: P["ParameterDeclaration"];
-}
-
-export interface ParameterDeclaration<P extends Phase> extends ParameterDeclarationHeader<P> {
   readonly initializer: P["ParameterInitializer"];
+  readonly tsonic: P["ParameterDeclaration"];
 }
 
 export interface BindingElement<P extends Phase> extends NodeHeader {
@@ -1113,14 +1110,17 @@ export interface MissingDeclaration<P extends Phase> extends NodeHeader {
   readonly tsonic: P["MissingDeclaration"];
 }
 
-export interface FunctionDeclarationHeader<P extends Phase> extends NodeHeader {
-  readonly kind: "FunctionDeclaration";
+export interface FunctionDeclarationFields<P extends Phase> extends NodeHeader {
   readonly modifiers: ModifierList<P> | null;
   readonly typeParameters: NodeList<TypeParameterDeclaration<P>> | null;
   readonly type: TypeNode<P> | null;
   readonly fullSignature: TypeNode<P> | null;
   readonly asteriskToken: AsteriskToken<P> | null;
   readonly name: Identifier<P> | null;
+}
+
+export interface FunctionDeclarationHeader<P extends Phase> extends FunctionDeclarationFields<P> {
+  readonly kind: "FunctionDeclaration";
   readonly tsonic: P["FunctionDeclaration"];
 }
 
@@ -2222,14 +2222,17 @@ export interface JSDocNameReference<P extends Phase> extends NodeHeader {
   readonly tsonic: P["JSDocNameReference"];
 }
 
-export interface SourceFileHeader<P extends Phase> extends NodeHeader {
-  readonly kind: "SourceFile";
+export interface SourceFileFields<P extends Phase> extends NodeHeader {
   readonly endOfFileToken: EndOfFile<P>;
   readonly languageVariant: "Standard" | "JSX";
   readonly scriptKind: "Unknown" | "JS" | "JSX" | "TS" | "TSX" | "External" | "JSON" | "Deferred";
   readonly commentDirectives: readonly CommentDirective[];
   readonly pragmas: readonly Pragma[];
   readonly checkJsDirective: CheckJsDirective | null;
+}
+
+export interface SourceFileHeader<P extends Phase> extends SourceFileFields<P> {
+  readonly kind: "SourceFile";
   readonly tsonic: P["SourceFile"];
 }
 
@@ -4821,7 +4824,7 @@ export type IterateSyntaxChildSlots = <P extends Phase, Slot>(node: SyntaxNode<P
 export type IterateSourceFileHeaderSlots = <P extends Phase, Slot>(node: SourceFileHeader<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot, statements: (field: "statements") => Iterable<Slot>) => Iterable<Slot>;
 
-export type IterateParameterHeaderSlots = <P extends Phase, Slot>(node: ParameterDeclarationHeader<P>,
+export type IterateParameterHeaderSlots = <P extends Phase, Slot>(node: ParameterDeclaration<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot, initializer: (field: "initializer") => Iterable<Slot>) => Iterable<Slot>;
 
 export type IterateFunctionHeaderSlots = <P extends Phase, Slot>(node: FunctionDeclarationHeader<P> | FunctionExpression<P>,
@@ -4830,16 +4833,17 @@ export type IterateFunctionHeaderSlots = <P extends Phase, Slot>(node: FunctionD
 
 export interface PreparedSourceFileHeader<P extends Phase, Slot> {
   readonly slots: Iterable<Slot>;
-  readonly finish: <Statements>(statements: Statements, tsonic: P["SourceFile"]) =>
-    SourceFileHeader<P> & { readonly statements: Statements };
+  readonly finish: <Statements>(statements: Statements, endOfFile: (value: EndOfFile<P>) => EndOfFile<P>) =>
+    SourceFileFields<P> & { readonly statements: Statements };
 }
 
 export interface PreparedFunctionHeader<P extends Phase, Slot> {
   readonly slots: Iterable<Slot>;
-  readonly finish: <Parameters, Body>(parameters: Parameters, body: Body, tsonic: P["FunctionDeclaration"],
+  readonly finish: <Formals, Body>(parameters: Formals, body: Body,
     modifier: (value: ModifierLike<P>) => ModifierLike<P>, parameter: (value: TypeParameterDeclaration<P>) => TypeParameterDeclaration<P>,
-    type: (value: TypeNode<P>) => TypeNode<P>, name: (value: Identifier<P>) => Identifier<P>) =>
-    FunctionDeclarationHeader<P> & { readonly parameters: Parameters; readonly body: Body };
+    type: (value: TypeNode<P>) => TypeNode<P>, name: (value: Identifier<P>) => Identifier<P>,
+    asterisk: (value: AsteriskToken<P>) => AsteriskToken<P>) =>
+    FunctionDeclarationFields<P> & { readonly parameters: Formals; readonly body: Body };
 }
 
 export type PrepareSourceFileHeader = <P extends Phase, Slot>(node: SourceFileHeader<P>,

@@ -42,7 +42,7 @@ export function emptyVerificationInput(body, authoredNodes = [], scopeCount = 2)
     asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] };
   const source = { module: moduleId, tree: root, items: [{ definition: ownerId, node: 0 }], bodies: [original],
     exports: [], bindings: [], moduleLinks: [], checkerDiagnostics: [], obligations: [] };
-  const module = { module: moduleId, tree: body.root, bodies: [body] };
+  const module = { module: moduleId, tree: { kind: "ready-root", root: body.root }, bodies: [body] };
   const types = { terms: [{ kind: "intrinsic", intrinsic: "unknown" }], signatures: [{ id: 0, declaration: ownerId,
     owner: { kind: "body", value: { body: bodyId, node: 0 } }, composition: null, kind: "call", typeParameters: [],
     receiver: null, parameters: [], result: 0 }] };
@@ -157,7 +157,7 @@ export function memberScenario(holder, duplicatedPart = false) {
   const statement = pair("ExpressionStatement", 1, 0, { expression: expression.original }, { expression: expression.typed }, null, null);
   const end = pair("EndOfFile", holder === "property" ? 6 : holder === "shorthand" || holder === "property-access" ||
     holder === "element-access" ? 5 : 3, 0, {}, {}, null, null);
-  body.root.statements = nodeList([statement.typed]);
+  body.root.statements = nodeList([{ kind: "ready-statement", node: statement.typed }]);
   body.root.endOfFileToken = end.typed;
   const input = emptyVerificationInput(body, authored, 2 + selectedCount);
   input.source.tree.statements = nodeList([statement.original]);

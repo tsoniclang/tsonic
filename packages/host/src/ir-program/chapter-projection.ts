@@ -1,6 +1,6 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
-import type { Block, NodeList, Statement, SyntaxChildSlot, SyntaxCopyResult, SyntaxPhaseCopy } from "../ir-hir/contract.js";
+import type { Block, NodeList, Statement, SyntaxChildSlot, SyntaxCopyResult, SyntaxNode, SyntaxPhaseCopy, Token } from "../ir-hir/contract.js";
 import { prepareFunctionHeader, prepareSourceFileHeader } from "../ir-hir/index.js";
 import type { TirChapterSyntaxSlot, TirFormal, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedPhase } from "../ir-tir/contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
@@ -14,6 +14,11 @@ type PhaseCopy = SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRew
 type StatementCell = { kind: "ready-statement"; node: Extract<TirModuleStatement, { kind: "ready-statement" }>["node"] }
   | { kind: "checked-declaration"; node: Extract<TirModuleStatement, { kind: "checked-declaration" }>["node"] }
   | { kind: "ready-callable"; node: TirReadyCallable };
+
+function isHeaderToken<Kind extends "EndOfFile" | "AsteriskToken">(node: SyntaxNode<TypedPhase> | null,
+  kind: Kind): node is Token<TypedPhase, Kind> {
+  return node?.kind === kind;
+}
 
 function ordinary(slot: SyntaxChildSlot<TypedPhase>): TirChapterSyntaxSlot {
   return { kind: "syntax", fields: slot.fields, read: () => {
@@ -70,7 +75,10 @@ SyntaxCopyResult<PreparedChapterHeader, InstantiationStop> {
         }
       }
     }
-    result = header.finish(requirePresent(list, absent), payload.value(operands.references));
+    result = { kind: "SourceFile", ...header.finish(requirePresent(list, absent), source => {
+      const image = operands.typed.nodeOf(source);
+      return isHeaderToken(image, "EndOfFile") ? image : throwInvariant(absent);
+    }), tsonic: payload.value(operands.references) };
     return result;
   } } };
 }
@@ -110,7 +118,7 @@ SyntaxCopyResult<PreparedChapterHeader, InstantiationStop> {
       formals[position] = requirePresent(typed.parameterOf(requirePresent(formals[position], absent)) ?? undefined, absent);
     const body = typed.bodyRootOf(requirePresent(block, absent));
     if (body?.kind !== "Block") return throwInvariant(absent);
-    result = header.value.finish(requirePresent(list, absent), body, payload.value(operands.references),
+    result = { kind: "FunctionDeclaration", ...header.value.finish(requirePresent(list, absent), body,
       source => requirePresent(typed.modifierOf(source) ?? undefined, absent),
       source => {
         const image = typed.nodeOf(source);
@@ -118,7 +126,10 @@ SyntaxCopyResult<PreparedChapterHeader, InstantiationStop> {
       }, source => requirePresent(typed.typeNodeOf(source) ?? undefined, absent), source => {
         const image = typed.nodeOf(source);
         return image?.kind === "Identifier" ? image : throwInvariant(absent);
-      });
+      }, source => {
+        const image = typed.nodeOf(source);
+        return isHeaderToken(image, "AsteriskToken") ? image : throwInvariant(absent);
+      }), tsonic: payload.value(operands.references) };
     return result;
   };
   return { kind: "copied", value: { kind: "callable", ordinal, slots: header.value.slots, finish } };
