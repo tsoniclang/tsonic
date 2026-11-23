@@ -4,7 +4,7 @@ import type { ArtifactReference, Instantiate, InstantiatedArtifact, Instantiatio
 import { hostDiagnosticCode, requirePresent, throwInvariant } from "../diag/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { BodyFacts } from "../ir-facts/contract.js";
-import { admitTypeTable, bindingVectorKey, readSignature, substitute, substituteSignature, viewTypes } from "../ir-types/index.js";
+import { admitTypeTable, readBindingVectorKey, readSignature, substitute, substituteSignature, viewTypes } from "../ir-types/index.js";
 import type { InstantiationAllocationStop, InstantiationMeter, InstantiationStop } from "./work.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import type { SyntaxCopyResult } from "../ir-hir/contract.js";
@@ -35,13 +35,8 @@ const missingArtifactRow: InvariantFailure = { owner: "ir-program", query: null,
   message: "Artifact selection requires a dense candidate inventory" };
 
 function bindingKey(meter: InstantiationMeter, bindings: BindingVector): string | InstantiationStop {
-  for (const family of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings, bindings.selfBindings]) {
-    for (const _binding of family) {
-      const stop = chargeInstantiationWork(meter);
-      if (stop !== null) return stop;
-    }
-  }
-  return bindingVectorKey(bindings);
+  const result = readBindingVectorKey(bindings, () => chargeInstantiationWork(meter));
+  return result.kind === "complete" ? result.key : result;
 }
 
 function admitVector(meter: InstantiationMeter, keys: Set<string>, key: string): InstantiationStop | null {

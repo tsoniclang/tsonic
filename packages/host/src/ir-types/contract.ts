@@ -94,6 +94,8 @@ export type SignatureRequestData = (request: SignatureRequest) => KeyData;
 export type TypeProductionRequestData = (request: TypeProductionRequest) => KeyData;
 export type SignatureRequestKey = (request: SignatureRequest) => string;
 export type BindingVectorKey = (vector: BindingVector) => string;
+export type ReadBindingVectorKey = <Stop extends TypeTableAdmissionStop>(vector: BindingVector, admitRow: () => Stop | null) =>
+  { readonly kind: "complete"; readonly key: string } | Stop;
 /** The canonical key text of artifact bindings: parametric, or instantiated with its binding vector's projection. */
 export type ArtifactBindingsKey = (bindings: ArtifactBindings) => string;
 /** The canonical key text of a body instance: the body and its complete bindings, a binding-vector hole as null at its position. */

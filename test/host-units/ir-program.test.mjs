@@ -4866,6 +4866,32 @@ test("ir-program existing nonempty binding keys consume their actual selection w
   }
 });
 
+test("artifact selection encodes only the binding rows it actually paid to read", async () => {
+  const { selectArtifact } = await import("../../packages/host/dist/ir-program/instantiate.js");
+  const { createInstantiationMeter } = await import("../../packages/host/dist/ir-program/work.js");
+  for (const maximumWork of [0, 1, 2, 3, 4, 5]) {
+    const fixture = dualInstanceFixture();
+    const selected = fixture.module.bodies[1];
+    const bindings = selected.instance.bindings.bindings;
+    const binding = { kind: "bound", parameter: typeParameterDeclaration(fixture.definition, 0), type: tyId(0) };
+    bindings.classBindings.push(binding);
+    const meter = createInstantiationMeter({ ...ProgramWork.state(fixture.context.resources).limits, maximumWork });
+    const pulls = [];
+    const rows = [binding];
+    Object.defineProperty(rows, 0, { get() {
+      pulls.push(maximumWork - remainingWork(meter.account));
+      return pulls.length === 1 ? binding : { ...binding, type: tyId(1) };
+    } });
+    const result = selectArtifact(meter, fixture.index, fixture.module, { kind: "tir", body: fixture.bodyId }, { ...bindings, classBindings: rows });
+    assert.deepEqual(pulls, maximumWork < 2 ? [] : [2]);
+    if (maximumWork < 5) assert.equal(result === accountFailure(meter.account), true);
+    else {
+      assert.equal(result.kind, "exact");
+      assert.equal(result.artifact.body === selected.tir, true);
+    }
+  }
+});
+
 for (const kind of ["tir", "mir", "facts", "summary"]) test(`ir-program ${kind} transports a genuine complete published type seed and exact resource outcomes`, () => {
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const fixture = kind === "mir" || kind === "facts" ? moduleFixture(undefined, undefined, { kind: "instantiated", bindings }) : moduleFixture();

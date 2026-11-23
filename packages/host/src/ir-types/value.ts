@@ -1,7 +1,7 @@
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { ArtifactBindings, BindingVector, BodyInstance, ConstantReference, Execution, SelfBinding, TypeBinding } from "./data.js";
-import type { DeclaredExecution, RigidBindings, SignatureRequest } from "./contract.js";
+import type { DeclaredExecution, ReadBindingVectorKey, RigidBindings, SignatureRequest, TypeTableAdmissionStop } from "./contract.js";
 import type { IndexInventoryEntry, MemberKey, MemberOrigin, MemberStorageSelection } from "./data.js";
 export { tyId as typeIdentifier, sigId as signatureIdentifier } from "../ids/index.js";
 
@@ -12,8 +12,35 @@ const typeBindingData = (binding: TypeBinding | undefined): KeyData => binding =
 const selfBindingData = (binding: SelfBinding | undefined): KeyData => binding === undefined ? null : binding.kind === "rigid"
   ? [binding.kind, binding.owner] : [binding.kind, binding.owner, binding.type];
 
-export const bindingVectorData = (vector: BindingVector): KeyData => [Array.from(vector.classBindings, typeBindingData),
-  Array.from(vector.methodBindings, typeBindingData), Array.from(vector.capturedBindings, typeBindingData), Array.from(vector.selfBindings, selfBindingData)];
+function bindingFamilyData<Row, Stop extends TypeTableAdmissionStop>(rows: readonly Row[], project: (row: Row | undefined) => KeyData,
+  admitRow: (() => Stop | null) | null): KeyData[] | Stop {
+  const value: KeyData[] = [];
+  for (let position = 0; position < rows.length; position += 1) {
+    const stop = admitRow === null ? null : admitRow();
+    if (stop !== null) return stop;
+    value.push(project(rows[position]));
+  }
+  return value;
+}
+
+function projectBindingVector<Stop extends TypeTableAdmissionStop>(vector: BindingVector, admitRow: (() => Stop | null) | null): KeyData[] | Stop {
+  const classes = bindingFamilyData(vector.classBindings, typeBindingData, admitRow);
+  if (!Array.isArray(classes)) return classes;
+  const methods = bindingFamilyData(vector.methodBindings, typeBindingData, admitRow);
+  if (!Array.isArray(methods)) return methods;
+  const captured = bindingFamilyData(vector.capturedBindings, typeBindingData, admitRow);
+  if (!Array.isArray(captured)) return captured;
+  const self = bindingFamilyData(vector.selfBindings, selfBindingData, admitRow);
+  if (!Array.isArray(self)) return self;
+  return [classes, methods, captured, self];
+}
+
+export const bindingVectorData = (vector: BindingVector): KeyData => projectBindingVector<never>(vector, null);
+
+export const readBindingVectorKey: ReadBindingVectorKey = (vector, admitRow) => {
+  const result = projectBindingVector(vector, admitRow);
+  return Array.isArray(result) ? { kind: "complete", key: encodeKey(result) } : result;
+};
 
 export const artifactBindingsData = (bindings: ArtifactBindings): KeyData =>
   bindings.kind === "parametric" ? [bindings.kind] : [bindings.kind, bindingVectorData(bindings.bindings)];

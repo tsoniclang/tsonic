@@ -4088,6 +4088,26 @@ test("bindingVectorKey and artifactBindingsKey: keys of bare bindings on the sam
   }
 });
 
+test("a paid binding key uses the same canonical row projection without acquiring an unpaid row", () => {
+  const original = { classBindings: [boundAt(0, 1)], methodBindings: [rigidAt(1)],
+    capturedBindings: [boundAt(2, 3)], selfBindings: [{ kind: "bound", owner, type: 4 }] };
+  const names = Object.keys(original);
+  const key = bindingVectorKey(original);
+  for (let maximumWork = 0; maximumWork <= names.length; maximumWork += 1) {
+    const account = createAccount({ maximumWork, maximumResultEntries: 0 });
+    const reads = [];
+    const vector = Object.fromEntries(names.map(name => {
+      const rows = [...original[name]];
+      Object.defineProperty(rows, 0, { get() { reads.push(name); return original[name][0]; } });
+      return [name, rows];
+    }));
+    const result = product.readBindingVectorKey(vector, () => chargeWork(account, 1));
+    assert.deepEqual(reads, names.slice(0, maximumWork));
+    if (maximumWork === names.length) assert.deepEqual(result, { kind: "complete", key });
+    else assert.equal(result === accountFailure(account), true);
+  }
+});
+
 test("executionKey and declaredExecutionKey: the provided count is part of the key and is data only, never checked here", () => {
   const instance = instanceOf(instantiated({ classBindings: [boundAt(0, 1)] }));
   const key = provided => executionKey({ instance, provided });

@@ -1,6 +1,6 @@
 import type { NativeFactsKey, IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, FloatingBitsFit, ExactFloat64LiteralFit, FloatingFormatWidth, NativeCarrierOf, OptionalValueDomainOf, LiteralCompatibilityOf, NativeIntegerGeometryOf, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, AdmitTypeTable, InternType, ReadType, ReadSignature, ViewTypes,
   ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, CompareIndexSignatures, CompareMemberKeys, InstanceKey, SameInstance, ExecutionKey,
-  DeclaredExecutionKey, BindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
+  DeclaredExecutionKey, BindingVectorKey, ReadBindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
   SignatureRequestData, SignatureRequestKey, TypeProductionRequestData, ConstantReferenceKey, ProjectBindingValues, RigidBindings,
   AdmitTypePublicationStep, CreateTypePublicationWork, InternTypeGraph, RefuseTypeConstruction, TypePublicationRefusalOf } from "./contract.js";
 import { createTypeInterner as create, admitTypeTable as adopt, internType as intern,
@@ -22,7 +22,7 @@ import { exactFloat64LiteralFit as exactFloat64, literalCompatibilityOf as liter
 import { selectorPathKey, typeProductionRequestData as projectTypeProductionRequest } from "./selector-path.js";
 import { compareMemberKeys as compareMembers } from "./canonical.js";
 import { compareIndexSignatures as compareIndexes, artifactBindingsData as projectArtifactBindings, artifactBindingsKeyOf, bindingVectorData as projectBindingVector,
-  bindingVectorKeyOf, declaredExecutionKeyOf, executionKeyOf, instanceKeyOf, sameInstanceAs,
+  bindingVectorKeyOf, readBindingVectorKey as readBindingKey, declaredExecutionKeyOf, executionKeyOf, instanceKeyOf, sameInstanceAs,
   signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, constantReferenceKeyOf, rigidBindings as rigid, memberStorageData as projectMemberStorage } from "./value.js";
 
 export const createTypeInterner: CreateTypeInterner = create;
@@ -70,6 +70,7 @@ export const sameInstance: SameInstance = sameInstanceAs;
 export const executionKey: ExecutionKey = executionKeyOf;
 export const declaredExecutionKey: DeclaredExecutionKey = declaredExecutionKeyOf;
 export const bindingVectorKey: BindingVectorKey = bindingVectorKeyOf;
+export const readBindingVectorKey: ReadBindingVectorKey = readBindingKey;
 export const artifactBindingsKey: ArtifactBindingsKey = artifactBindingsKeyOf;
 export const bindingVectorData: BindingVectorData = projectBindingVector;
 export const artifactBindingsData: ArtifactBindingsData = projectArtifactBindings;
