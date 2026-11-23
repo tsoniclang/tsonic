@@ -1,3 +1,4 @@
+import { admitNativeChecker } from "./resource-admission.js";
 import { observeBackingDiagnostic, observePublishedDiagnostic, withBackingWriteFit } from "./checker/backing-constraint-evidence.js";
 import { NewGoStructMap } from "../../go/compat.js";
 import { Node_Name } from "../ast/spine.js";
@@ -4381,28 +4382,47 @@ export function Checker_findMatchingSignatures(receiver, signatureLists, signatu
             return undefined;
         }
         for (let i = 1; i < signatureLists.length; i++) {
+            admitNativeChecker(receiver, "work");
             if (Checker_findMatchingSignature(receiver, signatureLists[i], signature, false, false, false) === undefined) {
                 return undefined;
             }
         }
+        admitNativeChecker(receiver, "retained", 2);
         return [signature];
     }
     let result = undefined;
-    for (let i = 0; i < signatureLists.length; i++) {
+    for (let index = 0; index < signatureLists.length; index++) {
         let match;
-        if (i === listIndex) {
+        if (index === listIndex) {
             match = signature;
         }
         else {
-            match = Checker_findMatchingSignature(receiver, signatureLists[i], signature, false, false, true);
+            admitNativeChecker(receiver, "work");
+            const signatures = signatureLists[index];
+            match = Checker_findMatchingSignature(receiver, signatures, signature, false, false, true);
             if (match === undefined) {
-                match = Checker_findMatchingSignature(receiver, signatureLists[i], signature, true, false, true);
+                match = Checker_findMatchingSignature(receiver, signatures, signature, true, false, true);
             }
         }
         if (match === undefined) {
             return undefined;
         }
-        result = AppendIfUnique(result ?? [], match);
+        if (result === undefined) {
+            admitNativeChecker(receiver, "retained", 2);
+            result = [match];
+        }
+        else {
+            let matchIndex = 0;
+            for (; matchIndex < result.length; matchIndex++) {
+                admitNativeChecker(receiver, "work");
+                if (result[matchIndex] === match)
+                    break;
+            }
+            if (matchIndex === result.length) {
+                admitNativeChecker(receiver, "retained");
+                result.push(match);
+            }
+        }
     }
     return result;
 }
@@ -4424,9 +4444,11 @@ export function Checker_findMatchingSignature(receiver, signatureList, signature
     const compareTypes = partialMatch
         ? (s, t) => Checker_compareTypesSubtypeOf(receiver, s, t)
         : (s, t) => Checker_compareTypesIdentical(receiver, s, t);
-    for (const s of (signatureList ?? [])) {
-        if (Checker_compareSignaturesIdentical(receiver, s, signature, partialMatch, ignoreThisTypes, ignoreReturnTypes, compareTypes) !== 0) {
-            return s;
+    for (let index = 0; index < (signatureList?.length ?? 0); index++) {
+        admitNativeChecker(receiver, "work");
+        const candidate = signatureList[index];
+        if (Checker_compareSignaturesIdentical(receiver, candidate, signature, partialMatch, ignoreThisTypes, ignoreReturnTypes, compareTypes) !== 0) {
+            return candidate;
         }
     }
     return undefined;
@@ -4511,6 +4533,7 @@ export function Checker_compareSignaturesIdentical(receiver, source, target, par
     if (tgtTpLen !== 0) {
         const mapper = newTypeMapper(source.typeParameters, target.typeParameters);
         for (let i = 0; i < tgtTpLen; i++) {
+            admitNativeChecker(receiver, "work");
             const s = source.typeParameters[i];
             const t = target.typeParameters[i];
             if (!(s === t ||
@@ -4537,6 +4560,7 @@ export function Checker_compareSignaturesIdentical(receiver, source, target, par
     }
     const paramCount = Checker_getParameterCount(receiver, target);
     for (let i = 0; i < paramCount; i++) {
+        admitNativeChecker(receiver, "work");
         const s = Checker_getTypeAtPosition(receiver, src, i);
         const t = Checker_getTypeAtPosition(receiver, target, i);
         const related = compareTypes(t, s);
@@ -4631,6 +4655,7 @@ export function Checker_compareTypeParametersIdentical(receiver, sourceParams, t
     }
     const mapper = newTypeMapper(targetParams, sourceParams);
     for (let i = 0; i < srcLen; i++) {
+        admitNativeChecker(receiver, "work");
         const source = sourceParams[i];
         const target = targetParams[i];
         if (source === target) {

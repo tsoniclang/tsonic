@@ -3582,7 +3582,7 @@ export declare function getConstituentCountOfTypes(types: GoSlice<GoPtr<Type>>):
  * 	}
  * }
  */
-export declare function forEachType(t: GoPtr<Type>, f: (t: GoPtr<Type>) => void): void;
+export declare function forEachType(receiver: GoPtr<Checker>, t: GoPtr<Type>, f: (t: GoPtr<Type>) => void): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::func::someType","kind":"func","status":"implemented","sigHash":"96d7463db1b77bc3299546142022f82907cfface3cb7ffb926acaf24a1d7ce4f","bodyHash":"871c61ff59e3e61d4e11faff750f09838b9a3357decbfb080243f330a0ce0be8"}
  *

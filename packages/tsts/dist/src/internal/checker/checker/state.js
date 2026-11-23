@@ -3275,13 +3275,16 @@ export function getConstituentCountOfTypes(types) {
  * 	}
  * }
  */
-export function forEachType(t, f) {
+export function forEachType(receiver, t, f) {
     if (t.flags & TypeFlagsUnion) {
-        for (const u of Type_Types(t)) {
-            f(u);
+        const constituents = Type_Types(t);
+        for (let position = 0; position < constituents.length; position += 1) {
+            admitNativeChecker(receiver, "work");
+            f(constituents[position]);
         }
     }
     else {
+        admitNativeChecker(receiver, "work");
         f(t);
     }
 }
