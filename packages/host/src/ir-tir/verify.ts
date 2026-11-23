@@ -750,12 +750,17 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     }
     const enumReference = phase !== null && "resolution" in phase && phase.resolution.kind === "enum-member" ? phase.resolution : null;
     const checkedRead = original?.kind === "Identifier" && original.tsonic.role === "value" ? original.tsonic.value.views.read : null;
-    if (enumReference !== null || checkedRead?.kind === "available" && input.types.terms[checkedRead.value]?.kind === "enum") {
-      const originalResolution = checked !== undefined && checked !== null && "resolution" in checked ? checked.resolution : null;
+    const checkedMember = original?.kind === "PropertyAccessExpression" && original.tsonic.role === "enum-member" ? original.tsonic : null;
+    if (enumReference !== null || checkedMember !== null || checkedRead?.kind === "available" && input.types.terms[checkedRead.value]?.kind === "enum") {
+      const qualified = checkedMember !== null && original?.kind === "PropertyAccessExpression" ? original.expression : null;
+      const checkedQualifier = qualified?.kind === "Identifier" && qualified.tsonic.role === "enum-qualifier" ? qualified.tsonic : null;
+      const originalResolution = checkedQualifier !== null ? checkedQualifier.resolution
+        : checkedMember === null && checked !== undefined && checked !== null && "resolution" in checked ? checked.resolution : null;
       const binding = originalResolution?.kind === "binding" ? resolveModuleBinding(input, originalResolution.occurrence) : null;
       const selected = binding === null ? originalResolution : binding.target.kind === "available" ? binding.target.value : null;
       const aliases = binding?.aliases ?? [];
-      const definition = selected?.kind === "declarations" && selected.definitions.length === 1 ? selected.definitions[0] : undefined;
+      const definition = checkedMember !== null ? checkedMember.selectedMember.owner
+        : selected?.kind === "declarations" && selected.definitions.length === 1 ? selected.definitions[0] : undefined;
       let owned: ItemNodeRef | null = null;
       if (definition !== undefined) {
         const paid = admit({ kind: "source-declaration", definition });
@@ -766,9 +771,35 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       const paid = owned === null ? null : admit({ kind: "static-item", declaration: owned });
       if (paid !== null) return { kind: "resource-stop", stop: paid };
       const member = owned === null ? null : input.nodeOf({ kind: "item", value: owned });
-      if (enumReference !== null || member?.kind === "EnumMember") {
+      if (enumReference !== null || checkedMember !== null || member?.kind === "EnumMember") {
         let earned = false;
-        if (enumReference !== null && node.kind === "Identifier" && node.tsonic.role === "value" && owned !== null
+        let valueType = node.kind === "Identifier" && node.tsonic.role === "value" && checkedMember === null ? node.tsonic.type : null;
+        if (node.kind === "PropertyAccessExpression" && node.tsonic.role === "enum-member" && checkedMember !== null
+          && checkedQualifier !== null && owned !== null && checkedMember.selectedMember.node === owned.node && node.questionDotToken === null
+          && node.expression.kind === "Identifier" && node.expression.tsonic.role === "enum-qualifier"
+          && node.expression.tsonic.nominal === checkedQualifier.nominal && member?.kind === "EnumMember"
+          && member.tsonic.parent !== null && selected?.kind === "declarations") {
+          let findsNominal = false;
+          for (let position = 0; position < selected.definitions.length; position += 1) {
+            const cut = admit({ kind: "row" });
+            if (cut !== null) return { kind: "resource-stop", stop: cut };
+            if (selected.definitions[position] === checkedQualifier.nominal) { findsNominal = true; break; }
+          }
+          if (findsNominal) {
+            const parent = member.tsonic.parent;
+            const parentRead = admit({ kind: "source-declaration", definition: parent });
+            if (parentRead !== null) return { kind: "resource-stop", stop: parentRead };
+            const source = input.declarationSourceOf(parent);
+            if (source?.kind === "item" && source.value.owner === parent) {
+              const parentNodeRead = admit({ kind: "static-item", declaration: source.value });
+              if (parentNodeRead !== null) return { kind: "resource-stop", stop: parentNodeRead };
+              const parentNode = input.nodeOf(source);
+              if (parentNode?.kind === "EnumDeclaration" && parentNode.tsonic.nominal === checkedQualifier.nominal)
+                valueType = node.tsonic.type;
+            }
+          }
+        }
+        if (enumReference !== null && valueType !== null && owned !== null
           && enumReference.declaration.owner === owned.owner && enumReference.declaration.node === owned.node
           && member?.kind === "EnumMember" && member.id === owned.node && member.tsonic.declaration.kind === "definition"
           && member.tsonic.declaration.definition === owned.owner
@@ -789,12 +820,12 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
             && scope.capturedParameters.length === 0 && scope.selfOwners.length === 0;
           if (earned) {
             if (template === null || valueSource === null) {
-              const type = input.types.terms[node.tsonic.type];
+              const type = input.types.terms[valueType];
               earned = type?.kind === "primitive" && type.primitive === "int64";
             } else {
               const ready = input.bodyOf(template);
               earned = ready !== null && ready.body === template.body && ready.bindings.kind === "parametric"
-                && ready.owner === valueSource.definition && ready.completion === node.tsonic.type;
+                && ready.owner === valueSource.definition && ready.completion === valueType;
             }
           }
         }

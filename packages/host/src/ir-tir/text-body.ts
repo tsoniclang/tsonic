@@ -2,7 +2,7 @@ import { checkedSyntaxReader, lazyReader, literalReader, mapConstruction, nullab
 import type { TirReader } from "./text-construction.js";
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec, TirSyntaxFields, TirSyntaxHeaderValues, TirTypedWork } from "./text-layouts.js";
-import type { TirBodyRoot, TirFormal, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable } from "./contract.js";
+import type { TirBodyRoot, TirEnumResolution, TirFormal, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable } from "./contract.js";
 import type { BlockOrExpression, FunctionDeclarationHeader, SourceFileHeader } from "../ir-hir/contract.js";
 import { requirePresent } from "../diag/index.js";
 import { decodeBodyId } from "../ids/index.js";
@@ -104,6 +104,7 @@ export interface BodyTextModel {
   readonly work_FunctionExpression: (value: FunctionExpression<TypedPhase>) => TirTypedRecordWork;
   readonly work_SourceFile: (value: SourceFile<TypedPhase>) => TirTypedRecordWork;
   readonly work_TirResolution: TirRecordCodec<TirResolution>;
+  readonly enumResolution: TirRecordCodec<TirEnumResolution>;
   readonly work_TirArgument: TirRecordCodec<TirArgument>;
   readonly work_OmissionValue: TirRecordCodec<(TirArgument & { readonly kind: "omitted" })["value"]>;
   readonly work_TirRestPart: TirRecordCodec<TirRestPart>;
@@ -229,7 +230,7 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       .field("declaration", "ItemNodeRef", value => read.work_ItemNodeRef.write(value.declaration), lazyReader(() => read.work_ItemNodeRef.reader))
       .field("aliases", "[SourceNodeRef]", value => sequenceWork("[SourceNodeRef]", value.aliases, actual => read.work_SourceNodeRef.write(actual)), sequenceReader("[SourceNodeRef]", lazyReader(() => read.work_SourceNodeRef.reader)))
       .finish((declaration, aliases) => ({ kind: "static", declaration, aliases })));
-  const enumResolution = defineRecord<Extract<TirResolution, { readonly kind: "enum-member" }>>("TirResolution#enum-member", "TirResolution",
+  const enumResolution = defineRecord<TirEnumResolution>("TirResolution#enum-member", "TirResolution",
     { field: "kind", value: "enum-member" }, "enum-member", null, null, fields => fields
       .field("declaration", "ItemNodeRef", value => read.work_ItemNodeRef.write(value.declaration), lazyReader(() => read.work_ItemNodeRef.reader))
       .field("bindings", "ArtifactBindings", value => withBindingOwner(read.work_ArtifactBindings.write(value.bindings), value.declaration.owner),
@@ -661,5 +662,5 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       case "deferred": return work_O_ApplicationDecision__deferred.write(value);
     }
   }, () => [work_O_ApplicationDecision__decided.reader, work_O_ApplicationDecision__deferred.reader]);
-  return { work_TirFormalInitializer, work_TirModuleRoot, work_TirReadyCallable, work_TirBody, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
+  return { enumResolution, work_TirFormalInitializer, work_TirModuleRoot, work_TirReadyCallable, work_TirBody, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
 };

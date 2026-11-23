@@ -1,4 +1,4 @@
-import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, ItemNodeRef, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, SignatureEndpoint, SourceObjectHolding, SourceObjectField, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirBindingResolution } from "./binding-data.js";
@@ -4283,6 +4283,7 @@ export type CheckedName = HirCoreCarrier & (
       readonly views: HirCheckerViews; readonly place: CapturedFact<HirStoragePlace>;
       readonly access: "write" | "read-write" }
   | { readonly role: "declaration-name"; readonly declaration: DeclarationTarget }
+  | { readonly role: "enum-qualifier"; readonly resolution: HirResolution; readonly nominal: DefId }
   | { readonly role: "binding-name"; readonly binding: SourceNodeRef }
   | { readonly role: "property-name"; readonly key: CapturedFact<MemberKey>;
       readonly origins: CapturedFact<readonly MemberOrigin[]> }
@@ -4327,6 +4328,7 @@ export type CheckedMember = HirCoreCarrier & (
   | { readonly role: "value"; readonly value: CheckedValue;
       readonly origins: CapturedFact<readonly MemberOrigin[]>;
       readonly accessor: CapturedFact<HirApplication | null> }
+  | { readonly role: "enum-member"; readonly value: CheckedValue; readonly selectedMember: ItemNodeRef }
   | { readonly role: "assignment-target"; readonly views: HirCheckerViews;
       readonly place: CapturedFact<HirStoragePlace>; readonly access: "write" | "read-write";
       readonly origins: CapturedFact<readonly MemberOrigin[]>;

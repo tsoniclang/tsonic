@@ -1,7 +1,7 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingScope, BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
-import type { CallExpression, CapturedFact, Expression, HirApplication, HirBody, HirCandidateList, HirNode, HirParam, HirResolution, CheckedPhase } from "../ir-hir/contract.js";
+import type { CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirNode, HirParam, HirResolution, CheckedPhase } from "../ir-hir/contract.js";
 import type { CallConstraint, DefaultConstraint, FlowConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, OperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
@@ -437,7 +437,7 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
     case "CallExpression": yield node.expression; yield* node.arguments.nodes; return;
     case "ObjectLiteralExpression": yield* node.properties.nodes; return;
     case "PropertyAssignment": yield node.initializer; return;
-    case "PropertyAccessExpression": yield node.expression; return;
+    case "PropertyAccessExpression": if (node.tsonic.role !== "enum-member") yield node.expression; return;
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "StringLiteral":
     case "NoSubstitutionTemplateLiteral": case "NullKeyword": return;
     default: return notInferredYet(PORT, `a ${node.kind}`, node.origin);
@@ -446,7 +446,7 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
 
 function collectOriginalDiagnostics(deps: InferenceInputs, body: HirBody, node: HirNode, diagnostics: Set<Diagnostic>): void {
   const annotation = node.tsonic;
-  let fact = annotation === null || !("role" in annotation) ? null : annotation.role === "value" ? annotation.value.views.read
+  let fact = annotation === null || !("role" in annotation) ? null : annotation.role === "value" || annotation.role === "enum-member" ? annotation.value.views.read
     : annotation.role === "assignment-target" ? annotation.place.kind === "available" ? annotation.place.value.read : annotation.place : null;
   if (node.kind === "ConditionalExpression" || node.kind === "VoidExpression") fact = node.tsonic.views.read;
   else if (node.kind === "AsExpression" || node.kind === "TypeAssertionExpression" || node.kind === "SatisfiesExpression") {
@@ -549,6 +549,19 @@ function inspectCheckedExecution(deps: InferenceInputs, body: HirBody, diagnosti
         }
       }
     }
+    if (cut === null && diagnostics.size === 0 && current.kind === "PropertyAccessExpression" && current.tsonic.role === "enum-member") {
+      const declaration = current.tsonic.selectedMember;
+      const at = { body: body.body, node: current.id };
+      if (deps.structuralCuts.declaration(declaration.owner)) return { kind: "form-cut", definition: declaration.owner, at };
+      const item = deps.itemOf(declaration.owner);
+      if (item.kind !== "EnumMember" || item.id !== declaration.node)
+        return callerDefect(PORT, "a qualified enum read retains its actual member");
+      const source = item.tsonic.valueSource;
+      if (source !== null) {
+        if (deps.structuralCuts.declaration(source.definition)) return { kind: "form-cut", definition: source.definition, at };
+        request({ definition: source.definition, part: { kind: "enum-member-value" } });
+      }
+    }
     if (cut === null && diagnostics.size === 0 && current.kind === "Identifier" && (current.tsonic.role === "value" || current.tsonic.role === "assignment-target")) {
       const selected = resolvedValueName(deps, current.tsonic.resolution);
       const definition = selected.kind === "declarations" && selected.definitions.length === 1 ? selected.definitions[0] : undefined;
@@ -643,6 +656,14 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
   }
   else if (node.kind === "ObjectLiteralExpression") objectConstruction(walk, node);
   else if (node.kind === "PropertyAccessExpression") {
+    if (node.tsonic.role === "enum-member") {
+      const declaration = node.tsonic.selectedMember;
+      const member = walk.generation.deps.itemOf(declaration.owner);
+      if (member.kind !== "EnumMember" || member.id !== declaration.node)
+        return callerDefect(PORT, "a qualified enum read retains its actual member");
+      walk.typeOf.set(node.id, enumValueType(walk, member, declaration.owner));
+      return undefined;
+    }
     const access = node.tsonic.role === "value" ? "read" : node.tsonic.access;
     const storage = access === "read" ? null : checkedMemberStorageOf(node);
     if (node.questionDotToken !== null || node.tsonic.origins.kind !== "available"
@@ -884,6 +905,22 @@ function objectConstruction(walk: Walk, node: Extract<HirNode, { readonly kind: 
   walk.typeOf.set(node.id, read.value);
 }
 
+function enumValueType(walk: Walk, member: EnumMember<CheckedPhase>, definition: DefId): Slot {
+  const { deps } = walk.generation;
+  if (member.tsonic.declaration.kind !== "definition" || member.tsonic.declaration.definition !== definition)
+    return callerDefect(PORT, "an enum read retains its actual qualified member");
+  const source = member.tsonic.valueSource;
+  if (source === null) return internType(deps.types, { kind: "primitive", primitive: "int64" });
+  const selected = deps.hirBody(source.body);
+  if (selected.body !== source.body || selected.owner !== source.definition)
+    return callerDefect(PORT, "an enum read retains its actual value-type source body");
+  const part: InferredSignaturePart = { definition: source.definition, part: { kind: "enum-member-value" } };
+  const key = inferredPartKey(part);
+  if (!walk.generation.ownParts.has(key) && !walk.generation.outsideParts.has(key))
+    return callerDefect(PORT, "an enum read requires its actual completed or owned value part");
+  return { part };
+}
+
 function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifier" }>, readWriteTarget: boolean): Slot | Refusal {
   const name = node.tsonic;
   if (name.role !== "value" && name.role !== "assignment-target") return notInferredYet(PORT, "a local occurrence without its checked value or target role", node.origin);
@@ -930,18 +967,7 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
         return type.value;
       }
       if (resolution.definitions.length === 1 && item.kind === "EnumMember" && name.role === "value") {
-        if (item.tsonic.declaration.kind !== "definition" || item.tsonic.declaration.definition !== definition)
-          return callerDefect(PORT, "an enum read retains its actual qualified member");
-        const source = item.tsonic.valueSource;
-        if (source === null) return internType(deps.types, { kind: "primitive", primitive: "int64" });
-        const selected = deps.hirBody(source.body);
-        if (selected.body !== source.body || selected.owner !== source.definition)
-          return callerDefect(PORT, "an enum read retains its actual value-type source body");
-        const part: InferredSignaturePart = { definition: source.definition, part: { kind: "enum-member-value" } };
-        const key = inferredPartKey(part);
-        if (!walk.generation.ownParts.has(key) && !walk.generation.outsideParts.has(key))
-          return callerDefect(PORT, "an enum read requires its actual completed or owned value part");
-        return { part };
+        return enumValueType(walk, item, definition);
       }
       if (name.role === "assignment-target") return callerDefect(PORT, "a static assignment targets an actual variable declaration");
       const endpoints = endpointsOf(item, definition);

@@ -306,12 +306,15 @@ export function hirNodeRefData(value: NodeRef): HirDataWork {
     { kind: "NodeRef", value });
 }
 
+export function hirItemRefData(value: ItemNodeRef): HirDataWork {
+  return hirRecordData("ItemNodeRef", value, () => [hirFieldData("owner", hirDefIdData(value.owner)), hirFieldData("node", hirNodeIdData(value.node))],
+    { kind: "ItemNodeRef", value });
+}
+
 export function hirSourceRefData(value: SourceNodeRef): HirDataWork {
   switch (value.kind) {
     case "body": return hirRecordData(value.kind, value, () => [hirFieldData("value", hirNodeRefData(value.value))], { kind: "SourceNodeRef", value });
-    case "item": return hirRecordData(value.kind, value, () => [hirFieldData("value", hirRecordData("ItemNodeRef", value.value,
-      () => [hirFieldData("owner", hirDefIdData(value.value.owner)), hirFieldData("node", hirNodeIdData(value.value.node))],
-      { kind: "ItemNodeRef", value: value.value }))], { kind: "SourceNodeRef", value });
+    case "item": return hirRecordData(value.kind, value, () => [hirFieldData("value", hirItemRefData(value.value))], { kind: "SourceNodeRef", value });
   }
 }
 

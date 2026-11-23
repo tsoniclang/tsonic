@@ -37,7 +37,7 @@ export function heldFields(deps: BodyRoundDeps, input: BodyRoundInput, source: R
     if (base.kind !== "place" || base.projection.kind !== "field" || base.tir.body !== tir.body)
       return bodyFrontier("BodyAnalysis requires the actual selected projection or static-cell producer for this place.");
     const node = source.get(base.tir.node);
-    if (node?.kind !== "PropertyAccessExpression" || node.tsonic.role === "declaration-name-expression")
+    if (node?.kind !== "PropertyAccessExpression" || node.tsonic.role !== "value" && node.tsonic.role !== "assignment-target")
       return bodyFrontier("A field retains its actual selected receiver syntax.");
     const payload = node.tsonic;
     const selection = payload.selection;

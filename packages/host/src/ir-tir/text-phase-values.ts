@@ -2,7 +2,7 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type { CapturedFact } from "../ir-hir/contract.js";
-import type { DeclarationNameExpression, TypedCall, TypedCase, TypedValueOccurrence } from "./contract.js";
+import type { DeclarationNameExpression, TirEnumResolution, TypedCall, TypedCase, TypedValueOccurrence } from "./contract.js";
 import type {
   BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, TargetAccess, TirApplication, TirDemand, TirProtocol, TirResolution, TirSelection, TypedApplication, TypedBigInt, TypedBinary, TypedConditional, TypedConstruction, TypedControlTransfer, TypedDecorator, TypedInstantiation, TypedIteration, TypedKeyword, TypedMember, TypedName, TypedNumber, TypedObjectSpread, TypedOmission, TypedOperation, TypedOperationOf, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue, TypedShorthand, TypedSpread, TypedString, TypedTemplate, TypedUnary, TypedUpdate, TypedValue
 } from "./contract.js";
@@ -44,6 +44,7 @@ export interface PhaseValuesTextReads {
   readonly work_TargetAccess: TirRecordCodec<TargetAccess>;
   readonly work_TirDemand: TirRecordCodec<TirDemand>;
   readonly work_TirResolution: TirRecordCodec<TirResolution>;
+  readonly enumResolution: TirRecordCodec<TirEnumResolution>;
   readonly work_TirSelection: TirRecordCodec<TirSelection>;
 }
 
@@ -210,6 +211,11 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     .field("declaration", "DeclarationTarget", value => read.work_DeclarationTarget.write(value.declaration), lazyReader(() => read.work_DeclarationTarget.reader))
     .field("storage", "?t", value => nullableWork(value.storage, actual => referenceWork("t", actual)), nullableReader(typeReader))
     .finish((field_role, field_declaration, field_storage) => ({ role: field_role, declaration: field_declaration, storage: field_storage })));
+  const enumQualifier = defineRecord<Extract<TypedName, { readonly role: "enum-qualifier" }>>("TypedName@enum-qualifier", "TypedName",
+    { field: "role", value: "enum-qualifier" }, "TypedName", null, null, fields => fields
+      .field("role", "'enum-qualifier", value => scalarWork("'enum-qualifier", value.role), literalReader<"enum-qualifier">("'enum-qualifier", ["enum-qualifier"]))
+      .field("nominal", "def", value => referenceWork("def", value.nominal), definitionReader)
+      .finish((role, nominal) => ({ role, nominal })));
   const work_TypedName_property_name: TirRecordCodec<TypedName & { readonly role: "property-name" }> = defineRecord<TypedName & { readonly role: "property-name" }>("TypedName@property-name", "TypedName", { field: "role", value: "property-name" }, "TypedName", null, null, fields => fields
     .field("role", "'property-name", value => scalarWork("'property-name", value.role), literalReader<(TypedName & { readonly role: "property-name" })["role"]>("'property-name", ["property-name"]))
     .field("key", "MemberKey", value => read.work_MemberKey.write(value.key), lazyReader(() => read.work_MemberKey.reader))
@@ -511,6 +517,19 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       type: field_type, convertedType: field_convertedType, conversion: field_conversion, narrowing: field_narrowing,
       evidenceIndex: field_evidenceIndex, demand: field_demand, role: field_role, selection: field_selection,
     })));
+  const enumMember = defineRecord<Extract<TypedMember, { readonly role: "enum-member" }>>("TypedMember@enum-member", "TypedMember",
+    { field: "role", value: "enum-member" }, "TypedMember", null, null, fields => fields
+      .field("type", "t", value => referenceWork("t", value.type), typeReader)
+      .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)
+      .field("conversion", "ConversionDecision", value => read.work_ConversionDecision.write(value.conversion), lazyReader(() => read.work_ConversionDecision.reader))
+      .field("narrowing", "?RefinementDecision", value => nullableWork(value.narrowing, actual => read.work_RefinementDecision.write(actual)), nullableReader(lazyReader(() => read.work_RefinementDecision.reader)))
+      .field("evidenceIndex", "?number", value => nullableWork(value.evidenceIndex, actual => scalarWork("number", actual)), nullableReader(numberReader))
+      .field("demand", "TirDemand", value => read.work_TirDemand.write(value.demand), lazyReader(() => read.work_TirDemand.reader))
+      .field("role", "'enum-member", value => scalarWork("'enum-member", value.role), literalReader<"enum-member">("'enum-member", ["enum-member"]))
+      .field("resolution", "TirResolution", value => read.enumResolution.write(value.resolution), lazyReader(() => read.enumResolution.reader))
+      .finish((type, convertedType, conversion, narrowing, evidenceIndex, demand, role, resolution) => ({
+        type, convertedType, conversion, narrowing, evidenceIndex, demand, role, resolution,
+      })));
   const work_TypedMember_assignment_target: TirRecordCodec<TypedMember & { readonly role: "assignment-target" }> = defineRecord<TypedMember & { readonly role: "assignment-target" }>("TypedMember@assignment-target", "TypedMember", { field: "role", value: "assignment-target" }, "TypedMember", null, null, fields => fields
     .field("role", "'assignment-target", value => scalarWork("'assignment-target", value.role), literalReader<(TypedMember & { readonly role: "assignment-target" })["role"]>("'assignment-target", ["assignment-target"]))
     .field("selection", "O<MemberSelection>", value => read.work_O_MemberSelection_.write(value.selection), lazyReader(() => read.work_O_MemberSelection_.reader))
@@ -645,8 +664,9 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       case "label": return work_TypedName_label.write(value);
       case "private-name": return work_TypedName_private_name.write(value);
       case "binding-name": return work_TypedName_binding_name.write(value);
+      case "enum-qualifier": return enumQualifier.write(value);
     }
-  }, () => [declarationNameExpression.reader, work_TypedName_value.reader, work_TypedName_shorthand_value.reader, work_TypedName_assignment_target.reader, work_TypedName_declaration_name.reader, work_TypedName_property_name.reader, work_TypedName_type_name.reader, work_TypedName_label.reader, work_TypedName_private_name.reader, work_TypedName_binding_name.reader]);
+  }, () => [declarationNameExpression.reader, work_TypedName_value.reader, work_TypedName_shorthand_value.reader, work_TypedName_assignment_target.reader, work_TypedName_declaration_name.reader, work_TypedName_property_name.reader, work_TypedName_type_name.reader, work_TypedName_label.reader, work_TypedName_private_name.reader, work_TypedName_binding_name.reader, enumQualifier.reader]);
   const work_TypedPropertyKey: TirRecordCodec<TypedPropertyKey> = unionRecord<TypedPropertyKey>("TypedPropertyKey", (value: TypedPropertyKey): TirTypedRecordWork => {
     switch (value.kind) {
       case "declaration": return keyDeclaration.write(value);
@@ -711,9 +731,10 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     if (value.role === "declaration-name-expression") return declarationNameExpression.write(value);
     switch (value.role) {
       case "value": return work_TypedMember_value.write(value);
+      case "enum-member": return enumMember.write(value);
       case "assignment-target": return work_TypedMember_assignment_target.write(value);
     }
-  }, () => [declarationNameExpression.reader, work_TypedMember_value.reader, work_TypedMember_assignment_target.reader]);
+  }, () => [declarationNameExpression.reader, work_TypedMember_value.reader, work_TypedMember_assignment_target.reader, enumMember.reader]);
   const work_TypedConstruction: TirRecordCodec<TypedConstruction> = unionRecord<TypedConstruction>("TypedConstruction", (value: TypedConstruction): TirTypedRecordWork => {
     switch (value.role) {
       case "value": return work_TypedConstruction_value.write(value);

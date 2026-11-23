@@ -2455,6 +2455,32 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   const receiver = referenceTo(scope, scope.program, info.receiver.expression);
   if (scope.meter.refusal !== null) return null;
   if (receiver === null) return throwInvariant(invariant("A selected member receiver requires its actual source occurrence."));
+  const selectedMember = info.selectedDeclaration;
+  const ast = scope.checked.ast;
+  if (selectedMember !== undefined && ast.kindName(selectedMember) === "KindEnumMember"
+      && ast.kindName(info.receiver.expression) === "KindIdentifier" && info.accessMode === "read" && !info.callCallee) {
+    if (!admit(scope, "edges")) return null;
+    const parent = ast.parent(selectedMember);
+    const enumName = parent === undefined ? undefined : ast.name(parent);
+    const enumSymbol = enumName === undefined ? undefined : scope.checker.getSymbolAtLocation(enumName);
+    const qualifier = scope.checker.getSymbolAtLocation(info.receiver.expression);
+    if (enumSymbol !== undefined && qualifier !== undefined && scope.checker.getTypeSymbol(info.receiver.type) === enumSymbol) {
+      const target = qualifier === enumSymbol ? qualifier : scope.checker.getAliasStep(qualifier)?.kind === "symbol"
+        ? scope.checker.getAliasedSymbol(qualifier) : undefined;
+      if (target === enumSymbol) {
+        if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+        const nominal = scope.checker.getSymbolValueDeclaration(enumSymbol);
+        if (nominal === undefined || ast.kindName(nominal) !== "KindEnumDeclaration")
+          return throwInvariant(invariant("A selected enum member must have its actual nominal owner."));
+        const owner = referenceTo(scope, scope.program, nominal);
+        const member = referenceTo(scope, scope.program, selectedMember);
+        if (scope.meter.refusal !== null) return null;
+        if (owner === null || member === null)
+          return throwInvariant(invariant("The selected enum and member belong to the actual source domain."));
+        return { kind: "enum", occurrence, receiver, owner, member };
+      }
+    }
+  }
   const receiverComponent = component(scope, receiver, null);
   const receiverType = rawType(scope, () => withoutTypeCause(info.receiver.type), receiverComponent, null);
   if (receiverType === null || receiverComponent === null) return null;
@@ -2506,7 +2532,7 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   if (member === undefined) return throwInvariant(invariant("The selected member row must remain in its actual inventory."));
   const readDeclarations = readDeclaration === null ? [] : [readDeclaration];
   const writeDeclarations = writeDeclaration === null ? [] : [writeDeclaration];
-  return { occurrence, receiver, receiverComponent, key: null, access: info.accessMode, callCallee: info.callCallee,
+  return { kind: "property", occurrence, receiver, receiverComponent, key: null, access: info.accessMode, callCallee: info.callCallee,
     optionalChain: info.optionalChain, chainContinuation: false, selectedDeclaration: selected,
     selectedDeclarations: member.declarations, readDeclarations, writeDeclarations, read, write,
     arms: [{ kind: "member", receiver: receiverComponent, member: { table: inventory.id, index: memberIndex },
@@ -3855,6 +3881,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const bindings: RawBinding[] = [];
   const propertyNames: RawPropertyName[] = [];
   const memberUses: RawMemberUse[] = [];
+  let enumQualifiers: Set<NodeId> | null = null;
+  const isEnumQualifier = (node: NodeId): boolean => enumQualifiers?.has(node) === true;
   const enums: RawEnum[] = [];
   const storage: RawStorageCapture[] = [];
   let declarationNameRoot: NodeId | null = null;
@@ -3950,7 +3978,17 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
     let failedSelection = false;
     const numericAnnotationLiteral = parent !== undefined && scope.numericLiterals.has(parent) && ast.kindName(parent) === "KindLiteralType";
-    if (expressionKinds.includes(kind.replace(/^Kind/u, "")) && !declarationName && !bindingName && !moduleExpression && !labelName
+    if (isEnumQualifier(reference.node)) {
+      if (!admit(scope, "facts") || !admit(scope, "edges")) break;
+      const symbol = scope.checker.getSymbolAtLocation(node);
+      if (kind !== "KindIdentifier" || symbol === undefined)
+        return throwInvariant(invariant("An enum qualifier must retain its actual checked declaration reference."));
+      const symbolId = rawSymbol(scope, symbol);
+      if (symbolId === null) break;
+      const captured = scope.tables.symbols[symbolId];
+      if (captured === undefined) return throwInvariant(invariant("An enum qualifier requires its captured symbol."));
+      references.push({ occurrence: reference, meaning: "value", target: captured.target });
+    } else if (expressionKinds.includes(kind.replace(/^Kind/u, "")) && !declarationName && !bindingName && !moduleExpression && !labelName
       && !numericAnnotationLiteral) {
       const readPosition = component(scope, reference, null);
       if (readPosition === null || !admit(scope, "facts")) break;
@@ -4012,6 +4050,11 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     if (kind === "KindPropertyAccessExpression" && declarationNameRoot === null && !failedSelection) {
       const use = capturedMemberUse(scope, node, reference);
       if (use === null) break;
+      if (use.kind === "enum") {
+        if (!admit(scope, "facts")) break;
+        if (enumQualifiers === null && !admit(scope, "facts")) break;
+        (enumQualifiers ??= new Set()).add(use.receiver.node);
+      }
       memberUses.push(use);
     }
     if (kind === "KindCallExpression" && declarationNameRoot === null && !failedSelection) {

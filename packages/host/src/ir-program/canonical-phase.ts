@@ -2,7 +2,7 @@ import type { SyntaxPhaseCopy } from "../ir-hir/contract.js";
 import type { TyId } from "../ids/contract.js";
 import type { RuleOutcome, ClosureDecision } from "../ir-infer/contract.js";
 import type {
-  DeclarationNameExpression, TargetAccess, TirProtocol, TirResolution, TypedAlias, TypedApplication, TypedBigInt, TypedBinary, TypedBinding,
+  DeclarationNameExpression, TargetAccess, TirEnumResolution, TirProtocol, TirResolution, TypedAlias, TypedApplication, TypedBigInt, TypedBinary, TypedBinding,
   TypedBindingElement, TypedBodyTemplate, TypedCallable, TypedClass, TypedClassValue, TypedClosure, TypedConditional,
   TypedConstruction, TypedDecorator, TypedEnum, TypedExportAssignment, TypedHeritage, TypedIndexDeclaration, TypedInstantiation,
   TypedInterface, TypedIteration, TypedKeyword, TypedMember, TypedName, TypedNamespace, TypedNumber, TypedObjectSpread,
@@ -41,7 +41,10 @@ function prepareAccess(scan: ProjectionInventory, value: TargetAccess, at: strin
 }
 
 function prepareNameResolution(scan: ProjectionInventory, resolution: TirResolution): PreparedPhase<TirResolution> {
-  if (resolution.kind !== "enum-member") return holdPhase(resolution);
+  return resolution.kind === "enum-member" ? prepareEnumResolution(scan, resolution) : holdPhase(resolution);
+}
+
+function prepareEnumResolution(scan: ProjectionInventory, resolution: TirEnumResolution): PreparedPhase<TirEnumResolution> {
   return paidPhase(scan, 4, () => withPlan(prepareArtifactBindings(scan, resolution.bindings), bindings => {
     const declaration = resolution.declaration;
     const aliases = prepareProjectionRows(scan, resolution.aliases, read => paidPhase(scan, 2, () => holdPhase(read())));
@@ -71,7 +74,7 @@ function prepareName(scan: ProjectionInventory, value: TypedName, at: string): P
       const { declarations } = value;
       return { kind: "copied", value: image => ({ role: "type-name", type: type(image), declarations }) };
     }));
-    case "property-name": case "label": case "binding-name": case "private-name": return borrowPhase(scan, 1, value);
+    case "property-name": case "label": case "binding-name": case "private-name": case "enum-qualifier": return borrowPhase(scan, 1, value);
   }
 }
 
@@ -199,6 +202,9 @@ function prepareUpdate(scan: ProjectionInventory, value: TypedUpdate, at: string
 
 function prepareTypedMember(scan: ProjectionInventory, value: TypedMember, at: string): PreparedPhase<TypedMember> {
   if (value.role === "declaration-name-expression") return paidPhase(scan, 1, () => holdPhase(value));
+  if (value.role === "enum-member") return paidPhase(scan, 8, () => withPlan(prepareValue(scan, value, at), common =>
+    withPlan(prepareEnumResolution(scan, value.resolution), resolution =>
+      ({ kind: "copied", value: image => ({ ...common(image), role: "enum-member", resolution: resolution(image) }) }))));
   return withPlan(prepareOutcome(scan, () => value.selection, member => prepareSelection(scan, member), at + ".selection"),
     (selection): PreparedPhase<TypedMember> => {
       switch (value.role) {

@@ -73,6 +73,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TargetAccess: lazyRecord(() => body.work_TargetAccess),
     work_TirDemand: lazyRecord(() => body.work_TirDemand),
     work_TirResolution: lazyRecord(() => body.work_TirResolution),
+    enumResolution: lazyRecord(() => body.enumResolution),
     work_TirSelection: lazyRecord(() => body.work_TirSelection)
   });
   const phase_declarations = createPhaseDeclarationsText(kernel, {

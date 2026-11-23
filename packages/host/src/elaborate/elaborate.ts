@@ -1,10 +1,11 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
-import type { BodyId, LocalId, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
+import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import { checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { TirEnumResolution } from "../ir-tir/contract.js";
 import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
 import { artifactBindingsKey, optionalValueDomainOf, readType, rigidBindings } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput, ElaborateSelectedCall, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
@@ -223,21 +224,21 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (term.group !== solution.group) return callerDefect("a flow references an inference variable of another group", origin);
     return finals[term.variable] ?? callerDefect("a flow references an unfinalized inference variable", origin);
   };
-  let nameEvidence: Map<NodeId, TyId[]> | null = null;
-  const evidenceOfName = (node: NodeId): readonly TyId[] | undefined => {
-    if (nameEvidence === null) {
-      nameEvidence = new Map();
+  let enumEvidence: Map<NodeId, TyId[]> | null = null;
+  const evidenceOfEnumRead = (node: NodeId): readonly TyId[] | undefined => {
+    if (enumEvidence === null) {
+      enumEvidence = new Map();
       for (const { value, error } of constraints.evidence) {
         if (error !== null || value.component.kind !== "body" || value.component.value.body !== body.body) continue;
         const occurrence = value.component.value;
         const source = nodes[nodePosition(occurrence.node)];
-        if (source?.kind !== "Identifier") continue;
-        const prior = nameEvidence.get(occurrence.node);
-        if (prior === undefined) nameEvidence.set(occurrence.node, [value.type]);
+        if (source?.kind !== "Identifier" && (source?.kind !== "PropertyAccessExpression" || source.tsonic.role !== "enum-member")) continue;
+        const prior = enumEvidence.get(occurrence.node);
+        if (prior === undefined) enumEvidence.set(occurrence.node, [value.type]);
         else prior.push(value.type);
       }
     }
-    return nameEvidence.get(node);
+    return enumEvidence.get(node);
   };
   for (const solved of solution.constraints) {
     if (solved.constraint.body !== body.body) continue;
@@ -491,6 +492,23 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const names: ({ readonly resolution: TirResolution; readonly storage: TyId; readonly role: "value" | "assignment-target" } | undefined)[] = [];
   const visited = (node: HirNode): InvariantFailure => failure("compiler defect", `a ${node.kind} built without its visit`, node.origin);
 
+  const enumConstant = (node: HirNode, declaration: ItemNodeRef, aliases: readonly SourceNodeRef[]):
+    { readonly resolution: TirEnumResolution; readonly storage: TyId } => {
+    const item = deps.itemOf(declaration.owner);
+    const parent = item.kind !== "EnumMember" || item.tsonic.parent === null ? null : deps.itemOf(item.tsonic.parent);
+    const evidence = evidenceOfEnumRead(node.id);
+    const first = evidence?.[0];
+    if (item.kind !== "EnumMember" || parent?.kind !== "EnumDeclaration" || item.id !== declaration.node
+      || item.tsonic.declaration.kind !== "definition" || item.tsonic.declaration.definition !== declaration.owner
+      || evidence === undefined || first === undefined)
+      return callerDefect("an enum constant read requires its actual closed member and inferred value type", node.origin);
+    const storage = finalType(first, node.origin);
+    if (evidence.some(type => finalType(type, node.origin) !== storage))
+      return callerDefect("an enum constant read carries competing inferred value types", node.origin);
+    return { storage, resolution: { kind: "enum-member", declaration,
+      bindings: { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }, aliases } };
+  };
+
   const admitName = (node: Identifier<CheckedPhase>, position: number): void => {
     const checked = node.tsonic;
     if (checked.role !== "value" && checked.role !== "assignment-target") return notElaboratedYet(`a name of role ${checked.role}`, node.origin);
@@ -515,19 +533,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       }
       const item = deps.itemOf(definition);
       if (item.kind === "EnumMember" && checked.role === "value") {
-        const owner = item.tsonic.parent;
-        const parent = owner === null ? null : deps.itemOf(owner);
-        const evidence = evidenceOfName(node.id);
-        const first = evidence?.[0];
-        if (parent?.kind !== "EnumDeclaration" || item.tsonic.declaration.kind !== "definition"
-          || item.tsonic.declaration.definition !== definition || evidence === undefined || first === undefined)
-          return callerDefect("an enum constant read requires its actual closed member and inferred value type", node.origin);
-        const storage = finalType(first, node.origin);
-        if (evidence.some(type => finalType(type, node.origin) !== storage))
-          return callerDefect("an enum constant read carries competing inferred value types", node.origin);
-        names[position] = { resolution: { kind: "enum-member", declaration: { owner: definition, node: item.id },
-          bindings: { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
-          aliases }, storage, role: checked.role };
+        names[position] = { ...enumConstant(node, { owner: definition, node: item.id }, aliases), role: checked.role };
         return;
       }
       if (item.kind !== "VariableDeclaration" || item.tsonic.declaration.kind !== "definition"
@@ -997,6 +1003,32 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         return;
       }
       case "PropertyAccessExpression":
+        if (node.tsonic.role === "enum-member") {
+          if (!building) return;
+          const qualifier = node.expression;
+          const selectedName = node.name;
+          if (node.questionDotToken !== null || qualifier.kind !== "Identifier" || qualifier.tsonic.role !== "enum-qualifier"
+            || selectedName.kind !== "Identifier" || selectedName.tsonic.role !== "property-name" || selectedName.tsonic.key.kind !== "available")
+            return callerDefect("a qualified enum read retains its actual selector and declaration qualifier", node.origin);
+          const { nominal, resolution } = qualifier.tsonic;
+          const binding = resolution.kind === "binding" ? resolveModuleBinding(deps, resolution.occurrence) : null;
+          const target = binding === null ? resolution : binding.target.kind === "available" ? binding.target.value : null;
+          const item = deps.itemOf(node.tsonic.selectedMember.owner);
+          const part = item.kind !== "EnumMember" || item.tsonic.parent === null ? null : deps.itemOf(item.tsonic.parent);
+          if (part?.kind !== "EnumDeclaration" || part.tsonic.nominal !== nominal || target?.kind !== "declarations"
+            || !target.definitions.some(definition => {
+              const resolved = deps.itemOf(definition);
+              return resolved.kind === "EnumDeclaration" && resolved.tsonic.nominal === nominal;
+            }))
+            return callerDefect("a qualified enum read retains its actual owning declaration group", node.origin);
+          const member = enumConstant(node, node.tsonic.selectedMember, binding?.aliases ?? []);
+          expressions[position] = { ...header(node), kind: node.kind, questionDotToken: null,
+            expression: { ...header(qualifier), kind: qualifier.kind, text: qualifier.text, tsonic: { role: "enum-qualifier", nominal } },
+            name: { ...header(selectedName), kind: selectedName.kind, text: selectedName.text,
+              tsonic: { role: "property-name", key: selectedName.tsonic.key.value } },
+            tsonic: { role: "enum-member", resolution: member.resolution, ...valueOf(position, member.storage, node.origin) } };
+          return;
+        }
         if (building) {
           const member = members[position] ?? compilerDefect("a property access has no actual selected member decision", node.origin);
           if (node.questionDotToken !== null || node.name.kind !== "Identifier" || node.name.tsonic.role !== "property-name")

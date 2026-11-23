@@ -227,6 +227,7 @@ interface Lowering extends TypeConversion {
   readonly references: ReadonlyMap<NodeId, RawReference>;
   readonly propertyNames: ReadonlyMap<NodeId, RawPropertyName>;
   readonly memberUses: Map<NodeId, RawMemberUse>;
+  readonly enumQualifiers: ReadonlyMap<NodeId, RawNodeRef>;
   readonly links: ReadonlyMap<NodeId, RawModuleLink>;
   readonly locals: Map<NodeId, LocalRef>;
   readonly variableLocals: ReadonlyMap<BodyId, readonly Hir.HirLocal[]>;
@@ -634,6 +635,7 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
   const missing: Hir.CapturedFact<never> = readFact.kind === "unavailable" && readFact.reason === "checker-error" ? readFact
     : { kind: "unavailable", reason: "not-provided", causes: [] };
   if (selected === undefined) return { kind: "complete", value: { key: missing, origins: missing, accessor: missing, place: missing } };
+  if (selected.kind !== "property") return throwInvariant(invariant("An enum member is not a structural property use."));
   if (selected.receiver.module !== lowering.raw.module || selected.receiver.node !== node.expression.id
     || selected.access !== access || selected.optionalChain || selected.chainContinuation || selected.arms.length !== 1)
     throw new TypeError("front: a member use requires its actual receiver, access and selected arm");
@@ -707,6 +709,18 @@ type ExpressionContext = "execution" | "declaration-name";
 
 function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner: DefId,
   typeOf: TypeReader, context: ExpressionContext): ConversionResult<Hir.Expression<Checked>> {
+  if (node.kind === "Identifier") {
+    const qualifier = lowering.enumQualifiers.get(node.id);
+    if (qualifier !== undefined) {
+      const resolved = resolutionOf(lowering, node.id, "value");
+      if (resolved.kind !== "complete") return resolved;
+      if (resolved.value.kind !== "declarations" && resolved.value.kind !== "binding")
+        return throwInvariant(invariant("An enum qualifier must resolve to its actual declaration or binding."));
+      return { kind: "complete", value: { ...headerOf(node), kind: node.kind, text: node.text,
+        tsonic: { core: coreOf(lowering, node.id), role: "enum-qualifier", resolution: resolved.value,
+          nominal: lowering.deps.definitionOf(qualifier) } } };
+    }
+  }
   const value = valueOf(lowering, node.id);
   if (value.kind !== "complete") return value;
   switch (node.kind) {
@@ -856,6 +870,24 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
       if (context === "declaration-name" && lowering.memberUses.has(node.id))
         return throwInvariant(invariant("A nonexecuting declaration name cannot retain a captured runtime member use."));
       const access = lowering.assignmentTargets.get(node.id) ?? "read";
+      const enumUse = lowering.memberUses.get(node.id);
+      if (enumUse?.kind === "enum") {
+        const receiver = expression(lowering, node.expression);
+        const captured = value.value.views.read;
+        const type = captured.kind === "available" ? readType(lowering.deps.types, captured.value) : null;
+        if (access !== "read" || node.questionDotToken !== null || receiver.kind !== "Identifier"
+          || enumUse.receiver.module !== lowering.raw.module || enumUse.receiver.node !== receiver.id
+          || receiver.tsonic.role !== "enum-qualifier" || type?.kind !== "enum" || type.definition !== receiver.tsonic.nominal)
+          return throwInvariant(invariant("An enum read must retain its actual checked qualifier and native owner."));
+        const declaration = lowering.deps.definitionOf(enumUse.member);
+        lowering.memberUses.delete(node.id);
+        return { kind: "complete", value: { ...headerOf(node), kind: node.kind, expression: receiver, questionDotToken: null,
+          name: { ...headerOf(node.name), kind: node.name.kind, text: node.name.text,
+            tsonic: { core: coreOf(lowering, node.name.id), role: "property-name", key: { kind: "available", value: { kind: "text", value: node.name.text } },
+              origins: { kind: "available", value: [{ kind: "declared", declaration }] } } },
+          tsonic: { core: coreOf(lowering, node.id), role: "enum-member", value: value.value,
+            selectedMember: { owner: declaration, node: enumUse.member.node } } } };
+      }
       const result = memberUse(lowering, node, value.value.views.read, access);
       if (result.kind !== "complete") return result;
       const selected = result.value;
@@ -1275,16 +1307,22 @@ function referenceTargets(raw: RawModule): ReadonlyMap<NodeId, RawReference> {
   return references;
 }
 
-function memberUsesOf(raw: RawModule): Map<NodeId, RawMemberUse> {
+function memberUsesOf(raw: RawModule): Pick<Lowering, "memberUses" | "enumQualifiers"> {
   const uses = new Map<NodeId, RawMemberUse>();
+  const qualifiers = new Map<NodeId, RawNodeRef>();
   let previous = -1;
   for (const use of raw.memberUses) {
     if (use.occurrence.module !== raw.module || use.occurrence.node <= previous)
       return throwInvariant(invariant("Member uses retain their actual module and unique syntax order."));
     previous = use.occurrence.node;
     uses.set(use.occurrence.node, use);
+    if (use.kind === "enum") {
+      if (use.receiver.module !== raw.module || qualifiers.has(use.receiver.node))
+        return throwInvariant(invariant("An enum qualifier has one actual occurrence in this source module."));
+      qualifiers.set(use.receiver.node, use.owner);
+    }
   }
-  return uses;
+  return { memberUses: uses, enumQualifiers: qualifiers };
 }
 
 function storageCaptures(raw: RawModule): Map<NodeId, RawStorageCapture> {
@@ -1328,7 +1366,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     storage: storageCaptures(raw),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
-    references: referenceTargets(raw), links: moduleLinks(raw), memberUses: memberUsesOf(raw),
+    references: referenceTargets(raw), links: moduleLinks(raw), ...memberUsesOf(raw),
     propertyNames,
     locals: new Map(structure.locals), variableLocals, bodies: [], expressions: new Map(), statements: new Map(),
     calls: new Map(raw.calls.filter(call => call.invocation.module === raw.module).map(call => [call.invocation.node, call])), candidateLists: new Map(),

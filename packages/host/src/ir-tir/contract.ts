@@ -13,12 +13,19 @@ export interface TypedCase {
   readonly operation: RuleOutcome<TypedOperation>;
 }
 
+export interface TirEnumResolution {
+  readonly kind: "enum-member";
+  readonly declaration: ItemNodeRef;
+  readonly bindings: ArtifactBindings;
+  readonly aliases: readonly SourceNodeRef[];
+}
+
 export type TirResolution =
   | { readonly kind: "local"; readonly local: LocalRef }
   | IntrinsicValueResolution
   | { readonly kind: "definition"; readonly definition: DefId; readonly aliases: readonly SourceNodeRef[] }
   | { readonly kind: "static"; readonly declaration: ItemNodeRef; readonly aliases: readonly SourceNodeRef[] }
-  | { readonly kind: "enum-member"; readonly declaration: ItemNodeRef; readonly bindings: ArtifactBindings; readonly aliases: readonly SourceNodeRef[] }
+  | TirEnumResolution
   | { readonly kind: "module"; readonly target: ImportTarget }
   | { readonly kind: "error"; readonly diagnostic: number };
 
@@ -115,6 +122,7 @@ export type TypedName =
   | (TypedValue & { readonly role: "shorthand-value"; readonly key: MemberKey; readonly resolution: TirResolution })
   | { readonly role: "assignment-target"; readonly resolution: TirResolution; readonly access: TargetAccess }
   | { readonly role: "declaration-name"; readonly declaration: DeclarationTarget; readonly storage: TyId | null }
+  | { readonly role: "enum-qualifier"; readonly nominal: DefId }
   | { readonly role: "binding-name"; readonly binding: SourceNodeRef }
   | { readonly role: "property-name"; readonly key: MemberKey }
   | { readonly role: "type-name"; readonly type: TyId; readonly declarations: readonly DefId[] }
@@ -189,6 +197,7 @@ export type TargetAccess =
 export type TypedMember =
   | DeclarationNameExpression
   | (TypedValue & { readonly role: "value"; readonly selection: RuleOutcome<MemberSelection> })
+  | (TypedValue & { readonly role: "enum-member"; readonly resolution: TirEnumResolution })
   | { readonly role: "assignment-target"; readonly selection: RuleOutcome<MemberSelection>; readonly access: TargetAccess };
 
 export interface TypedApplication extends TypedValue {

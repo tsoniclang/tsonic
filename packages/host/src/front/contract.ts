@@ -520,7 +520,8 @@ export type RawMemberArm =
       readonly key: RawComponentId; readonly read: RawComponentId | null;
       readonly write: RawComponentId | null; readonly readonly: boolean };
 
-export interface RawMemberUse {
+export interface RawPropertyUse {
+  readonly kind: "property";
   readonly occurrence: RawNodeRef;
   readonly receiver: RawNodeRef;
   readonly receiverComponent: RawComponentId;
@@ -537,6 +538,16 @@ export interface RawMemberUse {
   readonly write: RawTypeId | null;
   readonly arms: readonly RawMemberArm[];
 }
+
+export interface RawEnumUse {
+  readonly kind: "enum";
+  readonly occurrence: RawNodeRef;
+  readonly receiver: RawNodeRef;
+  readonly member: RawNodeRef;
+  readonly owner: RawNodeRef;
+}
+
+export type RawMemberUse = RawPropertyUse | RawEnumUse;
 
 export interface RawIteratorWitness {
   readonly declarations: readonly RawNodeRef[];

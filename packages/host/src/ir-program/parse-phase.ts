@@ -1,7 +1,7 @@
 import type { DefId, TyId, NodeRef, SourceNodeRef } from "../ids/contract.js";
 import type { BindingVector, ExactRational, MemberKey } from "../ir-types/contract.js";
 import type { CapturedFact, ImportTarget, DeclarationTarget } from "../ir-hir/contract.js";
-import type { DeclarationNameExpression, TypedCall, TypedValueOccurrence, TypedValue } from "../ir-tir/contract.js";
+import type { DeclarationNameExpression, TirEnumResolution, TypedCall, TypedValueOccurrence, TypedValue } from "../ir-tir/contract.js";
 import type { ApplicationDecision, ClosureDecision, ConstructionPartDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
 import type { TypedOperation, TirResolution, MemberSelection, TirApplication, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedName, TypedPropertyKey, TypedString, TypedNumber, TypedBigInt, TypedKeyword, TypedBinary, TypedUnary, TypedPrefix, TypedUpdate, TypedConditional, TargetAccess, TypedMember, TypedApplication, TypedProtocolValue, TypedSpread, TypedObjectSpread, TypedConstruction, TypedTemplate, TypedInstantiation, TypedProperty, TypedShorthand, TypedOmission, TypedIteration, TypedControlTransfer, TypedDecorator, TypedVariableList, TypedCallable, TypedClosure, TypedClass, TypedClassValue } from "../ir-tir/contract.js";
 import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
@@ -13,7 +13,7 @@ import { readCapturedFactText, readDeclarationTargetText, readImportTargetText }
 import { readApplicationDecisionText, readClosureDecisionText, readConstructionPartDecisionText, readRefinementDecisionText, readRuleOutcomeText } from "./parse-inference.js";
 import { readConversionDecisionText, readTirDemandText, readTirResolutionText, readTargetAccessText, readTirApplicationText, readTirProtocolText, readTypedOperationText, readTirSelectionText, readMemberSelectionText } from "./parse-tir.js";
 import { readTypedCallableText, readTypedClassText } from "./parse-phase-declarations.js";
-import { readTypedValueFields } from "./parse-tir.js";
+import { readEnumResolutionText, readTypedValueFields } from "./parse-tir.js";
 
 function readNameableText<Value, Root>(cursor: Cursor, label: string, read: (fields: RecordFields) => TextStep<Root>,
   finish: (value: Value | DeclarationNameExpression) => TextStep<Root>): TextStep<Root> {
@@ -55,7 +55,7 @@ export function readTypedNameText<Root>(cursor: Cursor, finish: (value: TypedNam
                   }
                   })))))));
       case "role":
-        return atomicText(cursor, next => readStringChoice(next, ["assignment-target","declaration-name","binding-name","property-name","type-name","label","private-name"]), roleValue => {
+        return atomicText(cursor, next => readStringChoice(next, ["assignment-target","declaration-name","binding-name","property-name","type-name","label","private-name","enum-qualifier"]), roleValue => {
           switch (roleValue) {
             case "assignment-target": return fieldText<TirResolution, Root>(cursor, fields, "resolution", readTirResolutionText, resolutionValue =>
               fieldText<TargetAccess, Root>(cursor, fields, "access", readTargetAccessText, accessValue =>
@@ -67,6 +67,8 @@ export function readTypedNameText<Root>(cursor: Cursor, finish: (value: TypedNam
                     acceptText({ role: roleValue, declaration: declarationValue, storage: storageValue }, finish))));
             case "binding-name": return fieldText<SourceNodeRef, Root>(cursor, fields, "binding", (next, done) => atomicText(next, readSourceNodeRef, done), binding =>
               atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role: roleValue, binding }, finish)));
+            case "enum-qualifier": return fieldText<DefId, Root>(cursor, fields, "nominal", (next, done) => atomicText(next, readDefinitionId, done), nominal =>
+              atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role: roleValue, nominal }, finish)));
             case "property-name": return fieldText<MemberKey, Root>(cursor, fields, "key", readMemberKeyText, keyValue =>
               atomicText(cursor, next => closeRecord(next, fields), () =>
                   acceptText({ role: roleValue, key: keyValue }, finish)));
@@ -435,10 +437,17 @@ export function readTypedMemberText<Root>(cursor: Cursor, finish: (value: TypedM
           fieldText<RefinementDecision | null, Root>(cursor, fields, "narrowing", (next, done) => nullableText(next, readRefinementDecisionText, done), narrowingValue =>
             fieldText<number | null, Root>(cursor, fields, "evidenceIndex", (next, done) => nullableText(next, (next, done) => atomicText(next, readNumber, done), done), evidenceIndexValue =>
               fieldText<TirDemand, Root>(cursor, fields, "demand", readTirDemandText, demandValue =>
-                fieldText<"value", Root>(cursor, fields, "role", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["value"]), done), roleValue =>
-                  fieldText<RuleOutcome<MemberSelection>, Root>(cursor, fields, "selection", (next, done) => readRuleOutcomeText(next, readMemberSelectionText, done), selectionValue =>
-                    atomicText(cursor, next => closeRecord(next, fields), () =>
-                        acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue, role: roleValue, selection: selectionValue }, finish))))))))));
+                fieldText<"value" | "enum-member", Root>(cursor, fields, "role",
+                  (next, done) => atomicText(next, value => readStringChoice(value, ["value", "enum-member"]), done), role => {
+                    const value: TypedValue = { type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue,
+                      narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue };
+                    if (role === "enum-member") return fieldText<TirEnumResolution, Root>(
+                      cursor, fields, "resolution", readEnumResolutionText, resolution =>
+                        atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ ...value, role, resolution }, finish)));
+                    return fieldText<RuleOutcome<MemberSelection>, Root>(cursor, fields, "selection",
+                      (next, done) => readRuleOutcomeText(next, readMemberSelectionText, done), selection =>
+                        atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ ...value, role, selection }, finish)));
+                  })))))));
       case "role":
         return atomicText(cursor, next => readStringChoice(next, ["assignment-target"]), roleValue => fieldText<RuleOutcome<MemberSelection>, Root>(cursor, fields, "selection", (next, done) => readRuleOutcomeText(next, readMemberSelectionText, done), selectionValue =>
         fieldText<TargetAccess, Root>(cursor, fields, "access", readTargetAccessText, accessValue =>

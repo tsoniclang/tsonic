@@ -371,7 +371,7 @@ function verifyProtocol(node: HirProtocolNode, site: HirSite, report: HirReport)
     report("protocol-kind", site, "iteration protocol must retain authored asynchronous mode");
 }
 
-function candidateViolations(inventory: HirInventory, context: HirVerificationContext,
+function sourceAssociationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext, paths: HirIdentityPaths,
   arenas: readonly HirCandidateArena[], requests: HirBindingRequest[], report: HirReport): void {
   const memberships = new Map<DefId, Set<DefId>>();
   for (const { body, lists } of arenas) {
@@ -403,6 +403,29 @@ function candidateViolations(inventory: HirInventory, context: HirVerificationCo
     const node = entry.node;
     const metadata = node.tsonic;
     const site: HirSite = { kind: "node", node: entry.source };
+    if (node.kind === "Identifier" && node.tsonic.role === "enum-qualifier") {
+      const parent = inventory.parents.get(node);
+      const resolution = node.tsonic.resolution;
+      if (parent?.kind !== "PropertyAccessExpression" || parent.expression !== node || parent.tsonic.role !== "enum-member"
+        || resolution.kind !== "binding" && (resolution.kind !== "declarations" || !resolution.definitions.includes(node.tsonic.nominal)))
+        report("definition-reference", site, "an enum qualifier belongs to its actual constant member access and checked declaration");
+    }
+    if ((node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression") && node.tsonic.role === "enum-member") {
+      const selected = node.tsonic.selectedMember;
+      const member = sourceNodeData({ kind: "item", value: selected }, module, inventory, context, paths)?.node;
+      const owner = member?.kind === "EnumMember" && member.parent !== null && member.tsonic.parent !== null
+        ? sourceNodeData({ kind: "item", value: { owner: member.tsonic.parent, node: member.parent } }, module, inventory, context, paths)?.node
+        : undefined;
+      const view = node.tsonic.value.views.read;
+      const type = view.kind === "available" ? context.types.terms[view.value] : undefined;
+      if (node.kind !== "PropertyAccessExpression" || node.questionDotToken !== null || node.expression.kind !== "Identifier"
+        || node.expression.tsonic.role !== "enum-qualifier" || type?.kind !== "enum" || type.definition !== node.expression.tsonic.nominal
+        || owner?.kind !== "EnumDeclaration" || owner.tsonic.nominal !== type.definition
+        || node.name.kind !== "Identifier" || node.name.tsonic.role !== "property-name"
+        || member?.kind !== "EnumMember" || member.name.kind !== "Identifier" || member.name.text !== node.name.text
+        || member.tsonic.declaration.kind !== "definition" || member.tsonic.declaration.definition !== selected.owner)
+        report("definition-reference", site, "an enum access must retain its actual checked selector, nominal type and member");
+    }
     if (node.kind === "CallExpression" && node.tsonic.application.kind === "available") {
       const application = node.tsonic.application.value;
       const authored = node.arguments.nodes;
@@ -822,7 +845,7 @@ export const verifyHir: VerifyHir = (module, context) => {
   verifyHirReferences(roots, module, inventory, context, paths, report);
   verifyExportBindings(roots, module, inventory, context, paths, report);
   const requests: HirBindingRequest[] = [];
-  candidateViolations(inventory, context, arenas, requests, report);
+  sourceAssociationViolations(module, inventory, context, paths, arenas, requests, report);
   literalViolations(inventory, report, roots);
   obligationViolations(module, inventory, context, paths, report);
   const readers: HirCaptureReaders = {

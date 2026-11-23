@@ -5,7 +5,7 @@ import type { BinaryExpression, Expression, NodeHeader, ParameterDeclaration, St
 import { shortCircuitOperatorOf } from "../ir-hir/index.js";
 import type { MirBody, MirLocalRole, MirOperand, MirUnwind } from "../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../ir-mir/index.js";
-import type { TirBody, TirLocal, TypedBinary, TypedOperation, TypedPhase, TypedUnary, TypedValue } from "../ir-tir/contract.js";
+import type { TirBody, TirEnumResolution, TirLocal, TypedBinary, TypedOperation, TypedPhase, TypedUnary, TypedValue } from "../ir-tir/contract.js";
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { ControlScope, Discard, Evaluated, Lowering, Work } from "./model.js";
@@ -325,6 +325,16 @@ function value(lowering: Lowering, payload: TypedValue, node: NodeHeader): void 
     return notLoweredYet("a value demanded under a selection", node.origin);
 }
 
+function enumOperand(lowering: Lowering, node: NodeHeader, payload: TypedValue, resolution: TirEnumResolution): boolean {
+  value(lowering, payload, node);
+  const storage = rawType(payload);
+  const operand = constantOperand(lowering.state, storage, { kind: "constant", reference: { context: "enum-member",
+    member: resolution.declaration.owner, bindings: resolution.bindings } });
+  if (operand === null) return false;
+  pushOperand(lowering, { kind: "plain", operand, pendingRead: false, storage, site: siteOf(lowering.body, node) });
+  return true;
+}
+
 function literal(lowering: Lowering, node: NodeHeader, payload: TypedValue, selected: LiteralValue): boolean {
   value(lowering, payload, node);
   if (lowering.work.at(-1)?.kind === "discard") {
@@ -398,15 +408,8 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
           return callerDefect("an intrinsic undefined read must retain its native absence type", node.origin);
         return literal(lowering, node, payload, { kind: "absence" });
       }
+      if (resolution.kind === "enum-member") return enumOperand(lowering, node, payload, resolution);
       value(lowering, payload, node);
-      if (resolution.kind === "enum-member") {
-        const storage = rawType(payload);
-        const operand = constantOperand(state, storage, { kind: "constant", reference: { context: "enum-member",
-          member: resolution.declaration.owner, bindings: resolution.bindings } });
-        if (operand === null) return false;
-        pushOperand(lowering, { kind: "plain", operand, pendingRead: false, storage, site: siteOf(body, node) });
-        return true;
-      }
       if (resolution.kind === "static") {
         const site = siteOf(body, node);
         const storage = rawType(payload);
@@ -429,6 +432,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     }
     case "PropertyAccessExpression": {
       const payload = node.tsonic;
+      if (payload.role === "enum-member") return enumOperand(lowering, node, payload, payload.resolution);
       if (payload.role !== "value") return notLoweredYet(`a property access of role ${payload.role}`, node.origin);
       if (node.questionDotToken !== null) return notLoweredYet("a selected optional field read", node.origin);
       if (payload.selection.kind !== "decided") return callerDefect("a deferred member read", node.origin);

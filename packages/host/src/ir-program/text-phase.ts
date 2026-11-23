@@ -57,6 +57,8 @@ export function textTypedName(value: TypedName): TextWork {
     ]);
       case "binding-name":
         return record("TypedName", [field("role", text(value.role)), field("binding", textSourceNodeRef(value.binding))]);
+      case "enum-qualifier":
+        return record("TypedName", [field("role", text(value.role)), field("nominal", identity("def", value.nominal))]);
       case "property-name":
         return record("TypedName", [
       field("role", text(value.role)),
@@ -486,7 +488,7 @@ export function textTypedMember(value: TypedMember): TextWork {
   return deferred(value, () => {
     if (value.role === "declaration-name-expression") return textNameExpression(value);
     switch (value.role) {
-      case "value":
+      case "value": case "enum-member":
         return record("TypedMember", [
       field("type", numericIdentity("t", value.type)),
       field("convertedType", numericIdentity("t", value.convertedType)),
@@ -495,7 +497,8 @@ export function textTypedMember(value: TypedMember): TextWork {
       field("evidenceIndex", (value.evidenceIndex === null ? token("null") : numeric(value.evidenceIndex))),
       field("demand", textTirDemand(value.demand)),
       field("role", text(value.role)),
-      field("selection", textRuleOutcome(value.selection, entry0 => textMemberSelection(entry0))),
+      value.role === "enum-member" ? field("resolution", textTirResolution(value.resolution))
+        : field("selection", textRuleOutcome(value.selection, textMemberSelection)),
     ]);
       case "assignment-target":
         return record("TypedMember", [

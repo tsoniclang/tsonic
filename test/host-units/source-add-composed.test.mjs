@@ -187,6 +187,92 @@ test("an enum read keeps its verified member and value carrier through both synt
   assert.equal(printModuleBodies(analyzed.value.index, parsed.value), document);
 });
 
+test("a qualified enum constant uses its actual declaration qualifier rather than opening a runtime receiver", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { printModuleBodies, parseModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const source = "export enum Code { Start=2, Same=2, End=Code.Start+3 } export enum Other { Start=2 }";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const context = typed.value.verifierOf(input.snapshot.entryPoint);
+  const chapter = typed.value.modules.get(input.snapshot.entryPoint);
+  const [code, other] = chapter.tree.root.statements.nodes.map(slot => slot.node);
+  const [start, same, end] = code.members.nodes;
+  const consumer = chapter.bodies.find(body => body.owner === end.tsonic.definition && body.bindings.kind === "parametric");
+  const access = consumer.root.left;
+  const selected = captured.value.checked.declarationSourceOf(start.tsonic.definition);
+  const crossed = captured.value.checked.declarationSourceOf(same.tsonic.definition);
+  assert.equal(selected.kind === "item" && crossed.kind === "item", true);
+  assert.equal(access.kind, "PropertyAccessExpression");
+  assert.equal(access.tsonic.role, "enum-member");
+  assert.deepEqual(access.expression.tsonic, { role: "enum-qualifier", nominal: code.tsonic.definition });
+  assert.deepEqual(access.tsonic.resolution, { kind: "enum-member", declaration: selected.value, aliases: [],
+    bindings: { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } } });
+  assert.deepEqual(verifyBody(context, consumer), []);
+
+  const original = access.tsonic;
+  access.tsonic = { ...original, resolution: { ...original.resolution, declaration: crossed.value } };
+  assert.equal(verifyBody(context, consumer).some(finding => finding.rule === "enum-reference-exact"), true);
+  access.tsonic = original;
+  const qualifier = access.expression.tsonic;
+  access.expression.tsonic = { ...qualifier, nominal: other.tsonic.definition };
+  assert.equal(verifyBody(context, consumer).some(finding => finding.rule === "enum-reference-exact"), true);
+  access.expression.tsonic = qualifier;
+  const text = irTir.printTir(consumer);
+  assert.match(text, /enum-qualifier/u);
+  assert.equal(isDeepStrictEqual(irTir.parseTir(text), { kind: "parsed", value: consumer }), true);
+
+  const analyzed = analyzeHostProgram(input);
+  assert.equal(analyzed.kind, "ok", JSON.stringify(analyzed.diagnostics));
+  const actual = analyzed.value.modules.find(module => module.module === input.snapshot.entryPoint);
+  const document = printModuleBodies(analyzed.value.index, actual);
+  assert.match(document, /enum-qualifier/u);
+  const parsed = parseModuleBodies(analyzed.value.index, document);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(printModuleBodies(analyzed.value.index, parsed.value), document);
+});
+
+test("a qualified enum constant crosses an actual import binding without borrowing a namespace value", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const base = analysisInput(fixture, "sdk-minimal");
+  const snapshot = fixture.projectSnapshot({
+    sourceFiles: {
+      "main.ts": "import { Code as Qualified } from './codes.js'; export enum Output { Result=Qualified.Start+3 }",
+      "codes.ts": "export enum Code { Start=2 }",
+    },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+  });
+  const input = { ...base, snapshot };
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const context = typed.value.verifierOf(input.snapshot.entryPoint);
+  const chapter = typed.value.modules.get(input.snapshot.entryPoint);
+  const output = chapter.tree.root.statements.nodes.find(slot => slot.node.kind === "EnumDeclaration").node.members.nodes[0];
+  const consumer = chapter.bodies.find(body => body.owner === output.tsonic.definition && body.bindings.kind === "parametric");
+  const access = consumer.root.left;
+  assert.equal(access.tsonic.resolution.aliases.length, 1);
+  const [binding] = access.tsonic.resolution.aliases;
+  assert.equal(captured.value.checked.nodeOf(binding).kind, "ImportSpecifier");
+  assert.equal(captured.value.checked.nodeOf({ kind: "item", value: access.tsonic.resolution.declaration }).name.text, "Start");
+  assert.deepEqual(verifyBody(context, consumer), []);
+  const original = access.tsonic;
+  access.tsonic = { ...original, resolution: { ...original.resolution, aliases: [] } };
+  assert.equal(verifyBody(context, consumer).some(finding => finding.rule === "enum-reference-exact"), true);
+  access.tsonic = original;
+  const analyzed = analyzeHostProgram(input);
+  assert.equal(analyzed.kind, "ok", JSON.stringify(analyzed.diagnostics));
+});
+
 test("initial and predecessor-derived enum types carry their authored value sources", async () => {
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

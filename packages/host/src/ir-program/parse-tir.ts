@@ -4,7 +4,7 @@ import type { ImportTarget, HirLexicalScope } from "../ir-hir/contract.js";
 import type { BodyCaptureRow, FlowRole, EmbeddingDecision, MemberDecision, ApplicationDecision, OperationDecision, OperationIdentity, DeferredDecision, RefinementDecision } from "../ir-infer/contract.js";
 import type { BackedConversionIdentity, ConversionIdentity, TypedOperationOf, TypedOperation, TirResolution, ResolvedCallee, MemberSelection, TirArgument, TirRestPart, TirApplication, TirProtocolStep, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedValue, TargetAccess, TirLocal, TirBody } from "../ir-tir/contract.js";
 import type { Cursor, RecordFields, TextReader, TextStep } from "./parse-values.js";
-import type { TirBodyRoot, TirFormal } from "../ir-tir/contract.js";
+import type { TirBodyRoot, TirEnumResolution, TirFormal } from "../ir-tir/contract.js";
 import type { ChapterReadPorts, SyntaxValue } from "./parse-syntax-values.js";
 import { delimiter, readString, readNumber, choice, readBoolean, readStringChoice, readSignatureId, openRecord, closeRecord, readDefinitionId, readBodyId, readTypeId, readNodeId, readLocalId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeEvidenceText, readBindings, readArtifactBindings, readInstance } from "./parse-types.js";
@@ -63,6 +63,18 @@ export function readTirDemandText<Root>(cursor: Cursor, finish: (value: TirDeman
     }));
 }
 
+function readEnumResolutionFields<Root>(cursor: Cursor, fields: RecordFields, finish: (value: TirEnumResolution) => TextStep<Root>): TextStep<Root> {
+  return fieldText<ItemNodeRef, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readItemNodeRef, done), declaration =>
+    fieldText<ArtifactBindings, Root>(cursor, fields, "bindings", (next, done) => atomicText(next, readArtifactBindings, done), bindings =>
+      fieldText<readonly SourceNodeRef[], Root>(cursor, fields, "aliases",
+        (next, done) => arrayText(next, (entry, accept) => atomicText(entry, readSourceNodeRef, accept), done), aliases =>
+          atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: "enum-member", declaration, bindings, aliases }, finish)))));
+}
+
+export function readEnumResolutionText<Root>(cursor: Cursor, finish: (value: TirEnumResolution) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "enum-member"), fields => readEnumResolutionFields(cursor, fields, finish));
+}
+
 export function readTirResolutionText<Root>(cursor: Cursor, finish: (value: TirResolution) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => choice(next, ["local","definition","static","enum-member","module","error","intrinsic-value"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
@@ -87,11 +99,7 @@ export function readTirResolutionText<Root>(cursor: Cursor, finish: (value: TirR
               (next, done) => arrayText(next, (entry, accept) => atomicText(entry, readSourceNodeRef, accept), done), aliases =>
                 atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, declaration, aliases }, finish))));
         case "enum-member":
-          return fieldText<ItemNodeRef, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readItemNodeRef, done), declaration =>
-            fieldText<ArtifactBindings, Root>(cursor, fields, "bindings", (next, done) => atomicText(next, readArtifactBindings, done), bindings =>
-              fieldText<readonly SourceNodeRef[], Root>(cursor, fields, "aliases",
-                (next, done) => arrayText(next, (entry, accept) => atomicText(entry, readSourceNodeRef, accept), done), aliases =>
-                  atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, declaration, bindings, aliases }, finish)))));
+          return readEnumResolutionFields(cursor, fields, finish);
         case "module":
           return fieldText<ImportTarget, Root>(cursor, fields, "target", readImportTargetText, targetValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>

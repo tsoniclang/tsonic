@@ -7,7 +7,7 @@ import { hirArrayData as arrayData, hirFieldData as fieldData, hirIdentityData a
   hirNullableData as nullableData, hirRecordData as recordData, hirScalarData as scalarData,
   hirBodyIdData as bodyData, hirCandidateIdData as candidateIdData, hirDefIdData as definitionData,
   hirLocalIdData as localIdData, hirNodeIdData as nodeIdData, hirNodeRefData as nodeRefData,
-  hirSourceRefData as sourceRefData, hirLocalRefData as localRefData, hirOriginData as originData,
+  hirSourceRefData as sourceRefData, hirItemRefData as itemRefData, hirLocalRefData as localRefData, hirOriginData as originData,
   hirSigIdData as signatureData, hirTyIdData as typeData } from "./walk.js";
 import { hirSyntaxData } from "./text-syntax.js";
 import { causeData } from "./text-causes.js";
@@ -524,6 +524,7 @@ function nameFields(value: Hir.CheckedName): readonly HirDataField[] {
     case "assignment-target": return [fieldData("resolution", resolutionData(value.resolution)), fieldData("views", viewsData(value.views)),
       fieldData("place", capturedData(value.place, placeData)), fieldData("access", scalarData(value.access))];
     case "declaration-name": return [fieldData("declaration", declarationTargetData(value.declaration))];
+    case "enum-qualifier": return [fieldData("resolution", resolutionData(value.resolution)), fieldData("nominal", definitionData(value.nominal))];
     case "property-name": return propertyFields(value);
     case "type-name": return [fieldData("resolution", resolutionData(value.resolution))];
     case "binding-name": return [fieldData("binding", sourceRefData(value.binding))];
@@ -588,16 +589,18 @@ function applicationNodeData(value: Hir.CheckedApplication): HirDataWork {
 }
 
 function memberFields(value: Hir.CheckedMember): readonly HirDataField[] {
+  if (value.role === "enum-member") return [fieldData("value", valueData(value.value)), fieldData("selectedMember", itemRefData(value.selectedMember))];
+  const origins = fieldData("origins", capturedData(value.origins, origins => arrayData(origins, memberOriginData)));
+  const accessor = fieldData("accessor", capturedData(value.accessor, selected => nullableData(selected, applicationData)));
   switch (value.role) {
-    case "value": return [fieldData("value", valueData(value.value))];
-    case "assignment-target": return [fieldData("views", viewsData(value.views)), fieldData("place", capturedData(value.place, placeData)), fieldData("access", scalarData(value.access))];
+    case "value": return [fieldData("value", valueData(value.value)), origins, accessor];
+    case "assignment-target": return [fieldData("views", viewsData(value.views)), fieldData("place", capturedData(value.place, placeData)),
+      fieldData("access", scalarData(value.access)), origins, accessor];
   }
 }
 
 function memberData(value: Hir.CheckedMember): HirDataWork {
-  return recordData("CheckedMember", value, () => [...coreFields(value), fieldData("role", scalarData(value.role)), ...memberFields(value),
-    fieldData("origins", capturedData(value.origins, origins => arrayData(origins, memberOriginData))),
-    fieldData("accessor", capturedData(value.accessor, accessor => nullableData(accessor, applicationData)))]);
+  return recordData("CheckedMember", value, () => [...coreFields(value), fieldData("role", scalarData(value.role)), ...memberFields(value)]);
 }
 
 function protocolNodeData(value: Hir.CheckedProtocol): HirDataWork {

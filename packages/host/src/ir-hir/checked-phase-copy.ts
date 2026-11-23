@@ -138,7 +138,7 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
         case "shorthand-value": return valueRole(row, 5);
         case "assignment-target": return admit(7, 1, () => following(project.core(row.core), core =>
           following(views(row.views), views => following(captured(row.place, storage), place => copied({ ...row, core, views, place })))));
-        case "property-name": return carrier<CheckedName>(4)(row);
+        case "property-name": case "enum-qualifier": return carrier<CheckedName>(4)(row);
         default: return carrier<CheckedName>(3)(row);
       }
     });
@@ -216,8 +216,10 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
   }
 
   function member(row: CheckedMember): SyntaxCopyResult<CheckedMember, Stop> {
-    return admit(4, 1, () => following(project.core(row.core), core =>
-      following(captured(row.accessor, optional(application)), (accessor): SyntaxCopyResult<CheckedMember, Stop> => {
+    return admit(4, 1, () => following(project.core(row.core), core => {
+      if (row.role === "enum-member") return following(valueFields(row.value), value =>
+        copied({ role: "enum-member", core, value, selectedMember: row.selectedMember }));
+      return following(captured(row.accessor, optional(application)), (accessor): SyntaxCopyResult<CheckedMember, Stop> => {
         const origins = row.origins;
         switch (row.role) {
           case "value": return admit(1, 0, () => following(valueFields(row.value), value =>
@@ -226,7 +228,8 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
             following(captured(row.place, storage), place =>
               copied({ role: "assignment-target", core, accessor, origins, views, place, access: row.access }))));
         }
-      })));
+      });
+    }));
   }
 
   function protocol(row: HirProtocolFact): SyntaxCopyResult<HirProtocolFact, Stop> {
