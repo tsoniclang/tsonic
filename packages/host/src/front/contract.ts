@@ -360,7 +360,7 @@ export interface RawCandidateList {
 export type RawCallSelection =
   | { readonly kind: "applicable"; readonly invocation: RawNodeRef;
       readonly declarationOrder: RawFact<readonly RawSignatureId[]>; readonly candidates: RawCandidateListId;
-      readonly selectedOrdinal: number; readonly result: RawTypeId; readonly parameters: readonly RawParameter[] }
+      readonly declarationOrdinal: number; readonly result: RawTypeId; readonly parameters: readonly RawParameter[] }
   | { readonly kind: "conditional-candidates"; readonly invocation: RawNodeRef;
       readonly declarationOrder: RawFact<readonly RawSignatureId[]>; readonly candidates: RawCandidateListId;
       readonly diagnostics: readonly RawDiagnosticReference[] }

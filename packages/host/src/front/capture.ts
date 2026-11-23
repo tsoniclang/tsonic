@@ -3586,6 +3586,25 @@ function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, in
   return { arguments: arguments_, contributions: inferenceContributions.kind === "available" ? available(contributions) : notProvided() };
 }
 
+function captureCallOrder(scope: CaptureScope, invocation: RawNodeRef, signatures: readonly (Signature | undefined)[],
+  kind: "call" | "construct", selected: Signature | null): { readonly order: readonly RawSignatureId[]; readonly position: number | null } | null {
+  const order: RawSignatureId[] = [];
+  let position: number | null = null;
+  for (let index = 0; index < signatures.length; index += 1) {
+    if (!admit(scope, "edges")) return null;
+    const signature = signatures[index];
+    if (signature === undefined) return throwInvariant(invariant("A call's declaration order must be dense."));
+    if (signature === selected) {
+      if (position !== null) return throwInvariant(invariant("An applicable call must select exactly one declared position."));
+      position = index;
+    }
+    const captured = rawSignature(scope, signature, invocation, kind);
+    if (captured === null) return null;
+    order.push(captured);
+  }
+  return { order, position };
+}
+
 function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): RawCallSelection | null {
   if (!admit(scope, "facts")) return null;
   const info = scope.checker.getResolvedCallInfo(node);
@@ -3598,30 +3617,22 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     const original = diagnostic?.file === scope.file ? scope.diagnosticRoots.get(diagnostic) : undefined;
     if (original === undefined || original.module !== invocation.module)
       return throwInvariant(invariant("A rejected call must retain its actual published checker diagnostic run."));
-    const declared: RawSignatureId[] = [];
-    for (let index = 0; index < info.declarationOrder.signatures.length; index += 1) {
-      if (!admit(scope, "edges")) return null;
-      const signature = info.declarationOrder.signatures[index];
-      if (signature === undefined) return throwInvariant(invariant("A rejected call's declaration order must be dense."));
-      const captured = rawSignature(scope, signature, invocation, "call");
-      if (captured === null) return null;
-      declared.push(captured);
-    }
+    const declared = captureCallOrder(scope, invocation, info.declarationOrder.signatures, "call", null);
+    if (declared === null) return null;
     if (!admit(scope, "facts")) return null;
     const candidates = rawCandidateListId(scope.tables.candidates.length);
     scope.tables.candidates.push({ id: candidates, candidates: [] });
-    return { kind: "conditional-candidates", invocation, declarationOrder: available(declared), candidates, diagnostics: [original] };
+    return { kind: "conditional-candidates", invocation, declarationOrder: available(declared.order), candidates, diagnostics: [original] };
   }
   if (info.kind !== "applicable") throw new TypeError("front: conditional or untyped call capture is not implemented");
   const selected = info.selection;
   const application = selected.application;
   if (application.invocation !== node)
     return throwInvariant(invariant("A selected call must retain its actual invocation."));
-  if (info.declarationOrder.kind !== "available" || info.declarationOrder.signatures.length !== 1)
-    throw new TypeError("front: complete applicable candidate capture is not implemented without a proven singleton declaration order");
-  if (info.declarationOrder.signatures[0] !== application.signature
-    || (application.instantiatedSignature !== application.signature && application.instantiatedSignature.target !== application.signature))
-    return throwInvariant(invariant("An applicable singleton call must retain its actual declared and instantiated signature association."));
+  if (info.declarationOrder.kind !== "available" || info.declarationOrder.signatures.length === 0)
+    return throwInvariant(invariant("An applicable call requires its actual checked declaration order."));
+  if (application.instantiatedSignature !== application.signature && application.instantiatedSignature.target !== application.signature)
+    return throwInvariant(invariant("An applicable call must retain its actual declared and instantiated signature association."));
   if (application.class !== undefined || application.receiver !== undefined || application.signatureShape.composite !== undefined)
     throw new TypeError("front: class-bound, receiver-bearing or composed call capture is not implemented");
   if (selected.constraints.length !== 0 || selected.diagnostics.length !== 0 || selected.diagnosticCoverage.length !== 0)
@@ -3664,9 +3675,12 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       effectiveArgumentIndex: argument.effectiveArgumentIndex, sourceForm: argument.sourceForm, spreadElementIndex: argument.spreadElementIndex ?? null,
       parameterIndex: argument.parameterIndex, parameterForm: argument.parameterForm, source: available(source), destination: available(destination) });
   }
-  if (!admit(scope, "edges")) return null;
-  const original = rawSignature(scope, application.signature, invocation, application.kind);
-  if (original === null) return null;
+  const declared = captureCallOrder(scope, invocation, info.declarationOrder.signatures, application.kind, application.signature);
+  if (declared === null) return null;
+  const declarationOrdinal = declared.position;
+  const original = declarationOrdinal === null ? undefined : declared.order[declarationOrdinal];
+  if (declarationOrdinal === null || original === undefined)
+    return throwInvariant(invariant("An applicable call must retain its actual selected position in declaration order."));
   const capturedBindings = captureSelectedBindings(scope, selected, invocation, original);
   if (capturedBindings === null) return null;
   const result = rawType(scope, () => withoutTypeCause(info.resultType), component(scope, invocation, null), null);
@@ -3704,8 +3718,8 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       }
     }
   }
-  return { kind: "applicable", invocation, declarationOrder: available([original]),
-    candidates, selectedOrdinal: 0, result, parameters: completed.parameters };
+  return { kind: "applicable", invocation, declarationOrder: available(declared.order),
+    candidates, declarationOrdinal, result, parameters: completed.parameters };
 }
 
 /**

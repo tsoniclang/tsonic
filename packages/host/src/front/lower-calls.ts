@@ -27,12 +27,14 @@ export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall)
   const { deps, raw } = conversion;
   const list = raw.types.candidates[call.candidates];
   const order = call.declarationOrder;
-  if (order.kind !== "available" || order.value.length !== 1 || list?.id !== call.candidates || list.candidates.length !== 1)
-    return fail("complete applicable candidate conversion is not implemented without a proven singleton declaration order");
-  const [originalId] = order.value;
+  if (order.kind !== "available" || order.value.length === 0 || list?.id !== call.candidates || list.candidates.length !== 1)
+    return fail("an applicable call requires its declaration order and one actual selected candidate");
+  const declarationOrdinal = call.declarationOrdinal;
+  const originalId = Number.isSafeInteger(declarationOrdinal) && declarationOrdinal >= 0 && !Object.is(declarationOrdinal, -0)
+    ? order.value[declarationOrdinal] : undefined;
   const [candidate] = list.candidates;
   const invocation = { module: raw.module, node: node.id };
-  if (candidate === undefined || originalId === undefined || candidate.ordinal !== 0 || call.selectedOrdinal !== candidate.ordinal
+  if (candidate === undefined || originalId === undefined || candidate.ordinal !== 0
     || !sameSource(call.invocation, invocation) || !sameSource(candidate.application.invocation, invocation)
     || !sameSource(candidate.application.callee, { module: raw.module, node: node.expression.id }))
     return fail("an applicable candidate must retain its actual selected invocation and callee");

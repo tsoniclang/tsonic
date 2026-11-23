@@ -707,6 +707,27 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   const alias = withClaims(registration.reference.package, { ...declarationRow.identity, exportId: libraryRead.exportName });
   assert.equal(alias.kind, "refused");
   assert.equal(alias.diagnostics[0].code.rendered, "TSONIC_PROVIDER_LIBRARY_INVALID");
+
+  const callSnapshot = projectSnapshot({ sourceFiles: { "main.ts":
+    'import { read } from "native:thing"; export function use(input:boolean):boolean { return read(input); }' }, libraries,
+    providerPackages: [{ root: "/provider-one", name: "provider-one-pkg" }], declarationProviders: [registration.reference] });
+  const callSession = openAndCapture(callSnapshot, [registration]);
+  const caller = front.captureModule(callSession.deps, callSession.program, callSnapshot.entryPoint);
+  assert.equal(caller.kind, "ok");
+  const [selected] = caller.value.calls;
+  assert.equal(selected.kind, "applicable");
+  assert.equal(selected.declarationOrdinal, 1);
+  assert.deepEqual(selected.declarationOrder.value.map(id => caller.value.types.signatures[id].declaration),
+    signatures.map(row => row.node));
+  const captured = captureSourceBarrier({ ...analysisInput(fixture, "sdk-minimal"), snapshot: callSnapshot, extensions: callSession.deps.extensions });
+  assert.equal(captured.kind, "ok");
+  const callerBody = captured.value.modules.find(row => row.module.module === callSnapshot.entryPoint).module.bodies
+    .find(body => body.candidateLists.length === 1);
+  const [candidate] = callerBody.candidateLists[0].candidates;
+  const chosen = captured.value.modules.find(row => row.module.module === owner.document.module).nodes[signatures[1].node.node];
+  assert.equal(callerBody.candidateLists[0].candidates.length, 1);
+  assert.equal(candidate.declaration, chosen.tsonic.definition);
+  assert.equal(candidate.appliedSignature.value, chosen.tsonic.signatures[0].signature);
 });
 
 /**
@@ -1774,10 +1795,22 @@ test("callable values retain real signatures and direct recursive calls retain t
     for (let index = 0; index < table.length; index += 1) assert.equal(table[index]?.id, index, "a captured table is dense after forward signature dependencies");
 });
 
-test("an applicable SDK receipt is not a complete overload inventory, and missing singleton evidence never manufactures one", async () => {
-  const overloads = openedModule("declare function choose(value: number): number;\ndeclare function choose(value: boolean): boolean;\nexport function invoke(value: number): number { return choose(value); }\n");
-  assert.throws(() => front.captureModule(overloads.deps, overloads.program, overloads.module),
-    { name: "TypeError", message: "front: complete applicable candidate capture is not implemented without a proven singleton declaration order" });
+test("an applicable SDK receipt retains its actual overload position without fabricating other applicable candidates", async () => {
+  for (const type of ["number", "boolean"]) {
+    const overloads = openedModule("declare function choose(value: number): number;\ndeclare function choose(value: boolean): boolean;\n"
+      + `export function invoke(value: ${type}): ${type} { return choose(value); }\n`);
+    const result = front.captureModule(overloads.deps, overloads.program, overloads.module);
+    assert.equal(result.kind, "ok");
+    const raw = result.value;
+    const [call] = raw.calls;
+    assert.equal(call.kind, "applicable");
+    assert.equal(call.declarationOrdinal, type === "number" ? 0 : 1);
+    assert.deepEqual(call.declarationOrder.value.map(id => raw.types.signatures[id].declaration),
+      raw.tree.statements.nodes.slice(0, 2).map(node => ({ module: raw.module, node: node.id })));
+    const candidates = raw.types.candidates[call.candidates].candidates;
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0].application.signature, call.declarationOrder.value[call.declarationOrdinal]);
+  }
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const source = "export function left(n: number): number { return right(n); }\nexport function right(n: number): number { return left(n); }\n";
   const { raw, definitions } = checkedModuleOf(source);
@@ -1785,7 +1818,11 @@ test("an applicable SDK receipt is not a complete overload inventory, and missin
   for (const reason of ["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"]) {
     const changed = { ...raw, calls: raw.calls.map(call => ({ ...call, declarationOrder: { kind: "unavailable", reason, causes: [] } })) };
     assert.throws(() => convert(changed), { name: "TypeError",
-      message: "front: complete applicable candidate conversion is not implemented without a proven singleton declaration order" });
+      message: "front: an applicable call requires its declaration order and one actual selected candidate" });
+  }
+  for (const declarationOrdinal of [-0, -1, 0.5, 1]) {
+    const changed = { ...raw, calls: raw.calls.map(call => ({ ...call, declarationOrdinal })) };
+    assert.throws(() => convert(changed), /its actual selected invocation and callee/);
   }
   const selected = raw.types.candidates[0].candidates[0];
   for (const [patch, message] of [[{ classArguments: [{}] }, "front: nonempty call candidate binding conversion is not implemented"],

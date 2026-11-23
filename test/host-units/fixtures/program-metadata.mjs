@@ -249,7 +249,7 @@ function inspect<Value extends boolean>(): void {
   };
   const selection = raw.calls.find(row => row.invocation.node === descriptor.initializer.id);
   assert.equal(selection?.kind, "applicable");
-  const selected = raw.types.candidates[selection.candidates].candidates[selection.selectedOrdinal];
+  const [selected] = raw.types.candidates[selection.candidates].candidates;
   const [argument] = selected.application.signatureArguments;
   assert.equal(argument.argument.kind, "available");
   assert.deepEqual(raw.types.types[argument.argument.value].form.value.parameter, { module: raw.module, node: parameter.id });
