@@ -283,6 +283,7 @@ await suite.test("selected physical fields retain exact occurrence, kind, owner,
       value => { value.observations.rows[0].field = null; },
       value => { value.observations.rows[0].layout.layout = 0; },
       value => { value.metadata.fields[0].owner = 0; },
+      value => { value.metadata.layouts[value.metadata.root].fields = []; },
       value => { value.capture.field = available(null); },
       value => { value.fieldNode.tsonic.value.memory.value.kind = "value"; },
     ]) {
@@ -292,6 +293,24 @@ await suite.test("selected physical fields retain exact occurrence, kind, owner,
       assert.equal(rules(value).includes("observation-field-exact"), true);
     }
   }
+});
+
+await suite.test("the containing layout independently confirms a standalone field's retained offset", () => {
+  const value = fieldObservationFixture();
+  const [field] = value.metadata.fields;
+  const standalone = { kind: "memory-field", key: { ...value.metadata.key, definition: field.occurrence.value.owner },
+    root: 0, fields: [{ ...field }], layouts: [value.metadata.layouts[0]] };
+  const metadataOf = value.input.facts.metadataOf;
+  const scopeOf = value.input.facts.bindingScopeOf;
+  value.input.facts.metadataOf = key => isDeepStrictEqual(key, standalone.key) ? standalone : metadataOf(key);
+  value.input.facts.bindingScopeOf = definition => definition === standalone.key.definition
+    ? scopeOf(value.fixture.definition) : scopeOf(definition);
+  const [row] = value.observations.rows;
+  row.field = { metadata: standalone.key, field: standalone.root };
+  assert.deepEqual(rules(value), []);
+  standalone.fields[0].byteOffset = 4n;
+  row.value = 4n;
+  assert.deepEqual(rules(value), ["observation-field-exact"]);
 });
 
 await suite.test("standalone observation wire preserves exact wide values and rejects the retired flow-context field", () => {

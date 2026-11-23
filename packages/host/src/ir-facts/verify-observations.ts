@@ -8,7 +8,7 @@ import type { HirNode, HirObservationCapture } from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import type { ProjectedBindingValues, BindingVector } from "../ir-types/contract.js";
 import { bindingVectorKey, rigidBindings, projectBindingValues } from "../ir-types/index.js";
-import type { FactsRule, FactsSite, ObservationDescriptorEvidence, ObservationSourceEvidence, ObservationVerificationContext, MetadataKey, VerifyObservations } from "./contract.js";
+import type { FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataRecord, ObservationDescriptorEvidence, ObservationSourceEvidence, ObservationVerificationContext, MetadataKey, VerifyObservations } from "./contract.js";
 import { sameBindings, validIndex } from "./verify-relations.js";
 import { observationBindingInputs } from "./binding-inputs.js";
 import { verifyFactBindings } from "./verify-bindings.js";
@@ -57,6 +57,31 @@ function descriptorAgrees(key: MetadataKey, expected: BindingVector | undefined,
     if (stop !== null) return stop;
   }
   return { kind: "complete", value: bindingVectorKey(expected) === bindingVectorKey(rigidBindings(scope)) };
+}
+
+function containingField(layout: MemoryLayout, metadata: Exclude<MetadataRecord, { readonly kind: "data-layout" }>, selected: MemoryField,
+  account: DataflowAccount): DataflowResult<boolean> {
+  const initial = chargeWork(account, 1);
+  if (initial !== null) return initial;
+  if (layout.kind !== "value") return { kind: "complete", value: false };
+  const fields = metadata.fields;
+  const references = layout.fields;
+  for (let position = 0; position < references.length; position += 1) {
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    const id = references[position];
+    if (id === undefined || !validIndex(id, fields.length)) return { kind: "complete", value: false };
+    const row = fields[id];
+    if (row === undefined || row.id !== id) return { kind: "complete", value: false };
+    const occurrence = sameSource(row.occurrence, selected.occurrence, account);
+    if (occurrence.kind !== "complete") return occurrence;
+    if (!occurrence.value) continue;
+    const compares = chargeWork(account, 1);
+    if (compares !== null) return compares;
+    return { kind: "complete", value: row.owner === selected.owner && row.value === selected.value &&
+      row.byteOffset === selected.byteOffset && row.byteAlignment === selected.byteAlignment };
+  }
+  return { kind: "complete", value: false };
 }
 
 export const verifyObservations: VerifyObservations = (observations, input) => {
@@ -240,6 +265,13 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
         || descriptors === undefined || descriptors.field === null || !fieldAgreement.value
         || layout !== undefined && field.owner !== layout.source) {
         { const stop = report("observation-field-exact", site, "A field-offset observation retains its exact checked field selection and owner layout."); if (stop !== null) return stop; }
+      } else if (layout !== undefined && metadata !== null && metadata.kind !== "data-layout") {
+        const membership = containingField(layout, metadata, field, account);
+        if (membership.kind !== "complete") return membership;
+        if (!membership.value) {
+          const stop = report("observation-field-exact", site, "The selected field must occur in the actual containing value layout.");
+          if (stop !== null) return stop;
+        }
       }
     } else if (row.field !== null) { const stop = report("observation-field-exact", site, "Only field-offset observations select a field."); if (stop !== null) return stop; }
     const expected = layout === undefined ? undefined : row.operation === "size" ? layout.byteSize
