@@ -401,7 +401,7 @@ function declarationProvider(id, specifier, providerModuleId, rangeStart = 9_900
 const reference = (root, exportId = "provider") => ({ package: packageOf(root), moduleSpecifier: "./plugin.js", exportId, version: "1" });
 const providerRegistration = (root, provider) => ({ reference: reference(root), value: { kind: "declaration-provider", value: provider } });
 
-test("layout capture retains the same selected application and authored operands without computing geometry", () => {
+test("layout capture retains the same selected application and authored operands without computing geometry", async () => {
   const specifier = "native:layout";
   const providerModuleId = "native.layout";
   const native = { ...declarationProvider("test.layout", specifier, providerModuleId),
@@ -420,7 +420,8 @@ test("layout capture retains the same selected application and authored operands
     ] } } };
   const source = 'import { layout as make, size as measure } from "native:layout"; '
     + "export const descriptor = make(true, 8, 8, 8); export const width = measure(descriptor);";
-  const snapshot = projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: bundled(),
+  const snapshot = projectSnapshot({ sourceFiles: { "main.ts": source },
+    libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }],
     providerPackages: [{ root: "/layout-provider", name: "layout-provider" }],
     declarationProviders: [nativeRegistration.reference], semanticModules: [roles.reference] });
   const { deps, program } = openAndCapture(snapshot, [nativeRegistration, roles]);
@@ -432,12 +433,52 @@ test("layout capture retains the same selected application and authored operands
   const construction = raw.core[create.invocation.node].metadata.value;
   const query = raw.core[observe.invocation.node].layoutQuery.value;
   assert.deepEqual([construction.kind, construction.construction, query.operation], ["layout-construction", "value", "size"]);
+  assert.equal(raw.types.memoryDescriptors[0] === construction, true);
+  assert.deepEqual(raw.core[create.invocation.node].provider.value.node, construction.declaration);
+  assert.deepEqual(raw.core[observe.invocation.node].provider.value.node, query.declaration);
   assert.equal(construction.application === make.application && query.application === measure.application, true);
   assert.equal(construction.operands === make.sourceArguments && query.operands === measure.sourceArguments, true);
   assert.deepEqual(construction.operands.map(row => row.expression.node),
     raw.tree.statements.nodes[1].declarationList.declarations.nodes[0].initializer.arguments.nodes.map(node => node.id));
   assert.equal(Object.hasOwn(construction, "byteSize"), false);
   assert.equal(Object.hasOwn(query, "value"), false);
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const input = { ...analysisInput(await loadFrontFixture(), "sdk-minimal"), snapshot, extensions: deps.extensions };
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const tree = checked.value.modules.find(row => row.module.module === snapshot.entryPoint).module.tree;
+  const layout = tree.statements.nodes[1].declarationList.declarations.nodes[0].initializer;
+  const observation = tree.statements.nodes[2].declarationList.declarations.nodes[0].initializer;
+  const capture = layout.tsonic.memory.value;
+  assert.equal(capture.kind, "value");
+  const body = checked.value.checked;
+  for (const [position, reference] of [capture.geometry.dataLayoutExpression, capture.geometry.byteSizeExpression,
+    capture.geometry.byteAlignmentExpression, capture.geometry.strideExpression].entries())
+    assert.equal(body.nodeOf(reference) === layout.arguments.nodes[position], true);
+  const checkedModule = checked.value.modules.find(row => row.module.module === snapshot.entryPoint).module;
+  const actualBodies = checkedModule.bodies.filter(candidate => ids.decodeBodyId(candidate.body).value.role === "layout-operand");
+  assert.equal(actualBodies.length, 3);
+  for (const candidate of actualBodies) {
+    const identity = ids.decodeBodyId(candidate.body).value;
+    assert.equal(candidate.root === layout.arguments.nodes.find(operand => operand.id === identity.ordinal), true);
+    assert.equal(candidate.owner, tree.statements.nodes[1].declarationList.declarations.nodes[0].tsonic.declaration.definition);
+  }
+  const selectedObservation = observation.tsonic.observation.value;
+  assert.equal(selectedObservation.operation, "size");
+  assert.equal(body.nodeOf({ kind: "body", value: selectedObservation.operand }) === observation.arguments.nodes[0], true);
+  assert.deepEqual([capture.geometry.byteSize.kind, selectedObservation.value.kind], ["unavailable", "unavailable"]);
+  const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const chapter = typed.value.modules.get(snapshot.entryPoint);
+  const parametric = chapter.bodies.filter(candidate => candidate.bindings.kind === "parametric");
+  const actualCall = parametric.find(candidate => candidate.root.id === layout.id).root;
+  for (const operand of actualBodies) {
+    const placed = parametric.find(candidate => candidate.body === operand.body);
+    assert.equal(actualCall.arguments.nodes.find(argument => argument.id === placed.root.id) === placed.root, true);
+  }
 });
 
 const plainSources = { "main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\n",

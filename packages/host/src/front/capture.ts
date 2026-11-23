@@ -11,7 +11,7 @@ import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../
 import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
-import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawLayoutQuery, RawMarkers, RawMemberHeader, RawMemoryMetadata, RawNumericLiteral } from "./contract.js";
+import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawLayoutConstruction, RawLayoutQuery, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { projectProviderModel } from "./provider-model.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -60,6 +60,7 @@ interface CaptureTables {
   readonly signatures: RawSignature[];
   readonly members: RawMemberTable[];
   readonly candidates: RawCandidateList[];
+  readonly memoryDescriptors: RawLayoutConstruction[];
   readonly symbols: RawSymbol[];
   readonly completedSourceReferences: Map<Node, RawNodeRef>;
   readonly symbolIds: Map<CheckerSymbol, RawSymbolId>;
@@ -329,8 +330,8 @@ interface CaptureScope extends CaptureAdmission {
 
 type CallCore = NonNullable<Extract<RawMarkers["application"], { readonly kind: "available" }>["value"]>
   | { readonly role: "provider"; readonly receipt: RawProviderDeclaration }
-  | { readonly role: "layout-construction"; readonly capture: Extract<RawMemoryMetadata, { readonly kind: "layout-construction" }> }
-  | { readonly role: "layout-query"; readonly capture: RawLayoutQuery }
+  | { readonly role: "layout-construction"; readonly capture: RawLayoutConstruction; readonly provider: RawProviderDeclaration | undefined }
+  | { readonly role: "layout-query"; readonly capture: RawLayoutQuery; readonly provider: RawProviderDeclaration | undefined }
   | "ordinary";
 
 type LayoutRole =
@@ -3833,14 +3834,21 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     if (layout !== null) {
       if (!admit(scope, "edges")) return null;
       const declaration = scope.tables.signatures[original]?.declaration;
+      const callable = declaration === undefined || declaration === null ? undefined : admittedTypeUse(scope, declaration);
       if (declaration === undefined || declaration === null || scope.checked.ast.as.AsCallExpression(node)?.Expression !== application.callee.expression
-        || admittedTypeUse(scope, declaration) !== application.signatureShape.declaration)
+        || callable === undefined || callable !== application.signatureShape.declaration)
         return throwInvariant(invariant("A layout operation must retain the actual applicable selected call declaration."));
-      if (!admit(scope, "facts", 2)) return null;
+      const provider = providerDeclaration(scope, callable, declaration);
+      if (provider === null) return null;
+      if (provider !== undefined && provider.identity.signatureId === null)
+        return throwInvariant(invariant("A provider layout operation must retain its actual selected signature receipt."));
+      if (!admit(scope, "facts", layout.kind === "construction" ? 3 : 2)) return null;
       const selectedLayout = { application: rawApplication, declaration, operands: sourceArguments };
-      scope.callCore.set(invocation.node, layout.kind === "construction"
-        ? { role: "layout-construction", capture: { ...selectedLayout, kind: "layout-construction", construction: layout.construction } }
-        : { role: "layout-query", capture: { ...selectedLayout, operation: layout.operation } });
+      if (layout.kind === "construction") {
+        const capture: RawLayoutConstruction = { ...selectedLayout, kind: "layout-construction", construction: layout.construction };
+        scope.tables.memoryDescriptors.push(capture);
+        scope.callCore.set(invocation.node, { role: "layout-construction", capture, provider });
+      } else scope.callCore.set(invocation.node, { role: "layout-query", capture: { ...selectedLayout, operation: layout.operation }, provider });
     } else if (marker?.kind === "call-marker" && (marker.marker === "struct" || marker.marker === "field")) {
       if (!admit(scope, "edges")) return null;
       const declaration = scope.tables.signatures[original]?.declaration;
@@ -3912,7 +3920,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const queries = checked.getSourceFileQueries(file);
   const scope: CaptureScope = { ...admission, program, file, numericLiterals, checked, checker: queries.checker,
     shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
-    tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], completedSourceReferences: new Map(),
+    tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),
       qualifiedSignatures: new Map(), activeTypes: new Map(), activeQualifiedTypes: new Map(), activeReceiverKeys: null,
       activeIndexedAliases: new Set(),
@@ -4153,8 +4161,10 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
     const passing = kind === "KindParameter" ? declarationPassing(scope, node) : undefined;
     core.push(application !== undefined && application !== "ordinary"
-      ? application.role === "layout-construction" ? { ...row, metadata: available(application.capture) }
-        : application.role === "layout-query" ? { ...row, layoutQuery: available(application.capture) } : row
+      ? application.role === "layout-construction" || application.role === "layout-query"
+        ? { ...row, provider: application.provider === undefined ? row.provider : available(application.provider),
+          ...(application.role === "layout-construction" ? { metadata: available(application.capture) } : { layoutQuery: available(application.capture) }) }
+        : row
       : passing === undefined ? row : { ...row, argumentPassing: available(passing) });
   }
   const exports: RawModuleExport[] = [];
@@ -4199,7 +4209,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const raw: RawModule = {
     module, tree,
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
-      symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts, memoryLayouts: [], memoryFields: [] },
+      symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts, memoryDescriptors: scope.tables.memoryDescriptors },
     checkerViews: views, calls, callableAssociations: associations, providerDeclarations, publicLibraryModule, references, links, exports, bindings,
     implementations: [], heritage: [], constructors: [], enums, propertyNames, memberUses, protocols: [], storage, core,
     checkerDiagnostics, diagnosticCoverage,

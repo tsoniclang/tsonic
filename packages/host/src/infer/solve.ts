@@ -13,7 +13,7 @@ import { checkedSourceObjectFieldOf } from "../ir-hir/index.js";
 import type { BodyInstance, MemberInventory, TypePublicationStop } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
-import { checkedVoidCompletion, ownSignatureRequest } from "./own-signature.js";
+import { checkedVoidCompletion, isLayoutOperand, layoutOperandType, ownSignatureRequest } from "./own-signature.js";
 import { bodyCaptureModes } from "./captures.js";
 import { issueMemberSolve, takeMemberSolve } from "./member-pause.js";
 import type { Enumerated, Reached, SolveFrame } from "./member-pause.js";
@@ -351,20 +351,26 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
     const owner = deps.itemOf(body.owner);
     if (body.asynchronous || body.generator) return notInferredYet(PORT, "the solved execution channels of an async or generator body", body.root.origin);
     const instance: BodyInstance = { body: reference, bindings: { kind: "parametric" } };
-    if (owner.kind === "SourceFile") return { kind: "placeSignature", placement: { kind: "execution-body", instance,
+    const layout = isLayoutOperand(body);
+    if (owner.kind === "SourceFile" && !layout) return { kind: "placeSignature", placement: { kind: "execution-body", instance,
       completion: internType(deps.types, { kind: "intrinsic", intrinsic: "void" }), error: null } };
-    if (owner.kind === "Parameter" || owner.kind === "VariableDeclaration" || owner.kind === "PropertyDeclaration" || owner.kind === "EnumMember") {
+    const initializer = owner.kind === "Parameter" || owner.kind === "VariableDeclaration" ||
+      owner.kind === "PropertyDeclaration" || owner.kind === "EnumMember" ? owner : null;
+    if (layout || initializer !== null) {
       let completion = completions.get(reference);
       if (completion === undefined) {
-        if (owner.kind === "EnumMember") return callerDefect(PORT, "an authored enum initializer retains its solved inferred result");
-        if (owner.tsonic.initializer !== reference || owner.tsonic.declaredType.kind !== "available" || owner.tsonic.declaredType.value === null)
-          return callerDefect(PORT, "an annotated initializer completion requires its actual checked declaration type");
+        if (!layout && initializer?.kind === "EnumMember")
+          return callerDefect(PORT, "an authored enum initializer retains its solved inferred result");
+        const target = layout ? layoutOperandType(body.root, "contextual") : initializer?.tsonic.initializer === reference &&
+          initializer.tsonic.declaredType.kind === "available" ? initializer.tsonic.declaredType.value : null;
+        if (target === null) return callerDefect(PORT, layout ? "a layout operand completion requires its actual checked parameter type"
+          : "an annotated initializer completion requires its actual checked declaration type");
         const set = present(sets[position], "the actual initializer constraint system");
         const index = set.constraints.findIndex(constraint => constraint.kind === "flow" && constraint.role === "initialization"
           && constraint.occurrence.body === reference && constraint.occurrence.node === body.root.id);
         const constraint = set.constraints[index];
         const decision = decisions.get(reference)?.get(index);
-        if (constraint?.kind !== "flow" || constraint.to !== owner.tsonic.declaredType.value
+        if (constraint?.kind !== "flow" || constraint.to !== target
           || decision === undefined || decision.kind !== "flow" && decision.kind !== "error")
           return callerDefect(PORT, "the annotated initializer requires its actual completed initialization flow");
         if (decision.kind === "flow" && decision.embedding.kind === "refused")

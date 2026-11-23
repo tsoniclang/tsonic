@@ -1,11 +1,27 @@
-import type { HirBody } from "../ir-hir/contract.js";
+import type { HirBody, HirNode } from "../ir-hir/contract.js";
 import type { DefId, TyId } from "../ids/contract.js";
+import { decodeBodyId } from "../ids/index.js";
 import { readSignature, readType } from "../ir-types/index.js";
 import type { DeclaredSignatureRequest, GroupDeps, InferenceInputs } from "./contract.js";
 import { callerDefect, notInferredYet } from "./frontier.js";
 
+export function isLayoutOperand(body: HirBody): boolean {
+  const decoded = decodeBodyId(body.body);
+  return decoded.kind === "decoded" && decoded.value.role === "layout-operand";
+}
+
+export function layoutOperandType(node: HirNode, view: "read" | "contextual"): TyId | null {
+  const checked = node.tsonic;
+  if (checked === null) return null;
+  const value = "value" in checked ? checked.value : checked;
+  if (!("views" in value)) return null;
+  const selected = view === "read" ? value.views.read : value.views.contextual;
+  return selected.kind === "available" ? selected.value : null;
+}
+
 export function ownSignatureRequest(deps: GroupDeps, body: HirBody, port: string,
   ownDefinitions: ReadonlySet<DefId>): DeclaredSignatureRequest | null {
+  if (isLayoutOperand(body)) return null;
   const owner = deps.itemOf(body.owner);
   if (owner.kind === "SourceFile") return null;
   if ((owner.kind === "Parameter" || owner.kind === "VariableDeclaration" || owner.kind === "PropertyDeclaration" || owner.kind === "EnumMember")

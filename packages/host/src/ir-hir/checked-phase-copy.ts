@@ -88,7 +88,7 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
         })));
         case "value": return admit(5, 1, () => following(captured(row.bindings, project.bindings), bindings =>
           following(geometry(row.geometry), ready => copied({
-            kind: "value", occurrence: row.occurrence, bindings, geometry: ready, fieldsExpression: row.fieldsExpression, fields: row.fields,
+            kind: "value", occurrence: row.occurrence, bindings, geometry: ready, fieldExpressions: row.fieldExpressions, fields: row.fields,
           }))));
         case "array": return admit(8, 1, () => following(captured(row.bindings, project.bindings), bindings =>
           following(geometry(row.geometry), ready => copied({

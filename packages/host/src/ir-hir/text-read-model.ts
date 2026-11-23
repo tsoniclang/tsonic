@@ -194,7 +194,7 @@ export interface HirReadGroup5 {
   readonly record_166: HirReader<{ readonly kind: "available"; readonly value: string; }>;
   readonly record_167: HirReader<{ readonly kind: "available"; readonly value: "big" | "little"; }>;
   readonly record_168: HirReader<{ readonly kind: "available"; readonly value: 32 | 64; }>;
-  readonly record_169: HirReader<{ readonly occurrence: Ids.SourceNodeRef; readonly bindings: Hir.CapturedFact<Types.BindingVector>; readonly kind: "value"; readonly geometry: Hir.HirMemoryGeometryCapture; readonly fieldsExpression: Ids.SourceNodeRef | null; readonly fields: Hir.CapturedFact<readonly Ids.SourceNodeRef[]> }>;
+  readonly record_169: HirReader<{ readonly occurrence: Ids.SourceNodeRef; readonly bindings: Hir.CapturedFact<Types.BindingVector>; readonly kind: "value"; readonly geometry: Hir.HirMemoryGeometryCapture; readonly fieldExpressions: readonly Ids.SourceNodeRef[]; readonly fields: Hir.CapturedFact<readonly Ids.SourceNodeRef[]> }>;
   readonly record_170: HirReader<Hir.HirMemoryGeometryCapture>;
   readonly record_171: HirReader<{ readonly kind: "available"; readonly value: readonly Ids.SourceNodeRef[]; }>;
   readonly record_172: HirReader<{ readonly occurrence: Ids.SourceNodeRef; readonly bindings: Hir.CapturedFact<Types.BindingVector>; readonly kind: "array"; readonly geometry: Hir.HirMemoryGeometryCapture; readonly extentExpression: Ids.SourceNodeRef | null; readonly length: Hir.CapturedFact<bigint>; readonly runtimeBase: Hir.CapturedFact<"bigint" | "number">; readonly elementExpression: Ids.SourceNodeRef | null; readonly element: Hir.CapturedFact<Ids.SourceNodeRef> }>;

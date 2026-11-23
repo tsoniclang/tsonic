@@ -86,6 +86,7 @@ export const partition: GroupsOf = (deps, bodies) => {
   const enumParts = new Set<DefId>();
   for (const [position, body] of ready.entries()) {
     if (!take(1)) return stop();
+    if (roles[position] === "layout-operand") continue;
     const item = present(items.get(body.owner), "the body's declaration");
     if (callable(item) && roles[position] !== "function") return callerDefect(PORT, "a callable execution must retain its function body role");
     if (!take(body.params.length)) return stop();

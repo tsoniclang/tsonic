@@ -102,13 +102,13 @@ export function createReadGroup5(readers: () => HirTextReaders): HirReadGroup5 {
       const field_value = read("value", readers().literal_97);
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
-  const record_169 = recordReader<{ readonly occurrence: Ids.SourceNodeRef; readonly bindings: Hir.CapturedFact<Types.BindingVector>; readonly kind: "value"; readonly geometry: Hir.HirMemoryGeometryCapture; readonly fieldsExpression: Ids.SourceNodeRef | null; readonly fields: Hir.CapturedFact<readonly Ids.SourceNodeRef[]> }>("value", read => {
+  const record_169 = recordReader<{ readonly occurrence: Ids.SourceNodeRef; readonly bindings: Hir.CapturedFact<Types.BindingVector>; readonly kind: "value"; readonly geometry: Hir.HirMemoryGeometryCapture; readonly fieldExpressions: readonly Ids.SourceNodeRef[]; readonly fields: Hir.CapturedFact<readonly Ids.SourceNodeRef[]> }>("value", read => {
       const field_occurrence = read("occurrence", unionReader<Ids.SourceNodeRef>(() => [readers().record_5, readers().record_7]));
       const field_bindings = read("bindings", unionReader<Hir.CapturedFact<Types.BindingVector>>(() => [readers().record_17, readers().record_10]));
       const field_geometry = read("geometry", readers().record_170);
-      const field_fieldsExpression = read("fieldsExpression", unionReader<Ids.SourceNodeRef | null>(() => [readers().scalar_null, readers().record_5, readers().record_7]));
+      const field_fieldExpressions = read("fieldExpressions", sequenceReader(unionReader<Ids.SourceNodeRef>(() => [readers().record_5, readers().record_7])));
       const field_fields = read("fields", unionReader<Hir.CapturedFact<readonly Ids.SourceNodeRef[]>>(() => [readers().record_171, readers().record_10]));
-      return { fields: [field_occurrence, field_bindings, field_geometry, field_fieldsExpression, field_fields], value: () => ({ occurrence: field_occurrence.value(), bindings: field_bindings.value(), kind: "value", geometry: field_geometry.value(), fieldsExpression: field_fieldsExpression.value(), fields: field_fields.value() }) };
+      return { fields: [field_occurrence, field_bindings, field_geometry, field_fieldExpressions, field_fields], value: () => ({ occurrence: field_occurrence.value(), bindings: field_bindings.value(), kind: "value", geometry: field_geometry.value(), fieldExpressions: field_fieldExpressions.value(), fields: field_fields.value() }) };
     });
   const record_170 = recordReader<Hir.HirMemoryGeometryCapture>("HirMemoryGeometryCapture", read => {
       const field_source = read("source", unionReader<Hir.CapturedFact<Ids.TyId>>(() => [readers().record_9, readers().record_10]));

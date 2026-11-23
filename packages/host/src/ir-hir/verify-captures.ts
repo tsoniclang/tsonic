@@ -187,7 +187,7 @@ export function createHirSchema(): HirSchema {
     HirMemoryLayoutCapture: variants("HirMemoryLayoutCapture", "kind", [
       ["data-layout", [["declaration", captured("DefId")], ["fingerprint", captured("string")],
         ["byteOrder", captured(hirLiteral("little", "big"))], ["addressWidth", captured(hirLiteral(32, 64))]]],
-      ["value", [["geometry", "HirMemoryGeometryCapture"], ["fieldsExpression", hirNullable(sourceReference)], ["fields", captured(hirArray(sourceReference))]]],
+      ["value", [["geometry", "HirMemoryGeometryCapture"], ["fieldExpressions", hirArray(sourceReference)], ["fields", captured(hirArray(sourceReference))]]],
       ["array", [["geometry", "HirMemoryGeometryCapture"], ["extentExpression", hirNullable(sourceReference)], ["length", captured("bigint")],
         ["runtimeBase", captured(hirLiteral("number", "bigint"))], ["elementExpression", hirNullable(sourceReference)], ["element", captured(sourceReference)]]],
     ], layoutCommon),

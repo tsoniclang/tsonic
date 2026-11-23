@@ -1,8 +1,9 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
+import { decodeBodyId } from "../ids/index.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
-import { checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedLayoutOperandOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { TirEnumResolution } from "../ir-tir/contract.js";
@@ -186,16 +187,22 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   if (moduleStatements !== null) {
     for (const statement of moduleStatements) if (!isInlineModuleStatement(statement)) skipped.push(statement.id);
     for (const child of children.values()) skipped.push(child.root.id);
+  } else {
+    for (const child of children.values()) {
+      const path = decodeBodyId(child.body);
+      if (path.kind === "decoded" && path.value.role === "layout-operand") skipped.push(child.root.id);
+    }
   }
   const nodes = walkSyntaxTree(root, skipped);
   const first = root.id;
-  const modulePositions = moduleStatements === null ? null : new Map<NodeId, number>();
+  const modulePositions = moduleStatements === null && skipped.length === 0 ? null : new Map<NodeId, number>();
   let previous = -1;
   for (const [position, node] of nodes.entries()) {
     if (modulePositions === null) {
       if (node.id !== first + position) callerDefect("the body's node identities are not one preorder range", node.origin);
     } else {
-      if (node.id <= previous) return callerDefect("the module's executing identities must follow source preorder", node.origin);
+      if (node.id <= previous) return callerDefect(moduleStatements === null
+        ? "the body's executing identities must follow source preorder" : "the module's executing identities must follow source preorder", node.origin);
       modulePositions.set(node.id, position);
       previous = node.id;
     }
@@ -1076,10 +1083,26 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
             typeArguments = { ...node.typeArguments, nodes: typedArguments };
           }
           expressions[position] = { ...header(node), kind: "CallExpression", expression: expressionOf(node.expression),
-            arguments: { ...node.arguments, nodes: node.arguments.nodes.map(expressionOf) }, typeArguments, questionDotToken: null,
+            arguments: { ...node.arguments, nodes: node.arguments.nodes.map((argument, index): Expression<TypedPhase> => {
+              const reference = checkedLayoutOperandOf(node, index);
+              if (reference === null) return expressionOf(argument);
+              if (reference.kind !== "body" || reference.value.node !== argument.id)
+                return callerDefect("a checked layout operand must retain its actual argument occurrence", argument.origin);
+              const operand = children.get(reference.value.body)?.root;
+              if (operand === undefined || operand.id !== argument.id || operand.kind === "Block" || operand.kind === "SourceFile")
+                return callerDefect("a checked layout operand must borrow its own ready expression body", argument.origin);
+              return operand;
+            }) }, typeArguments, questionDotToken: null,
             tsonic: { ...valueOf(position, result, node.origin), operation: null, application: selected } };
         } else {
-          visitList(node.arguments.nodes, node.origin);
+          if (node.tsonic.memory.kind !== "available" || node.tsonic.memory.value === null)
+            visitList(node.arguments.nodes, node.origin);
+          else for (let index = node.arguments.nodes.length - 1; index >= 0; index -= 1) {
+            if (checkedLayoutOperandOf(node, index) !== null) continue;
+            const argument = node.arguments.nodes[index];
+            if (argument === undefined) return callerDefect("a checked layout argument vector must be dense", node.origin);
+            visit(argument);
+          }
           visit(node.expression);
         }
         return;

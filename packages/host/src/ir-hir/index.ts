@@ -26,8 +26,11 @@ import { checkedMemberStorageOf as memberStorage, checkedSourceObjectHoldingOf a
 import { checkedGroupingFrontierOf as groupingFrontier } from "./grouping-frontier.js";
 import type { CollectInferredStorageSources } from "./contract.js";
 import { collectInferredStorageSources as storageSources } from "./storage-inputs.js";
+import type { CheckedLayoutOperandOf } from "./contract.js";
+import { checkedLayoutOperandOf as layoutOperand } from "./layout.js";
 
 export const collectInferredStorageSources: CollectInferredStorageSources = storageSources;
+export const checkedLayoutOperandOf: CheckedLayoutOperandOf = layoutOperand;
 
 export const resolveModuleBinding: ResolveModuleBinding = resolveBinding;
 export const isModuleBindingKind: IsModuleBindingKind = bindingKind;

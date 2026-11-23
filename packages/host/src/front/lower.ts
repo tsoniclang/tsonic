@@ -1,7 +1,7 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, LocalRef, NodeId, NodeRef, RawTypeId, SourceNodeRef, TyId } from "../ids/contract.js";
-import { candidateListId, encodeBodyId, localId } from "../ids/index.js";
+import { candidateListId, decodeBodyId, encodeBodyId, localId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { binaryOperatorOf, collectInferredStorageSources, iterateChildrenOfSyntax, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
@@ -11,10 +11,11 @@ import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExport
 import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
 import { bindingOccurrence, lowerBindingFact, lowerBindingTarget, lowerBindings, lowerMemberKey, lowerMemberOrigin, sameSource, sourceOccurrence } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
-import { childSourceBody, enterSourceBody } from "./source-bodies.js";
+import { childSourceBody, enterSourceBody, layoutOperandOwners } from "./source-bodies.js";
 import type { SourceBodyScope, SourceBodyTransition } from "./source-bodies.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
 import { lowerCall } from "./lower-calls.js";
+import { lowerLayoutApplication } from "./lower-layout.js";
 import { lowerObjectProperties } from "./lower-members.js";
 import { convertRawType, createTypeConversion, signatureOf } from "./type-conversion.js";
 import type { ConversionResult, ConversionStop, TypeConversion } from "./type-conversion.js";
@@ -223,7 +224,7 @@ function memoryOf(lowering: Lowering, node: NodeId): Hir.CapturedFact<Hir.HirMem
 /** The definition identities of one module, read from its raw tree alone. */
 export function lowerDefinitions(input: ModuleDefinitionsInput): Result<ModuleDefinitions> {
   const raw = input.module;
-  return { kind: "ok", diagnostics: [], value: moduleIdentities(raw.module, raw.tree, raw.propertyNames, input.componentRoots) };
+  return { kind: "ok", diagnostics: [], value: moduleIdentities(raw.module, raw.tree, raw.propertyNames, input.componentRoots, layoutOperandOwners(raw)) };
 }
 
 /** The export entries of one module: per exported name its declaration group, in canonical declaration order. */
@@ -275,6 +276,7 @@ interface NodeBodies {
   readonly variables: readonly { readonly node: Hir.VariableDeclaration<Syntax>; readonly mutable: boolean; readonly local: LocalRef }[];
   readonly assignmentTargets: ReadonlyMap<NodeId, "write" | "read-write">;
   readonly labelTargets: ReadonlyMap<NodeId, NodeRef>;
+  readonly layoutRoots: readonly { readonly node: NodeId; readonly body: BodyId; readonly owner: DefId }[];
 }
 
 function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId, deps: LowerDeps,
@@ -288,6 +290,8 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
   const variables: NodeBodies["variables"][number][] = [];
   const assignmentTargets = new Map<NodeId, "write" | "read-write">();
   const labelTargets = new Map<NodeId, NodeRef>();
+  const layoutOperands = layoutOperandOwners(raw);
+  const layoutRoots: NodeBodies["layoutRoots"][number][] = [];
   interface LabelBinding {
     readonly declaration: Hir.LabeledStatement<Syntax>;
     readonly target: NodeRef;
@@ -363,7 +367,17 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
         descendant = binding.declaration;
       }
     }
-    const scope = childSourceBody(frame.context, child);
+    const scope = childSourceBody(frame.context, child, layoutOperands);
+    if (layoutOperands?.has(child.id)) {
+      const path = decodeBodyId(scope.body);
+      if (path.kind !== "decoded" || path.value.role !== "layout-operand")
+        return throwInvariant(invariant("A captured layout operand must receive its actual private constant body."));
+      layoutRoots.push({ node: child.id, body: scope.body, owner: path.value.owner });
+      captureParent.set(scope.body, frame.context.body);
+      const siblings = children.get(frame.context.lexicalBody) ?? [];
+      siblings.push(scope.body);
+      children.set(frame.context.lexicalBody, siblings);
+    }
     const boundary = frame.context.boundary;
     if (boundary?.kind === "function" && child === boundary.root) {
       captureParent.set(boundary.body, boundary.parent);
@@ -377,7 +391,7 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
       && (enclosing?.kind !== "VariableStatement" || enclosing.parent !== raw.tree.id);
     pending.push(enter(child, scope, frame.mutable, blockVariable));
   }
-  return { definitions: definitionAt, bodyOf: bodies, captureParent, children, locals, variables, assignmentTargets, labelTargets };
+  return { definitions: definitionAt, bodyOf: bodies, captureParent, children, locals, variables, assignmentTargets, labelTargets, layoutRoots };
 }
 
 function headerOf<P extends Hir.Phase>(node: Hir.NodeHeader): Hir.NodeHeader & Record<never, P> {
@@ -468,10 +482,26 @@ function valueOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.Checked
   if (contextual.kind !== "complete") return contextual;
   const place = storageOf(lowering, node);
   if (place.kind !== "complete") return place;
+  const metadata = core.metadata.kind === "available" ? core.metadata.value : null;
+  const request = metadata?.kind === "layout-construction" ? metadata : core.layoutQuery.kind === "available" ? core.layoutQuery.value : null;
+  if (request !== null) {
+    const stop = admitTypePublicationStep(lowering.typeWork);
+    if (stop !== null) return stop;
+    const call = lowering.calls.get(node);
+    const candidate = call?.kind === "applicable" ? lowering.raw.types.candidates[call.candidates]?.candidates[0] : undefined;
+    if (candidate?.application !== request.application || candidate.sourceArguments !== request.operands)
+      return throwInvariant(invariant("A checked layout role must retain its actual selected application and original operands."));
+  }
+  const layout = request === null ? null : lowerLayoutApplication({
+    admit: () => admitTypePublicationStep(lowering.typeWork),
+    bodyOf: reference => reference.module === lowering.raw.module ? lowering.bodyOf.get(reference.node) ?? null : null,
+    typeOf: fact => typeFactOf(lowering, fact),
+  }, request, read.value);
+  if (layout !== null && layout.kind !== "complete") return layout;
   return { kind: "complete", value: {
     views: { read: read.value, declared: declared.value, contextual: contextual.value },
     place: place.value,
-    memory: memoryOf(lowering, node), observation: capturedFact(core.layoutQuery, absenceOnly("layout query")),
+    ...(layout === null ? { memory: memoryOf(lowering, node), observation: capturedFact(core.layoutQuery, absenceOnly("layout query")) } : layout.value),
   } };
 }
 
@@ -1417,6 +1447,12 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   }
   const statements = lowerStatements(lowering, moduleDefinition);
   if (statements.kind !== "complete") return publicationRefusal(raw, statements);
+  for (const { node, body, owner } of structure.layoutRoots) {
+    const root = lowering.expressions.get(node);
+    if (root === undefined) return throwInvariant(invariant("The private Layout operand body must retain its actual lowered expression."));
+    lowering.bodies.push({ body, owner, params: [], locals: variableLocals.get(body) ?? [], root, captures: [], scopes: [],
+      asynchronous: false, generator: false, candidateLists: lowering.candidateLists.get(body) ?? [], nestedBodies: [] });
+  }
   if (lowering.memberUses.size !== 0)
     return throwInvariant(invariant("Every captured member use must project to its actual selected syntax."));
   if (lowering.storage.size !== 0)

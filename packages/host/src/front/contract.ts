@@ -289,8 +289,7 @@ export interface RawTypeTable {
   readonly symbols: readonly RawSymbol[];
   readonly candidates: readonly RawCandidateList[];
   readonly dataLayouts: readonly RawDataLayout[];
-  readonly memoryLayouts: readonly RawMemoryLayout[];
-  readonly memoryFields: readonly RawMemoryField[];
+  readonly memoryDescriptors: readonly RawLayoutConstruction[];
 }
 
 export interface RawCheckerViews {
@@ -723,37 +722,14 @@ export type RawMemorySource =
   | { readonly kind: "result"; readonly application: RawNodeRef;
       readonly path: readonly RawComponentStep[]; readonly component: RawComponentId };
 
-export type RawMemoryLayout = {
-  readonly id: RawMemoryLayoutId;
-  readonly occurrence: RawNodeRef;
-  readonly source: RawMemorySource;
-  readonly dataLayout: RawDataLayoutId;
-  readonly byteSize: bigint;
-  readonly byteAlignment: bigint;
-  readonly stride: bigint;
-} & (
-  | { readonly kind: "value"; readonly fields: readonly RawMemoryFieldId[] }
-  | { readonly kind: "array"; readonly extent: { readonly length: bigint; readonly runtimeBase: "number" | "bigint" };
-      readonly element: RawMemoryLayoutId }
-);
-
-export interface RawMemoryField {
-  readonly id: RawMemoryFieldId;
-  readonly occurrence: RawNodeRef;
-  readonly owner: RawMemorySource;
-  readonly value: RawMemorySource;
-  readonly selector: RawNodeRef;
-  readonly selection: RawNodeRef;
-  readonly primary: RawNodeRef | null;
-  readonly selectedDeclarations: readonly RawNodeRef[];
-  readonly layout: RawMemoryLayoutId;
-  readonly byteOffset: bigint;
-  readonly byteAlignment: bigint;
-}
-
 export type RawMemoryMetadata =
   | { readonly kind: "data-layout"; readonly occurrence: RawNodeRef; readonly dataLayout: RawDataLayoutId }
-  | (RawLayoutApplication & { readonly kind: "layout-construction"; readonly construction: "value" | "array" | "field" });
+  | RawLayoutConstruction;
+
+export interface RawLayoutConstruction extends RawLayoutApplication {
+  readonly kind: "layout-construction";
+  readonly construction: "value" | "array" | "field";
+}
 
 export interface RawLayoutApplication {
   readonly application: RawApplication;

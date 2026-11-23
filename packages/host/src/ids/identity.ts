@@ -162,7 +162,7 @@ function definitionPart(cursor: Cursor): Read<DefinitionPath> {
 
 function bodyRole(role: string): role is BodyRole {
   return ["function", "initializer", "module", "default-argument", "field-initializer",
-    "enum-member-initializer", "class-static-initializer"].includes(role);
+    "enum-member-initializer", "layout-operand", "class-static-initializer"].includes(role);
 }
 
 function bodyPart(cursor: Cursor): Read<BodyPath> {

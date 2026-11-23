@@ -8,9 +8,9 @@ import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { binaryOperatorOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
+import { binaryOperatorOf, checkedLayoutOperandOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
-import { checkedVoidCompletion, ownSignatureRequest } from "./own-signature.js";
+import { checkedVoidCompletion, isLayoutOperand, layoutOperandType, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
 
 const PORT = "ConstraintsOf";
@@ -129,7 +129,8 @@ export const constraintsOf: ConstraintsOf = (deps, group) => {
     if (originalDiagnostics.size === 0) {
       const request = ownSignatureRequest(deps, body, PORT, ownDefinitions);
       if (request !== null) signatureRequest(reference, request);
-      else if (ownDefinitions.has(body.owner)) for (const part of inferredPartsOf(body.owner, deps.itemOf(body.owner))) requestPart(reference, part);
+      else if (ownDefinitions.has(body.owner) && !isLayoutOperand(body))
+        for (const part of inferredPartsOf(body.owner, deps.itemOf(body.owner))) requestPart(reference, part);
     }
     for (const local of body.locals)
       if (local.role === "binding") inspectBinding(reference, { body: reference, local: local.id });
@@ -327,6 +328,12 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
       const part = (generation.parts.get(reference) ?? []).find(candidate => candidate.part.kind === "parameter-initializer"
         || candidate.part.kind === "variable" || candidate.part.kind === "field" || candidate.part.kind === "enum-member-value");
       if (part === undefined) {
+        if (isLayoutOperand(body)) {
+          const target = layoutOperandType(body.root, "contextual");
+          if (target === null) return notInferredYet(PORT, "a layout operand without its actual checked parameter type", body.root.origin);
+          flow(walk, body.root, typeAt(walk, body.root), target, "initialization", { kind: "body", value: refOf(walk, body.root) });
+          continue;
+        }
         const owner = deps.itemOf(body.owner);
         if (owner.kind !== "Parameter" && owner.kind !== "VariableDeclaration" && owner.kind !== "PropertyDeclaration"
           || owner.tsonic.initializer !== body.body || owner.type === null
@@ -434,7 +441,12 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
     case "PrefixUnaryExpression": case "PostfixUnaryExpression": yield node.operand; return;
     case "BinaryExpression": yield node.left; yield node.right; return;
     case "ConditionalExpression": yield node.condition; yield node.whenTrue; yield node.whenFalse; return;
-    case "CallExpression": yield node.expression; yield* node.arguments.nodes; return;
+    case "CallExpression":
+      yield node.expression;
+      if (node.tsonic.memory.kind !== "available" || node.tsonic.memory.value === null) yield* node.arguments.nodes;
+      else for (const [position, argument] of node.arguments.nodes.entries())
+          if (checkedLayoutOperandOf(node, position) === null) yield argument;
+      return;
     case "ObjectLiteralExpression": yield* node.properties.nodes; return;
     case "PropertyAssignment": yield node.initializer; return;
     case "PropertyAccessExpression": if (node.tsonic.role !== "enum-member") yield node.expression; return;
@@ -493,8 +505,9 @@ function resolvedValueName(deps: InferenceInputs, resolution: HirResolution): Hi
 
 function* checkerCallChildren(deps: InferenceInputs, body: BodyId, call: CallExpression<CheckedPhase>, application: HirApplication): Generator<HirNode> {
   yield call.expression;
-  for (const argument of application.arguments) {
-    const actual = deps.checkedNodeOf({ kind: "body", value: { body, node: argument.expression } });
+  for (const [position, argument] of application.arguments.entries()) {
+    const qualified = checkedLayoutOperandOf(call, position) ?? { kind: "body", value: { body, node: argument.expression } };
+    const actual = deps.checkedNodeOf(qualified);
     if (actual === null || actual.id !== argument.expression)
       return callerDefect(PORT, "checker evidence requires its verified qualified application argument");
     yield actual;
@@ -798,7 +811,12 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       const source = node.arguments.nodes[index];
       if (source === undefined || argument.kind !== "value" || argument.expression !== source.id)
         return notInferredYet(PORT, "the actual selected source transport of a spread call argument", node.origin);
-      return { occurrence: refOf(walk, source), kind: argument.kind, type: typeAt(walk, source), tuple: null, closure: null };
+      const layout = checkedLayoutOperandOf(node, index);
+      if (layout !== null && layout.kind !== "body") return callerDefect(PORT, "a private layout operand must retain a body-qualified occurrence");
+      const type = layout === null ? typeAt(walk, source) : layoutOperandType(source, "read");
+      if (type === null) return notInferredYet(PORT, "a layout operand's actual checked source type", source.origin);
+      return { occurrence: layout === null ? refOf(walk, source) : layout.value, kind: argument.kind,
+        type, tuple: null, closure: null };
     });
     const result = present(walk.operators.get(node.id), "the actual application result position");
     const callee = typeAt(walk, node.expression);
@@ -824,6 +842,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     }
     if (signature !== null && signature.kind === "call" && signature.receiver === null && signature.typeParameters.length === 0
       && arguments_.length <= signature.parameters.length) for (const [index, argument] of arguments_.entries()) {
+      if (checkedLayoutOperandOf(node, index) !== null) continue;
       const formal = signature.parameters[index];
       const actual = readySlotType(walk.generation, argument.type);
       if (formal === undefined || formal.kind === "rest" || formal.passing !== "by-value"

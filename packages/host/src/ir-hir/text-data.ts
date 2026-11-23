@@ -289,7 +289,7 @@ function memoryData(value: Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCaptur
       fieldData("declaration", capturedData(value.declaration, definitionData)), fieldData("fingerprint", capturedData(value.fingerprint, scalarData)),
       fieldData("byteOrder", capturedData(value.byteOrder, scalarData)), fieldData("addressWidth", capturedData(value.addressWidth, scalarData))]);
     case "value": return recordData(value.kind, value, () => [...memoryFields(value), fieldData("geometry", geometryData(value.geometry)),
-      fieldData("fieldsExpression", nullableData(value.fieldsExpression, sourceRefData)), fieldData("fields", capturedData(value.fields, refs => arrayData(refs, sourceRefData)))]);
+      fieldData("fieldExpressions", arrayData(value.fieldExpressions, sourceRefData)), fieldData("fields", capturedData(value.fields, refs => arrayData(refs, sourceRefData)))]);
     case "array": return recordData(value.kind, value, () => [...memoryFields(value), fieldData("geometry", geometryData(value.geometry)),
       fieldData("extentExpression", nullableData(value.extentExpression, sourceRefData)), fieldData("length", capturedData(value.length, scalarData)),
       fieldData("runtimeBase", capturedData(value.runtimeBase, scalarData)), fieldData("elementExpression", nullableData(value.elementExpression, sourceRefData)),

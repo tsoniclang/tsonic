@@ -105,6 +105,7 @@ export type BodyRole =
   | "default-argument"
   | "field-initializer"
   | "enum-member-initializer"
+  | "layout-operand"
   | "class-static-initializer";
 
 export interface BodyPath {

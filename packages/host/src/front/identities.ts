@@ -86,7 +86,7 @@ function typeSyntax(node: Hir.SyntaxNode<Hir.SyntaxPhase>): Pick<ModuleDefinitio
  * path, so names holding `#`, `/` or `:` cannot make two owners share a counter (K-3343).
  */
 export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.SyntaxPhase>, propertyNames: readonly RawPropertyName[],
-  componentRoots: readonly RawNodeRef[]): ModuleDefinitions {
+  componentRoots: readonly RawNodeRef[], layoutOperands: ReadonlyMap<NodeId, NodeId> | null): ModuleDefinitions {
   const rows: ModuleDefinitionRow[] = [];
   const sourceOccurrences: ModuleDefinitions["sourceOccurrences"][number][] = [];
   const counts = new Map<NodeId, Map<string, number>>();
@@ -131,7 +131,8 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
     const children = childrenOfSyntax(node);
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
-      if (child !== undefined) pending.push({ node: child, owner: inner, scope: context === null ? next.scope : childSourceBody(context, child) });
+      if (child !== undefined) pending.push({ node: child, owner: inner, scope: context === null ? next.scope
+        : childSourceBody(context, child, layoutOperands) });
     }
   }
   if (requested.size !== 0) throw new TypeError("front: every requested component root must name its actual captured syntax node");

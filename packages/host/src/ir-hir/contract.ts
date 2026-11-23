@@ -4063,7 +4063,7 @@ export type HirMemoryLayoutCapture = {
       readonly fingerprint: CapturedFact<string>; readonly byteOrder: CapturedFact<"little" | "big">;
       readonly addressWidth: CapturedFact<32 | 64> }
   | { readonly kind: "value"; readonly geometry: HirMemoryGeometryCapture;
-      readonly fieldsExpression: SourceNodeRef | null; readonly fields: CapturedFact<readonly SourceNodeRef[]> }
+      readonly fieldExpressions: readonly SourceNodeRef[]; readonly fields: CapturedFact<readonly SourceNodeRef[]> }
   | { readonly kind: "array"; readonly geometry: HirMemoryGeometryCapture;
       readonly extentExpression: SourceNodeRef | null; readonly length: CapturedFact<bigint>;
       readonly runtimeBase: CapturedFact<"number" | "bigint">;
@@ -4101,6 +4101,8 @@ export interface HirObservationCapture {
   readonly result: CapturedFact<TyId>;
   readonly value: CapturedFact<bigint>;
 }
+
+export type CheckedLayoutOperandOf = (call: CallExpression<CheckedPhase>, position: number) => SourceNodeRef | null;
 
 export type HirUnaryOperator = "+" | "-" | "!" | "~" | "++" | "--" | "typeof" | "void" | "delete";
 export type HirBinaryOperator = "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^"

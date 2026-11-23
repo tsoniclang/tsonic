@@ -34,7 +34,7 @@ function observationFixture(selected = null) {
   const geometry = { source: available(generic ? 3 : 1), dataLayoutExpression: null, dataLayout: available(fixture.definition),
     byteSizeExpression: null, byteSize: available(8n), byteAlignmentExpression: null, byteAlignment: available(8n), strideExpression: null, stride: available(8n) };
   const descriptorNode = { ...node, id: 3, tsonic: { core, role: "value", value: { ...checkedValue, observation: available(null),
-    memory: available({ kind: "value", occurrence: descriptor, bindings: available(original), geometry, fieldsExpression: null, fields: available([]) }) }, literal: node.tsonic.literal } };
+    memory: available({ kind: "value", occurrence: descriptor, bindings: available(original), geometry, fieldExpressions: [], fields: available([]) }) }, literal: node.tsonic.literal } };
   const metadata = { kind: "memory-layout", key: { definition: fixture.definition, bindings: instance.bindings }, root: 0,
     layouts: [{ id: 0, occurrence: descriptor, source: selected ?? 1, dataLayout: fixture.definition,
       byteSize: 8n, byteAlignment: 8n, stride: 8n, kind: "value", fields: [] }], fields: [] };

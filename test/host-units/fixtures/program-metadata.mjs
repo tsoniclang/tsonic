@@ -77,7 +77,7 @@ export function metadataOperationFixture(operation, fact, selectedKey, root = "/
   metadataValue(first, 4, 1, { memory: available({ kind: "value", occurrence: descriptor, bindings: available(bindings),
     geometry: { source: available(1), dataLayoutExpression: null, dataLayout: available(second.definition),
       byteSizeExpression: null, byteSize: available(1n), byteAlignmentExpression: null, byteAlignment: available(1n),
-      strideExpression: null, stride: available(1n) }, fieldsExpression: null, fields: available([]) }) });
+      strideExpression: null, stride: available(1n) }, fieldExpressions: [], fields: available([]) }) });
   metadataValue(second, 2, 1, { memory: available({ kind: "data-layout", occurrence: dataDescriptor, bindings: available(bindings),
     declaration: available(second.definition), fingerprint: available("native64-le"), byteOrder: available("little"), addressWidth: available(64) }) });
   for (const [key, value] of second.answers) first.answers.set(key, value);
@@ -163,7 +163,7 @@ export function metadataFieldFixture(operandKey) {
   metadataValue(first, 6, 1, { memory: available({ kind: "value", occurrence: layoutOccurrence, bindings: available(bindings),
     geometry: { source: available(3), dataLayoutExpression: null, dataLayout: available(second.definition),
       byteSizeExpression: null, byteSize: available(1n), byteAlignmentExpression: null, byteAlignment: available(1n),
-      strideExpression: null, stride: available(1n) }, fieldsExpression: null, fields: available([occurrence]) }) });
+      strideExpression: null, stride: available(1n) }, fieldExpressions: [], fields: available([occurrence]) }) });
   metadataValue(third, 2, 1, { memory: available({ kind: "field", occurrence, bindings: available(bindings), source: available(3),
     selector: occurrence, selection: available(occurrence), key: available(key), origins: available([origin]),
     selectedDeclarations: available([]), primary: available(null), value: available(1), fieldLayoutExpression: null,

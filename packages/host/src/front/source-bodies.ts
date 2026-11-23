@@ -1,7 +1,8 @@
 import type { BodyId, DefId, NodeId } from "../ids/contract.js";
-import { encodeBodyId } from "../ids/index.js";
+import { decodeBodyId, encodeBodyId } from "../ids/index.js";
 import { throwInvariant } from "../diag/index.js";
 import type { SyntaxNode, SyntaxPhase } from "../ir-hir/contract.js";
+import type { RawLayoutConstruction, RawModule } from "./contract.js";
 
 export interface SourceBodyScope {
   readonly body: BodyId;
@@ -18,6 +19,10 @@ interface SourceBodyBoundary {
 
 export interface SourceBodyTransition extends SourceBodyScope {
   readonly boundary: SourceBodyBoundary | null;
+}
+
+export function layoutConstructionArity(construction: RawLayoutConstruction["construction"], count: number): boolean {
+  return construction === "value" ? count >= 4 : count === (construction === "array" ? 6 : 4);
 }
 
 export function enterSourceBody(node: SyntaxNode<SyntaxPhase>, scope: SourceBodyScope,
@@ -47,7 +52,38 @@ export function enterSourceBody(node: SyntaxNode<SyntaxPhase>, scope: SourceBody
   return { ...scope, boundary: null };
 }
 
-export function childSourceBody(parent: SourceBodyTransition, child: SyntaxNode<SyntaxPhase>): SourceBodyScope {
+export function layoutOperandOwners(raw: RawModule): ReadonlyMap<NodeId, NodeId> | null {
+  if (raw.types.memoryDescriptors.length === 0) return null;
+  const result = new Map<NodeId, NodeId>();
+  for (const descriptor of raw.types.memoryDescriptors) {
+    if (!layoutConstructionArity(descriptor.construction, descriptor.operands.length)) continue;
+    const invocation = descriptor.application.invocation;
+    const positions = descriptor.construction === "value" ? [1, 2, 3]
+      : descriptor.construction === "array" ? [1, 2, 3, 5] : [1, 2];
+    for (const position of positions) {
+      const operand = descriptor.operands[position];
+      if (operand?.kind !== "value") continue;
+      const expression = operand.expression;
+      if (invocation.module !== raw.module || expression.module !== raw.module || result.has(expression.node))
+        return throwInvariant({ owner: "front", query: null, origin: null,
+          message: "A layout constant operand must retain its one actual construction and authored occurrence." });
+      result.set(expression.node, invocation.node);
+    }
+  }
+  return result;
+}
+
+export function childSourceBody(parent: SourceBodyTransition, child: SyntaxNode<SyntaxPhase>,
+  layoutOperands: ReadonlyMap<NodeId, NodeId> | null): SourceBodyScope {
+  const layout = layoutOperands?.get(child.id);
+  if (layout !== undefined) {
+    const enclosing = decodeBodyId(parent.body);
+    if (enclosing.kind !== "decoded" || child.parent !== layout)
+      return throwInvariant({ owner: "front", query: null, origin: child.origin,
+        message: "A layout operand body belongs to its actual construction inside the enclosing execution." });
+    const body = encodeBodyId({ owner: enclosing.value.owner, role: "layout-operand", ordinal: child.id });
+    return { body, lexicalBody: body, callableBody: parent.callableBody };
+  }
   const boundary = parent.boundary;
   const entersRoot = boundary !== null && child === boundary.root;
   return { body: boundary !== null && (entersRoot

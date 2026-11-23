@@ -17,6 +17,7 @@ import { hirChildPath, hirDataPathText } from "./walk.js";
 import type { HirDataPath } from "./walk.js";
 import type { InferredStorageBound, InferredStorageCandidate } from "./contract.js";
 import { collectInferredStorageSources } from "./storage-inputs.js";
+import { checkedLayoutOperandOf } from "./layout.js";
 
 type NodeFrame = (
   | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null; readonly path: HirDataPath; readonly member: boolean }
@@ -137,6 +138,7 @@ function containsHirNode(outer: HirNodeEntry, inner: HirNodeEntry): boolean {
   return inner.ordinal >= outer.ordinal && inner.ordinal < outer.end;
 }
 
+
 function validRange(start: number, end: number): boolean {
   return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 &&
     !Object.is(start, -0) && !Object.is(end, -0) && end >= start;
@@ -242,6 +244,15 @@ function bodyViolations(module: HirModule, inventory: HirInventory, paths: HirId
     if (path.kind === "known" && path.value.owner !== body.owner || !definitions.has(body.owner) ||
       !inventory.starts.has(body.root) || inventory.owners.get(body.root) !== body)
       report("body-owner", site, "body identity, owner and actual module subtree must agree");
+    if (path.kind === "known" && path.value.role === "layout-operand") {
+      const parent = inventory.parents.get(body.root);
+      const position = parent?.kind === "CallExpression" ? parent.arguments.nodes.findIndex(argument => argument === body.root) : -1;
+      const operand = parent?.kind === "CallExpression" ? checkedLayoutOperandOf(parent, position) : null;
+      if (operand?.kind !== "body" || operand.value.body !== body.body || operand.value.node !== body.root.id ||
+        path.value.ordinal !== body.root.id || inventory.bodyParents.get(body)?.owner !== body.owner ||
+        body.params.length !== 0 || body.asynchronous || body.generator)
+        report("body-owner", site, "a private layout operand must retain the exact typed argument and enclosing declaration");
+    }
     const nested = actualNested.get(body) ?? [];
     if (body.nestedBodies.length !== nested.length || body.nestedBodies.some((identity, ordinal) => identity !== nested[ordinal]))
       report("body-owner", site, "nested bodies must be the actual direct body roots in preorder");
@@ -440,7 +451,11 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
         const captured = application.arguments[index];
         const expected = argument?.kind === "SpreadElement" ? argument.expression : argument;
         const actual = captured === undefined ? undefined : inventory.entriesById.get(captured.expression);
-        if (entry.sourceBody === null || expected === undefined || actual?.node !== expected || actual.sourceBody !== entry.sourceBody
+        const layout = actual?.sourceBody === entry.sourceBody ? null : checkedLayoutOperandOf(node, index);
+        const sourceMatches = actual?.sourceBody === entry.sourceBody || layout?.kind === "body" &&
+          actual?.source.kind === "body" && actual.source.value.body === layout.value.body && actual.node.id === layout.value.node &&
+          actual.sourceBody !== null && actual.sourceBody.root === expected && inventory.bodyParents.get(actual.sourceBody) === entry.sourceBody;
+        if (entry.sourceBody === null || expected === undefined || actual?.node !== expected || !sourceMatches
           || captured?.kind !== (argument?.kind === "SpreadElement" ? "spread" : "value")) {
           report("node-reference", site, "application arguments must retain their exact authored roles in this execution");
           break;
