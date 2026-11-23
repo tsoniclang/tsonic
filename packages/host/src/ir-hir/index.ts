@@ -1,14 +1,21 @@
 import type { BinaryOperatorOf, CallableEndpointKey, CheckedGroupingFrontierOf, CheckedParameterHeadersOf, ChildrenOfSyntax, CompoundAssignmentOperatorOf, HasOverloadEndpoints, IndexSyntaxTree, IterateChildrenOfSyntax, IterateSyntaxChildEdges, OrderPragmaArguments, ParseHir, PrefixOperatorOf, PrintHir, SelectedEndpointRoleFaults, ShortCircuitOperatorOf, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import { childrenOfSyntax as children, iterateChildrenOfSyntax as iterateChildren, iterateSyntaxChildEdges as iterateEdges } from "./children.js";
+import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSourceFileHeaderSlots, IterateSyntaxChildSlots,
+  PrepareBinaryStructure, PrepareBlockStructure, PrepareFunctionHeader, PrepareSourceFileHeader } from "./contract.js";
+import { iterateFunctionHeaderSlots as functionSlots, iterateParameterHeaderSlots as parameterSlots,
+  iterateSourceFileHeaderSlots as sourceFileSlots, iterateSyntaxChildSlots as childSlots,
+  prepareBinaryStructure as binaryShape, prepareBlockStructure as blockShape, prepareFunctionHeader as functionShape,
+  prepareSourceFileHeader as sourceFileShape } from "./children.js";
 import { indexSyntaxTree as index, unparenthesizedExpression as unparenthesized, walkSyntaxForest as walkForest, walkSyntaxTree as walk } from "./walk.js";
 import type { UnparenthesizedExpression } from "./contract.js";
-import type { BeginSyntaxCopy, CopyCheckedModule, CopySyntaxForest } from "./contract.js";
-import { beginSyntaxCopy as beginCopy, copySyntaxForest as copyForest } from "./copy-syntax.js";
-import { copyCheckedModule as copyModule } from "./checked-phase-copy.js";
+import type { CopyCheckedContent, CopyCheckedModule, CopySyntaxForest, PrepareSyntaxCopy } from "./contract.js";
+import { copySyntaxForest as copyForest, prepareSyntaxCopy as prepareCopy } from "./copy-syntax.js";
+import { copyCheckedContent as copyContent, copyCheckedModule as copyModule } from "./checked-phase-copy.js";
 import type { DeriveDeclarationScopes } from "./contract.js";
 import { deriveDeclarationScopes as declarationScopes } from "./declaration-scopes.js";
-import { parseHir as parse } from "./parse.js";
-import { printHir as print } from "./print.js";
+import type { ParseCheckedDeclarations, PrintCheckedDeclarations } from "./contract.js";
+import { parseCheckedDeclarations as parseChecked, parseHir as parse } from "./parse.js";
+import { printCheckedDeclarations as printChecked, printHir as print } from "./print.js";
 import { binaryOperatorOf as operatorOf, compoundAssignmentOperatorOf as compoundOf, prefixOperatorOf as prefixOf, shortCircuitOperatorOf as shortCircuitOf, verifyHir as verify } from "./verify.js";
 import { orderPragmaArguments as orderPragmas } from "./pragmas.js";
 import { callableEndpointKey as endpointKey, checkedParameterHeadersOf as parameterHeaders, hasOverloadEndpoints as overloadEndpoints, selectedEndpointRoleFaults as roleFaults } from "./endpoints.js";
@@ -32,15 +39,26 @@ export const checkedGroupingFrontierOf: CheckedGroupingFrontierOf = groupingFron
 export const childrenOfSyntax: ChildrenOfSyntax = children;
 export const iterateChildrenOfSyntax: IterateChildrenOfSyntax = iterateChildren;
 export const iterateSyntaxChildEdges: IterateSyntaxChildEdges = iterateEdges;
+export const iterateSyntaxChildSlots: IterateSyntaxChildSlots = childSlots;
+export const iterateFunctionHeaderSlots: IterateFunctionHeaderSlots = functionSlots;
+export const iterateParameterHeaderSlots: IterateParameterHeaderSlots = parameterSlots;
+export const iterateSourceFileHeaderSlots: IterateSourceFileHeaderSlots = sourceFileSlots;
+export const prepareBlockStructure: PrepareBlockStructure = blockShape;
+export const prepareBinaryStructure: PrepareBinaryStructure = binaryShape;
+export const prepareFunctionHeader: PrepareFunctionHeader = functionShape;
+export const prepareSourceFileHeader: PrepareSourceFileHeader = sourceFileShape;
 export const indexSyntaxTree: IndexSyntaxTree = index;
 export const walkSyntaxTree: WalkSyntaxTree = walk;
 export const walkSyntaxForest: WalkSyntaxForest = walkForest;
 export const copySyntaxForest: CopySyntaxForest = copyForest;
-export const beginSyntaxCopy: BeginSyntaxCopy = beginCopy;
+export const prepareSyntaxCopy: PrepareSyntaxCopy = prepareCopy;
 export const copyCheckedModule: CopyCheckedModule = copyModule;
+export const copyCheckedContent: CopyCheckedContent = copyContent;
 export const unparenthesizedExpression: UnparenthesizedExpression = unparenthesized;
 export const parseHir: ParseHir = parse;
 export const printHir: PrintHir = print;
+export const parseCheckedDeclarations: ParseCheckedDeclarations = parseChecked;
+export const printCheckedDeclarations: PrintCheckedDeclarations = printChecked;
 export const verifyHir: VerifyHir = verify;
 export const deriveDeclarationScopes: DeriveDeclarationScopes = declarationScopes;
 export const binaryOperatorOf: BinaryOperatorOf = operatorOf;

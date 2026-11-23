@@ -476,6 +476,7 @@ export interface ModifierList<P extends Phase> extends NodeList<ModifierLike<P>>
 
 export interface Phase {
   readonly Token: object | null;
+  readonly ParameterInitializer: object | null;
   readonly Identifier: object | null;
   readonly PrivateIdentifier: object | null;
   readonly QualifiedName: object | null;
@@ -670,6 +671,7 @@ export interface Phase {
 
 export interface SyntaxPhase extends Phase {
   readonly Token: null;
+  readonly ParameterInitializer: Expression<SyntaxPhase> | null;
   readonly Identifier: null;
   readonly PrivateIdentifier: null;
   readonly QualifiedName: null;
@@ -1082,15 +1084,18 @@ export interface BindingPattern<P extends Phase, K extends "ObjectBindingPattern
   readonly tsonic: P["BindingPattern"];
 }
 
-export interface ParameterDeclaration<P extends Phase> extends NodeHeader {
+export interface ParameterDeclarationHeader<P extends Phase> extends NodeHeader {
   readonly kind: "Parameter";
   readonly modifiers: ModifierList<P> | null;
   readonly dotDotDotToken: DotDotDotToken<P> | null;
   readonly name: BindingName<P>;
   readonly questionToken: QuestionToken<P> | null;
   readonly type: TypeNode<P> | null;
-  readonly initializer: Expression<P> | null;
   readonly tsonic: P["ParameterDeclaration"];
+}
+
+export interface ParameterDeclaration<P extends Phase> extends ParameterDeclarationHeader<P> {
+  readonly initializer: P["ParameterInitializer"];
 }
 
 export interface BindingElement<P extends Phase> extends NodeHeader {
@@ -1108,17 +1113,20 @@ export interface MissingDeclaration<P extends Phase> extends NodeHeader {
   readonly tsonic: P["MissingDeclaration"];
 }
 
-export interface FunctionDeclaration<P extends Phase> extends NodeHeader {
+export interface FunctionDeclarationHeader<P extends Phase> extends NodeHeader {
   readonly kind: "FunctionDeclaration";
   readonly modifiers: ModifierList<P> | null;
   readonly typeParameters: NodeList<TypeParameterDeclaration<P>> | null;
-  readonly parameters: NodeList<ParameterDeclaration<P>>;
   readonly type: TypeNode<P> | null;
   readonly fullSignature: TypeNode<P> | null;
   readonly asteriskToken: AsteriskToken<P> | null;
-  readonly body: BlockOrExpression<P> | null;
   readonly name: Identifier<P> | null;
   readonly tsonic: P["FunctionDeclaration"];
+}
+
+export interface FunctionDeclaration<P extends Phase> extends FunctionDeclarationHeader<P> {
+  readonly parameters: NodeList<ParameterDeclaration<P>>;
+  readonly body: BlockOrExpression<P> | null;
 }
 
 export interface ClassDeclaration<P extends Phase> extends NodeHeader {
@@ -2214,9 +2222,8 @@ export interface JSDocNameReference<P extends Phase> extends NodeHeader {
   readonly tsonic: P["JSDocNameReference"];
 }
 
-export interface SourceFile<P extends Phase> extends NodeHeader {
+export interface SourceFileHeader<P extends Phase> extends NodeHeader {
   readonly kind: "SourceFile";
-  readonly statements: NodeList<Statement<P>>;
   readonly endOfFileToken: EndOfFile<P>;
   readonly languageVariant: "Standard" | "JSX";
   readonly scriptKind: "Unknown" | "JS" | "JSX" | "TS" | "TSX" | "External" | "JSON" | "Deferred";
@@ -2224,6 +2231,10 @@ export interface SourceFile<P extends Phase> extends NodeHeader {
   readonly pragmas: readonly Pragma[];
   readonly checkJsDirective: CheckJsDirective | null;
   readonly tsonic: P["SourceFile"];
+}
+
+export interface SourceFile<P extends Phase> extends SourceFileHeader<P> {
+  readonly statements: NodeList<Statement<P>>;
 }
 
 export interface CommentDirective {
@@ -2427,7 +2438,7 @@ export type Expression<P extends Phase> =
   | JsxText<P>
   | SyntheticReferenceExpression<P>;
 
-export type Statement<P extends Phase> =
+export type NonFunctionStatement<P extends Phase> =
   | EmptyStatement<P>
   | IfStatement<P>
   | DoStatement<P>
@@ -2447,7 +2458,6 @@ export type Statement<P extends Phase> =
   | Block<P>
   | VariableStatement<P>
   | MissingDeclaration<P>
-  | FunctionDeclaration<P>
   | ClassDeclaration<P>
   | InterfaceDeclaration<P>
   | TypeAliasDeclaration<P>
@@ -2460,6 +2470,8 @@ export type Statement<P extends Phase> =
   | ModuleDeclaration<P>
   | ImportEqualsDeclaration<P>
   | ExportDeclaration<P>;
+
+export type Statement<P extends Phase> = NonFunctionStatement<P> | FunctionDeclaration<P>;
 
 export type TypeNode<P extends Phase> =
   | KeywordTypeNode<P>
@@ -4423,6 +4435,7 @@ export interface CheckedTypeParameter extends CheckedDeclaration {
 
 export interface CheckedPhase extends Phase {
   readonly Token: null;
+  readonly ParameterInitializer: Expression<CheckedPhase> | null;
   readonly Identifier: CheckedName;
   readonly PrivateIdentifier: CheckedName;
   readonly QualifiedName: CheckedName;
@@ -4717,6 +4730,39 @@ export type HirSite =
 
 export type PrintHir = (module: HirModule) => string;
 export type ParseHir = (text: string) => TextParseResult<HirModule>;
+
+export type CheckedUnopenedDeclaration =
+  | FunctionDeclaration<CheckedPhase> | InterfaceDeclaration<CheckedPhase> | TypeAliasDeclaration<CheckedPhase>;
+
+export interface CheckedWireRequest {
+  readonly role: "source-file" | "unopened-declaration" | "expression";
+  readonly ordinal: number;
+  readonly offset: number;
+}
+
+export interface CheckedWireImage {
+  readonly sourceFileOf: (ordinal: number) => SourceFile<CheckedPhase> | null;
+  readonly declarationOf: (ordinal: number) => CheckedUnopenedDeclaration | null;
+  readonly expressionOf: (ordinal: number) => Expression<CheckedPhase> | null;
+}
+
+export interface ParsedCheckedDeclarations {
+  readonly end: number;
+  readonly finish: (requests: readonly CheckedWireRequest[]) => TextParseResult<ClosedCheckedDeclarations>;
+}
+
+export interface ClosedCheckedDeclarations {
+  readonly materialize: () => CheckedWireImage;
+}
+
+export interface PrintedCheckedDeclarations {
+  readonly text: string;
+  readonly wireOf: (node: HirNode) => number | undefined;
+}
+
+export type ParseCheckedDeclarations = (text: string, offset: number) => TextParseResult<ParsedCheckedDeclarations>;
+export type PrintCheckedDeclarations = (roots: readonly HirNode[]) => PrintedCheckedDeclarations;
+
 export interface HirDeclarationScopes {
   readonly module: HirModule;
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
@@ -4735,22 +4781,24 @@ export interface HirVerificationContext {
   readonly localExists: (local: LocalRef) => boolean;
 }
 export type VerifyHir = (module: HirModule, context: HirVerificationContext) => readonly Violation<HirRule, HirSite>[];
-export type WalkSyntaxTree = <P extends Phase>(
+export type NullableInitializerPhase<P extends Phase> = Phase & { readonly ParameterInitializer: Expression<P> | null };
+
+export type WalkSyntaxTree = <P extends NullableInitializerPhase<P>>(
   root: SyntaxNode<P>,
   stopBefore: readonly NodeId[],
 ) => readonly SyntaxNode<P>[];
 
-export type IndexSyntaxTree = <P extends Phase>(
+export type IndexSyntaxTree = <P extends NullableInitializerPhase<P>>(
   root: SourceFile<P>,
 ) => readonly SyntaxNode<P>[];
 
 export type UnparenthesizedExpression = <P extends Phase>(node: Expression<P>) => Expression<P>;
 
-export type ChildrenOfSyntax = <P extends Phase>(
+export type ChildrenOfSyntax = <P extends NullableInitializerPhase<P>>(
   node: SyntaxNode<P>,
 ) => readonly SyntaxNode<P>[];
 
-export type IterateChildrenOfSyntax = <P extends Phase>(
+export type IterateChildrenOfSyntax = <P extends NullableInitializerPhase<P>>(
   node: SyntaxNode<P>,
 ) => Generator<SyntaxNode<P>, void, undefined>;
 
@@ -4759,7 +4807,75 @@ export interface SyntaxChild<P extends Phase> {
   readonly fields: readonly (string | number)[];
 }
 
-export type IterateSyntaxChildEdges = <P extends Phase>(node: SyntaxNode<P>) => Generator<SyntaxChild<P>, void, undefined>;
+export type IterateSyntaxChildEdges = <P extends NullableInitializerPhase<P>>(node: SyntaxNode<P>) => Generator<SyntaxChild<P>, void, undefined>;
+
+export interface SyntaxChildSlot<P extends Phase> {
+  readonly fields: readonly (string | number)[];
+  readonly read: () => SyntaxNode<P>;
+}
+
+export type IterateSyntaxChildSlots = <P extends Phase, Slot>(node: SyntaxNode<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot,
+  initializer: (node: ParameterDeclaration<P>, field: "initializer") => Iterable<Slot>) => Iterable<Slot>;
+
+export type IterateSourceFileHeaderSlots = <P extends Phase, Slot>(node: SourceFileHeader<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, statements: (field: "statements") => Iterable<Slot>) => Iterable<Slot>;
+
+export type IterateParameterHeaderSlots = <P extends Phase, Slot>(node: ParameterDeclarationHeader<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, initializer: (field: "initializer") => Iterable<Slot>) => Iterable<Slot>;
+
+export type IterateFunctionHeaderSlots = <P extends Phase, Slot>(node: FunctionDeclarationHeader<P> | FunctionExpression<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, parameters: (field: "parameters") => Iterable<Slot>,
+  body: (field: "body") => Iterable<Slot>) => Iterable<Slot>;
+
+export interface PreparedSourceFileHeader<P extends Phase, Slot> {
+  readonly slots: Iterable<Slot>;
+  readonly finish: <Statements>(statements: Statements, tsonic: P["SourceFile"]) =>
+    SourceFileHeader<P> & { readonly statements: Statements };
+}
+
+export interface PreparedFunctionHeader<P extends Phase, Slot> {
+  readonly slots: Iterable<Slot>;
+  readonly finish: <Parameters, Body>(parameters: Parameters, body: Body, tsonic: P["FunctionDeclaration"],
+    modifier: (value: ModifierLike<P>) => ModifierLike<P>, parameter: (value: TypeParameterDeclaration<P>) => TypeParameterDeclaration<P>,
+    type: (value: TypeNode<P>) => TypeNode<P>, name: (value: Identifier<P>) => Identifier<P>) =>
+    FunctionDeclarationHeader<P> & { readonly parameters: Parameters; readonly body: Body };
+}
+
+export type PrepareSourceFileHeader = <P extends Phase, Slot>(node: SourceFileHeader<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, statements: (field: "statements") => Iterable<Slot>) =>
+  PreparedSourceFileHeader<P, Slot>;
+
+export type PrepareFunctionHeader = <P extends Phase, Slot, Stop>(node: FunctionDeclarationHeader<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, parameters: (field: "parameters") => Iterable<Slot>,
+  body: (field: "body") => Iterable<Slot>, admitList: () => Stop | null, admitParameters: () => Stop | null) =>
+  SyntaxCopyResult<PreparedFunctionHeader<P, Slot>, Stop>;
+
+export interface BlockSyntaxReceipt<P extends Phase> {
+  readonly kind: "block";
+  readonly ordinal: number;
+  readonly header: NodeHeader;
+  readonly multiLine: boolean;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly statements: (read: (node: Statement<P>) => Statement<P>) => NodeList<Statement<P>>;
+}
+
+export interface BinarySyntaxReceipt<P extends Phase> {
+  readonly kind: "binary";
+  readonly ordinal: number;
+  readonly header: NodeHeader;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly modifiers: (read: (node: ModifierLike<P>) => ModifierLike<P>) => ModifierList<P> | null;
+  readonly left: () => Expression<P>;
+  readonly type: () => TypeNode<P> | null;
+  readonly operator: () => BinaryOperatorToken<P>;
+  readonly right: () => Expression<P>;
+}
+
+export type PrepareBlockStructure = <P extends Phase>(node: Block<P>, ordinal: number) => BlockSyntaxReceipt<P>;
+export type PrepareBinaryStructure = <P extends Phase, Stop>(
+  node: BinaryExpression<P>, ordinal: number, admitModifiers: () => Stop | null,
+) => SyntaxCopyResult<BinarySyntaxReceipt<P>, Stop>;
 
 export interface SyntaxRootSlot<P extends Phase> {
   readonly path: string;
@@ -4767,10 +4883,12 @@ export interface SyntaxRootSlot<P extends Phase> {
 }
 
 export interface SyntaxForest<P extends Phase> {
-  readonly nodes: readonly SyntaxNode<P>[];
-  readonly postorder: readonly SyntaxNode<P>[];
+  readonly nodes: () => Iterable<SyntaxNode<P>>;
   readonly wireOf: (node: SyntaxNode<P>) => number | undefined;
+  readonly structureOf: (node: SyntaxNode<P>) => "block" | "binary" | null;
   readonly firstRootSize: number;
+  readonly copy: <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
+    beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;
 }
 
 
@@ -4918,18 +5036,31 @@ export interface SyntaxImage<P extends Phase> {
   readonly parameterOf: (node: ParameterDeclaration<P>) => ParameterDeclaration<P> | null;
 }
 
-export type CopySyntaxForest = <P extends Phase, Stop, Image>(
-  syntax: SyntaxForest<P>, phase: SyntaxPhaseCopy<P, Stop, Image>, beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image,
-) => SyntaxCopyResult<SyntaxImage<P>, Stop>;
+export type SyntaxExpressionImage<P extends Phase> = (expression: Expression<P>) => Expression<P>;
 
-export interface SyntaxCopyCursor<P extends Phase, Stop, Image> {
-  readonly prepare: (node: SyntaxNode<P>) => Stop | null;
-  readonly materialize: (syntax: SyntaxForest<P>, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;
+export type SyntaxInitializerImage<P extends Phase, Image> = (
+  parameter: ParameterDeclaration<P>, expression: SyntaxExpressionImage<P>, image: Image,
+) => P["ParameterInitializer"];
+
+export interface SyntaxMaterialization<P extends Phase, Image> {
+  readonly postorder: Iterable<SyntaxNode<P>>;
+  readonly wireOf: (node: SyntaxNode<P>) => number | undefined;
+  readonly copyInitializer: SyntaxInitializerImage<P, Image>;
+  readonly blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>;
+  readonly binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>;
 }
 
-export type BeginSyntaxCopy = <P extends Phase, Stop, Image>(
+export type CopySyntaxForest = <Stop, Image>(
+  syntax: SyntaxForest<CheckedPhase>, phase: SyntaxPhaseCopy<CheckedPhase, Stop, Image>,
+  beforeNode: (node: HirNode) => Stop | null, image: Image,
+) => SyntaxCopyResult<SyntaxImage<CheckedPhase>, Stop>;
+
+export type FinishSyntaxCopy<P extends Phase, Stop, Image> = (image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;
+
+export type PrepareSyntaxCopy = <P extends Phase, Stop, Image>(
   phase: SyntaxPhaseCopy<P, Stop, Image>, beforeNode: (node: SyntaxNode<P>) => Stop | null,
-) => SyntaxCopyCursor<P, Stop, Image>;
+  discover: (prepare: (node: SyntaxNode<P>) => Stop | null) => SyntaxCopyResult<SyntaxMaterialization<P, Image>, Stop>,
+) => SyntaxCopyResult<FinishSyntaxCopy<P, Stop, Image>, Stop>;
 
 export interface CheckedProjection<Stop> {
   readonly admit: (work: number, createdRecords: number) => Stop | null;
@@ -4947,6 +5078,15 @@ export interface CheckedModuleImage {
   readonly syntax: SyntaxImage<CheckedPhase>;
 }
 
+export interface CheckedContentImage<Stop> {
+  readonly syntax: SyntaxImage<CheckedPhase>;
+  readonly projectModule: (module: HirModule) => SyntaxCopyResult<CheckedModuleImage, Stop>;
+}
+
+export type CopyCheckedContent = <Stop>(
+  forest: SyntaxForest<CheckedPhase>, project: CheckedProjection<Stop>,
+) => SyntaxCopyResult<CheckedContentImage<Stop>, Stop>;
+
 export type CopyCheckedModule = <Stop>(
   module: HirModule, forest: SyntaxForest<CheckedPhase>, project: CheckedProjection<Stop>,
 ) => SyntaxCopyResult<CheckedModuleImage, Stop>;
@@ -4955,9 +5095,12 @@ export interface SyntaxWalkAdmission<P extends Phase, Stop> {
   readonly root: () => Stop | null;
   readonly edge: () => Stop | null;
   readonly node: (node: SyntaxNode<P>) => Stop | null;
+  readonly parameter: (node: ParameterDeclaration<P>) => Stop | null;
+  readonly structure: (node: Block<P> | BinaryExpression<P>) => Stop | null;
+  readonly modifiers: () => Stop | null;
 }
 
-export type WalkSyntaxForest = <P extends Phase, Stop>(
+export type WalkSyntaxForest = <P extends NullableInitializerPhase<P>, Stop>(
   roots: Iterable<SyntaxRootSlot<P>>,
   admission: SyntaxWalkAdmission<P, Stop>,
 ) => { readonly kind: "complete"; readonly value: SyntaxForest<P> } | Stop;

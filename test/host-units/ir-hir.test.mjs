@@ -21,7 +21,7 @@ const definitionIdentity = `D[${moduleIdentity}]`;
 const bodyIdentity = `B[${definitionIdentity};module;0]`;
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const runtimeNames = ["index","bindings","declaration-scopes","storage","verify-export-bindings","text-read-bindings","pragmas","endpoints","children","walk","print","parse","verify","verify-syntax","verify-bindings","verify-captures","text-syntax","text-data","text-construction","text-read-0","text-read-1","text-read-2","text-read-3","text-read-4","text-read-5","text-read-6","text-read-7","text-read-8","text-read-9","text-read-syntax-0","text-read-syntax-1","text-read-syntax-2","text-read-syntax-3","text-read-syntax-4","text-read-syntax-5","text-read-syntax-6","text-read-syntax-7","text-read-syntax-8","text-read-syntax-9","text-read-syntax-10","text-read-syntax-11","text-read-syntax-12","text-read-syntax-13","text-readers","text-read-scalars","text-causes"];
-runtimeNames.push("copy-auxiliary", "copy-expressions", "copy-node", "copy-statements", "copy-syntax", "copy-types", "checked-phase-copy");
+runtimeNames.push("copy-auxiliary", "copy-expressions", "copy-node", "copy-statements", "copy-syntax", "copy-types", "checked-phase-copy", "grouping-frontier");
 const runtimeFiles = runtimeNames.map(name => resolve(repository, `packages/host/dist/ir-hir/${name}.js`));
 const ownedSources = ["contract", "capture-data", "binding-data", "text-read-model", ...runtimeNames].map(name => `packages/host/src/ir-hir/${name}.ts`);
 const inspector = new Session();
@@ -202,7 +202,8 @@ test("HIR structural walk pays before checked roots, required children and order
   const invoke = (maximum, roots) => {
     const account = createAccount({ maximumWork: maximum, maximumResultEntries: 0 });
     const step = () => chargeWork(account, 1);
-    const result = product.walkSyntaxForest(roots, { root: step, edge: step, node: step });
+    const result = product.walkSyntaxForest(roots, { root: step, edge: step, node: step, parameter: step,
+      structure: () => null, modifiers: () => null });
     if (result.kind === "resource-limit") assert.equal(result === accountFailure(account), true);
     assert.equal(remainingWork(account), 0);
     return result;
@@ -222,8 +223,12 @@ test("HIR structural walk pays before checked roots, required children and order
     assert.deepEqual(reads, expected, `paid prefix at ${maximum}`);
     assert.equal(result.kind, maximum < 8 ? "resource-limit" : "complete");
     if (result.kind === "complete") {
-      assertNodes(result.value.nodes, [binary, original.left, original.operatorToken, original.right], "one admitted preorder");
-      assertNodes(result.value.postorder, [original.left, original.operatorToken, original.right, binary], "one admitted postorder");
+      assertNodes([...result.value.nodes()], [binary, original.left, original.operatorToken, original.right], "one admitted preorder");
+      const hold = value => ({ kind: "copied", value: () => value });
+      const copied = product.copySyntaxForest(result.value, { BinaryExpression: hold, NumericLiteral: hold }, () => null, null);
+      const image = copied.value.nodeOf(binary);
+      assert.equal(image.left === copied.value.nodeOf(original.left) && image.right === copied.value.nodeOf(original.right)
+        && image.operatorToken === copied.value.nodeOf(original.operatorToken), true, "all exact child images materialize before their parent");
       assert.equal(result.value.firstRootSize, 4);
     }
   }
@@ -257,12 +262,13 @@ test("HIR structural walk pays before checked roots, required children and order
     assert.deepEqual(reads, expected);
   }
   const leaf = original.left;
-  const ordinary = { root: () => null, edge: () => null, node: () => null };
+  const ordinary = { root: () => null, edge: () => null, node: () => null, parameter: () => null,
+    structure: () => null, modifiers: () => null };
   assert.equal(invoke(0, []).kind, "complete", "empty root inventory does not invent a paid edge");
   const shared = { ...binary, left: leaf, right: leaf };
   const owned = product.walkSyntaxForest([{ path: "first", read: () => shared }, { path: "same", read: () => leaf }], ordinary);
   assert.equal(owned.kind, "complete");
-  assertNodes(owned.value.nodes, [shared, leaf, original.operatorToken], "shared child and root stay the same actual record");
+  assertNodes([...owned.value.nodes()], [shared, leaf, original.operatorToken], "shared child and root stay the same actual record");
   assert.equal(owned.value.wireOf(leaf), 1);
   const cyclic = { ...block, statements: { ...block.statements, nodes: [] } };
   cyclic.statements.nodes.push(cyclic);
@@ -300,10 +306,11 @@ test("HIR checked image preserves qualified nodes and stops before the next actu
   const [first, second] = nodes.filter(node => node.kind === "Identifier");
   assert.ok(first && second);
   const firstCore = first.tsonic.core;
-  const forest = product.walkSyntaxForest([{ path: "first", read: () => first }, { path: "second", read: () => second },
+  const forest = () => product.walkSyntaxForest([{ path: "first", read: () => first }, { path: "second", read: () => second },
     { path: "module", read: () => checked.tree },
     ...checked.bodies.map(body => ({ path: body.body, read: () => body.root }))],
-  { root: () => null, node: () => null, edge: () => null }).value;
+  { root: () => null, node: () => null, edge: () => null, parameter: () => null,
+    structure: () => null, modifiers: () => null }).value;
   const callable = checked.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration"
     && node.tsonic.signatures.some(row => row.signature !== rewrite.signature(row.signature)));
   const run = checked.bodies.find(row => row.candidateLists.length > 0);
@@ -320,7 +327,7 @@ test("HIR checked image preserves qualified nodes and stops before the next actu
       typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
     const scan = createProjectionInventory(meter, rewrite, path => assert.fail(path));
     const admit = (work, records) => admitCheckedProjection(meter, work, records);
-    const result = product.copyCheckedModule(checked, forest, {
+    const result = product.copyCheckedModule(checked, forest(), {
       admit, syntaxNode: () => admit(1, 2),
       type: value => success(rewrite.type(value)), signature: value => success(rewrite.signature(value)),
       bindings: value => value === stopAt ? { kind: "refused", stop: original } : finishProjection(scan, prepareBindingsProjection(scan, value), rewrite),
@@ -957,14 +964,315 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
   assert.deepStrictEqual(Object.keys(product).sort(), [
-    "beginSyntaxCopy", "binaryOperatorOf", "callableEndpointKey", "checkedParameterHeadersOf", "checkedVariableStorageOf", "childrenOfSyntax", "compoundAssignmentOperatorOf",
-    "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
-    "iterateChildrenOfSyntax", "iterateSyntaxChildEdges", "orderPragmaArguments", "parseHir", "prefixOperatorOf", "printHir",
+    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedParameterHeadersOf", "checkedVariableStorageOf", "childrenOfSyntax", "compoundAssignmentOperatorOf",
+    "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
+    "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareBinaryStructure", "prepareBlockStructure", "prepareSyntaxCopy", "printCheckedDeclarations", "printHir",
     "readWriteRootStorageOf", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
     "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
   ]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
     ownedSources.map(path => basename(path)).sort());
+});
+
+test("one admitted Checked content image retains detached roots and independent evidence without merging equal inputs", async () => {
+  const { createInstantiationMeter, admitCheckedProjection } = await import("../../packages/host/dist/ir-program/work.js");
+  const { accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const { checked } = fixture.checkedModuleOf("export function selected(flag: boolean = true): boolean { return flag; }");
+  const copiedInput = product.parseHir(product.printHir(checked));
+  assert.equal(copiedInput.kind, "parsed");
+  const expression = checked.tree.statements.nodes[0].parameters.nodes[0].initializer;
+  const foreign = copiedInput.value.tree.statements.nodes[0].parameters.nodes[0].initializer;
+  assert.equal(expression.id, foreign.id);
+  assert.equal(expression === foreign, false);
+  const forest = () => product.walkSyntaxForest([
+    { path: "candidate.checked-default", read: () => expression },
+    { path: "evidence.tree", read: () => checked.tree },
+    { path: "foreign.checked-default", read: () => foreign },
+  ], { root: () => null, node: () => null, edge: () => null, parameter: () => null,
+    structure: () => null, modifiers: () => null }).value;
+  const seen = [];
+  const hold = value => ({ kind: "copied", value });
+  const copy = (maximumWork, maximumCreatedRecords) => {
+    const meter = createInstantiationMeter({ maximumWork, maximumCreatedRecords, maximumBindingVectorsPerArtifact: 1,
+      typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
+    const admit = (work, records) => admitCheckedProjection(meter, work, records);
+    const result = product.copyCheckedContent(forest(), { admit, syntaxNode: node => {
+      const stop = admit(1, 1);
+      if (stop === null) seen.push(node);
+      return stop;
+    }, type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
+    return { result, meter };
+  };
+  for (const [work, records] of [[1, 100000], [100000, 1]]) {
+    const { result, meter } = copy(work, records);
+    assert.equal(result.kind, "refused");
+    assert.equal(result.stop === (meter.failure ?? accountFailure(meter.account)), true);
+    assert.deepEqual(Object.keys(result), ["kind", "stop"]);
+    assert.equal(seen.length, 0);
+  }
+  const { result } = copy(100000, 100000);
+  assert.equal(result.kind, "copied");
+  const actual = result.value.projectModule(checked);
+  assert.equal(actual.kind, "copied");
+  const borrowedAgain = result.value.projectModule(checked);
+  assert.equal(borrowedAgain.kind === "copied" && borrowedAgain.value.module.tree === actual.value.module.tree, true);
+  const selected = actual.value.module.tree.statements.nodes[0].parameters.nodes[0].initializer;
+  assert.equal(selected === result.value.syntax.nodeOf(expression), true);
+  assert.equal(selected === result.value.syntax.nodeOf(foreign), false);
+  assert.equal(result.value.syntax.nodeOf(foreign) !== null, true);
+  assert.equal(seen.filter(node => node === expression).length, 1);
+  assert.equal(seen.filter(node => node === foreign).length, 1);
+});
+
+test("an authentic syntax forest has exactly one consuming materialization", async () => {
+  const { createInstantiationMeter, admitCheckedProjection } = await import("../../packages/host/dist/ir-program/work.js");
+  const { accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const body = () => fixture.checkedModuleOf("export function use(): void { return; }").checked.tree.statements.nodes[0].body;
+  const capture = roots => {
+    const graph = product.walkSyntaxForest(roots.map(root => ({ path: "body", read: () => root })), {
+      root: () => null, edge: () => null, node: () => null, parameter: () => null,
+      structure: () => null, modifiers: () => null,
+    });
+    assert.equal(graph.kind, "complete");
+    return graph.value;
+  };
+  const first = body();
+  const other = body();
+  const own = capture([first, first]);
+  const foreign = capture([other]);
+  for (const field of ["permission", "postorder", "blockOf", "binaryOf", "parameterInitializerOf"])
+    assert.equal(Object.hasOwn(own, field), false, field);
+  assert.equal(Array.isArray(own.nodes()), false);
+  const attempt = (forest, admission) => product.copySyntaxForest(forest, {}, admission, null);
+  const poison = () => assert.fail("a re-paired field must not run");
+  const once = attempt({ ...own, permission: poison, get postorder() { return poison(); }, blockOf: foreign.structureOf,
+    nodes: poison, wireOf: poison, structureOf: poison }, () => null);
+  const correct = once;
+  const otherImage = attempt(foreign, () => null);
+  assert.equal(correct.kind === "copied" && otherImage.kind === "copied", true);
+  assert.equal(correct.value.nodeOf(other) === null && otherImage.value.nodeOf(first) === null, true, "independent pointer namespaces");
+  const ready = correct.value.bodyRootOf(first);
+  const original = ready.statements.nodes[0];
+  assert.equal(ready.statements.nodes.length, 1);
+  assert.equal(correct.value.bodyRootOf(first) === ready, true);
+  assert.throws(() => attempt({ ...own, permission: () => undefined, get postorder() { return poison(); } }, poison), /one consuming materialization/u);
+  assert.throws(() => attempt({ ...foreign, copy: own.copy }, poison), /one consuming materialization/u);
+  assert.throws(() => product.copyCheckedContent(own, { get admit() { assert.fail("repeat opened the projection"); } }),
+    /one consuming materialization/u);
+  assert.equal(ready.statements.nodes[0] === original, true);
+  const empty = capture([]);
+  assert.equal(attempt(empty, poison).kind, "copied");
+  assert.throws(() => attempt(empty, poison), /one consuming materialization/u);
+
+  for (const [maximumWork, maximumCreatedRecords] of [[0, 100000], [100000, 0]]) {
+    const forest = capture([body()]);
+    const meter = createInstantiationMeter({ maximumWork, maximumCreatedRecords, maximumBindingVectorsPerArtifact: 1,
+      typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
+    const stopped = product.copyCheckedContent(forest, { admit: (work, records) => admitCheckedProjection(meter, work, records),
+      get syntaxNode() { assert.fail("initial resource refusal cannot prepare a syntax node"); } });
+    assert.equal(stopped.kind === "refused" && stopped.stop === (meter.failure ?? accountFailure(meter.account)), true);
+    assert.throws(() => product.copyCheckedContent(forest, { get admit() { assert.fail("refused forest was opened again"); } }),
+      /one consuming materialization/u);
+  }
+});
+
+test("prepared syntax discovery cannot read another node after returning or refusing", () => {
+  const stored = { prepare: null };
+  const stop = { kind: "resource-limit", dimension: "work", maximum: 0 };
+  let work = 0;
+  const start = result => product.prepareSyntaxCopy({}, () => { work++; return stop; }, prepare => {
+    stored.prepare = prepare;
+    return result;
+  });
+  const poison = { get kind() { assert.fail("closed preparation opened a node"); } };
+  const ready = start({ kind: "copied", value: { postorder: [], wireOf: () => undefined } });
+  assert.throws(() => stored.prepare(poison), /one consuming materialization/u);
+  assert.equal(ready.value(null).kind, "copied");
+  assert.throws(() => ready.value(null), /one consuming materialization/u);
+  assert.equal(start({ kind: "refused", stop }).stop === stop, true);
+  assert.throws(() => stored.prepare(poison), /one consuming materialization/u);
+  assert.equal(work, 0);
+});
+
+test("the Checked formal receipt is paid before its one nullable read and reused by copy", async () => {
+  const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
+  const { accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const { checked } = fixture.checkedModuleOf("export function selected(flag: boolean = true): boolean { return flag; }");
+  const parameter = checked.tree.statements.nodes[0].parameters.nodes[0];
+  const initializer = parameter.initializer;
+  const crossed = { ...parameter, get initializer() { assert.fail("foreign receipt must not read its original field"); } };
+  let reads = 0;
+  Object.defineProperty(parameter, "initializer", { get() {
+    reads++;
+    return initializer;
+  } });
+  const limits = (maximumWork, maximumCreatedRecords) => ({ maximumWork, maximumCreatedRecords, maximumBindingVectorsPerArtifact: 1,
+    typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
+  const hold = value => ({ kind: "copied", value });
+  const invoke = (maximumRecords, finish) => {
+    const meter = createInstantiationMeter(limits(100000, maximumRecords));
+    const step = () => chargeInstantiationWork(meter);
+    const admit = (work, records) => admitCheckedProjection(meter, work, records);
+    const graph = product.walkSyntaxForest([{ path: "module", read: () => checked.tree }], {
+      root: step, edge: step, node: step, parameter: () => admit(1, 1),
+      structure: node => admit(node.kind === "Block" ? 9 : 7, 2), modifiers: step,
+    });
+    if (graph.kind !== "complete") return { graph, stop: meter.failure ?? accountFailure(meter.account) };
+    if (!finish) return { graph };
+    return { graph, image: product.copyCheckedContent(graph.value,
+      { admit, syntaxNode: () => admit(1, 1), type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold }) };
+  };
+  const denied = invoke(0, false);
+  assert.equal(denied.graph === denied.stop, true);
+  assert.equal(reads, 0);
+  const success = invoke(100000, true);
+  assert.equal(success.graph.kind, "complete");
+  assert.equal(success.image.kind, "copied");
+  const actual = success.image.value.syntax.parameterOf(parameter);
+  assert.equal(success.image.value.syntax.parameterOf(crossed) === null, true);
+  assert.equal(actual.initializer === success.image.value.syntax.nodeOf(initializer), true);
+  assert.equal(reads, 1);
+});
+
+test("Block and Binary materialize only actual paid fields, not post-admission getters", async () => {
+  const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
+  const { createProjectionInventory, inventoryRecord } = await import("../../packages/host/dist/ir-program/program-values.js");
+  const { publicationRewrite } = await import("../../packages/host/dist/ir-program/canonical-types.js");
+  const { accountFailure, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const limits = (maximumWork, maximumCreatedRecords) => ({ maximumWork, maximumCreatedRecords, maximumBindingVectorsPerArtifact: 1,
+    typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
+  const hold = value => ({ kind: "copied", value });
+  function run(present, maximumWork, maximumRecords, hostile) {
+    const { checked, interner } = fixture.checkedModuleOf(
+      "export function combine(left: number, right: number): number { return left + right; }");
+    const authored = checked.tree.statements.nodes[0];
+    const block = authored.body;
+    const statements = block.statements;
+    const binary = statements.nodes[0].expression;
+    const left = binary.left;
+    const right = binary.right;
+    const operator = binary.operatorToken;
+    const type = present ? authored.type : binary.type;
+    const multiLine = block.multiLine;
+    const modifier = { ...authored.modifiers.nodes[0], id: product.indexSyntaxTree(checked.tree).length, parent: binary.id };
+    const modifiers = present ? { loc: binary.loc, nodes: [modifier] } : null;
+    const issued = fixture.types.exportTypes(interner, limits(100000, 100000));
+    assert.equal(issued.kind, "complete");
+    const meter = createInstantiationMeter(limits(maximumWork, maximumRecords));
+    const scan = createProjectionInventory(meter, publicationRewrite(issued.value), path => assert.fail(path));
+    const admit = (work, records) => admitCheckedProjection(meter, work, records);
+    const edge = () => chargeInstantiationWork(meter);
+    const seen = [];
+    let sealed = false;
+    const observe = (key, value, alternative = value) => {
+      seen.push({ key, work: maximumWork - remainingWork(meter.account), records: meter.created });
+      if (sealed && hostile && key !== "left") assert.fail(`post-admission ${key} was read`);
+      return sealed && hostile ? alternative : value;
+    };
+    const statementList = { get loc() { return observe("list loc", statements.loc); }, nodes: statements.nodes };
+    Object.defineProperties(block, {
+      statements: { get: () => observe("list", statementList) },
+      multiLine: { get: () => observe("scalar", multiLine) },
+    });
+    Object.defineProperties(binary, {
+      modifiers: { get: () => observe("modifiers", modifiers) },
+      left: { get: () => observe("left", left, right) },
+      type: { get: () => observe("type", type) },
+      operatorToken: { get: () => observe("operator", operator) },
+      right: { get: () => observe("right", right) },
+    });
+    const forest = product.walkSyntaxForest([{ path: "actual.body", read: () => block }], {
+      root: edge, node: edge, edge, parameter: () => admit(1, 1),
+      structure: node => inventoryRecord(scan, 5) ?? inventoryRecord(scan, node.kind === "Block" ? 2 : 0),
+      modifiers: edge,
+    });
+    if (forest.kind !== "complete") return { result: forest, stop: meter.failure ?? accountFailure(meter.account), seen };
+    sealed = true;
+    const result = product.copyCheckedContent(forest.value, { admit, syntaxNode: node => {
+      if (node === block || node === binary) {
+        assert.equal(forest.value.structureOf(node), node === block ? "block" : "binary");
+        return null;
+      }
+      return inventoryRecord(scan, 5);
+    }, type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
+    assert.equal(result.kind, "copied");
+    const mapped = result.value.syntax.bodyRootOf(block);
+    const branch = mapped.statements.nodes[0].expression;
+    assert.equal(branch.left === result.value.syntax.nodeOf(left), true);
+    assert.equal(branch.right === result.value.syntax.nodeOf(right), true);
+    assert.equal(branch.left === branch.right, false);
+    assert.equal(branch.operatorToken === operator, true);
+    assert.equal(branch.type === (type === null ? null : result.value.syntax.nodeOf(type)), true);
+    assert.equal(mapped.multiLine, multiLine);
+    assert.equal(mapped.statements.loc === statements.loc, true);
+    if (present) {
+      assert.equal(branch.modifiers.nodes[0] === result.value.syntax.nodeOf(modifier), true);
+      assert.equal(branch.modifiers.loc === modifiers.loc, true);
+    } else assert.equal(branch.modifiers, null);
+    return { result, seen };
+  }
+  for (const present of [false, true]) {
+    const full = run(present, 100000, 100000, true);
+    const order = ["scalar", "list", "list loc", "modifiers", "left", "type", "operator", "right"];
+    assert.deepEqual(full.seen.map(row => row.key), order);
+    const left = full.seen.find(row => row.key === "left");
+    const modifiers = full.seen.find(row => row.key === "modifiers");
+    const beforeLeft = run(present, left.work - 1, 100000, true);
+    const beforeModifiers = run(present, 100000, modifiers.records - 1, true);
+    for (const denied of [beforeLeft, beforeModifiers]) {
+      assert.equal(denied.result === denied.stop, true);
+      assert.equal("value" in denied.result, false);
+    }
+    assert.deepEqual(beforeLeft.seen.map(row => row.key), order.slice(0, 4));
+    assert.deepEqual(beforeModifiers.seen.map(row => row.key), order.slice(0, 3));
+  }
+});
+
+test("HIR checked declaration content uses actual requested roots and preserves shared phase pointers", () => {
+  const expression = nameExpression("detached");
+  const source = expressionModule(expression);
+  const standalone = product.printHir(source);
+  const printed = product.printCheckedDeclarations([source.tree, expression, expression]);
+  assert.equal(standalone.startsWith("HirModule("), true);
+  assert.match(printed.text, /^CheckedDeclarations\(\nc:0=SourceFile\(/u);
+  assert.equal(printed.wireOf(source.tree), 0);
+  assert.equal(printed.wireOf({ ...expression }), undefined);
+  const ordinal = printed.wireOf(expression);
+  const prefix = `Roots(source=c:0, expression=c:${ordinal})\n`;
+  const tail = "\nTypedDeclarations()";
+  const input = prefix + printed.text + tail;
+  const parsed = product.parseCheckedDeclarations(input, prefix.length);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(input.slice(parsed.value.end), tail);
+  const sourceOffset = input.indexOf("c:0");
+  const expressionOffset = prefix.indexOf(`c:${ordinal}`, sourceOffset + 3);
+  const requests = [{ role: "source-file", ordinal: 0, offset: sourceOffset },
+    { role: "expression", ordinal, offset: expressionOffset }];
+  const closed = parsed.value.finish(requests);
+  assert.equal(closed.kind, "parsed");
+  const image = closed.value.materialize();
+  assert.equal(image.sourceFileOf(0).statements.nodes[0].expression === image.expressionOf(ordinal), true);
+  assert.equal(image.expressionOf(ordinal) === expression, false);
+  assert.equal(image.declarationOf(ordinal), null);
+  assert.equal(product.printCheckedDeclarations([image.sourceFileOf(0), image.expressionOf(ordinal)]).text, printed.text);
+  assert.equal(product.printHir(product.parseHir(standalone).value), standalone);
+  for (const [rootRequests, expected, offset] of [
+    [[{ role: "source-file", ordinal, offset: expressionOffset }], ["SourceFile"], expressionOffset],
+    [[{ role: "expression", ordinal: 700, offset: expressionOffset }], ["declared syntax node"], expressionOffset],
+    [[], ["referenced syntax declaration"], input.indexOf("c:0=SourceFile")],
+  ]) {
+    const refused = product.parseCheckedDeclarations(input, prefix.length).value.finish(rootRequests);
+    assert.equal(refused.kind, "invalid-text");
+    assert.equal(refused.offset, offset);
+    assert.deepEqual(refused.expected, expected);
+  }
+  const empty = product.printCheckedDeclarations([]);
+  assert.equal(empty.text, "CheckedDeclarations()");
+  assert.equal(product.parseCheckedDeclarations(empty.text, 0).value.finish([]).kind, "parsed");
 });
 
 test("HIR only accepts exact qualified writable roots", () => {
@@ -1925,21 +2233,21 @@ test("HIR fresh actual declarations retain generic phases, all seven ports and e
   }
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
   const positive = `import { callableEndpointKey, checkedParameterHeadersOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, iterateChildrenOfSyntax, orderPragmaArguments, parseHir, printHir, selectedEndpointRoleFaults, unparenthesizedExpression, verifyHir, walkSyntaxForest, walkSyntaxTree } from "./ir-hir/index.js";
-import type { CallableEndpointKey, CheckedParameterHeadersOf, EndpointRoleFaults, Expression, HasOverloadEndpoints, HirBody, HirCallableEndpoint, HirNode, SelectedEndpointRoleFaults, HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, IterateChildrenOfSyntax, OrderPragmaArguments, ParseHir, PrintHir, UnparenthesizedExpression, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./ir-hir/contract.js";
+import type { CallableEndpointKey, CheckedParameterHeadersOf, EndpointRoleFaults, Expression, HasOverloadEndpoints, HirBody, HirCallableEndpoint, HirNode, SelectedEndpointRoleFaults, HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, IterateChildrenOfSyntax, NullableInitializerPhase, OrderPragmaArguments, ParseHir, PrintHir, UnparenthesizedExpression, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./ir-hir/contract.js";
 import type { BodyId, DefId, ModuleId, NodeId } from "./ids/contract.js";
 import type { SourceNodeRef } from "./ids/contract.js";
 import { nodeId as issueNode, localId as issueLocal, tyId as issueType, sigId as issueSignature, candidateListId as issueCandidates, expansionId as issueExpansion } from "./ids/index.js";
 import { hostDiagnosticCode } from "./diag/index.js";
 import type { HostDiagnosticCode } from "./diag/contract.js";
 import type { ComponentSelector, TypeComponent } from "./ir-types/contract.js";
-export function generic<P extends Phase>(root: SourceFile<P>, node: SyntaxNode<P>, stop: readonly NodeId[]) {
+export function generic<P extends NullableInitializerPhase<P>>(root: SourceFile<P>, node: SyntaxNode<P>, stop: readonly NodeId[]) {
 const children: ChildrenOfSyntax = childrenOfSyntax; const index: IndexSyntaxTree = indexSyntaxTree; const walk: WalkSyntaxTree = walkSyntaxTree;
 const iterate: IterateChildrenOfSyntax = iterateChildrenOfSyntax;
 const cursor: Generator<SyntaxNode<P>, void, undefined> = iterate(node);
 const childResult: readonly SyntaxNode<P>[] = children(node); const indexResult: readonly SyntaxNode<P>[] = index(root); const walkResult: readonly SyntaxNode<P>[] = walk(node, stop);
 const forest: WalkSyntaxForest = walkSyntaxForest;
-const forestResult: readonly SyntaxNode<P>[] = forest<P, never>([{ path: "module", read: () => root }],
-  { root: () => null, edge: () => null, node: () => null }).value.nodes;
+const forestResult: Iterable<SyntaxNode<P>> = forest<P, never>([{ path: "module", read: () => root }],
+  { root: () => null, edge: () => null, node: () => null, parameter: () => null, structure: () => null, modifiers: () => null }).value.nodes();
 return { childResult, indexResult, walkResult, cursor, forestResult }; }
 export function transparent<P extends Phase>(expression: Expression<P>): Expression<P> {
 const unwrap: UnparenthesizedExpression = unparenthesizedExpression; return unwrap(expression); }
@@ -2024,6 +2332,11 @@ nodes.push(block); return block; }
     ["missing-child.ts", 'import type { SyntaxList, SyntaxPhase } from "./ir-hir/contract.js"; export const incomplete:SyntaxList<SyntaxPhase>={kind:"SyntaxList"};', 2740],
     ["unknown-kind.ts", 'import type { HirNode } from "./ir-hir/contract.js"; export function bad(value:HirNode){ value.kind="InventedNode"; }', 2540],
     ["private-helper.ts", 'import { createHirSchema } from "./ir-hir/index.js"; export const helper=createHirSchema;', 2305],
+    ["retired-permission.ts", 'import { createSyntaxMaterializationPermission } from "./ir-hir/index.js"; export const factory=createSyntaxMaterializationPermission;', 2305],
+    ["retired-cursor.ts", 'import { beginSyntaxCopy } from "./ir-hir/index.js"; export const begin=beginSyntaxCopy;', 2305],
+    ["raw-postorder.ts", 'import type { CheckedPhase, SyntaxForest } from "./ir-hir/contract.js"; export const view=(forest:SyntaxForest<CheckedPhase>)=>forest.postorder;', 2339],
+    ["raw-receipt.ts", 'import type { CheckedPhase, SyntaxForest } from "./ir-hir/contract.js"; export const view=(forest:SyntaxForest<CheckedPhase>)=>forest.blockOf;', 2339],
+    ["rebound-copy.ts", 'import type { CheckedPhase, FinishSyntaxCopy } from "./ir-hir/contract.js"; export const replay=(materialize:FinishSyntaxCopy<CheckedPhase,never,null>)=>materialize(null, { postorder:[] });', 2554],
   ];
   for (const [name, text] of negatives) writeFileSync(resolve(stage, name), text);
   const refused = run("negative.json", negatives.map(([name]) => name));

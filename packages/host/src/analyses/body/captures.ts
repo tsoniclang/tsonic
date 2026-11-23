@@ -4,7 +4,7 @@ import { requirePresent } from "../../diag/index.js";
 import type { BlockId, BoundProducerId, LocalId, NodeId, SourceNodeRef } from "../../ids/contract.js";
 import { boundProducerId, producerId, valueContextId } from "../../ids/index.js";
 import type { BoundProducer, CaptureLocation, LogicalCellLifetime, LogicalCellRow, Producer, RelationalArena } from "../../ir-facts/contract.js";
-import type { TirNode } from "../../ir-tir/contract.js";
+import type { TirSyntaxOccurrence } from "../../ir-tir/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import type { Assigned, StorageLive } from "./storage.js";
 import { localSlotLifetimes, solveStorageLive } from "./storage.js";
@@ -19,7 +19,7 @@ type AdmitCaptures = (limit: "maximumRelationalRecordsPerBody" | "maximumRelatio
   size: number, retained?: number) => DataflowStop | null;
 
 export function prepareCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput, arena: CaptureArena,
-  source: ReadonlyMap<NodeId, TirNode>, entry: readonly Assigned[], reachable: readonly boolean[],
+  source: ReadonlyMap<NodeId, TirSyntaxOccurrence>, entry: readonly Assigned[], reachable: readonly boolean[],
   capturedLocals: ReadonlyMap<number, number>, captureLocations: readonly CaptureLocation[],
   cellLocals: number[], bounded: AdmitCaptures, contextReferences: number):
   DataflowResult<{ readonly calls: ReadonlyMap<BlockId, readonly CaptureLocation[]>;

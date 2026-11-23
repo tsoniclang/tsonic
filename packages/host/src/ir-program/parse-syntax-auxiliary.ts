@@ -1,10 +1,13 @@
 import type { TokenFlag, ImportPhaseModifierSyntaxKind, NodeList, ModifierList, Identifier, ImportDeclaration, ExternalModuleReference, NamespaceImport, NamedImports, ExportAssignment, NamespaceExportDeclaration, NamespaceExport, NamedExports, ExportSpecifier, ImportAttributes, JsxElement, JsxAttributes, JsxNamespacedName, JsxOpeningElement, JsxSelfClosingElement, JsxFragment, JsxOpeningFragment, JsxClosingFragment, JsxAttribute, JsxSpreadAttribute, JsxClosingElement, JsxExpression, JsxText, SyntaxList, SourceFile, CommentDirective, Pragma, CheckJsDirective, ModuleDeclaration, ImportEqualsDeclaration, ExportDeclaration, ImportTypeNode, ImportClause, ImportSpecifier, Expression, Statement, TypeNode, NodeBody, ModuleName, ModuleExportName, ModuleReference, NamedImportBindings, NamedExportBindings, EntityName, JsxChild, JsxAttributeLike, JsxAttributeName, JsxAttributeValue, JsxTagNameExpression, EndOfFile, DotDotDotToken, AsteriskToken, SyntaxNode } from "../ir-hir/contract.js";
 import type { TypedType, TypedImport, TypedImportBinding, TypedModuleReference, TypedExport, TypedExportBinding, TypedNamespaceExport, TypedExportAssignment, TypedNamespace, TypedSourceFile, TypedPhase } from "../ir-tir/contract.js";
 import type { Cursor, TextStep } from "./parse-values.js";
-import type { SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
+import type { ChapterReadPorts, SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
+import type { SourceFileHeader } from "../ir-hir/contract.js";
+import type { TirModuleRoot } from "../ir-tir/contract.js";
+import type { TextReader } from "./parse-values.js";
 import { readString, readBoolean, readNull, readStringChoice, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypedImportText, readTypedModuleReferenceText, readTypedImportBindingText, readTypedExportAssignmentText, readTypedExportBindingText, readTypedNamespaceExportText, readTypedTypeText, readTypedSourceFileText, readTypedNamespaceText, readTypedExportText } from "./parse-phase-declarations.js";
-import { resolveSyntaxValue, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readSyntaxArray, readNullableSyntax, readSyntaxList, readCommentDirective, readPragma, readCheckJsDirective } from "./parse-syntax-values.js";
+import { resolveSyntaxValue, readChapterStatement, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readSyntaxArray, readNullableSyntax, readSyntaxList, readCommentDirective, readPragma, readCheckJsDirective } from "./parse-syntax-values.js";
 
 export function readImportDeclarationSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "ImportDeclaration" | "JSImportDeclaration", finish: (value: SyntaxValue<ImportDeclaration<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
@@ -234,8 +237,21 @@ export function readSyntaxListSyntax<Root>(cursor: Cursor, ports: SyntaxReadPort
 }
 
 export function readSourceFileSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "SourceFile", finish: (value: SyntaxValue<SourceFile<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
+  return readSourceFileFields<Statement<TypedPhase>, Root>(cursor, ports, kind, (next, done) => readSyntaxList(next,
+    (next, done) => readSyntaxReference(next, ports.Statement, done), "NodeList", done), finish);
+}
+
+export function readModuleRootSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, chapter: ChapterReadPorts,
+  finish: (value: SyntaxValue<TirModuleRoot>) => TextStep<Root>): TextStep<Root> {
+  return readSourceFileFields(cursor, ports, "SourceFile", (next, done) => readSyntaxList(next,
+    (next, done) => readChapterStatement(next, chapter, done), "NodeList", done), finish);
+}
+
+function readSourceFileFields<StatementItem, Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "SourceFile",
+  readStatements: TextReader<SyntaxValue<NodeList<StatementItem>>>,
+  finish: (value: SyntaxValue<SourceFileHeader<TypedPhase> & { readonly statements: NodeList<StatementItem> }>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
-    fieldText<SyntaxValue<NodeList<Statement<TypedPhase>>>, Root>(cursor, fields, "statements", (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.Statement, done), "NodeList", done), statementsValue =>
+    fieldText<SyntaxValue<NodeList<StatementItem>>, Root>(cursor, fields, "statements", readStatements, statementsValue =>
     fieldText<SyntaxValue<EndOfFile<TypedPhase>>, Root>(cursor, fields, "endOfFileToken", (next, done) => readSyntaxReference(next, ports.EndOfFile, done), endOfFileTokenValue =>
     fieldText<"Standard" | "JSX", Root>(cursor, fields, "languageVariant", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["Standard","JSX"]), done), languageVariantValue =>
     fieldText<"Unknown" | "JS" | "JSX" | "TS" | "TSX" | "External" | "JSON" | "Deferred", Root>(cursor, fields, "scriptKind", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["Unknown","JS","JSX","TS","TSX","External","JSON","Deferred"]), done), scriptKindValue =>
@@ -243,7 +259,7 @@ export function readSourceFileSyntax<Root>(cursor: Cursor, ports: SyntaxReadPort
     fieldText<readonly Pragma[], Root>(cursor, fields, "pragmas", (next, done) => arrayText(next, (next, done) => atomicText(next, readPragma, done), done), pragmasValue =>
     fieldText<CheckJsDirective | null, Root>(cursor, fields, "checkJsDirective", (next, done) => nullableText(next, (next, done) => atomicText(next, readCheckJsDirective, done), done), checkJsDirectiveValue =>
     fieldText<TypedSourceFile, Root>(cursor, fields, "tsonic", readTypedSourceFileText, tsonicValue =>
-    finishSyntaxRecord<SourceFile<TypedPhase>, Root>(cursor, fields, {
+    finishSyntaxRecord<SourceFileHeader<TypedPhase> & { readonly statements: NodeList<StatementItem> }, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(statementsValue, statementsResolved => resolveSyntaxValue(endOfFileTokenValue, endOfFileTokenResolved => ({ ...header, kind, statements: statementsResolved, endOfFileToken: endOfFileTokenResolved, languageVariant: languageVariantValue, scriptKind: scriptKindValue, commentDirectives: commentDirectivesValue, pragmas: pragmasValue, checkJsDirective: checkJsDirectiveValue, tsonic: tsonicValue }))),
     }, finish))))))))));
 }

@@ -1,18 +1,17 @@
 import type { TyId } from "../ids/contract.js";
 import type {
-  CapturedFact, CheckedClosure, CheckedEnum, CheckedExport, CheckedExportAssignment, CheckedExportBinding, CheckedImport, CheckedModule,
+  CapturedFact, CheckedClosure, CheckedContentImage, CheckedEnum, CheckedExport, CheckedExportAssignment, CheckedExportBinding, CheckedImport, CheckedModule,
   CheckedNamespace, CheckedNamespaceExport, CheckedProperty, CheckedStaticBlock, CheckedAggregate, CheckedApplication, CheckedBinary, CheckedBinding, CheckedBindingList, CheckedCallable,
   CheckedClass, CheckedClassExpression, CheckedDeclarationFacts, CheckedExpression, CheckedInstantiation, CheckedIteration,
   CheckedKeyword, CheckedLiteral, CheckedMember, CheckedName, CheckedPhase, CheckedProjection, CheckedProtocol, CheckedType,
-  CheckedTypeAlias, CheckedTypeParameter, CheckedUnary, CheckedValue, CheckedVariable, CopyCheckedModule, HirApplication,
+  CheckedTypeAlias, CheckedTypeParameter, CheckedUnary, CheckedValue, CheckedVariable, CopyCheckedContent, CopyCheckedModule, HirApplication,
   HirArgument, HirBody, HirCandidate, HirCandidateList, HirCheckerViews, HirCoreCarrier, HirDiagnosticRoot, HirHeritage,
   HirLocal, HirMemoryFieldCapture, HirMemoryGeometryCapture, HirMemoryLayoutCapture, HirObservationCapture,
-  HirProtocolFact, HirStoragePlace, ProofObligation, SyntaxCopyResult, SyntaxImage, SyntaxPhaseCopy,
+  HirProtocolFact, HirStoragePlace, ProofObligation, SyntaxCopyResult, SyntaxForest, SyntaxImage, SyntaxPhaseCopy,
 } from "./contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
 import { copied, holdSyntaxPayload } from "./copy-node.js";
-import { copySyntaxForest } from "./copy-syntax.js";
 
 const missingEvidence: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
   message: "A checked projection must have complete dense evidence and use its actual admitted roots." };
@@ -525,18 +524,33 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
   return { phase, admit, vector, body, diagnosticRoot };
 }
 
-export const copyCheckedModule: CopyCheckedModule = (source, forest, project) => {
-  const stop = project.admit(1, 1);
-  if (stop !== null) return { kind: "refused", stop };
-  const copier = checkedProjector(project);
-  return following(copySyntaxForest(forest, copier.phase, project.syntaxNode, null), image =>
-    copier.admit(9, 2, () => following(copier.vector(source.bodies, row => copier.body(row, image)), bodies =>
-      following(copier.vector(source.obligations, copier.diagnosticRoot), obligations => copied({
-        module: {
-          module: source.module, tree: requirePresent(image.sourceFileOf(source.tree) ?? undefined, missingEvidence),
-          items: source.items, bodies, exports: source.exports, bindings: source.bindings, moduleLinks: source.moduleLinks,
-          checkerDiagnostics: source.checkerDiagnostics, obligations,
-        },
-        syntax: image,
-      })))));
+export const copyCheckedContent: CopyCheckedContent = <Stop>(
+  forest: SyntaxForest<CheckedPhase>, project: CheckedProjection<Stop>,
+): SyntaxCopyResult<CheckedContentImage<Stop>, Stop> => {
+  let projector: ReturnType<typeof checkedProjector<Stop>> | undefined;
+  const syntax = forest.copy<Stop, null>(() => {
+    const stop = project.admit(1, 1);
+    if (stop !== null) return { kind: "refused", stop };
+    projector = checkedProjector(project);
+    return copied(projector.phase);
+  }, node => project.syntaxNode(node), null);
+  return following<SyntaxImage<CheckedPhase>, CheckedContentImage<Stop>, Stop>(syntax, image => {
+    const copier = requirePresent(projector, missingEvidence);
+    return copied({
+      syntax: image,
+      projectModule: source => copier.admit(9, 2, () => {
+        const tree = requirePresent(image.sourceFileOf(source.tree) ?? undefined, missingEvidence);
+        return following(copier.vector(source.bodies, row => copier.body(row, image)), bodies =>
+          following(copier.vector(source.obligations, copier.diagnosticRoot), obligations => copied({
+            module: { module: source.module, tree,
+              items: source.items, bodies, exports: source.exports, bindings: source.bindings, moduleLinks: source.moduleLinks,
+              checkerDiagnostics: source.checkerDiagnostics, obligations },
+            syntax: image,
+          })));
+      }),
+    });
+  });
 };
+
+export const copyCheckedModule: CopyCheckedModule = (source, forest, project) =>
+  following(copyCheckedContent(forest, project), image => image.projectModule(source));

@@ -1,8 +1,8 @@
 import type { TextParseResult } from "../diag/contract.js";
 import type { ParseModuleBodies, ModuleBodies, PublishedBody } from "./contract.js";
 import type { ModuleId } from "../ids/contract.js";
-import type { HirModuleBinding, HirModuleExport, SourceFile } from "../ir-hir/contract.js";
-import type { TirBody, TypedPhase } from "../ir-tir/contract.js";
+import type { CheckedPhase, HirModuleBinding, HirModuleExport, SourceFile } from "../ir-hir/contract.js";
+import type { TirBody, TirChapterTree, TirModuleRoot } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { BodyFacts, BodyObservations } from "../ir-facts/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
@@ -20,17 +20,17 @@ import type { TextStep } from "./parse-values.js";
 import { arrayText, atomicText, fieldText, readStringChoice } from "./parse-values.js";
 import { evaluateText } from "./parse-values.js";
 import { readModuleBindingText, readModuleExportText } from "./text-module-bindings.js";
-import type { SyntaxReadPorts, SyntaxValue } from "./parse-syntax-values.js";
-import { finishSyntaxRecord, readSyntaxReference, resolveSyntaxValue, syntaxArray } from "./parse-syntax-values.js";
+import type { ChapterReadPorts, SyntaxValue } from "./parse-syntax-values.js";
+import { finishSyntaxRecord, mapSyntaxValue, readCheckedReference, readSyntaxReference, resolveSyntaxValue, syntaxArray } from "./parse-syntax-values.js";
 import { readTirBodyText } from "./parse-tir.js";
 import { parseSyntaxDocument } from "./parse-syntax.js";
 import { readProgramInitialization } from "./initialization-text.js";
 
-function readPublishedBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, finish: (value: SyntaxValue<PublishedBody>) => TextStep<Root>): TextStep<Root> {
+function readPublishedBodyText<Root>(cursor: Cursor, chapter: ChapterReadPorts, finish: (value: SyntaxValue<PublishedBody>) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "PublishedBody"), fields =>
     fieldText<"template" | "selected", Root>(cursor, fields, "kind", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["template", "selected"]), done), kind =>
     fieldText<BodyInstance, Root>(cursor, fields, "instance", (next, done) => atomicText(next, readInstance, done), instance =>
-      fieldText<SyntaxValue<TirBody>, Root>(cursor, fields, "tir", (next, done) => readTirBodyText(next, ports, done), tir => {
+      fieldText<SyntaxValue<TirBody>, Root>(cursor, fields, "tir", (next, done) => readTirBodyText(next, chapter, done), tir => {
         if (kind === "template") return finishSyntaxRecord<PublishedBody, Root>(cursor, fields, {
           resolve: () => resolveSyntaxValue(tir, body => ({ kind, instance, tir: body })),
         }, finish);
@@ -43,11 +43,23 @@ function readPublishedBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, fin
       }))));
 }
 
-function readModuleBodiesText<Root>(cursor: Cursor, ports: SyntaxReadPorts, finish: (value: SyntaxValue<ModuleBodies>) => TextStep<Root>): TextStep<Root> {
+function readChapterTree<Root>(cursor: Cursor, chapter: ChapterReadPorts, finish: (value: SyntaxValue<TirChapterTree>) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["checked-root", "ready-root"]), kind =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set() };
+      if (kind === "checked-root") return fieldText<SyntaxValue<SourceFile<CheckedPhase>>, Root>(cursor, fields, "root",
+        (next, done) => readCheckedReference(next, chapter.checkedSourceFile, done),
+        root => finishSyntaxRecord(cursor, fields, mapSyntaxValue(root, actual => ({ kind, root: actual })), finish));
+      return fieldText<SyntaxValue<TirModuleRoot>, Root>(cursor, fields, "root", (next, done) => readSyntaxReference(next, chapter.moduleRoot, done),
+        root => finishSyntaxRecord(cursor, fields, mapSyntaxValue(root, actual => ({ kind, root: actual })), finish));
+    }));
+}
+
+function readModuleBodiesText<Root>(cursor: Cursor, chapter: ChapterReadPorts, finish: (value: SyntaxValue<ModuleBodies>) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "ModuleBodies"), fields =>
     fieldText<ModuleId, Root>(cursor, fields, "module", (next, done) => atomicText(next, readModuleId, done), module =>
-      fieldText<SyntaxValue<SourceFile<TypedPhase>>, Root>(cursor, fields, "tree", (next, done) => readSyntaxReference(next, ports.SourceFile, done), tree =>
-        fieldText<readonly SyntaxValue<PublishedBody>[], Root>(cursor, fields, "bodies", (next, done) => arrayText(next, (next, done) => readPublishedBodyText(next, ports, done), done), bodies => {
+      fieldText<SyntaxValue<TirChapterTree>, Root>(cursor, fields, "tree", (next, done) => readChapterTree(next, chapter, done), tree =>
+        fieldText<readonly SyntaxValue<PublishedBody>[], Root>(cursor, fields, "bodies", (next, done) => arrayText(next, (next, done) => readPublishedBodyText(next, chapter, done), done), bodies => {
           const published = syntaxArray(bodies);
           return finishSyntaxRecord<ModuleBodies, Root>(cursor, fields, {
             resolve: () => resolveSyntaxValue(tree, source => resolveSyntaxValue(published, values => ({
@@ -59,7 +71,7 @@ function readModuleBodiesText<Root>(cursor: Cursor, ports: SyntaxReadPorts, fini
 
 export const parseModuleBodies: ParseModuleBodies = (_index, text) => {
   const cursor = programCursor(text);
-  return parseSyntaxDocument(cursor, ports => readModuleBodiesText(cursor, ports, value => ({
+  return parseSyntaxDocument(cursor, chapter => readModuleBodiesText(cursor, chapter, value => ({
     kind: "complete", result: { kind: "parsed", value },
   })));
 };

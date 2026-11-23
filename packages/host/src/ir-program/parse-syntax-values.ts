@@ -1,10 +1,10 @@
 import type { Identifier, CaseBlock, CatchClause, Block, VariableDeclaration, VariableDeclarationList, ParameterDeclaration, BindingElement, HeritageClause, EnumMember, ExportSpecifier, TemplateSpan, ExpressionWithTypeArguments, ImportAttribute, ImportAttributes, TemplateHead, TemplateLiteralTypeSpan, JsxAttributes, JsxOpeningElement, JsxOpeningFragment, JsxClosingFragment, JsxClosingElement, SourceFile, ImportClause, ImportSpecifier, TypeParameterDeclaration, EntityName, Expression, LeftHandSideExpression, Statement, ForInitializer, CaseOrDefaultClause, BindingName, TypeNode, PropertyName, BlockOrExpression, ClassElement, TypeElement, ModuleExportName, MemberName, TemplateMiddleOrTail, TemplateLiteral, ObjectLiteralElementLike, LiteralTypeChild, TypePredicateParameterName, ImportAttributeName, JsxChild, JsxAttributeLike, JsxTagNameExpression, JsxAttributeName, JsxAttributeValue, JSDocComment, JSDocTag, JSDocFullName, NodeBody, ModuleName, ModuleReference, NamedExportBindings, NamedImportBindings, ModifierLike, BodyRoot, AwaitKeyword, ExclamationToken, DotDotDotToken, QuestionToken, AsteriskToken, BinaryOperatorToken, EqualsGreaterThanToken, ColonToken, QuestionDotToken, EqualsToken, AssertsKeyword, ReadonlyKeyword, PlusToken, MinusToken, EndOfFile, SyntaxNode, NodeHeader, NodeList, SyntaxFlag, TextRange } from "../ir-hir/contract.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
+import type { TirBodyRoot, TirFormal, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedPhase } from "../ir-tir/contract.js";
 import type { TextParseResult } from "../diag/contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
 import type { NodeId, Origin } from "../ids/contract.js";
-import type { CheckJsDirective, CommentDirective, CommentRange, Pragma, PragmaArgument, PragmaArgumentEntry, PragmaArguments } from "../ir-hir/contract.js";
+import type { CheckJsDirective, CheckedPhase, CheckedUnopenedDeclaration, CheckedWireRequest, CommentDirective, CommentRange, Pragma, PragmaArgument, PragmaArgumentEntry, PragmaArguments } from "../ir-hir/contract.js";
 import type { SyntaxKind } from "../ir-hir/contract.js";
 import type { Cursor, RecordFields, TextReader, TextStep } from "./parse-values.js";
 import type { DecodedName } from "./parse-values.js";
@@ -21,16 +21,39 @@ export interface SyntaxValue<Value> {
   readonly resolve: () => Value;
 }
 
+export type OrdinaryDefinitionKind = Exclude<SyntaxNode<TypedPhase>["kind"], "Parameter">;
+export type TypedDefinitionKind = OrdinaryDefinitionKind | "TirModuleRoot" | "TirReadyCallable" | "TirFormal";
+export type TypedWireKind = SyntaxKind | "TirModuleRoot" | "TirReadyCallable" | "TirFormal";
+
 export interface SyntaxDependency extends SyntaxWire {
-  readonly kinds: readonly SyntaxKind[];
+  readonly kinds: readonly TypedWireKind[];
   readonly expected: readonly string[];
+  readonly bodylessFunction: boolean;
 }
 
 export interface SyntaxPort<Value> {
-  readonly kinds: readonly SyntaxKind[];
+  readonly kinds: readonly TypedWireKind[];
   readonly expected: readonly string[];
+  readonly bodylessFunction: boolean;
   readonly track: (dependency: SyntaxDependency) => void;
   readonly read: (wire: SyntaxWire) => Value | undefined;
+}
+
+export interface CheckedSyntaxPort<Value> {
+  readonly role: CheckedWireRequest["role"];
+  readonly track: (request: CheckedWireRequest) => void;
+  readonly read: (ordinal: number) => Value | null;
+}
+
+export interface ChapterReadPorts {
+  readonly moduleRoot: SyntaxPort<TirModuleRoot>;
+  readonly readyCallable: SyntaxPort<TirReadyCallable>;
+  readonly formal: SyntaxPort<TirFormal>;
+  readonly bodyRoot: SyntaxPort<TirBodyRoot>;
+  readonly readyStatement: SyntaxPort<Extract<TirModuleStatement, { readonly kind: "ready-statement" }>["node"]>;
+  readonly checkedSourceFile: CheckedSyntaxPort<SourceFile<CheckedPhase>>;
+  readonly checkedDeclaration: CheckedSyntaxPort<CheckedUnopenedDeclaration>;
+  readonly checkedExpression: CheckedSyntaxPort<Expression<CheckedPhase>>;
 }
 
 export interface SyntaxReadPorts {
@@ -140,13 +163,14 @@ export function resolveSyntaxAlternatives<Value>(
 }
 
 export function syntaxAlternatives<Value>(ports: readonly [SyntaxPort<Value>, ...SyntaxPort<Value>[]]): SyntaxPort<Value> {
-  const kinds: SyntaxKind[] = [];
+  const kinds: TypedWireKind[] = [];
   const expected: string[] = [];
   for (const port of ports) {
     for (const kind of port.kinds) if (!kinds.includes(kind)) kinds.push(kind);
     for (const item of port.expected) if (!expected.includes(item)) expected.push(item);
   }
-  return { kinds, expected, track: ports[0].track, read: wire => resolveSyntaxAlternatives(ports, wire) };
+  return { kinds, expected, bodylessFunction: ports.every(port => port.bodylessFunction),
+    track: ports[0].track, read: wire => resolveSyntaxAlternatives(ports, wire) };
 }
 
 export function readSyntaxRecord<Root>(cursor: Cursor, finish: (fields: RecordFields, header: NodeHeader) => TextStep<Root>): TextStep<Root> {
@@ -174,10 +198,10 @@ export function syntaxArray<Value>(values: readonly SyntaxValue<Value>[]): Synta
   };
 }
 
-export function readSyntaxWire(cursor: Cursor): TextParseResult<SyntaxWire> {
+function readPhaseWire(cursor: Cursor, phase: "n:" | "c:"): TextParseResult<SyntaxWire> {
   whitespace(cursor);
   const offset = cursor.offset;
-  const prefix = delimiter(cursor, "n:");
+  const prefix = delimiter(cursor, phase);
   if (prefix.kind === "invalid-text") return prefix;
   const positionOffset = cursor.offset;
   const position = readNumber(cursor);
@@ -186,6 +210,10 @@ export function readSyntaxWire(cursor: Cursor): TextParseResult<SyntaxWire> {
     return invalid(cursor, positionOffset, ["wire position"]);
   }
   return { kind: "parsed", value: { position: position.value, offset } };
+}
+
+export function readSyntaxWire(cursor: Cursor): TextParseResult<SyntaxWire> {
+  return readPhaseWire(cursor, "n:");
 }
 
 const missingSyntaxReference: InvariantFailure = ({
@@ -199,10 +227,49 @@ export function readSyntaxReference<Value, Root>(
   finish: (value: SyntaxValue<Value>) => TextStep<Root>,
 ): TextStep<Root> {
   return atomicText(cursor, readSyntaxWire, wire => {
-    const dependency: SyntaxDependency = { ...wire, kinds: port.kinds, expected: port.expected };
+    const dependency: SyntaxDependency = { ...wire, kinds: port.kinds, expected: port.expected, bodylessFunction: port.bodylessFunction };
     port.track(dependency);
     return acceptText({ resolve: () => requirePresent(port.read(wire), missingSyntaxReference) }, finish);
   });
+}
+
+export function readCheckedReference<Value, Root>(cursor: Cursor, port: CheckedSyntaxPort<Value>,
+  finish: (value: SyntaxValue<Value>) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => readPhaseWire(next, "c:"), wire => {
+    port.track({ role: port.role, ordinal: wire.position, offset: wire.offset });
+    return acceptText({ resolve: () => requirePresent(port.read(wire.position) ?? undefined, missingSyntaxReference) }, finish);
+  });
+}
+
+export function readFormalInitializer<Root>(cursor: Cursor, typed: SyntaxReadPorts, chapter: ChapterReadPorts,
+  finish: (value: SyntaxValue<TirFormalInitializer>) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["none", "checked-default", "ready-default"]), kind =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set() };
+      if (kind === "none") return finishSyntaxRecord(cursor, fields, syntaxValue({ kind }), finish);
+      if (kind === "checked-default")
+        return fieldText<SyntaxValue<Expression<CheckedPhase>>, Root>(cursor, fields, "root", (next, done) => readCheckedReference(next, chapter.checkedExpression, done),
+          root => finishSyntaxRecord(cursor, fields, mapSyntaxValue(root, actual => ({ kind, root: actual })), finish));
+      return fieldText<SyntaxValue<Expression<TypedPhase>>, Root>(cursor, fields, "root", (next, done) => readSyntaxReference(next, typed.Expression, done),
+        root => finishSyntaxRecord(cursor, fields, mapSyntaxValue(root, actual => ({ kind, root: actual })), finish));
+    }));
+}
+
+export function readChapterStatement<Root>(cursor: Cursor, ports: ChapterReadPorts,
+  finish: (value: SyntaxValue<TirModuleStatement>) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["ready-statement", "checked-declaration", "ready-callable"]), kind =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set() };
+      if (kind === "checked-declaration")
+        return fieldText<SyntaxValue<CheckedUnopenedDeclaration>, Root>(cursor, fields, "node", (next, done) => readCheckedReference(next, ports.checkedDeclaration, done),
+          node => finishSyntaxRecord(cursor, fields, mapSyntaxValue(node, actual => ({ kind, node: actual })), finish));
+      if (kind === "ready-callable")
+        return fieldText<SyntaxValue<TirReadyCallable>, Root>(cursor, fields, "node", (next, done) => readSyntaxReference(next, ports.readyCallable, done),
+          node => finishSyntaxRecord(cursor, fields, mapSyntaxValue(node, actual => ({ kind, node: actual })), finish));
+      return fieldText<SyntaxValue<Extract<TirModuleStatement, { readonly kind: "ready-statement" }>["node"]>, Root>(
+        cursor, fields, "node", (next, done) => readSyntaxReference(next, ports.readyStatement, done),
+        node => finishSyntaxRecord(cursor, fields, mapSyntaxValue(node, actual => ({ kind, node: actual })), finish));
+    }));
 }
 
 export function readSyntaxArray<Value, Root>(
@@ -222,7 +289,7 @@ export function readNullableSyntax<Value, Root>(
     acceptText(value === null ? syntaxValue<Value | null>(null) : value, finish));
 }
 
-export function readSyntaxList<Value extends SyntaxNode<TypedPhase>, Root>(
+export function readSyntaxList<Value, Root>(
   cursor: Cursor,
   readValue: TextReader<SyntaxValue<Value>>,
   label: "NodeList" | "ModifierList",

@@ -5,20 +5,23 @@ import type { Diagnostic, Violation } from "../diag/contract.js";
 import { checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { sameInstance, verifyTypes } from "../ir-types/index.js";
-import type { TirBindingTarget, TirBody, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
-import type { TirOccurrenceEmit, TirStructure, TirTypeGraph } from "./verify-occurrences.js";
+import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
+import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure, TirTypeGraph } from "./verify-occurrences.js";
 import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
 import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
 import { sameSyntaxFields } from "./syntax-compare.js";
+import { sameSourceFileHeader } from "./syntax-compare-values.js";
+import { sameTextRange1 } from "./syntax-compare-common.js";
+import { chapterSyntaxSlots, indexChapterSyntax, readChapterSyntaxSlot, tirBodySyntaxOf } from "./chapter-syntax.js";
 import { createTirLayouts } from "./text-model.js";
 
 export interface TirSourceInventory {
   readonly original: HirBody | undefined;
   readonly sourceNodes: ReadonlyMap<NodeId, HirNode>;
-  readonly typedNodes: ReadonlyMap<NodeId, TirNode>;
-  readonly ownNodes: readonly TirNode[];
+  readonly typedNodes: ReadonlyMap<NodeId, TirSyntaxOccurrence>;
+  readonly ownNodes: readonly TirSyntaxOccurrence[];
   readonly nestedRoots: ReadonlySet<NodeId>;
 }
 
@@ -76,30 +79,129 @@ const readSourceBoundary = (body: BodyId, source: HirModule, nodeOf: TirVerifier
   return { original, bodies: sourceBodies, nestedRoots, headers };
 };
 
+function* chapterRoots(module: TirModule): Generator<TirChapterSyntax> {
+  const tree = module.tree;
+  yield tree.kind === "checked-root" ? { kind: "checked", node: tree.root } : { kind: "module-root", node: tree.root };
+}
+
+function sameChapterFields(subject: TirTypedSyntax, checked: HirNode): boolean {
+  switch (subject.kind) {
+    case "ordinary": return sameSyntaxFields(subject.node, checked);
+    case "module-root": return checked.kind === "SourceFile" && sameSourceFileHeader<TypedPhase, CheckedPhase>(subject.node, checked)
+      && sameTextRange1(subject.node.statements.loc, checked.statements.loc);
+    case "ready-callable": return checked.kind === "FunctionDeclaration" && checked.body !== null
+      && sameTextRange1(subject.node.parameters.loc, checked.parameters.loc)
+      && (subject.node.name === null) === (checked.name === null)
+      && (subject.node.modifiers === null) === (checked.modifiers === null)
+      && (subject.node.asteriskToken === null) === (checked.asteriskToken === null)
+      && (subject.node.typeParameters === null) === (checked.typeParameters === null)
+      && (subject.node.type === null) === (checked.type === null)
+      && (subject.node.fullSignature === null) === (checked.fullSignature === null);
+    case "formal": return checked.kind === "Parameter"
+      && (subject.node.initializer.kind === "none") === (checked.initializer === null)
+      && sameSyntaxFields(subject.node, checked);
+  }
+}
+
+function chapterNodes(module: TirModule, emit: TirOccurrenceEmit): ReadonlyMap<NodeId, TirSyntaxOccurrence> {
+  const typed = new Map<NodeId, TirSyntaxOccurrence>();
+  for (const subject of indexChapterSyntax(chapterRoots(module), chapterSyntaxSlots)) {
+    if (subject.kind === "checked") continue;
+    const node = subject.node;
+    const previous = typed.get(node.id);
+    if (previous !== undefined && previous !== node) emit("module-node-identity", node, "chapter has conflicting authored occurrences");
+    else typed.set(node.id, node);
+  }
+  return typed;
+}
+
+function verifyChapterRoles<Stop extends object>(
+  input: TirVerifierInput, module: TirModule, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit,
+): Stop | null {
+  const original = input.source.tree;
+  const rootRead = admit({ kind: "row" });
+  if (rootRead !== null) return rootRead;
+  const tree = module.tree;
+  const moduleInstance: BodyInstance = { body: original.tsonic.body, bindings: { kind: "parametric" } };
+  const moduleIdentity = admit({ kind: "artifact", instance: moduleInstance });
+  if (moduleIdentity !== null) return moduleIdentity;
+  const moduleBody = input.bodyOf(moduleInstance);
+  if (tree.kind === "checked-root") {
+    if (tree.root !== original || moduleBody !== null)
+      emit("module-node-identity", tree.root, "checked module root must be the actual authored root with no required module body");
+    return null;
+  }
+  const root = tree.root;
+  if (moduleBody === null || moduleBody.root !== root || moduleBody.owner !== original.tsonic.definition
+    || root.id !== original.id || root.tsonic.module !== module.module || root.tsonic.template?.body !== moduleInstance.body) {
+    emit("module-node-identity", root, "ready module root must share the independently required module template");
+  }
+  const statements = root.statements.nodes;
+  const authored = original.statements.nodes;
+  if (statements.length !== authored.length || !sameChapterFields({ kind: "module-root", node: root }, original))
+    emit("kind-children-shape", root, "ready module retains the actual authored header and ordered statement slots");
+  for (let position = 0; position < statements.length; position += 1) {
+    const row = admit({ kind: "row" });
+    if (row !== null) return row;
+    const statement = statements[position];
+    const actual = authored[position];
+    if (statement === undefined || actual === undefined || statement.node.id !== actual.id || statement.node.kind !== actual.kind) {
+      emit("authored-node-ids-preserved", root, "chapter statement slot differs from the actual authored position");
+      continue;
+    }
+    if (statement.kind === "checked-declaration" && !Object.is(statement.node, actual)) {
+      emit("module-node-identity", statement.node, "checked declaration slot does not retain its actual authored occurrence");
+    }
+    if (actual.kind !== "FunctionDeclaration") {
+      if (statement.kind === "ready-callable") emit("nested-template-identity", statement.node, "ready callable slot requires its actual authored function");
+      continue;
+    }
+    const template = actual.tsonic.body;
+    if (template === null) {
+      if (statement.kind === "ready-callable") emit("nested-template-identity", statement.node, "bodyless declarations do not publish executable roles");
+      continue;
+    }
+    const instance: BodyInstance = { body: template, bindings: { kind: "parametric" } };
+    const identity = admit({ kind: "artifact", instance });
+    if (identity !== null) return identity;
+    const selected = input.bodyOf(instance);
+    if (statement.kind === "ready-callable") {
+      const callable = statement.node;
+      let shared = selected !== null && selected.root === callable.body && selected.owner === actual.tsonic.definition
+        && callable.tsonic.definition === actual.tsonic.definition && callable.tsonic.template?.body === template
+        && selected.params.length === callable.parameters.nodes.length;
+      if (selected !== null && shared) for (let index = 0; index < selected.params.length; index += 1) {
+        const formal = admit({ kind: "row" });
+        if (formal !== null) return formal;
+        const parameter = selected.params[index];
+        if (parameter === undefined || parameter !== callable.parameters.nodes[index]) { shared = false; break; }
+      }
+      if (!shared) {
+        emit("nested-template-identity", callable, "ready callable must retain its independently required body and each actual formal pointer");
+      }
+    } else if (selected !== null || statement.kind !== "checked-declaration") {
+      emit("nested-template-identity", statement.node, "an unopened callable role cannot replace its independently required body");
+    }
+  }
+  return null;
+}
+
 export const verifySourcePreservation = (
   body: TirBody, source: HirModule, module: TirModule, boundary: TirSourceBoundary, emit: TirOccurrenceEmit,
 ): TirSourceInventory => {
   const { original, nestedRoots, headers } = boundary;
   const sourceNodes = new Map<NodeId, HirNode>();
-  const typedNodes = new Map<NodeId, TirNode>();
+  const typedNodes = chapterNodes(module, emit);
   for (const node of indexSyntaxTree<CheckedPhase>(source.tree)) {
     sourceNodes.set(node.id, node);
   }
-  for (const node of indexSyntaxTree<TypedPhase>(module.tree)) {
-    typedNodes.set(node.id, node);
+  const ownNodes: TirSyntaxOccurrence[] = [];
+  function* selectedRoots(): Generator<TirChapterSyntax> {
+    yield tirBodySyntaxOf(body.root);
+    for (const node of body.params) yield { kind: "formal", node };
   }
-  const ownNodes: TirNode[] = [];
-  const pendingNodes: TirNode[] = [body.root, ...body.params];
-  const ownObjects = new Set<object>();
-  for (let node = pendingNodes.pop(); node !== undefined; node = pendingNodes.pop()) {
-    if (ownObjects.has(node)) continue;
-    ownObjects.add(node);
-    ownNodes.push(node);
-    const children = childrenOfSyntax<TypedPhase>(node);
-    for (let position = children.length - 1; position >= 0; position--) {
-      const child = children[position];
-      if (child !== undefined) pendingNodes.push(child);
-    }
+  for (const subject of indexChapterSyntax(selectedRoots(), chapterSyntaxSlots)) {
+    if (subject.kind !== "checked") ownNodes.push(subject.node);
   }
   const bodyNodes = new Set(original === undefined ? [] : walkSyntaxTree<CheckedPhase>(original.root, []).map((node: HirNode) => node.id));
   for (const header of headers) if (header !== null)
@@ -108,25 +210,30 @@ export const verifySourcePreservation = (
     emit("body-owner", null, "body identity and owner do not retain the actual original body");
   }
   if (module.module !== source.module || body.root.origin.module !== source.module ||
-    body.bindings.kind === "parametric" && typedNodes.get(body.root.id) !== body.root) {
+    body.bindings.kind === "parametric" && module.tree.kind === "ready-root" && typedNodes.get(body.root.id) !== body.root) {
     emit("module-node-identity", body.root, "body does not retain its module identity and canonical parametric subtree");
   }
   interface TransferScope { readonly breakTo: NodeId | null; readonly continueTo: NodeId | null }
-  const paired: { node: TirNode; original: HirNode; transfers: TransferScope | undefined }[] = original === undefined
-    ? [] : [{ node: body.root, original: original.root, transfers: { breakTo: null, continueTo: null } }];
+  const paired: { subject: TirChapterSyntax; original: HirNode; transfers: TransferScope | undefined }[] = original === undefined
+    ? [] : [{ subject: tirBodySyntaxOf(body.root), original: original.root, transfers: { breakTo: null, continueTo: null } }];
   for (const [index, parameter] of body.params.entries()) {
     const checked = headers[index];
     if (checked === undefined || checked === null)
       emit("parameter-order", parameter, "selected header has no actual checked parameter item and owning callable association");
-    else paired.push({ node: parameter, original: checked, transfers: undefined });
-    if (body.bindings.kind === "parametric" && typedNodes.get(parameter.id) !== parameter)
+    else paired.push({ subject: { kind: "formal", node: parameter }, original: checked, transfers: undefined });
+    if (body.bindings.kind === "parametric" && module.tree.kind === "ready-root" && typedNodes.get(parameter.id) !== parameter)
       emit("module-node-identity", parameter, "selected parameter is not the canonical header occurrence of its callable");
   }
-  const sourceOfTyped = new Map<TirNode, HirNode>();
-  const typedOfSource = new Map<HirNode, TirNode>();
+  const sourceOfTyped = new Map<TirSyntaxOccurrence, HirNode>();
+  const typedOfSource = new Map<HirNode, TirSyntaxOccurrence>();
   for (let pair = paired.pop(); pair !== undefined; pair = paired.pop()) {
-    const node = pair.node;
+    const subject = pair.subject;
     const checked = pair.original;
+    if (subject.kind === "checked") {
+      if (!Object.is(subject.node, checked)) emit("module-node-identity", subject.node, "checked chapter role does not retain its actual authored pointer");
+      continue;
+    }
+    const node = subject.node;
     const previousSource = sourceOfTyped.get(node);
     if (previousSource !== undefined) {
       if (previousSource !== checked) emit("authored-node-ids-preserved", node, "typed node identity differs from the actual authored node at this position");
@@ -138,10 +245,12 @@ export const verifySourcePreservation = (
     else typedOfSource.set(checked, node);
     if (!Object.is(node.id, checked.id)) emit("authored-node-ids-preserved", node, "typed node identity differs from the actual authored node at this position");
     if (!sourceNodes.has(node.id)) emit("no-inserted-nodes", node, "typed syntax includes a node not present in the actual source arena");
-    if (!sameSyntaxFields(node, checked)) {
+    const children = Array.from(chapterSyntaxSlots(subject), readChapterSyntaxSlot).filter(child => child !== null);
+    const originals = childrenOfSyntax<CheckedPhase>(checked);
+    if (!sameChapterFields(subject, checked) || children.length !== originals.length) {
       emit("kind-children-shape", node, "typed syntax does not retain the authored kind, fields and child presence");
     }
-    if (pair.transfers !== undefined && (node.kind === "BreakStatement" || node.kind === "ContinueStatement")
+    if (subject.kind === "ordinary" && pair.transfers !== undefined && (node.kind === "BreakStatement" || node.kind === "ContinueStatement")
       && checked.kind === node.kind && checked.label === null && node.label === null) {
       const target = node.tsonic.target;
       const expected = node.kind === "BreakStatement" ? pair.transfers.breakTo : pair.transfers.continueTo;
@@ -176,8 +285,6 @@ export const verifySourcePreservation = (
       !validRange(node.loc.pos, node.loc.end - node.loc.pos) || node.loc.pos !== checked.loc.pos || node.loc.end !== checked.loc.end || !sameDerivation) {
       emit("origin-range", node, "typed origin or lexical range does not retain the actual source interval");
     }
-    const children = childrenOfSyntax<TypedPhase>(node);
-    const originals = childrenOfSyntax<CheckedPhase>(checked);
     for (let position = children.length - 1; position >= 0; position--) {
       const child = children[position];
       const sourceChild = originals[position];
@@ -190,9 +297,9 @@ export const verifySourcePreservation = (
           else if (checked.kind === "SwitchStatement" && sourceChild === checked.caseBlock)
             transfers = { breakTo: checked.id, continueTo: transfers.continueTo };
         }
-        paired.push({ node: child, original: sourceChild, transfers });
+        paired.push({ subject: child, original: sourceChild, transfers });
       }
-      else if (child !== undefined) emit("no-inserted-nodes", child, "typed syntax adds an authored child position");
+      else if (child !== undefined) emit("no-inserted-nodes", child.node, "typed syntax adds an authored child position");
     }
   }
   if (original !== undefined && body.root.id !== original.root.id) {
@@ -267,7 +374,7 @@ const validIndex = (value: number, length: number): boolean =>
   Number.isSafeInteger(value) && !Object.is(value, -0) && value >= 0 && value < length;
 
 export const verifyClosedReferences = (
-  root: TirNode, structure: TirStructure, table: TypeTable, diagnostics: readonly Diagnostic[], emit: TirOccurrenceEmit,
+  root: TirOccurrenceSite, structure: TirStructure, table: TypeTable, diagnostics: readonly Diagnostic[], emit: TirOccurrenceEmit,
 ): TirTypeGraph => {
   const reverse = new Map<number, number[]>();
   const children = new Map<number, number[]>();
@@ -521,7 +628,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   if (publication !== null) return { kind: "resource-stop", stop: publication };
   const ownNodeIds = verifyNestedPublication(input, body, semantics, inventory.original, inventory.typedNodes, inventory.ownNodes, boundary.headers, emit);
   verifyControlledContexts(body, inventory.original, structure, semantics, emit);
-  const bindingSlots = verifyBindingSlots(body, structure.nodes, inventory.sourceNodes, boundary.bodies, input.module.bodies, input.bodyOf, input.nodeOf, emit, admit);
+  const bindingSlots = verifyBindingSlots(body, structure, inventory.sourceNodes, boundary.bodies, input.module.bodies, input.bodyOf, input.nodeOf, emit, admit);
   if (bindingSlots !== null) return { kind: "resource-stop", stop: bindingSlots };
   const declarationOf = declarationInventory(input);
   verifyScalarReferences(structure, inventory.sourceNodes, declarationOf, emit);
@@ -701,29 +808,48 @@ export const verifyTypedModule: VerifyTirModule = (input, module, admit) => {
   const violations: Violation<TirRule, TirNodeSite>[] = [];
   const emitted = new Set<string>();
   const appendViolation: TirOccurrenceEmit = (rule, node, message) => {
-    const subject = node === null ? module.tree : node;
+    const subject = node === null ? module.tree.root : node;
     violations.push({ rule, site: { kind: "node", module: subject.origin.module, node: subject.id },
       detail: [{ kind: "text", value: message }] });
   };
   const emit: TirOccurrenceEmit = (rule, node, message) => {
-    const key = encodeKey([rule, node === null ? module.tree.id : node.id, message]);
+    const key = encodeKey([rule, node === null ? module.tree.root.id : node.id, message]);
     if (!emitted.has(key)) { emitted.add(key); appendViolation(rule, node, message); }
   };
+  if (module.module !== input.module.module || module.module !== input.source.module || module.tree !== input.module.tree) {
+    emit("module-node-identity", module.tree.root, "module tree does not retain its actual source and publication identity");
+  }
+  const required = verifyChapterRoles(input, module, admit, emit);
+  if (required !== null) return { kind: "resource-stop", stop: required };
+  if (module.bodies.length !== input.module.bodies.length) {
+    emit("template-shared-once", null, "chapter does not retain the complete independently required body inventory");
+  }
+  const membership = publicationMembership(input, admit);
+  const setup = admit({ kind: "retain-publication-entry" });
+  if (setup !== null) return { kind: "resource-stop", stop: setup };
+  const found = new Set<TirBody>();
   const stops = new Set<NodeId>();
-  for (const [position, body] of module.bodies.entries()) {
+  for (let position = 0; position < module.bodies.length; position += 1) {
+    const row = admit({ kind: "row" });
+    if (row !== null) return { kind: "resource-stop", stop: row };
+    const body = module.bodies[position];
     if (body === undefined) throw new TypeError(`ir-tir: sparse vector at $module["bodies"][${position}]`);
+    const member = membership(body, emit);
+    if (member !== null) return { kind: "resource-stop", stop: member };
+    if (found.has(body)) emit("template-shared-once", null, "chapter repeats an independently required body");
+    else {
+      const retain = admit({ kind: "retain-publication-entry" });
+      if (retain !== null) return { kind: "resource-stop", stop: retain };
+      found.add(body);
+    }
     stops.add(body.root.id);
   }
   const structure = inspectTirStructure(module, createTirLayouts(), stops);
-  const moduleNodes = new Map<NodeId, TirNode>();
-  for (const node of indexSyntaxTree<TypedPhase>(module.tree)) moduleNodes.set(node.id, node);
+  const moduleNodes = chapterNodes(module, emit);
   verifyCanonicalTemplates(input, module, moduleNodes, emit);
   const sourceNodes = new Map<NodeId, HirNode>();
   for (const node of indexSyntaxTree<CheckedPhase>(input.source.tree)) sourceNodes.set(node.id, node);
-  if (module.module !== input.module.module || module.module !== input.source.module || module.tree !== input.module.tree) {
-    emit("module-node-identity", module.tree, "module tree does not retain its actual source and publication identity");
-  }
-  verifyClosedReferences(module.tree, structure, input.types, input.diagnostics, emit);
+  verifyClosedReferences(module.tree.root, structure, input.types, input.diagnostics, emit);
   verifyQualifiedReferences(input, null, structure, emit);
   const declarationOf = declarationInventory(input);
   verifyScalarReferences(structure, sourceNodes, declarationOf, emit);

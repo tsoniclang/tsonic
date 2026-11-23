@@ -1,5 +1,7 @@
 import type { ImportDeclaration, ExternalModuleReference, NamespaceImport, NamedImports, ExportAssignment, NamespaceExportDeclaration, NamespaceExport, NamedExports, ExportSpecifier, JsxElement, JsxAttributes, JsxNamespacedName, JsxOpeningElement, JsxSelfClosingElement, JsxFragment, JsxOpeningFragment, JsxClosingFragment, JsxAttribute, JsxSpreadAttribute, JsxClosingElement, JsxExpression, JsxText, SyntaxList, JSDoc, JSDocTypeExpression, JSDocNonNullableType, JSDocNullableType, JSDocAllType, JSDocVariadicType, JSDocOptionalType, JSDocTypeTag, JSDocUnknownTag, JSDocTemplateTag, JSDocReturnTag, JSDocPublicTag, JSDocPrivateTag, JSDocProtectedTag, JSDocReadonlyTag, JSDocOverrideTag, JSDocDeprecatedTag, JSDocSeeTag, JSDocImplementsTag, JSDocAugmentsTag, JSDocSatisfiesTag, JSDocThrowsTag, JSDocThisTag, JSDocImportTag, JSDocCallbackTag, JSDocOverloadTag, JSDocTypedefTag, JSDocSignature, JSDocNameReference, SourceFile, ModuleDeclaration, ImportEqualsDeclaration, ExportDeclaration, ImportTypeNode, ImportClause, ImportSpecifier, JSDocText, JSDocLink, JSDocLinkPlain, JSDocLinkCode, JSDocTypeLiteral, JSDocParameterOrPropertyTag } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
+import type { SourceFileHeader } from "../ir-hir/contract.js";
+import type { TirModuleRoot } from "../ir-tir/contract.js";
 import type { SyntaxTextContext, TextWork } from "./text-values.js";
 import { textSyntaxHeader, field, record, sequence, token, text, boolean, textNodeList, textCommentDirective, textPragma, textCheckJsDirective } from "./text-values.js";
 import { textTypedImport, textTypedModuleReference, textTypedImportBinding, textTypedExportAssignment, textTypedExportBinding, textTypedNamespaceExport, textTypedSourceFile, textTypedNamespace, textTypedExport, textTypedType } from "./text-phase-declarations.js";
@@ -482,9 +484,18 @@ export function printJSDocNameReference(node: JSDocNameReference<TypedPhase>, co
 }
 
 export function printSourceFile(node: SourceFile<TypedPhase>, context: SyntaxTextContext): TextWork {
-  return record(node.kind, [
+  return printSourceFileFields(node, context, node.kind, () => textNodeList(node.statements, context));
+}
+
+export function printModuleRoot(node: TirModuleRoot, context: SyntaxTextContext, statements: () => TextWork): TextWork {
+  return printSourceFileFields(node, context, "TirModuleRoot", statements);
+}
+
+function printSourceFileFields(node: SourceFileHeader<TypedPhase>, context: SyntaxTextContext,
+  label: "SourceFile" | "TirModuleRoot", statements: () => TextWork): TextWork {
+  return record(label, [
     ...textSyntaxHeader(node),
-    field("statements", textNodeList(node.statements, context)),
+    field("statements", statements()),
     field("endOfFileToken", context.reference(node.endOfFileToken)),
     field("languageVariant", text(node.languageVariant)),
     field("scriptKind", text(node.scriptKind)),

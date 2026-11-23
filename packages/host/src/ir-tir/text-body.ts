@@ -1,6 +1,10 @@
-import { lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
+import { checkedSyntaxReader, lazyReader, literalReader, mapConstruction, nullableReader, roleSyntaxReader, sequenceReader, syntaxWithRoleReader } from "./text-construction.js";
+import type { TirReader } from "./text-construction.js";
 import { unionRecord } from "./text-layouts.js";
-import type { TirRecordCodec } from "./text-layouts.js";
+import type { TirRecordCodec, TirSyntaxFields, TirSyntaxHeaderValues, TirTypedWork } from "./text-layouts.js";
+import type { TirBodyRoot, TirFormal, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable } from "./contract.js";
+import type { BlockOrExpression, FunctionDeclarationHeader, SourceFileHeader } from "../ir-hir/contract.js";
+import { requirePresent } from "../diag/index.js";
 import type {
   BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedOperationOf, TypedPhase, TypedSourceFile, TypedStaticBlock
 } from "./contract.js";
@@ -17,7 +21,7 @@ import type {
   ApplicationDecision, BodyCaptureRow, DeferredDecision, EmbeddingDecision, MemberDecision, RefinementDecision, RuleOutcome
 } from "../ir-infer/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
-import { scalarWork, referenceWork, syntaxReference, nullableWork, sequenceWork, withBindingOwner } from "./text-layouts.js";
+import { checkedSyntaxReference, roleSyntaxReference, scalarWork, referenceWork, syntaxReference, nullableWork, sequenceWork, withBindingOwner } from "./text-layouts.js";
 
 export interface BodyTextReads {
   readonly work_ApplicationDecision: TirRecordCodec<ApplicationDecision>;
@@ -55,6 +59,9 @@ export interface BodyTextReads {
 
 export interface BodyTextModel {
   readonly work_TirBody: TirRecordCodec<TirBody>;
+  readonly work_TirFormalInitializer: TirRecordCodec<TirFormalInitializer>;
+  readonly work_TirModuleRoot: (value: TirModuleRoot) => TirTypedRecordWork;
+  readonly work_TirReadyCallable: (value: TirReadyCallable) => TirTypedRecordWork;
   readonly work_TirLocal: TirRecordCodec<TirLocal>;
   readonly work_TirResolution_local: TirRecordCodec<TirResolution & { readonly kind: "local" }>;
   readonly work_TirResolution_definition: TirRecordCodec<TirResolution & { readonly kind: "definition" }>;
@@ -122,6 +129,10 @@ export interface BodyTextModel {
 
 export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): BodyTextModel => {
   const { defineRecord, defineSyntaxRecord, syntaxReads, bodyReader, booleanReader, definitionReader, localReader, nodeReader, nullReader, numberReader, signatureReader, stringReader, typeReader } = kernel;
+  const formalRef = roleSyntaxReader<TirFormal>("$TirFormal", value => value.kind === "TirFormal" ? value.value : null);
+  const readyCallableRef = roleSyntaxReader<TirReadyCallable>("$TirReadyCallable", value => value.kind === "TirReadyCallable" ? value.value : null);
+  const bodyRootRef = syntaxWithRoleReader<TirBodyRoot, BlockOrExpression<TypedPhase>>("$TirBodyRoot", syntaxReads.BlockOrExpression,
+    value => value.kind === "TirModuleRoot" ? value.value : null);
   const work_TirBody: TirRecordCodec<TirBody> = defineRecord<TirBody>("TirBody", "TirBody", null, "TirBody", null, null, fields => fields
     .field("body", "body", value => scalarWork("body", value.body), bodyReader)
     .field("owner", "def", value => referenceWork("def", value.owner), definitionReader)
@@ -132,9 +143,10 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     .field("completion", "t", value => referenceWork("t", value.completion), typeReader)
     .field("yielded", "?t", value => nullableWork(value.yielded, actual => referenceWork("t", actual)), nullableReader(typeReader))
     .field("sent", "?t", value => nullableWork(value.sent, actual => referenceWork("t", actual)), nullableReader(typeReader))
-    .field("params", "[$ParameterDeclaration]", value => sequenceWork("[$ParameterDeclaration]", value.params, actual => syntaxReference("$ParameterDeclaration", actual)), sequenceReader("[$ParameterDeclaration]", syntaxReads.ParameterDeclaration))
+    .field("params", "[$TirFormal]", value => sequenceWork("[$TirFormal]", value.params, node => roleSyntaxReference("$TirFormal", { kind: "formal", node })), sequenceReader("[$TirFormal]", formalRef))
     .field("locals", "[TirLocal]", value => sequenceWork("[TirLocal]", value.locals, actual => work_TirLocal.write(actual)), sequenceReader("[TirLocal]", lazyReader(() => work_TirLocal.reader)))
-    .field("root", "$BodyRoot", value => syntaxReference("$BodyRoot", value.root), syntaxReads.BodyRoot)
+    .field("root", "$TirBodyRoot", value => value.root.kind === "SourceFile"
+      ? roleSyntaxReference("$TirModuleRoot", { kind: "module-root", node: value.root }) : syntaxReference("$BlockOrExpression", value.root), bodyRootRef)
     .field("nestedBodies", "[body]", value => sequenceWork("[body]", value.nestedBodies, actual => scalarWork("body", actual)), sequenceReader("[body]", bodyReader))
     .field("captures", "[CaptureRow]", value => sequenceWork("[CaptureRow]", value.captures, actual => read.work_BodyCaptureRow.write(actual)), sequenceReader("[CaptureRow]", lazyReader(() => read.work_BodyCaptureRow.reader)))
     .field("scopes", "[HirLexicalScope]", value => sequenceWork("[HirLexicalScope]", value.scopes, actual => read.work_HirLexicalScope.write(actual)), sequenceReader("[HirLexicalScope]", lazyReader(() => read.work_HirLexicalScope.reader)))
@@ -147,6 +159,46 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       params: field_params, locals: field_locals, root: field_root, nestedBodies: field_nestedBodies, captures: field_captures,
       scopes: field_scopes, evidence: field_evidence, asynchronous: field_asynchronous, generator: field_generator,
     })));
+  const noneInitializer = defineRecord<Extract<TirFormalInitializer, { readonly kind: "none" }>>("none", "TirFormalInitializer", null, "none",
+    null, null, fields => fields.finish(() => ({ kind: "none" })));
+  const checkedInitializer = defineRecord<Extract<TirFormalInitializer, { readonly kind: "checked-default" }>>("checked-default", "TirFormalInitializer", null,
+    "checked-default", null, null, fields => fields.field("root", "$CheckedExpression", value => checkedSyntaxReference("$CheckedExpression", value.root),
+      checkedSyntaxReader("$CheckedExpression", "expression", (image, ordinal) => image.expressionOf(ordinal)))
+      .finish(root => ({ kind: "checked-default", root })));
+  const readyInitializer = defineRecord<Extract<TirFormalInitializer, { readonly kind: "ready-default" }>>("ready-default", "TirFormalInitializer", null,
+    "ready-default", null, null, fields => fields.field("root", "$Expression", value => syntaxReference("$Expression", value.root), syntaxReads.Expression)
+      .finish(root => ({ kind: "ready-default", root })));
+  const work_TirFormalInitializer = unionRecord<TirFormalInitializer>("TirFormalInitializer", value => value.kind === "none"
+    ? noneInitializer.write(value) : value.kind === "checked-default" ? checkedInitializer.write(value) : readyInitializer.write(value),
+  () => [noneInitializer.reader, checkedInitializer.reader, readyInitializer.reader]);
+  type OrdinaryStatement = Extract<TirModuleStatement, { readonly kind: "ready-statement" }>["node"];
+  const ordinaryStatementRef: TirReader<OrdinaryStatement> = { literalSets: [],
+    requests: accept => syntaxReads.Statement.requests(plan => accept(mapConstruction(plan, node => requirePresent(
+      isOrdinaryStatement(node) ? node : undefined, { owner: "ir-tir", query: null, origin: node.origin,
+        message: "An ordinary module statement cannot contain a callable body." })))).map(request =>
+          request.kind === "syntax" ? { ...request, bodylessFunction: true } : request) };
+  function isOrdinaryStatement(node: Statement<TypedPhase>): node is OrdinaryStatement {
+    return node.kind !== "FunctionDeclaration" || node.body === null;
+  }
+  const readyStatement = defineRecord<Extract<TirModuleStatement, { readonly kind: "ready-statement" }>>("ready-statement", "TirModuleStatement", null,
+    "ready-statement", null, null, fields => fields.field("node", "$ReadyStatement", value => syntaxReference("$ReadyStatement", value.node),
+      ordinaryStatementRef).finish(node => ({ kind: "ready-statement", node })));
+  const checkedDeclaration = defineRecord<Extract<TirModuleStatement, { readonly kind: "checked-declaration" }>>("checked-declaration", "TirModuleStatement", null,
+    "checked-declaration", null, null, fields => fields.field("node", "$CheckedDeclaration", value => checkedSyntaxReference("$CheckedDeclaration", value.node),
+      checkedSyntaxReader("$CheckedDeclaration", "unopened-declaration", (image, ordinal) => image.declarationOf(ordinal)))
+      .finish(node => ({ kind: "checked-declaration", node })));
+  const readyCallable = defineRecord<Extract<TirModuleStatement, { readonly kind: "ready-callable" }>>("ready-callable", "TirModuleStatement", null,
+    "ready-callable", null, null, fields => fields.field("node", "$TirReadyCallable", value => roleSyntaxReference("$TirReadyCallable", { kind: "ready-callable", node: value.node }),
+      readyCallableRef).finish(node => ({ kind: "ready-callable", node })));
+  const statementSlot = unionRecord<TirModuleStatement>("TirModuleStatement", value => value.kind === "ready-statement"
+    ? readyStatement.write(value) : value.kind === "checked-declaration" ? checkedDeclaration.write(value) : readyCallable.write(value),
+  () => [readyStatement.reader, checkedDeclaration.reader, readyCallable.reader]);
+  const nodeList = <Value>(type: string, element: string, write: (value: Value) => TirTypedWork, reader: TirReader<Value>): TirRecordCodec<NodeList<Value>> =>
+    defineRecord<NodeList<Value>>(type, "NodeList", null, "NodeList", null, null, fields => fields
+      .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
+      .field("nodes", element, value => sequenceWork(element, value.nodes, write), sequenceReader(element, reader))
+      .finish((loc, nodes) => ({ loc, nodes })));
+  const chapterStatements = nodeList("L<TirModuleStatement>", "[TirModuleStatement]", statementSlot.write, statementSlot.reader);
   const work_TirLocal: TirRecordCodec<TirLocal> = defineRecord<TirLocal>("TirLocal", "TirLocal", null, "TirLocal", null, null, fields => fields
     .field("id", "l", value => referenceWork("l", value.id), localReader)
     .field("declaration", "SourceNodeRef", value => read.work_SourceNodeRef.write(value.declaration), lazyReader(() => read.work_SourceNodeRef.reader))
@@ -302,23 +354,38 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, statements: field_statements, multiLine: field_multiLine, tsonic: field_tsonic }), (kind,
       make) => ({ kind, value: make(kind),
     })));
-  const work_FunctionDeclaration: (value: FunctionDeclaration<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<FunctionDeclaration<TypedPhase>>("FunctionDeclaration", null, value => value.kind, value => value, null, fields => fields
-    .syntaxHeader(read.work_Origin, read.work_TextRange)
-    .syntaxKind("kind", "'FunctionDeclaration", literalReader<(FunctionDeclaration<TypedPhase>)["kind"]>("'FunctionDeclaration", ["FunctionDeclaration"]))
+  const functionFields = <Formal, Body, Value extends FunctionDeclarationHeader<TypedPhase> &
+    { readonly parameters: NodeList<Formal>; readonly body: Body }>(
+    fields: TirSyntaxFields<Value, TirSyntaxHeaderValues>, formalType: string, formals: TirRecordCodec<NodeList<Formal>>,
+    bodyType: string, writeBody: (value: Body) => TirTypedWork, readBody: TirReader<Body>,
+  ) => fields
     .field("modifiers", "?ModifierList", value => nullableWork(value.modifiers, actual => read.work_ModifierList.write(actual)), nullableReader(lazyReader(() => read.work_ModifierList.reader)))
     .field("typeParameters", "?L<TypeParameterDeclaration>", value => nullableWork(value.typeParameters, actual => read.work_L_TypeParameterDeclaration_.write(actual)), nullableReader(lazyReader(() => read.work_L_TypeParameterDeclaration_.reader)))
-    .field("parameters", "L<ParameterDeclaration>", value => read.work_L_ParameterDeclaration_.write(value.parameters), lazyReader(() => read.work_L_ParameterDeclaration_.reader))
+    .field("parameters", formalType, value => formals.write(value.parameters), lazyReader(() => formals.reader))
     .field("type", "?$TypeNode", value => nullableWork(value.type, actual => syntaxReference("$TypeNode", actual)), nullableReader(syntaxReads.TypeNode))
     .field("fullSignature", "?$TypeNode", value => nullableWork(value.fullSignature, actual => syntaxReference("$TypeNode", actual)), nullableReader(syntaxReads.TypeNode))
     .field("asteriskToken", "?$AsteriskToken", value => nullableWork(value.asteriskToken, actual => syntaxReference("$AsteriskToken", actual)), nullableReader(syntaxReads.AsteriskToken))
-    .field("body", "?$BlockOrExpression", value => nullableWork(value.body, actual => syntaxReference("$BlockOrExpression", actual)), nullableReader(syntaxReads.BlockOrExpression))
+    .field("body", bodyType, value => writeBody(value.body), readBody)
     .field("name", "?$Identifier", value => nullableWork(value.name, actual => syntaxReference("$Identifier", actual)), nullableReader(syntaxReads.Identifier))
-    .field("tsonic", "TypedCallable", value => read.work_TypedCallable.write(value.tsonic), lazyReader(() => read.work_TypedCallable.reader))
-    .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_modifiers, field_typeParameters, field_parameters, field_type, field_fullSignature, field_asteriskToken, field_body, field_name, field_tsonic) => ({
-      id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, modifiers: field_modifiers, typeParameters: field_typeParameters, parameters: field_parameters,
-      type: field_type, fullSignature: field_fullSignature, asteriskToken: field_asteriskToken, body: field_body, name: field_name,
-      tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind),
-    })));
+    .field("tsonic", "TypedCallable", value => read.work_TypedCallable.write(value.tsonic), lazyReader(() => read.work_TypedCallable.reader));
+  type FunctionHeader = FunctionDeclarationHeader<TypedPhase>;
+  const callable = <Kind extends "FunctionDeclaration", Formal, Body>(kind: Kind, ...[
+    id, origin, parent, flags, loc, modifiers, typeParameters, parameters, type, fullSignature, asteriskToken, body, name, tsonic
+  ]: readonly [...TirSyntaxHeaderValues, FunctionHeader["modifiers"], FunctionHeader["typeParameters"], NodeList<Formal>,
+    FunctionHeader["type"], FunctionHeader["fullSignature"], FunctionHeader["asteriskToken"], Body, FunctionHeader["name"], TypedCallable]):
+    FunctionHeader & { readonly kind: Kind; readonly parameters: NodeList<Formal>; readonly body: Body } =>
+    ({ id, origin, parent, flags, loc, kind, modifiers, typeParameters, parameters, type, fullSignature, asteriskToken, body, name, tsonic });
+  const work_FunctionDeclaration = defineSyntaxRecord<FunctionDeclaration<TypedPhase>>("FunctionDeclaration", null, value => value.kind,
+    value => value, null, fields => functionFields<ParameterDeclaration<TypedPhase>, BlockOrExpression<TypedPhase> | null, FunctionDeclaration<TypedPhase>>(
+      fields.syntaxHeader(read.work_Origin, read.work_TextRange)
+        .syntaxKind("kind", "'FunctionDeclaration", literalReader<"FunctionDeclaration">("'FunctionDeclaration", ["FunctionDeclaration"])),
+      "L<ParameterDeclaration>", read.work_L_ParameterDeclaration_, "?$BlockOrExpression",
+      value => nullableWork(value, actual => syntaxReference("$BlockOrExpression", actual)), nullableReader(syntaxReads.BlockOrExpression))
+      .finishSyntax(callable, (kind, make) => ({ kind, value: make(kind) })));
+  const work_TirReadyCallable = kernel.defineRoleRecord<TirReadyCallable>("TirReadyCallable", fields =>
+    functionFields<TirFormal, Block<TypedPhase>, TirReadyCallable>(fields.syntaxHeader(read.work_Origin, read.work_TextRange),
+      "L<ParameterDeclaration>", read.work_L_ParameterDeclaration_, "$Block", value => syntaxReference("$Block", value), syntaxReads.Block)
+      .finishRole((...values) => callable("FunctionDeclaration", ...values), value => ({ kind: "TirReadyCallable", value })));
   const work_ConstructorDeclaration: (value: ConstructorDeclaration<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<ConstructorDeclaration<TypedPhase>>("ConstructorDeclaration", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'Constructor", literalReader<(ConstructorDeclaration<TypedPhase>)["kind"]>("'Constructor", ["Constructor"]))
@@ -433,23 +500,31 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       type: field_type, fullSignature: field_fullSignature, asteriskToken: field_asteriskToken, body: field_body, name: field_name,
       tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind),
     })));
-  const work_SourceFile: (value: SourceFile<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<SourceFile<TypedPhase>>("SourceFile", null, value => value.kind, value => value, null, fields => fields
-    .syntaxHeader(read.work_Origin, read.work_TextRange)
-    .syntaxKind("kind", "'SourceFile", literalReader<(SourceFile<TypedPhase>)["kind"]>("'SourceFile", ["SourceFile"]))
-    .field("statements", "L<Statement>", value => read.work_L_Statement_.write(value.statements), lazyReader(() => read.work_L_Statement_.reader))
+  const sourceFields = <Item, Value extends SourceFileHeader<TypedPhase> & { readonly statements: NodeList<Item> }>(
+    fields: TirSyntaxFields<Value, TirSyntaxHeaderValues>, statementType: string, statements: TirRecordCodec<NodeList<Item>>,
+  ) => fields
+    .field("statements", statementType, value => statements.write(value.statements), lazyReader(() => statements.reader))
     .field("endOfFileToken", "$EndOfFile", value => syntaxReference("$EndOfFile", value.endOfFileToken), syntaxReads.EndOfFile)
     .field("languageVariant", "LanguageVariant", value => scalarWork("LanguageVariant", value.languageVariant), literalReader<(SourceFile<TypedPhase>)["languageVariant"]>("LanguageVariant", ["Standard","JSX"]))
     .field("scriptKind", "ScriptKind", value => scalarWork("ScriptKind", value.scriptKind), literalReader<(SourceFile<TypedPhase>)["scriptKind"]>("ScriptKind", ["Unknown","JS","JSX","TS","TSX","External","JSON","Deferred"]))
     .field("commentDirectives", "[CommentDirective]", value => sequenceWork("[CommentDirective]", value.commentDirectives, actual => read.work_CommentDirective.write(actual)), sequenceReader("[CommentDirective]", lazyReader(() => read.work_CommentDirective.reader)))
     .field("pragmas", "[Pragma]", value => sequenceWork("[Pragma]", value.pragmas, actual => read.work_Pragma.write(actual)), sequenceReader("[Pragma]", lazyReader(() => read.work_Pragma.reader)))
     .field("checkJsDirective", "?CheckJsDirective", value => nullableWork(value.checkJsDirective, actual => read.work_CheckJsDirective.write(actual)), nullableReader(lazyReader(() => read.work_CheckJsDirective.reader)))
-    .field("tsonic", "TypedSourceFile", value => read.work_TypedSourceFile.write(value.tsonic), lazyReader(() => read.work_TypedSourceFile.reader))
-    .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_statements, field_endOfFileToken, field_languageVariant, field_scriptKind, field_commentDirectives, field_pragmas, field_checkJsDirective, field_tsonic) => ({
-      id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, statements: field_statements, endOfFileToken: field_endOfFileToken,
-      languageVariant: field_languageVariant, scriptKind: field_scriptKind, commentDirectives: field_commentDirectives,
-      pragmas: field_pragmas, checkJsDirective: field_checkJsDirective, tsonic: field_tsonic }), (kind, make) => ({ kind,
-      value: make(kind),
-    })));
+    .field("tsonic", "TypedSourceFile", value => read.work_TypedSourceFile.write(value.tsonic), lazyReader(() => read.work_TypedSourceFile.reader));
+  type SourceHeader = SourceFileHeader<TypedPhase>;
+  const sourceRoot = <Kind extends "SourceFile", Item>(kind: Kind, ...[
+    id, origin, parent, flags, loc, statements, endOfFileToken, languageVariant, scriptKind, commentDirectives, pragmas, checkJsDirective, tsonic
+  ]: readonly [...TirSyntaxHeaderValues, NodeList<Item>, SourceHeader["endOfFileToken"], SourceHeader["languageVariant"],
+    SourceHeader["scriptKind"], SourceHeader["commentDirectives"], SourceHeader["pragmas"], SourceHeader["checkJsDirective"], TypedSourceFile]):
+    SourceHeader & { readonly kind: Kind; readonly statements: NodeList<Item> } =>
+    ({ id, origin, parent, flags, loc, kind, statements, endOfFileToken, languageVariant, scriptKind, commentDirectives, pragmas, checkJsDirective, tsonic });
+  const work_SourceFile = defineSyntaxRecord<SourceFile<TypedPhase>>("SourceFile", null, value => value.kind, value => value, null,
+    fields => sourceFields<Statement<TypedPhase>, SourceFile<TypedPhase>>(fields.syntaxHeader(read.work_Origin, read.work_TextRange)
+      .syntaxKind("kind", "'SourceFile", literalReader<"SourceFile">("'SourceFile", ["SourceFile"])), "L<Statement>", read.work_L_Statement_)
+      .finishSyntax(sourceRoot, (kind, make) => ({ kind, value: make(kind) })));
+  const work_TirModuleRoot = kernel.defineRoleRecord<TirModuleRoot>("TirModuleRoot", fields =>
+    sourceFields<TirModuleStatement, TirModuleRoot>(fields.syntaxHeader(read.work_Origin, read.work_TextRange), "L<TirModuleStatement>", chapterStatements)
+      .finishRole((...values) => sourceRoot("SourceFile", ...values), value => ({ kind: "TirModuleRoot", value })));
   const work_TirResolution: TirRecordCodec<TirResolution> = unionRecord<TirResolution>("TirResolution", (value: TirResolution): TirTypedRecordWork => {
     switch (value.kind) {
       case "intrinsic-value": return intrinsicValue.write(value);
@@ -570,5 +645,5 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       case "deferred": return work_O_ApplicationDecision__deferred.write(value);
     }
   }, () => [work_O_ApplicationDecision__decided.reader, work_O_ApplicationDecision__deferred.reader]);
-  return { work_TirBody, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
+  return { work_TirFormalInitializer, work_TirModuleRoot, work_TirReadyCallable, work_TirBody, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
 };

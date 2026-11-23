@@ -1,10 +1,11 @@
 import type { InvariantFailure, TextParseResult } from "../diag/contract.js";
-import type { HirModule, ParseHir } from "./contract.js";
+import type { CheckedPhase, CheckedUnopenedDeclaration, CheckedWireImage, CheckedWireRequest, ClosedCheckedDeclarations, Expression, HirModule, HirNode, ParseCheckedDeclarations, ParseHir, SourceFile } from "./contract.js";
 import { candidateListId, decodeBodyId, decodeDefId, decodeModuleId,
   encodeBodyId, encodeDefId, encodeModuleId, expansionId,
   localId, nodeId, sigId, tyId } from "../ids/index.js";
-import { requirePresent } from "../diag/index.js";
-import type { HirConstruction, HirConstructionStep, HirIdentityInput, HirRecordConstruction, HirSequenceConstruction, HirSyntaxConstruction, HirValueRequest } from "./text-construction.js";
+import { requirePresent, throwInvariant } from "../diag/index.js";
+import type { HirConstruction, HirIdentityInput, HirReader, HirRecordConstruction, HirSequenceConstruction, HirSyntaxConstruction, HirValueRequest } from "./text-construction.js";
+import { syntaxReader } from "./text-construction.js";
 import { createHirTextReaders, hirModuleReader, hirSyntaxReaders } from "./text-readers.js";
 import type { HirDictionaryShape, HirField, HirIdentityShape, HirNumericIdentityShape, HirRecordShape, HirSchema, HirShape, HirShapeLeaf, HirStringIdentityShape } from "./verify-syntax.js";
 import { hirChoice, hirRecordChoices, hirShapeLeaves } from "./verify-syntax.js";
@@ -92,7 +93,13 @@ interface WireEdge { readonly target: WireNode; readonly ordinal: number; readon
 type WireBinding =
   | { readonly kind: "pending"; readonly node: WireNode }
   | { readonly kind: "declared"; readonly node: WireNode; readonly label: string; readonly offset: number };
-interface HirOutput { value: HirConstruction<HirModule> | undefined }
+interface HirWireDomain {
+  readonly arena: Map<number, WireBinding>;
+  readonly roots: Set<WireNode>;
+  readonly declared: { readonly node: WireNode; readonly offset: number }[];
+  readonly edges: WireEdge[];
+  readonly references: WireReference[];
+}
 type DecodedCharacter = (value: string, offset: number) => void;
 
 const constructionFailure: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
@@ -461,75 +468,84 @@ function firstWireCycle(arena: ReadonlyMap<number, WireBinding>, edges: readonly
   return result;
 }
 
-function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema): boolean {
-  const readers = createHirTextReaders();
+function createHirWireDomain(): HirWireDomain {
+  return { arena: new Map(), roots: new Set(), declared: [], edges: [], references: [] };
+}
+
+function wireNode(): WireNode {
+  return { construction: undefined, edges: [], label: null };
+}
+
+function syntaxReference(reader: TextReader, domain: HirWireDomain, shape: HirShape, value: number, offset: number,
+  owner: WireNode | null, requests: readonly HirValueRequest[]): void {
+  if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) {
+    fail(reader, expectedValue(shape), offset);
+    return;
+  }
+  const previous = domain.arena.get(value);
+  const binding: WireBinding = previous ?? { kind: "pending", node: wireNode() };
+  domain.arena.set(value, binding);
+  domain.references.push({ shape, offset, node: binding.node,
+    resolve: requests.flatMap(request => request.kind === "syntax" ? [request.reference()] : []) });
+  if (owner === null) domain.roots.add(binding.node);
+  else {
+    const edge: WireEdge = { target: binding.node, ordinal: domain.edges.length, offset };
+    owner.edges.push(edge);
+    domain.edges.push(edge);
+  }
+}
+
+function closeHirWire(reader: TextReader, domain: HirWireDomain): boolean {
+  let invalidTarget: { readonly offset: number; readonly expected: readonly string[] } | null = null;
+  for (const reference of domain.references) {
+    if (invalidTarget !== null && invalidTarget.offset <= reference.offset) continue;
+    if (reference.node.label === null) invalidTarget = { offset: reference.offset, expected: ["declared syntax node"] };
+    else if (!reference.resolve.every(resolve => resolve(requirePresent(reference.node.construction, constructionFailure))))
+      invalidTarget = { offset: reference.offset, expected: expectedValue(reference.shape) };
+  }
+  const cycle = firstWireCycle(domain.arena, domain.edges);
+  if (invalidTarget !== null && (cycle === null || invalidTarget.offset <= cycle.offset)) {
+    fail(reader, invalidTarget.expected, invalidTarget.offset);
+    return false;
+  }
+  if (cycle !== null) { fail(reader, ["acyclic syntax reference"], cycle.offset); return false; }
+  const reachable = new Set<WireNode>();
+  const work = [...domain.roots];
+  for (const node of work) {
+    if (reachable.has(node)) continue;
+    reachable.add(node);
+    for (const edge of node.edges) work.push(edge.target);
+  }
+  for (const binding of domain.declared) if (!reachable.has(binding.node)) {
+    fail(reader, ["referenced syntax declaration"], binding.offset);
+    return false;
+  }
+  return true;
+}
+
+function readHirSyntax(reader: TextReader, readers: ReturnType<typeof createHirTextReaders>, rootRequests: readonly HirValueRequest[],
+  schema: HirSchema, domain: HirWireDomain, prefix: "n" | "c"): boolean {
   const syntaxReaders = hirSyntaxReaders(readers);
-  const rootRequests = hirModuleReader(readers).requests(value => { output.value = value; });
-  const arena = new Map<number, WireBinding>();
-  const roots = new Set<WireNode>();
-  const declared: { readonly node: WireNode; readonly offset: number }[] = [];
-  const edges: WireEdge[] = [];
-  const references: WireReference[] = [];
-  const wireNode = (): WireNode => ({ construction: undefined, edges: [], label: null });
+  const { arena, declared } = domain;
+  const wirePrefix = `${prefix}:`;
   const put = (): void => {
     reader.header = true;
     reader.needSeparator = true;
-  };
-  const syntaxReference = (shape: HirShape, value: number, offset: number, owner: WireNode | null,
-    requests: readonly HirValueRequest[]): void => {
-    if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) {
-      fail(reader, expectedValue(shape), offset);
-      return;
-    }
-    const previous = arena.get(value);
-    const binding: WireBinding = previous ?? { kind: "pending", node: wireNode() };
-    arena.set(value, binding);
-    references.push({ shape, offset, node: binding.node,
-      resolve: requests.flatMap(request => request.kind === "syntax" ? [request.reference()] : []) });
-    if (owner === null) roots.add(binding.node);
-    else {
-      const edge: WireEdge = { target: binding.node, ordinal: edges.length, offset };
-      owner.edges.push(edge);
-      edges.push(edge);
-    }
   };
   while (!reader.failed) {
     const newline = whitespace(reader);
     const frame: RecordFrame | ArrayFrame | undefined = reader.pending?.frame;
     if (frame === undefined && reader.cursor === reader.text.length) {
+      if (prefix === "c") { fail(reader, [")"]); return false; }
       if (!reader.header) { fail(reader, ["record"]); return false; }
-      let invalidTarget: { readonly reference: WireReference; readonly expected: readonly string[] } | null = null;
-      for (const reference of references) {
-        if (reference.node.label === null) {
-          invalidTarget = { reference, expected: ["declared syntax node"] };
-          break;
-        }
-        if (!reference.resolve.every(resolve => resolve(requirePresent(reference.node.construction, constructionFailure)))) {
-          invalidTarget = { reference, expected: expectedValue(reference.shape) };
-          break;
-        }
-      }
-      const cycle = firstWireCycle(arena, edges);
-      if (invalidTarget !== null && (cycle === null || invalidTarget.reference.offset <= cycle.offset)) {
-        fail(reader, invalidTarget.expected, invalidTarget.reference.offset);
-        return false;
-      }
-      if (cycle !== null) { fail(reader, ["acyclic syntax reference"], cycle.offset); return false; }
-      const reachable = new Set<WireNode>();
-      const work = [...roots];
-      for (const node of work) {
-        if (reachable.has(node)) continue;
-        reachable.add(node);
-        for (const edge of node.edges) work.push(edge.target);
-      }
-      for (const binding of declared) if (!reachable.has(binding.node)) {
-        fail(reader, ["referenced syntax declaration"], binding.offset);
-        return false;
-      }
+      return true;
+    }
+    const character = reader.text.charAt(reader.cursor);
+    if (prefix === "c" && frame === undefined && character === ")") {
+      reader.cursor += 1;
       return true;
     }
     if (frame === undefined && reader.needSeparator && !newline) { fail(reader, ["newline"]); return false; }
-    const character = reader.text.charAt(reader.cursor);
     if (reader.pending !== null && reader.pending.frame.phase === "delimiter") {
       const frame: RecordFrame | ArrayFrame = reader.pending.frame;
       const closing = frame.kind === "record" ? ")" : "]";
@@ -577,7 +593,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     let declaration: { readonly position: number; readonly offset: number } | null = null;
     if (frame === undefined && reader.header) {
       const offset = reader.cursor;
-      if (!reader.text.startsWith("n:", reader.cursor)) { fail(reader, ["node wire binding"]); return false; }
+      if (!reader.text.startsWith(wirePrefix, reader.cursor)) { fail(reader, ["node wire binding"]); return false; }
       reader.cursor += 2;
       const position = numeric(reader, reader.cursor);
       if (position === null) return false;
@@ -586,7 +602,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
         return false;
       }
       if (arena.get(position.value)?.kind === "declared") { fail(reader, ["distinct wire binding"], offset); return false; }
-      if (position.value !== declared.length) { fail(reader, [`n:${declared.length}`], offset); return false; }
+      if (position.value !== declared.length) { fail(reader, [`${wirePrefix}${declared.length}`], offset); return false; }
       whitespace(reader);
       if (reader.text.charAt(reader.cursor) !== "=") { fail(reader, ["="]); return false; }
       reader.cursor += 1;
@@ -686,7 +702,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     }
     let ownerShape: HirIdentityShape | null = null;
     for (const leaf of leaves) if (typeof leaf !== "string" && leaf.kind === "identity" && leaf.prefix === label) ownerShape = leaf;
-    const syntax = label === "n" && leaves.some(leaf => leaf === "SyntaxNode" ||
+    const syntax = label === prefix && leaves.some(leaf => leaf === "SyntaxNode" ||
       typeof leaf !== "string" && leaf.kind === "record" && leaf.syntax);
     if (ownerShape === null && !syntax) {
       fail(reader, expectedValue(shape), offset);
@@ -719,7 +735,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       const content = numeric(reader, payloadOffset);
       if (content === null) return false;
       if (typeof content.value !== "number") { fail(reader, ["number identity"], payloadOffset); return false; }
-      if (ownerShape === null) syntaxReference(shape, content.value, offset, owner, requests);
+      if (ownerShape === null) syntaxReference(reader, domain, shape, content.value, offset, owner, requests);
       else acceptIdentity(requests, ownedNumericIdentity(ownerShape, content.value));
       if (reader.failed) return false;
       accept();
@@ -728,15 +744,88 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
   return false;
 }
 
-export const parseHir: ParseHir = text => {
-  const reader: TextReader = { text, cursor: 0, failed: false, pending: null, header: false, needSeparator: false,
+function startText(text: string, cursor: number): TextReader {
+  return { text, cursor, failed: false, pending: null, header: false, needSeparator: false,
     failure: { kind: "invalid-text", offset: 0, line: 1, column: 1, expected: ["record"],
       found: text.length === 0 ? null : text.slice(0, 1) } };
-  const output: HirOutput = { value: undefined };
-  if (readHirModule(reader, output, createHirSchema())) {
-    let step: HirConstructionStep = requirePresent(output.value, constructionFailure).run(value => ({ kind: "complete", value }));
-    while (step.kind === "next") step = step.next();
-    return { kind: "parsed", value: step.value };
-  }
+}
+
+function settleConstruction<Value>(construction: HirConstruction<Value>): Value {
+  const result: { complete?: { readonly value: Value } } = {};
+  let step = construction.run(value => {
+    result.complete = { value };
+    return { kind: "complete" };
+  });
+  while (step.kind === "next") step = step.next();
+  return requirePresent(result.complete, constructionFailure).value;
+}
+
+export const parseHir: ParseHir = text => {
+  const reader = startText(text, 0);
+  const readers = createHirTextReaders();
+  const output: { value?: HirConstruction<HirModule> } = {};
+  const requests = hirModuleReader(readers).requests(value => { output.value = value; });
+  const domain = createHirWireDomain();
+  if (readHirSyntax(reader, readers, requests, createHirSchema(), domain, "n") && closeHirWire(reader, domain))
+    return { kind: "parsed", value: settleConstruction(requirePresent(output.value, constructionFailure)) };
   return reader.failure;
+};
+
+const unopenedKinds: readonly CheckedUnopenedDeclaration["kind"][] = ["FunctionDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration"];
+
+function finishCheckedDeclarations(reader: TextReader, readers: ReturnType<typeof createHirTextReaders>, domain: HirWireDomain,
+  requests: readonly CheckedWireRequest[]): TextParseResult<ClosedCheckedDeclarations> {
+  const files = new Map<number, SourceFile<CheckedPhase>>();
+  const declarations = new Map<number, CheckedUnopenedDeclaration>();
+  const expressions = new Map<number, Expression<CheckedPhase>>();
+  const ready: (() => void)[] = [];
+  const root = <Value extends HirNode>(request: CheckedWireRequest, shape: HirShape, select: HirReader<Value>, image: Map<number, Value>): void => {
+    const source = select.requests(value => { ready.push(() => {
+      if (!image.has(request.ordinal)) image.set(request.ordinal, settleConstruction(value));
+    }); });
+    syntaxReference(reader, domain, shape, request.ordinal, request.offset, null, source);
+  };
+  const declaration = syntaxReader<CheckedUnopenedDeclaration>(unopenedKinds);
+  for (const request of requests) {
+    if (request.role === "source-file") root(request, "SourceFile", readers.syntax_0, files);
+    else if (request.role === "expression") root(request, "Expression", readers.syntax_2, expressions);
+    else root(request, hirChoice(...unopenedKinds), declaration, declarations);
+    if (reader.failed) return reader.failure;
+  }
+  if (!closeHirWire(reader, domain)) return reader.failure;
+  const image: CheckedWireImage = { sourceFileOf: ordinal => files.get(ordinal) ?? null,
+    declarationOf: ordinal => declarations.get(ordinal) ?? null, expressionOf: ordinal => expressions.get(ordinal) ?? null };
+  let next = 0;
+  return { kind: "parsed", value: { materialize: () => {
+    for (; next < ready.length; next += 1) requirePresent(ready[next], constructionFailure)();
+    return image;
+  } } };
+}
+
+export const parseCheckedDeclarations: ParseCheckedDeclarations = (text, offset) => {
+  const reader = startText(text, offset);
+  whitespace(reader);
+  const start = reader.cursor;
+  const label = word(reader);
+  if (label !== "CheckedDeclarations") {
+    fail(reader, ["CheckedDeclarations"], start);
+    return reader.failure;
+  }
+  whitespace(reader);
+  if (reader.text.charAt(reader.cursor) !== "(") {
+    fail(reader, ["("]);
+    return reader.failure;
+  }
+  reader.cursor += 1;
+  reader.header = true;
+  reader.needSeparator = true;
+  const readers = createHirTextReaders();
+  const domain = createHirWireDomain();
+  if (!readHirSyntax(reader, readers, [], createHirSchema(), domain, "c")) return reader.failure;
+  let sealed = false;
+  return { kind: "parsed", value: { end: reader.cursor, finish: requests => {
+    if (sealed) return throwInvariant(constructionFailure);
+    sealed = true;
+    return finishCheckedDeclarations(reader, readers, domain, requests);
+  } } };
 };

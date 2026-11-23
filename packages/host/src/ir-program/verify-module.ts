@@ -1,19 +1,15 @@
 import { ProgramWork } from "./work.js";
 import type { ProgramVerificationResult, ProgramSite, ModuleBodies, ProgramIndex, ProgramVerificationContext, PublishedBody, VerifyModuleBodies } from "./contract.js";
 import type { ArgumentTransport, MetadataKey, ObservationsVerification, RelationalOwner, SummaryKey } from "../ir-facts/contract.js";
-import type { MemberSelection, ResolvedCallee, TirVerifierInput } from "../ir-tir/contract.js";
-import { verifyTir, verifyTirModule } from "../ir-tir/index.js";
+import type { MemberSelection, ResolvedCallee, TirChapterSyntax, TirSyntaxOccurrence, TirTypedSyntax, TirVerifierInput } from "../ir-tir/contract.js";
+import { chapterSyntaxSlots, indexChapterSyntax, readChapterSyntaxSlot, verifyTir, verifyTirModule } from "../ir-tir/index.js";
 import { summaryKey, verifyFacts, verifyObservations } from "../ir-facts/index.js";
 import { verifyMir } from "../ir-mir/index.js";
 import { constantReferenceKey, executionKey, instanceKey } from "../ir-types/index.js";
-import type { NodeId } from "../ids/contract.js";
-import type { SyntaxNode } from "../ir-hir/contract.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
-import { childrenOfSyntax, indexSyntaxTree } from "../ir-hir/index.js";
+import type { NodeId, Origin } from "../ids/contract.js";
+import { childrenOfSyntax, indexSyntaxTree, walkSyntaxTree } from "../ir-hir/index.js";
 import { encodeKey } from "../ids/index.js";
-import type { SyntaxInventory } from "./syntax-arena.js";
-import { inventorySyntax, moduleSyntaxRoots } from "./syntax-arena.js";
-import { syntaxEdges } from "./syntax-edges.js";
+import { inventoryChapterSyntax, moduleChapterRoots } from "./syntax-arena.js";
 import type { BodyInstance, Execution, TypeInterner } from "../ir-types/contract.js";
 import type { ProgramLookup } from "./work.js";
 import type { ProgramViolation } from "./work-data.js";
@@ -155,26 +151,36 @@ function verifyReferenceRoots(
   return violations;
 }
 
-function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | null, syntax: SyntaxInventory): readonly ProgramViolation[] {
+function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | null): readonly ProgramViolation[] {
   const violations: ProgramViolation[] = [];
-  const anchors = new Map<string, SyntaxNode<TypedPhase> | null>();
+  const anchors = new Map<string, TirSyntaxOccurrence | null>();
   let position = 0;
-  for (const node of syntax.nodes) {
-    if (position === syntax.firstRootSize) break;
-    const key = encodeKey([node.id]);
-    anchors.set(key, anchors.has(key) ? null : node);
+  function admitNode(node: { readonly id: NodeId; readonly origin: Origin }): void {
     if (!Object.is(node.id, position)) violations.push({
       rule: "module-node-id-dense", site: { kind: "node", module: node.origin.module, node: node.id }, detail: [numberDetail(position), numberDetail(node.id)],
     });
     position += 1;
   }
+  const tree = module.tree;
+  const chapter: TirChapterSyntax = tree.kind === "checked-root" ? { kind: "checked", node: tree.root } : { kind: "module-root", node: tree.root };
+  for (const subject of indexChapterSyntax([chapter], chapterSyntaxSlots)) {
+    if (subject.kind === "checked") {
+      for (const node of walkSyntaxTree(subject.node, [])) admitNode(node);
+    } else {
+      const node = subject.node;
+      const key = encodeKey([node.id]);
+      anchors.set(key, anchors.has(key) ? null : node);
+      admitNode(node);
+    }
+  }
   if (input === null) return violations;
   const canonical = uniqueRows(indexSyntaxTree(input.source.tree), node => encodeKey([node.id]));
   const bodies = uniqueRows(input.source.bodies, body => body.body);
-  const failures = new Map<SyntaxNode<TypedPhase>, { readonly node: NodeId; readonly kind: string }>();
-  for (const node of syntax.postorder) {
+  const failures = new Map<TirSyntaxOccurrence, { readonly node: NodeId; readonly kind: string }>();
+  function completed(subject: TirTypedSyntax): void {
+    const node = subject.node;
     const source = canonical.get(encodeKey([node.id]));
-    const children = syntaxEdges(node);
+    const children = Array.from(chapterSyntaxSlots(subject), readChapterSyntaxSlot).filter(child => child !== null);
     let differs = source === undefined || source === null || source.kind !== node.kind;
     if (source !== undefined && source !== null && !differs) {
       const expected = childrenOfSyntax(source);
@@ -185,10 +191,13 @@ function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | 
     }
     if (differs) failures.set(node, { node: node.id, kind: node.kind });
     else for (const child of children) {
-      const failure = failures.get(child.node);
+      const failure = child.kind === "checked" ? undefined : failures.get(child.node);
       if (failure !== undefined) { failures.set(node, failure); break; }
     }
   }
+  inventoryChapterSyntax<never>(moduleChapterRoots(module, "ModuleBodies"),
+    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null,
+      statement: () => {}, close: completed });
   for (const published of module.bodies) {
     const site: ProgramSite = { kind: "body", instance: published.instance };
     const root = published.tir.root;
@@ -203,7 +212,7 @@ function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | 
       });
     }
     const anchor = anchors.get(encodeKey([root.id]));
-    if (published.instance.bindings.kind === "parametric" && anchor !== root) violations.push({
+    if (module.tree.kind === "ready-root" && published.instance.bindings.kind === "parametric" && anchor !== root) violations.push({
       rule: "template-body-shared", site, detail: [numberDetail(root.id)],
     });
   }
@@ -294,14 +303,13 @@ export const verifyModuleBodies: VerifyModuleBodies = (index, module, context) =
   const supplied = index;
   context = verificationContext(context, index.types, prepared.index.types);
   index = prepared.index;
-  const syntax = inventorySyntax(moduleSyntaxRoots(module, "ModuleBodies"));
   const lookup = lookupForModuleVerification(supplied, index, context.resources);
   const input = context.tirOf(module.module);
   const violations: ProgramViolation[] = [...verifyModuleInventory(lookup, module)];
   for (const published of module.bodies) {
     for (const violation of verifyReferenceRoots(lookup, published, context)) violations.push(violation);
   }
-  for (const violation of verifySyntaxIdentities(module, input, syntax)) violations.push(violation);
+  for (const violation of verifySyntaxIdentities(module, input)) violations.push(violation);
   if (!matchesProgramTypeTable(index.types, context.facts.types, input?.types)) {
     violations.push({ rule: "shared-type-table", site: { kind: "module", module: module.module }, detail: [] });
   }
@@ -321,10 +329,12 @@ function verifyModuleInventory(
   if (record === undefined || record === null) {
     violations.push({ rule: "chunk-module-resolves", site, detail: [textDetail(module.module)] });
   }
-  if (module.tree.tsonic.module !== module.module || module.tree.origin.module !== module.module) {
+  const tree = module.tree;
+  const owner = tree.kind === "ready-root" ? tree.root.tsonic.module : tree.root.origin.module;
+  if (owner !== module.module || tree.root.origin.module !== module.module) {
     violations.push({
       rule: "chunk-tree-module-exact", site,
-      detail: [textDetail(module.tree.tsonic.module), textDetail(module.tree.origin.module)],
+      detail: [textDetail(owner), textDetail(tree.root.origin.module)],
     });
   }
   const instances = new Set<string>();

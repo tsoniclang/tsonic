@@ -3,13 +3,13 @@ import type { DefId, DefinitionPath, ItemNodeRef, ModuleId, ModulePath, SigId, T
 import type {
   ArtifactBindings, BindingVector, BodyInstance, MemberInventory, SelectedNativeFacts, SignatureEndpoint, SignatureRequest, TypePublication, TypeTable,
 } from "../ir-types/contract.js";
-import type { CheckedModuleImage, HirModule, SourceFile } from "../ir-hir/contract.js";
+import type { CheckedModuleImage, HirModule } from "../ir-hir/contract.js";
 import type { PlacedSignature } from "../ir-infer/contract.js";
-import type { TirBody, TirMemberOccurrence, TirReadyReadAdmission, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
+import type { TirBody, TirChapterTree, TirMemberOccurrence, TirReadyReadAdmission, TirVerifierInput } from "../ir-tir/contract.js";
 import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
 import type { BodyFacts, BodyObservations, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
 import type { InstantiationAllocationStop, InstantiationStop, ProgramWork } from "./work.js";
-import type { CallerRefusal, DataflowAccount, DataflowStop } from "../dataflow/contract.js";
+import type { CallerRefusal, DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import type { ArtifactReference, InstantiationLimits, ProgramRule, ProgramVerificationLimits, ProgramSite, ProgramVerificationStop } from "./work-data.js";
 import type { ProgramIndex, ProgramInitialization } from "./data.js";
 export type { ArtifactReference, InstantiationLimits, ProgramVerificationLimits, ProgramRule, ProgramSite, SummaryArtifactReference } from "./work-data.js";
@@ -30,7 +30,7 @@ export type PublishedBody = {
 
 export interface ModuleBodies {
   readonly module: ModuleId;
-  readonly tree: SourceFile<TypedPhase>;
+  readonly tree: TirChapterTree;
   readonly bodies: readonly PublishedBody[];
 }
 
@@ -58,7 +58,7 @@ export type InstantiationResult =
       readonly maximum: number };
 
 export interface ProgramIdentityImage {
-  readonly treeOf: (source: SourceFile<TypedPhase>) => SourceFile<TypedPhase> | null;
+  readonly treeOf: (source: TirChapterTree) => TirChapterTree | null;
   readonly tirOf: (source: TirBody) => TirBody | null;
   readonly mirOf: (source: MirBody) => MirBody | null;
   readonly factsOf: (source: BodyFacts) => BodyFacts | null;
@@ -67,8 +67,16 @@ export interface ProgramIdentityImage {
   readonly metadataOf: (source: MetadataRecord) => MetadataRecord | null;
   readonly initializationOf: (source: ProgramInitialization) => ProgramInitialization | null;
 }
-export type CanonicalizeProgram = (program: HostProgram, publication: TypePublication, resources: ProgramVerificationWork) =>
-  InstantiationStop | { readonly kind: "complete"; readonly value: HostProgram; readonly image: ProgramIdentityImage };
+export type ProgramPublicationMode =
+  | { readonly kind: "data-only" }
+  | { readonly kind: "with-evidence"; readonly read: (account: DataflowAccount) => DataflowResult<ProgramEvidenceInput> };
+
+export type CanonicalizeProgram = (
+  program: HostProgram, publication: TypePublication, resources: ProgramVerificationWork, mode: ProgramPublicationMode,
+) => InstantiationStop | { readonly kind: "evidence-input-stop"; readonly stop: DataflowStop }
+  | { readonly kind: "complete"; readonly mode: "data-only"; readonly value: HostProgram; readonly image: ProgramIdentityImage }
+  | { readonly kind: "complete"; readonly mode: "with-evidence"; readonly value: HostProgram; readonly image: ProgramIdentityImage;
+      readonly evidence: ProgramEvidence };
 
 export interface ProgramMemberEvidence {
   readonly instance: BodyInstance;
@@ -95,8 +103,6 @@ export interface ProgramEvidence {
   readonly storage: readonly ProgramStaticStorageEvidence[];
 }
 
-export type ProjectProgramEvidence = (input: ProgramEvidenceInput, publication: TypePublication, resources: ProgramVerificationWork) =>
-  InstantiationStop | { readonly kind: "complete"; readonly value: ProgramEvidence };
 export type PrintProgramIndex = (index: ProgramIndex) => string;
 export type ParseProgramIndex = (text: string) => TextParseResult<ProgramIndex>;
 export type PrintModuleBodies = (index: ProgramIndex, module: ModuleBodies) => string;

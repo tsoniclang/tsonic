@@ -1,15 +1,16 @@
 import { orderPragmaArguments } from "../ir-hir/index.js";
-import type { PragmaArgument, PragmaArguments } from "../ir-hir/contract.js";
-import type { TirConstruction, TirConstructionCursor, TirFieldLayout, TirLiteralReader, TirReader, TirRecordConstruction, TirRecordLayout, TirScalarReaders, TirSyntaxFactory, TirSyntaxReader } from "./text-construction.js";
+import { throwInvariant } from "../diag/index.js";
+import type { HirNode, NodeHeader, PragmaArgument, PragmaArguments } from "../ir-hir/contract.js";
+import type { TirConstruction, TirConstructionCursor, TirFieldLayout, TirLiteralReader, TirReader, TirRecordConstruction, TirRecordLayout, TirRoleConstruction, TirRoleSyntaxReader, TirScalarReaders, TirSyntaxFactory, TirSyntaxReader } from "./text-construction.js";
 import { appendConstruction, constructionValue, createScalarReaders, lazyReader, literalReader, mapConstruction, memoSyntaxConstruction, nullableReader, sequenceConstruction, sequenceReader, unionReader } from "./text-construction.js";
 import { createSyntaxReaders } from "./text-syntax-construction.js";
 import type { TirSyntaxReaders } from "./text-syntax-construction.js";
-import type { MemberSelection, TirBody, TirNode } from "./contract.js";
+import type { MemberSelection, TirBody, TirFormal, TirNode, TirTypedSyntax } from "./contract.js";
 import type { ConstructionPartDecision } from "../ir-infer/contract.js";
 import type { BindingVector, TypeEvidence } from "../ir-types/contract.js";
 import type { DefId, LocalId, LocalRef, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 
-export type TirWireNode = TirNode;
+export type TirWireNode = Exclude<TirNode, TirFormal>;
 
 export type { TirFieldLayout, TirRecordLayout } from "./text-construction.js";
 
@@ -23,8 +24,10 @@ export interface TirLayouts {
   readonly literals: ReadonlyMap<string, readonly string[]>;
   readonly numericLiterals: ReadonlySet<string>;
   readonly syntax: ReadonlyMap<string, TirSyntaxReader>;
+  readonly roles: ReadonlyMap<string, TirRoleSyntaxReader>;
   readonly bodyWork: (body: TirBody) => TirTypedRecordWork;
   readonly nodeWork: (node: TirWireNode) => TirTypedRecordWork;
+  readonly roleWork: (node: Exclude<TirTypedSyntax, { readonly kind: "ordinary" }>) => TirTypedRecordWork;
 }
 
 export interface TirValuePath {
@@ -80,7 +83,9 @@ export const withBindingOwner = (work: TirTypedRecordWork, owner: DefId | null):
 export type TirTypedWork = TirTypedRecordWork
   | { readonly kind: "scalar"; readonly type: string; readonly value: TirScalarValue; readonly reference: TirReference | null }
   | { readonly kind: "sequence"; readonly type: string; readonly value: object; readonly length: number; readonly element: (position: number) => TirTypedWork | null }
-  | { readonly kind: "node"; readonly type: string; readonly value: TirWireNode };
+  | { readonly kind: "node"; readonly type: string; readonly value: TirWireNode }
+  | { readonly kind: "role-node"; readonly type: string; readonly value: Exclude<TirTypedSyntax, { readonly kind: "ordinary" }> }
+  | { readonly kind: "checked-node"; readonly type: string; readonly value: HirNode };
 
 export type TirValueWork =
   | { readonly kind: "exit"; readonly value: object }
@@ -89,11 +94,16 @@ export type TirValueWork =
 export type TirPrintValue =
   | { readonly kind: "scalar"; readonly type: string; readonly value: TirScalarValue }
   | { readonly kind: "node"; readonly position: number }
+  | { readonly kind: "checked-node"; readonly node: HirNode }
   | { readonly kind: "sequence"; readonly elements: readonly TirPrintValue[] }
   | { readonly kind: "record"; readonly label: string; readonly fields: readonly TirPrintField[] };
 export interface TirPrintField { readonly name: string; readonly value: TirPrintValue }
 export interface TirPrintedNode { readonly position: number; readonly value: TirPrintValue }
-export interface TirNodeArena { readonly body: TirPrintValue; readonly nodes: readonly TirPrintedNode[] }
+export interface TirNodeArena {
+  readonly body: TirPrintValue;
+  readonly nodes: readonly TirPrintedNode[];
+  readonly checkedRoots: readonly HirNode[];
+}
 
 interface TirArenaPosition { readonly position: number }
 type TirArenaStep =
@@ -106,7 +116,7 @@ type TirArenaStep =
   | { readonly kind: "sequence"; readonly work: TirTypedWork & { readonly kind: "sequence" };
       readonly output: TirPrintValue[]; readonly path: TirValuePath | null; readonly root: string;
       readonly position: number; readonly next: (value: TirPrintValue) => TirArenaStep }
-  | { readonly kind: "node-done"; readonly node: TirWireNode; readonly entry: TirArenaPosition;
+  | { readonly kind: "node-done"; readonly node: TirTypedSyntax["node"]; readonly entry: TirArenaPosition;
       readonly value: TirPrintValue; readonly next: () => TirArenaStep };
 
 export const hostNumberText = (value: number): string => {
@@ -119,6 +129,8 @@ export const hostNumberText = (value: number): string => {
 
 export const indexTirNodes = (body: TirBody, layouts: TirLayouts): TirNodeArena => {
   const nodes: TirPrintedNode[] = [];
+  const checkedRoots: HirNode[] = [];
+  const checkedSeen = new Set<HirNode>();
   const positions = new Map<object, TirArenaPosition>();
   const activeSyntax = new Set<object>();
   const activeInline = new Set<object>();
@@ -134,16 +146,21 @@ export const indexTirNodes = (body: TirBody, layouts: TirLayouts): TirNodeArena 
         const work = current.work;
         switch (work.kind) {
           case "scalar": return current.next({ kind: "scalar", type: work.type, value: work.value });
-          case "node": {
+          case "checked-node": {
+            if (!checkedSeen.has(work.value)) { checkedSeen.add(work.value); checkedRoots.push(work.value); }
+            return current.next({ kind: "checked-node", node: work.value });
+          }
+          case "node": case "role-node": {
             const path = current.root === "$body" ? null : current.path;
-            if (activeSyntax.has(work.value)) throw new TypeError(`ir-tir: syntax cycle at ${tirPathText(path, "$syntax")}`);
-            const known = positions.get(work.value);
+            const node = work.kind === "node" ? work.value : work.value.node;
+            if (activeSyntax.has(node)) throw new TypeError(`ir-tir: syntax cycle at ${tirPathText(path, "$syntax")}`);
+            const known = positions.get(node);
             if (known !== undefined) return current.next({ kind: "node", position: known.position });
             const entry: TirArenaPosition = { position: positions.size };
-            positions.set(work.value, entry);
-            activeSyntax.add(work.value);
-            return { kind: "value", work: layouts.nodeWork(work.value), path, root: "$syntax",
-              next: value => ({ kind: "node-done", node: work.value, entry, value,
+            positions.set(node, entry);
+            activeSyntax.add(node);
+            return { kind: "value", work: work.kind === "node" ? layouts.nodeWork(work.value) : layouts.roleWork(work.value), path, root: "$syntax",
+              next: value => ({ kind: "node-done", node, entry, value,
                 next: () => current.next({ kind: "node", position: entry.position }) }) };
           }
           case "sequence":
@@ -182,7 +199,7 @@ export const indexTirNodes = (body: TirBody, layouts: TirLayouts): TirNodeArena 
     }
   };
   while (step.kind !== "done") step = advance(step);
-  return { body: step.value, nodes: nodes.sort((left, right) => left.position - right.position) };
+  return { body: step.value, nodes: nodes.sort((left, right) => left.position - right.position), checkedRoots };
 };
 
 interface TirTypedField<T> extends TirFieldLayout { readonly read: (value: T) => TirTypedWork }
@@ -197,7 +214,14 @@ export const referenceWork = (...[type, value]: ["n", NodeId] | ["l", LocalId] |
     case "sig": return { kind: "scalar", type, value, reference: { prefix: type, value } };
   }
 };
-export const syntaxReference = (type: string, value: TirWireNode): TirTypedWork => ({ kind: "node", type, value });
+export const syntaxReference = (type: string, value: TirNode): TirTypedWork =>
+  value.kind === "Parameter"
+    ? throwInvariant({ owner: "ir-tir", query: null, origin: value.origin,
+      message: "A Typed formal cannot be used as an ordinary syntax reference." })
+    : { kind: "node", type, value };
+export const roleSyntaxReference = (type: string, value: Exclude<TirTypedSyntax, { readonly kind: "ordinary" }>): TirTypedWork =>
+  ({ kind: "role-node", type, value });
+export const checkedSyntaxReference = (type: string, value: HirNode): TirTypedWork => ({ kind: "checked-node", type, value });
 export const nullableWork = <T>(value: T | null, read: (value: T) => TirTypedWork): TirTypedWork =>
   value === null ? scalarWork("null", null) : read(value);
 export const sequenceWork = <T>(type: string, value: readonly T[], read: (value: T) => TirTypedWork): TirTypedWork =>
@@ -210,7 +234,8 @@ export interface TirRecordCodec<Value> {
   readonly write: (value: Value) => TirTypedRecordWork;
   readonly reader: TirReader<Value>;
 }
-type TirSyntaxHeaderValues = readonly [TirNode["id"], TirNode["origin"], TirNode["parent"], TirNode["flags"], TirNode["loc"]];
+export type TirSyntaxHeaderValues = readonly [NodeHeader["id"], NodeHeader["origin"], NodeHeader["parent"], NodeHeader["flags"], NodeHeader["loc"]];
+type TirSyntaxHeader = NodeHeader & { readonly kind: string };
 
 interface TirFieldChain<Value, Values extends readonly unknown[]> {
   readonly fields: readonly TirTypedField<Value>[];
@@ -226,7 +251,7 @@ export interface TirRecordFields<Value, Values extends readonly unknown[]> {
   readonly finish: (make: (...values: Values) => Value) => TirRecordCodec<Value>;
 }
 
-export interface TirSyntaxFields<Value extends TirNode, Values extends readonly unknown[]> {
+export interface TirSyntaxFields<Value extends TirSyntaxHeader, Values extends readonly unknown[]> {
   readonly syntaxHeader: (origin: TirRecordCodec<TirNode["origin"]>, loc: TirRecordCodec<TirNode["loc"]>) =>
     TirSyntaxFields<Value, readonly [...Values, ...TirSyntaxHeaderValues]>;
   readonly field: <Field>(name: string, type: string, read: (value: Value) => TirTypedWork,
@@ -235,10 +260,13 @@ export interface TirSyntaxFields<Value extends TirNode, Values extends readonly 
     reader: TirLiteralReader<Value["kind"]>) => TirSyntaxFields<Value, Values>;
   readonly finishSyntax: (make: <Kind extends Value["kind"]>(kind: Kind, ...values: Values) => Value & { readonly kind: Kind },
     offer: TirSyntaxFactory<Value>) => (value: Value) => TirTypedRecordWork;
+  readonly finishRole: (make: (...values: Values) => Value,
+    offer: (value: TirConstruction<Value>) => TirRoleConstruction) => (value: Value) => TirTypedRecordWork;
 }
 
 export interface TirTextKernel extends TirScalarReaders {
   readonly syntax: ReadonlyMap<string, TirSyntaxReader>;
+  readonly roles: ReadonlyMap<string, TirRoleSyntaxReader>;
   readonly syntaxReads: TirSyntaxReaders;
   readonly literals: ReadonlyMap<string, readonly string[]>;
   readonly numericLiterals: ReadonlySet<string>;
@@ -249,6 +277,8 @@ export interface TirTextKernel extends TirScalarReaders {
   readonly defineSyntaxRecord: <Value extends TirNode>(label: string, discriminant: TirDiscriminant | null,
     wireLabel: string | ((value: Value) => string), syntax: (value: Value) => TirWireNode,
     association: ((value: Value) => TirRecordAssociation) | null,
+    fields: (value: TirSyntaxFields<Value, readonly []>) => (value: Value) => TirTypedRecordWork) => (value: Value) => TirTypedRecordWork;
+  readonly defineRoleRecord: <Value extends TirSyntaxHeader>(label: TirRoleConstruction["kind"],
     fields: (value: TirSyntaxFields<Value, readonly []>) => (value: Value) => TirTypedRecordWork) => (value: Value) => TirTypedRecordWork;
   readonly pragmaArguments: (read: (value: PragmaArgument) => TirTypedWork,
     reader: TirReader<PragmaArgument>) => TirRecordCodec<PragmaArguments>;
@@ -281,6 +311,7 @@ const startRecord = <Values extends readonly unknown[]>(chain: TirFieldChain<obj
 export const createTirTextKernel = (): TirTextKernel => {
   const scalars = createScalarReaders();
   const syntax = new Map<string, TirSyntaxReader>();
+  const roles = new Map<string, TirRoleSyntaxReader>();
   const literals = new Map<string, readonly string[]>();
   const numericLiterals = new Set<string>();
   const register = (reader: TirReader<unknown>): void => {
@@ -327,10 +358,12 @@ export const createTirTextKernel = (): TirTextKernel => {
     });
     return fields(build(initial(), wireLabel, syntaxOf, association));
   };
-  const defineSyntaxRecord: TirTextKernel["defineSyntaxRecord"] =
-    (label, discriminant, wireLabel, syntaxOf, association, fields) => {
-      const build = <Value extends TirNode, Values extends readonly unknown[]>(chain: TirFieldChain<Value, Values>,
-        actualWireLabel: string | ((value: Value) => string), actualSyntax: (value: Value) => TirWireNode,
+  const defineSyntax = <Source extends TirSyntaxHeader>(label: string, discriminant: TirDiscriminant | null,
+    wireLabel: string | ((value: Source) => string), syntaxOf: ((value: Source) => TirWireNode) | null,
+    association: ((value: Source) => TirRecordAssociation) | null,
+    fields: (view: TirSyntaxFields<Source, readonly []>) => (value: Source) => TirTypedRecordWork): ((value: Source) => TirTypedRecordWork) => {
+      const build = <Value extends TirSyntaxHeader, Values extends readonly unknown[]>(chain: TirFieldChain<Value, Values>,
+        actualWireLabel: string | ((value: Value) => string), actualSyntax: ((value: Value) => TirWireNode) | null,
         actualAssociation: ((value: Value) => TirRecordAssociation) | null,
         kinds: readonly Value["kind"][],
       ): TirSyntaxFields<Value, Values> => ({
@@ -367,9 +400,17 @@ export const createTirTextKernel = (): TirTextKernel => {
               actual => memoSyntaxConstruction(mapConstruction(values, fields => make(actual, ...fields)))))) });
           return project(label, layout, actualWireLabel, actualSyntax, actualAssociation, chain.fields);
         },
+        finishRole: (make, offer) => {
+          const layout = describe(label, discriminant, actualWireLabel, chain);
+          roles.set(label, { start: accept => startRecord({ ...chain, fields: [] },
+            values => accept(offer(memoSyntaxConstruction(mapConstruction(values, fields => make(...fields)))))) });
+          return project(label, layout, actualWireLabel, actualSyntax, actualAssociation, chain.fields);
+        },
       });
       return fields(build(initial(), wireLabel, syntaxOf, association, []));
     };
+  const defineSyntaxRecord: TirTextKernel["defineSyntaxRecord"] = defineSyntax;
+  const defineRoleRecord: TirTextKernel["defineRoleRecord"] = (label, fields) => defineSyntax(label, null, label, null, null, fields);
   const pragmaArguments: TirTextKernel["pragmaArguments"] = (read, reader) => {
     const name = "PragmaArguments";
     const type = "PragmaArgument";
@@ -392,10 +433,11 @@ export const createTirTextKernel = (): TirTextKernel => {
       fields: () => orderPragmaArguments(value)
         .map(field => ({ name: field.name, work: read(field.value) })) }), reader: entriesReader };
   };
-  return { ...scalars, syntax, syntaxReads: createSyntaxReaders(), literals, numericLiterals, defineRecord, defineSyntaxRecord, pragmaArguments };
+  return { ...scalars, syntax, roles, syntaxReads: createSyntaxReaders(), literals, numericLiterals,
+    defineRecord, defineSyntaxRecord, defineRoleRecord, pragmaArguments };
 };
 
 export const finishTirLayouts = (kernel: TirTextKernel, bodyWork: TirRecordCodec<TirBody>,
-  nodeWork: (node: TirWireNode) => TirTypedRecordWork): TirLayouts =>
-  ({ literals: kernel.literals, numericLiterals: kernel.numericLiterals, syntax: kernel.syntax,
-    bodyWork: bodyWork.write, bodyReader: bodyWork.reader, nodeWork });
+  nodeWork: (node: TirWireNode) => TirTypedRecordWork, roleWork: TirLayouts["roleWork"]): TirLayouts =>
+  ({ literals: kernel.literals, numericLiterals: kernel.numericLiterals, syntax: kernel.syntax, roles: kernel.roles,
+    bodyWork: bodyWork.write, bodyReader: bodyWork.reader, nodeWork, roleWork });

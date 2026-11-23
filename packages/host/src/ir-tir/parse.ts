@@ -1,11 +1,13 @@
 import type { ParseTir, TirBody } from "./contract.js";
+import type { CheckedWireImage, CheckedWireRequest } from "../ir-hir/contract.js";
+import { parseCheckedDeclarations } from "../ir-hir/index.js";
 import {
   decodeBodyId, decodeDefId, decodeModuleId, encodeBodyId, encodeDefId, encodeModuleId,
   expansionId, localId, nodeId, sigId, tyId,
 } from "../ids/index.js";
 import { requirePresent } from "../diag/index.js";
 import type { TirLayouts, TirScalarValue } from "./text-layouts.js";
-import type { TirConstruction, TirConstructionCursor, TirRecordConstruction, TirIdentityInput, TirSequenceConstruction, TirSyntaxConstruction, TirValueRequest } from "./text-construction.js";
+import type { TirConstruction, TirConstructionCursor, TirRecordConstruction, TirIdentityInput, TirSequenceConstruction, TirWireConstruction, TirValueRequest } from "./text-construction.js";
 import { hostNumberText } from "./text-layouts.js";
 import { createTirLayouts } from "./text-model.js";
 
@@ -31,13 +33,14 @@ type TirIdentityPrefix = "n" | "l" | "t" | "sig" | "mod" | "def" | "body" | "exp
 
 interface TirWireRecord {
   readonly ordinal: number;
-  declaration: { readonly construction: TirSyntaxConstruction; readonly offset: number } | null;
+  declaration: { readonly construction: TirWireConstruction; readonly offset: number } | null;
+  functionHasBody: boolean;
   readonly children: TirWireUse[];
 }
 
 interface TirWireBinding {
   readonly type: string;
-  readonly bind: (value: TirSyntaxConstruction) => boolean;
+  readonly bind: (value: TirWireConstruction, functionHasBody: boolean) => boolean;
 }
 
 interface TirWireUse {
@@ -56,6 +59,7 @@ interface TirReadState {
   readonly references: TirWireUse[];
   readonly declarations: TirWireRecord[];
   readonly declared: Set<number>;
+  readonly checkedRoots: { readonly request: CheckedWireRequest; readonly bind: (image: CheckedWireImage) => void }[];
   position: number;
   token: TirToken | null;
   failure: TirParseFailure | null;
@@ -271,7 +275,7 @@ const takeToken = (state: TirReadState, field: TirFieldNameRead | null = null): 
   return token;
 };
 
-const expectToken = (state: TirReadState, expected: "n" | ":" | "(" | "="): TirLexeme | TirParseFailure => {
+const expectToken = (state: TirReadState, expected: "n" | "TypedDeclarations" | ":" | "(" | "="): TirLexeme | TirParseFailure => {
   const start = tokenHead(state);
   if (start.found !== expected) return invalid(start.offset, [expected], start.found);
   state.token = null;
@@ -329,6 +333,7 @@ interface TirRecordFrame {
   readonly kind: "record";
   readonly destination: TirDestination;
   readonly arena: TirWireRecord | null;
+  readonly definitionKind: string | null;
   readonly given: Set<string>;
   previous: string | null;
   choices: readonly TirRecordChoice[];
@@ -345,7 +350,7 @@ interface TirValueRead {
   readonly kind: "read";
   readonly requests: readonly TirReadRequest[];
   readonly destination: TirDestination;
-  readonly definition: ((value: TirSyntaxConstruction) => void) | null;
+  readonly definition: ((value: TirWireConstruction) => void) | null;
   readonly arena: TirWireRecord | null;
 }
 interface TirCompleteValue { readonly kind: "complete"; readonly end: number }
@@ -393,7 +398,7 @@ const prefixFailure = (state: TirReadState, types: readonly string[]): TirParseF
 const wireRecord = (state: TirReadState, ordinal: number): TirWireRecord => {
   const found = state.nodes.get(ordinal);
   if (found !== undefined) return found;
-  const created: TirWireRecord = { ordinal, declaration: null, children: [] };
+  const created: TirWireRecord = { ordinal, declaration: null, functionHasBody: false, children: [] };
   state.nodes.set(ordinal, created);
   return created;
 };
@@ -414,6 +419,9 @@ const readSchemaValue = (state: TirReadState, initial: TirValueRead): TirComplet
       const token = takeToken(state);
       if (token.kind === "invalid") return token;
       if (token.kind === "end") return invalid(token.offset, ["value"], null);
+      const destination = current.destination;
+      if (destination.kind === "field" && destination.name === "body" && destination.frame.definitionKind === "FunctionDeclaration"
+        && current.arena !== null) current.arena.functionHasBody = token.text !== "null";
       if (token.kind === "scalar") {
         const accepted = current.requests.filter(value => value.kind === "scalar" &&
           value.read(token.value));
@@ -429,10 +437,11 @@ const readSchemaValue = (state: TirReadState, initial: TirValueRead): TirComplet
         continue;
       }
       if (token.kind !== "word") return invalid(token.offset, expectedTypes(types), token.text);
-      const identityTypes = types.filter(type => baseType(type) === token.text ||
-        current.definition === null && baseType(type).startsWith("$") && token.text === "n");
-      const prefix = identityPrefix(token.text);
-      const numeric = prefix === "n" || prefix === "l" || prefix === "t" || prefix === "sig";
+      const identityTypes = current.requests.filter(request => baseType(request.type) === token.text
+        || token.text === "n" && request.kind === "syntax"
+        || token.text === "c" && request.kind === "checked-syntax").map(request => request.type);
+      const prefix = token.text === "c" ? "c" : identityPrefix(token.text);
+      const numeric = prefix === "c" || prefix === "n" || prefix === "l" || prefix === "t" || prefix === "sig";
       if (identityTypes.length > 0 && prefix !== null) {
         const colon = expectToken(state, ":");
         if (colon.kind === "invalid") return colon;
@@ -441,15 +450,21 @@ const readSchemaValue = (state: TirReadState, initial: TirValueRead): TirComplet
         const value = takeToken(state);
         if (value.kind === "invalid") return value;
         const accepted: TirReadRequest[] = [];
-        if (prefix === "n" || prefix === "l" || prefix === "t" || prefix === "sig") {
+        if (prefix === "c" || prefix === "n" || prefix === "l" || prefix === "t" || prefix === "sig") {
           if (value.kind !== "scalar" || typeof value.value !== "number") {
             return invalid(value.offset, ["identity number"], tokenFound(value));
           }
+          const ordinal = value.value;
+          const validOrdinal = Number.isSafeInteger(ordinal) && ordinal >= 0 && !Object.is(ordinal, -0);
           const bindings: TirWireBinding[] = [];
           for (const source of current.requests) {
             const request = source;
-            if (request.kind === "syntax" && prefix === "n" && Number.isSafeInteger(value.value) && value.value >= 0 && !Object.is(value.value, -0)) {
-              bindings.push({ type: request.type, bind: request.reference(value.value) });
+            if (request.kind === "syntax" && prefix === "n" && validOrdinal) {
+              const bind = request.reference(ordinal);
+              bindings.push({ type: request.type, bind: (candidate, bodyPresent) => !(request.bodylessFunction && bodyPresent) && bind(candidate) });
+              accepted.push(source);
+            } else if (request.kind === "checked-syntax" && prefix === "c" && validOrdinal) {
+              state.checkedRoots.push({ request: { role: request.role, ordinal, offset: token.offset }, bind: request.reference(ordinal) });
               accepted.push(source);
             } else if (request.kind === "n" && prefix === "n") {
               request.read(nodeId(value.value)); accepted.push(source);
@@ -495,6 +510,8 @@ const readSchemaValue = (state: TirReadState, initial: TirValueRead): TirComplet
       if (current.definition !== null) {
         const layout = state.layouts.syntax.get(token.text);
         if (layout !== undefined) choices.push({ source: null, construction: layout.start(current.definition) });
+        const role = state.layouts.roles.get(token.text);
+        if (role !== undefined) choices.push({ source: null, construction: role.start(current.definition) });
       } else for (const source of current.requests) if (source.kind === "record") {
         for (const construction of source.records(token.text)) choices.push({ source, construction });
       }
@@ -502,7 +519,7 @@ const readSchemaValue = (state: TirReadState, initial: TirValueRead): TirComplet
       const opening = expectToken(state, "(");
       if (opening.kind === "invalid") return opening;
       work = { kind: "record", choices, destination: current.destination, state: "start", arena: current.arena,
-        given: new Set<string>(), previous: null };
+        definitionKind: current.definition === null ? null : token.text, given: new Set<string>(), previous: null };
       continue;
     }
     if (current.kind === "array" && current.state === "start") {
@@ -603,7 +620,7 @@ const verifyWireReferences = (state: TirReadState): void => {
       earlierFailure(state, invalid(use.token.offset, ["declared syntax node"], use.token.text));
     } else {
       let accepted = false;
-      for (const binding of bindings) if (binding.bind(declaration.construction)) accepted = true;
+      for (const binding of bindings) if (binding.bind(declaration.construction, use.target.functionHasBody)) accepted = true;
       if (!accepted) earlierFailure(state, invalid(use.token.offset,
         [...new Set(bindings.map(binding => baseType(binding.type).slice(1)))], use.token.text));
     }
@@ -647,10 +664,40 @@ const constructTirBody = (state: TirReadState, accept: (value: TirConstruction<T
   if (first.kind !== "word" || first.text !== "TirBody") return false;
   const header = readSchemaValue(state, { kind: "read", requests: state.layouts.bodyReader.requests(accept), destination: { kind: "root" }, definition: null, arena: null });
   if (header.kind === "invalid") { state.failure = header; return false; }
-  let previousEnd = header.end;
+  const checkedStart = tokenHead(state);
+  if (!state.text.slice(header.end, checkedStart.offset).includes("\n")) {
+    state.failure = invalid(checkedStart.offset, ["newline"], checkedStart.found);
+    return false;
+  }
+  const checked = parseCheckedDeclarations(state.text, checkedStart.offset);
+  if (checked.kind === "invalid-text") {
+    state.failure = invalid(checked.offset, checked.expected, checked.found);
+    return false;
+  }
+  state.position = checked.value.end;
+  const typedStart = tokenHead(state);
+  if (!state.text.slice(checked.value.end, typedStart.offset).includes("\n")) {
+    state.failure = invalid(typedStart.offset, ["newline"], typedStart.found);
+    return false;
+  }
+  const typed = expectToken(state, "TypedDeclarations");
+  if (typed.kind === "invalid") { state.failure = typed; return false; }
+  const typedOpen = expectToken(state, "(");
+  if (typedOpen.kind === "invalid") { state.failure = typedOpen; return false; }
+  let previousEnd = typedOpen.end;
   while (true) {
     const start = tokenHead(state);
-    if (start.found === null) break;
+    if (start.found === ")") {
+      takeToken(state);
+      const end = peekToken(state);
+      if (end.kind === "invalid") state.failure = end;
+      else if (end.kind !== "end") state.failure = invalid(end.offset, ["end of text"], end.text);
+      break;
+    }
+    if (start.found === null) {
+      state.failure = invalid(start.offset, [")"], null);
+      break;
+    }
     if (!state.text.slice(previousEnd, start.offset).includes("\n")) {
       state.failure = invalid(start.offset, ["newline"], start.found);
       break;
@@ -688,14 +735,22 @@ const constructTirBody = (state: TirReadState, accept: (value: TirConstruction<T
     if (node.kind === "invalid") { state.failure = node; break; }
     previousEnd = node.end;
   }
-  if (state.failure === null) verifyWireReferences(state);
+  if (state.failure !== null) return false;
+  verifyWireReferences(state);
+  const admittedChecked = checked.value.finish(state.checkedRoots.map(root => root.request));
+  if (admittedChecked.kind === "invalid-text")
+    earlierFailure(state, invalid(admittedChecked.offset, admittedChecked.expected, admittedChecked.found));
+  else if (state.failure === null) {
+    const image = admittedChecked.value.materialize();
+    for (const root of state.checkedRoots) root.bind(image);
+  }
   return state.failure === null;
 };
 
 export const parseTypedBody: ParseTir = text => {
   let body: TirConstruction<TirBody> | undefined;
   const state: TirReadState = { text, layouts: createTirLayouts(), nodes: new Map(), references: [], declarations: [],
-    declared: new Set(), position: 0, token: null, failure: null, first: { kind: "end", offset: 0 } };
+    declared: new Set(), checkedRoots: [], position: 0, token: null, failure: null, first: { kind: "end", offset: 0 } };
   if (constructTirBody(state, value => { body = value; })) {
     const plan = requirePresent(body, { owner: "ir-tir", query: { name: "text.body-construction", encodedKey: "TirBody" },
       origin: null, message: "validated text has no typed body construction" });

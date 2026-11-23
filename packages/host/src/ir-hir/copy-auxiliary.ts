@@ -9,13 +9,30 @@ import type {
   JSDocPrivateTag, JSDocProtectedTag, JSDocReadonlyTag, JSDocOverrideTag, JSDocDeprecatedTag,
   JSDocSeeTag, JSDocImplementsTag, JSDocAugmentsTag, JSDocSatisfiesTag, JSDocThrowsTag,
   JSDocThisTag, JSDocImportTag, JSDocCallbackTag, JSDocOverloadTag, JSDocTypedefTag,
-  JSDocSignature, JSDocNameReference, SourceFile, ModuleDeclaration, ImportEqualsDeclaration,
+  JSDocSignature, JSDocNameReference, SourceFile, SourceFileHeader, ModuleDeclaration, ImportEqualsDeclaration,
   ExportDeclaration, ImportTypeNode, ImportClause, ImportSpecifier, JSDocText,
   JSDocLink, JSDocLinkPlain, JSDocLinkCode, JSDocTypeLiteral, JSDocParameterOrPropertyTag,
-  Phase, SyntaxPhaseCopy,
+  NodeList, Phase, Statement, SyntaxPhaseCopy,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+
+export function copySourceFileHeader<P extends Phase, Statements>(
+  node: SourceFileHeader<P>, statements: () => Statements, tsonic: P["SourceFile"],
+): SourceFileHeader<P> & { readonly statements: Statements } {
+  return {
+    ...syntaxHeader(node),
+    kind: node.kind,
+    statements: statements(),
+    endOfFileToken: node.endOfFileToken,
+    languageVariant: node.languageVariant,
+    scriptKind: node.scriptKind,
+    commentDirectives: node.commentDirectives,
+    pragmas: node.pragmas,
+    checkJsDirective: node.checkJsDirective,
+    tsonic,
+  };
+}
 
 export interface AuxiliaryPlans<P extends Phase, Stop, Image> {
   readonly ImportDeclaration: (node: ImportDeclaration<P>) => SyntaxPlan<ImportDeclaration<P>, Stop, Image>;
@@ -525,18 +542,9 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       name: ports().EntityName(node.name).read(),
       tsonic,
     }))),
-    SourceFile: node => memoSyntaxPlan(SourceFile, node, () => withSyntaxPayload(phase.SourceFile, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      statements: copyNodeList(node.statements, item => ports().Statement(item).read()),
-      endOfFileToken: node.endOfFileToken,
-      languageVariant: node.languageVariant,
-      scriptKind: node.scriptKind,
-      commentDirectives: node.commentDirectives,
-      pragmas: node.pragmas,
-      checkJsDirective: node.checkJsDirective,
-      tsonic,
-    }))),
+    SourceFile: node => memoSyntaxPlan(SourceFile, node, () => withSyntaxPayload(phase.SourceFile, node.tsonic, tsonic =>
+      copySourceFileHeader<P, NodeList<Statement<P>>>(node,
+        () => copyNodeList(node.statements, item => ports().Statement(item).read()), tsonic))),
     ModuleDeclaration: node => memoSyntaxPlan(ModuleDeclaration, node, () => withSyntaxPayload(phase.ModuleDeclaration, node.tsonic, tsonic => ({
       ...syntaxHeader(node),
       kind: node.kind,

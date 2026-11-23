@@ -152,7 +152,7 @@ function verifySourceInventory(
     ];
     for (const [actual, expected, rule] of inventories) if (actual !== expected)
       violations.push({ rule, site: { kind: "module", module: record.module }, detail: [textDetail("checked-module-inventory-exact")] });
-    const nodes = indexSyntaxTree(input.module.tree);
+    const nodes = indexSyntaxTree(input.source.tree);
     nodeCounts.set(record.module, nodes.length);
     const byId = uniqueRows(nodes, node => node.id);
     const definitions = uniqueRows(input.source.items, item => item.definition);

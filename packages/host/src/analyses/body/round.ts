@@ -7,7 +7,7 @@ import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundP
 import { admitSummaryIdentity } from "../../ir-facts/index.js";
 import type { MirLocal, MirOperand, MirPlace, MirTerminator } from "../../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
-import type { TirArgument, TirNode } from "../../ir-tir/contract.js";
+import type { TirArgument, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
 import { sameInstance } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } from "./contract.js";
 import type { CallError } from "./calls.js";
@@ -28,7 +28,7 @@ import { collectCellWrites, recordCaptureWrite, recordCellWrite } from "./writes
 import { collectRetainedValues, retainCallCaptures, retainValue } from "./exits.js";
 import type { ValueEscape, ValueRetention } from "./exits.js";
 
-function operandSite(node: TirNode | undefined, position: number, dispatch: boolean): TirNode | undefined {
+function operandSite(node: TirSyntaxOccurrence | undefined, position: number, dispatch: boolean): TirSyntaxOccurrence | undefined {
   if (dispatch) {
     switch (node?.kind) {
       case "IfStatement": case "WhileStatement": case "DoStatement": case "SwitchStatement": return node.expression;
@@ -377,7 +377,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     causalNeed ??= cause;
     return true;
   };
-  const read = (operand: MirOperand, site: TirNode | NodeId | undefined, assigned: AssignedState, point: MirPoint): DataflowStop | null => {
+  const read = (operand: MirOperand, site: TirSyntaxOccurrence | NodeId | undefined, assigned: AssignedState, point: MirPoint): DataflowStop | null => {
     const admission = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
     if (admission !== null) return admission;
     if (operand.kind === "constant") return null;

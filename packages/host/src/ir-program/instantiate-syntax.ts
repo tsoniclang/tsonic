@@ -1,13 +1,14 @@
-import type { SyntaxCopyResult, SyntaxImage, SyntaxNode, SyntaxPhaseCopy, SyntaxRootSlot } from "../ir-hir/contract.js";
+import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, SyntaxCopyResult,
+  SyntaxNode, SyntaxPhaseCopy } from "../ir-hir/contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
-import { beginSyntaxCopy, walkSyntaxForest } from "../ir-hir/index.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
+import { prepareBinaryStructure, prepareBlockStructure } from "../ir-hir/index.js";
+import type { TirChapterSyntax, TirModuleRoot, TirModuleStatement, TirTypedSyntax, TypedPhase } from "../ir-tir/contract.js";
 import type { ProjectionInventory } from "./program-values.js";
 import type { InstantiationStop } from "./work.js";
 import { drainProjectionInventory, inventoryFields, inventoryRecord } from "./program-values.js";
 import { chargeInstantiationWork } from "./work.js";
-import type { SyntaxInventory } from "./syntax-arena.js";
-import type { AdmittedTirSyntax } from "./instantiate-tir.js";
+import type { ChapterRootSlot, PreparedChapterNodeCopy } from "./syntax-arena.js";
+import { prepareChapterNodeCopy } from "./syntax-arena.js";
 
 function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>): InstantiationStop | null {
   switch (node.kind) {
@@ -221,8 +222,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "NoSubstitutionTemplateLiteral":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "BinaryExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "PrefixUnaryExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "PostfixUnaryExpression":
@@ -529,34 +529,49 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
   }
 }
 
-export interface PreparedTypedSyntax {
-  readonly syntax: SyntaxInventory;
-  readonly materialize: (image: TypeReferenceRewrite) => SyntaxCopyResult<SyntaxImage<TypedPhase>, InstantiationStop>;
+export function prepareTypedStructure(scan: ProjectionInventory, node: Block<TypedPhase> | BinaryExpression<TypedPhase>,
+  ordinal: number): SyntaxCopyResult<BlockSyntaxReceipt<TypedPhase> | BinarySyntaxReceipt<TypedPhase>, InstantiationStop> {
+  const header = admitSyntaxHeader(scan, node) ?? inventoryRecord(scan, 0);
+  if (header !== null) return { kind: "refused", stop: header };
+  return node.kind === "Block" ? { kind: "copied", value: prepareBlockStructure<TypedPhase>(node, ordinal) }
+    : prepareBinaryStructure<TypedPhase, InstantiationStop>(node, ordinal, () => inventoryRecord(scan, 2));
 }
 
-export function inventoryBodySyntax(
-  scan: ProjectionInventory, roots: AdmittedTirSyntax, phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>,
-): { readonly kind: "complete"; readonly value: PreparedTypedSyntax } | InstantiationStop {
-  function* slots(): Generator<SyntaxRootSlot<TypedPhase>> {
-    yield { read: () => roots.root, path: "Instantiation.root" };
-    for (const [index, parameter] of roots.params.entries())
-      yield { read: () => parameter, path: "Instantiation.params[" + index + "]" };
-  }
-  return prepareTypedForest(scan, slots(), phase);
+type NamedSyntax = Extract<TirChapterSyntax, { readonly kind: "module-root" | "ready-callable" | "checked" }>;
+
+interface TypedChapterRoles {
+  readonly prepare: (subject: NamedSyntax, ordinal: number) => InstantiationStop | null;
+  readonly statement: (module: TirModuleRoot, statement: TirModuleStatement) => void;
+  readonly close: (subject: Extract<TirTypedSyntax, { readonly kind: "module-root" | "ready-callable" }>) => void;
 }
 
-export function prepareTypedForest(
-  scan: ProjectionInventory, slots: Iterable<SyntaxRootSlot<TypedPhase>>,
-  phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>,
-): { readonly kind: "complete"; readonly value: PreparedTypedSyntax } | InstantiationStop {
-  const cursor = beginSyntaxCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>(phase, node => admitSyntaxHeader(scan, node));
-  const traversal = walkSyntaxForest<TypedPhase, InstantiationStop>(slots, {
+export function prepareTypedNodeCopy(scan: ProjectionInventory, roots: Iterable<ChapterRootSlot>,
+  phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>, roles: TypedChapterRoles,
+): SyntaxCopyResult<PreparedChapterNodeCopy<TypeReferenceRewrite, InstantiationStop>, InstantiationStop> {
+  const setup = inventoryRecord(scan, 0);
+  if (setup !== null) return { kind: "refused", stop: setup };
+  let position = 0;
+  let shape: BlockSyntaxReceipt<TypedPhase> | BinarySyntaxReceipt<TypedPhase> | null = null;
+  return prepareChapterNodeCopy<TypeReferenceRewrite, InstantiationStop>(roots, phase, node => {
+    if (node.kind !== "Block" && node.kind !== "BinaryExpression") return admitSyntaxHeader(scan, node);
+    const result = prepareTypedStructure(scan, node, position);
+    if (result.kind === "refused") return result.stop;
+    shape = result.value;
+    return null;
+  }, {
     root: () => null,
     edge: () => chargeInstantiationWork(scan.meter),
-    node: node => cursor.prepare(node) ?? drainProjectionInventory(scan),
+    formal: () => inventoryRecord(scan, 0),
+    statement: roles.statement,
+    close: subject => {
+      if (subject.kind === "module-root" || subject.kind === "ready-callable") roles.close(subject);
+    },
+    prepare: (subject, ordinal, copy) => {
+      position = ordinal;
+      shape = null;
+      const stop = (subject.kind === "ordinary" || subject.kind === "formal"
+        ? copy(subject.node) : roles.prepare(subject, ordinal)) ?? drainProjectionInventory(scan);
+      return stop === null ? { kind: "copied", value: shape } : { kind: "refused", stop };
+    },
   });
-  return traversal.kind === "complete" ? { kind: "complete", value: {
-    syntax: traversal.value,
-    materialize: image => cursor.materialize(traversal.value, image),
-  } } : traversal;
 }

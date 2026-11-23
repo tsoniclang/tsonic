@@ -1,10 +1,11 @@
 import type { DefId, BodyId, ItemNodeRef, NodeId, LocalId, TyId, SigId, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { BindingVector, ArtifactBindings, BodyInstance, TypeEvidence } from "../ir-types/contract.js";
-import type { BodyRoot, ImportTarget, HirLexicalScope, ParameterDeclaration } from "../ir-hir/contract.js";
+import type { ImportTarget, HirLexicalScope } from "../ir-hir/contract.js";
 import type { BodyCaptureRow, FlowRole, EmbeddingDecision, MemberDecision, ApplicationDecision, OperationDecision, OperationIdentity, DeferredDecision, RefinementDecision } from "../ir-infer/contract.js";
-import type { BackedConversionIdentity, ConversionIdentity, TypedOperationOf, TypedOperation, TirResolution, ResolvedCallee, MemberSelection, TirArgument, TirRestPart, TirApplication, TirProtocolStep, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedValue, TargetAccess, TypedPhase, TirLocal, TirBody } from "../ir-tir/contract.js";
+import type { BackedConversionIdentity, ConversionIdentity, TypedOperationOf, TypedOperation, TirResolution, ResolvedCallee, MemberSelection, TirArgument, TirRestPart, TirApplication, TirProtocolStep, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedValue, TargetAccess, TirLocal, TirBody } from "../ir-tir/contract.js";
 import type { Cursor, RecordFields, TextReader, TextStep } from "./parse-values.js";
-import type { SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
+import type { TirBodyRoot, TirFormal } from "../ir-tir/contract.js";
+import type { ChapterReadPorts, SyntaxValue } from "./parse-syntax-values.js";
 import { delimiter, readString, readNumber, choice, readBoolean, readStringChoice, readSignatureId, openRecord, closeRecord, readDefinitionId, readBodyId, readTypeId, readNodeId, readLocalId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeEvidenceText, readBindings, readArtifactBindings, readInstance } from "./parse-types.js";
 import { readItemNodeRef, readSourceNodeRef, readLocalRef } from "./parse-diagnostics.js";
@@ -285,7 +286,7 @@ export function readTirLocalText<Root>(cursor: Cursor, finish: (value: TirLocal)
                     acceptText({ id: idValue, declaration: declarationValue, name: nameValue, role: roleValue, capturedFrom: capturedFromValue, mutable: mutableValue, storage: storageValue }, finish))))))))));
 }
 
-export function readTirBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, finish: (value: SyntaxValue<TirBody>) => TextStep<Root>): TextStep<Root> {
+export function readTirBodyText<Root>(cursor: Cursor, chapter: ChapterReadPorts, finish: (value: SyntaxValue<TirBody>) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TirBody"), fields =>
     fieldText<BodyId, Root>(cursor, fields, "body", (next, done) => atomicText(next, readBodyId, done), bodyValue =>
     fieldText<DefId, Root>(cursor, fields, "owner", (next, done) => atomicText(next, readDefinitionId, done), ownerValue =>
@@ -296,9 +297,9 @@ export function readTirBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, fi
     fieldText<TyId, Root>(cursor, fields, "completion", (next, done) => atomicText(next, readTypeId, done), completionValue =>
     fieldText<TyId | null, Root>(cursor, fields, "yielded", (next, done) => nullableText(next, (next, done) => atomicText(next, readTypeId, done), done), yieldedValue =>
     fieldText<TyId | null, Root>(cursor, fields, "sent", (next, done) => nullableText(next, (next, done) => atomicText(next, readTypeId, done), done), sentValue =>
-    fieldText<readonly SyntaxValue<ParameterDeclaration<TypedPhase>>[], Root>(cursor, fields, "params", (next, done) => arrayText(next, (current, accept) => readSyntaxReference(current, ports.ParameterDeclaration, accept), done), paramsValue =>
+    fieldText<readonly SyntaxValue<TirFormal>[], Root>(cursor, fields, "params", (next, done) => arrayText(next, (current, accept) => readSyntaxReference(current, chapter.formal, accept), done), paramsValue =>
     fieldText<readonly (TirLocal)[], Root>(cursor, fields, "locals", (next, done) => arrayText(next, readTirLocalText, done), localsValue =>
-    fieldText<SyntaxValue<BodyRoot<TypedPhase>>, Root>(cursor, fields, "root", (next, done) => readSyntaxReference(next, ports.BodyRoot, done), rootValue =>
+    fieldText<SyntaxValue<TirBodyRoot>, Root>(cursor, fields, "root", (next, done) => readSyntaxReference(next, chapter.bodyRoot, done), rootValue =>
     fieldText<readonly (BodyId)[], Root>(cursor, fields, "nestedBodies", (next, done) => arrayText(next, (next, done) => atomicText(next, readBodyId, done), done), nestedBodiesValue =>
     fieldText<readonly (BodyCaptureRow)[], Root>(cursor, fields, "captures", (next, done) => arrayText(next, readBodyCaptureRowText, done), capturesValue =>
     fieldText<readonly (HirLexicalScope)[], Root>(cursor, fields, "scopes", (next, done) => arrayText(next, readHirLexicalScopeText, done), scopesValue =>

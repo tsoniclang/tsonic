@@ -5,7 +5,7 @@ import type * as Hir from "./contract.js";
 
 export type HirConstructionStep =
   | { readonly kind: "next"; readonly next: () => HirConstructionStep }
-  | { readonly kind: "complete"; readonly value: Hir.HirModule };
+  | { readonly kind: "complete" };
 
 export interface HirConstruction<Value> {
   readonly run: (next: (value: Value) => HirConstructionStep) => HirConstructionStep;

@@ -1,20 +1,33 @@
-import type { PlainTokenKind, SyntaxNode, Token } from "../ir-hir/contract.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
-import type { TextParseResult } from "../diag/contract.js";
+import type { CheckedWireImage, CheckedWireRequest, PlainTokenKind, SyntaxNode, Token } from "../ir-hir/contract.js";
+import { parseCheckedDeclarations } from "../ir-hir/index.js";
+import type { TirFormal, TirModuleRoot, TirReadyCallable, TypedPhase } from "../ir-tir/contract.js";
+import type { InvariantFailure, TextParseResult } from "../diag/contract.js";
+import { requirePresent } from "../diag/index.js";
 import type { ModuleBodies } from "./contract.js";
 import type { Cursor, LexicalFault, TextStep } from "./parse-values.js";
 import { atomicText, choice, delimiter, evaluateText, fieldText, invalid, readNull, whitespace } from "./parse-values.js";
-import type { SyntaxDependency, SyntaxReadPorts, SyntaxValue } from "./parse-syntax-values.js";
+import type { ChapterReadPorts, OrdinaryDefinitionKind, SyntaxDependency, SyntaxReadPorts, SyntaxValue, TypedDefinitionKind } from "./parse-syntax-values.js";
 import { finishSyntaxRecord, readSyntaxRecord, readSyntaxWire } from "./parse-syntax-values.js";
-import { createSyntaxReadPorts } from "./parse-syntax-references.js";
+import { createChapterReadPorts, createSyntaxReadPorts } from "./parse-syntax-references.js";
+import { readModuleRootSyntax } from "./parse-syntax-auxiliary.js";
+import { readReadyCallableSyntax, readTirFormalSyntax } from "./parse-syntax-statements.js";
 
 type SyntaxBuilder = () => void;
 
 interface SyntaxDefinition {
   readonly position: number;
-  readonly kind: SyntaxNode<TypedPhase>["kind"];
+  readonly offset: number;
+  readonly kind: TypedDefinitionKind;
+  readonly functionHasBody: boolean;
   readonly dependencies: readonly SyntaxDependency[];
   readonly construct: SyntaxBuilder;
+}
+
+interface TypedWireNodes {
+  readonly ordinary: Map<number, SyntaxNode<TypedPhase>>;
+  readonly modules: Map<number, TirModuleRoot>;
+  readonly callables: Map<number, TirReadyCallable>;
+  readonly formals: Map<number, TirFormal>;
 }
 
 type SyntaxOrder =
@@ -98,44 +111,58 @@ function referenceFaults(definitions: ReadonlyMap<number, SyntaxDefinition>, dep
   for (const dependency of dependencies) {
     const target = definitions.get(dependency.position);
     if (target === undefined) fault = earlierFault(fault, { offset: dependency.offset, expected: ["declared syntax node"] });
-    else if (!dependency.kinds.includes(target.kind)) fault = earlierFault(fault, { offset: dependency.offset, expected: dependency.expected });
+    else if (!dependency.kinds.includes(target.kind) || dependency.bodylessFunction && target.functionHasBody)
+      fault = earlierFault(fault, { offset: dependency.offset, expected: dependency.expected });
   }
   return fault;
 }
 
 
-function readSyntaxTail(
-  cursor: Cursor,
-  ports: SyntaxReadPorts,
-  nodes: Map<number, SyntaxNode<TypedPhase>>,
-  roots: readonly SyntaxDependency[],
-  selectDependencies: (dependencies: SyntaxDependency[]) => void,
-): TextParseResult<readonly SyntaxDefinition[]> {
+function readTypedDefinition(cursor: Cursor, ports: SyntaxReadPorts, chapter: ChapterReadPorts, nodes: TypedWireNodes,
+  kind: TypedDefinitionKind, position: number, noteBody: () => void): TextParseResult<SyntaxBuilder> {
+  const finish = <Value>(destination: Map<number, Value>) => (value: SyntaxValue<Value>): TextStep<SyntaxBuilder> =>
+    ({ kind: "complete", result: { kind: "parsed", value: () => { destination.set(position, value.resolve()); } } });
+  switch (kind) {
+    case "TirModuleRoot": return evaluateText(readModuleRootSyntax(cursor, ports, chapter, finish(nodes.modules)));
+    case "TirReadyCallable": return evaluateText(readReadyCallableSyntax(cursor, ports, chapter, finish(nodes.callables)));
+    case "TirFormal": return evaluateText(readTirFormalSyntax(cursor, ports, chapter, finish(nodes.formals)));
+    default: return evaluateText(readSyntaxDefinition(cursor, ports, kind, noteBody, finish(nodes.ordinary)));
+  }
+}
+
+function readSyntaxTail(cursor: Cursor, ports: SyntaxReadPorts, chapter: ChapterReadPorts, nodes: TypedWireNodes,
+  selectDependencies: (dependencies: SyntaxDependency[]) => void): TextParseResult<ReadonlyMap<number, SyntaxDefinition>> {
   const definitions = new Map<number, SyntaxDefinition>();
   while (cursor.offset < cursor.text.length) {
     const gap = cursor.offset;
     whitespace(cursor);
-    if (cursor.offset === cursor.text.length) break;
+    if (cursor.text.charAt(cursor.offset) === ")") {
+      cursor.offset += 1;
+      whitespace(cursor);
+      return cursor.offset === cursor.text.length ? { kind: "parsed", value: definitions } : invalid(cursor, cursor.offset, ["end of text"]);
+    }
     if (!cursor.text.substring(gap, cursor.offset).includes("\n")) return invalid(cursor, gap, ["newline"]);
     const wire = readSyntaxWire(cursor);
     if (wire.kind === "invalid-text") return wire;
     if (definitions.has(wire.value.position)) return invalid(cursor, wire.value.offset, ["unique syntax binding"]);
+    if (wire.value.position !== definitions.size) return invalid(cursor, wire.value.offset, [`n:${definitions.size}`]);
     const equals = delimiter(cursor, "=");
     if (equals.kind === "invalid-text") return equals;
-    const kind = choice(cursor, syntaxKinds);
+    const kind = choice(cursor, typedWireKinds);
     if (kind.kind === "invalid-text") return kind;
     const dependencies: SyntaxDependency[] = [];
     selectDependencies(dependencies);
-    const parsed = evaluateText(readSyntaxDefinition(cursor, ports, kind.value, value => ({
-      kind: "complete", result: { kind: "parsed", value },
-    })));
+    let functionHasBody = false;
+    const parsed = readTypedDefinition(cursor, ports, chapter, nodes, kind.value, wire.value.position, () => { functionHasBody = true; });
     if (parsed.kind === "invalid-text") return parsed;
-    const plan = parsed.value;
-    const construct: SyntaxBuilder = () => {
-      nodes.set(wire.value.position, plan.resolve());
-    };
-    definitions.set(wire.value.position, { position: wire.value.position, kind: kind.value, dependencies, construct });
+    definitions.set(wire.value.position, { position: wire.value.position, offset: wire.value.offset,
+      kind: kind.value, functionHasBody, dependencies, construct: parsed.value });
   }
+  return invalid(cursor, cursor.offset, [")"]);
+}
+
+function closeTypedWire(cursor: Cursor, definitions: ReadonlyMap<number, SyntaxDefinition>, roots: readonly SyntaxDependency[]):
+  TextParseResult<readonly SyntaxDefinition[]> {
   let fault = referenceFaults(definitions, roots);
   for (const definition of definitions.values()) {
     const reference = referenceFaults(definitions, definition.dependencies);
@@ -147,22 +174,63 @@ function readSyntaxTail(
     return invalid(cursor, winner.offset, winner.expected);
   }
   if (fault !== null) return invalid(cursor, fault.offset, fault.expected);
+  const reachable = new Set<number>();
+  const pending = roots.map(root => root.position);
+  for (const ordinal of pending) {
+    if (reachable.has(ordinal)) continue;
+    reachable.add(ordinal);
+    const definition = definitions.get(ordinal);
+    if (definition !== undefined) for (const dependency of definition.dependencies) pending.push(dependency.position);
+  }
+  for (const definition of definitions.values()) if (!reachable.has(definition.position))
+    return invalid(cursor, definition.offset, ["referenced syntax declaration"]);
   return { kind: "parsed", value: ordered.definitions };
+}
+
+const missingCheckedWire: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "Typed chapter construction requires its actual closed Checked wire image." };
+
+function sectionStart(cursor: Cursor): TextParseResult<true> {
+  const start = cursor.offset;
+  whitespace(cursor);
+  return cursor.text.substring(start, cursor.offset).includes("\n") ? { kind: "parsed", value: true } : invalid(cursor, start, ["newline"]);
 }
 
 export function parseSyntaxDocument(
   cursor: Cursor,
-  readHeader: (ports: SyntaxReadPorts) => TextStep<SyntaxValue<ModuleBodies>>,
+  readHeader: (chapter: ChapterReadPorts) => TextStep<SyntaxValue<ModuleBodies>>,
 ): TextParseResult<ModuleBodies> {
-  const nodes = new Map<number, SyntaxNode<TypedPhase>>();
+  const nodes: TypedWireNodes = { ordinary: new Map(), modules: new Map(), callables: new Map(), formals: new Map() };
   const roots: SyntaxDependency[] = [];
+  const checkedRoots: CheckedWireRequest[] = [];
   let dependencies = roots;
-  const ports = createSyntaxReadPorts(nodes, dependency => dependencies.push(dependency));
-  const header = evaluateText(readHeader(ports));
+  let checkedImage: CheckedWireImage | undefined;
+  const track = (dependency: SyntaxDependency): void => { dependencies.push(dependency); };
+  const ports = createSyntaxReadPorts(nodes.ordinary, nodes.formals, track);
+  const chapter = createChapterReadPorts(ports, nodes.modules, nodes.callables, track, request => checkedRoots.push(request),
+    () => requirePresent(checkedImage, missingCheckedWire));
+  const header = evaluateText(readHeader(chapter));
   if (header.kind === "invalid-text") return header;
-  const tail = readSyntaxTail(cursor, ports, nodes, roots, next => { dependencies = next; });
+  const checkedStart = sectionStart(cursor);
+  if (checkedStart.kind === "invalid-text") return checkedStart;
+  const checked = parseCheckedDeclarations(cursor.text, cursor.offset);
+  if (checked.kind === "invalid-text") return checked;
+  cursor.offset = checked.value.end;
+  const typedStart = sectionStart(cursor);
+  if (typedStart.kind === "invalid-text") return typedStart;
+  const typedLabel = choice(cursor, ["TypedDeclarations"]);
+  if (typedLabel.kind === "invalid-text") return typedLabel;
+  const openTyped = delimiter(cursor, "(");
+  if (openTyped.kind === "invalid-text") return openTyped;
+  const tail = readSyntaxTail(cursor, ports, chapter, nodes, next => { dependencies = next; });
   if (tail.kind === "invalid-text") return tail;
-  for (const definition of tail.value) definition.construct();
+  const typed = closeTypedWire(cursor, tail.value, roots);
+  const completedChecked = checked.value.finish(checkedRoots);
+  if (typed.kind === "invalid-text")
+    return completedChecked.kind === "invalid-text" && completedChecked.offset < typed.offset ? completedChecked : typed;
+  if (completedChecked.kind === "invalid-text") return completedChecked;
+  checkedImage = completedChecked.value.materialize();
+  for (const definition of typed.value) definition.construct();
   return { kind: "parsed", value: header.value.resolve() };
 }
 
@@ -178,15 +246,18 @@ function readPlainTokenSyntax<Root>(
       }, finish)));
 }
 
-import { readEmptyStatementSyntax, readIfStatementSyntax, readDoStatementSyntax, readWhileStatementSyntax, readForStatementSyntax, readForInStatementSyntax, readForOfStatementSyntax, readBreakStatementSyntax, readContinueStatementSyntax, readReturnStatementSyntax, readWithStatementSyntax, readSwitchStatementSyntax, readCaseBlockSyntax, readCaseClauseSyntax, readDefaultClauseSyntax, readThrowStatementSyntax, readTryStatementSyntax, readCatchClauseSyntax, readDebuggerStatementSyntax, readLabeledStatementSyntax, readExpressionStatementSyntax, readBlockSyntax, readVariableStatementSyntax, readVariableDeclarationSyntax, readVariableDeclarationListSyntax, readBindingPatternSyntax, readParameterDeclarationSyntax, readBindingElementSyntax, readMissingDeclarationSyntax, readFunctionDeclarationSyntax, readClassDeclarationSyntax, readClassExpressionSyntax, readHeritageClauseSyntax, readInterfaceDeclarationSyntax, readTypeAliasDeclarationSyntax, readEnumMemberSyntax, readEnumDeclarationSyntax, readModuleBlockSyntax, readNotEmittedStatementSyntax, readNotEmittedTypeElementSyntax, readCallSignatureDeclarationSyntax, readConstructSignatureDeclarationSyntax, readConstructorDeclarationSyntax, readGetAccessorDeclarationSyntax, readSetAccessorDeclarationSyntax, readIndexSignatureDeclarationSyntax, readMethodSignatureDeclarationSyntax, readMethodDeclarationSyntax, readPropertySignatureDeclarationSyntax, readPropertyDeclarationSyntax, readSemicolonClassElementSyntax, readClassStaticBlockDeclarationSyntax } from "./parse-syntax-statements.js";
+import { readEmptyStatementSyntax, readIfStatementSyntax, readDoStatementSyntax, readWhileStatementSyntax, readForStatementSyntax, readForInStatementSyntax, readForOfStatementSyntax, readBreakStatementSyntax, readContinueStatementSyntax, readReturnStatementSyntax, readWithStatementSyntax, readSwitchStatementSyntax, readCaseBlockSyntax, readCaseClauseSyntax, readDefaultClauseSyntax, readThrowStatementSyntax, readTryStatementSyntax, readCatchClauseSyntax, readDebuggerStatementSyntax, readLabeledStatementSyntax, readExpressionStatementSyntax, readBlockSyntax, readVariableStatementSyntax, readVariableDeclarationSyntax, readVariableDeclarationListSyntax, readBindingPatternSyntax, readBindingElementSyntax, readMissingDeclarationSyntax, readFunctionDeclarationSyntax, readClassDeclarationSyntax, readClassExpressionSyntax, readHeritageClauseSyntax, readInterfaceDeclarationSyntax, readTypeAliasDeclarationSyntax, readEnumMemberSyntax, readEnumDeclarationSyntax, readModuleBlockSyntax, readNotEmittedStatementSyntax, readNotEmittedTypeElementSyntax, readCallSignatureDeclarationSyntax, readConstructSignatureDeclarationSyntax, readConstructorDeclarationSyntax, readGetAccessorDeclarationSyntax, readSetAccessorDeclarationSyntax, readIndexSignatureDeclarationSyntax, readMethodSignatureDeclarationSyntax, readMethodDeclarationSyntax, readPropertySignatureDeclarationSyntax, readPropertyDeclarationSyntax, readSemicolonClassElementSyntax, readClassStaticBlockDeclarationSyntax } from "./parse-syntax-statements.js";
 import { readIdentifierSyntax, readPrivateIdentifierSyntax, readQualifiedNameSyntax, readComputedPropertyNameSyntax, readDecoratorSyntax, readOmittedExpressionSyntax, readKeywordExpressionSyntax, readStringLiteralSyntax, readNumericLiteralSyntax, readBigIntLiteralSyntax, readRegularExpressionLiteralSyntax, readNoSubstitutionTemplateLiteralSyntax, readBinaryExpressionSyntax, readPrefixUnaryExpressionSyntax, readPostfixUnaryExpressionSyntax, readYieldExpressionSyntax, readArrowFunctionSyntax, readFunctionExpressionSyntax, readAsExpressionSyntax, readSatisfiesExpressionSyntax, readConditionalExpressionSyntax, readPropertyAccessExpressionSyntax, readElementAccessExpressionSyntax, readCallExpressionSyntax, readNewExpressionSyntax, readMetaPropertySyntax, readNonNullExpressionSyntax, readSpreadElementSyntax, readTemplateExpressionSyntax, readTemplateSpanSyntax, readTaggedTemplateExpressionSyntax, readParenthesizedExpressionSyntax, readArrayLiteralExpressionSyntax, readObjectLiteralExpressionSyntax, readSpreadAssignmentSyntax, readPropertyAssignmentSyntax, readShorthandPropertyAssignmentSyntax, readDeleteExpressionSyntax, readTypeOfExpressionSyntax, readVoidExpressionSyntax, readAwaitExpressionSyntax, readTypeAssertionSyntax, readExpressionWithTypeArgumentsSyntax, readTemplateHeadSyntax, readTemplateMiddleSyntax, readTemplateTailSyntax, readPartiallyEmittedExpressionSyntax, readSyntheticReferenceExpressionSyntax } from "./parse-syntax-expressions.js";
 import { readKeywordTypeNodeSyntax, readUnionTypeNodeSyntax, readIntersectionTypeNodeSyntax, readConditionalTypeNodeSyntax, readTypeOperatorNodeSyntax, readInferTypeNodeSyntax, readArrayTypeNodeSyntax, readIndexedAccessTypeNodeSyntax, readTypeReferenceNodeSyntax, readLiteralTypeNodeSyntax, readThisTypeNodeSyntax, readTypePredicateNodeSyntax, readImportAttributeSyntax, readImportAttributesSyntax, readTypeQueryNodeSyntax, readMappedTypeNodeSyntax, readTypeLiteralNodeSyntax, readTupleTypeNodeSyntax, readNamedTupleMemberSyntax, readOptionalTypeNodeSyntax, readRestTypeNodeSyntax, readParenthesizedTypeNodeSyntax, readFunctionTypeNodeSyntax, readConstructorTypeNodeSyntax, readTemplateLiteralTypeNodeSyntax, readTemplateLiteralTypeSpanSyntax, readTypeParameterDeclarationSyntax } from "./parse-syntax-types.js";
 import { readImportDeclarationSyntax, readExternalModuleReferenceSyntax, readNamespaceImportSyntax, readNamedImportsSyntax, readExportAssignmentSyntax, readNamespaceExportDeclarationSyntax, readNamespaceExportSyntax, readNamedExportsSyntax, readExportSpecifierSyntax, readJsxElementSyntax, readJsxAttributesSyntax, readJsxNamespacedNameSyntax, readJsxOpeningElementSyntax, readJsxSelfClosingElementSyntax, readJsxFragmentSyntax, readJsxOpeningFragmentSyntax, readJsxClosingFragmentSyntax, readJsxAttributeSyntax, readJsxSpreadAttributeSyntax, readJsxClosingElementSyntax, readJsxExpressionSyntax, readJsxTextSyntax, readSyntaxListSyntax, readSourceFileSyntax, readModuleDeclarationSyntax, readImportEqualsDeclarationSyntax, readExportDeclarationSyntax, readImportTypeNodeSyntax, readImportClauseSyntax, readImportSpecifierSyntax } from "./parse-syntax-auxiliary.js";
 import { readJSDocSyntax, readJSDocTypeExpressionSyntax, readJSDocNonNullableTypeSyntax, readJSDocNullableTypeSyntax, readJSDocAllTypeSyntax, readJSDocVariadicTypeSyntax, readJSDocOptionalTypeSyntax, readJSDocTypeTagSyntax, readJSDocUnknownTagSyntax, readJSDocTemplateTagSyntax, readJSDocReturnTagSyntax, readJSDocPublicTagSyntax, readJSDocPrivateTagSyntax, readJSDocProtectedTagSyntax, readJSDocReadonlyTagSyntax, readJSDocOverrideTagSyntax, readJSDocDeprecatedTagSyntax, readJSDocSeeTagSyntax, readJSDocImplementsTagSyntax, readJSDocAugmentsTagSyntax, readJSDocSatisfiesTagSyntax, readJSDocThrowsTagSyntax, readJSDocThisTagSyntax, readJSDocImportTagSyntax, readJSDocCallbackTagSyntax, readJSDocOverloadTagSyntax, readJSDocTypedefTagSyntax, readJSDocSignatureSyntax, readJSDocNameReferenceSyntax, readJSDocTextSyntax, readJSDocLinkSyntax, readJSDocLinkPlainSyntax, readJSDocLinkCodeSyntax, readJSDocTypeLiteralSyntax, readJSDocParameterOrPropertyTagSyntax } from "./parse-syntax-jsdoc.js";
 
-const syntaxKinds: readonly SyntaxNode<TypedPhase>["kind"][] = (["Unknown","EndOfFile","SingleLineCommentTrivia","MultiLineCommentTrivia","NewLineTrivia","WhitespaceTrivia","ConflictMarkerTrivia","NonTextFileMarkerTrivia","JsxTextAllWhiteSpaces","OpenBraceToken","CloseBraceToken","OpenParenToken","CloseParenToken","OpenBracketToken","CloseBracketToken","DotToken","DotDotDotToken","SemicolonToken","CommaToken","QuestionDotToken","LessThanToken","LessThanSlashToken","GreaterThanToken","LessThanEqualsToken","GreaterThanEqualsToken","EqualsEqualsToken","ExclamationEqualsToken","EqualsEqualsEqualsToken","ExclamationEqualsEqualsToken","EqualsGreaterThanToken","PlusToken","MinusToken","AsteriskToken","AsteriskAsteriskToken","SlashToken","PercentToken","PlusPlusToken","MinusMinusToken","LessThanLessThanToken","GreaterThanGreaterThanToken","GreaterThanGreaterThanGreaterThanToken","AmpersandToken","BarToken","CaretToken","ExclamationToken","TildeToken","AmpersandAmpersandToken","BarBarToken","QuestionToken","ColonToken","AtToken","QuestionQuestionToken","BacktickToken","HashToken","EqualsToken","PlusEqualsToken","MinusEqualsToken","AsteriskEqualsToken","AsteriskAsteriskEqualsToken","SlashEqualsToken","PercentEqualsToken","LessThanLessThanEqualsToken","GreaterThanGreaterThanEqualsToken","GreaterThanGreaterThanGreaterThanEqualsToken","AmpersandEqualsToken","BarEqualsToken","BarBarEqualsToken","AmpersandAmpersandEqualsToken","QuestionQuestionEqualsToken","CaretEqualsToken","JSDocCommentTextToken","BreakKeyword","CaseKeyword","CatchKeyword","ClassKeyword","ConstKeyword","ContinueKeyword","DebuggerKeyword","DefaultKeyword","DeleteKeyword","DoKeyword","ElseKeyword","EnumKeyword","ExportKeyword","ExtendsKeyword","FinallyKeyword","ForKeyword","FunctionKeyword","IfKeyword","InKeyword","InstanceOfKeyword","NewKeyword","ReturnKeyword","SwitchKeyword","ThrowKeyword","TryKeyword","TypeOfKeyword","VarKeyword","WhileKeyword","WithKeyword","ImplementsKeyword","InterfaceKeyword","LetKeyword","PackageKeyword","PrivateKeyword","ProtectedKeyword","PublicKeyword","StaticKeyword","YieldKeyword","AbstractKeyword","AccessorKeyword","AsKeyword","AssertsKeyword","AssertKeyword","AsyncKeyword","AwaitKeyword","ConstructorKeyword","DeclareKeyword","GetKeyword","ImmediateKeyword","InferKeyword","IsKeyword","KeyOfKeyword","ModuleKeyword","NamespaceKeyword","OutKeyword","ReadonlyKeyword","RequireKeyword","SatisfiesKeyword","SetKeyword","TypeKeyword","UniqueKeyword","UsingKeyword","FromKeyword","GlobalKeyword","OverrideKeyword","OfKeyword","DeferKeyword","Identifier","PrivateIdentifier","QualifiedName","ComputedPropertyName","Decorator","EmptyStatement","IfStatement","DoStatement","WhileStatement","ForStatement","ForInStatement","ForOfStatement","BreakStatement","ContinueStatement","ReturnStatement","WithStatement","SwitchStatement","CaseBlock","CaseClause","DefaultClause","ThrowStatement","TryStatement","CatchClause","DebuggerStatement","LabeledStatement","ExpressionStatement","Block","VariableStatement","VariableDeclaration","VariableDeclarationList","ObjectBindingPattern","ArrayBindingPattern","Parameter","BindingElement","MissingDeclaration","FunctionDeclaration","ClassDeclaration","ClassExpression","HeritageClause","InterfaceDeclaration","TypeAliasDeclaration","JSTypeAliasDeclaration","EnumMember","EnumDeclaration","ModuleBlock","NotEmittedStatement","NotEmittedTypeElement","ImportDeclaration","JSImportDeclaration","ExternalModuleReference","NamespaceImport","NamedImports","ExportAssignment","NamespaceExportDeclaration","NamespaceExport","NamedExports","ExportSpecifier","CallSignature","ConstructSignature","Constructor","GetAccessor","SetAccessor","IndexSignature","MethodSignature","MethodDeclaration","PropertySignature","PropertyDeclaration","SemicolonClassElement","ClassStaticBlockDeclaration","OmittedExpression","NullKeyword","TrueKeyword","FalseKeyword","ThisKeyword","SuperKeyword","ImportKeyword","StringLiteral","NumericLiteral","BigIntLiteral","RegularExpressionLiteral","NoSubstitutionTemplateLiteral","BinaryExpression","PrefixUnaryExpression","PostfixUnaryExpression","YieldExpression","ArrowFunction","FunctionExpression","AsExpression","SatisfiesExpression","ConditionalExpression","PropertyAccessExpression","ElementAccessExpression","CallExpression","NewExpression","MetaProperty","NonNullExpression","SpreadElement","TemplateExpression","TemplateSpan","TaggedTemplateExpression","ParenthesizedExpression","ArrayLiteralExpression","ObjectLiteralExpression","SpreadAssignment","PropertyAssignment","ShorthandPropertyAssignment","DeleteExpression","TypeOfExpression","VoidExpression","AwaitExpression","TypeAssertionExpression","AnyKeyword","BigIntKeyword","BooleanKeyword","IntrinsicKeyword","NeverKeyword","NumberKeyword","ObjectKeyword","StringKeyword","SymbolKeyword","UndefinedKeyword","UnknownKeyword","VoidKeyword","UnionType","IntersectionType","ConditionalType","TypeOperator","InferType","ArrayType","IndexedAccessType","TypeReference","ExpressionWithTypeArguments","LiteralType","ThisType","TypePredicate","ImportAttribute","ImportAttributes","TypeQuery","MappedType","TypeLiteral","TupleType","NamedTupleMember","OptionalType","RestType","ParenthesizedType","FunctionType","ConstructorType","TemplateHead","TemplateMiddle","TemplateTail","TemplateLiteralType","TemplateLiteralTypeSpan","PartiallyEmittedExpression","JsxElement","JsxAttributes","JsxNamespacedName","JsxOpeningElement","JsxSelfClosingElement","JsxFragment","JsxOpeningFragment","JsxClosingFragment","JsxAttribute","JsxSpreadAttribute","JsxClosingElement","JsxExpression","JsxText","SyntaxList","JSDoc","JSDocTypeExpression","JSDocNonNullableType","JSDocNullableType","JSDocAllType","JSDocVariadicType","JSDocOptionalType","JSDocTypeTag","JSDocUnknownTag","JSDocTemplateTag","JSDocReturnTag","JSDocPublicTag","JSDocPrivateTag","JSDocProtectedTag","JSDocReadonlyTag","JSDocOverrideTag","JSDocDeprecatedTag","JSDocSeeTag","JSDocImplementsTag","JSDocAugmentsTag","JSDocSatisfiesTag","JSDocThrowsTag","JSDocThisTag","JSDocImportTag","JSDocCallbackTag","JSDocOverloadTag","JSDocTypedefTag","JSDocSignature","JSDocNameReference","SourceFile","ModuleDeclaration","ImportEqualsDeclaration","ExportDeclaration","ImportType","ImportClause","ImportSpecifier","JSDocText","JSDocLink","JSDocLinkPlain","JSDocLinkCode","TypeParameter","SyntheticReferenceExpression","JSDocTypeLiteral","JSDocParameterTag","JSDocPropertyTag"]);
+const syntaxKinds: readonly OrdinaryDefinitionKind[] = (["Unknown","EndOfFile","SingleLineCommentTrivia","MultiLineCommentTrivia","NewLineTrivia","WhitespaceTrivia","ConflictMarkerTrivia","NonTextFileMarkerTrivia","JsxTextAllWhiteSpaces","OpenBraceToken","CloseBraceToken","OpenParenToken","CloseParenToken","OpenBracketToken","CloseBracketToken","DotToken","DotDotDotToken","SemicolonToken","CommaToken","QuestionDotToken","LessThanToken","LessThanSlashToken","GreaterThanToken","LessThanEqualsToken","GreaterThanEqualsToken","EqualsEqualsToken","ExclamationEqualsToken","EqualsEqualsEqualsToken","ExclamationEqualsEqualsToken","EqualsGreaterThanToken","PlusToken","MinusToken","AsteriskToken","AsteriskAsteriskToken","SlashToken","PercentToken","PlusPlusToken","MinusMinusToken","LessThanLessThanToken","GreaterThanGreaterThanToken","GreaterThanGreaterThanGreaterThanToken","AmpersandToken","BarToken","CaretToken","ExclamationToken","TildeToken","AmpersandAmpersandToken","BarBarToken","QuestionToken","ColonToken","AtToken","QuestionQuestionToken","BacktickToken","HashToken","EqualsToken","PlusEqualsToken","MinusEqualsToken","AsteriskEqualsToken","AsteriskAsteriskEqualsToken","SlashEqualsToken","PercentEqualsToken","LessThanLessThanEqualsToken","GreaterThanGreaterThanEqualsToken","GreaterThanGreaterThanGreaterThanEqualsToken","AmpersandEqualsToken","BarEqualsToken","BarBarEqualsToken","AmpersandAmpersandEqualsToken","QuestionQuestionEqualsToken","CaretEqualsToken","JSDocCommentTextToken","BreakKeyword","CaseKeyword","CatchKeyword","ClassKeyword","ConstKeyword","ContinueKeyword","DebuggerKeyword","DefaultKeyword","DeleteKeyword","DoKeyword","ElseKeyword","EnumKeyword","ExportKeyword","ExtendsKeyword","FinallyKeyword","ForKeyword","FunctionKeyword","IfKeyword","InKeyword","InstanceOfKeyword","NewKeyword","ReturnKeyword","SwitchKeyword","ThrowKeyword","TryKeyword","TypeOfKeyword","VarKeyword","WhileKeyword","WithKeyword","ImplementsKeyword","InterfaceKeyword","LetKeyword","PackageKeyword","PrivateKeyword","ProtectedKeyword","PublicKeyword","StaticKeyword","YieldKeyword","AbstractKeyword","AccessorKeyword","AsKeyword","AssertsKeyword","AssertKeyword","AsyncKeyword","AwaitKeyword","ConstructorKeyword","DeclareKeyword","GetKeyword","ImmediateKeyword","InferKeyword","IsKeyword","KeyOfKeyword","ModuleKeyword","NamespaceKeyword","OutKeyword","ReadonlyKeyword","RequireKeyword","SatisfiesKeyword","SetKeyword","TypeKeyword","UniqueKeyword","UsingKeyword","FromKeyword","GlobalKeyword","OverrideKeyword","OfKeyword","DeferKeyword","Identifier","PrivateIdentifier","QualifiedName","ComputedPropertyName","Decorator","EmptyStatement","IfStatement","DoStatement","WhileStatement","ForStatement","ForInStatement","ForOfStatement","BreakStatement","ContinueStatement","ReturnStatement","WithStatement","SwitchStatement","CaseBlock","CaseClause","DefaultClause","ThrowStatement","TryStatement","CatchClause","DebuggerStatement","LabeledStatement","ExpressionStatement","Block","VariableStatement","VariableDeclaration","VariableDeclarationList","ObjectBindingPattern","ArrayBindingPattern","BindingElement","MissingDeclaration","FunctionDeclaration","ClassDeclaration","ClassExpression","HeritageClause","InterfaceDeclaration","TypeAliasDeclaration","JSTypeAliasDeclaration","EnumMember","EnumDeclaration","ModuleBlock","NotEmittedStatement","NotEmittedTypeElement","ImportDeclaration","JSImportDeclaration","ExternalModuleReference","NamespaceImport","NamedImports","ExportAssignment","NamespaceExportDeclaration","NamespaceExport","NamedExports","ExportSpecifier","CallSignature","ConstructSignature","Constructor","GetAccessor","SetAccessor","IndexSignature","MethodSignature","MethodDeclaration","PropertySignature","PropertyDeclaration","SemicolonClassElement","ClassStaticBlockDeclaration","OmittedExpression","NullKeyword","TrueKeyword","FalseKeyword","ThisKeyword","SuperKeyword","ImportKeyword","StringLiteral","NumericLiteral","BigIntLiteral","RegularExpressionLiteral","NoSubstitutionTemplateLiteral","BinaryExpression","PrefixUnaryExpression","PostfixUnaryExpression","YieldExpression","ArrowFunction","FunctionExpression","AsExpression","SatisfiesExpression","ConditionalExpression","PropertyAccessExpression","ElementAccessExpression","CallExpression","NewExpression","MetaProperty","NonNullExpression","SpreadElement","TemplateExpression","TemplateSpan","TaggedTemplateExpression","ParenthesizedExpression","ArrayLiteralExpression","ObjectLiteralExpression","SpreadAssignment","PropertyAssignment","ShorthandPropertyAssignment","DeleteExpression","TypeOfExpression","VoidExpression","AwaitExpression","TypeAssertionExpression","AnyKeyword","BigIntKeyword","BooleanKeyword","IntrinsicKeyword","NeverKeyword","NumberKeyword","ObjectKeyword","StringKeyword","SymbolKeyword","UndefinedKeyword","UnknownKeyword","VoidKeyword","UnionType","IntersectionType","ConditionalType","TypeOperator","InferType","ArrayType","IndexedAccessType","TypeReference","ExpressionWithTypeArguments","LiteralType","ThisType","TypePredicate","ImportAttribute","ImportAttributes","TypeQuery","MappedType","TypeLiteral","TupleType","NamedTupleMember","OptionalType","RestType","ParenthesizedType","FunctionType","ConstructorType","TemplateHead","TemplateMiddle","TemplateTail","TemplateLiteralType","TemplateLiteralTypeSpan","PartiallyEmittedExpression","JsxElement","JsxAttributes","JsxNamespacedName","JsxOpeningElement","JsxSelfClosingElement","JsxFragment","JsxOpeningFragment","JsxClosingFragment","JsxAttribute","JsxSpreadAttribute","JsxClosingElement","JsxExpression","JsxText","SyntaxList","JSDoc","JSDocTypeExpression","JSDocNonNullableType","JSDocNullableType","JSDocAllType","JSDocVariadicType","JSDocOptionalType","JSDocTypeTag","JSDocUnknownTag","JSDocTemplateTag","JSDocReturnTag","JSDocPublicTag","JSDocPrivateTag","JSDocProtectedTag","JSDocReadonlyTag","JSDocOverrideTag","JSDocDeprecatedTag","JSDocSeeTag","JSDocImplementsTag","JSDocAugmentsTag","JSDocSatisfiesTag","JSDocThrowsTag","JSDocThisTag","JSDocImportTag","JSDocCallbackTag","JSDocOverloadTag","JSDocTypedefTag","JSDocSignature","JSDocNameReference","SourceFile","ModuleDeclaration","ImportEqualsDeclaration","ExportDeclaration","ImportType","ImportClause","ImportSpecifier","JSDocText","JSDocLink","JSDocLinkPlain","JSDocLinkCode","TypeParameter","SyntheticReferenceExpression","JSDocTypeLiteral","JSDocParameterTag","JSDocPropertyTag"]);
 
-function readSyntaxDefinition<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: SyntaxNode<TypedPhase>["kind"], finish: (value: SyntaxValue<SyntaxNode<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
+const typedWireKinds: readonly TypedDefinitionKind[] = [...syntaxKinds, "TirModuleRoot", "TirReadyCallable", "TirFormal"];
+
+function readSyntaxDefinition<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: OrdinaryDefinitionKind,
+  noteBody: () => void, finish: (value: SyntaxValue<SyntaxNode<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
   switch (kind) {
     case "Unknown": case "EndOfFile": case "SingleLineCommentTrivia": case "MultiLineCommentTrivia":
     case "NewLineTrivia": case "WhitespaceTrivia": case "ConflictMarkerTrivia": case "NonTextFileMarkerTrivia":
@@ -255,10 +326,9 @@ function readSyntaxDefinition<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind
     case "VariableDeclaration": return readVariableDeclarationSyntax(cursor, ports, kind, finish);
     case "VariableDeclarationList": return readVariableDeclarationListSyntax(cursor, ports, kind, finish);
     case "ObjectBindingPattern": case "ArrayBindingPattern": return readBindingPatternSyntax(cursor, ports, kind, finish);
-    case "Parameter": return readParameterDeclarationSyntax(cursor, ports, kind, finish);
     case "BindingElement": return readBindingElementSyntax(cursor, ports, kind, finish);
     case "MissingDeclaration": return readMissingDeclarationSyntax(cursor, ports, kind, finish);
-    case "FunctionDeclaration": return readFunctionDeclarationSyntax(cursor, ports, kind, finish);
+    case "FunctionDeclaration": return readFunctionDeclarationSyntax(cursor, ports, kind, noteBody, finish);
     case "ClassDeclaration": return readClassDeclarationSyntax(cursor, ports, kind, finish);
     case "ClassExpression": return readClassExpressionSyntax(cursor, ports, kind, finish);
     case "HeritageClause": return readHeritageClauseSyntax(cursor, ports, kind, finish);

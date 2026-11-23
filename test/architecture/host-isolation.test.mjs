@@ -271,6 +271,77 @@ test("HIR admits only the exact named phase copy slot with typed refusal", async
     });
 });
 
+test("HIR admits only its own exact Parameter initializer field and ready-expression port", async () => {
+  const phase = 'export interface Phase { readonly ParameterInitializer: object | null; readonly Other: null; }';
+  const carrier = 'export interface ParameterDeclaration<P extends Phase> { readonly kind: "Parameter"; readonly initializer: P["ParameterInitializer"]; }';
+  const expression = 'export interface Expression<P extends Phase> { readonly kind: "Expression"; readonly phase: P; }';
+  const reader = 'export type SyntaxExpressionImage<P extends Phase> = (expression: Expression<P>) => Expression<P>;';
+  const image = 'export type SyntaxInitializerImage<P extends Phase, Image> = (parameter: ParameterDeclaration<P>, expression: SyntaxExpressionImage<P>, image: Image) => P["ParameterInitializer"];';
+  const contract = path("ir-hir");
+  const entry = path("ir-hir", "index.ts");
+  await fixture([[contract, [phase, carrier, expression, reader, image,
+    'export type Copy = <P extends Phase, Image>(value: ParameterDeclaration<P>, expression: SyntaxExpressionImage<P>, image: Image, translate: SyntaxInitializerImage<P, Image>) => ParameterDeclaration<P>;'].join("\n")],
+    [entry, 'import type { Copy } from "./contract.js"; export const copy: Copy = (value, expression, image, translate) => ({ kind: "Parameter", initializer: translate(value, expression, image) });']],
+    async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module("ir-hir"), { root, sourceFiles: [contract, entry], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
+      assert.equal(report.status, "passed", label(report));
+    });
+  for (const [description, owner, selected, projected, line] of [
+    ["foreign field", "ir-hir", carrier.replace("readonly initializer", "readonly unrelated"), null, 2],
+    ["foreign owner", "ir-types", carrier, null, 2],
+    ["wrong key", "ir-hir", carrier.replace('P["ParameterInitializer"]', 'P["Other"]'), null, 2],
+    ["mutable", "ir-hir", carrier.replace("readonly initializer", "initializer"), null, 2],
+    ["runtime key", "ir-hir", carrier.replace("P extends Phase>", "P extends Phase, Key extends keyof Phase>").replace('P["ParameterInitializer"]', "P[Key]"), null, 2],
+    ["crossed phase", "ir-hir", carrier, image.replace("Image>", "Image extends Phase>").replace('=> P[', '=> Image['), 5],
+    ["foreign expression", "ir-hir", carrier, image.replace("expression: SyntaxExpressionImage<P>", "expression: ParameterDeclaration<P>"), 5],
+    ["wrong result", "ir-hir", carrier, image.replace('P["ParameterInitializer"]', 'P["Other"]'), 5],
+    ["optional input", "ir-hir", carrier, image.replace("image: Image", "image?: Image"), 5],
+    ["rest input", "ir-hir", carrier, image.replace("image: Image", "...image: Image[]"), 5],
+  ]) {
+    const invalid = path(owner);
+    await fixture([[invalid, [phase, selected, expression, reader, projected ?? ""].join("\n")]], async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module(owner),
+        { root, sourceFiles: [invalid], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
+      assert.equal(report.status, "failed", description);
+      assert.equal(report.findings.some(finding => finding.code === "contract-shape" && finding.path === invalid && finding.line === line),
+        true, `${description}: ${label(report)}`);
+    });
+  }
+});
+
+test("HIR named headers require the matching same-Phase syntax owner", async () => {
+  const phase = 'export interface Phase { readonly SourceFile: null; readonly FunctionDeclaration: null; }';
+  const source = 'export interface SourceFileHeader<P extends Phase> { readonly kind: "SourceFile"; readonly tsonic: P["SourceFile"]; }';
+  const functionHeader = 'export interface FunctionDeclarationHeader<P extends Phase> { readonly kind: "FunctionDeclaration"; readonly tsonic: P["FunctionDeclaration"]; }';
+  const syntax = 'export interface SourceFile<P extends Phase> extends SourceFileHeader<P> { readonly count: number; }';
+  const callable = 'export interface FunctionDeclaration<P extends Phase> extends FunctionDeclarationHeader<P> { readonly count: number; }';
+  const contract = path("ir-hir");
+  const entry = path("ir-hir", "index.ts");
+  await fixture([[contract, [phase, source, functionHeader, syntax, callable,
+    'export type Read = (input: SourceFile<Phase> | FunctionDeclaration<Phase>) => number;'].join("\n")],
+    [entry, 'import type { Read } from "./contract.js"; export const read: Read = input => input.count;']], async ({ root, deps }) => {
+    const report = await compileIsolated(deps, module("ir-hir"), { root, sourceFiles: [contract, entry], interfaceSources: [],
+      declarationSources: [], outputDirectory: ".temp/isolation" });
+    assert.equal(report.status, "passed", label(report));
+  });
+  for (const [description, owner, header, consumer] of [
+    ["wrong role literal", "ir-hir", source.replace('kind: "SourceFile"', 'kind: "FunctionDeclaration"'), syntax],
+    ["wrong slot", "ir-hir", source.replace('P["SourceFile"]', 'P["FunctionDeclaration"]'), syntax],
+    ["not extended", "ir-hir", source, syntax.replace("extends SourceFileHeader<P>", "").replace("count: number", "phase: P")],
+    ["foreign owner", "ir-types", source, syntax],
+    ["wrong Phase argument", "ir-hir", source, syntax.replace("SourceFileHeader<P>", "SourceFileHeader<Phase>").replace("count: number", "phase: P")],
+  ]) {
+    const invalid = path(owner);
+    await fixture([[invalid, [phase, header, consumer].join("\n")]], async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module(owner), { root, sourceFiles: [invalid], interfaceSources: [],
+        declarationSources: [], outputDirectory: ".temp/isolation" });
+      assert.equal(report.status, "failed", description);
+      assert.equal(report.findings.some(finding => finding.code === "contract-shape" && finding.path === invalid && finding.line === 2),
+        true, `${description}: ${label(report)}`);
+    });
+  }
+});
+
 const sdkRoles = 'export interface LibraryRoleEntry { readonly role: string; }';
 const sdkContract = 'import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";\nimport type { LibraryRoleEntry } from "../snapshot/contract.js";\nexport type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };\nexport type CheckerExtensionValue = { readonly kind: "compiler-extension"; readonly value: CompilerExtension } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider; readonly roles: readonly LibraryRoleEntry[] } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };\nexport type ExtensionOf = (table: CheckerExtensions, reference: number) => CheckerExtensionValue;';
 

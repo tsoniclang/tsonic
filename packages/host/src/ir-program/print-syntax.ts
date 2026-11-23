@@ -1,13 +1,16 @@
-import type { SyntaxNode } from "../ir-hir/contract.js";
+import type { HirNode, SyntaxNode } from "../ir-hir/contract.js";
+import { printCheckedDeclarations } from "../ir-hir/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
-import { requirePresent } from "../diag/index.js";
+import { requirePresent, throwInvariant } from "../diag/index.js";
 import { encodeKey } from "../ids/index.js";
-import { inventorySyntax, moduleSyntaxRoots } from "./syntax-arena.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
+import { inventoryChapterSyntax, moduleChapterRoots } from "./syntax-arena.js";
+import type { TirBodyRoot, TirChapterTree, TirFormal, TirTypedSyntax, TypedPhase } from "../ir-tir/contract.js";
 import type { ModuleBodies } from "./contract.js";
 import type { SyntaxTextContext, TextWork } from "./text-values.js";
-import { field, record, textSyntaxHeader, token } from "./text-values.js";
-import { printEmptyStatement, printIfStatement, printDoStatement, printWhileStatement, printForStatement, printForInStatement, printForOfStatement, printBreakStatement, printContinueStatement, printReturnStatement, printWithStatement, printSwitchStatement, printCaseBlock, printCaseClause, printDefaultClause, printThrowStatement, printTryStatement, printCatchClause, printDebuggerStatement, printLabeledStatement, printExpressionStatement, printBlock, printVariableStatement, printVariableDeclaration, printVariableDeclarationList, printBindingPattern, printParameterDeclaration, printBindingElement, printMissingDeclaration, printFunctionDeclaration, printClassDeclaration, printClassExpression, printHeritageClause, printInterfaceDeclaration, printTypeAliasDeclaration, printEnumMember, printEnumDeclaration, printModuleBlock, printNotEmittedStatement, printNotEmittedTypeElement, printCallSignatureDeclaration, printConstructSignatureDeclaration, printConstructorDeclaration, printGetAccessorDeclaration, printSetAccessorDeclaration, printIndexSignatureDeclaration, printMethodSignatureDeclaration, printMethodDeclaration, printPropertySignatureDeclaration, printPropertyDeclaration, printSemicolonClassElement, printClassStaticBlockDeclaration } from "./print-syntax-statements.js";
+import { field, record, textNodeListWith, textSyntaxHeader, token } from "./text-values.js";
+import { printFormalParameter, printReadyCallable } from "./print-syntax-statements.js";
+import { printModuleRoot } from "./print-syntax-auxiliary.js";
+import { printEmptyStatement, printIfStatement, printDoStatement, printWhileStatement, printForStatement, printForInStatement, printForOfStatement, printBreakStatement, printContinueStatement, printReturnStatement, printWithStatement, printSwitchStatement, printCaseBlock, printCaseClause, printDefaultClause, printThrowStatement, printTryStatement, printCatchClause, printDebuggerStatement, printLabeledStatement, printExpressionStatement, printBlock, printVariableStatement, printVariableDeclaration, printVariableDeclarationList, printBindingPattern, printBindingElement, printMissingDeclaration, printFunctionDeclaration, printClassDeclaration, printClassExpression, printHeritageClause, printInterfaceDeclaration, printTypeAliasDeclaration, printEnumMember, printEnumDeclaration, printModuleBlock, printNotEmittedStatement, printNotEmittedTypeElement, printCallSignatureDeclaration, printConstructSignatureDeclaration, printConstructorDeclaration, printGetAccessorDeclaration, printSetAccessorDeclaration, printIndexSignatureDeclaration, printMethodSignatureDeclaration, printMethodDeclaration, printPropertySignatureDeclaration, printPropertyDeclaration, printSemicolonClassElement, printClassStaticBlockDeclaration } from "./print-syntax-statements.js";
 import { printIdentifier, printPrivateIdentifier, printQualifiedName, printComputedPropertyName, printDecorator, printOmittedExpression, printKeywordExpression, printStringLiteral, printNumericLiteral, printBigIntLiteral, printRegularExpressionLiteral, printNoSubstitutionTemplateLiteral, printBinaryExpression, printPrefixUnaryExpression, printPostfixUnaryExpression, printYieldExpression, printArrowFunction, printFunctionExpression, printAsExpression, printSatisfiesExpression, printConditionalExpression, printPropertyAccessExpression, printElementAccessExpression, printCallExpression, printNewExpression, printMetaProperty, printNonNullExpression, printSpreadElement, printTemplateExpression, printTemplateSpan, printTaggedTemplateExpression, printParenthesizedExpression, printArrayLiteralExpression, printObjectLiteralExpression, printSpreadAssignment, printPropertyAssignment, printShorthandPropertyAssignment, printDeleteExpression, printTypeOfExpression, printVoidExpression, printAwaitExpression, printTypeAssertion, printExpressionWithTypeArguments, printTemplateHead, printTemplateMiddle, printTemplateTail, printPartiallyEmittedExpression, printSyntheticReferenceExpression } from "./print-syntax-expressions.js";
 import { printKeywordTypeNode, printUnionTypeNode, printIntersectionTypeNode, printConditionalTypeNode, printTypeOperatorNode, printInferTypeNode, printArrayTypeNode, printIndexedAccessTypeNode, printTypeReferenceNode, printLiteralTypeNode, printThisTypeNode, printTypePredicateNode, printImportAttribute, printImportAttributes, printTypeQueryNode, printMappedTypeNode, printTypeLiteralNode, printTupleTypeNode, printNamedTupleMember, printOptionalTypeNode, printRestTypeNode, printParenthesizedTypeNode, printFunctionTypeNode, printConstructorTypeNode, printTemplateLiteralTypeNode, printTemplateLiteralTypeSpan, printTypeParameterDeclaration } from "./print-syntax-types.js";
 import { printImportDeclaration, printExternalModuleReference, printNamespaceImport, printNamedImports, printExportAssignment, printNamespaceExportDeclaration, printNamespaceExport, printNamedExports, printExportSpecifier, printJsxElement, printJsxAttributes, printJsxNamespacedName, printJsxOpeningElement, printJsxSelfClosingElement, printJsxFragment, printJsxOpeningFragment, printJsxClosingFragment, printJsxAttribute, printJsxSpreadAttribute, printJsxClosingElement, printJsxExpression, printJsxText, printSyntaxList, printJSDoc, printJSDocTypeExpression, printJSDocNonNullableType, printJSDocNullableType, printJSDocAllType, printJSDocVariadicType, printJSDocOptionalType, printJSDocTypeTag, printJSDocUnknownTag, printJSDocTemplateTag, printJSDocReturnTag, printJSDocPublicTag, printJSDocPrivateTag, printJSDocProtectedTag, printJSDocReadonlyTag, printJSDocOverrideTag, printJSDocDeprecatedTag, printJSDocSeeTag, printJSDocImplementsTag, printJSDocAugmentsTag, printJSDocSatisfiesTag, printJSDocThrowsTag, printJSDocThisTag, printJSDocImportTag, printJSDocCallbackTag, printJSDocOverloadTag, printJSDocTypedefTag, printJSDocSignature, printJSDocNameReference, printSourceFile, printModuleDeclaration, printImportEqualsDeclaration, printExportDeclaration, printImportTypeNode, printImportClause, printImportSpecifier, printJSDocText, printJSDocLink, printJSDocLinkPlain, printJSDocLinkCode, printJSDocTypeLiteral, printJSDocParameterOrPropertyTag } from "./print-syntax-auxiliary.js";
@@ -217,7 +220,8 @@ export function syntaxText(node: SyntaxNode<TypedPhase>, context: SyntaxTextCont
     case "ArrayBindingPattern":
       return printBindingPattern(node, context);
     case "Parameter":
-      return printParameterDeclaration(node, context);
+      return throwInvariant({ owner: "ir-program", query: null, origin: node.origin,
+        message: "A Typed parameter has exactly one formal wire definition." });
     case "BindingElement":
       return printBindingElement(node, context);
     case "MissingDeclaration":
@@ -560,22 +564,46 @@ export function syntaxText(node: SyntaxNode<TypedPhase>, context: SyntaxTextCont
   }
 }
 
-export function createSyntaxText(module: ModuleBodies): {
-  readonly nodes: readonly SyntaxNode<TypedPhase>[];
-  readonly context: SyntaxTextContext;
-} {
-  const { nodes, wireOf } = inventorySyntax(moduleSyntaxRoots(module, "ModuleBodies"));
+export interface ChapterTextContext {
+  readonly tree: (value: TirChapterTree) => TextWork;
+  readonly bodyRoot: (value: TirBodyRoot) => TextWork;
+  readonly formal: (value: TirFormal) => TextWork;
+}
+
+export function createSyntaxText(module: ModuleBodies) {
+  const inventory = inventoryChapterSyntax<never>(moduleChapterRoots(module, "ModuleBodies"),
+    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null,
+      statement: () => {}, close: () => {} }).value;
+  const checked = printCheckedDeclarations(inventory.checkedRoots);
   const missingWire: InvariantFailure = {
     owner: "ir-program",
     query: { name: "print.syntax-wire", encodedKey: encodeKey([module.module]) },
-    origin: module.tree.origin,
+    origin: module.tree.root.origin,
     message: "Syntax object is not in the module wire inventory",
   };
-  const context: SyntaxTextContext = {
-    reference: value => {
-      const position = requirePresent(wireOf(value), missingWire);
-      return token(`n:${position}`);
-    },
+  const typed = (node: TirTypedSyntax["node"]): TextWork => token(`n:${requirePresent(inventory.wireOf(node), missingWire)}`);
+  const checkedNode = (node: HirNode): TextWork => token(`c:${requirePresent(checked.wireOf(node), missingWire)}`);
+  const ordinary: SyntaxTextContext = { reference: typed };
+  const context: ChapterTextContext = {
+    tree: value => record(value.kind, [field("root", value.kind === "checked-root" ? checkedNode(value.root) : typed(value.root))]),
+    bodyRoot: typed,
+    formal: typed,
   };
-  return { nodes, context };
+  const definition = (syntax: TirTypedSyntax): TextWork => {
+    switch (syntax.kind) {
+      case "ordinary": return syntaxText(syntax.node, ordinary);
+      case "module-root": return printModuleRoot(syntax.node, ordinary,
+        () => textNodeListWith(syntax.node.statements, item => record(item.kind,
+          [field("node", item.kind === "checked-declaration" ? checkedNode(item.node) : typed(item.node))]), "NodeList"));
+      case "ready-callable": return printReadyCallable(syntax.node, ordinary,
+        () => textNodeListWith(syntax.node.parameters, typed, "NodeList"));
+      case "formal": return printFormalParameter(syntax.node, ordinary, () => {
+        const initializer = syntax.node.initializer;
+        if (initializer.kind === "none") return record(initializer.kind, []);
+        return record(initializer.kind, [field("root",
+          initializer.kind === "checked-default" ? checkedNode(initializer.root) : typed(initializer.root))]);
+      });
+    }
+  };
+  return { nodes: inventory.typed, checked: checked.text, context, definition };
 }

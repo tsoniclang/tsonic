@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { publicationFixture } from "./fixtures/program-publication.mjs";
 import { encodeContextKey } from "./ir-program-fixtures.mjs";
-import { createProgramVerificationWork, projectProgramEvidence, parseModuleBodies, parseProgramIndex, printModuleBodies, printProgramIndex,
+import { canonicalizeProgram, createProgramVerificationWork, parseModuleBodies, parseProgramIndex, printModuleBodies, printProgramIndex,
   instantiate, verifyModuleBodies, verifyProgramIndex } from "../../packages/host/dist/ir-program/index.js";
 import { ProgramWork } from "../../packages/host/dist/ir-program/work.js";
 import { syntaxTransportModule } from "./ir-program-transport-fixtures.mjs";
 import { accountFailure, createAccount, remainingWork } from "../../packages/host/dist/dataflow/index.js";
 import { compareIndexSignatures } from "../../packages/host/dist/ir-types/index.js";
-import { projectFixtureProgram } from "./fixtures/program-executions.mjs";
+import { programForEvidence, projectFixtureProgram } from "./fixtures/program-executions.mjs";
 
 test("canonical Program publishes authentic templates without executable artifacts beside selected instances", () => {
   const fixture = publicationFixture();
@@ -151,12 +151,16 @@ test("Program final member projection uses inventory-only indexes in final ident
   const run = (maximumWork = 100000, maximumCreatedRecords = 100000, input = { checked: [], members: [member], signatures: [], storage: [] }) => {
     const account = createAccount({ maximumWork, maximumResultEntries: 100000 });
     const resources = createProgramVerificationWork({ ...ProgramWork.state(fixture.context.resources).limits, maximumCreatedRecords }, account);
-    const result = projectProgramEvidence(input, publication, resources);
+    const result = canonicalizeProgram(programForEvidence(fixture.index), publication, resources,
+      { kind: "with-evidence", read: actual => {
+        assert.equal(actual === account, true);
+        return { kind: "complete", value: input };
+      } });
     return { result, account, state: ProgramWork.state(resources) };
   };
   const full = run();
   assert.equal(full.result.kind, "complete");
-  const mapped = full.result.value.members[0].inventory;
+  const mapped = full.result.evidence.members[0].inventory;
   assert.equal(mapped.receiver, 2);
   assert.deepEqual(mapped.indexes, [0, 1, 2].map(key => ({ origin, key, readonly: true })));
   assert.equal(compareIndexSignatures(mapped.indexes[0], mapped.indexes[1]), -1);

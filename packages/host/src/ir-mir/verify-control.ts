@@ -1,10 +1,11 @@
 import type { Violation } from "../diag/contract.js";
 import type { BlockId, BodyId, DefId, NodeId, NodeRef, Origin, PlaceId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import { callableEndpointKey, childrenOfSyntax, hasOverloadEndpoints, selectedEndpointRoleFaults, walkSyntaxTree } from "../ir-hir/index.js";
+import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
 import type { ApplicationDecision } from "../ir-infer/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
-import type { MemberSelection, ResolvedCallee, TirBody, TirNode, TirProtocol, TirProtocolStep, TypedOperation } from "../ir-tir/contract.js";
+import type { ChapterSyntaxSlots, MemberSelection, ResolvedCallee, TirBody, TirChapterSyntax, TirProtocol, TirProtocolStep, TirSyntaxOccurrence, TypedOperation } from "../ir-tir/contract.js";
+import { chapterSyntaxSlots, indexChapterSyntax, tirBodySyntaxOf } from "../ir-tir/index.js";
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
 import type { MirBlock, MirBody, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite } from "./contract.js";
@@ -136,7 +137,7 @@ export function verifyEdges(body: MirBody): readonly Violation<MirRule, MirViola
 }
 
 export interface SourceNode {
-  readonly node: TirNode;
+  readonly node: TirSyntaxOccurrence;
   readonly operations: ReadonlySet<string>;
   readonly callees: ReadonlySet<string>;
   readonly protocols: readonly TirProtocol[];
@@ -194,35 +195,29 @@ export function findSourceNode(nodes: ReadonlyMap<NodeId, SourceNode>, identity:
   return Number.isSafeInteger(identity) && !Object.is(identity, -0) && identity >= 0 ? nodes.get(identity) : undefined;
 }
 
-function bodyBoundaries(node: TirNode): ReadonlySet<NodeId> {
-  const excluded = new Set<NodeId>();
-  if (node.kind === "FunctionDeclaration" || node.kind === "FunctionExpression" || node.kind === "ArrowFunction"
-    || node.kind === "Constructor" || node.kind === "MethodDeclaration" || node.kind === "GetAccessor" || node.kind === "SetAccessor") {
-    if (node.body !== null) excluded.add(node.body.id);
-    for (const parameter of node.parameters.nodes) excluded.add(parameter.id);
+const mirOccurrenceSlots: ChapterSyntaxSlots = function* (subject) {
+  const { kind } = subject.node;
+  const callable = kind === "FunctionDeclaration" || kind === "FunctionExpression" || kind === "ArrowFunction"
+    || kind === "Constructor" || kind === "MethodDeclaration" || kind === "GetAccessor" || kind === "SetAccessor";
+  const initializer = kind === "PropertyDeclaration" || kind === "PropertySignature" || kind === "EnumMember"
+    || kind === "VariableDeclaration" || kind === "Parameter";
+  for (const slot of chapterSyntaxSlots(subject)) {
+    const field = slot.fields[0];
+    if (field === "parameters" && callable || field === "initializer" && initializer
+      || field === "body" && (callable || kind === "ClassStaticBlockDeclaration" || kind === "ModuleDeclaration")) continue;
+    yield slot;
   }
-  if ((node.kind === "PropertyDeclaration" || node.kind === "PropertySignature" || node.kind === "EnumMember" || node.kind === "VariableDeclaration")
-    && node.initializer !== null) excluded.add(node.initializer.id);
-  if (node.kind === "Parameter" && node.initializer !== null) excluded.add(node.initializer.id);
-  if (node.kind === "ClassStaticBlockDeclaration") excluded.add(node.body.id);
-  if (node.kind === "ModuleDeclaration" && node.body !== null) excluded.add(node.body.id);
-  return excluded;
-}
+};
 
 export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<NodeId, SourceNode> {
-  const visited = new Set<NodeId>();
-  const boundaries = new Set<NodeId>();
-  const pending: TirNode[] = [source.root, ...source.params];
-  for (const node of pending) {
-    if (visited.has(node.id)) continue;
-    visited.add(node.id);
-    const children = childrenOfSyntax(node);
-    const excluded = bodyBoundaries(node);
-    for (const id of excluded) boundaries.add(id);
-    for (const child of children) if (!excluded.has(child.id)) pending.push(child);
+  function* roots(): Generator<TirChapterSyntax> {
+    yield tirBodySyntaxOf(source.root);
+    for (const node of source.params) yield { kind: "formal", node };
   }
   const nodes = new Map<NodeId, SourceNode>();
-  for (const root of [source.root, ...source.params]) for (const node of walkSyntaxTree(root, [...boundaries])) {
+  for (const subject of indexChapterSyntax(roots(), mirOccurrenceSlots)) {
+    if (subject.kind === "checked") continue;
+    const node = subject.node;
     const previous = nodes.get(node.id);
     if (previous !== undefined) {
       if (previous.node !== node) throw new TypeError("The selected source roots contain conflicting syntax occurrences.");

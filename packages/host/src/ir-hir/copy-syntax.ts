@@ -1,6 +1,8 @@
-import type { BeginSyntaxCopy, CopySyntaxForest, Phase, SyntaxCopyCursor, SyntaxNode, SyntaxPhaseCopy } from "./contract.js";
+import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, CopySyntaxForest,
+  FinishSyntaxCopy, Phase, PrepareSyntaxCopy, SyntaxCopyResult, SyntaxForest, SyntaxImage,
+  SyntaxInitializerImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy } from "./contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
-import { requirePresent } from "../diag/index.js";
+import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { SyntaxCopyPorts } from "./copy-node.js";
 import { borrowedSyntaxPlan, copied, planSyntaxNode } from "./copy-node.js";
 import { createStatementsPlans } from "./copy-statements.js";
@@ -10,10 +12,15 @@ import { createAuxiliaryPlans } from "./copy-auxiliary.js";
 
 const missingPreparation: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
   message: "Every admitted syntax node must have its own prepared projection." };
+const consumedPreparation: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
+  message: "An admitted syntax forest owns one consuming materialization." };
 
-function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>): SyntaxCopyPorts<P, Stop, Image> {
-  const statements = createStatementsPlans(phase, () => ports);
-  const expressions = createExpressionsPlans(phase, () => ports);
+function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
+  initializer: SyntaxInitializerImage<P, Image>,
+  blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>,
+  binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>): SyntaxCopyPorts<P, Stop, Image> {
+  const statements = createStatementsPlans(phase, () => ports, initializer, blockOf);
+  const expressions = createExpressionsPlans(phase, () => ports, binaryOf);
   const types = createTypesPlans(phase, () => ports);
   const auxiliary = createAuxiliaryPlans(phase, () => ports);
   const ports: SyntaxCopyPorts<P, Stop, Image> = {
@@ -423,47 +430,76 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
   return ports;
 }
 
-function beginCopy<P extends Phase, Stop, Image>(
+export const prepareSyntaxCopy: PrepareSyntaxCopy = <P extends Phase, Stop, Image>(
   phase: SyntaxPhaseCopy<P, Stop, Image>, beforeNode: (node: SyntaxNode<P>) => Stop | null,
-): SyntaxCopyCursor<P, Stop, Image> {
+  discover: (prepare: (node: SyntaxNode<P>) => Stop | null) =>
+    SyntaxCopyResult<SyntaxMaterialization<P, Image>, Stop>,
+): SyntaxCopyResult<FinishSyntaxCopy<P, Stop, Image>, Stop> => {
   let ports: SyntaxCopyPorts<P, Stop, Image> | undefined;
+  let admittedInitializer: SyntaxInitializerImage<P, Image> | undefined;
+  let admittedBlock: ((node: Block<P>) => BlockSyntaxReceipt<P>) | undefined;
+  let admittedBinary: ((node: BinaryExpression<P>) => BinarySyntaxReceipt<P>) | undefined;
+  let discovering = true;
+  let materialized = false;
   let failure: Stop | null = null;
+  const copyInitializer: SyntaxInitializerImage<P, Image> = (node, expression, image) =>
+    requirePresent(admittedInitializer, missingPreparation)(node, expression, image);
   function prepare(node: SyntaxNode<P>): Stop | null {
+    if (!discovering) return throwInvariant(consumedPreparation);
     if (failure !== null) return failure;
     const stop = beforeNode(node);
     if (stop !== null) {
       failure = stop;
       return stop;
     }
-    ports ??= createSyntaxPlans(phase);
+    ports ??= createSyntaxPlans(phase, copyInitializer, node => requirePresent(admittedBlock, missingPreparation)(node),
+      node => requirePresent(admittedBinary, missingPreparation)(node));
     failure = planSyntaxNode(ports, node).prepare();
     return failure;
   }
-  return {
-    prepare,
-    materialize: (syntax, image) => {
-      if (failure !== null) return { kind: "refused", stop: failure };
-      const prepared = syntax.nodes.length === 0 ? undefined : requirePresent(ports, missingPreparation);
-      if (prepared !== undefined) {
-        for (const node of syntax.postorder) planSyntaxNode(prepared, node).materialize(image);
+  const discovery = discover(prepare);
+  discovering = false;
+  if (failure !== null) return { kind: "refused", stop: failure };
+  if (discovery.kind === "refused") return discovery;
+  const { postorder, wireOf, blockOf, binaryOf, copyInitializer: initializer } = discovery.value;
+  admittedBlock = blockOf;
+  admittedBinary = binaryOf;
+  admittedInitializer = initializer;
+  return copied((image: Image): SyntaxCopyResult<SyntaxImage<P>, Stop> => {
+    if (materialized) return throwInvariant(consumedPreparation);
+    materialized = true;
+    const prepared = ports;
+    for (const node of postorder) planSyntaxNode(requirePresent(prepared, missingPreparation), node).materialize(image);
+    return copied({
+      nodeOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.SyntaxNode(node).read(),
+      sourceFileOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.SourceFile(node).read(),
+      bodyRootOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.BodyRoot(node).read(),
+      parameterOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.ParameterDeclaration(node).read(),
+    });
+  });
+};
+
+export function bindSyntaxForest<P extends Phase>(nodes: readonly SyntaxNode<P>[],
+  postorder: readonly SyntaxNode<P>[], wireOf: (node: SyntaxNode<P>) => number | undefined,
+  blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>, binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>,
+  copyInitializer: SyntaxInitializerImage<P, unknown>): SyntaxForest<P>["copy"] {
+  let claimed = false;
+  return <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
+    beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => {
+    if (claimed) return throwInvariant(consumedPreparation);
+    claimed = true;
+    const setup = start();
+    if (setup.kind === "refused") return setup;
+    const prepared = prepareSyntaxCopy<P, Stop, Image>(setup.value, beforeNode, prepare => {
+      for (const node of nodes) {
+        const stop = prepare(node);
+        if (stop !== null) return { kind: "refused", stop };
       }
-      return copied({
-        nodeOf: node => prepared === undefined || syntax.wireOf(node) === undefined ? null : prepared.SyntaxNode(node).read(),
-        sourceFileOf: node => prepared === undefined || syntax.wireOf(node) === undefined ? null : prepared.SourceFile(node).read(),
-        bodyRootOf: node => prepared === undefined || syntax.wireOf(node) === undefined ? null : prepared.BodyRoot(node).read(),
-        parameterOf: node => prepared === undefined || syntax.wireOf(node) === undefined ? null : prepared.ParameterDeclaration(node).read(),
-      });
-    },
+      return copied({ postorder, wireOf, blockOf, binaryOf, copyInitializer });
+    });
+    return prepared.kind === "refused" ? prepared : prepared.value(image);
   };
 }
 
-export const beginSyntaxCopy: BeginSyntaxCopy = beginCopy;
-
-export const copySyntaxForest: CopySyntaxForest = (syntax, phase, beforeNode, image) => {
-  const cursor = beginSyntaxCopy(phase, beforeNode);
-  for (const node of syntax.nodes) {
-    const stop = cursor.prepare(node);
-    if (stop !== null) return { kind: "refused", stop };
-  }
-  return cursor.materialize(syntax, image);
-};
+export const copySyntaxForest: CopySyntaxForest = (syntax, phase, beforeNode, image) =>
+  syntax.copy(() => copied(phase), beforeNode, image);

@@ -1,5 +1,5 @@
 import type { TextIdentity, TextRecord, TextValue } from "./parse.js";
-import type { HirNode, PrintHir } from "./contract.js";
+import type { HirNode, PrintCheckedDeclarations, PrintHir } from "./contract.js";
 import type { HirDataPath, HirDataWork, HirRecordWork } from "./walk.js";
 import { hirChildPath, hirDataPathText } from "./walk.js";
 import { hirModuleData, hirNodeData } from "./text-data.js";
@@ -66,7 +66,7 @@ function fieldName(value: string): string {
   return /^[A-Za-z_][A-Za-z0-9_-]*$/u.test(value) ? value : quoteHirText(value);
 }
 
-export function printHirRecords(records: readonly TextRecord[]): string {
+function printHirRecords(records: readonly TextRecord[], prefix: "n" | "c"): string {
   const tasks: (TextTask | ValueTask)[] = [];
   for (const record of records) {
     if (tasks.length > 0) tasks.push({ kind: "text", text: "\n" });
@@ -102,7 +102,7 @@ export function printHirRecords(records: readonly TextRecord[]): string {
         break;
       }
       case "record": {
-        if (value.binding !== null) pieces.push("n:", String(value.binding), "=");
+        if (value.binding !== null) pieces.push(prefix, ":", String(value.binding), "=");
         pieces.push(value.label, "(");
         const content: (TextTask | ValueTask)[] = [];
         for (const field of value.fields) {
@@ -184,13 +184,13 @@ function encodeHirRecord(work: HirRecordWork, bind: (node: HirNode, path: HirDat
   return root;
 }
 
-export const printHir: PrintHir = module => {
+function createHirTextArena(prefix: "n" | "c") {
   const bindings = new Map<HirNode, TextIdentity>();
   const arena: SyntaxBinding[] = [];
   const bind = (node: HirNode, path: HirDataPath): TextIdentity => {
     const previous = bindings.get(node);
     if (previous !== undefined) return previous;
-    const root: TextIdentity = { kind: "identity", offset: 0, prefix: "n", value: arena.length };
+    const root: TextIdentity = { kind: "identity", offset: 0, prefix, value: arena.length };
     const active = new Set<HirNode>();
     let pending: PendingSyntax | null = { kind: "enter", node, path, next: null };
     while (pending !== null) {
@@ -200,7 +200,7 @@ export const printHir: PrintHir = module => {
       if (active.has(frame.node)) throw new TypeError(`Syntax child cycle at ${hirDataPathText(frame.path)}`);
       if (bindings.has(frame.node)) continue;
       const ordinal = arena.length;
-      bindings.set(frame.node, { kind: "identity", offset: 0, prefix: "n", value: ordinal });
+      bindings.set(frame.node, { kind: "identity", offset: 0, prefix, value: ordinal });
       active.add(frame.node);
       arena.push({ node: frame.node, ordinal });
       pending = syntaxChildEdges(frame.node).reduceRight<PendingSyntax | null>((next, child) => ({
@@ -209,7 +209,28 @@ export const printHir: PrintHir = module => {
     }
     return root;
   };
-  const records: TextRecord[] = [encodeHirRecord(hirModuleData(module), bind, null)];
-  for (const entry of arena) records.push(encodeHirRecord(hirNodeData(entry.node), bind, entry.ordinal));
-  return printHirRecords(records);
+  const appendDeclarations = (records: TextRecord[]): void => {
+    for (const entry of arena) records.push(encodeHirRecord(hirNodeData(entry.node), bind, entry.ordinal));
+  };
+  return { bind, appendDeclarations, wireOf: (node: HirNode) => {
+    const position = bindings.get(node)?.value;
+    return typeof position === "number" ? position : undefined;
+  } };
+}
+
+export const printHir: PrintHir = module => {
+  const arena = createHirTextArena("n");
+  const records = [encodeHirRecord(hirModuleData(module), arena.bind, null)];
+  arena.appendDeclarations(records);
+  return printHirRecords(records, "n");
+};
+
+export const printCheckedDeclarations: PrintCheckedDeclarations = roots => {
+  const arena = createHirTextArena("c");
+  for (const [position, root] of roots.entries())
+    arena.bind(root, { parent: { parent: null, field: "CheckedDeclarations" }, field: position });
+  const declarations: TextRecord[] = [];
+  arena.appendDeclarations(declarations);
+  const content = printHirRecords(declarations, "c");
+  return { text: content.length === 0 ? "CheckedDeclarations()" : `CheckedDeclarations(\n${content}\n)`, wireOf: arena.wireOf };
 };

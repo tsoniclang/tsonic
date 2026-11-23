@@ -1,15 +1,20 @@
 import type { InvariantFailure } from "../diag/contract.js";
-import { requirePresent } from "../diag/index.js";
-import type { ChildrenOfSyntax, IterateChildrenOfSyntax, IterateSyntaxChildEdges, Phase, SyntaxNode, NodeList, SyntaxChild } from "./contract.js";
+import { requirePresent, throwInvariant } from "../diag/index.js";
+import type { ChildrenOfSyntax, IterateChildrenOfSyntax, IterateSyntaxChildEdges, NullableInitializerPhase, Phase, SyntaxNode, NodeList, SyntaxChild } from "./contract.js";
+import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSourceFileHeaderSlots, IterateSyntaxChildSlots,
+  AsteriskToken, EndOfFile, FunctionDeclarationHeader, FunctionExpression, Identifier, ParameterDeclarationHeader,
+  PreparedFunctionHeader, PreparedSourceFileHeader, PrepareFunctionHeader, PrepareSourceFileHeader, SourceFileHeader,
+  SyntaxChildSlot, TypeParameterDeclaration } from "./contract.js";
+import type { BinaryExpression, BinaryOperatorToken, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, Expression, ModifierLike, ModifierList,
+  PrepareBinaryStructure, PrepareBlockStructure, Statement, SyntaxCopyResult, TextRange, TypeNode } from "./contract.js";
+import { syntaxHeader } from "./copy-node.js";
+export type { SyntaxChildSlot } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
 const missingChild: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
   message: "A syntax list must retain its actual dense child vector." };
-
-export interface SyntaxChildSlot<PhaseType extends Phase> {
-  readonly fields: readonly (string | number)[];
-  readonly read: () => SyntaxNode<PhaseType>;
-}
+const missingStructure: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
+  message: "Syntax materialization requires its actual admitted field and child receipt." };
 
 type ChildPart<PhaseType extends Phase> =
   | readonly [field: string, kind: "required", read: () => SyntaxNode<PhaseType>]
@@ -62,30 +67,255 @@ function* children<PhaseType extends Phase, Node>(
   }
 }
 
-export const iterateChildrenOfSyntax: IterateChildrenOfSyntax = function* <PhaseType extends Phase>(
-  node: SyntaxNode<PhaseType>,
-): Generator<SyntaxNode<PhaseType>, void, undefined> {
-  for (const slot of iterateSyntaxChildSlots(node)) yield slot.read();
+function sameSlot<P extends Phase>(slot: SyntaxChildSlot<P>): SyntaxChildSlot<P> {
+  return slot;
+}
+
+interface RetainedSyntaxList<Value> {
+  readonly loc: TextRange;
+  readonly nodes: Value[];
+}
+
+function* readRetainedList<P extends Phase, Value extends SyntaxNode<P>>(field: string, list: NodeList<Value>,
+  retain: (list: RetainedSyntaxList<Value>, count: number) => void): Generator<SyntaxChildSlot<P>> {
+  const raw = list.nodes;
+  const length = raw.length;
+  const admitted: Value[] = [];
+  retain({ loc: list.loc, nodes: admitted }, length);
+  for (let index = 0; index < length; index += 1) {
+    const position = index;
+    yield { fields: [field, "nodes", position], read: () => {
+      const child = requirePresent(raw[position], missingChild);
+      admitted.push(child);
+      return child;
+    } };
+  }
+}
+
+function materializeList<Value>(list: RetainedSyntaxList<Value>, count: number, image: (node: Value) => Value): NodeList<Value> {
+  if (list.nodes.length !== count) return throwInvariant(missingStructure);
+  for (let position = 0; position < list.nodes.length; position += 1)
+    list.nodes[position] = image(requirePresent(list.nodes[position], missingStructure));
+  return list;
+}
+
+function* blockFields<P extends Phase>(node: Block<P>,
+  statements: (field: "statements", list: NodeList<Statement<P>>) => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* statements("statements", node.statements);
+}
+
+interface BinaryFields<P extends Phase> {
+  readonly modifiers: (field: "modifiers", list: ModifierList<P> | null) => Iterable<SyntaxChildSlot<P>>;
+  readonly left: (node: Expression<P>) => Expression<P>;
+  readonly type: (node: TypeNode<P> | null) => TypeNode<P> | null;
+  readonly operator: (node: BinaryOperatorToken<P>) => BinaryOperatorToken<P>;
+  readonly right: (node: Expression<P>) => Expression<P>;
+}
+
+function* binaryFields<P extends Phase>(node: BinaryExpression<P>, modifiers: () => ModifierList<P> | null,
+  fields: BinaryFields<P>): Generator<SyntaxChildSlot<P>> {
+  yield* fields.modifiers("modifiers", modifiers());
+  yield* children<P, BinaryExpression<P>>(["left", "required", () => fields.left(node.left)],
+    ["type", "nullable", () => fields.type(node.type)], ["operatorToken", "required", () => fields.operator(node.operatorToken)],
+    ["right", "required", () => fields.right(node.right)]);
+}
+
+export const prepareBlockStructure: PrepareBlockStructure = <P extends Phase>(
+  node: Block<P>, ordinal: number,
+): BlockSyntaxReceipt<P> => {
+  let list: RetainedSyntaxList<Statement<P>> | undefined;
+  let length = 0;
+  return { kind: "block", ordinal, header: syntaxHeader(node), multiLine: node.multiLine,
+    slots: blockFields<P>(node, (field, original) => readRetainedList<P, Statement<P>>(field, original, (admitted, count) => {
+      list = admitted;
+      length = count;
+    })),
+    statements: read => materializeList(requirePresent(list, missingStructure), length, read) };
 };
 
-export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
+export const prepareBinaryStructure: PrepareBinaryStructure = <P extends Phase, Stop>(
+  node: BinaryExpression<P>, ordinal: number, admitModifiers: () => Stop | null,
+): SyntaxCopyResult<BinarySyntaxReceipt<P>, Stop> => {
+  const modifiers = node.modifiers;
+  if (modifiers !== null) {
+    const stop = admitModifiers();
+    if (stop !== null) return { kind: "refused", stop };
+  }
+  let list: RetainedSyntaxList<ModifierLike<P>> | undefined;
+  let length = 0;
+  let left: Expression<P> | undefined;
+  let right: Expression<P> | undefined;
+  let type: TypeNode<P> | null | undefined;
+  let operator: BinaryOperatorToken<P> | undefined;
+  const slots = binaryFields<P>(node, () => modifiers, {
+    modifiers: (field, original) => original === null ? [] : readRetainedList<P, ModifierLike<P>>(field, original, (admitted, count) => {
+      list = admitted;
+      length = count;
+    }),
+    left: value => (left = value), right: value => (right = value), type: value => (type = value), operator: value => (operator = value),
+  });
+  return { kind: "copied", value: {
+    kind: "binary", ordinal, header: syntaxHeader(node), slots,
+    modifiers: read => modifiers === null ? null : materializeList(requirePresent(list, missingStructure), length, read),
+    left: () => requirePresent(left, missingStructure),
+    type: () => requirePresent(type, missingStructure),
+    operator: () => requirePresent(operator, missingStructure),
+    right: () => requirePresent(right, missingStructure),
+  } };
+};
+
+export const iterateSourceFileHeaderSlots: IterateSourceFileHeaderSlots = function* <P extends Phase, Slot>(node: SourceFileHeader<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, statements: (field: "statements") => Iterable<Slot>) {
+  yield* sourceFileFields<P, Slot>(ordinary, statements, () => node.endOfFileToken);
+};
+
+function* sourceFileFields<P extends Phase, Slot>(ordinary: (slot: SyntaxChildSlot<P>) => Slot,
+  statements: (field: "statements") => Iterable<Slot>, endOfFileToken: () => EndOfFile<P>): Generator<Slot> {
+  yield* statements("statements");
+  yield ordinary({ fields: ["endOfFileToken"], read: endOfFileToken });
+}
+
+export const prepareSourceFileHeader: PrepareSourceFileHeader = <P extends Phase, Slot>(node: SourceFileHeader<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, statements: (field: "statements") => Iterable<Slot>,
+): PreparedSourceFileHeader<P, Slot> => {
+  const header = syntaxHeader(node);
+  const { languageVariant, scriptKind, commentDirectives, pragmas, checkJsDirective } = node;
+  let endOfFileToken: EndOfFile<P> | undefined;
+  return {
+    slots: sourceFileFields<P, Slot>(ordinary, statements, () => (endOfFileToken = node.endOfFileToken)),
+    finish: (statements, tsonic) => ({ ...header, kind: "SourceFile", statements,
+      endOfFileToken: requirePresent(endOfFileToken, missingStructure), languageVariant, scriptKind,
+      commentDirectives, pragmas, checkJsDirective, tsonic }),
+  };
+};
+
+export const iterateParameterHeaderSlots: IterateParameterHeaderSlots = function* <P extends Phase, Slot>(node: ParameterDeclarationHeader<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, initializer: (field: "initializer") => Iterable<Slot>) {
+  for (const slot of children<P, typeof node>(["modifiers", "list", () => node.modifiers], ["dotDotDotToken", "nullable", () => node.dotDotDotToken],
+    ["name", "required", () => node.name], ["questionToken", "nullable", () => node.questionToken], ["type", "nullable", () => node.type]))
+    yield ordinary(slot);
+  yield* initializer("initializer");
+};
+
+export const iterateFunctionHeaderSlots: IterateFunctionHeaderSlots = function* <P extends Phase, Slot>(node: FunctionDeclarationHeader<P> | FunctionExpression<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, parameters: (field: "parameters") => Iterable<Slot>, body: (field: "body") => Iterable<Slot>) {
+  yield* functionFields<P, Slot>(ordinary, parameters, body, {
+    modifiers: () => children<P, typeof node>(["modifiers", "list", () => node.modifiers]),
+    asterisk: () => node.asteriskToken, name: () => node.name,
+    typeParameters: () => children<P, typeof node>(["typeParameters", "list", () => node.typeParameters]),
+    type: () => node.type, fullSignature: () => node.fullSignature,
+  });
+};
+
+interface FunctionHeaderFields<P extends Phase> {
+  readonly modifiers: () => Iterable<SyntaxChildSlot<P>>;
+  readonly asterisk: () => AsteriskToken<P> | null;
+  readonly name: () => Identifier<P> | null;
+  readonly typeParameters: () => Iterable<SyntaxChildSlot<P>>;
+  readonly type: () => TypeNode<P> | null;
+  readonly fullSignature: () => TypeNode<P> | null;
+}
+
+function* functionFields<P extends Phase, Slot>(ordinary: (slot: SyntaxChildSlot<P>) => Slot,
+  parameters: (field: "parameters") => Iterable<Slot>, body: (field: "body") => Iterable<Slot>,
+  fields: FunctionHeaderFields<P>): Generator<Slot> {
+  for (const slot of fields.modifiers()) yield ordinary(slot);
+  for (const slot of children<P, FunctionDeclarationHeader<P>>(["asteriskToken", "nullable", fields.asterisk],
+    ["name", "nullable", fields.name])) yield ordinary(slot);
+  for (const slot of fields.typeParameters()) yield ordinary(slot);
+  yield* parameters("parameters");
+  for (const slot of children<P, FunctionDeclarationHeader<P>>(["type", "nullable", fields.type], ["fullSignature", "nullable", fields.fullSignature]))
+    yield ordinary(slot);
+  yield* body("body");
+}
+
+export const prepareFunctionHeader: PrepareFunctionHeader = <P extends Phase, Slot, Stop>(node: FunctionDeclarationHeader<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot, parameters: (field: "parameters") => Iterable<Slot>,
+  body: (field: "body") => Iterable<Slot>, admitList: () => Stop | null, admitParameters: () => Stop | null,
+): SyntaxCopyResult<PreparedFunctionHeader<P, Slot>, Stop> => {
+  const modifiers = node.modifiers;
+  const modifierStop = modifiers === null ? null : admitList();
+  if (modifierStop !== null) return { kind: "refused", stop: modifierStop };
+  const typeParameters = node.typeParameters;
+  const typeParameterStop = typeParameters === null ? null : admitList();
+  if (typeParameterStop !== null) return { kind: "refused", stop: typeParameterStop };
+  const parameterStop = admitParameters();
+  if (parameterStop !== null) return { kind: "refused", stop: parameterStop };
+  const header = syntaxHeader(node);
+  let retainedModifiers: RetainedSyntaxList<ModifierLike<P>> | undefined;
+  let modifierCount = 0;
+  let retainedTypes: RetainedSyntaxList<TypeParameterDeclaration<P>> | undefined;
+  let typeCount = 0;
+  let asterisk: AsteriskToken<P> | null | undefined;
+  let name: Identifier<P> | null | undefined;
+  let type: TypeNode<P> | null | undefined;
+  let fullSignature: TypeNode<P> | null | undefined;
+  return { kind: "copied", value: {
+    slots: functionFields<P, Slot>(ordinary, parameters, body, {
+      modifiers: () => modifiers === null ? [] : readRetainedList<P, ModifierLike<P>>("modifiers", modifiers, (list, count) => {
+        retainedModifiers = list;
+        modifierCount = count;
+      }),
+      typeParameters: () => typeParameters === null ? [] : readRetainedList<P, TypeParameterDeclaration<P>>("typeParameters", typeParameters, (list, count) => {
+        retainedTypes = list;
+        typeCount = count;
+      }),
+      asterisk: () => (asterisk = node.asteriskToken), name: () => (name = node.name),
+      type: () => (type = node.type), fullSignature: () => (fullSignature = node.fullSignature),
+    }),
+    finish: (parameters, body, tsonic, modifier, parameter, typeImage, nameImage) => {
+      const sourceName = requirePresent(name, missingStructure);
+      const sourceType = requirePresent(type, missingStructure);
+      const sourceFullSignature = requirePresent(fullSignature, missingStructure);
+      return { ...header, kind: "FunctionDeclaration",
+        modifiers: modifiers === null ? null : materializeList(requirePresent(retainedModifiers, missingStructure), modifierCount, modifier),
+        typeParameters: typeParameters === null ? null : materializeList(requirePresent(retainedTypes, missingStructure), typeCount, parameter),
+        parameters, type: sourceType === null ? null : typeImage(sourceType),
+        fullSignature: sourceFullSignature === null ? null : typeImage(sourceFullSignature),
+        asteriskToken: requirePresent(asterisk, missingStructure), body, name: sourceName === null ? null : nameImage(sourceName), tsonic };
+    },
+  } };
+};
+
+export const iterateChildrenOfSyntax: IterateChildrenOfSyntax = function* <PhaseType extends NullableInitializerPhase<PhaseType>>(
+  node: SyntaxNode<PhaseType>,
+): Generator<SyntaxNode<PhaseType>, void, undefined> {
+  for (const slot of iterateNullableSyntaxSlots(node)) yield slot.read();
+};
+
+export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends NullableInitializerPhase<PhaseType>>(
   node: SyntaxNode<PhaseType>,
 ): readonly SyntaxNode<PhaseType>[] => [...iterateChildrenOfSyntax(node)];
 
-export function syntaxChildEdges<PhaseType extends Phase>(
+export function syntaxChildEdges<PhaseType extends NullableInitializerPhase<PhaseType>>(
   node: SyntaxNode<PhaseType>,
 ): readonly SyntaxChild<PhaseType>[] {
   return [...iterateSyntaxChildEdges(node)];
 }
 
-export const iterateSyntaxChildEdges: IterateSyntaxChildEdges = function* <PhaseType extends Phase>(
+export const iterateSyntaxChildEdges: IterateSyntaxChildEdges = function* <PhaseType extends NullableInitializerPhase<PhaseType>>(
   node: SyntaxNode<PhaseType>,
 ): Generator<SyntaxChild<PhaseType>, void, undefined> {
-  for (const slot of iterateSyntaxChildSlots(node)) yield { node: slot.read(), fields: slot.fields };
+  for (const slot of iterateNullableSyntaxSlots(node)) yield { node: slot.read(), fields: slot.fields };
 };
 
-export function iterateSyntaxChildSlots<PhaseType extends Phase>(
-  node: SyntaxNode<PhaseType>,
+export function iterateNullableSyntaxSlots<P extends NullableInitializerPhase<P>>(node: SyntaxNode<P>): Iterable<SyntaxChildSlot<P>> {
+  return iterateSyntaxChildSlots<P, SyntaxChildSlot<P>>(node, sameSlot, function* (parameter, field) {
+    const initializer = parameter.initializer;
+    if (initializer !== null) yield { fields: [field], read: () => initializer };
+  });
+}
+
+export const iterateSyntaxChildSlots: IterateSyntaxChildSlots = function* (node, ordinary, initializer) {
+  if (node.kind === "Parameter") {
+    yield* iterateParameterHeaderSlots(node, ordinary, field => initializer(node, field));
+  } else {
+    for (const slot of ordinarySlots(node)) yield ordinary(slot);
+  }
+};
+
+function ordinarySlots<PhaseType extends Phase>(
+  node: Exclude<SyntaxNode<PhaseType>, { readonly kind: "Parameter" }>,
 ): Iterable<SyntaxChildSlot<PhaseType>> {
   switch (node.kind) {
     case "QualifiedName":
@@ -138,6 +368,7 @@ export function iterateSyntaxChildSlots<PhaseType extends Phase>(
     case "LabeledStatement":
       return children<PhaseType, typeof node>(["label", "required", () => node.label], ["statement", "required", () => node.statement]);
     case "Block":
+      return blockFields<PhaseType>(node, (field, list) => children<PhaseType, typeof node>([field, "list", () => list]));
     case "ModuleBlock":
       return children<PhaseType, typeof node>(["statements", "list", () => node.statements]);
     case "VariableStatement":
@@ -149,17 +380,15 @@ export function iterateSyntaxChildSlots<PhaseType extends Phase>(
     case "ObjectBindingPattern":
     case "ArrayBindingPattern":
       return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
-    case "Parameter":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["dotDotDotToken", "nullable", () => node.dotDotDotToken], ["name", "required", () => node.name],
-        ["questionToken", "nullable", () => node.questionToken], ["type", "nullable", () => node.type], ["initializer", "nullable", () => node.initializer]);
     case "BindingElement":
       return children<PhaseType, typeof node>(["dotDotDotToken", "nullable", () => node.dotDotDotToken], ["propertyName", "nullable", () => node.propertyName], ["name", "nullable", () => node.name], ["initializer", "nullable", () => node.initializer]);
     case "MissingDeclaration":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]);
     case "FunctionDeclaration":
     case "FunctionExpression":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["asteriskToken", "nullable", () => node.asteriskToken], ["name", "nullable", () => node.name],
-        ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["body", "nullable", () => node.body]);
+      return iterateFunctionHeaderSlots(node, sameSlot<PhaseType>,
+        field => children<PhaseType, typeof node>([field, "list", () => node.parameters]),
+        field => children<PhaseType, typeof node>([field, "nullable", () => node.body]));
     case "ClassDeclaration":
     case "ClassExpression":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "nullable", () => node.name], ["typeParameters", "list", () => node.typeParameters],
@@ -226,7 +455,10 @@ export function iterateSyntaxChildSlots<PhaseType extends Phase>(
     case "ClassStaticBlockDeclaration":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["body", "required", () => node.body]);
     case "BinaryExpression":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["left", "required", () => node.left], ["type", "nullable", () => node.type], ["operatorToken", "required", () => node.operatorToken], ["right", "required", () => node.right]);
+      return binaryFields<PhaseType>(node, () => node.modifiers, {
+        modifiers: (field, list) => children<PhaseType, typeof node>([field, "list", () => list]),
+        left: value => value, right: value => value, type: value => value, operator: value => value,
+      });
     case "PrefixUnaryExpression":
     case "PostfixUnaryExpression":
       return children<PhaseType, typeof node>(["operand", "required", () => node.operand]);
@@ -366,7 +598,7 @@ export function iterateSyntaxChildSlots<PhaseType extends Phase>(
     case "JSDocTypedefTag":
       return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeExpression", "nullable", () => node.typeExpression], ["name", "nullable", () => node.name], ["comment", "list", () => node.comment]);
     case "SourceFile":
-      return children<PhaseType, typeof node>(["statements", "list", () => node.statements], ["endOfFileToken", "required", () => node.endOfFileToken]);
+      return iterateSourceFileHeaderSlots(node, sameSlot<PhaseType>, field => children<PhaseType, typeof node>([field, "list", () => node.statements]));
     case "ModuleDeclaration":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["asteriskToken", "nullable", () => node.asteriskToken], ["name", "required", () => node.name], ["body", "nullable", () => node.body]);
     case "ImportEqualsDeclaration":

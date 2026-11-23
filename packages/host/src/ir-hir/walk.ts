@@ -1,12 +1,15 @@
-import type { HirNode, IndexSyntaxTree, Phase, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
+import type { BinarySyntaxReceipt, BlockSyntaxReceipt, Expression, HirNode, IndexSyntaxTree,
+  NullableInitializerPhase, ParameterDeclaration, Phase, SyntaxForest, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
   WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { HirResolution } from "./contract.js";
 import type { MemberKey } from "../ir-types/contract.js";
 import type { CheckerDiagnosticRef } from "../diag/contract.js";
 import type { HirBindingTarget } from "./contract.js";
-import { iterateSyntaxChildSlots, syntaxChildEdges } from "./children.js";
+import { iterateSyntaxChildSlots, prepareBinaryStructure, prepareBlockStructure, syntaxChildEdges } from "./children.js";
 import type { SyntaxChildSlot } from "./children.js";
+import { throwInvariant } from "../diag/index.js";
+import { bindSyntaxForest } from "./copy-syntax.js";
 
 export const unparenthesizedExpression: UnparenthesizedExpression = expression => {
   while (expression.kind === "ParenthesizedExpression") expression = expression.expression;
@@ -24,7 +27,7 @@ export function hirChildPath(parent: HirDataPath, fields: readonly (string | num
   return path;
 }
 
-export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends Phase>(
+export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends NullableInitializerPhase<PhaseType>>(
   root: SyntaxNode<PhaseType>,
   stopBefore: readonly NodeId[],
 ): readonly SyntaxNode<PhaseType>[] => {
@@ -53,18 +56,26 @@ export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends Phase>(
 
 export const indexSyntaxTree: IndexSyntaxTree = root => walkSyntaxTree(root, []);
 
-export const walkSyntaxForest: WalkSyntaxForest = <PhaseType extends Phase, Stop>(
+export const walkSyntaxForest: WalkSyntaxForest = <PhaseType extends NullableInitializerPhase<PhaseType>, Stop>(
   roots: Iterable<SyntaxRootSlot<PhaseType>>,
   admission: SyntaxWalkAdmission<PhaseType, Stop>,
-) => {
+): { readonly kind: "complete"; readonly value: SyntaxForest<PhaseType> } | Stop => {
   interface Path { readonly parent: Path | null; readonly segment: string }
+  type ChildSlot = { readonly kind: "child"; readonly value: SyntaxChildSlot<PhaseType> }
+    | { readonly kind: "initializer"; readonly parameter: ParameterDeclaration<PhaseType>; readonly field: "initializer" };
+  interface FormalOccurrence {
+    readonly kind: "parameter";
+    readonly ordinal: number;
+    readonly initializer: Expression<PhaseType> | null;
+  }
+  type StructuralOccurrence = BlockSyntaxReceipt<PhaseType> | BinarySyntaxReceipt<PhaseType>;
   type Frame =
     | { readonly kind: "root"; readonly iterator: Iterator<SyntaxRootSlot<PhaseType>>; readonly first: boolean }
     | { readonly kind: "first-root-end" }
     | { readonly kind: "enter"; readonly node: SyntaxNode<PhaseType>; readonly path: Path }
-    | { readonly kind: "children"; readonly iterator: Iterator<SyntaxChildSlot<PhaseType>>; readonly path: Path }
+    | { readonly kind: "children"; readonly iterator: Iterator<ChildSlot>; readonly path: Path }
     | { readonly kind: "leave"; readonly node: SyntaxNode<PhaseType> };
-  const wire = new Map<SyntaxNode<PhaseType>, number>();
+  const wire = new Map<SyntaxNode<PhaseType>, number | FormalOccurrence | StructuralOccurrence>();
   const active = new Set<SyntaxNode<PhaseType>>();
   const nodes: SyntaxNode<PhaseType>[] = [];
   const postorder: SyntaxNode<PhaseType>[] = [];
@@ -92,28 +103,93 @@ export const walkSyntaxForest: WalkSyntaxForest = <PhaseType extends Phase, Stop
         if (wire.has(frame.node)) break;
         const stop = admission.node(frame.node);
         if (stop !== null) return stop;
-        active.add(frame.node);
-        wire.set(frame.node, nodes.length);
-        nodes.push(frame.node);
-        pending.push({ kind: "leave", node: frame.node },
-          { kind: "children", iterator: iterateSyntaxChildSlots(frame.node)[Symbol.iterator](), path: frame.path });
+        const node = frame.node;
+        active.add(node);
+        const ordinal = nodes.length;
+        let slots: Iterable<ChildSlot>;
+        if (node.kind === "Block" || node.kind === "BinaryExpression") {
+          const reserved = admission.structure(node);
+          if (reserved !== null) return reserved;
+          if (node.kind === "Block") {
+            const value = prepareBlockStructure<PhaseType>(node, ordinal);
+            wire.set(node, value);
+            slots = structuralSlots(value.slots);
+          } else {
+            const value = prepareBinaryStructure<PhaseType, Stop>(node, ordinal, admission.modifiers);
+            if (value.kind === "refused") return value.stop;
+            wire.set(node, value.value);
+            slots = structuralSlots(value.value.slots);
+          }
+        } else {
+          wire.set(node, ordinal);
+          slots = iterateSyntaxChildSlots<PhaseType, ChildSlot>(node, value => ({ kind: "child", value }),
+            (parameter, field) => [{ kind: "initializer", parameter, field }]);
+        }
+        nodes.push(node);
+        pending.push({ kind: "leave", node }, { kind: "children", iterator: slots[Symbol.iterator](), path: frame.path });
         break;
       }
       case "children": {
         const slot = frame.iterator.next();
         if (slot.done) break;
+        if (slot.value.kind === "initializer") {
+          const { parameter, field } = slot.value;
+          const reserved = admission.parameter(parameter);
+          if (reserved !== null) return reserved;
+          const ordinal = wire.get(parameter);
+          if (typeof ordinal !== "number") return throwInvariant({ owner: "ir-hir", query: null, origin: parameter.origin,
+            message: "A formal initializer must belong to its one admitted pointer." });
+          const initializer = parameter.initializer;
+          if (initializer === null) {
+            wire.set(parameter, { kind: "parameter", ordinal, initializer });
+            pending.push(frame);
+            break;
+          }
+          const stop = admission.edge();
+          if (stop !== null) return stop;
+          wire.set(parameter, { kind: "parameter", ordinal, initializer });
+          pending.push(frame, { kind: "enter", node: initializer, path: { parent: frame.path, segment: "." + field } });
+          break;
+        }
         const stop = admission.edge();
         if (stop !== null) return stop;
-        const node = slot.value.read();
+        const node = slot.value.value.read();
         let segment = "";
-        for (const field of slot.value.fields) segment += typeof field === "number" ? "[" + field + "]" : "." + field;
+        for (const field of slot.value.value.fields) segment += typeof field === "number" ? "[" + field + "]" : "." + field;
         pending.push(frame, { kind: "enter", node, path: { parent: frame.path, segment } });
         break;
       }
       case "leave": active.delete(frame.node); postorder.push(frame.node); break;
     }
   }
-  return { kind: "complete", value: { nodes, postorder, wireOf: (node: SyntaxNode<PhaseType>) => wire.get(node), firstRootSize } };
+  function* structuralSlots(values: Iterable<SyntaxChildSlot<PhaseType>>): Generator<ChildSlot> {
+    for (const value of values) yield { kind: "child", value };
+  }
+  const wireOf = (node: SyntaxNode<PhaseType>): number | undefined => {
+    const entry = wire.get(node);
+    return typeof entry === "number" ? entry : entry?.ordinal;
+  };
+  const copy = bindSyntaxForest<PhaseType>(nodes, postorder, wireOf, node => {
+    const entry = wire.get(node);
+    if (entry !== undefined && typeof entry !== "number" && entry.kind === "block") return entry;
+    return throwInvariant({ owner: "ir-hir", query: null, origin: node.origin, message: "Block requires its exact admitted structural receipt." });
+  }, node => {
+    const entry = wire.get(node);
+    if (entry !== undefined && typeof entry !== "number" && entry.kind === "binary") return entry;
+    return throwInvariant({ owner: "ir-hir", query: null, origin: node.origin, message: "Binary requires its exact admitted structural receipt." });
+  }, (node, expression) => {
+    const entry = wire.get(node);
+    if (entry !== undefined && typeof entry !== "number" && entry.kind === "parameter")
+      return entry.initializer === null ? null : expression(entry.initializer);
+    return throwInvariant({ owner: "ir-hir", query: null, origin: node.origin,
+      message: "A formal initializer requires the actually admitted syntax pointer." });
+  });
+  return { kind: "complete", value: { nodes: () => nodes.values(), firstRootSize, wireOf, copy,
+    structureOf: node => {
+      const entry = wire.get(node);
+      return entry === undefined || typeof entry === "number" || entry.kind === "parameter" ? null : entry.kind;
+    },
+  } };
 };
 
 export interface HirDataPath {

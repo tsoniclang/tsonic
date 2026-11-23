@@ -307,6 +307,43 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     return target !== undefined && node !== undefined && ast.is.IsTypeReferenceNode(node) &&
       ast.typeArguments(node).length === 0 && symbol(ast.as.AsTypeReferenceNode(node).TypeName) === target;
   };
+  const requiredValueParameter = formal => {
+    if (formal === undefined || !ast.is.IsParameterDeclaration(formal)) return false;
+    const parameter = ast.as.AsParameterDeclaration(formal);
+    return parameter.QuestionToken === undefined && parameter.DotDotDotToken === undefined &&
+      parameter.Initializer === undefined && ast.is.IsIdentifier(ast.name(formal));
+  };
+  const exactPhasePort = (node, name, parameter) => {
+    if (node === undefined || !ast.is.IsTypeReferenceNode(node)) return false;
+    const [selected] = ast.typeArguments(node);
+    const identity = symbol(ast.as.AsTypeReferenceNode(node).TypeName);
+    const declarations = identity === undefined ? [] : checker(node).getSymbolDeclarations(identity);
+    return ast.typeArguments(node).length === 1 && selectsParameter(selected, parameter) && declarations.length === 1 &&
+      canonicalSyntax(declarations[0]) && ast.text(ast.name(declarations[0])) === name;
+  };
+  const phaseInitializerSelection = node => {
+    const container = ast.parent(node);
+    const declaration = ast.parent(container);
+    if (!canonicalSyntax(node)) return false;
+    if (ast.is.IsPropertySignatureDeclaration(container) && ast.hasModifierKind(container, "readonly") &&
+      ast.questionToken(container) === undefined && ast.typeNode(container) === node &&
+      memberName(ast.name(container)) === "initializer" &&
+      ast.is.IsInterfaceDeclaration(declaration) && ast.text(ast.name(declaration)) === "ParameterDeclaration") {
+      const selected = phaseAccessData(node, declaration);
+      return selected !== false && ast.typeParameters(declaration).length === 1 &&
+        selected.parameter === ast.typeParameters(declaration)[0] && selected.key === "ParameterInitializer";
+    }
+    if (!ast.is.IsFunctionTypeNode(container) || ast.typeNode(container) !== node || ast.typeParameters(container).length !== 0 ||
+      !ast.is.IsTypeAliasDeclaration(declaration) || ast.text(ast.name(declaration)) !== "SyntaxInitializerImage") return false;
+    const formals = ast.typeParameters(declaration);
+    const input = ast.parameters(container);
+    const selected = phaseAccessData(node, declaration);
+    return selected !== false && formals.length === 2 && selected.parameter === formals[0] && selected.key === "ParameterInitializer" &&
+      input.length === 3 && input.every(requiredValueParameter) &&
+      exactPhasePort(ast.typeNode(input[0]), "ParameterDeclaration", formals[0]) &&
+      exactPhasePort(ast.typeNode(input[1]), "SyntaxExpressionImage", formals[0]) &&
+      selectsParameter(ast.typeNode(input[2]), formals[1]);
+  };
   const ordinaryUnaryParameter = signature => {
     const parameters = ast.parameters(signature);
     if (ast.typeParameters(signature).length !== 0 || parameters.length !== 1) return undefined;
@@ -386,6 +423,29 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (selected === false) return false;
     if (selected.key === ast.text(ast.name(selected.record))) return true;
     const file = ast.getSourceFile(selected.record);
+    const headerName = ast.text(ast.name(selected.record));
+    if ((selected.key === "SourceFile" && headerName === "SourceFileHeader") ||
+      (selected.key === "FunctionDeclaration" && headerName === "FunctionDeclarationHeader")) {
+      const kind = ast.members(selected.record).find(member => memberName(ast.name(member)) === "kind");
+      const kindType = kind === undefined ? undefined : ast.typeNode(kind);
+      const literal = kindType !== undefined && ast.is.IsLiteralTypeNode(kindType)
+        ? ast.as.AsLiteralTypeNode(kindType).Literal : undefined;
+      if (literal === undefined || !ast.is.IsStringLiteral(literal) || ast.text(literal) !== selected.key ||
+        ast.typeParameters(selected.record).length !== 1) return false;
+      const owner = ast.statements(file).find(statement => ast.is.IsInterfaceDeclaration(statement) &&
+        ast.hasModifierKind(statement, "export") && ast.text(ast.name(statement)) === selected.key);
+      if (owner === undefined || ast.typeParameters(owner).length !== 1) return false;
+      const [parameter] = ast.typeParameters(owner);
+      const constraint = ast.as.AsTypeParameterDeclaration(parameter).Constraint;
+      if (constraint === undefined || !ast.is.IsTypeReferenceNode(constraint) ||
+        symbol(ast.as.AsTypeReferenceNode(constraint).TypeName) !== symbol(ast.name(selected.phase))) return false;
+      const heritage = ast.heritageElements(owner, "extends");
+      if (heritage.length !== 1 || !ast.is.IsExpressionWithTypeArguments(heritage[0])) return false;
+      const header = ast.as.AsExpressionWithTypeArguments(heritage[0]).Expression;
+      const argumentsOf = ast.typeArguments(heritage[0]);
+      return symbol(header) === symbol(ast.name(selected.record)) && argumentsOf.length === 1 &&
+        selectsParameter(argumentsOf[0], parameter);
+    }
     const family = ast.statements(file).find(statement => ast.is.IsTypeAliasDeclaration(statement) &&
       ast.hasModifierKind(statement, "export") && ast.text(ast.name(statement)) === selected.key);
     const union = family === undefined ? undefined : ast.typeNode(family);
@@ -806,7 +866,8 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         }
       }
       if (isContract && (ast.is.IsMappedTypeNode(current) || ast.is.IsConditionalTypeNode(current) ||
-        ast.is.IsIndexedAccessTypeNode(current) && !phaseSlotSelection(current) && !phaseCopySelection(current)))
+        ast.is.IsIndexedAccessTypeNode(current) && !phaseSlotSelection(current) && !phaseCopySelection(current) &&
+        !phaseInitializerSelection(current)))
         add("contract-shape", file, current);
       if (isContract && ["KindUnknownKeyword", "KindObjectKeyword"].includes(kind)) {
         const parent = ast.parent(current);

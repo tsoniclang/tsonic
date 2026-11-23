@@ -1,5 +1,6 @@
 import type { BodyRecord, ConstantRecord, ModuleRecord, PackageRecord, PrintModuleBodies, PrintProgramIndex, PublishedBody, SignatureRecord } from "./contract.js";
-import type { SyntaxTextContext, TextWork } from "./text-values.js";
+import type { TextWork } from "./text-values.js";
+import type { ChapterTextContext } from "./print-syntax.js";
 import type { TirBody } from "../ir-tir/contract.js";
 import { printDependencyInventory, printFacts, printMetadata, printObservations, printSummary } from "../ir-facts/index.js";
 import { printMir } from "../ir-mir/index.js";
@@ -9,7 +10,7 @@ import { textHirLexicalScope } from "./text-core.js";
 import { textBodyCaptureRow } from "./text-inference.js";
 import { textModuleBinding, textModuleExport } from "./text-module-bindings.js";
 import { textProgramInitialization } from "./initialization-text.js";
-import { createSyntaxText, syntaxText } from "./print-syntax.js";
+import { createSyntaxText } from "./print-syntax.js";
 import { boolean, deferred, emitText, field, identity, nullable, numeric, numericIdentity, record, sequence, text, textDiagnostic, textLocalRef, textSourceNodeRef, token } from "./text-values.js";
 
 function packageRecord(value: PackageRecord): TextWork {
@@ -84,7 +85,7 @@ export const printProgramIndex: PrintProgramIndex = index => `${emitText(deferre
   field("initialization", textProgramInitialization(index.initialization)),
 ])), "ProgramIndex")}\n`;
 
-function tirBodyRecord(value: TirBody, context: SyntaxTextContext): TextWork {
+function tirBodyRecord(value: TirBody, context: ChapterTextContext): TextWork {
   return deferred(value, () => record("TirBody", [
     field("body", identity("body", value.body)), field("owner", identity("def", value.owner)),
     field("bindings", textArtifactBindings(value.bindings)), field("lexicalBindings", textBindingVector(value.lexicalBindings)),
@@ -92,14 +93,14 @@ function tirBodyRecord(value: TirBody, context: SyntaxTextContext): TextWork {
     field("completion", numericIdentity("t", value.completion)),
     field("yielded", nullable(value.yielded, type => numericIdentity("t", type))),
     field("sent", nullable(value.sent, type => numericIdentity("t", type))),
-    field("params", sequence(value.params, parameter => context.reference(parameter))),
+    field("params", sequence(value.params, context.formal)),
     field("locals", sequence(value.locals, local => deferred(local, () => record("TirLocal", [
       field("id", numericIdentity("l", local.id)), field("declaration", textSourceNodeRef(local.declaration)),
       field("name", text(local.name)), field("role", text(local.role)),
       field("capturedFrom", nullable(local.capturedFrom, textLocalRef)), field("mutable", boolean(local.mutable)),
       field("storage", numericIdentity("t", local.storage)),
     ])))),
-    field("root", context.reference(value.root)),
+    field("root", context.bodyRoot(value.root)),
     field("nestedBodies", sequence(value.nestedBodies, body => identity("body", body))),
     field("captures", sequence(value.captures, textBodyCaptureRow)),
     field("scopes", sequence(value.scopes, textHirLexicalScope)),
@@ -108,7 +109,7 @@ function tirBodyRecord(value: TirBody, context: SyntaxTextContext): TextWork {
   ]));
 }
 
-function publishedBody(value: PublishedBody, context: SyntaxTextContext): TextWork {
+function publishedBody(value: PublishedBody, context: ChapterTextContext): TextWork {
   return deferred(value, () => record("PublishedBody", [
     field("kind", text(value.kind)),
     field("instance", textBodyInstance(value.instance)), field("tir", tirBodyRecord(value.tir, context)),
@@ -122,11 +123,14 @@ function publishedBody(value: PublishedBody, context: SyntaxTextContext): TextWo
 export const printModuleBodies: PrintModuleBodies = (_index, module) => {
   const arena = createSyntaxText(module);
   const chunks = [emitText(deferred(module, () => record("ModuleBodies", [
-    field("module", identity("mod", module.module)), field("tree", arena.context.reference(module.tree)),
+    field("module", identity("mod", module.module)), field("tree", arena.context.tree(module.tree)),
     field("bodies", sequence(module.bodies, body => publishedBody(body, arena.context))),
-  ])), "ModuleBodies")];
+  ])), "ModuleBodies"), arena.checked];
+  if (arena.nodes.length === 0) return [...chunks, "TypedDeclarations()"].join("\n");
+  chunks.push("TypedDeclarations(");
   for (const [position, node] of arena.nodes.entries()) {
-    chunks.push(`n:${position}=${emitText(syntaxText(node, arena.context), `n:${position}`)}`);
+    chunks.push(`n:${position}=${emitText(arena.definition(node), `n:${position}`)}`);
   }
+  chunks.push(")");
   return chunks.join("\n");
 };

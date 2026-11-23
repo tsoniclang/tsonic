@@ -24,7 +24,7 @@ export function projectFixtureProgram(source, publication) {
     maximumCreatedRecords: 1000000, maximumBindingVectorsPerArtifact: 64,
     typeExpansion: { maximumDepth: 40, maximumVisits: 1000000, maximumUnionMembers: 1000000, maximumIntersectionMembers: 1000000 },
   }, createAccount({ maximumWork: 1000000, maximumResultEntries: 1000000 }));
-  const result = program.canonicalizeProgram(source, publication, resources);
+  const result = program.canonicalizeProgram(source, publication, resources, { kind: "data-only" });
   assert.equal(result.kind, "complete");
   return result.value;
 }
@@ -1074,4 +1074,10 @@ await suite.test("Summary artifact selectors retain target, endpoint, ordinal an
     "missing-binding-artifact", "a binding-dependent template cannot substitute for the actual required computed summary");
 });
 
+}
+export function programForEvidence(index) {
+  return { index: { ...index, signatures: [], bodies: [], constants: [], metadata: [], summaries: [],
+    dependencyInventory: { operations: [], dependencies: [], components: [] },
+    initialization: { ...index.initialization, external: [], modules: [], entries: [] },
+  }, modules: [] };
 }

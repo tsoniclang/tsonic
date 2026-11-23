@@ -5,13 +5,21 @@ import type { Cause } from "../diag/contract.js";
 import type { BindingScope } from "../ir-types/contract.js";
 import { bindingVectorKey, instanceKey } from "../ir-types/index.js";
 import type { CheckedPhase, HirBody, HirNode, HirParam, ParameterDeclaration } from "../ir-hir/contract.js";
-import { childrenOfSyntax, iterateChildrenOfSyntax, shortCircuitOperatorOf } from "../ir-hir/index.js";
+import { childrenOfSyntax, shortCircuitOperatorOf } from "../ir-hir/index.js";
 import type { CaptureSource } from "../ir-infer/contract.js";
 import { captureRequiresLocation, sameCaptureSource } from "../ir-infer/index.js";
-import type { TirBody, TirModule, TirNode, TirReadyReadAdmission, TirSelection, TirVerifierInput, TypedBinding, TypedParameter, TypedPhase } from "./contract.js";
+import type { TirBody, TirFormal, TirModule, TirNode, TirReadyReadAdmission, TirSelection, TirSyntaxOccurrence, TirTypedSyntax, TirVerifierInput, TypedBinding, TypedParameter, TypedPhase } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 import type { TirSemanticInventory, TirStructure } from "./verify-occurrences.js";
 import { sameLocalReference, sameSourceReference, typedValueOf } from "./verify-occurrences.js";
+import { chapterSyntaxSlots, indexChapterSyntax, readChapterSyntaxSlot, tirBodySyntaxOf } from "./chapter-syntax.js";
+
+function* typedSyntaxChildren(node: TirNode): Generator<TirNode> {
+  for (const slot of chapterSyntaxSlots({ kind: "ordinary", node })) {
+    const child = readChapterSyntaxSlot(slot);
+    if (child?.kind === "ordinary" || child?.kind === "formal") yield child.node;
+  }
+}
 
 export const sameBindingScope = (left: BindingScope, right: BindingScope): boolean => {
   const families: readonly ("classParameters" | "methodParameters" | "capturedParameters")[] =
@@ -83,7 +91,7 @@ export const verifyDeclarationNames = (
       eligible.add(child.id);
       if (child.tsonic !== null && (!("role" in child.tsonic) || child.tsonic.role !== "declaration-name-expression"))
         emit("occurrence-role", child, "every nonexecuting name-expression payload asserts syntax role only");
-      for (const nested of iterateChildrenOfSyntax(child)) pending.push(nested);
+      for (const nested of typedSyntaxChildren(child)) pending.push(nested);
     }
   }
   for (const node of nodes) if (node.tsonic !== null && "role" in node.tsonic
@@ -111,7 +119,7 @@ export const verifyBodylessParameters = (
         || parameter.parent !== node.id || checked.parent !== original.id || checked.tsonic.parent !== original.tsonic.definition
         || selected.declaration !== checked.tsonic.declaration.definition || selected.local !== null
         || node.kind !== "IndexSignature" && selected.passing === null
-        || selected.initializer !== null || checked.tsonic.initializer !== null || parameter.initializer !== null
+        || selected.initializer !== null || checked.tsonic.initializer !== null || parameter.initializer.kind !== "none"
         || checked.tsonic.declaredType.kind !== "available" || checked.tsonic.declaredType.value === null) valid = false;
       for (const signature of signatures) {
         if (signature === undefined || signature.declaration !== original.tsonic.definition) { valid = false; continue; }
@@ -175,7 +183,7 @@ export const verifyQualifiedReferences = (
 };
 
 export const verifyCanonicalTemplates = (
-  input: TirVerifierInput, module: TirModule, moduleNodes: ReadonlyMap<NodeId, TirNode>, emit: TirOccurrenceEmit,
+  input: TirVerifierInput, module: TirModule, moduleNodes: ReadonlyMap<NodeId, TirSyntaxOccurrence>, emit: TirOccurrenceEmit,
 ): { readonly originals: ReadonlyMap<BodyId, HirBody>; readonly templates: ReadonlyMap<BodyId, TirBody> } => {
   const originals = new Map<BodyId, HirBody>();
   const order = new Map<BodyId, number>();
@@ -194,23 +202,20 @@ export const verifyCanonicalTemplates = (
     else previous = position;
     const source = originals.get(candidate.body);
     if (source === undefined || source.root.id !== candidate.root.id || source.owner !== candidate.owner ||
-      moduleNodes.get(candidate.root.id) !== candidate.root) {
+      module.tree.kind === "ready-root" && moduleNodes.get(candidate.root.id) !== candidate.root) {
       emit("nested-template-identity", null, "published template is not the authentic body's canonical shared module subtree");
     }
-  }
-  for (const source of input.source.bodies) if (source !== undefined && !templates.has(source.body)) {
-    emit("template-shared-once", null, "actual source body has no canonical parametric template in the publication");
   }
   return { originals, templates };
 };
 
 export const verifyNestedPublication = (
   input: TirVerifierInput, body: TirBody, semantics: TirSemanticInventory, original: HirBody | undefined,
-  moduleNodes: ReadonlyMap<NodeId, TirNode>, actualNodes: readonly TirNode[],
+  moduleNodes: ReadonlyMap<NodeId, TirSyntaxOccurrence>, actualNodes: readonly TirSyntaxOccurrence[],
   headers: readonly (ParameterDeclaration<CheckedPhase> | null)[], emit: TirOccurrenceEmit,
 ): ReadonlySet<NodeId> => {
   const { originals, templates } = verifyCanonicalTemplates(input, input.module, moduleNodes, emit);
-  const ownNodes = new Map<NodeId, TirNode>();
+  const ownNodes = new Map<NodeId, TirSyntaxOccurrence>();
   for (const node of actualNodes) ownNodes.set(node.id, node);
   for (const template of semantics.templates) {
     const source = originals.get(template.value.body);
@@ -260,21 +265,22 @@ interface TirNodeInterval {
   readonly end: number;
 }
 
-const nodeIntervals = (root: TirNode): ReadonlyMap<NodeId, TirNodeInterval> => {
+const nodeIntervals = (root: TirTypedSyntax): ReadonlyMap<NodeId, TirNodeInterval> => {
   const ranges = new Map<NodeId, TirNodeInterval>();
   const visited = new Set<object>();
-  const pending: ({ readonly kind: "enter"; readonly node: TirNode } | { readonly kind: "exit"; readonly node: TirNode; readonly start: number })[] =
-    [{ kind: "enter", node: root }];
+  const pending: ({ readonly kind: "enter"; readonly subject: TirTypedSyntax } | { readonly kind: "exit"; readonly node: TirSyntaxOccurrence; readonly start: number })[] =
+    [{ kind: "enter", subject: root }];
   let cursor = 0;
   for (let work = pending.pop(); work !== undefined; work = pending.pop()) {
     if (work.kind === "exit") { ranges.set(work.node.id, { start: work.start, end: cursor }); continue; }
-    if (visited.has(work.node)) continue;
-    visited.add(work.node);
-    pending.push({ kind: "exit", node: work.node, start: cursor++ });
-    const children = childrenOfSyntax<TypedPhase>(work.node);
+    const subject = work.subject;
+    if (visited.has(subject.node)) continue;
+    visited.add(subject.node);
+    pending.push({ kind: "exit", node: subject.node, start: cursor++ });
+    const children = Array.from(chapterSyntaxSlots(subject), readChapterSyntaxSlot);
     for (let position = children.length - 1; position >= 0; position--) {
       const child = children[position];
-      if (child !== undefined) pending.push({ kind: "enter", node: child });
+      if (child !== undefined && child !== null && child.kind !== "checked") pending.push({ kind: "enter", subject: child });
     }
   }
   return ranges;
@@ -289,7 +295,7 @@ interface TirControlledBranch {
 export const verifyControlledContexts = (
   body: TirBody, original: HirBody | undefined, structure: TirStructure, semantics: TirSemanticInventory, emit: TirOccurrenceEmit,
 ): void => {
-  const ranges = nodeIntervals(body.root);
+  const ranges = nodeIntervals(tirBodySyntaxOf(body.root));
   const contains = (root: NodeId, node: NodeId): boolean => {
     const parent = ranges.get(root);
     const child = ranges.get(node);
@@ -382,7 +388,7 @@ type BindingRead<Value, Stop extends object> =
   | { readonly kind: "resource-stop"; readonly stop: Stop };
 
 export const verifyBindingSlots = <Stop extends object>(
-  body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, sources: ReadonlyMap<BodyId, HirBody>,
+  body: TirBody, structure: TirStructure, originals: ReadonlyMap<NodeId, HirNode>, sources: ReadonlyMap<BodyId, HirBody>,
   published: readonly (TirBody | undefined)[], bodyOf: TirVerifierInput["bodyOf"], nodeOf: TirVerifierInput["nodeOf"], emit: TirOccurrenceEmit,
   admit: TirReadyReadAdmission<Stop>,
 ): Stop | null => {
@@ -417,12 +423,9 @@ export const verifyBindingSlots = <Stop extends object>(
   // rows; none or several is missing context, and nothing is read. A null row (a template whose creating closure saved the
   // closure rule) states nothing yet. Publication order does not matter.
   const creators = new Map<BodyId, TirBody | null>();
-  const contains = (root: TirNode): TirNode | null => {
-    const pending: TirNode[] = [root];
-    for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
-      if (node.id === body.root.id) return node;
-      pending.push(...childrenOfSyntax<TypedPhase>(node));
-    }
+  const contains = (root: TirTypedSyntax): TirNode | null => {
+    for (const subject of indexChapterSyntax([root], chapterSyntaxSlots))
+      if (subject.kind === "ordinary" && subject.node.id === body.root.id) return subject.node;
     return null;
   };
   let environment: string | null = null;
@@ -436,7 +439,7 @@ export const verifyBindingSlots = <Stop extends object>(
       if (row !== null) return { kind: "resource-stop", stop: row };
       const candidate = published[index];
       if (candidate === undefined || candidate.body !== creating) continue;
-      const node = contains(candidate.root);
+      const node = contains(tirBodySyntaxOf(candidate.root));
       const template = node !== null && (node.kind === "ArrowFunction" || node.kind === "FunctionExpression") ? node.tsonic.callable.template : null;
       if (template === null || template.body !== body.body) continue;
       if (environment === null) {
@@ -495,18 +498,19 @@ export const verifyBindingSlots = <Stop extends object>(
       }
     }
   }
-  const parameterOwners = new Map<TirNode, TirBody>();
-  const registerParameter = (parameter: ParameterDeclaration<TypedPhase>, owner: TirBody): void => {
+  const parameterOwners = new Map<TirNode | TirFormal, TirBody>();
+  const registerParameter = (parameter: TirFormal | ParameterDeclaration<TypedPhase>, owner: TirBody): void => {
     parameterOwners.set(parameter, owner);
     const pending: TirNode[] = [parameter.name];
     for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
       parameterOwners.set(name, owner);
-      for (const child of childrenOfSyntax<TypedPhase>(name)) pending.push(child);
+      for (const child of typedSyntaxChildren(name)) pending.push(child);
     }
   };
   for (const parameter of body.params) registerParameter(parameter, body);
-  for (const node of nodes) {
-    if (node.kind !== "FunctionDeclaration" && node.kind !== "MethodDeclaration" && node.kind !== "Constructor"
+  for (const record of structure.records) {
+    const node = record.readyCallable ?? record.syntax;
+    if (node === null || node.kind !== "FunctionDeclaration" && node.kind !== "MethodDeclaration" && node.kind !== "Constructor"
       && node.kind !== "GetAccessor" && node.kind !== "SetAccessor" && node.kind !== "ArrowFunction" && node.kind !== "FunctionExpression") continue;
     const callable = node.kind === "ArrowFunction" || node.kind === "FunctionExpression" ? node.tsonic.callable : node.tsonic;
     if (callable.template === null || callable.template.body === body.body && node === body.root) continue;
@@ -526,7 +530,7 @@ export const verifyBindingSlots = <Stop extends object>(
     const expected = admit({ kind: "artifact", instance });
     if (expected !== null) return expected;
     if (actualKey !== instanceKey(instance) || nested.params.length !== node.parameters.nodes.length
-      || node.parameters.nodes.some((parameter, index) => nested.params[index] !== parameter)) continue;
+      || node.parameters.nodes.some((parameter, index) => !Object.is(nested.params[index], parameter))) continue;
     for (const parameter of nested.params) registerParameter(parameter, nested);
   }
   const storage = (reference: LocalRef, type: number | null, node: TirNode): void => {
@@ -539,7 +543,7 @@ export const verifyBindingSlots = <Stop extends object>(
   const binding = (value: TypedBinding, node: TirNode): void => {
     if (value.declaration.kind === "local") storage(value.declaration.local, value.storage, node);
   };
-  for (const node of nodes) {
+  for (const node of structure.nodes) {
     if (node.kind === "VariableDeclaration") {
       binding(node.tsonic, node);
     } else if (node.kind === "BindingElement") {

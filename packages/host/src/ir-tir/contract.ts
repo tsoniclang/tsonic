@@ -1,7 +1,7 @@
 import type { BodyId, DefId, ItemNodeRef, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
-import type { BodyRoot, CapturedFact, DeclarationTarget, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, ParameterDeclaration, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
+import type { Block, CapturedFact, CheckedPhase, CheckedUnopenedDeclaration, DeclarationTarget, Expression, FunctionDeclaration, FunctionDeclarationHeader, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, NodeList, NonFunctionStatement, ParameterDeclaration, Phase, SourceFile, SourceFileHeader, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
 export interface TypedOperation {
@@ -406,6 +406,7 @@ export interface TypedSourceFile {
 
 export interface TypedPhase extends Phase {
   readonly Token: null;
+  readonly ParameterInitializer: TirFormalInitializer;
   readonly Identifier: TypedName;
   readonly PrivateIdentifier: TypedName;
   readonly QualifiedName: TypedName;
@@ -600,6 +601,70 @@ export interface TypedPhase extends Phase {
 
 export type TirNode = SyntaxNode<TypedPhase>;
 
+export type TirChapterTree =
+  | { readonly kind: "checked-root"; readonly root: SourceFile<CheckedPhase> }
+  | { readonly kind: "ready-root"; readonly root: TirModuleRoot };
+
+export interface TirModuleRoot extends SourceFileHeader<TypedPhase> {
+  readonly statements: NodeList<TirModuleStatement>;
+}
+
+export type TirModuleStatement =
+  | { readonly kind: "ready-statement"; readonly node: NonFunctionStatement<TypedPhase> | (FunctionDeclaration<TypedPhase> & { readonly body: null }) }
+  | { readonly kind: "checked-declaration"; readonly node: CheckedUnopenedDeclaration }
+  | { readonly kind: "ready-callable"; readonly node: TirReadyCallable };
+
+export interface TirReadyCallable extends FunctionDeclarationHeader<TypedPhase> {
+  readonly parameters: NodeList<TirFormal>;
+  readonly body: Block<TypedPhase>;
+}
+
+export type TirFormalInitializer =
+  | { readonly kind: "none" }
+  | { readonly kind: "checked-default"; readonly root: Expression<CheckedPhase> }
+  | { readonly kind: "ready-default"; readonly root: Expression<TypedPhase> };
+
+export type TirFormal = ParameterDeclaration<TypedPhase>;
+
+export type TirBodyRoot = TirModuleRoot | Block<TypedPhase> | Expression<TypedPhase>;
+
+export type TirSyntaxOccurrence = TirNode | TirModuleRoot | TirReadyCallable;
+
+export type TirTypedSyntax =
+  | { readonly kind: "ordinary"; readonly node: TirNode }
+  | { readonly kind: "module-root"; readonly node: TirModuleRoot }
+  | { readonly kind: "ready-callable"; readonly node: TirReadyCallable }
+  | { readonly kind: "formal"; readonly node: TirFormal };
+
+export type TirChapterSyntax = TirTypedSyntax | { readonly kind: "checked"; readonly node: HirNode };
+
+export type TirFormalInitializerRead =
+  | { readonly kind: "none" }
+  | { readonly kind: "checked-default"; readonly root: () => Expression<CheckedPhase> }
+  | { readonly kind: "ready-default"; readonly root: () => Expression<TypedPhase> };
+
+export interface TirFormalInitializerSlot {
+  readonly kind: "formal-initializer";
+  readonly fields: readonly (string | number)[];
+  readonly read: () => TirFormalInitializerRead;
+}
+
+export type TirChapterSyntaxSlot =
+  | { readonly kind: "syntax"; readonly fields: readonly (string | number)[]; readonly read: () => TirChapterSyntax | null }
+  | { readonly kind: "statement"; readonly fields: readonly (string | number)[]; readonly read: () => TirModuleStatement }
+  | TirFormalInitializerSlot;
+
+export type ChapterSyntaxSlots = (subject: TirTypedSyntax) => Iterable<TirChapterSyntaxSlot>;
+export type ReadChapterSyntaxSlot = (slot: TirChapterSyntaxSlot) => TirChapterSyntax | null;
+export type ChapterStatementSyntax = (statement: TirModuleStatement) => TirChapterSyntax;
+export type FormalInitializerSyntax = (initializer: TirFormalInitializer) => TirChapterSyntax | null;
+export type AdmitFormalInitializer = <Stop>(
+  slot: TirFormalInitializerSlot, field: () => Stop | null, edge: () => Stop | null,
+) => { readonly kind: "complete"; readonly value: TirFormalInitializer } | { readonly kind: "refused"; readonly stop: Stop };
+export type TirBodySyntaxOf = (root: TirBodyRoot) => TirTypedSyntax;
+export type IndexChapterSyntax = (roots: Iterable<TirChapterSyntax>, slots: ChapterSyntaxSlots) => Iterable<TirChapterSyntax>;
+export type BodyOccurrenceSlots = (subject: TirTypedSyntax, containsNested: (body: BodyId) => boolean) => Iterable<TirChapterSyntaxSlot>;
+
 export interface TirLocal {
   readonly id: LocalId;
   readonly declaration: SourceNodeRef;
@@ -620,9 +685,9 @@ export interface TirBody {
   readonly completion: TyId;
   readonly yielded: TyId | null;
   readonly sent: TyId | null;
-  readonly params: readonly ParameterDeclaration<TypedPhase>[];
+  readonly params: readonly TirFormal[];
   readonly locals: readonly TirLocal[];
-  readonly root: BodyRoot<TypedPhase>;
+  readonly root: TirBodyRoot;
   readonly nestedBodies: readonly BodyId[];
   readonly captures: readonly BodyCaptureRow[];
   readonly scopes: readonly HirLexicalScope[];
@@ -633,7 +698,7 @@ export interface TirBody {
 
 export interface TirModule {
   readonly module: ModuleId;
-  readonly tree: SourceFile<TypedPhase>;
+  readonly tree: TirChapterTree;
   readonly bodies: readonly TirBody[];
 }
 

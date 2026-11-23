@@ -1,4 +1,7 @@
 import type { TirBody } from "./contract.js";
+import type { HirNode } from "../ir-hir/contract.js";
+import { printCheckedDeclarations } from "../ir-hir/index.js";
+import { requirePresent } from "../diag/index.js";
 import type { TirPrintValue, TirScalarValue } from "./text-layouts.js";
 import { hostNumberText, indexTirNodes } from "./text-layouts.js";
 import { createTirLayouts } from "./text-model.js";
@@ -16,7 +19,7 @@ const scalarText = (type: string, value: TirScalarValue): string => {
   }
 };
 
-const printValue = (initial: TirPrintValue): string => {
+const printValue = (initial: TirPrintValue, checkedOf: (node: HirNode) => number | undefined): string => {
   const output: string[] = [];
   const pending: TirPrintWork[] = [{ kind: "value", value: initial }];
   for (let work = pending.pop(); work !== undefined; work = pending.pop()) {
@@ -25,6 +28,8 @@ const printValue = (initial: TirPrintValue): string => {
     switch (value.kind) {
       case "scalar": output.push(scalarText(value.type, value.value)); break;
       case "node": output.push(`n:${value.position}`); break;
+      case "checked-node": output.push(`c:${requirePresent(checkedOf(value.node), { owner: "ir-tir", query: null,
+        origin: value.node.origin, message: "A checked wire occurrence must be in its own authored declaration section." })}`); break;
       case "sequence": {
         pending.push({ kind: "text", text: "]" });
         output.push("[");
@@ -53,9 +58,12 @@ const printValue = (initial: TirPrintValue): string => {
 export const printTypedBody = (body: TirBody): string => {
   const layouts = createTirLayouts();
   const arena = indexTirNodes(body, layouts);
-  const output = [printValue(arena.body), "\n"];
+  const checked = printCheckedDeclarations(arena.checkedRoots);
+  const output = [printValue(arena.body, checked.wireOf), "\n", checked.text, "\n", "TypedDeclarations("];
+  if (arena.nodes.length !== 0) output.push("\n");
   for (const node of arena.nodes) {
-    output.push(`n:${node.position}=`, printValue(node.value), "\n");
+    output.push(`n:${node.position}=`, printValue(node.value, checked.wireOf), "\n");
   }
+  output.push(")\n");
   return output.join("");
 };

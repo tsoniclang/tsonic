@@ -1,7 +1,8 @@
 import type { BodyId, DefId, ExpansionId, LocalId, ModuleId, NodeId, SigId, TyId } from "../ids/contract.js";
-import type { HostDiagnosticCode } from "../diag/contract.js";
+import type { HostDiagnosticCode, InvariantFailure } from "../diag/contract.js";
+import type { CheckedWireImage, CheckedWireRequest } from "../ir-hir/contract.js";
 import { hostDiagnosticCode, requirePresent } from "../diag/index.js";
-import type { TirBody, TirNode } from "./contract.js";
+import type { TirBody, TirFormal, TirModuleRoot, TirNode, TirReadyCallable } from "./contract.js";
 
 export type TirConstructionStep =
   | { readonly kind: "next"; readonly next: () => TirConstructionStep }
@@ -35,7 +36,7 @@ export const sequenceConstruction = <Value>(values: readonly TirConstruction<Val
     return advance(0);
   } });
 
-export const memoSyntaxConstruction = <Value extends TirNode>(input: TirConstruction<Value>): TirConstruction<Value> => {
+export const memoSyntaxConstruction = <Value extends object>(input: TirConstruction<Value>): TirConstruction<Value> => {
   let saved: { readonly value: Value } | undefined;
   return { run: next => ({ kind: "next", next: () => {
     if (saved !== undefined) return next(saved.value);
@@ -53,7 +54,18 @@ export type TirSyntaxConstruction = {
   }
 }[TirNode["kind"]];
 
-export type TirSyntaxFactory<Node extends TirNode> = (kind: Node["kind"],
+export type TirRoleConstruction =
+  | { readonly kind: "TirModuleRoot"; readonly value: TirConstruction<TirModuleRoot> }
+  | { readonly kind: "TirReadyCallable"; readonly value: TirConstruction<TirReadyCallable> }
+  | { readonly kind: "TirFormal"; readonly value: TirConstruction<TirFormal> };
+
+export type TirWireConstruction = TirSyntaxConstruction | TirRoleConstruction;
+
+export function isTirRoleConstruction(value: TirWireConstruction): value is TirRoleConstruction {
+  return value.kind === "TirModuleRoot" || value.kind === "TirReadyCallable" || value.kind === "TirFormal";
+}
+
+export type TirSyntaxFactory<Node extends { readonly kind: string }> = (kind: Node["kind"],
   make: <Kind extends Node["kind"]>(kind: Kind) => TirConstruction<Node & { readonly kind: Kind }>,
 ) => TirSyntaxConstruction;
 
@@ -89,6 +101,10 @@ export interface TirSyntaxReader {
   readonly start: (accept: (value: TirSyntaxConstruction) => void) => TirRecordConstruction;
 }
 
+export interface TirRoleSyntaxReader {
+  readonly start: (accept: (value: TirRoleConstruction) => void) => TirRecordConstruction;
+}
+
 export interface TirSequenceConstruction {
   readonly requests: () => readonly TirValueRequest[];
   readonly publish: () => void;
@@ -117,11 +133,42 @@ export type TirValueRequest = TirIdentityRequest
   | { readonly kind: "record"; readonly type: string; readonly records: (label: string) => readonly TirRecordConstruction[] }
   | { readonly kind: "sequence"; readonly type: string; readonly sequence: () => TirSequenceConstruction }
   | { readonly kind: "syntax"; readonly type: string;
-      readonly reference: (ordinal: number) => (value: TirSyntaxConstruction) => boolean };
+      readonly bodylessFunction?: true;
+      readonly reference: (ordinal: number) => (value: TirWireConstruction) => boolean }
+  | { readonly kind: "checked-syntax"; readonly type: string; readonly role: CheckedWireRequest["role"];
+      readonly reference: (ordinal: number) => (image: CheckedWireImage) => void };
 
 export interface TirReader<Value> {
   readonly literalSets: readonly TirLiteralSet[];
   readonly requests: (accept: (value: TirConstruction<Value>) => void) => readonly TirValueRequest[];
+}
+
+export function roleSyntaxReader<Value>(type: string, select: (value: TirRoleConstruction) => TirConstruction<Value> | null): TirReader<Value> {
+  return wireSyntaxReader(type, () => value => isTirRoleConstruction(value) ? select(value) : null);
+}
+
+export function syntaxWithRoleReader<Value, Ordinary extends Value>(type: string, ordinary: TirReader<Ordinary>,
+  role: (value: TirRoleConstruction) => TirConstruction<Value> | null): TirReader<Value> {
+  return wireSyntaxReader(type, ordinal => {
+    let retained: TirConstruction<Ordinary> | undefined;
+    const claims = ordinary.requests(plan => { retained = plan; }).flatMap(request =>
+      request.kind === "syntax" ? [request.reference(ordinal)] : []);
+    return value => {
+      if (isTirRoleConstruction(value)) return role(value);
+      return claims.some(claim => claim(value)) ? retained ?? null : null;
+    };
+  });
+}
+
+export function checkedSyntaxReader<Value>(type: string, role: CheckedWireRequest["role"],
+  select: (image: CheckedWireImage, ordinal: number) => Value | null): TirReader<Value> {
+  const missing: InvariantFailure = { owner: "ir-tir", query: null, origin: null,
+    message: "A checked wire reference requires its exact materialized role." };
+  return { literalSets: [], requests: accept => [{ kind: "checked-syntax", type, role, reference: ordinal => {
+    let selected: Value | undefined;
+    accept({ run: next => ({ kind: "next", next: () => next(requirePresent(selected, missing)) }) });
+    return image => { selected = requirePresent(select(image, ordinal) ?? undefined, missing); };
+  } }] };
 }
 
 export interface TirLiteralSet { readonly type: string; readonly values: readonly (string | number)[] }
@@ -218,10 +265,12 @@ export const unionReader = <Value>(type: string, reads: () => readonly TirReader
 export const lazyReader = <Value>(read: () => TirReader<Value>): TirReader<Value> =>
   ({ literalSets: [], requests: accept => read().requests(accept) });
 
-export const syntaxReader = <Value extends TirNode>(type: string,
-  select: (value: TirSyntaxConstruction) => TirConstruction<Value> | null,
-): TirReader<Value> => ({ literalSets: [], requests: accept => [{ kind: "syntax", type, reference: ordinal => {
+function wireSyntaxReader<Value>(type: string,
+  choose: (ordinal: number) => (value: TirWireConstruction) => TirConstruction<Value> | null,
+): TirReader<Value> {
+  return { literalSets: [], requests: accept => [{ kind: "syntax", type, reference: ordinal => {
   let resolved: TirConstruction<Value> | undefined;
+  const select = choose(ordinal);
   accept({ run: next => ({ kind: "next", next: () => requirePresent(resolved, { owner: "ir-tir",
     query: { name: "text.syntax-reference", encodedKey: String(ordinal) }, origin: null,
     message: "validated syntax reference has no typed construction" }).run(next) }) });
@@ -231,4 +280,9 @@ export const syntaxReader = <Value extends TirNode>(type: string,
     resolved = selected;
     return true;
   };
-} }] });
+  } }] };
+}
+
+export const syntaxReader = <Value extends TirNode>(type: string,
+  select: (value: TirSyntaxConstruction) => TirConstruction<Value> | null,
+): TirReader<Value> => wireSyntaxReader(type, () => value => isTirRoleConstruction(value) ? null : select(value));

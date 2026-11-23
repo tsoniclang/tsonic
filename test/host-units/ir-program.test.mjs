@@ -27,6 +27,7 @@ import { captureCheckedMarkers } from "./fixtures/front/checked-markers.mjs";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { memberScenario } from "./fixtures/tir-member-scenario.mjs";
+import { programForEvidence } from "./fixtures/program-executions.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeNames = [
@@ -807,7 +808,7 @@ test("Program type publication borrows the real captured location and entry prod
 test("ir-program public values are exactly its locked ports", () => {
   assert.deepEqual(Object.keys(product).sort(), [
     "admitProgramReadyRow", "canonicalizeProgram", "createProgramVerificationWork", "instantiate", "parseModuleBodies", "parseProgramIndex",
-    "printModuleBodies", "printProgramIndex", "projectProgramEvidence", "tirReadyReadAdmission", "verifyModuleBodies", "verifyProgramIndex",
+    "printModuleBodies", "printProgramIndex", "tirReadyReadAdmission", "verifyModuleBodies", "verifyProgramIndex",
   ].sort());
 });
 
@@ -3114,7 +3115,7 @@ test("canonical body ordering admits the second key only on an equal group", asy
     const index = { ...fixture.index, signatures: [], bodies: rows, metadata: [], summaries: [], constants: [],
       get dependencyInventory() { reads.push(usage()); return { operations: [], dependencies: [], components: [] }; },
       initialization: { entry: fixture.index.initialization.entry, external: [], modules: [], entries: [] } };
-    const result = product.canonicalizeProgram({ index, modules: [] }, exported.value, resources);
+    const result = product.canonicalizeProgram({ index, modules: [] }, exported.value, resources, { kind: "data-only" });
     return { result, work: usage(), reads, stop: accountFailure(account) };
   };
   const afterCompare = 1 + (1 + 2) + 1 + (1 + 4);
@@ -3280,12 +3281,16 @@ export const storage: boolean = true;`);
     const traced = { ...inventory, get constructors() { beforeConstructors = usage(); return authors; } };
     const evidence = { checked: [module], members: [{ instance, occurrence, inventory: traced }],
       get signatures() { afterConstructors = usage(); return [placed]; }, storage: [{ declaration, storage }] };
-    const result = product.projectProgramEvidence(evidence, publication, resources);
+    const result = product.canonicalizeProgram(programForEvidence(publicationFixture().index), publication, resources,
+      { kind: "with-evidence", read: actual => {
+        assert.equal(actual === account, true);
+        return { kind: "complete", value: evidence };
+      } });
     return { result, reads, beforeConstructors, afterConstructors, stop: meter.failure ?? accountFailure(account), ...usage() };
   };
   const full = run(limits.maximumWork, limits.maximumCreatedRecords);
   assert.equal(full.result.kind, "complete");
-  const [row] = full.result.value.members;
+  const [row] = full.result.evidence.members;
   assert.strictEqual(row.occurrence, occurrence);
   const expected = inventory.constructors.map(prior => ({ ...prior, signature: image(prior.signature) }))
     .sort((left, right) => left.signature - right.signature);
@@ -3294,8 +3299,8 @@ export const storage: boolean = true;`);
   assert.deepEqual(publication.table.terms[row.inventory.receiver].constructs, row.inventory.constructs);
   for (const mapped of row.inventory.constructors)
     assert.equal(publication.table.signatures[mapped.signature].declaration, mapped.declaration);
-  assert.deepEqual(full.result.value.signatures, [{ request: placed.request, signature: image(placed.signature.id) }]);
-  assert.deepEqual(full.result.value.storage, [{ declaration, storage: publication.types[storage] }]);
+  assert.deepEqual(full.result.evidence.signatures, [{ request: placed.request, signature: image(placed.signature.id) }]);
+  assert.deepEqual(full.result.evidence.storage, [{ declaration, storage: publication.types[storage] }]);
   assert.equal(full.reads.length, inventory.constructors.length);
   const added = inventory.constructors.length;
   assert.deepEqual(full.afterConstructors, { work: full.beforeConstructors.work + 2 + (4 + 4) * added,
@@ -3388,7 +3393,11 @@ test("Program transports the exact verified construction-part and its independen
       reads.push({ work: InvocationAccount.stateOf(account).work, created: meter.created });
       return row;
     } });
-    const projected = product.projectProgramEvidence({ checked: [], members, signatures: [], storage: [] }, publication.value, resources);
+    const projected = product.canonicalizeProgram(programForEvidence(publicationFixture().index), publication.value, resources,
+      { kind: "with-evidence", read: actual => {
+        assert.equal(actual === account, true);
+        return { kind: "complete", value: { checked: [], members, signatures: [], storage: [] } };
+      } });
     return { verified, retained, projected, reads, verifiedWork, work: InvocationAccount.stateOf(account).work,
       created: meter.created, stop: meter.failure ?? accountFailure(account) };
   };
@@ -3401,12 +3410,12 @@ test("Program transports the exact verified construction-part and its independen
   assert.equal(full.projected.kind, "complete");
   assert.equal(full.reads.length, 1);
   const [original] = full.retained;
-  const [projected] = full.projected.value.members;
+  const [projected] = full.projected.evidence.members;
   assert.deepEqual(projected, { ...original, inventory: { ...inventory, receiver: publication.value.types[receiver] } });
   assert.notStrictEqual(projected.occurrence.destination, original.occurrence.destination);
   assert.equal("read" in projected.inventory.members[0] || "write" in projected.inventory.members[0], false);
   const exact = run(full.work, full.created);
-  assert.deepEqual(exact.projected, full.projected);
+  assert.deepEqual(exact.projected.evidence, full.projected.evidence);
   assert.deepEqual(exact.reads, full.reads);
   const [first] = full.reads;
   for (const [dimension, lower, upper, firstRead] of [

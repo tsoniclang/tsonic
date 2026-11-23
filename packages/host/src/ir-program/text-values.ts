@@ -210,8 +210,14 @@ export function textSyntaxHeader(value: NodeHeader): readonly TextField[] {
 export function textNodeList<Item extends SyntaxNode<TypedPhase>>(
   value: NodeList<Item>, context: SyntaxTextContext, name: "NodeList" | "ModifierList" = "NodeList",
 ): TextWork {
+  return textNodeListWith(value, context.reference, name);
+}
+
+export function textNodeListWith<Item>(
+  value: NodeList<Item>, write: (item: Item) => TextWork, name: "NodeList" | "ModifierList",
+): TextWork {
   return deferred(value, () => record(name, [
-    field("loc", textRange(value.loc)), field("nodes", sequence(value.nodes, context.reference)),
+    field("loc", textRange(value.loc)), field("nodes", sequence(value.nodes, write)),
   ]));
 }
 

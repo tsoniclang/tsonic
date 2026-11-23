@@ -1,7 +1,7 @@
 import { constructBindingPattern, constructImportDeclaration } from "./text-syntax-construction.js";
-import { lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
+import { lazyReader, literalReader, nullableReader, roleSyntaxReader, sequenceReader } from "./text-construction.js";
 import type { TirRecordCodec } from "./text-layouts.js";
-import type { TypedCase } from "./contract.js";
+import type { TirFormal, TirFormalInitializer, TypedCase } from "./contract.js";
 import type {
   TypedBinding, TypedBindingElement, TypedBindingPattern, TypedControlTransfer, TypedExport, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedImport, TypedImportBinding, TypedIteration, TypedNamespace, TypedParameter, TypedPhase, TypedStorageDeclaration, TypedVariableList
 } from "./contract.js";
@@ -11,8 +11,8 @@ import type {
 import type {
   BindingElement, BindingPattern, BreakStatement, CaseBlock, CaseClause, CaseOrDefaultClause, CatchClause, ClassElement, ContinueStatement, DebuggerStatement, DefaultClause, DoStatement, EmptyStatement, ExportAssignment, ExportDeclaration, ExportSpecifier, ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, HeritageClause, IfStatement, ImportAttribute, ImportAttributes, ImportClause, ImportDeclaration, ImportEqualsDeclaration, ImportSpecifier, LabeledStatement, MissingDeclaration, ModifierList, ModuleBlock, ModuleDeclaration, NamedExports, NamedImports, NamespaceExport, NamespaceExportDeclaration, NamespaceImport, NodeList, NotEmittedStatement, ParameterDeclaration, PropertyDeclaration, ReturnStatement, SemicolonClassElement, Statement, SwitchStatement, TextRange, ThrowStatement, TryStatement, VariableDeclaration, VariableDeclarationList, VariableStatement, WhileStatement, WithStatement
 } from "../ir-hir/contract.js";
+import { scalarWork, syntaxReference, nullableWork, roleSyntaxReference, sequenceWork } from "./text-layouts.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
-import { scalarWork, syntaxReference, nullableWork, sequenceWork } from "./text-layouts.js";
 
 export interface SyntaxStatementsTextReads {
   readonly work_L_ExportSpecifier_: TirRecordCodec<NodeList<ExportSpecifier<TypedPhase>>>;
@@ -35,6 +35,7 @@ export interface SyntaxStatementsTextReads {
   readonly work_TypedIteration: TirRecordCodec<TypedIteration>;
   readonly work_TypedNamespace: TirRecordCodec<TypedNamespace>;
   readonly work_TypedParameter: TirRecordCodec<TypedParameter>;
+  readonly work_TirFormalInitializer: TirRecordCodec<TirFormalInitializer>;
   readonly work_TypedStorageDeclaration: TirRecordCodec<TypedStorageDeclaration>;
   readonly work_TypedVariableList: TirRecordCodec<TypedVariableList>;
 }
@@ -65,7 +66,7 @@ export interface SyntaxStatementsTextModel {
   readonly work_VariableDeclaration: (value: VariableDeclaration<TypedPhase>) => TirTypedRecordWork;
   readonly work_VariableDeclarationList: (value: VariableDeclarationList<TypedPhase>) => TirTypedRecordWork;
   readonly work_BindingPattern: (value: BindingPattern<TypedPhase>) => TirTypedRecordWork;
-  readonly work_ParameterDeclaration: (value: ParameterDeclaration<TypedPhase>) => TirTypedRecordWork;
+  readonly work_TirFormal: (value: TirFormal) => TirTypedRecordWork;
   readonly work_BindingElement: (value: BindingElement<TypedPhase>) => TirTypedRecordWork;
   readonly work_MissingDeclaration: (value: MissingDeclaration<TypedPhase>) => TirTypedRecordWork;
   readonly work_ModuleBlock: (value: ModuleBlock<TypedPhase>) => TirTypedRecordWork;
@@ -316,21 +317,18 @@ export const createSyntaxStatementsText = (kernel: TirTextKernel, read: SyntaxSt
     .field("elements", "L<BindingElement>", value => work_L_BindingElement_.write(value.elements), lazyReader(() => work_L_BindingElement_.reader))
     .field("tsonic", "TypedBindingPattern", value => read.work_TypedBindingPattern.write(value.tsonic), lazyReader(() => read.work_TypedBindingPattern.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_elements, field_tsonic) => ({ id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, elements: field_elements, tsonic: field_tsonic }), constructBindingPattern));
-  const work_ParameterDeclaration: (value: ParameterDeclaration<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<ParameterDeclaration<TypedPhase>>("ParameterDeclaration", null, value => value.kind, value => value, null, fields => fields
+  const work_TirFormal = kernel.defineRoleRecord<TirFormal>("TirFormal", fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
-    .syntaxKind("kind", "'Parameter", literalReader<(ParameterDeclaration<TypedPhase>)["kind"]>("'Parameter", ["Parameter"]))
     .field("modifiers", "?ModifierList", value => nullableWork(value.modifiers, actual => read.work_ModifierList.write(actual)), nullableReader(lazyReader(() => read.work_ModifierList.reader)))
     .field("dotDotDotToken", "?$DotDotDotToken", value => nullableWork(value.dotDotDotToken, actual => syntaxReference("$DotDotDotToken", actual)), nullableReader(syntaxReads.DotDotDotToken))
     .field("name", "$BindingName", value => syntaxReference("$BindingName", value.name), syntaxReads.BindingName)
     .field("questionToken", "?$QuestionToken", value => nullableWork(value.questionToken, actual => syntaxReference("$QuestionToken", actual)), nullableReader(syntaxReads.QuestionToken))
     .field("type", "?$TypeNode", value => nullableWork(value.type, actual => syntaxReference("$TypeNode", actual)), nullableReader(syntaxReads.TypeNode))
-    .field("initializer", "?$Expression", value => nullableWork(value.initializer, actual => syntaxReference("$Expression", actual)), nullableReader(syntaxReads.Expression))
+    .field("initializer", "TirFormalInitializer", value => read.work_TirFormalInitializer.write(value.initializer), lazyReader(() => read.work_TirFormalInitializer.reader))
     .field("tsonic", "TypedParameter", value => read.work_TypedParameter.write(value.tsonic), lazyReader(() => read.work_TypedParameter.reader))
-    .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_modifiers, field_dotDotDotToken, field_name, field_questionToken, field_type, field_initializer, field_tsonic) => ({
-      id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, modifiers: field_modifiers, dotDotDotToken: field_dotDotDotToken, name: field_name,
-      questionToken: field_questionToken, type: field_type, initializer: field_initializer, tsonic: field_tsonic }), (kind,
-      make) => ({ kind, value: make(kind),
-    })));
+    .finishRole((id, origin, parent, flags, loc, modifiers, dotDotDotToken, name, questionToken, type, initializer, tsonic) =>
+      ({ id, origin, parent, flags, loc, kind: "Parameter", modifiers, dotDotDotToken, name, questionToken, type, initializer, tsonic }),
+    value => ({ kind: "TirFormal", value })));
   const work_BindingElement: (value: BindingElement<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<BindingElement<TypedPhase>>("BindingElement", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'BindingElement", literalReader<(BindingElement<TypedPhase>)["kind"]>("'BindingElement", ["BindingElement"]))
@@ -544,7 +542,8 @@ export const createSyntaxStatementsText = (kernel: TirTextKernel, read: SyntaxSt
     .finish((field_loc, field_nodes) => ({ loc: field_loc, nodes: field_nodes })));
   const work_L_ParameterDeclaration_: TirRecordCodec<NodeList<ParameterDeclaration<TypedPhase>>> = defineRecord<NodeList<ParameterDeclaration<TypedPhase>>>("L<ParameterDeclaration>", "NodeList", null, "NodeList", null, null, fields => fields
     .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
-    .field("nodes", "[$ParameterDeclaration]", value => sequenceWork("[$ParameterDeclaration]", value.nodes, actual => syntaxReference("$ParameterDeclaration", actual)), sequenceReader("[$ParameterDeclaration]", syntaxReads.ParameterDeclaration))
+    .field("nodes", "[$TirFormal]", value => sequenceWork("[$TirFormal]", value.nodes, node => roleSyntaxReference("$TirFormal", { kind: "formal", node })),
+      sequenceReader("[$TirFormal]", roleSyntaxReader<TirFormal>("$TirFormal", value => value.kind === "TirFormal" ? value.value : null)))
     .finish((field_loc, field_nodes) => ({ loc: field_loc, nodes: field_nodes })));
   const work_L_HeritageClause_: TirRecordCodec<NodeList<HeritageClause<TypedPhase>>> = defineRecord<NodeList<HeritageClause<TypedPhase>>>("L<HeritageClause>", "NodeList", null, "NodeList", null, null, fields => fields
     .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
@@ -554,5 +553,5 @@ export const createSyntaxStatementsText = (kernel: TirTextKernel, read: SyntaxSt
     .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
     .field("nodes", "[$ClassElement]", value => sequenceWork("[$ClassElement]", value.nodes, actual => syntaxReference("$ClassElement", actual)), sequenceReader("[$ClassElement]", syntaxReads.ClassElement))
     .finish((field_loc, field_nodes) => ({ loc: field_loc, nodes: field_nodes })));
-  return { work_EmptyStatement, work_IfStatement, work_DoStatement, work_WhileStatement, work_ForStatement, work_ForInStatement, work_ForOfStatement, work_BreakStatement, work_ContinueStatement, work_ReturnStatement, work_WithStatement, work_SwitchStatement, work_CaseBlock, work_CaseClause, work_DefaultClause, work_ThrowStatement, work_TryStatement, work_CatchClause, work_DebuggerStatement, work_LabeledStatement, work_ExpressionStatement, work_VariableStatement, work_VariableDeclaration, work_VariableDeclarationList, work_BindingPattern, work_ParameterDeclaration, work_BindingElement, work_MissingDeclaration, work_ModuleBlock, work_NotEmittedStatement, work_ImportDeclaration, work_NamespaceImport, work_NamedImports, work_ExportAssignment, work_NamespaceExportDeclaration, work_NamespaceExport, work_NamedExports, work_ExportSpecifier, work_PropertyDeclaration, work_SemicolonClassElement, work_ImportAttribute, work_ImportAttributes, work_ModuleDeclaration, work_ImportEqualsDeclaration, work_ExportDeclaration, work_ImportClause, work_ImportSpecifier, work_L_CaseOrDefaultClause_, work_L_Statement_, work_L_VariableDeclaration_, work_L_BindingElement_, work_L_ParameterDeclaration_, work_L_HeritageClause_, work_L_ClassElement_ };
+  return { work_TirFormal, work_EmptyStatement, work_IfStatement, work_DoStatement, work_WhileStatement, work_ForStatement, work_ForInStatement, work_ForOfStatement, work_BreakStatement, work_ContinueStatement, work_ReturnStatement, work_WithStatement, work_SwitchStatement, work_CaseBlock, work_CaseClause, work_DefaultClause, work_ThrowStatement, work_TryStatement, work_CatchClause, work_DebuggerStatement, work_LabeledStatement, work_ExpressionStatement, work_VariableStatement, work_VariableDeclaration, work_VariableDeclarationList, work_BindingPattern, work_BindingElement, work_MissingDeclaration, work_ModuleBlock, work_NotEmittedStatement, work_ImportDeclaration, work_NamespaceImport, work_NamedImports, work_ExportAssignment, work_NamespaceExportDeclaration, work_NamespaceExport, work_NamedExports, work_ExportSpecifier, work_PropertyDeclaration, work_SemicolonClassElement, work_ImportAttribute, work_ImportAttributes, work_ModuleDeclaration, work_ImportEqualsDeclaration, work_ExportDeclaration, work_ImportClause, work_ImportSpecifier, work_L_CaseOrDefaultClause_, work_L_Statement_, work_L_VariableDeclaration_, work_L_BindingElement_, work_L_ParameterDeclaration_, work_L_HeritageClause_, work_L_ClassElement_ };
 };

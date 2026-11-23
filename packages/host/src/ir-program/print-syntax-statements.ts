@@ -1,7 +1,9 @@
-import type { EmptyStatement, IfStatement, DoStatement, WhileStatement, ForStatement, ForInStatement, ForOfStatement, BreakStatement, ContinueStatement, ReturnStatement, WithStatement, SwitchStatement, CaseBlock, CaseClause, DefaultClause, ThrowStatement, TryStatement, CatchClause, DebuggerStatement, LabeledStatement, ExpressionStatement, Block, VariableStatement, VariableDeclaration, VariableDeclarationList, BindingPattern, ParameterDeclaration, BindingElement, MissingDeclaration, FunctionDeclaration, ClassDeclaration, ClassExpression, HeritageClause, InterfaceDeclaration, TypeAliasDeclaration, EnumMember, EnumDeclaration, ModuleBlock, NotEmittedStatement, NotEmittedTypeElement, CallSignatureDeclaration, ConstructSignatureDeclaration, ConstructorDeclaration, GetAccessorDeclaration, SetAccessorDeclaration, IndexSignatureDeclaration, MethodSignatureDeclaration, MethodDeclaration, PropertySignatureDeclaration, PropertyDeclaration, SemicolonClassElement, ClassStaticBlockDeclaration } from "../ir-hir/contract.js";
+import type { EmptyStatement, IfStatement, DoStatement, WhileStatement, ForStatement, ForInStatement, ForOfStatement, BreakStatement, ContinueStatement, ReturnStatement, WithStatement, SwitchStatement, CaseBlock, CaseClause, DefaultClause, ThrowStatement, TryStatement, CatchClause, DebuggerStatement, LabeledStatement, ExpressionStatement, Block, VariableStatement, VariableDeclaration, VariableDeclarationList, BindingPattern, BindingElement, MissingDeclaration, FunctionDeclaration, ClassDeclaration, ClassExpression, HeritageClause, InterfaceDeclaration, TypeAliasDeclaration, EnumMember, EnumDeclaration, ModuleBlock, NotEmittedStatement, NotEmittedTypeElement, CallSignatureDeclaration, ConstructSignatureDeclaration, ConstructorDeclaration, GetAccessorDeclaration, SetAccessorDeclaration, IndexSignatureDeclaration, MethodSignatureDeclaration, MethodDeclaration, PropertySignatureDeclaration, PropertyDeclaration, SemicolonClassElement, ClassStaticBlockDeclaration } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import { textTypedBindingElement } from "./text-phase-declarations.js";
 import type { SyntaxTextContext, TextWork } from "./text-values.js";
+import type { FunctionDeclarationHeader } from "../ir-hir/contract.js";
+import type { TirFormal, TirReadyCallable } from "../ir-tir/contract.js";
 import { textSyntaxHeader, field, record, token, text, boolean, textNodeList } from "./text-values.js";
 import { textTypedCase, textTypedIteration, textTypedControlTransfer, textTypedVariableList, textTypedClassValue } from "./text-phase.js";
 import { textTypedBinding, textTypedBindingPattern, textTypedParameter, textTypedCallable, textTypedClass, textTypedHeritage, textTypedInterface, textTypedAlias, textTypedStorageDeclaration, textTypedEnum, textTypedIndexDeclaration, textTypedStaticBlock } from "./text-phase-declarations.js";
@@ -238,15 +240,15 @@ export function printBindingPattern(node: BindingPattern<TypedPhase>, context: S
   ]);
 }
 
-export function printParameterDeclaration(node: ParameterDeclaration<TypedPhase>, context: SyntaxTextContext): TextWork {
-  return record(node.kind, [
+export function printFormalParameter(node: TirFormal, context: SyntaxTextContext, initializer: () => TextWork): TextWork {
+  return record("TirFormal", [
     ...textSyntaxHeader(node),
     field("modifiers", (node.modifiers === null ? token("null") : textNodeList(node.modifiers, context, "ModifierList"))),
     field("dotDotDotToken", (node.dotDotDotToken === null ? token("null") : context.reference(node.dotDotDotToken))),
     field("name", context.reference(node.name)),
     field("questionToken", (node.questionToken === null ? token("null") : context.reference(node.questionToken))),
     field("type", (node.type === null ? token("null") : context.reference(node.type))),
-    field("initializer", (node.initializer === null ? token("null") : context.reference(node.initializer))),
+    field("initializer", initializer()),
     field("tsonic", textTypedParameter(node.tsonic)),
   ]);
 }
@@ -271,15 +273,25 @@ export function printMissingDeclaration(node: MissingDeclaration<TypedPhase>, co
 }
 
 export function printFunctionDeclaration(node: FunctionDeclaration<TypedPhase>, context: SyntaxTextContext): TextWork {
-  return record(node.kind, [
+  return printFunctionFields(node, context, node.kind, () => textNodeList(node.parameters, context),
+    () => node.body === null ? token("null") : context.reference(node.body));
+}
+
+export function printReadyCallable(node: TirReadyCallable, context: SyntaxTextContext, formals: () => TextWork): TextWork {
+  return printFunctionFields(node, context, "TirReadyCallable", formals, () => context.reference(node.body));
+}
+
+function printFunctionFields(node: FunctionDeclarationHeader<TypedPhase>, context: SyntaxTextContext,
+  label: "FunctionDeclaration" | "TirReadyCallable", formals: () => TextWork, body: () => TextWork): TextWork {
+  return record(label, [
     ...textSyntaxHeader(node),
     field("modifiers", (node.modifiers === null ? token("null") : textNodeList(node.modifiers, context, "ModifierList"))),
     field("typeParameters", (node.typeParameters === null ? token("null") : textNodeList(node.typeParameters, context))),
-    field("parameters", textNodeList(node.parameters, context)),
+    field("parameters", formals()),
     field("type", (node.type === null ? token("null") : context.reference(node.type))),
     field("fullSignature", (node.fullSignature === null ? token("null") : context.reference(node.fullSignature))),
     field("asteriskToken", (node.asteriskToken === null ? token("null") : context.reference(node.asteriskToken))),
-    field("body", (node.body === null ? token("null") : context.reference(node.body))),
+    field("body", body()),
     field("name", (node.name === null ? token("null") : context.reference(node.name))),
     field("tsonic", textTypedCallable(node.tsonic)),
   ]);

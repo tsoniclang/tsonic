@@ -2,14 +2,17 @@ import type { DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../ids/contra
 import { encodeKey } from "../ids/index.js";
 import type { HirNode, SwitchStatement } from "../ir-hir/contract.js";
 import { compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
+import type { Origin } from "../ids/contract.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
 import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeCarrierOf } from "../ir-types/index.js";
-import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirRule, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
+import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirReadyCallable, TirRule, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
-import { enterTirInline, tirPathText } from "./text-layouts.js";
+import { enterTirInline, roleSyntaxReference, tirPathText } from "./text-layouts.js";
+import { requirePresent } from "../diag/index.js";
 
-export type TirOccurrenceEmit = (rule: TirRule, node: TirNode | null, detail: string) => void;
+export interface TirOccurrenceSite { readonly id: NodeId; readonly origin: Origin }
+export type TirOccurrenceEmit = (rule: TirRule, node: TirOccurrenceSite | null, detail: string) => void;
 
 export const sameSourceReference = (left: SourceNodeRef, right: SourceNodeRef): boolean => {
   if (left.kind === "body") return right.kind === "body" && left.value.body === right.value.body && Object.is(left.value.node, right.value.node);
@@ -26,6 +29,8 @@ export interface TirRecordVisit {
   readonly association: TirRecordAssociation | null;
   readonly bindingOwner: DefId | null;
   readonly node: TirNode | null;
+  readonly syntax: TirNode | null;
+  readonly readyCallable: TirReadyCallable | null;
   readonly phase: boolean;
   readonly path: TirValuePath | null;
 }
@@ -69,21 +74,23 @@ type TirVisitWork =
   | { readonly kind: "value"; readonly value: TirTypedWork; readonly node: TirNode | null;
       readonly phase: boolean; readonly path: TirValuePath | null; readonly ownerType: string | null;
       readonly bindingOwner: DefId | null;
-      readonly members: TirMemberCursor };
+      readonly readyCallable: TirReadyCallable | null;
+      readonly members: TirMemberCursor | null };
 
 export const inspectTirStructure = (
   subject: TirBody | TirModule, layouts: TirLayouts, stopBefore: ReadonlySet<NodeId>,
 ): TirStructure => {
   const body = "root" in subject;
-  const root = body ? subject.root : subject.tree;
+  const root = body ? subject.root : subject.tree.root;
   const rootPath = body ? "$body" : "$module";
   const records: TirRecordVisit[] = [];
   const scalars: TirScalarVisit[] = [];
   const nodes: TirNode[] = [];
   const selectedMembers: TirSelectedMemberVisit[] = [];
-  const pending: TirVisitWork[] = !body && stopBefore.has(root.id) ? [] : [{ kind: "value",
-    value: body ? layouts.bodyWork(subject) : layouts.nodeWork(subject.tree), node: null, phase: false, path: null,
-    ownerType: null, bindingOwner: null, members: { node: root, ordinal: 0 } }];
+  const input = body ? layouts.bodyWork(subject) : subject.tree.kind === "checked-root" || stopBefore.has(root.id) ? null
+    : roleSyntaxReference("$TirModuleRoot", { kind: "module-root", node: subject.tree.root });
+  const pending: TirVisitWork[] = input === null ? [] : [{ kind: "value",
+    value: input, node: null, phase: false, path: null, ownerType: null, bindingOwner: null, readyCallable: null, members: null }];
   const inline = new Set<object>();
   const syntaxActive = new Set<object>();
   const syntaxCompleted = new Set<object>();
@@ -106,6 +113,18 @@ export const inspectTirStructure = (
         if (syntaxActive.has(node)) throw new TypeError(`ir-tir: syntax cycle at ${tirPathText(work.path, rootPath)}`);
         if (syntaxCompleted.has(node)) continue;
         pending.push({ ...work, value: layouts.nodeWork(node), node });
+        break;
+      }
+      case "checked-node": break;
+      case "role-node": {
+        const node = value.value.node;
+        if ((node !== root || !body) && stopBefore.has(node.id)) continue;
+        if (syntaxActive.has(node)) throw new TypeError(`ir-tir: syntax cycle at ${tirPathText(work.path, rootPath)}`);
+        if (syntaxCompleted.has(node)) continue;
+        syntaxActive.add(node);
+        pending.push({ kind: "syntax-exit", value: node });
+        pending.push({ ...work, value: layouts.roleWork(value.value), node: null,
+          readyCallable: value.value.kind === "ready-callable" ? value.value.node : null, members: null });
         break;
       }
       case "sequence":
@@ -131,22 +150,28 @@ export const inspectTirStructure = (
           pending.push({ kind: "syntax-exit", value: value.syntax });
         }
         records.push({ type: value.type, layout: value.layout, value: value.value, association: value.association, bindingOwner,
-          node, phase: work.phase, path: work.path });
+          node, syntax: value.syntax, readyCallable: work.readyCallable, phase: work.phase, path: work.path });
         const association = value.association;
         if (association?.kind === "member-selection") {
-          selectedMembers.push({ decision: association.value.decision, selection: association.value, node: members.node,
-            occurrence: { kind: "selection", node: members.node.id, ordinal: nextMemberOrdinal(members) } });
+          const actual = requirePresent(members ?? undefined, { owner: "ir-tir", query: null, origin: null,
+            message: "A Typed member selection requires its actual ordinary syntax occurrence." });
+          selectedMembers.push({ decision: association.value.decision, selection: association.value, node: actual.node,
+            occurrence: { kind: "selection", node: actual.node.id, ordinal: nextMemberOrdinal(actual) } });
         } else if (association?.kind === "construction-part") {
           const part = association.value;
           const decision = part.member;
-          if (decision !== null) selectedMembers.push({ decision, selection: null, node: members.node,
-              occurrence: { kind: "construction-part", node: members.node.id, ordinal: nextMemberOrdinal(members),
+          if (decision !== null) {
+            const actual = requirePresent(members ?? undefined, { owner: "ir-tir", query: null, origin: null,
+              message: "A Typed construction member requires its actual ordinary syntax occurrence." });
+            selectedMembers.push({ decision, selection: null, node: actual.node,
+              occurrence: { kind: "construction-part", node: actual.node.id, ordinal: nextMemberOrdinal(actual),
                 source: part.source, destination: part.destination, part: part.part } });
+          }
         }
         const fields = value.fields();
         for (let position = fields.length - 1, field = fields[position]; field !== undefined; field = fields[--position]) {
           pending.push({ kind: "value", value: field.work, node, phase: work.phase || field.name === "tsonic",
-            path: { parent: work.path, field: field.name }, ownerType: value.layout.label, bindingOwner, members });
+            path: { parent: work.path, field: field.name }, ownerType: value.layout.label, bindingOwner, readyCallable: null, members });
         }
         break;
       }

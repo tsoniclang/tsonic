@@ -204,6 +204,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypedIteration: lazyRecord(() => phase_values.work_TypedIteration),
     work_TypedNamespace: lazyRecord(() => phase_declarations.work_TypedNamespace),
     work_TypedParameter: lazyRecord(() => phase_declarations.work_TypedParameter),
+    work_TirFormalInitializer: lazyRecord(() => body.work_TirFormalInitializer),
     work_TypedStorageDeclaration: lazyRecord(() => phase_declarations.work_TypedStorageDeclaration),
     work_TypedVariableList: lazyRecord(() => phase_declarations.work_TypedVariableList)
   });
@@ -405,7 +406,6 @@ export const createTirLayouts = (): TirLayouts => {
       case "VariableDeclarationList": return syntax_statements.work_VariableDeclarationList(value);
       case "ObjectBindingPattern":
       case "ArrayBindingPattern": return syntax_statements.work_BindingPattern(value);
-      case "Parameter": return syntax_statements.work_ParameterDeclaration(value);
       case "BindingElement": return syntax_statements.work_BindingElement(value);
       case "MissingDeclaration": return syntax_statements.work_MissingDeclaration(value);
       case "FunctionDeclaration": return body.work_FunctionDeclaration(value);
@@ -585,5 +585,9 @@ export const createTirLayouts = (): TirLayouts => {
       case "JSDocPropertyTag": return syntax_docs.work_JSDocParameterOrPropertyTag(value);
     }
   };
-  return finishTirLayouts(kernel, body.work_TirBody, nodeWork);
+  return finishTirLayouts(kernel, body.work_TirBody, nodeWork, role => {
+    if (role.kind === "module-root") return body.work_TirModuleRoot(role.node);
+    if (role.kind === "ready-callable") return body.work_TirReadyCallable(role.node);
+    return syntax_statements.work_TirFormal(role.node);
+  });
 };

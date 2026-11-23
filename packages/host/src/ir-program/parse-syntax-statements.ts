@@ -2,11 +2,14 @@
 import type { NodeList, ModifierList, Identifier, EmptyStatement, IfStatement, DoStatement, WhileStatement, ForStatement, ForInStatement, ForOfStatement, BreakStatement, ContinueStatement, ReturnStatement, WithStatement, SwitchStatement, CaseBlock, CaseClause, DefaultClause, CaseOrDefaultClause, ThrowStatement, TryStatement, CatchClause, DebuggerStatement, LabeledStatement, ExpressionStatement, Block, VariableStatement, VariableDeclaration, VariableDeclarationList, BindingPattern, ParameterDeclaration, BindingElement, MissingDeclaration, FunctionDeclaration, ClassDeclaration, ClassExpression, HeritageClause, InterfaceDeclaration, TypeAliasDeclaration, EnumMember, EnumDeclaration, ModuleBlock, NotEmittedStatement, NotEmittedTypeElement, CallSignatureDeclaration, ConstructSignatureDeclaration, ConstructorDeclaration, GetAccessorDeclaration, SetAccessorDeclaration, IndexSignatureDeclaration, MethodSignatureDeclaration, MethodDeclaration, PropertySignatureDeclaration, PropertyDeclaration, SemicolonClassElement, ClassStaticBlockDeclaration, ExpressionWithTypeArguments, TypeParameterDeclaration, Expression, Statement, TypeNode, BlockOrExpression, PropertyName, ForInitializer, BindingName, ClassElement, TypeElement, DotDotDotToken, QuestionToken, ExclamationToken, AsteriskToken, AwaitKeyword } from "../ir-hir/contract.js";
 import type { TypedIteration, TypedControlTransfer, TypedBinding, TypedBindingPattern, TypedParameter, TypedVariableList, TypedCallable, TypedClass, TypedClassValue, TypedHeritage, TypedInterface, TypedAlias, TypedEnum, TypedStorageDeclaration, TypedStaticBlock, TypedIndexDeclaration, TypedPhase, TypedBindingElement } from "../ir-tir/contract.js";
 import type { Cursor, TextStep } from "./parse-values.js";
-import type { SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
+import type { TextReader } from "./parse-values.js";
+import type { FunctionDeclarationHeader } from "../ir-hir/contract.js";
+import type { TirFormal, TirFormalInitializer, TirReadyCallable } from "../ir-tir/contract.js";
+import type { ChapterReadPorts, SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
 import { readBoolean, readNull, readStringChoice, atomicText, fieldText } from "./parse-values.js";
 import { readTypedBindingElementText, readTypedBindingText, readTypedBindingPatternText, readTypedParameterText, readTypedCallableText, readTypedClassText, readTypedHeritageText, readTypedInterfaceText, readTypedAliasText, readTypedStorageDeclarationText, readTypedEnumText, readTypedIndexDeclarationText, readTypedStaticBlockText } from "./parse-phase-declarations.js";
 import { readTypedCaseText, readTypedIterationText, readTypedControlTransferText, readTypedVariableListText, readTypedClassValueText } from "./parse-phase.js";
-import { resolveSyntaxValue, syntaxAlternatives, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readNullableSyntax, readSyntaxList } from "./parse-syntax-values.js";
+import { resolveSyntaxValue, syntaxAlternatives, readFormalInitializer, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readNullableSyntax, readSyntaxList } from "./parse-syntax-values.js";
 
 export function readEmptyStatementSyntax<Root>(cursor: Cursor, _ports: SyntaxReadPorts, kind: "EmptyStatement", finish: (value: SyntaxValue<EmptyStatement<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
@@ -266,17 +269,18 @@ export function readBindingPatternSyntax<Root>(cursor: Cursor, ports: SyntaxRead
     }, finish))));
 }
 
-export function readParameterDeclarationSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "Parameter", finish: (value: SyntaxValue<ParameterDeclaration<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
+export function readTirFormalSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, chapter: ChapterReadPorts,
+  finish: (value: SyntaxValue<TirFormal>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
     fieldText<SyntaxValue<ModifierList<TypedPhase> | null>, Root>(cursor, fields, "modifiers", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.ModifierLike, done), "ModifierList", done), done), modifiersValue =>
     fieldText<SyntaxValue<DotDotDotToken<TypedPhase> | null>, Root>(cursor, fields, "dotDotDotToken", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.DotDotDotToken, done), done), dotDotDotTokenValue =>
     fieldText<SyntaxValue<BindingName<TypedPhase>>, Root>(cursor, fields, "name", (next, done) => readSyntaxReference(next, ports.BindingName, done), nameValue =>
     fieldText<SyntaxValue<QuestionToken<TypedPhase> | null>, Root>(cursor, fields, "questionToken", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.QuestionToken, done), done), questionTokenValue =>
     fieldText<SyntaxValue<TypeNode<TypedPhase> | null>, Root>(cursor, fields, "type", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.TypeNode, done), done), typeValue =>
-    fieldText<SyntaxValue<Expression<TypedPhase> | null>, Root>(cursor, fields, "initializer", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.Expression, done), done), initializerValue =>
+    fieldText<SyntaxValue<TirFormalInitializer>, Root>(cursor, fields, "initializer", (next, done) => readFormalInitializer(next, ports, chapter, done), initializerValue =>
     fieldText<TypedParameter, Root>(cursor, fields, "tsonic", readTypedParameterText, tsonicValue =>
-    finishSyntaxRecord<ParameterDeclaration<TypedPhase>, Root>(cursor, fields, {
-      resolve: () => resolveSyntaxValue(modifiersValue, modifiersResolved => resolveSyntaxValue(dotDotDotTokenValue, dotDotDotTokenResolved => resolveSyntaxValue(nameValue, nameResolved => resolveSyntaxValue(questionTokenValue, questionTokenResolved => resolveSyntaxValue(typeValue, typeResolved => resolveSyntaxValue(initializerValue, initializerResolved => ({ ...header, kind, modifiers: modifiersResolved, dotDotDotToken: dotDotDotTokenResolved, name: nameResolved, questionToken: questionTokenResolved, type: typeResolved, initializer: initializerResolved, tsonic: tsonicValue }))))))),
+    finishSyntaxRecord<TirFormal, Root>(cursor, fields, {
+      resolve: () => resolveSyntaxValue(modifiersValue, modifiersResolved => resolveSyntaxValue(dotDotDotTokenValue, dotDotDotTokenResolved => resolveSyntaxValue(nameValue, nameResolved => resolveSyntaxValue(questionTokenValue, questionTokenResolved => resolveSyntaxValue(typeValue, typeResolved => resolveSyntaxValue(initializerValue, initializerResolved => ({ ...header, kind: "Parameter", modifiers: modifiersResolved, dotDotDotToken: dotDotDotTokenResolved, name: nameResolved, questionToken: questionTokenResolved, type: typeResolved, initializer: initializerResolved, tsonic: tsonicValue }))))))),
     }, finish)))))))));
 }
 
@@ -301,18 +305,37 @@ export function readMissingDeclarationSyntax<Root>(cursor: Cursor, ports: Syntax
     }, finish))));
 }
 
-export function readFunctionDeclarationSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "FunctionDeclaration", finish: (value: SyntaxValue<FunctionDeclaration<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
+export function readFunctionDeclarationSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "FunctionDeclaration",
+  bodyPresent: () => void, finish: (value: SyntaxValue<FunctionDeclaration<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
+  return readFunctionFields<ParameterDeclaration<TypedPhase>, BlockOrExpression<TypedPhase> | null, Root>(cursor, ports, kind,
+    (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.ParameterDeclaration, done), "NodeList", done),
+    (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.BlockOrExpression, value => {
+      bodyPresent();
+      return done(value);
+    }), done), finish);
+}
+
+export function readReadyCallableSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, chapter: ChapterReadPorts,
+  finish: (value: SyntaxValue<TirReadyCallable>) => TextStep<Root>): TextStep<Root> {
+  return readFunctionFields<TirFormal, Block<TypedPhase>, Root>(cursor, ports, "FunctionDeclaration",
+    (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, chapter.formal, done), "NodeList", done),
+    (next, done) => readSyntaxReference(next, ports.Block, done), finish);
+}
+
+function readFunctionFields<Formal, Body, Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "FunctionDeclaration",
+  readFormals: TextReader<SyntaxValue<NodeList<Formal>>>, readBody: TextReader<SyntaxValue<Body>>,
+  finish: (value: SyntaxValue<FunctionDeclarationHeader<TypedPhase> & { readonly parameters: NodeList<Formal>; readonly body: Body }>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
     fieldText<SyntaxValue<ModifierList<TypedPhase> | null>, Root>(cursor, fields, "modifiers", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.ModifierLike, done), "ModifierList", done), done), modifiersValue =>
     fieldText<SyntaxValue<NodeList<TypeParameterDeclaration<TypedPhase>> | null>, Root>(cursor, fields, "typeParameters", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.TypeParameterDeclaration, done), "NodeList", done), done), typeParametersValue =>
-    fieldText<SyntaxValue<NodeList<ParameterDeclaration<TypedPhase>>>, Root>(cursor, fields, "parameters", (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.ParameterDeclaration, done), "NodeList", done), parametersValue =>
+    fieldText<SyntaxValue<NodeList<Formal>>, Root>(cursor, fields, "parameters", readFormals, parametersValue =>
     fieldText<SyntaxValue<TypeNode<TypedPhase> | null>, Root>(cursor, fields, "type", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.TypeNode, done), done), typeValue =>
     fieldText<SyntaxValue<TypeNode<TypedPhase> | null>, Root>(cursor, fields, "fullSignature", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.TypeNode, done), done), fullSignatureValue =>
     fieldText<SyntaxValue<AsteriskToken<TypedPhase> | null>, Root>(cursor, fields, "asteriskToken", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.AsteriskToken, done), done), asteriskTokenValue =>
-    fieldText<SyntaxValue<BlockOrExpression<TypedPhase> | null>, Root>(cursor, fields, "body", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.BlockOrExpression, done), done), bodyValue =>
+    fieldText<SyntaxValue<Body>, Root>(cursor, fields, "body", readBody, bodyValue =>
     fieldText<SyntaxValue<Identifier<TypedPhase> | null>, Root>(cursor, fields, "name", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.Identifier, done), done), nameValue =>
     fieldText<TypedCallable, Root>(cursor, fields, "tsonic", readTypedCallableText, tsonicValue =>
-    finishSyntaxRecord<FunctionDeclaration<TypedPhase>, Root>(cursor, fields, {
+    finishSyntaxRecord<FunctionDeclarationHeader<TypedPhase> & { readonly parameters: NodeList<Formal>; readonly body: Body }, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(modifiersValue, modifiersResolved => resolveSyntaxValue(typeParametersValue, typeParametersResolved => resolveSyntaxValue(parametersValue, parametersResolved => resolveSyntaxValue(typeValue, typeResolved => resolveSyntaxValue(fullSignatureValue, fullSignatureResolved => resolveSyntaxValue(asteriskTokenValue, asteriskTokenResolved => resolveSyntaxValue(bodyValue, bodyResolved => resolveSyntaxValue(nameValue, nameResolved => ({ ...header, kind, modifiers: modifiersResolved, typeParameters: typeParametersResolved, parameters: parametersResolved, type: typeResolved, fullSignature: fullSignatureResolved, asteriskToken: asteriskTokenResolved, body: bodyResolved, name: nameResolved, tsonic: tsonicValue }))))))))),
     }, finish)))))))))));
 }

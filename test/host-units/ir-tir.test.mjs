@@ -31,7 +31,7 @@ const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const productNames = ["index", "print", "parse", "text-layouts", "text-construction", "text-syntax-construction", "text-model", "text-body", "text-phase-values",
   "text-phase-declarations", "text-type-values", "text-rule-decisions", "text-rule-inputs", "text-causes", "text-captures", "text-memory",
   "text-syntax-values", "text-syntax-statements", "text-syntax-types", "text-syntax-jsx", "text-syntax-docs",
-  "verify", "verify-occurrences", "verify-applications", "verify-instances", "selection-key", "syntax-compare", "syntax-compare-common",
+  "verify", "verify-occurrences", "verify-applications", "verify-instances", "chapter-syntax", "selection-key", "syntax-compare", "syntax-compare-common",
   "syntax-compare-values", "syntax-compare-statements", "syntax-compare-types", "syntax-compare-jsx", "syntax-compare-docs"];
 const sourceFiles = ["contract", ...productNames].map(name => `packages/host/src/ir-tir/${name}.ts`);
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-tir/${name}.js`));
@@ -502,6 +502,92 @@ test("nested callable parameter patterns retain actual nested local storage, not
   assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.pattern.elements.nodes[0].name.tsonic.storage = 0;
   assert.equal(verifyBody(fixture.input, fixture.body).some(violation => violation.rule === "binding-storage"), true);
+});
+
+test("ready chapter callable and body share the actual pattern formal and reject crossed ownership", async () => {
+  const { createAccount, accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/verification-work.js");
+  const fixture = nestedDeclarationScenario(false);
+  const module = fixture.input.module;
+  const nested = module.bodies[1];
+  const formal = { ...fixture.parameter, initializer: { kind: "none" } };
+  const [source] = fixture.body.root.statements.nodes;
+  const callable = { ...source, parameters: { ...source.parameters, nodes: [formal] } };
+  nested.params = [formal];
+  fixture.body.root.statements.nodes[0] = { kind: "ready-callable", node: callable };
+  module.tree = { kind: "ready-root", root: fixture.body.root };
+  const bodyScopesOf = fixture.input.bindingScopesOf;
+  fixture.input.bindingScopesOf = (target, subject, visit) => target.kind === "module" && target.module === module.module && module === subject
+    ? completeScopes([]) : bodyScopesOf(target, subject, visit);
+  const result = verifyChapter(fixture.input, module);
+  assert.deepEqual(result.map(row => row.rule), []);
+  assert.deepEqual(verifyBody(fixture.input, fixture.body).map(row => row.rule), []);
+  assert.equal(callable.parameters.nodes[0] === nested.params[0], true);
+  assert.equal(callable.body === nested.root, true);
+  fixture.pattern.elements.nodes[0].name.tsonic.storage = 0;
+  assert.equal(verifyBody(fixture.input, fixture.body).some(row => row.rule === "binding-storage" && row.site.node === 6), true);
+  fixture.pattern.elements.nodes[0].name.tsonic.storage = 1;
+
+  const crossed = { ...callable, parameters: { ...callable.parameters, nodes: [{ ...formal }] } };
+  const crossedModule = { ...module, tree: { kind: "ready-root", root: {
+    ...fixture.body.root, statements: nodeList([{ kind: "ready-callable", node: crossed }]),
+  } } };
+  const refused = verifyChapter(fixture.input, crossedModule);
+  assert.equal(refused.some(row => row.rule === "nested-template-identity" && row.site.node === callable.id), true);
+
+  const successfulReads = checkTirVerifierAdmissionCuts(admitFixtureRead, product.verifyTirModule, fixture.input, module);
+  assert.equal(successfulReads.filter(read => read === "bodyOf").length, 2);
+  for (const [maximumWork, maximumResultEntries] of [[0, 1000000], [1000000, 0]]) {
+    const account = createAccount({ maximumWork, maximumResultEntries });
+    const candidate = { ...module, bodies: [...module.bodies] };
+    Object.defineProperty(candidate.bodies, "0", { get() { assert.fail("an unpaid candidate body row was read"); } });
+    const result = product.verifyTirModule(fixture.input, candidate, tirReadyReadAdmission(account));
+    assert.equal(result.kind === "resource-stop" && result.stop === accountFailure(account), true);
+    assert.deepEqual(Object.keys(result), ["kind", "stop"]);
+  }
+});
+
+test("one Typed formal initializer slot admits its tag and only the reached phase root", async () => {
+  const { chapterSyntaxSlots, admitFormalInitializer } = await import("../../packages/host/dist/ir-tir/chapter-syntax.js");
+  const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
+  const { accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = nestedDeclarationScenario(false);
+  const formal = fixture.parameter;
+  const typed = fixture.input.module.bodies[1].root.statements.nodes[0].expression;
+  const checked = fixture.input.source.bodies[1].root.statements.nodes[0].expression;
+  const limits = (maximumWork, maximumCreatedRecords) => ({ maximumWork, maximumCreatedRecords, maximumBindingVectorsPerArtifact: 1,
+    typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
+  const reads = [];
+  const invoke = (kind, root, maximumWork, maximumRecords) => {
+    reads.length = 0;
+    Object.defineProperty(formal, "initializer", { configurable: true, get() {
+      reads.push("tag");
+      if (kind === "none") return { kind, get root() { assert.fail("none has no child"); } };
+      return { kind, get root() { reads.push("root"); return root; } };
+    } });
+    const slot = [...chapterSyntaxSlots({ kind: "formal", node: formal })].find(row => row.kind === "formal-initializer");
+    assert.deepEqual(reads, []);
+    const meter = createInstantiationMeter(limits(maximumWork, maximumRecords));
+    const selected = admitFormalInitializer(slot, () => admitCheckedProjection(meter, 1, 1), () => chargeInstantiationWork(meter));
+    return { selected, stop: meter.failure ?? accountFailure(meter.account) };
+  };
+  for (const [kind, root] of [["ready-default", typed], ["checked-default", checked]]) {
+    for (const [work, records, prefix] of [[0, 0, []], [1, 0, []], [1, 1, ["tag"]]]) {
+      const { selected, stop } = invoke(kind, root, work, records);
+      assert.equal(selected.kind === "refused" && selected.stop === stop, true);
+      assert.deepEqual(Object.keys(selected), ["kind", "stop"]);
+      assert.deepEqual(reads, prefix);
+    }
+    const { selected } = invoke(kind, root, 2, 1);
+    assert.equal(selected.kind, "complete");
+    assert.equal(selected.value.kind, kind);
+    assert.equal(selected.value.root === root, true);
+    assert.deepEqual(reads, ["tag", "root"]);
+  }
+  const { selected } = invoke("none", null, 1, 1);
+  assert.equal(selected.kind, "complete");
+  assert.deepEqual(selected.value, { kind: "none" });
+  assert.deepEqual(reads, ["tag"]);
 });
 
 function siblingIdentityScenario(sourceShared, typedShared) {

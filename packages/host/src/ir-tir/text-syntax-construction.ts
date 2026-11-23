@@ -1,6 +1,6 @@
 import type { TirNode, TypedPhase } from "./contract.js";
 import type { TypeAliasDeclaration, JSDocParameterOrPropertyTag, BindingPattern, ImportDeclaration, KeywordTypeNode, Token, KeywordExpression } from "../ir-hir/contract.js";
-import type { AssertsKeyword, AsteriskToken, AwaitKeyword, BinaryOperatorToken, BindingElement, BindingName, Block, BlockOrExpression, BodyRoot, CaseBlock, CaseOrDefaultClause, CatchClause, ClassElement, ColonToken, DotDotDotToken, EndOfFile, EntityName, EnumMember, EqualsGreaterThanToken, EqualsToken, ExclamationToken, ExportSpecifier, Expression, ExpressionWithTypeArguments, ForInitializer, HeritageClause, Identifier, ImportAttribute, ImportAttributeName, ImportAttributes, ImportClause, ImportSpecifier, JSDocComment, JSDocFullName, JSDocTag, JsxAttributeLike, JsxAttributeName, JsxAttributeValue, JsxAttributes, JsxChild, JsxClosingElement, JsxClosingFragment, JsxOpeningElement, JsxOpeningFragment, JsxTagNameExpression, LeftHandSideExpression, LiteralTypeChild, MemberName, ModifierLike, ModuleExportName, ModuleName, ModuleReference, NamedExportBindings, NamedImportBindings, NodeBody, ObjectLiteralElementLike, ParameterDeclaration, PropertyName, QuestionDotToken, QuestionToken, Statement, SyntaxNode, TemplateHead, TemplateLiteral, TemplateLiteralTypeSpan, TemplateMiddleOrTail, TemplateSpan, TypeElement, TypeNode, TypeParameterDeclaration, TypePredicateParameterName, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
+import type { AssertsKeyword, AsteriskToken, AwaitKeyword, BinaryOperatorToken, BindingElement, BindingName, Block, BlockOrExpression, BodyRoot, CaseBlock, CaseOrDefaultClause, CatchClause, ClassElement, ColonToken, DotDotDotToken, EndOfFile, EntityName, EnumMember, EqualsGreaterThanToken, EqualsToken, ExclamationToken, ExportSpecifier, Expression, ExpressionWithTypeArguments, ForInitializer, HeritageClause, Identifier, ImportAttribute, ImportAttributeName, ImportAttributes, ImportClause, ImportSpecifier, JSDocComment, JSDocFullName, JSDocTag, JsxAttributeLike, JsxAttributeName, JsxAttributeValue, JsxAttributes, JsxChild, JsxClosingElement, JsxClosingFragment, JsxOpeningElement, JsxOpeningFragment, JsxTagNameExpression, LeftHandSideExpression, LiteralTypeChild, MemberName, ModifierLike, ModuleExportName, ModuleName, ModuleReference, NamedExportBindings, NamedImportBindings, NodeBody, ObjectLiteralElementLike, PropertyName, QuestionDotToken, QuestionToken, Statement, SyntaxNode, TemplateHead, TemplateLiteral, TemplateLiteralTypeSpan, TemplateMiddleOrTail, TemplateSpan, TypeElement, TypeNode, TypeParameterDeclaration, TypePredicateParameterName, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import type { TirConstruction, TirReader, TirSyntaxConstruction, TirSyntaxFactory } from "./text-construction.js";
 import { syntaxReader } from "./text-construction.js";
 
@@ -269,7 +269,6 @@ export interface TirSyntaxReaders {
   readonly NamedImportBindings: TirReader<NamedImportBindings<TypedPhase>>;
   readonly NodeBody: TirReader<NodeBody<TypedPhase>>;
   readonly ObjectLiteralElementLike: TirReader<ObjectLiteralElementLike<TypedPhase>>;
-  readonly ParameterDeclaration: TirReader<ParameterDeclaration<TypedPhase>>;
   readonly PostfixToken: TirReader<Token<TypedPhase, "QuestionToken" | "ExclamationToken">>;
   readonly PropertyName: TirReader<PropertyName<TypedPhase>>;
   readonly QuestionDotToken: TirReader<QuestionDotToken<TypedPhase>>;
@@ -415,7 +414,6 @@ export const createSyntaxReaders = (): TirSyntaxReaders => ({
     "JsxExpression", "JsxText", "SyntheticReferenceExpression", "ModuleBlock", "ModuleDeclaration"]),
   ObjectLiteralElementLike: familyReader("ObjectLiteralElementLike", ["PropertyAssignment", "ShorthandPropertyAssignment", 
     "SpreadAssignment", "MethodDeclaration", "GetAccessor", "SetAccessor"]),
-  ParameterDeclaration: familyReader("ParameterDeclaration", ["Parameter"]),
   PostfixToken: familyReader("PostfixToken", ["QuestionToken", "ExclamationToken"]),
   PropertyName: familyReader("PropertyName", ["Identifier", "StringLiteral", "NoSubstitutionTemplateLiteral", "NumericLiteral", 
     "ComputedPropertyName", "PrivateIdentifier", "BigIntLiteral"]),

@@ -1,7 +1,7 @@
 import type {
   Identifier, PrivateIdentifier, QualifiedName, ComputedPropertyName, Decorator,
   OmittedExpression, KeywordExpression, StringLiteral, NumericLiteral, BigIntLiteral,
-  RegularExpressionLiteral, NoSubstitutionTemplateLiteral, BinaryExpression, PrefixUnaryExpression, PostfixUnaryExpression,
+  RegularExpressionLiteral, NoSubstitutionTemplateLiteral, BinaryExpression, BinarySyntaxReceipt, PrefixUnaryExpression, PostfixUnaryExpression,
   YieldExpression, ArrowFunction, FunctionExpression, AsExpression, SatisfiesExpression,
   ConditionalExpression, PropertyAccessExpression, ElementAccessExpression, CallExpression, NewExpression,
   MetaProperty, NonNullExpression, SpreadElement, TemplateExpression, TemplateSpan,
@@ -66,7 +66,8 @@ export interface ExpressionsPlans<P extends Phase, Stop, Image> {
   readonly LiteralKeywordExpression: (node: KeywordExpression<P, "TrueKeyword" | "FalseKeyword" | "NullKeyword">) => SyntaxPlan<KeywordExpression<P, "TrueKeyword" | "FalseKeyword" | "NullKeyword">, Stop, Image>;
 }
 
-export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>, ports: () => SyntaxCopyPorts<P, Stop, Image>): ExpressionsPlans<P, Stop, Image> {
+export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
+  ports: () => SyntaxCopyPorts<P, Stop, Image>, binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>): ExpressionsPlans<P, Stop, Image> {
   const Identifier = new Map<Identifier<P>, SyntaxPlan<Identifier<P>, Stop, Image>>();
   const PrivateIdentifier = new Map<PrivateIdentifier<P>, SyntaxPlan<PrivateIdentifier<P>, Stop, Image>>();
   const QualifiedName = new Map<QualifiedName<P>, SyntaxPlan<QualifiedName<P>, Stop, Image>>();
@@ -211,16 +212,15 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       templateFlags: node.templateFlags,
       tsonic,
     }))),
-    BinaryExpression: node => memoSyntaxPlan(BinaryExpression, node, () => withSyntaxPayload(phase.BinaryExpression, node.tsonic, tsonic => ({
-      ...syntaxHeader(node),
-      kind: node.kind,
-      modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-      left: ports().Expression(node.left).read(),
-      type: node.type === null ? null : ports().TypeNode(node.type).read(),
-      operatorToken: node.operatorToken,
-      right: ports().Expression(node.right).read(),
-      tsonic,
-    }))),
+    BinaryExpression: node => memoSyntaxPlan(BinaryExpression, node, () => withSyntaxPayload(phase.BinaryExpression, node.tsonic, tsonic => {
+      const shape = binaryOf(node);
+      const modifiers = shape.modifiers(item => ports().ModifierLike(item).read());
+      const left = ports().Expression(shape.left()).read();
+      const rawType = shape.type();
+      return { ...shape.header, kind: "BinaryExpression", modifiers, left,
+        type: rawType === null ? null : ports().TypeNode(rawType).read(),
+        operatorToken: shape.operator(), right: ports().Expression(shape.right()).read(), tsonic };
+    })),
     PrefixUnaryExpression: node => memoSyntaxPlan(PrefixUnaryExpression, node, () => withSyntaxPayload(phase.PrefixUnaryExpression, node.tsonic, tsonic => ({
       ...syntaxHeader(node),
       kind: node.kind,

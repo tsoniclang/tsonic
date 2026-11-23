@@ -290,8 +290,13 @@ export function sameShorthandPropertyAssignment(left: Hir.ShorthandPropertyAssig
 }
 
 export function sameSourceFile(left: Hir.SourceFile<Hir.Phase>, right: Hir.SourceFile<Hir.Phase>): boolean {
-  return sameNodeList(left.statements, right.statements) &&
-    Object.is(left.languageVariant, right.languageVariant) &&
+  return sameNodeList(left.statements, right.statements) && sameSourceFileHeader(left, right);
+}
+
+export function sameSourceFileHeader<Left extends Hir.Phase, Right extends Hir.Phase>(
+  left: Hir.SourceFileHeader<Left>, right: Hir.SourceFileHeader<Right>,
+): boolean {
+  return Object.is(left.languageVariant, right.languageVariant) &&
     Object.is(left.scriptKind, right.scriptKind) &&
     sameVector(left.commentDirectives, right.commentDirectives, sameCommentDirective22) &&
     sameVector(left.pragmas, right.pragmas, samePragma23) &&

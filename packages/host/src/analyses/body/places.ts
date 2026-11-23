@@ -5,7 +5,7 @@ import type { DefId, ItemNodeRef, LocalId, NodeId, PlaceId, TyId } from "../../i
 import { decodeDefId } from "../../ids/index.js";
 import type { LogicalCellRow } from "../../ir-facts/contract.js";
 import type { MirBody, MirOperand } from "../../ir-mir/contract.js";
-import type { TirNode } from "../../ir-tir/contract.js";
+import type { TirNode, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
 import type { ArtifactBindings } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { orderedRows } from "./source.js";
@@ -30,7 +30,7 @@ export function rootSlot(body: MirBody, place: PlaceId, statics: StaticSlots): n
   return slot;
 }
 
-export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirNode>):
+export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirSyntaxOccurrence>):
   DataflowResult<StaticCells> {
   const { mir, tir } = input;
   const { account } = deps;
