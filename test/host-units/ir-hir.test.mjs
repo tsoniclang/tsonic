@@ -559,6 +559,46 @@ test("HIR every genuinely checked syntax arm has a complete text roundtrip in it
       roundtrip((constructorModule(node)), `checked text/${node.kind}/${count}/${nullOptionals}/${reversed}`);
 });
 
+test("HIR copies the complete Checked constructor inventory through one paid postorder image", async () => {
+  const { createInstantiationMeter, admitCheckedProjection } = await import("../../packages/host/dist/ir-program/work.js");
+  const hold = value => ({ kind: "copied", value });
+  const project = source => {
+    const meter = createInstantiationMeter({ maximumWork: 100000, maximumCreatedRecords: 100000, maximumBindingVectorsPerArtifact: 1,
+      typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
+    const admit = (work, records) => admitCheckedProjection(meter, work, records);
+    const read = () => admit(1, 0);
+    const forest = product.walkSyntaxForest([{ path: "candidate.tree", read: () => source.tree }], {
+      root: read, node: read, edge: read, parameter: () => admit(1, 1), structure: () => admit(1, 1), modifiers: read,
+    });
+    assert.equal(forest.kind, "complete");
+    return product.copyCheckedModule(source, forest.value, {
+      admit, syntaxNode: () => admit(1, 1),
+      type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold,
+    });
+  };
+  for (const [count, nullOptionals, reversed] of [[0, true, false], [0, false, false], [1, false, false], [3, false, true]]) {
+    for (const node of checkedConstructorInputs(count, nullOptionals, reversed)) {
+      const label = `${node.kind}/${count}/${nullOptionals}/${reversed}`;
+      const text = product.printHir(constructorModule(node));
+      const original = product.parseHir(text);
+      assert.equal(original.kind, "parsed", label);
+      const image = project(original.value);
+      assert.equal(image.kind, "copied", label);
+      const { module, syntax } = image.value;
+      assert.equal(module.tree === module.bodies[0].root, true, label);
+      assert.equal(module.tree !== original.value.tree && syntax.sourceFileOf(original.value.tree) === module.tree, true, label);
+      assert.equal(product.printHir(module) === text, true, label);
+      const originals = product.indexSyntaxTree(original.value.tree);
+      const projected = product.indexSyntaxTree(module.tree);
+      assert.equal(projected.length, originals.length, label);
+      for (const [position, source] of originals.entries()) {
+        assert.equal(syntax.nodeOf(source) === projected[position], true, `${label}/${source.kind}`);
+        assert.equal(syntax.nodeOf({ ...source }) === null, true, `${label}/foreign/${source.kind}`);
+      }
+    }
+  }
+});
+
 for (const kind of ["WithStatement", "EnumMember", "FunctionDeclaration"])
   test(`HIR ${kind} retains its actual declared field order and named modifier-list shape`, () => {
     for (const [count, nullOptionals, reversed] of [[0, true, false], [0, false, false], [1, false, false], [3, false, false], [3, false, true]]) {
