@@ -1621,6 +1621,42 @@ test("a copied reference captured by a detached initializer preserves its value 
   assert.deepEqual(summary.parameters[0].writes, { kind: "complete", paths: [] });
 });
 
+test("a mutable reference slot charges a field write to its saved receiver despite rebinding on the right", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = "export type Box = { flag: boolean }; "
+    + "export function swap(before: Box, after: Box, value: boolean): boolean { "
+    + "let alias: Box = before; alias = after; alias.flag = (alias = before, value); return alias.flag; }";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const body = modules.find(module => module.module === input.snapshot.entryPoint).bodies.find(row =>
+    row.kind === "selected" && row.tir.params.length === 3);
+  const facts = body.facts.find(row => row.execution.provided === 3);
+  const summary = index.summaries.find(row => row.key.kind === "body"
+    && fixture.types.executionKey(row.key.execution) === fixture.types.executionKey(facts.execution));
+  assert.equal(summary.parameters.length, 3);
+  const [field] = summary.parameters[1].writes.paths;
+  assert.equal(summary.arena.projections[field].projection.member.decision.key.value, "flag");
+  assert.deepEqual(summary.parameters.map(parameter => parameter.reads), [
+    { kind: "complete", paths: [field] }, { kind: "complete", paths: [] }, { kind: "complete", paths: [] },
+  ]);
+  assert.deepEqual(summary.parameters.map(parameter => parameter.writes), [
+    { kind: "complete", paths: [] }, { kind: "complete", paths: [field] }, { kind: "complete", paths: [] },
+  ]);
+  const [event] = facts.origins.writes.filter(row => row.destination === "member");
+  assert.equal(event.targets.length, 1);
+  const producer = facts.arena.producers[facts.arena.boundProducers[event.targets[0]].producer];
+  assert.deepEqual([producer.kind, producer.index, producer.path], ["parameter", 1, null]);
+  const assignment = body.mir.blocks[event.point.block].statements[event.point.statement];
+  const place = body.mir.places[assignment.place].base;
+  assert.equal(place.kind, "place");
+  const holder = body.mir.places[place.place].base;
+  assert.equal(holder.kind, "local");
+  assert.equal(body.mir.locals[holder.local].role.kind, "temporary", "the projection cannot borrow the mutable alias cell");
+});
+
 test("one actual invocation retains both capture modes without assigning a cell to the copied slot", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
