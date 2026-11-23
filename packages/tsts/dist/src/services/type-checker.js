@@ -18,7 +18,7 @@ import { Program_GetSourceFile, Program_GetTypeChecker, Program_HasUsableChecker
 import { CheckerLifetimeAPI, CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
 import { getExtensionHost } from "../extensions/host.js";
 import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_ResolveName, Checker_GetSignaturesOfType, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
-import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedCallSelectionEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
+import { Checker_getCompletedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal, getNumberLiteralValue } from "../internal/checker/checker/state.js";
 import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclarationOfAliasSymbol, Checker_getDeclaredTypeOfSymbol, Checker_getEffectivePropertyNameForPropertyNameNode, Checker_getExportSymbolOfValueSymbolIfExported, Checker_getIdentifierAssignmentError, Checker_getImmediateAliasedSymbol, Checker_getLiteralTypeFromPropertyName, Checker_getTypeOfPropertyOfContextualTypeEx, Checker_getResolvedSymbolOrNil, Checker_getModuleSpecifierForImportOrExport, Checker_getExportsOfModule, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, isSourceModuleBinding, retainedAliasFailure, } from "../internal/checker/checker/symbols.js";
 import { Checker_getApparentTypeOfContextualType, Checker_getAwaitedType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
@@ -36,6 +36,34 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         throw new Error("Type-checker queries require one source file from the compiler program.");
     }
     const callInfos = new WeakMap();
+    const readCall = (node, acquisition) => {
+        if (node === undefined || !IsCallOrNewExpression(node))
+            return { kind: "unavailable" };
+        const context = defaultOptions.context ?? Background();
+        const result = withSourceFileChecker(program, defaultOptions.sourceFile, GetSourceFileOfNode(node), context, (checker) => {
+            const read = () => {
+                admitNativeChecker(checker, "work");
+                const known = callInfos.get(node);
+                if (known !== undefined)
+                    return known;
+                if (acquisition.kind === "produce")
+                    Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal);
+                const selected = Checker_getCompletedCallEvidence(checker, node, acquisition.kind === "produce" ? () => Checker_GetTypeAtLocation(checker, node) : null);
+                if (selected !== undefined) {
+                    admitNativeChecker(checker, "retained");
+                    callInfos.set(node, selected);
+                }
+                return selected;
+            };
+            return acquisition.kind === "produce" ? { kind: "complete", value: read() }
+                : acquireLeasedChecker(checker, WithCheckerLifetime(context, CheckerLifetimeDiagnostics), acquisition.admit, read);
+        });
+        if (result === undefined || result.kind === "unavailable")
+            return { kind: "unavailable" };
+        if (result.kind === "refused")
+            return result;
+        return result.value === undefined ? { kind: "unavailable" } : { kind: "complete", value: result.value };
+    };
     const propertyNames = new WeakMap();
     const propertyAccessInfos = new WeakMap();
     const elementAccessInfos = new WeakMap();
@@ -232,17 +260,11 @@ export function createTypeCheckerQueries(program, defaultOptions) {
                 return undefined;
             return withCheckedFile(program, sourceFile, defaultOptions, checker => Checker_GetSignatureFromDeclaration(checker, declaration));
         },
-        getResolvedCallInfo: (node) => memoizeResolvedNodeQuery(callInfos, node, () => withCheckedFile(program, GetSourceFileOfNode(node), defaultOptions, (checker) => {
-            if (!IsCallOrNewExpression(node)) {
-                return undefined;
-            }
-            Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal);
-            const selection = Checker_getResolvedCallSelectionEvidence(checker, node);
-            if (selection?.kind !== "applicable")
-                return selection;
-            const sourceResultType = Checker_GetTypeAtLocation(checker, node);
-            return Checker_finalizeResolvedCallEvidence(checker, node, sourceResultType);
-        })),
+        getResolvedCallInfo: (node) => {
+            const result = readCall(node, { kind: "produce" });
+            return result.kind === "complete" ? result.value : undefined;
+        },
+        acquireResolvedCall: (node, admit) => readCall(node, { kind: "ready", admit }),
         getResolvedPropertyAccessInfo: (node) => memoizeResolvedNodeQuery(propertyAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
             const selected = Checker_getResolvedSourcePropertyAccessInfo(checker, node);
             return isSyntheticDefaultMember(checker, selected?.sourceSymbol)

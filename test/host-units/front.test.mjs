@@ -1958,7 +1958,8 @@ test("wrong-arity overload capture retains all actual declarations and the origi
   const annotations = 17 + 5;
   const expressionAndContext = 6 + 3 + 4 + 1;
   const signatureParameters = 3 * 2 + 2 * 2;
-  const exact = authoredEdges + signatureResults + annotations + expressionAndContext + signatureParameters;
+  const completedCallRead = 2;
+  const exact = authoredEdges + signatureResults + annotations + expressionAndContext + signatureParameters + completedCallRead;
   const diagnostic = source.raw.checkerDiagnostics[original.index];
   for (let maximum = 0; maximum < exact; maximum += 1) {
     const stop = resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedEdgesPerModule", maximum,

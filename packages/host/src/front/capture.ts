@@ -316,7 +316,7 @@ interface CaptureScope extends CaptureAdmission {
   readonly numericLiterals: Map<Node, RawNumericLiteral>;
   readonly checked: OpenedProgramView;
   readonly checker: Omit<TypeCheckerQueries, "getTypeAtLocation" | "getTypeFromTypeNode" | "getContextualType" |
-    "getReturnTypeOfSignature" | "getResolvedStorageInfo">;
+    "getReturnTypeOfSignature" | "getResolvedCallInfo" | "getResolvedStorageInfo">;
   readonly shape: Omit<TypeShapeQueries, "getTypeFromTypeNode" | "getReturnTypeOfSignature" | "getSignatureParameterInfos">;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
   readonly emptyCoreInventory: boolean;
@@ -3784,8 +3784,14 @@ function captureCallOrder(scope: CaptureScope, invocation: RawNodeRef, signature
 
 function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): RawCallSelection | null {
   if (!admit(scope, "facts")) return null;
-  const info = scope.checker.getResolvedCallInfo(node);
-  if (info === undefined) return throwInvariant(invariant("The checker gave no call evidence for a captured call."));
+  const captured = scope.checker.acquireResolvedCall(node, nativeCaptureAdmission(scope));
+  if (captured.kind === "refused") {
+    if (captured.stop !== scope.meter.refusal)
+      return throwInvariant(invariant("A call acquisition must retain its actual first capture refusal."));
+    return null;
+  }
+  if (captured.kind === "unavailable") return throwInvariant(invariant("The checker gave no completed evidence for a captured call."));
+  const info = captured.value;
   if (info.call !== node) return throwInvariant(invariant("Call evidence must retain its actual source invocation."));
   if (info.kind === "conditional-candidates" && !info.optionalChain && info.candidates.length === 0
     && info.declarationOrder.kind === "available" && info.declarationOrder.signatures.length !== 0 && info.diagnostics.length === 1) {

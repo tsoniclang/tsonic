@@ -39,7 +39,7 @@ import { NewElementAccessExpression, NewFunctionTypeNode, NewKeywordExpression, 
 import { AsSourceFile, IsTypeOrJSTypeAliasDeclaration, Node_ArgumentList, Node_Arguments, Node_Attributes, Node_Body, Node_Children, Node_Elements, Node_Expression, Node_Initializer, Node_Locals, Node_Members, Node_Parameters, Node_Properties, Node_QuestionToken, Node_Statements, Node_Symbol, Node_Text, Node_Type, Node_TypeArguments, Node_TypeParameterList, Node_TypeParameters } from "../../ast/ast.js";
 import { Node_QuestionDotToken, Node_TypeArgumentList, SourceFile_Text } from "../../ast/ast.js";
 import { CheckFlagsIndexSymbol, CheckFlagsLate, CheckFlagsNone, CheckFlagsOptionalParameter, CheckFlagsRestParameter, CheckFlagsDeferredType } from "../../ast/checkflags.js";
-import { LinkStore_Get } from "../../core/linkstore.js";
+import { LinkStore_Get, LinkStore_TryGet } from "../../core/linkstore.js";
 import { retainErrorOperandSource } from "./source-type-answers.js";
 import { Tristate_IsTrue } from "../../core/tristate.js";
 import { Checker_checkComputedPropertyName, Checker_checkDeclarationInitializer, Checker_checkPropertyDeclaration, Checker_checkTypeNameIsReserved, Checker_checkVariableLikeDeclaration, Checker_classDeclarationExtendsNull, Checker_cloneSymbol, Checker_createCombinedSymbolFromTypes, Checker_createSymbolWithType, Checker_getAliasForTypeNode, Checker_getAwaitedTypeNoAlias, Checker_getClassElementPropertyKeyType, Checker_getClassOrInterfaceDeclarationsOfSymbol, Checker_getDeclarationOfAliasSymbol, Checker_getDeclaredTypeOfSymbol, Checker_getEffectiveDeclarationFlags, Checker_getIndexInfoOfType, Checker_getIndexInfosOfType, Checker_getIndexSymbol, Checker_getIndexTypeOfType, Checker_getLiteralTypeFromProperty, Checker_getLiteralTypeFromPropertyName, Checker_getMembersOfSymbol, Checker_getMergedSymbol, Checker_getParentOfSymbol, Checker_getPropertyOfObjectType, Checker_getPropertyOfType, Checker_getResolvedSymbol, Checker_getResolvedSymbolOrNil, Checker_getSymbolFromTypeReference, Checker_getSymbolOfDeclaration, Checker_getSymbolOfNode, Checker_getTypeOfPrototypeProperty, Checker_getTypeOfPropertyOfType, Checker_getTypeOfSymbol, Checker_getTypeOfEnumMember, Checker_getTypeWithSyntheticDefaultImportType, Checker_getUniqAssociatedNamesFromTupleType, Checker_getWidenedTypeForVariableLikeDeclaration, Checker_widenTypeForVariableLikeDeclaration, Checker_hasBindableName, Checker_instantiateSymbol, Checker_instantiateSymbols, Checker_isArrayOrTupleSymbol, Checker_isAutoTypedProperty, Checker_isGenericIndexType, Checker_isReadonlyArraySymbol, Checker_isSpreadableProperty, Checker_getSpreadSymbol, Checker_newIndexInfo, Checker_newSymbol, Checker_newSymbolEx, Checker_newClassMemberDecoratorContextTypeForNode, Checker_newTypedPropertyDescriptorType, Checker_registerForUnusedIdentifiersCheck, Checker_reportUnusedImports, Checker_reportUnusedLocal, Checker_reportUnusedVariableDeclarations, Checker_resolveEntityName, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, Checker_resolveStructuredTypeMembers, Checker_getIndexedAccessTypeEx, Checker_setStructuredTypeMembers } from "./symbols.js";
@@ -2515,22 +2515,69 @@ export function Checker_finalizeResolvedCallEvidence(receiver, node, sourceResul
     return finalized;
 }
 export function Checker_getResolvedCallSelectionEvidence(receiver, node) {
+    const links = completedCallLinks(receiver, node);
+    const selection = links?.resolvedCallSelectionEvidence;
+    return selection?.kind === "conditional-candidates" && receiver !== undefined
+        ? callSelectionWithBacking(receiver, selection) : selection;
+}
+function completedCallLinks(receiver, node) {
     if (receiver === undefined || node === undefined || !IsCallOrNewExpression(node))
         return undefined;
-    const links = LinkStore_Get(receiver.signatureLinks, node);
+    admitNativeChecker(receiver, "work");
+    const links = LinkStore_TryGet(receiver.signatureLinks, node);
+    if (links === undefined)
+        return undefined;
     const selection = links.resolvedCallSelectionEvidence;
     if (selection !== undefined && (selection.call !== node || links.resolvedCallEvidenceSignature !== links.resolvedSignature)) {
         throw new Error("Checked call selection lost its exact completed resolver cache owner.");
     }
-    if (selection?.kind === "conditional-candidates") {
-        return Object.freeze({ ...selection, candidates: Object.freeze(selection.candidates.map(candidate => {
-                const constraints = checkerBackingConstraints(receiver, candidate.application);
-                const diagnostics = Object.freeze([...new Set(constraints.map(constraint => constraint.diagnostic.root))]);
-                return Object.freeze({ ...candidate, constraints, diagnostics,
-                    diagnosticCoverage: Object.freeze(diagnostics.map(root => checkerDiagnosticCoverage(receiver, root))) });
-            })) });
+    return links;
+}
+function callSelectionWithBacking(receiver, selection) {
+    admitNativeChecker(receiver, "retained", 2);
+    const candidates = [];
+    for (let position = 0; position < selection.candidates.length; position += 1) {
+        admitNativeChecker(receiver, "work");
+        const candidate = selection.candidates[position];
+        if (candidate === undefined)
+            throw new Error("A completed call selection requires its dense candidate inventory.");
+        const constraints = checkerBackingConstraints(receiver, candidate.application);
+        admitNativeChecker(receiver, "retained", 3);
+        const diagnosticRoots = new Set();
+        const diagnostics = [];
+        const diagnosticCoverage = [];
+        for (let index = 0; index < constraints.length; index += 1) {
+            admitNativeChecker(receiver, "work");
+            const constraint = constraints[index];
+            if (constraint === undefined)
+                throw new Error("A completed call requires dense backing constraints.");
+            const root = constraint.diagnostic.root;
+            if (diagnosticRoots.has(root))
+                continue;
+            admitNativeChecker(receiver, "retained", 3);
+            diagnosticRoots.add(root);
+            diagnostics.push(root);
+            diagnosticCoverage.push(constraint.diagnostic.rootCoverage);
+        }
+        admitNativeChecker(receiver, "retained", 2);
+        candidates.push(Object.freeze({ ...candidate, constraints, diagnostics: Object.freeze(diagnostics),
+            diagnosticCoverage: Object.freeze(diagnosticCoverage) }));
     }
-    return selection;
+    return Object.freeze({ ...selection, candidates: Object.freeze(candidates) });
+}
+export function Checker_getCompletedCallEvidence(receiver, node, complete) {
+    const links = completedCallLinks(receiver, node);
+    if (links === undefined)
+        return undefined;
+    const selection = links.resolvedCallSelectionEvidence;
+    if (selection?.kind !== "applicable")
+        return selection?.kind === "conditional-candidates" ? callSelectionWithBacking(receiver, selection) : selection;
+    const final = links.resolvedCallEvidence ?? (complete === null ? undefined : Checker_finalizeResolvedCallEvidence(receiver, node, complete()));
+    if (final === undefined)
+        return undefined;
+    if (final.kind !== "applicable" || final.selection !== selection.selection || final.call !== node)
+        throw new Error("A completed call retains its actual settled applicable selection and result.");
+    return final;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveSignature","kind":"method","status":"implemented","sigHash":"3f5f24d8b322f3d2262569dc0fad3eb979984d3500a3322bee3b45508bd47345","bodyHash":"03f051b64a78b179daad017cbd3815451b58a183c849bc42a6a4be0c48e8d1fc"}
