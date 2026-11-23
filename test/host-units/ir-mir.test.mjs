@@ -16,6 +16,8 @@ import { readImportGraph } from "../architecture/host/import-graph.mjs";
 import { hostCatalogue } from "../architecture/host/catalogue.mjs";
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
+import { analysisInput } from "./fixtures/front/analysis-input.mjs";
+import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
@@ -926,6 +928,26 @@ test("MIR selected header roots retain their occurrence and exclude separately-o
     "the same canonical object can be reached twice without a second occurrence");
   assert.throws(() => control.sourceNodes({ ...source, params: [parameter, structuredClone(parameter)] }, texts),
     /conflicting syntax occurrences/);
+});
+
+test("MIR execution occurrences exclude actual unopened checked module declarations", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const control = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  const text = await import("../../packages/host/dist/ir-mir/text.js");
+  const decisions = await import("../../packages/host/dist/ir-mir/text-decisions.js");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", "export function latent<T>(value: T): T { return value; }");
+  const outcome = analyzeHostProgram(input);
+  assert.equal(outcome.kind, "ok", JSON.stringify(outcome.diagnostics));
+  const chapter = outcome.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
+  const [declaration] = body.tir.root.statements.nodes;
+  assert.equal(declaration.kind, "checked-declaration");
+  assert.equal(declaration.node.kind, "FunctionDeclaration");
+  const nodes = control.sourceNodes(body.tir, control.createWireTexts(decisions.createDecisionWires(text.createScalarWires())));
+  assert.equal(nodes.get(body.tir.root.id)?.node === body.tir.root, true);
+  assert.equal(nodes.has(declaration.node.id), false);
+  assert.equal(nodes.has(declaration.node.body.id), false);
 });
 
 function verified(body, context) {
@@ -3977,7 +3999,7 @@ test("MIR JSON strings preserve every escape and reject complete lexical/type fa
 });
 
 const dependencyNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "step"];
-const interfaceSources = ["ids/contract", "ids/index", "diag/contract", "diag/index", "ir-types/contract", "ir-types/index", "ir-hir/contract", "ir-hir/index", "ir-infer/contract", "ir-tir/contract"]
+const interfaceSources = ["ids/contract", "ids/index", "diag/contract", "diag/index", "ir-types/contract", "ir-types/index", "ir-hir/contract", "ir-hir/index", "ir-infer/contract", "ir-tir/contract", "ir-tir/index"]
   .map(name => `packages/host/src/${name}.ts`);
 
 test("MIR complete module isolates against real original public dependency values and actual strict declaration closure", async () => {

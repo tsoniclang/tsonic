@@ -218,11 +218,7 @@ export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<Node
   for (const subject of indexChapterSyntax(roots(), mirOccurrenceSlots)) {
     if (subject.kind === "checked") continue;
     const node = subject.node;
-    const previous = nodes.get(node.id);
-    if (previous !== undefined) {
-      if (previous.node !== node) throw new TypeError("The selected source roots contain conflicting syntax occurrences.");
-      continue;
-    }
+    if (nodes.has(node.id)) throw new TypeError("The selected source roots contain conflicting syntax occurrences.");
     const operations = new Set<string>();
     const callees = new Set<string>();
     const protocols: TirProtocol[] = [];
