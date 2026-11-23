@@ -5,7 +5,7 @@ import type {
   MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
   OperatorConstraint, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
-import type { CategoryEvidence, SourceObjectParameter, TypeEvidence } from "../ir-types/contract.js";
+import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
 import { compareMemberKeys, internType, readType } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
@@ -161,7 +161,7 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
   } }) };
 }
 
-function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, storage: SourceObjectParameter | null,
+function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, storage: SourceObjectField | null,
   destination: MemberDestination): MemberStep {
   const { access, receiver, key, origins, context } = input;
   if (access !== "read") return notDecidedYet("a member write decision", context.origin);

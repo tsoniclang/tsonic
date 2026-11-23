@@ -112,6 +112,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   if (fieldProjection !== null && fieldProjection.kind !== "complete") return fieldProjection;
   const fieldReads = fieldProjection?.value ?? null;
   let objectFormals: Set<number> | null = null;
+  let objectValues: Set<LocalId> | null = null;
   for (const local of mir.locals) {
     if (local.role.kind === "capture") {
       const captureWork = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
@@ -127,14 +128,22 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     let kind = fieldReads?.references.has(local.id) === true ? "reference" : valueKind(deps, local.storage);
     const afterKind = accountFailure(account);
     if (afterKind !== null) return afterKind;
-    if (kind === null && local.role.kind === "parameter" && local.mode === "by-value" && local.source?.body === tir.body) {
-      const formal = deps.sourceObjectFormal(account, local.source, local.storage);
+    if (kind === null && local.source !== null && (local.role.kind === "capture" ||
+      local.source.body === tir.body && (local.role.kind === "parameter" && local.mode === "by-value" || local.role.kind === "user" && local.mode === "local"))) {
+      const formal = deps.sourceObjectHolding(account, local.source, local.storage);
       if (formal.kind !== "complete") return formal;
       if (formal.value) {
-        const retained = chargeResultEntries(account, objectFormals === null ? 2 : 1);
-        if (retained !== null) return retained;
-        objectFormals ??= new Set();
-        objectFormals.add(local.role.index);
+        if (local.role.kind === "parameter") {
+          const retained = chargeResultEntries(account, objectFormals === null ? 2 : 1);
+          if (retained !== null) return retained;
+          objectFormals ??= new Set();
+          objectFormals.add(local.role.index);
+        } else {
+          const retained = chargeResultEntries(account, objectValues === null ? 2 : 1);
+          if (retained !== null) return retained;
+          objectValues ??= new Set();
+          objectValues.add(local.id);
+        }
         kind = "reference";
       }
     }
@@ -308,7 +317,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     producers.push({ id: producer, path: null, kind: "capture", index });
     boundProducers.push({ id: location, producer, bindings: tir.lexicalBindings, context: valueContextId(0) });
     captureLocations.push({ index, location, cell: index });
-    const kind = valueKind(deps, requirePresent(mir.locals[local], { owner: "analyses/body", query: null, origin: null,
+    const holdingRead = objectValues === null ? null : chargeWork(account, 1);
+    if (holdingRead !== null) return holdingRead;
+    const kind = objectValues?.has(local) === true ? "reference" : valueKind(deps, requirePresent(mir.locals[local], { owner: "analyses/body", query: null, origin: null,
       message: "An actual capture retains its selected local storage." }).storage);
     const classified = accountFailure(account);
     if (classified !== null) return classified;
@@ -397,7 +408,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   let currentOrigins: readonly OriginsId[] = localOrigins;
   const originsOf = (operand: MirOperand): OriginsId => operandOrigins(input, constantOrigins, currentOrigins, operand, staticSlots, fieldReads);
   const flow = buildFacts && (hasReference || hasOptional || cellLocals.length !== 0) ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
-    localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals, solved.value.calls, staticSlots, staticCallees, fieldReads) : null;
+    localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals, solved.value.calls, staticSlots, staticCallees, fieldReads, objectValues) : null;
   if (flow !== null && flow.kind !== "complete") return flow;
   let causalNeed: CallError | null = null;
   let directFailures: Map<NodeId, UninitializedRead> | null = null;

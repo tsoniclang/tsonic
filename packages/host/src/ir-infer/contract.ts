@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, UnitRequest, Violation } from "../diag/contract.js";
-import type { CheckFailure, HandleActivation, ReceiverAccess, SourceObjectParameter, TypePublicationWork } from "../ir-types/contract.js";
+import type { CheckFailure, HandleActivation, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
 import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 import type { Step } from "../step/contract.js";
@@ -717,7 +717,7 @@ export type MemberRuleCompletion =
 
 export interface MemberContributionScheme<State> {
   readonly enumerate: (input: EnumerationInput<MemberConstraint>) => Result<readonly AtomicContribution[]>;
-  readonly evaluate: (input: ContributionEvaluation<MemberConstraint> & { readonly origin: Origin; readonly storage: SourceObjectParameter | null }) =>
+  readonly evaluate: (input: ContributionEvaluation<MemberConstraint> & { readonly origin: Origin; readonly storage: SourceObjectField | null }) =>
     MemberRuleStep<MemberRuleCompletion, State>;
 }
 
@@ -761,7 +761,7 @@ export interface RuleTable<State> {
   readonly embed: (input: EmbedInput) => Result<RuleOutcome<EmbeddingDecision>>;
   readonly domainFit: (input: DomainFitInput) => Result<RuleOutcome<boolean>>;
   readonly memoryEquivalent: (input: MemoryEquivalentInput) => Result<RuleOutcome<boolean>>;
-  readonly member: (input: MemberInput, storage: SourceObjectParameter | null) => MemberRuleStep<MemberRuleCompletion, State>;
+  readonly member: (input: MemberInput, storage: SourceObjectField | null) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly resumeMember: (state: State, answers: readonly MemberRuleAnswer[]) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly index: (input: IndexInput) => Result<RuleOutcome<MemberDecision>>;
   readonly constructLiteral: (input: LiteralConstructionInput) => Result<RuleOutcome<OperationDecision>>;

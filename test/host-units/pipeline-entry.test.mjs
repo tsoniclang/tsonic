@@ -1451,6 +1451,61 @@ test("real public Host analysis reads a declared structural field through its ac
   assert.deepEqual(caller.facts[0].arena.origins[fact.origins].producers, [], "a scalar field read is not the receiver reference");
 });
 
+test("an immutable ordinary object alias reads the field of the original reference without becoming a formal", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = "export type Box = { flag: boolean };"
+    + "export function read(other: Box, value: Box): boolean { const alias = value; return alias.flag; }";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const bodies = result.value.modules.find(module => module.module === input.snapshot.entryPoint).bodies;
+  const caller = bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+  assert.ok(caller);
+  const call = caller.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  const initializer = bodies.find(row => row.kind === "selected" && row.instance.body === call.callee.instance.body);
+  assert.equal(initializer?.tir.root.kind, "Identifier");
+  assert.equal(initializer.tir.root.text, "value");
+  const capturePlace = caller.mir.places[call.callee.captures[0].place];
+  assert.deepEqual(caller.mir.locals[capturePlace.base.local].role, { kind: "parameter", index: 1 });
+  const chosen = caller.tir.root.statements.nodes.at(-1).expression;
+  assert.equal(chosen.expression.text, "alias");
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === caller.instance.body);
+  assert.equal(summary.parameters.length, 2);
+  assert.deepEqual(summary.parameters[0].reads, { kind: "complete", paths: [] });
+  const selected = summary.parameters[1];
+  assert.deepEqual(selected.slot, { kind: "parameter", index: 1 });
+  assert.deepEqual(selected.writes, { kind: "complete", paths: [] });
+  assert.equal(selected.reads.paths.length, 1);
+  const projection = summary.arena.projections[selected.reads.paths[0]].projection;
+  assert.equal(projection.kind, "field");
+  assert.equal(projection.member.decision.primary, chosen.tsonic.selection.decision.decision.primary);
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { checkedSourceObjectFieldOf } = await import("../../packages/host/dist/ir-hir/index.js");
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const checked = captured.value.checked;
+  const body = checked.bodies.get(caller.instance.body);
+  const access = body.root.statements.nodes.at(-1).expression;
+  const itemOf = definition => checked.nodeOf(checked.declarationSourceOf(definition));
+  for (const [cap, reads, complete] of [[0, 0, false], [1, 1, false], [2, 2, true]]) {
+    let remaining = cap;
+    let read = 0;
+    const proof = checkedSourceObjectFieldOf(body, access, reference => {
+      read += 1;
+      return checked.nodeOf(reference);
+    }, itemOf, () => remaining-- > 0);
+    assert.equal(read, reads);
+    assert.equal(proof !== null, complete);
+    if (proof !== null) {
+      assert.deepEqual(proof.local, access.expression.tsonic.resolution.local);
+      assert.equal(proof.field, access.tsonic.origins.value[0].declaration);
+    }
+  }
+  assert.throws(() => analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source.replace("const alias", "let alias"))),
+    error => error.cause?.owner === "rules" && /native receiver representation/u.test(error.message));
+});
+
 test("applied field reads follow the actual forwarded object rather than the callee formal index", async () => {
   const { accountFailure, createAccount } = await import("../../packages/host/dist/dataflow/index.js");
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
@@ -1467,7 +1522,7 @@ test("applied field reads follow the actual forwarded object rather than the cal
     pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, round) => {
       if (round.tir.params.length === 2 && round.tir.root.statements.nodes.length === 1) {
         const local = round.mir.locals.find(row => row.role.kind === "parameter" && row.role.index === 1);
-        witness = { ...local, sourceObjectFormal: deps.sourceObjectFormal, scalar: deps.signatureOf(round.tir.signature).result };
+        witness = { ...local, sourceObjectHolding: deps.sourceObjectHolding, scalar: deps.signatureOf(round.tir.signature).result };
       }
       return original(deps, round);
     };
@@ -1505,18 +1560,18 @@ test("applied field reads follow the actual forwarded object rather than the cal
     assert.equal(facts.arena.producers[facts.arena.boundProducers[bound].producer].index, actual);
   }
   assert.equal(witness !== null, true);
-  const { sourceObjectFormal, source, storage, scalar } = witness;
+  const { sourceObjectHolding, source, storage, scalar } = witness;
   const limits = input.limits.dataflow;
   const account = createAccount(limits);
-  assert.deepEqual(sourceObjectFormal(account, source, storage), { kind: "complete", value: true });
+  assert.deepEqual(sourceObjectHolding(account, source, storage), { kind: "complete", value: true });
   const { work } = InvocationAccount.stateOf(account);
-  assert.deepEqual(sourceObjectFormal(createAccount({ ...limits, maximumWork: work }), source, storage), { kind: "complete", value: true });
-  assert.deepEqual(sourceObjectFormal(createAccount(limits), source, scalar), { kind: "complete", value: false });
+  assert.deepEqual(sourceObjectHolding(createAccount({ ...limits, maximumWork: work }), source, storage), { kind: "complete", value: true });
+  assert.deepEqual(sourceObjectHolding(createAccount(limits), source, scalar), { kind: "complete", value: false });
   for (let maximumWork = 0; maximumWork < work; maximumWork += 1) {
     const cut = createAccount({ ...limits, maximumWork });
-    const refusal = sourceObjectFormal(cut, source, storage);
+    const refusal = sourceObjectHolding(cut, source, storage);
     assert.equal(refusal === accountFailure(cut), true);
-    assert.equal(sourceObjectFormal(cut, source, storage) === refusal, true);
+    assert.equal(sourceObjectHolding(cut, source, storage) === refusal, true);
   }
 });
 

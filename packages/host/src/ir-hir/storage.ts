@@ -1,4 +1,4 @@
-import type { CheckedPhase, CheckedSourceObjectFormalOf, CheckedSourceObjectParameterOf, CheckedVariableStorageOf, HirCoreCapture,
+import type { CheckedPhase, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldOf, CheckedVariableStorageOf, HirCoreCapture,
   ReadWriteRootStorageOf, WritableRootStorageOf } from "./contract.js";
 import { unparenthesizedExpression } from "./walk.js";
 
@@ -7,15 +7,32 @@ function ordinaryObjectRepresentation(core: HirCoreCapture): boolean {
     && core.markers.value.struct === null && core.markers.value.field === null && !core.markers.value.jsString;
 }
 
-export const checkedSourceObjectFormalOf: CheckedSourceObjectFormalOf = (body, local, nodeOf, itemOf) => {
+export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body, local, nodeOf, itemOf, admitAlias) => {
   if (local.body !== body.body) return null;
-  const localRow = body.locals[local.local];
-  if (localRow?.id !== local.local || localRow.role !== "parameter" || localRow.declaration.kind !== "item"
-    || localRow.checkerSlot.kind !== "available") return null;
+  let current = local.local;
+  let localRow = body.locals[current];
+  if (localRow?.id !== current || localRow.checkerSlot.kind !== "available") return null;
   const type = localRow.checkerSlot.value;
+  while (localRow.role === "binding") {
+    if (!admitAlias() || localRow.mutable || localRow.declaration.kind !== "item") return null;
+    const declaration = nodeOf(localRow.declaration);
+    if (declaration?.kind !== "VariableDeclaration" || declaration.id !== localRow.declaration.value.node
+      || declaration.origin.module !== body.root.origin.module || declaration.initializer === null || declaration.tsonic.initializer === null
+      || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== local.body
+      || declaration.tsonic.declaration.local.local !== current || checkedVariableStorageOf(declaration) !== type) return null;
+    const initializer = unparenthesizedExpression<CheckedPhase>(declaration.initializer);
+    if (initializer.kind !== "Identifier" || initializer.tsonic.role !== "value" || initializer.tsonic.resolution.kind !== "local"
+      || initializer.tsonic.resolution.local.body !== local.body || initializer.tsonic.resolution.local.local >= current
+      || initializer.tsonic.value.views.read.kind !== "available" || initializer.tsonic.value.views.read.value !== type) return null;
+    current = initializer.tsonic.resolution.local.local;
+    if (!admitAlias()) return null;
+    localRow = body.locals[current];
+    if (localRow?.id !== current || localRow.checkerSlot.kind !== "available" || localRow.checkerSlot.value !== type) return null;
+  }
+  if (localRow.role !== "parameter" || localRow.declaration.kind !== "item") return null;
   const formal = nodeOf(localRow.declaration);
   if (formal?.kind !== "Parameter" || formal.tsonic.parent !== body.owner || formal.tsonic.declaration.kind !== "local"
-    || formal.tsonic.declaration.local.body !== local.body || formal.tsonic.declaration.local.local !== local.local
+    || formal.tsonic.declaration.local.body !== local.body || formal.tsonic.declaration.local.local !== current
     || formal.type?.kind !== "TypeReference" || formal.type.typeArguments !== null || formal.dotDotDotToken !== null
     || formal.tsonic.declaredType.kind !== "available" || formal.tsonic.declaredType.value !== type
     || formal.type.tsonic.type.kind !== "available" || formal.type.tsonic.type.value !== type) return null;
@@ -31,14 +48,14 @@ export const checkedSourceObjectFormalOf: CheckedSourceObjectFormalOf = (body, l
   return { local, declaration, receiver: type };
 };
 
-export const checkedSourceObjectParameterOf: CheckedSourceObjectParameterOf = (body, access, nodeOf, itemOf) => {
+export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, access, nodeOf, itemOf, admitAlias) => {
   if (access.questionDotToken !== null || access.tsonic.role !== "value" || access.tsonic.origins.kind !== "available"
     || access.tsonic.origins.value.length !== 1 || access.tsonic.accessor.kind !== "available" || access.tsonic.accessor.value !== null) return null;
   const origin = access.tsonic.origins.value[0];
   if (origin?.kind !== "declared") return null;
   const receiver = unparenthesizedExpression<CheckedPhase>(access.expression);
   if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local") return null;
-  const formal = checkedSourceObjectFormalOf(body, receiver.tsonic.resolution.local, nodeOf, itemOf);
+  const formal = checkedSourceObjectHoldingOf(body, receiver.tsonic.resolution.local, nodeOf, itemOf, admitAlias);
   if (formal === null) return null;
   const field = itemOf(origin.declaration);
   if (field?.kind !== "PropertySignature" || field.postfixToken !== null || field.tsonic.parent !== formal.declaration

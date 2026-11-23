@@ -350,13 +350,13 @@ export interface MemberTypes {
   readonly write: TyId | null;
 }
 
-export interface SourceObjectFormal {
+export interface SourceObjectHolding {
   readonly local: LocalRef;
   readonly declaration: DefId;
   readonly receiver: TyId;
 }
 
-export interface SourceObjectParameter extends SourceObjectFormal {
+export interface SourceObjectField extends SourceObjectHolding {
   readonly occurrence: NodeRef;
   readonly field: DefId;
 }

@@ -1,6 +1,6 @@
 import type { DefId, NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { ContributionKey, MemberRuleCompletion, MemberRuleStep } from "../ir-infer/contract.js";
-import type { BindingVector, MemberInventoryEntry, MemberKey, MemberTypeRequest, SourceObjectParameter } from "../ir-types/contract.js";
+import type { BindingVector, MemberInventoryEntry, MemberKey, MemberTypeRequest, SourceObjectField } from "../ir-types/contract.js";
 import { callerDefect } from "./frontier.js";
 
 export interface MemberOwner {
@@ -12,9 +12,9 @@ export type MemberDestination = { readonly kind: "member" } | { readonly kind: "
 
 export type MemberPhase =
   | { readonly kind: "inventory"; readonly receiver: TyId; readonly key: MemberKey; readonly declaration: DefId;
-      readonly storage: SourceObjectParameter | null; readonly bindings: BindingVector }
+      readonly storage: SourceObjectField | null; readonly bindings: BindingVector }
   | { readonly kind: "type"; readonly request: MemberTypeRequest; readonly inventory: MemberInventoryEntry;
-      readonly storage: SourceObjectParameter | null; readonly bindings: BindingVector };
+      readonly storage: SourceObjectField | null; readonly bindings: BindingVector };
 
 export type MemberStep = MemberRuleStep<MemberRuleCompletion, MemberSuspension>;
 

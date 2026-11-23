@@ -1,6 +1,6 @@
 import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
-import type { LocalId, NodeId, PlaceId, ProjectionPathId } from "../../ids/contract.js";
+import type { LocalId, LocalRef, NodeId, PlaceId, ProjectionPathId } from "../../ids/contract.js";
 import { encodeKey, projectionPathId } from "../../ids/index.js";
 import type { AppliedSummary, BoundProducer, Origins, Producer, ProjectionPath, RelationalArena } from "../../ir-facts/contract.js";
 import { admitSelectionIdentity } from "../../ir-facts/index.js";
@@ -25,21 +25,10 @@ export function heldFieldReads(deps: BodyRoundDeps, input: BodyRoundInput, sourc
   projections: readonly MirPlace[]): DataflowResult<HeldFieldReads> {
   const { account } = deps;
   const { mir, tir } = input;
-  const start = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
+  const start = chargeWork(account, 1) ?? chargeResultEntries(account, 4);
   if (start !== null) return start;
-  const bySource = new Map<LocalId, LocalId>();
-  for (let position = 0; position < mir.locals.length; position += 1) {
-    const admission = chargeWork(account, 1);
-    if (admission !== null) return admission;
-    const local = mir.locals[position];
-    if (local === undefined) return bodyFrontier("Held reference places require dense selected locals.");
-    if (local.role.kind !== "parameter" || local.mode !== "by-value" || local.source?.body !== tir.body) continue;
-    const retained = chargeResultEntries(account, 1);
-    if (retained !== null) return retained;
-    bySource.set(local.source.local, local.id);
-  }
   const reads = new Map<PlaceId, HeldFieldRead>();
-  const holders = new Map<LocalId, LocalId>();
+  const holders = new Map<LocalId, LocalRef>();
   const references = new Set<LocalId>();
   for (const place of projections) {
     const admission = chargeWork(account, 4);
@@ -66,16 +55,17 @@ export function heldFieldReads(deps: BodyRoundDeps, input: BodyRoundInput, sourc
       receiver = receiver.expression;
     }
     const resolution = receiver.kind === "Identifier" && receiver.tsonic.role === "value" ? receiver.tsonic.resolution : null;
-    const formal = resolution?.kind === "local" && resolution.local.body === tir.body ? bySource.get(resolution.local.local) : undefined;
+    const receiverSource = resolution?.kind === "local" && resolution.local.body === tir.body ? resolution.local : null;
     const holderBase = mir.places[base.place]?.base;
     const holder = holderBase?.kind === "local" ? mir.locals[holderBase.local] : undefined;
-    if (formal === undefined || holder?.role.kind !== "temporary" || holder.mode !== "local" || holder.storage !== mir.locals[formal]?.storage
-      || (holders.has(holder.id) && holders.get(holder.id) !== formal))
-      return bodyFrontier("The field read must borrow the actual incoming reference through its stable held local.");
+    const previous = holder === undefined ? undefined : holders.get(holder.id);
+    if (receiverSource === null || holder?.role.kind !== "temporary" || holder.mode !== "local"
+      || (previous !== undefined && (previous.body !== receiverSource.body || previous.local !== receiverSource.local)))
+      return bodyFrontier("The field read must borrow the actual checked reference through its stable held local.");
     const retained = chargeResultEntries(account, 4);
     if (retained !== null) return retained;
     reads.set(place.id, { holder: holder.id, member: selection.decision });
-    holders.set(holder.id, formal);
+    holders.set(holder.id, receiverSource);
     references.add(holder.id);
   }
   const assigned = new Set<LocalId>();
@@ -86,12 +76,20 @@ export function heldFieldReads(deps: BodyRoundDeps, input: BodyRoundInput, sourc
       const read = chargeWork(account, 1);
       if (read !== null) return read;
       if (statement.kind !== "assign") continue;
-      const target = mir.places[statement.place]?.base;
-      if (target?.kind !== "local" || !holders.has(target.local)) continue;
+      const targetPlace = mir.places[statement.place];
+      if (targetPlace?.base.kind !== "local") continue;
+      const target = targetPlace.base;
+      const expected = holders.get(target.local);
+      if (expected === undefined) continue;
+      const admission = chargeWork(account, 2);
+      if (admission !== null) return admission;
       const operand = statement.value.kind === "use" ? statement.value.operand : null;
       const sourcePlace = operand?.kind === "place" ? mir.places[operand.place]?.base : undefined;
-      if (assigned.has(target.local) || sourcePlace?.kind !== "local" || sourcePlace.local !== holders.get(target.local))
-        return bodyFrontier("A held reference retains one actual copy of its selected incoming binding.");
+      const source = sourcePlace?.kind === "local" ? mir.locals[sourcePlace.local] : undefined;
+      if (assigned.has(target.local) || source?.source?.body !== expected.body || source.source.local !== expected.local
+        || source.storage !== targetPlace.storage
+        || !(source.role.kind === "parameter" && source.mode === "by-value" || source.role.kind === "user" && source.mode === "local"))
+        return bodyFrontier("A held reference retains one actual copy of its selected local binding.");
       const retained = chargeResultEntries(account, 1);
       if (retained !== null) return retained;
       assigned.add(target.local);

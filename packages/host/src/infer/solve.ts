@@ -8,9 +8,9 @@ import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep
   PlacementPaused, ResumeSolveGroup, SelectionConstraintContext, SolveAnswer, SolveGroup, SolveRequest } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { internType } from "../ir-types/index.js";
-import { checkedSourceObjectParameterOf } from "../ir-hir/index.js";
-import type { BodyInstance, MemberInventory } from "../ir-types/contract.js";
+import { admitTypePublicationStep, internType, refuseTypeConstruction } from "../ir-types/index.js";
+import { checkedSourceObjectFieldOf } from "../ir-hir/index.js";
+import type { BodyInstance, MemberInventory, TypePublicationStop } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { checkedVoidCompletion, ownSignatureRequest } from "./own-signature.js";
@@ -441,8 +441,13 @@ function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
     case "member": {
       const { constraint, origin } = item.reached;
       const node = deps.checkedNodeOf({ kind: "body", value: constraint.occurrence });
+      let stop: TypePublicationStop | null = null;
       const storage = node?.kind === "PropertyAccessExpression"
-        ? checkedSourceObjectParameterOf(deps.hirBody(item.set.body), node, deps.checkedNodeOf, deps.itemOf) : null;
+        ? checkedSourceObjectFieldOf(deps.hirBody(item.set.body), node, deps.checkedNodeOf, deps.itemOf, () => {
+          stop ??= admitTypePublicationStep(deps.typeWork);
+          return stop === null;
+        }) : null;
+      if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, origin, unit);
       return deps.rules.constraints.member.evaluate({ ...common, constraint, origin, storage });
     }
     case "op": return deps.rules.constraints.op.evaluate({ ...common, constraint: item.reached.constraint });

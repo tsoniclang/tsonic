@@ -5,7 +5,7 @@ import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../d
 import type { AppliedSummary, BoundInitializationRow, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, applySummary, bindInitialization, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
-import type { OriginsId, ValueContextId } from "../../ids/contract.js";
+import type { LocalId, OriginsId, ValueContextId } from "../../ids/contract.js";
 import { valueContextId } from "../../ids/index.js";
 import type { BodyInstance, Signature } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput, RoundCallRead, RoundLeast } from "./contract.js";
@@ -307,7 +307,7 @@ export function callCellIndex(summary: Summary, source: number, captures: readon
 export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: SelectedBodySummary,
   arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[],
-  captures: readonly CaptureLocation[], statics: StaticCalleeCells | null = null): DataflowResult<CallValueEffects> {
+  captures: readonly CaptureLocation[], statics: StaticCalleeCells | null, objectValues: ReadonlySet<LocalId> | null): DataflowResult<CallValueEffects> {
   let usePrimitiveContents = true;
   if (operation.destination !== null) {
     const read = chargeWork(deps.account, 1);
@@ -315,7 +315,11 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     const signature = deps.signatureOf(summary.signature);
     const stopped = accountFailure(deps.account);
     if (stopped !== null) return stopped;
-    const kind = valueKind(deps, signature.result);
+    const holdingRead = objectValues === null ? null : chargeWork(deps.account, 2);
+    if (holdingRead !== null) return holdingRead;
+    const place = objectValues === null ? undefined : input.mir.places[operation.destination];
+    const kind = place?.base.kind === "local" && place.storage === signature.result && objectValues?.has(place.base.local) === true
+      ? "reference" : valueKind(deps, signature.result);
     const classified = accountFailure(deps.account);
     if (classified !== null) return classified;
     if (kind === null) return frontier(operation, "BodyAnalysis requires the actual selected call-result representation and Origins producer.");

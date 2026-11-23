@@ -2247,8 +2247,9 @@ test("actual selected member constraints retain their checked origins and distin
   assert.equal(solveRefusal.value.diagnostics.length, 1);
   assert.deepEqual(solveRefusal.value.diagnostics[0].arguments,
     [{ kind: "text", value: "atomic contributions per group" }, { kind: "number", value: 0 }]);
-  const { checkedSourceObjectParameterOf } = await import("../../packages/host/dist/ir-hir/index.js");
-  const storage = checkedSourceObjectParameterOf(source, access, program.domain.nodeOf, program.inputs.inference.itemOf);
+  const { checkedSourceObjectFieldOf } = await import("../../packages/host/dist/ir-hir/index.js");
+  const storage = checkedSourceObjectFieldOf(source, access, program.domain.nodeOf, program.inputs.inference.itemOf,
+    () => assert.fail("a direct held reference has no alias edge"));
   assert.equal(storage?.receiver, member.receiver);
   const evaluation = { constraint: member, contribution, candidates: set.candidates, evidence, reads: [], origin: access.origin, storage };
   const awaitingInventory = scheme.evaluate(evaluation);

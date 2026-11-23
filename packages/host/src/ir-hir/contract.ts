@@ -1,6 +1,6 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, SignatureEndpoint, SourceObjectFormal, SourceObjectParameter, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, SignatureEndpoint, SourceObjectHolding, SourceObjectField, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirBindingResolution } from "./binding-data.js";
 export type * from "./binding-data.js";
 import type { CapturedFact } from "./capture-data.js";
@@ -4032,13 +4032,13 @@ export type WritableRootStorageOf = (place: CapturedFact<HirStoragePlace>, resol
 export type ReadWriteRootStorageOf = (place: CapturedFact<HirStoragePlace>, resolution: HirResolution) => TyId | null;
 export type CheckedVariableStorageOf = (declaration: VariableDeclaration<CheckedPhase>) => TyId | null;
 
-export type CheckedSourceObjectFormalOf = (body: HirBody, local: LocalRef,
-  nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null,
-) => SourceObjectFormal | null;
+export type CheckedSourceObjectHoldingOf = (body: HirBody, local: LocalRef,
+  nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null, admitAlias: () => boolean,
+) => SourceObjectHolding | null;
 
-export type CheckedSourceObjectParameterOf = (body: HirBody, access: PropertyAccessExpression<CheckedPhase>,
-  nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null,
-) => SourceObjectParameter | null;
+export type CheckedSourceObjectFieldOf = (body: HirBody, access: PropertyAccessExpression<CheckedPhase>,
+  nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null, admitAlias: () => boolean,
+) => SourceObjectField | null;
 
 export interface HirMemoryGeometryCapture {
   readonly source: CapturedFact<TyId>;

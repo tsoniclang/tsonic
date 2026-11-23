@@ -132,7 +132,7 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   const storage = analyzeStorageUse({ account }, { execution, body: lowered.value });
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
-  const deps = { types: TABLE, typeOf, signatureOf, sourceObjectFormal: () => ({ kind: "complete", value: false }),
+  const deps = { types: TABLE, typeOf, signatureOf, sourceObjectHolding: () => ({ kind: "complete", value: false }),
     summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
     account, limits: analysisLimits, unit };
   return { program, execution, input, deps, bindingScope: program.bindingScope };
@@ -1579,7 +1579,7 @@ test("an omitted reference formal is initialized by its real body, with no ficti
     ...result.summary.arena.boundProducers, { id: 1, producer: 1, context: 0, bindings: EMPTY_BINDINGS },
   ] } };
   const state = current.input.mir.locals.map(() => supplied.origins);
-  assert.throws(() => callValueEffects(deps, current.input, operation, invocation.point, invented, pair.facts.arena, state, [], []),
+  assert.throws(() => callValueEffects(deps, current.input, operation, invocation.point, invented, pair.facts.arena, state, [], [], null, null),
     /actual provided argument/);
 });
 
@@ -4358,7 +4358,7 @@ test("unsupported projections, parameter writes and external retention remain ex
 test("selected reference-call helpers keep genuine unsupported inputs explicit and stop before reader payloads", () => {
   const { current, pair, operation, point, summary, state, initial } = referenceRound("body-round.reference-boundaries");
   const invoke = (changed = operation, answer = summary, overrides = {}) => callValueEffects({ ...current.deps,
-    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [], []);
+    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [], [], null, null);
   assert.throws(() => invoke({ ...operation, callee: { kind: "body", instance: current.execution.instance, captures: [] } }),
     /non-formal reference binding/);
   assert.throws(() => invoke({ ...operation, arguments: [{ kind: "place", place: 0 }] }), /actual operand/);
@@ -4452,7 +4452,7 @@ test("Origins rows are interned by complete payload within their actual arena, n
   const actual = indexedOrigins(current, [...rows]);
   const count = actual.rows.length;
   const repeated = callValueEffects({ ...current.deps, account: createAccount(limits) }, current.input, operation,
-    point, summary, pair.facts.arena, state, [], []);
+    point, summary, pair.facts.arena, state, [], [], null, null);
   assert.equal(repeated.kind, "complete");
   assert.equal(repeated.value.kind, "applied");
   const result = appliedOrigins({ ...current.deps, account: createAccount(limits) }, actual, repeated.value.value.result, (_count, retain) => {

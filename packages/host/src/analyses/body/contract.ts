@@ -12,7 +12,7 @@ export interface BodyRoundEnvironment {
   readonly signatureOf: SignatureOf;
   readonly staticModuleBindingsOf: (module: ModuleId) => ArtifactBindings | null;
   readonly staticTypeOf: (declaration: SourceNodeRef) => TyId | null;
-  readonly sourceObjectFormal: (account: DataflowAccount, local: LocalRef, storage: TyId) => DataflowResult<boolean>;
+  readonly sourceObjectHolding: (account: DataflowAccount, local: LocalRef, storage: TyId) => DataflowResult<boolean>;
   readonly limits: AnalysisLimits;
 }
 

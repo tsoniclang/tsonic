@@ -2,7 +2,7 @@ import type { BodyId, CandidateListId, DefId, NodeId, SourceNodeRef, TyId } from
 import { encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
-import { checkedSourceObjectParameterOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
@@ -860,7 +860,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
         if (node === null || node.id !== reference.value.node) { missing = true; return null; }
         return node;
       };
-      const holding = checkedSourceObjectParameterOf(inventory.original, original, reference => {
+      const holding = checkedSourceObjectFieldOf(inventory.original, original, reference => {
         if (reference.kind !== "item") return null;
         stopped ??= admit({ kind: "source-declaration", definition: reference.value.owner });
         return stopped === null ? read(reference) : null;
@@ -870,6 +870,9 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
         const reference = input.declarationSourceOf(definition);
         if (reference?.kind !== "item" || reference.value.owner !== definition) { missing = true; return null; }
         return read(reference);
+      }, () => {
+        stopped ??= admit({ kind: "row" });
+        return stopped === null;
       });
       if (stopped !== null) return { kind: "resource-stop", stop: stopped };
       const { location, primary } = member.decision;
