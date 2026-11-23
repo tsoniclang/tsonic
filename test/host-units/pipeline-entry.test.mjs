@@ -1534,6 +1534,36 @@ test("a copied reference captured by a detached initializer preserves its value 
   assert.deepEqual(summary.parameters[0].writes, { kind: "complete", paths: [] });
 });
 
+test("one actual invocation retains both capture modes without assigning a cell to the copied slot", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = "export function run(left: boolean): boolean { let current: boolean = left; "
+    + "const saved = left; const output = saved === current; return output; }";
+  const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source));
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const selected = result.value.modules.flatMap(module => module.bodies).filter(row => row.kind === "selected");
+  const nested = selected.find(row => row.tir.root.kind === "BinaryExpression");
+  assert.deepEqual(nested.tir.captures.map(row => row.capture), ["captured-value", "captured-location"]);
+  assert.deepEqual(nested.mir.locals.filter(row => row.role.kind === "capture").map(row => row.mode),
+    ["captured-value", "captured-location"]);
+  const arena = nested.facts[0].arena;
+  assert.deepEqual(arena.cells.map(cell => [cell.id, cell.role]), [[0, { kind: "capture", index: 1 }]]);
+  const [copied, borrowed] = arena.contexts[0].captures;
+  assert.equal(copied.index, 0);
+  assert.ok("origins" in copied && !("cell" in copied));
+  assert.deepEqual({ index: borrowed.index, cell: borrowed.cell }, { index: 1, cell: 0 });
+  const caller = selected.find(row => row.tir.root.kind === "Block");
+  const call = caller.mir.blocks.map(block => block.terminator).find(row => row.kind === "call"
+    && row.callee.kind === "body" && row.callee.instance.body === nested.instance.body);
+  assert.deepEqual(call.callee.captures.map(row => row.capture), ["captured-value", "captured-location"]);
+  const context = caller.facts[0].arena.contexts.find(value => value.captures.length === 2);
+  assert.ok("origins" in context.captures[0] && !("cell" in context.captures[0]));
+  const cell = caller.facts[0].arena.cells[context.captures[1].cell];
+  const place = caller.mir.places[call.callee.captures[1].place];
+  assert.equal(place.base.kind, "local");
+  assert.deepEqual(cell.role, { kind: "local", local: place.base.local });
+});
+
 test("applied field reads follow the actual forwarded object rather than the callee formal index", async () => {
   const { accountFailure, createAccount } = await import("../../packages/host/dist/dataflow/index.js");
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
