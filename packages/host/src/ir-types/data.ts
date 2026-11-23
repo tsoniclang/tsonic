@@ -48,10 +48,9 @@ export interface Execution {
   readonly provided: number;
 }
 
-export interface ConstantReference {
-  readonly initializer: BodyInstance;
-  readonly context: ConstantContext;
-}
+export type ConstantReference =
+  | { readonly context: "enum-member"; readonly member: DefId; readonly bindings: ArtifactBindings }
+  | { readonly context: "fixed-array-extent" | "compile-time"; readonly initializer: BodyInstance };
 
 export type ConstantContext = "enum-member" | "fixed-array-extent" | "compile-time";
 

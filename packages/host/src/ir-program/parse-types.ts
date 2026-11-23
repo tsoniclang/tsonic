@@ -537,12 +537,23 @@ export function readInstance(cursor: Cursor): TextParseResult<BodyInstance> {
 }
 
 export function readConstantReference(cursor: Cursor): TextParseResult<ConstantReference> {
-  const opened = openRecord(cursor, "ConstantReference");
+  const tag = choice(cursor, ["ConstantReference", "EnumConstantReference"]);
+  if (tag.kind === "invalid-text") return tag;
+  const opened = delimiter(cursor, "(");
   if (opened.kind === "invalid-text") return opened;
-  const initializer = readField(cursor, opened.value, "initializer", readInstance);
+  const fields: RecordFields = { given: new Set<string>() };
+  if (tag.value === "EnumConstantReference") {
+    const member = readField(cursor, fields, "member", readDefinitionId);
+    if (member.kind === "invalid-text") return member;
+    const bindings = readField(cursor, fields, "bindings", readArtifactBindings);
+    if (bindings.kind === "invalid-text") return bindings;
+    const closed = closeRecord(cursor, fields);
+    return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { context: "enum-member", member: member.value, bindings: bindings.value } };
+  }
+  const initializer = readField(cursor, fields, "initializer", readInstance);
   if (initializer.kind === "invalid-text") return initializer;
-  const context = readField(cursor, opened.value, "context", next => readStringChoice(next, ["enum-member", "fixed-array-extent", "compile-time"]));
+  const context = readField(cursor, fields, "context", next => readStringChoice(next, ["fixed-array-extent", "compile-time"]));
   if (context.kind === "invalid-text") return context;
-  const closed = closeRecord(cursor, opened.value);
+  const closed = closeRecord(cursor, fields);
   return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { initializer: initializer.value, context: context.value } };
 }

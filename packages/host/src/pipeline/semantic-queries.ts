@@ -1,4 +1,4 @@
-import type { DeclarationCycleMember, DeclarationCycleTarget, DeclaredSignaturePause, DeclsDeps,
+import type { ConstantCycleMember, DeclarationCycleMember, DeclarationCycleTarget, DeclaredSignaturePause, DeclsDeps,
   TypeProductionPause, TypeProductionStep } from "../decls/contract.js";
 import type { DataflowStop } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork, createAccount } from "../dataflow/index.js";
@@ -72,7 +72,8 @@ type SemanticWorkWitness = { readonly target: DeclarationCycleTarget | MemberRul
   | { readonly kind: "type-production"; readonly state: TypeProductionPause; readonly ready: readonly (MemberRuleAnswer | TypeProductionAnswer)[] }
 );
 export type SourceSemanticWitness = SemanticWorkWitness | { readonly kind: "forms-prerequisite";
-  readonly source: SourceNodeRef; readonly site: FormDiagnosticSite };
+  readonly source: SourceNodeRef; readonly site: FormDiagnosticSite }
+  | { readonly kind: "constant-demand"; readonly origin: Origin };
 
 type FormDiagnosticQuery = Query<SourceSemanticInputs, FormDiagnosticSite, CheckedTypingCut, SourceSemanticWitness, DeclaredSignatureErrorData>;
 
@@ -133,11 +134,23 @@ export function createSourceSemanticDatabase(inputs: SourceSemanticInputs, limit
 
 function classifySourceCycle(declarations: DeclsDeps, sources: CheckedSourceViews, queries: SourceSemanticQueries,
   cycle: ClosedCycle<SourceSemanticWitness>): readonly CycleOutcome<DeclaredSignatureErrorData>[] {
+    const first = cycle.members[0];
+    if (first.witness.kind === "constant-demand") {
+      const constant = (member: typeof first): ConstantCycleMember => {
+        if (member.witness.kind !== "constant-demand" || member.answerPolicy !== "refusal-only"
+          || member.fact.query !== "enumOf" && member.fact.query !== "evaluateConstant")
+          return fail("An execution-time constant cycle requires its actual completed-source value demands.");
+        return { answerPolicy: member.answerPolicy, origin: member.witness.origin,
+          unit: { query: member.fact.query, key: member.fact.key } };
+      };
+      return pipelineWiring.decls.classifyCycle(declarations, [constant(first), ...cycle.members.slice(1).map(constant)]);
+    }
     const members = cycle.members.map((member, index): DeclarationCycleMember => {
       const previous = cycle.members[(index + cycle.members.length - 1) % cycle.members.length];
       if (previous === undefined) return fail("A closed cycle retains its actual incoming typed demand.");
-      if (previous.witness.kind === "forms-prerequisite" || member.witness.kind === "forms-prerequisite")
-        return fail("A done-only Forms prerequisite cannot appear in a semantic cycle.");
+      if (previous.witness.kind === "forms-prerequisite" || member.witness.kind === "forms-prerequisite"
+        || previous.witness.kind === "constant-demand" || member.witness.kind === "constant-demand")
+        return fail("A done-only Forms prerequisite or later constant demand cannot form a checked-type cycle.");
       const target = previous.witness.target;
       if (target.kind === "membersOf" || target.kind === "memberTypeOf" || target.kind === "produceType")
         return fail("The finite indexed producer and its ready declaration member dependencies cannot form a cycle.");
@@ -153,9 +166,9 @@ function classifySourceCycle(declarations: DeclsDeps, sources: CheckedSourceView
           ? { kind: "inference-solution", group: witness.state.group }
           : fail("Finite indexed production has no recursive dependency path.") };
     });
-    const first = members[0];
-    if (first === undefined) return fail("A closed cycle cannot be empty.");
-    return pipelineWiring.decls.classifyCycle(declarations, [first, ...members.slice(1)]);
+    const detector = members[0];
+    if (detector === undefined) return fail("A closed cycle cannot be empty.");
+    return pipelineWiring.decls.classifyCycle(declarations, [detector, ...members.slice(1)]);
 }
 
 function fail(message: string): never {

@@ -308,7 +308,7 @@ export function createHirSchema(): HirSchema {
     CheckedTypeAlias: hirRecord("CheckedTypeAlias", [...declaration, ["parameters", hirArray("TypeParameterData")], ["type", captured("TyId")]]),
     CheckedVariable: hirRecord("CheckedVariable", [...declarationFacts, ["declaration", "DeclarationTarget"], ["declaredType", captured(hirNullable("TyId"))],
       ["inferredTypeBound", hirNullable(captured("TyId"))], ["initializer", hirNullable("BodyId")]]),
-    CheckedEnum: hirRecord("CheckedEnum", [...declaration, ["members", hirArray("DefId")]]),
+    CheckedEnum: hirRecord("CheckedEnum", [...declaration, ["nominal", "DefId"], ["members", hirArray("DefId")]]),
     CheckedNamespace: hirRecord("CheckedNamespace", [...declaration, ["members", hirArray("DefId")]]),
     CheckedImport: hirRecord("CheckedImport", [...core, ["target", captured("ImportTarget")], ["bindings", hirArray(sourceReference)]]),
     CheckedExport: hirRecord("CheckedExport", [...core, ["target", captured(hirNullable("ImportTarget"))]]),

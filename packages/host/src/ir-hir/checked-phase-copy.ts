@@ -417,7 +417,7 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
     Decorator: ready(copied),
     DeleteExpression: ready(expression<CheckedExpression>(5)),
     ElementAccessExpression: ready(member),
-    EnumDeclaration: ready(declaration<CheckedEnum>(6)),
+    EnumDeclaration: ready(declaration<CheckedEnum>(7)),
     EnumMember: ready(variable),
     ExportAssignment: ready(declaration<CheckedExportAssignment>(5)),
     ExportDeclaration: ready(carrier<CheckedExport>(2)),

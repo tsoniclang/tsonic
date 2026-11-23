@@ -1,10 +1,10 @@
 import type { DeclsModule, DefinitionDescription, DefinitionExport } from "../decls/contract.js";
 import type { Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { DefId, DefinitionPath, ModuleId, NodeId } from "../ids/contract.js";
+import type { BodyId, DefId, DefinitionPath, ModuleId, NodeId } from "../ids/contract.js";
 import { decodeBodyId, decodeModuleId } from "../ids/index.js";
 import type { LowerDeps, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawModule, RawNodeRef } from "../front/contract.js";
-import type { HirBindingViews, HirDeclarationScopes, HirModule } from "../ir-hir/contract.js";
+import type { CheckedPhase, EnumDeclaration, HirBindingViews, HirDeclarationScopes, HirModule } from "../ir-hir/contract.js";
 import { createModuleBindingViews, deriveDeclarationScopes, indexSyntaxTree, resolveModuleExport, verifyHir } from "../ir-hir/index.js";
 import type { AdmittedNativeGuarantee, Libraries, ProviderLibraryModel, ProviderLibraryOrigin, ProviderLibraryText } from "../libraries/contract.js";
 import { bindProviderLibraries } from "../libraries/index.js";
@@ -24,12 +24,19 @@ export interface SourceModule extends DeclsModule {
   readonly role: PackageModule["role"];
 }
 
+export interface EnumSource {
+  readonly module: SourceModule;
+  readonly declaration: EnumDeclaration<CheckedPhase>;
+}
+
 export interface SourceBarrier extends HirBindingViews {
   readonly checked: CheckedSourceViews;
   readonly modules: readonly SourceModule[];
   readonly types: TypeInterner;
   readonly typeWork: TypePublicationWork;
   readonly descriptions: ReadonlyMap<DefId, DefinitionDescription>;
+  readonly enums: readonly EnumSource[];
+  readonly enumInitializers: ReadonlySet<BodyId>;
   readonly definitionPaths: ReadonlyMap<DefId, DefinitionPath>;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly libraries: Libraries;
@@ -166,11 +173,29 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     }
   }
   const descriptions = new Map<DefId, DefinitionDescription>();
+  const enums: EnumSource[] = [];
+  const enumInitializers = new Set<BodyId>();
   for (const module of modules) {
     const names = Array.from(exportNames.get(module.module.module) ?? [], ([definition, exports]) => ({ definition, exports }));
     const declarationScopes = scopes.get(module.module.module) ?? fail("Every verified module needs its actual checked declaration scopes.");
     const described = pipelineWiring.decls.describeDefinitions(module, declarationScopes, names);
-    for (const row of described.definitions) descriptions.set(row.definition, row);
+    for (const row of described.definitions) {
+      descriptions.set(row.definition, row);
+      if (row.kind !== "EnumDeclaration") continue;
+      const reference = sources.declarationSourceOf(row.definition);
+      const declaration = reference === null ? null : sources.nodeOf(reference);
+      if (declaration?.kind !== "EnumDeclaration" || declaration.tsonic.definition !== row.definition)
+        return fail("A described enum requires its actual checked declaration.");
+      enums.push({ module, declaration });
+      for (const member of declaration.members.nodes) {
+        const body = member.tsonic.initializer;
+        if (body !== null) {
+          if (enumInitializers.has(body) || sources.bodies.get(body)?.root !== member.initializer)
+            return fail("An enum initializer belongs to its one actual declaration and expression.");
+          enumInitializers.add(body);
+        }
+      }
+    }
   }
   const libraryModels: ProviderLibraryModel[] = [];
   const libraryTexts: ProviderLibraryText[] = [];
@@ -210,6 +235,6 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     nativeGuarantees.set(guarantee.declaration, guarantee);
   }
   return { kind: "ok", diagnostics: opened.diagnostics,
-    value: { checked: sources, modules, types, typeWork, descriptions, definitionPaths: paths, nominalOf, libraries: admitted.value,
+    value: { checked: sources, modules, types, typeWork, descriptions, enums, enumInitializers, definitionPaths: paths, nominalOf, libraries: admitted.value,
       nativeGuaranteeOf: declaration => nativeGuarantees?.get(declaration) ?? null, bindingOf: views.bindingOf } };
 }

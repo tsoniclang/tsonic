@@ -1,10 +1,43 @@
-import type { Cause, Diagnostic, UnitDiagnostic, UnitRequest, UnitResult, UnitValue } from "../diag/contract.js";
+import type { Cause, Diagnostic, Result, UnitDiagnostic, UnitRef, UnitRequest, UnitResult, UnitValue } from "../diag/contract.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { BindingScope, MemberInventory, MemberKey, MemberTypeRequest, MemberTypes, Signature, SignatureRequest, TypeEvidence, TypeExpansionLimits, TypeInterner, TypeProductionRequest, TypePublicationWork, TypeTerm } from "../ir-types/contract.js";
-import type { CheckedTypingCuts, HirDeclarationScopes, HirModule, HirNode, SyntaxKind } from "../ir-hir/contract.js";
+import type { BindingScope, BodyInstance, ConstantReference, ConstValue, MemberInventory, MemberKey, MemberTypeRequest, MemberTypes, SelectedNativeFacts, Signature, SignatureRequest, TypeEvidence, TypeExpansionLimits, TypeInterner, TypeProductionRequest, TypePublicationWork, TypeTable, TypeTerm } from "../ir-types/contract.js";
+import type { CheckedPhase, CheckedTypingCuts, EnumDeclaration, HirDeclarationScopes, HirModule, HirNode, SyntaxKind } from "../ir-hir/contract.js";
 import type { InferenceGroup, InferredPartRequest, InferredPartType, MemberRuleAnswer, MemberRuleNeed, PlacedSignature, SignaturePlacement, TypePatternMatchOutcome,
   TypeProductionAnswer, TypeProductionNeed } from "../ir-infer/contract.js";
 import type { Step } from "../step/contract.js";
+
+export type EnumMemberReference = Extract<ConstantReference, { readonly context: "enum-member" }>;
+
+export interface EnumOfDeps {
+  readonly types: TypeTable;
+  readonly nativeFacts: SelectedNativeFacts;
+  readonly integerType: TyId;
+  readonly admit: (work: number, retained: number) => Extract<Result<never>, { readonly kind: "refused" }> | null;
+}
+
+export interface EnumMemberInput {
+  readonly module: DeclsModule;
+  readonly declaration: EnumDeclaration<CheckedPhase>;
+  readonly ordinal: number;
+  readonly reference: EnumMemberReference;
+}
+
+export type EnumValueRequest =
+  | { readonly kind: "evaluate"; readonly instance: BodyInstance }
+  | { readonly kind: "predecessor"; readonly reference: EnumMemberReference };
+
+export type EnumValueAnswer =
+  | { readonly kind: "value"; readonly unit: UnitRef; readonly result: ConstValue }
+  | { readonly kind: "not-constant"; readonly origin: Origin };
+
+export interface EnumValuePause {
+  readonly selected: EnumValueRequest;
+  readonly origin: Origin;
+}
+
+export type EnumValueStep = Step<UnitResult<ConstValue>, EnumValueRequest, EnumValuePause, Diagnostic>;
+export type EnumOf = (deps: EnumOfDeps, input: EnumMemberInput) => EnumValueStep;
+export type ResumeEnumOf = (deps: EnumOfDeps, paused: EnumValuePause, answers: readonly EnumValueAnswer[]) => EnumValueStep;
 
 // Decls (COMPONENTS section 2; amendment S2-7). This file states the two operations of checkpoint 2,
 // `describeDefinitions` and `declaredSignatureOf`. The other operations of part 1 (`placeSignature`,
@@ -122,13 +155,20 @@ export interface DeclarationCycleMember {
     | { readonly kind: "inference-solution"; readonly group: InferenceGroup };
 }
 
+export interface ConstantCycleMember {
+  readonly origin: Origin;
+  readonly unit: UnitRequest;
+  readonly answerPolicy: "refusal-only";
+}
+
 export type DeclarationCycleOutcome =
   | { readonly kind: "refused"; readonly diagnostic: Diagnostic }
   | { readonly kind: "error"; readonly cause: Cause; readonly data: DeclaredSignatureErrorData;
       readonly diagnostics: readonly Diagnostic[]; readonly emissions: readonly UnitDiagnostic[] };
 
 export type ClassifyCycle = (deps: DeclsDeps,
-  members: readonly [DeclarationCycleMember, ...DeclarationCycleMember[]]) => readonly DeclarationCycleOutcome[];
+  members: readonly [DeclarationCycleMember | ConstantCycleMember, ...(DeclarationCycleMember | ConstantCycleMember)[]]) =>
+  readonly DeclarationCycleOutcome[];
 
 export type ErrorSignature = (deps: DeclsDeps, request: SignatureRequest, cause: Cause,
   data: DeclaredSignatureErrorData) => UnitValue<Signature>;

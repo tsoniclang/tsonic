@@ -37,8 +37,11 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
       const field_attributes = read("attributes", sequenceReader(readers().record_13));
       const field_memory = read("memory", unionReader<Hir.CapturedFact<Hir.HirMemoryFieldCapture | Hir.HirMemoryLayoutCapture | null>>(() => [readers().record_157, readers().record_10]));
       const field_definition = read("definition", readers().identity_def);
+      const field_nominal = read("nominal", readers().identity_def);
       const field_members = read("members", sequenceReader(readers().identity_def));
-      return { fields: [field_core, field_parent, field_attributes, field_memory, field_definition, field_members], value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(), memory: field_memory.value(), definition: field_definition.value(), members: field_members.value() }) };
+      return { fields: [field_core, field_parent, field_attributes, field_memory, field_definition, field_nominal, field_members],
+        value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(), memory: field_memory.value(),
+          definition: field_definition.value(), nominal: field_nominal.value(), members: field_members.value() }) };
     });
   const record_245 = recordReader<Hir.CheckedVariable>("CheckedVariable", read => {
       const field_core = read("core", readers().record_84);

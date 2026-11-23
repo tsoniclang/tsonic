@@ -13,7 +13,7 @@ import type { BodyInstance, Execution } from "../ir-types/contract.js";
 import { executionKey, instanceKey, internType, readSignature, readType, viewTypes } from "../ir-types/index.js";
 import type { Query } from "../query/contract.js";
 import type { ConvergenceMember, DeclaredSummaryInput } from "../summaries/contract.js";
-import type { ProgramInitialization } from "../ir-program/contract.js";
+import type { ConstantRecord, ProgramInitialization } from "../ir-program/contract.js";
 import type { ErrorValue } from "../diag/contract.js";
 import type { HostAnalysisInputs } from "./contract.js";
 import type { DeclaredSignatureErrorData } from "../decls/contract.js";
@@ -23,6 +23,7 @@ import type { InternalBodyInput } from "../lower-mir/contract.js";
 import type { CheckedBodyNodeRange } from "./checked-inputs.js";
 import { analysisStop } from "./analysis-stop.js";
 import { checkedSourceViews } from "./checked-inputs.js";
+import { produceEnumConstants } from "./enum-constants.js";
 import { bindExternalStorage } from "./external-entries.js";
 import { lowerMirDeps, mirVerificationContext } from "./lower-mir-step.js";
 import { pipelineWiring } from "./wiring.js";
@@ -37,6 +38,7 @@ export interface AnalysisBarrier {
   readonly observations: ReadonlyMap<string, BodyObservations>;
   readonly facts: ReadonlyMap<string, BodyFacts>;
   readonly summaries: ReadonlyMap<string, SummaryAnswer>;
+  readonly constants: readonly ConstantRecord[];
   readonly verification: FactsVerificationContext;
   readonly initialization: ProgramInitialization;
 }
@@ -54,6 +56,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   });
   const table = viewTypes(source.types);
   const mir = new Map<string, MirBody>();
+  let constantMir: Map<string, MirBody> | null = null;
   const observations = new Map<string, BodyObservations>();
   const facts = new Map<string, BodyFacts>();
   const summaries = new Map<string, SummaryAnswer>();
@@ -132,15 +135,21 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
         if (stop !== null) return analysisStop(stop, unit);
       }
     }
-    const requiredEntries = typed.required.provided.get(identity) ?? fail("Each selected body needs its independently required entries.");
+    const constantEntries = typed.constantEntriesOf(body);
+    const requiredEntries = constantEntries ?? typed.required.provided.get(identity) ?? fail("Each selected body needs its independently required entries.");
     const lowered = pipelineWiring.lowerMir.lowerToMir(lowerMirDeps(run,
       { request: { query: "mirBody", key: identity }, position: { kind: "result" } }), body, internal, requiredEntries);
     if (lowered.kind === "refused") return lowered;
     const verified = verifyMir(lowered.value, mirVerificationContext(run, body, requiredEntries));
     if (verified.kind === "resource-limit") return analysisStop(verified, unit);
     if (verified.violations.length !== 0) return fail(`The actual LowerMir result violates ${verified.violations[0]?.rule}.`);
-    const growth = chargeResultEntries(account, 3);
+    const growth = chargeResultEntries(account, constantEntries === null ? 3 : constantMir === null ? 2 : 1);
     if (growth !== null) return analysisStop(growth, unit);
+    if (constantEntries !== null) {
+      constantMir ??= new Map();
+      constantMir.set(identity, lowered.value);
+      continue;
+    }
     mir.set(identity, lowered.value);
     if (sources.bodies.get(body.body)?.owner !== body.owner)
       return fail("A selected execution requires its actual checked body and declaration.");
@@ -157,6 +166,8 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     observationRanges.delete(body.body);
     observations.set(identity, { instance, rows: [] });
   }
+  const constants = produceEnumConstants(inputs, typed, table, mir, constantMir, account, unit);
+  if (constants.kind === "refused") return constants;
   const conditionRefusal: CallerRefusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "pipeline",
     limit: "condition alternatives", maximum: inputs.limits.analyses.maximumConditionAlternatives,
     site: { kind: "none" }, unit: { request: unit, position: { kind: "result" } } })] };
@@ -527,5 +538,6 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   if (planGrowth !== null) return analysisStop(planGrowth, unit);
   const initialization: ProgramInitialization = { entry: inputs.snapshot.entryPoint, external: exposed.value.external,
     modules: plan, entries };
-  return { kind: "ok", diagnostics, value: { inventory: components.value, mir, observations, facts, summaries, verification, initialization } };
+  return { kind: "ok", diagnostics, value: { inventory: components.value, mir, observations, facts, summaries,
+    constants: constants.value, verification, initialization } };
 }

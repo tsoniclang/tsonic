@@ -81,7 +81,9 @@ export const signatureRequestKeyOf = (request: SignatureRequest): string => enco
 const instanceData = (instance: BodyInstance): KeyData => [instance.body, artifactBindingsData(instance.bindings)];
 
 export const instanceKeyOf = (instance: BodyInstance): string => encodeKey(instanceData(instance));
-export const constantReferenceKeyOf = (reference: ConstantReference): string => encodeKey([instanceData(reference.initializer), reference.context]);
+export const constantReferenceKeyOf = (reference: ConstantReference): string => reference.context === "enum-member"
+  ? encodeKey([reference.context, reference.member, artifactBindingsData(reference.bindings)])
+  : encodeKey([instanceData(reference.initializer), reference.context]);
 
 export const sameInstanceAs = (left: BodyInstance, right: BodyInstance): boolean => instanceKeyOf(left) === instanceKeyOf(right);
 

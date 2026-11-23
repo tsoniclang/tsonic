@@ -110,7 +110,7 @@ export function elaborateVariable<State>(deps: ElaborateDeps<State>, node: Varia
 function elaborateEnum<State>(deps: ElaborateDeps<State>, node: EnumDeclaration<CheckedPhase>, children: ReadonlyMap<BodyId, ElaborationChild>,
   causes: ElaborationCause[]): EnumDeclaration<TypedPhase> | null {
   const definition = node.tsonic.definition;
-  const type = internType(deps.types, { kind: "enum", definition });
+  const type = internType(deps.types, { kind: "enum", definition: node.tsonic.nominal });
   const members: EnumMember<TypedPhase>[] = [];
   let blocked = false;
   if (node.tsonic.members.length !== node.members.nodes.length) return defect("An enum requires its complete checked member inventory.");

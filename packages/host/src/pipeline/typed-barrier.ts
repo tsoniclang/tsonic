@@ -64,6 +64,7 @@ export interface TypedSourceBarrier {
     readonly values: () => IterableIterator<TirBody>;
   };
   readonly placedSignatureOf: (instance: BodyInstance) => PlacedSignature | null;
+  readonly constantEntriesOf: (body: TirBody) => readonly number[] | null;
   readonly signatureIdOf: (request: SignatureRequest) => PlacedSignature["signature"]["id"] | null;
   readonly programEvidence: (account: DataflowAccount) => DataflowResult<ProgramEvidenceInput>;
   readonly modules: ReadonlyMap<ModuleId, TirModule>;
@@ -473,8 +474,23 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     const answer = database.readCompleted(queries.declaredSignatureOf, request);
     return answer?.kind === "completed" ? answer.value : null;
   };
+  let constantEntries: Map<TirBody, readonly number[]> | null = null;
+  if (source.enumInitializers.size !== 0) for (const body of source.enumInitializers) {
+    const admission = chargeWork(account, 1 + body.length);
+    if (admission !== null) return analysisStop(admission, unit);
+    const selected = bodies.get(instanceKey({ body, bindings: empty }));
+    if (selected === undefined) continue;
+    if (selected.placed.request !== null || selected.placed.signature.parameters.length !== 0
+      || selected.body.params.length !== 0 || selected.body.captures.length !== 0)
+      return fail("An enum constant initializer has its actual argumentless and capture-free execution placement.");
+    const growth = chargeResultEntries(account, constantEntries === null ? 3 : 2);
+    if (growth !== null) return analysisStop(growth, unit);
+    constantEntries ??= new Map();
+    constantEntries.set(selected.body, [selected.placed.signature.parameters.length]);
+  }
+  const constantEntriesOf = (body: TirBody): readonly number[] | null => constantEntries?.get(body) ?? null;
   const required = prepareRequiredExecutions(source, sources, (function* () {
-    for (const row of bodies.values()) if (project.has(row.body.root.origin.module)) yield row.body;
+    for (const row of bodies.values()) if (project.has(row.body.root.origin.module) && constantEntriesOf(row.body) === null) yield row.body;
     yield* explicit;
   })(), requireBody, readDeclared, account, unit);
   if (required.kind === "refused") return required;
@@ -549,7 +565,13 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       declarationOf, declarationSourceOf: sources.declarationSourceOf, nominalOf: source.nominalOf,
       nodeOf: sources.nodeOf, bindingOf: source.bindingOf, localExists: sources.localExists, staticStorageOf,
       diagnostics: original.checkerDiagnostics, bodyOf: instance => bodies.get(instanceKey(instance))?.body ?? null,
-      requiredEntriesOf: instance => required.value.provided.get(instanceKey(instance)) ?? null,
+      requiredEntriesOf: instance => {
+        const key = instanceKey(instance);
+        const runtime = required.value.provided.get(key);
+        if (runtime !== undefined || constantEntries === null) return runtime ?? null;
+        const body = bodies.get(key)?.body;
+        return body === undefined ? null : constantEntriesOf(body);
+      },
       memberTableOf: (instance, occurrence) => occurrence.kind === "selection" && occurrence.ordinal === 0
         ? memberInventoriesOf(instance.body)?.get(occurrence.node)
           ?? fail("A selected member needs its actual ready canonical member inventory.")
@@ -652,7 +674,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     }
     return { kind: "complete", value: { checked, members, signatures, storage } };
   };
-  return { kind: "ok", diagnostics, value: { source, modules, verifierOf, sourceNodeOf: sources.nodeOf, declarationOf, database, staticStorageOf,
+  return { kind: "ok", diagnostics, value: { source, modules, verifierOf, sourceNodeOf: sources.nodeOf, declarationOf, database, staticStorageOf, constantEntriesOf,
     bodies: { get: key => bodies.get(key)?.body, *values() { for (const entry of bodies.values()) yield entry.body; } },
     placedSignatureOf, signatureIdOf, programEvidence, required: required.value, exposure: exposure.value, initializationRoots: initialization.value } };
 }

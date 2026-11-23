@@ -492,6 +492,7 @@ export interface RawEnumMember {
 
 export interface RawEnum {
   readonly declaration: RawNodeRef;
+  readonly nominal: RawNodeRef;
   readonly declarations: readonly RawNodeRef[];
   readonly members: readonly RawEnumMember[];
 }

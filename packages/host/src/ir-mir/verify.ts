@@ -52,8 +52,9 @@ function constantValueKey(value: MirConstantValue): KeyData | null {
     }
     case "observation": return { kind: "record", fields: [["kind", value.kind], ["at", { kind: "record", fields: [["body", value.at.body], ["node", value.at.node]] }]] };
     case "constant": {
-      const selected = value.reference.initializer;
-      return !bindingsPresent(selected.bindings) ? null : { kind: "record", fields: [["kind", value.kind],
+      const { reference } = value;
+      const bindings = reference.context === "enum-member" ? reference.bindings : reference.initializer.bindings;
+      return !bindingsPresent(bindings) ? null : { kind: "record", fields: [["kind", value.kind],
         ["reference", constantReferenceKey(value.reference)]] };
     }
   }
@@ -351,7 +352,14 @@ export function decisionReferences(
     const value = constant.value;
     if (value.kind === "definition" || value.kind === "metadata") artifact(value.bindings, value.definition, site);
     if (meter.exhausted) return [];
-    if (value.kind === "constant") instance(value.reference.initializer, site);
+    if (value.kind === "constant") {
+      const { reference } = value;
+      if (reference.context === "enum-member") {
+        if (!admit(1)) return [];
+        if (context.declarationOf(reference.member) === null) violations.push({ rule: "definition-resolves", site, detail: [] });
+        artifact(reference.bindings, reference.member, site);
+      } else instance(reference.initializer, site);
+    }
     if (meter.exhausted) return [];
   }
   if (!admit(body.places.length)) return [];

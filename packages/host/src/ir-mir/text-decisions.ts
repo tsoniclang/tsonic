@@ -156,10 +156,19 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
     field("body", () => bodyWire, value => value.body, body =>
       field("bindings", () => artifactWire, value => value.bindings, bindings => finish(() => ({ body, bindings })))));
 
-  const referenceWire = record<ConstantReference>("ConstantReference", () =>
+  const initializerReference = record<Exclude<ConstantReference, { readonly context: "enum-member" }>>("ConstantReference", () =>
     field("initializer", () => instanceWire, value => value.initializer, initializer =>
-      field("context", () => literals(["enum-member", "fixed-array-extent", "compile-time"]), value => value.context,
+      field("context", () => literals(["fixed-array-extent", "compile-time"]), value => value.context,
         context => finish(() => ({ initializer, context })))));
+
+  const enumReference = record<Extract<ConstantReference, { readonly context: "enum-member" }>>("EnumConstantReference", () =>
+    field("member", () => definitionWire, value => value.member, member =>
+      field("bindings", () => artifactWire, value => value.bindings, bindings =>
+        finish(() => ({ context: "enum-member", member, bindings })))));
+
+  const referenceWire: Wire<ConstantReference> = variants([
+    choice("ConstantReference", () => initializerReference), choice("EnumConstantReference", () => enumReference),
+  ], (value, path, next) => value.context === "enum-member" ? enumReference.write(value, path, next) : initializerReference.write(value, path, next));
 
   const rationalWire = record<ExactRational>("ExactRational", () =>
     field("numerator", () => bigintWire, value => value.numerator, numerator =>

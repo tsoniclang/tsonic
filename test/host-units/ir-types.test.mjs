@@ -949,21 +949,24 @@ test("selected omission capability is independent of required syntax and survive
   assert.equal(parseTypes(invalidText).kind, "invalid-text", "capability transport is an actual Boolean");
 });
 
-test("constant reference keys retain producer context and the complete initializer instance", async () => {
+test("constant reference keys retain producer context, initializer instance and named enum membership", async () => {
   const { constantReferenceKey } = await import("../../packages/host/dist/ir-types/index.js");
   const initializer = { body, bindings: { kind: "parametric" } };
-  const keys = ["enum-member", "fixed-array-extent", "compile-time"].map(context => constantReferenceKey({ initializer, context }));
-  assert.equal(new Set(keys).size, 3, "the same initializer under distinct selected contexts is not the same receipt");
-  assert.equal(constantReferenceKey({ initializer: { ...initializer }, context: "compile-time" }), keys[2]);
-  assert.notEqual(constantReferenceKey({ initializer: { ...initializer, body: otherBody }, context: "compile-time" }), keys[2]);
+  const keys = ["fixed-array-extent", "compile-time"].map(context => constantReferenceKey({ initializer, context }));
+  assert.notEqual(keys[0], keys[1], "the same initializer under distinct selected contexts is not the same receipt");
+  assert.equal(constantReferenceKey({ initializer: { ...initializer }, context: "compile-time" }), keys[1]);
+  assert.notEqual(constantReferenceKey({ initializer: { ...initializer, body: otherBody }, context: "compile-time" }), keys[1]);
+  const named = { context: "enum-member", member: owner, bindings: initializer.bindings };
+  const namedKey = constantReferenceKey(named);
+  assert.notEqual(namedKey, constantReferenceKey({ ...named, member: parameterDeclaration(owner, 0) }));
+  assert.equal(keys.includes(namedKey), false);
   const families = ["classBindings", "methodBindings", "capturedBindings", "selfBindings"];
   for (const family of families) {
     const binding = family === "selfBindings" ? { kind: "rigid", owner } : { kind: "rigid", parameter: parameterDeclaration(owner, 0) };
-    const reference = vector => ({ initializer: { body, bindings: { kind: "instantiated", bindings: { ...emptyBindings(), [family]: vector } } },
-      context: "enum-member" });
+    const reference = vector => ({ ...named, bindings: { kind: "instantiated", bindings: { ...emptyBindings(), [family]: vector } } });
     assert.notEqual(constantReferenceKey(reference([binding, undefined])), constantReferenceKey(reference([undefined, binding])));
     assert.notEqual(constantReferenceKey(reference([binding])), constantReferenceKey(reference([binding, undefined])));
-    assert.notEqual(constantReferenceKey(reference([])), constantReferenceKey({ initializer, context: "enum-member" }));
+    assert.notEqual(constantReferenceKey(reference([])), namedKey);
   }
 });
 

@@ -4393,6 +4393,7 @@ export interface CheckedVariable extends CheckedDeclarationFacts {
 }
 
 export interface CheckedEnum extends CheckedDeclaration {
+  readonly nominal: DefId;
   readonly members: readonly DefId[];
 }
 

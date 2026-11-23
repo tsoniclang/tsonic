@@ -179,7 +179,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       }
       case "VariableDeclaration":
         return node.tsonic.initializer === null ? null : initializer(at, node.tsonic.initializer);
-      case "PropertyDeclaration": case "EnumMember":
+      case "PropertyDeclaration":
         return node.tsonic.initializer === null ? null : initializer(at, node.tsonic.initializer);
       case "YieldExpression": case "AwaitExpression": case "SpreadElement":
       case "ForInStatement": case "ForOfStatement": return protocol(at, selected(node.tsonic.protocol));
@@ -237,14 +237,20 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
   let accountedTarget = false;
   while (subject !== null || stack.length !== 0) {
     if (subject !== null) {
-      const admission = chargeWork(account, 1) ?? chargeResultEntries(account, 4);
+      const admission = chargeWork(account, 1);
       if (admission !== null) return admission;
       selectedTarget = false;
       const node: TirNode | null = subject.kind === "ordinary" ? subject.node : null;
+      if (node?.kind === "EnumDeclaration") {
+        subject = null;
+        continue;
+      }
+      const growth = chargeResultEntries(account, 4);
+      if (growth !== null) return growth;
       const stop = node === null ? null : visit(node, accountedTarget);
       if (stop !== null) return stop;
-      const placed = subject.kind === "formal" || (node?.kind === "VariableDeclaration" || node?.kind === "PropertyDeclaration"
-        || node?.kind === "EnumMember") && node.tsonic.initializer !== null;
+      const placed = subject.kind === "formal" || (node?.kind === "VariableDeclaration" || node?.kind === "PropertyDeclaration")
+        && node.tsonic.initializer !== null;
       stack.push({ children: chapterSyntaxSlots(subject)[Symbol.iterator](), callable: node !== null && callableSyntax(node),
         placed, target: node?.kind === "ParenthesizedExpression" ? accountedTarget : selectedTarget,
         targetField: node?.kind === "TaggedTemplateExpression" ? "tag" : "expression" });

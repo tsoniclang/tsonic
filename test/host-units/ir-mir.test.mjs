@@ -595,7 +595,9 @@ for (const [value, text] of [
   [{ kind: "metadata", definition: "D[M[P[p];m];run]", bindings: { kind: "instantiated", bindings: bindingVector } },
     `metadata(definition=def:"D[M[P[p];m];run]", bindings=instantiated(bindings=${bindingText}))`],
   [{ kind: "observation", at: nodeRef }, `observation(at=${nodeText})`],
-  ...["enum-member", "fixed-array-extent", "compile-time"].map(context => [
+  [{ kind: "constant", reference: { context: "enum-member", member: "D[M[P[p];m];Code/Next]", bindings: { kind: "parametric" } } },
+    'constant(reference=EnumConstantReference(member=def:"D[M[P[p];m];Code/Next]", bindings=parametric()))'],
+  ...["fixed-array-extent", "compile-time"].map(context => [
     { kind: "constant", reference: { initializer: instance, context } },
     `constant(reference=ConstantReference(initializer=${instanceText}, context="${context}"))`,
   ]),
@@ -617,9 +619,11 @@ test("nested constant references reject the removed context-free form and invali
   const text = document("", `MirConstant(id=c:0, type=t:0, value=constant(reference=ConstantReference(initializer=${instanceText}, context="compile-time")))`, "", "");
   assert.equal(product.parseMir(text.replace(', context="compile-time"', "")).kind, "invalid-text");
   assert.equal(product.parseMir(text.replace('context="compile-time"', 'context="requester"')).kind, "invalid-text");
-  const values = ["enum-member", "fixed-array-extent", "compile-time"].map(context => product.constantKeyOfMir(0, {
-    kind: "constant", reference: { initializer: instance, context },
-  }));
+  assert.equal(product.parseMir(text.replace('context="compile-time"', 'context="enum-member"')).kind, "invalid-text");
+  const values = [
+    { context: "enum-member", member: "D[M[P[p];m];Code/Next]", bindings: instance.bindings },
+    ...["fixed-array-extent", "compile-time"].map(context => ({ initializer: instance, context })),
+  ].map(reference => product.constantKeyOfMir(0, { kind: "constant", reference }));
   assert.equal(new Set(values).size, 3, "MIR interning consumes the canonical context-bearing reference identity");
 });
 

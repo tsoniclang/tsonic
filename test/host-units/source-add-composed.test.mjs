@@ -81,6 +81,56 @@ test("checked enum members share only their actual authored execution roots with
   }
 });
 
+test("verified enum evaluation publishes named numeric and text constants without granting runtime activation", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { printProgramIndex, parseProgramIndex } = await import("../../packages/host/dist/ir-program/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", 'export enum Code { Start=2, End=2+3, Next }'
+    + 'export enum Word { Yes="yes" } export enum State { Pending, Done }'
+    + 'export enum Code { Other=8, OneMore } export enum Empty {}');
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const chapter = modules.find(module => module.module === input.snapshot.entryPoint);
+  const enums = chapter.tree.root.statements.nodes.map(slot => slot.node);
+  assert.notEqual(enums[0].tsonic.definition, enums[3].tsonic.definition);
+  assert.equal(enums[0].tsonic.type, enums[3].tsonic.type, "merged declaration parts share the actual nominal owner");
+  assert.notEqual(enums[0].tsonic.type, enums[4].tsonic.type, "an empty enum retains its own nominal owner");
+  const members = new Map(enums.flatMap(declaration => declaration.members.nodes.map(member => [member.name.text, member])));
+  const values = new Map(index.constants.map(row => [row.reference.member, row]));
+  assert.equal(values.size, members.size);
+  for (const [name, expected] of [["Start", 2n], ["End", 5n], ["Next", 6n], ["Yes", "yes"], ["Pending", 0n], ["Done", 1n],
+    ["Other", 8n], ["OneMore", 9n]]) {
+    const member = members.get(name);
+    const record = values.get(member.tsonic.definition);
+    assert.equal(record.reference.context, "enum-member");
+    assert.equal("initializer" in record.reference, false);
+    assert.equal(record.reference.bindings.kind, "instantiated");
+    const published = index.bodies.filter(body => body.owner === member.tsonic.definition);
+    assert.equal(published.length, member.initializer === null ? 0 : 1);
+    assert.equal(published.every(body => body.kind === "template"), true);
+    if (typeof expected === "string") {
+      assert.equal(record.value.kind, "string");
+      assert.equal(record.value.value, expected);
+    } else {
+      assert.equal(record.value.kind, "number");
+      assert.deepEqual(record.value.value, { numerator: expected, denominator: 1n, negativeZero: false });
+    }
+  }
+  assert.equal(index.dependencyInventory.operations.length, 1, "only the actual module initializer is a runtime operation");
+  const printed = printProgramIndex(index);
+  assert.match(printed, /EnumConstantReference\(member=def:/u);
+  const roundTrip = parseProgramIndex(printed);
+  assert.equal(roundTrip.kind, "parsed");
+  assert.deepEqual(roundTrip.value.constants, index.constants);
+
+  const bounded = { ...input, limits: { ...input.limits, evaluation: { ...input.limits.evaluation, maximumSteps: 0 } } };
+  const refused = analyzeHostProgram(bounded);
+  assert.equal(refused.kind, "refused");
+  assert.equal("value" in refused, false);
+  assert.equal(refused.diagnostics[0].source, "evaluate");
+  assert.deepEqual(refused.diagnostics[0].arguments, [{ kind: "text", value: "evaluation.maximumSteps" }, { kind: "number", value: 0 }]);
+});
+
 for (const resultAnnotation of [": number", ""])
 test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotated"} result passes HIR, genuine Decls/Rules/Infer, composed TIR and actual LowerMir/MIR`, () => {
   const source = `export function add(a: number, b: number)${resultAnnotation} { return a + b; }\n`;

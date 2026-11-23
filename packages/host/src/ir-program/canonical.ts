@@ -1,6 +1,6 @@
 import type {
   HostProgram, CanonicalizeProgram, ProgramEvidence, ProgramEvidenceInput, ProgramIdentityImage, ProgramIndex, ProgramInitialization, ProgramMemberEvidence,
-  ModuleBodies, ResolvedExternalEntry, SignatureRecord,
+  ConstantRecord, ModuleBodies, ResolvedExternalEntry, SignatureRecord,
 } from "./contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import type { BodyFacts, BodyObservations, MetadataRecord, Summary, SummaryKey } from "../ir-facts/contract.js";
@@ -158,16 +158,27 @@ function projectIndex(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, 
       return stop === null ? copiedProjection({ value, group: "", key: summaryKey(value.key) }) : { kind: "refused", stop };
     });
     if (orderedSummaries.kind === "refused") return orderedSummaries;
-    const constants = projectRows(scan, index.constants, read => projectRecord(scan, 2, () => projectRecord(scan, 2, () => {
+    const constants = projectRows(scan, index.constants, read => projectRecord(scan, 2, () => projectRecord<ConstantRecord>(scan, 2, () => {
       const row = read();
       const reference = row.reference;
+      const { context } = reference;
+      if (context === "enum-member") {
+        const member = reference.member;
+        return followingProjection(finishProjection(scan, prepareArtifactBindings(scan, reference.bindings), rewrite), bindings =>
+          projectRecord(scan, 3, () => copiedProjection({
+            reference: { context, member, bindings }, value: rewriteConstant(rewrite, row.value),
+          })));
+      }
       return followingProjection(projectInstance(scan, rewrite, reference.initializer), initializer =>
-        projectRecord(scan, 3, () => copiedProjection({ reference: { initializer, context: reference.context }, value: rewriteConstant(rewrite, row.value) })));
+        projectRecord(scan, 3, () => copiedProjection({ reference: { initializer, context }, value: rewriteConstant(rewrite, row.value) })));
     })));
     if (constants.kind === "refused") return constants;
     const orderedConstants = orderTextProjection(scan, constants.value, value => {
-      const ready = instanceKeys(scan, value, value.reference.initializer);
-      return ready.kind === "refused" ? ready : copiedProjection({ value, group: "", key: constantReferenceKey(value.reference) });
+      const { reference } = value;
+      const [owner, bindings] = reference.context === "enum-member"
+        ? [reference.member, reference.bindings] : [reference.initializer.body, reference.initializer.bindings];
+      const stop = chargeWork(scan.meter.account, owner.length) ?? admitArtifactIdentity(bindings, scan.meter.account);
+      return stop === null ? copiedProjection({ value, group: "", key: constantReferenceKey(reference) }) : { kind: "refused", stop };
     });
     if (orderedConstants.kind === "refused") return orderedConstants;
     return followingProjection(initialization(scan, index.initialization, executionImage), initialization => {

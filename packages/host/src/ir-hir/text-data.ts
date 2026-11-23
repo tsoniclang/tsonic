@@ -654,7 +654,10 @@ function variableData(value: Hir.CheckedVariable): HirDataWork {
     fieldData("initializer", nullableData(value.initializer, bodyData))]);
 }
 
-function enumData(value: Hir.CheckedEnum): HirDataWork { return recordData("CheckedEnum", value, () => [...declarationFields(value), fieldData("members", arrayData(value.members, definitionData))]); }
+function enumData(value: Hir.CheckedEnum): HirDataWork {
+  return recordData("CheckedEnum", value, () => [...declarationFields(value), fieldData("nominal", definitionData(value.nominal)),
+    fieldData("members", arrayData(value.members, definitionData))]);
+}
 function namespaceData(value: Hir.CheckedNamespace): HirDataWork { return recordData("CheckedNamespace", value, () => [...declarationFields(value), fieldData("members", arrayData(value.members, definitionData))]); }
 
 function importData(value: Hir.CheckedImport): HirDataWork {

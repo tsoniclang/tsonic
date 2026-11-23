@@ -127,6 +127,7 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
       if (stop !== null) return stop;
       const originalBody = originalTir.module.bodies[index];
       if (originalBody === undefined) return fail("The actual typed body inventory is dense.");
+      if (typed.constantEntriesOf(originalBody) !== null) continue;
       const body = image.tirOf(originalBody);
       if (body === null) return fail("The actual typed body has no final identity-domain image.");
       const identity = chargeWork(account, body.body.length) ?? admitArtifactIdentity(body.bindings, account);
@@ -257,6 +258,7 @@ export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourc
   for (const module of typed.modules.values()) {
     const published: ModuleBodies["bodies"][number][] = [];
     for (const tir of module.bodies) {
+      if (typed.constantEntriesOf(tir) !== null) continue;
       const instance = { body: tir.body, bindings: tir.bindings };
       const common = { instance, module: module.module, owner: tir.owner, root: tir.root.id };
       if (tir.bindings.kind === "parametric") {
@@ -333,7 +335,7 @@ export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourc
       return { module: module.module, package: decoded.value.package, items, exports: module.exports,
         bindings: module.bindings, checkerDiagnostics: module.checkerDiagnostics };
     }), types: viewTypes(source.types), signatures: [...signatures.values()],
-    bodies, dependencyInventory: analysis.inventory, metadata: [], constants: [],
+    bodies, dependencyInventory: analysis.inventory, metadata: [], constants: analysis.constants,
     summaries: [],
     diagnostics: orderDiagnostics(typed.database.diagnostics()),
     initialization: analysis.initialization,

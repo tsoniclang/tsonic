@@ -24,7 +24,9 @@ export function textBodyInstance(value: BodyInstance): TextWork {
 }
 
 export function textConstantReference(value: ConstantReference): TextWork {
-  return deferred(value, () => record("ConstantReference", [
+  return deferred(value, () => value.context === "enum-member" ? record("EnumConstantReference", [
+    field("member", identity("def", value.member)), field("bindings", textArtifactBindings(value.bindings)),
+  ]) : record("ConstantReference", [
     field("initializer", textBodyInstance(value.initializer)), field("context", text(value.context)),
   ]));
 }

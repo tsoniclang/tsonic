@@ -2997,6 +2997,13 @@ function captureEnum(scope: CaptureScope, node: Node, declaration: RawNodeRef): 
   const name = scope.checked.ast.name(node);
   const symbol = name === undefined ? undefined : scope.checker.getSymbolAtLocation(name);
   if (symbol === undefined) return throwInvariant(invariant("A checked enum declaration has no native declaration symbol."));
+  if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+  const owner = scope.checker.getSymbolValueDeclaration(symbol);
+  if (owner === undefined || scope.checked.ast.kindName(owner) !== "KindEnumDeclaration")
+    return throwInvariant(invariant("An enum symbol needs its actual nominal declaration."));
+  const nominal = referenceTo(scope, scope.program, owner);
+  if (scope.meter.refusal !== null) return null;
+  if (nominal === null) return throwInvariant(invariant("The enum's nominal declaration must belong to the actual source domain."));
   const declared = scope.checker.getSymbolDeclarations(symbol);
   const declarations: RawNodeRef[] = [];
   for (let index = 0; index < declared.length; index += 1) {
@@ -3031,7 +3038,7 @@ function captureEnum(scope: CaptureScope, node: Node, declaration: RawNodeRef): 
     } else if (typeof value === "string") constant = available({ kind: "string", value });
     members.push({ declaration: reference, constant });
   }
-  return { declaration, declarations, members };
+  return { declaration, nominal, declarations, members };
 }
 
 function rawSymbol(scope: CaptureScope, symbol: CheckerSymbol): RawSymbolId | null {

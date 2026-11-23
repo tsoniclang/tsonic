@@ -1104,7 +1104,7 @@ export function removed(result: ProgramVerificationResult): readonly unknown[] {
 test("constant publication receipts retain each selected producer context", async () => {
   const { constantReferenceKey } = await import("../../packages/host/dist/ir-types/index.js");
   const fixture = publicationFixture();
-  const references = ["enum-member", "fixed-array-extent", "compile-time"].map(context => ({ initializer: fixture.instance, context }));
+  const references = ["fixed-array-extent", "compile-time"].map(context => ({ initializer: fixture.instance, context }));
   fixture.index.constants = references.map(reference => ({ reference, value: { kind: "absence", type: 0 } }))
     .sort((left, right) => {
       const first = constantReferenceKey(left.reference), second = constantReferenceKey(right.reference);
@@ -1119,8 +1119,10 @@ test("constant publication receipts retain each selected producer context", asyn
   const removed = printed.replace(/reference=ConstantReference\(initializer=(BodyInstance\(.*?\)), context="[^"]+"\)/u, "initializer=$1");
   assert.notEqual(removed, printed);
   assert.equal(product.parseProgramIndex(removed).kind, "invalid-text", "the old context-free publication record is removed");
+  assert.equal(product.parseProgramIndex(printed.replace('context="compile-time"', 'context="enum-member"')).kind, "invalid-text",
+    "an enum publication reference cannot be constructed from an initializer instance");
   completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [], "an exact selected context has its receipt");
-  const missingReceipt = { ...fixture.index, constants: fixture.index.constants.filter(row => row.reference.context !== "enum-member") };
+  const missingReceipt = { ...fixture.index, constants: fixture.index.constants.filter(row => row.reference.context !== "fixed-array-extent") };
   assert.equal(moduleViolations(missingReceipt, fixture.module, fixture.context).some(row => row.rule === "binding-artifact-present"), true,
     "a receipt for another context never answers this reference");
 });

@@ -92,11 +92,18 @@ function ownedConstant<Stop extends object, Failure extends MirCopyRefusal<Stop>
       paidField(admit, () => at.node, node => admit.record(0, () => admit.record(0, () =>
         valueOf({ kind: "observation", at: { body, node } }))))));
     case "constant":
-      return paidField(admit, () => raw.reference, reference => paidField(admit, () => reference.initializer, initializer =>
-        textField(admit, () => initializer.body, body => paidField(admit, () => initializer.bindings, bindings =>
-          ownedArtifact(admit, bindings, projected => paidField(admit, () => reference.context, context =>
-            admit.record(0, () => admit.record(0, () => admit.record(0, () =>
-              valueOf({ kind: "constant", reference: { initializer: { body, bindings: projected }, context } }))))))))));
+      return paidField(admit, () => raw.reference, (reference): MirCopyResult<MirConstantValue, Failure> => {
+        const contextWork = admit.work(1);
+        if (contextWork !== null) return contextWork;
+        const { context } = reference;
+        if (context === "enum-member") return textField(admit, () => reference.member, member =>
+          paidField(admit, () => reference.bindings, bindings => ownedArtifact(admit, bindings, projected =>
+            admit.record(0, () => admit.record(0, () => valueOf({ kind: "constant", reference: { context: "enum-member", member, bindings: projected } }))))));
+        return paidField(admit, () => reference.initializer, initializer =>
+          textField(admit, () => initializer.body, body => paidField(admit, () => initializer.bindings, bindings =>
+            ownedArtifact(admit, bindings, projected => admit.record(0, () => admit.record(0, () => admit.record(0, () =>
+              valueOf({ kind: "constant", reference: { initializer: { body, bindings: projected }, context } }))))))));
+      });
   }
 }
 

@@ -7,7 +7,7 @@ import { binaryOperatorOf, iterateChildrenOfSyntax, prefixOperatorOf, shortCircu
 import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
 import type { PassingMode } from "../ir-types/contract.js";
 import { admitTypePublicationStep, readType } from "../ir-types/index.js";
-import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawMemberUse, RawModule, RawModuleLink, RawNodeRef, RawNumericLiteral, RawPropertyName, RawReference, RawStorageCapture } from "./contract.js";
+import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawEnum, RawFact, RawMemberUse, RawModule, RawModuleLink, RawNodeRef, RawNumericLiteral, RawPropertyName, RawReference, RawStorageCapture } from "./contract.js";
 import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
 import { bindingOccurrence, lowerBindingFact, lowerBindingTarget, lowerBindings, lowerMemberKey, lowerMemberOrigin, sourceOccurrence } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
@@ -220,6 +220,7 @@ export function lowerExports(deps: LowerDeps, raw: RawModule): Result<ModuleExpo
 }
 
 interface Lowering extends TypeConversion {
+  readonly enums: ReadonlyMap<NodeId, RawEnum>;
   readonly bodyOf: ReadonlyMap<NodeId, BodyId>;
   readonly definitionAt: ReadonlyMap<NodeId, DefId>;
   readonly views: ReadonlyMap<NodeId, RawCheckerViews>;
@@ -1045,6 +1046,9 @@ function variableDeclaration(lowering: Lowering, node: Hir.VariableDeclaration<S
 function enumDeclaration(lowering: Lowering, node: Hir.EnumDeclaration<Syntax>, parent: DefId): ConversionResult<Hir.EnumDeclaration<Checked>> {
   const context = declarationLowering(lowering);
   const definition = definitionOf(lowering, node.id);
+  const captured = lowering.enums.get(node.id);
+  if (captured === undefined) return throwInvariant(invariant("An enum declaration needs its actual captured nominal owner."));
+  const nominal = lowering.deps.definitionOf(captured.nominal);
   const members: Hir.EnumMember<Checked>[] = [];
   const identities: DefId[] = [];
   for (const member of node.members.nodes) {
@@ -1067,7 +1071,7 @@ function enumDeclaration(lowering: Lowering, node: Hir.EnumDeclaration<Syntax>, 
   }
   return { kind: "complete", value: { ...headerOf(node), kind: "EnumDeclaration", modifiers: lowerCheckedModifiers(node.modifiers),
     name: declarationName(context, node.name, definition), members: { loc: node.members.loc, nodes: members },
-    tsonic: { core: coreOf(lowering, node.id), parent, attributes: [], memory: memoryOf(lowering, node.id), definition, members: identities } } };
+    tsonic: { core: coreOf(lowering, node.id), parent, attributes: [], memory: memoryOf(lowering, node.id), definition, nominal, members: identities } } };
 }
 
 function block(lowering: Lowering, node: Hir.Block<Syntax>): Hir.Block<Checked> {
@@ -1316,6 +1320,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   const variableLocals = new Map<BodyId, Hir.HirLocal[]>();
   const lowering: Lowering = {
     ...createTypeConversion(deps, raw), bodyOf: structure.bodyOf, definitionAt, captureParent: structure.captureParent, captures: new Map(),
+    enums: new Map(raw.enums.map(row => [row.declaration.node, row])),
     assignmentTargets: structure.assignmentTargets,
     labelTargets: structure.labelTargets,
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),

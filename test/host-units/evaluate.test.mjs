@@ -2115,7 +2115,8 @@ function answerUnit(query, position = { kind: "result" }) {
 }
 
 test("a constant pause retains its own context, exact caller witness and original dependency error", () => {
-  const reference = { initializer: fixture("evaluate-nested-target").entry, context: "enum-member" };
+  const target = fixture("evaluate-nested-target");
+  const reference = { context: "enum-member", member: "D[M[P[p];m];Code/Next]", bindings: target.entry.bindings };
   const value = requestFixture("evaluate-own-context", { kind: "constant", reference });
   const paused = value.begin();
   assert.equal(paused.kind, "paused");
@@ -2151,7 +2152,7 @@ test("not-constant remains an honest outcome with its actual nested witness", ()
 
 test("successful constant resumption continues exactly once and rejects a different selected result type", () => {
   const target = fixture("evaluate-success-target").entry;
-  const value = requestFixture("evaluate-success", { kind: "constant", reference: { initializer: target, context: "enum-member" } });
+  const value = requestFixture("evaluate-success", { kind: "constant", reference: { initializer: target, context: "compile-time" } });
   const paused = value.begin();
   const prefix = paused.paused.witness.ready;
   const unit = answerUnit("constValue", { kind: "component", path: ["actual-result"] });

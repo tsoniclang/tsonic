@@ -9,7 +9,19 @@ function fail(message: string): never {
   return throwInvariant({ owner: "decls", query: null, origin: null, message });
 }
 
-export const classifyCycle: ClassifyCycle = (inputs, members) => {
+export const classifyCycle: ClassifyCycle = (inputs, offered) => {
+  const first = offered[0];
+  if ("origin" in first) {
+    if (!offered.every(member => "origin" in member)) return fail("A constant cycle requires all its actual demands and answer capabilities.");
+    const code = hostDiagnosticCode("TSONIC_CONSTANT_EVALUATION_FAILED");
+    const diagnostic: Diagnostic = { code: { kind: "host", name: code, rendered: code }, severity: "error",
+      site: { kind: "source", origin: first.origin }, source: "decls", evidence: [],
+      message: "The constant value depends on its own completion.", arguments: [], related: [], fix: null };
+    return offered.map(() => ({ kind: "refused", diagnostic }));
+  }
+  if (!offered.every((member): member is DeclarationCycleMember => !("origin" in member)))
+    return fail("A declaration signature cycle requires all its actual demands and answer capabilities.");
+  const members: readonly DeclarationCycleMember[] = offered;
   const payloads = new Map<DeclarationCycleMember, DeclaredSignatureErrorData>();
   let detector: DeclarationCycleMember | undefined;
   let detectorKey: string | undefined;

@@ -2,10 +2,10 @@ import type { CaptureModule, CaptureProgramModules, CreateCheckerExtensions, Ext
   LowerModuleExports, OpenCheckedProgram } from "../front/contract.js";
 import { captureModule, captureProgramModules, createCheckerExtensions, extensionReferencesOf, lowerModule, lowerModuleDefinitions,
   lowerModuleExports, openCheckedProgram } from "../front/index.js";
-import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, MembersOf, MemberTypeOf, PlaceSignature, ProduceType,
-  ResumeDeclaredSignatureOf, ResumeProduceType } from "../decls/contract.js";
-import { classifyCycle, declaredSignatureOf, describeDefinitions, errorSignature, membersOf, memberTypeOf, placeSignature, produceType,
-  resumeDeclaredSignatureOf, resumeProduceType } from "../decls/index.js";
+import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, EnumOf, ErrorSignature, MembersOf, MemberTypeOf, PlaceSignature, ProduceType,
+  ResumeDeclaredSignatureOf, ResumeEnumOf, ResumeProduceType } from "../decls/contract.js";
+import { classifyCycle, declaredSignatureOf, describeDefinitions, enumOf, errorSignature, membersOf, memberTypeOf, placeSignature, produceType,
+  resumeDeclaredSignatureOf, resumeEnumOf, resumeProduceType } from "../decls/index.js";
 import type { CreateRuleTable, DecideCaptureModes, TypePatternMatch } from "../rules/contract.js";
 import { createRuleTable, decideCaptureModes, matchTypePattern } from "../rules/index.js";
 import type { ConstraintsOf, GroupsOf, ResumeConstraintsOf, ResumeSolveGroup, SolveGroup } from "../infer/contract.js";
@@ -14,6 +14,8 @@ import type { AttachFormalDefault, Elaborate, ElaborateSelectedCall } from "../e
 import { attachFormalDefault, elaborate, elaborateSelectedCall } from "../elaborate/index.js";
 import type { LowerToMir } from "../lower-mir/contract.js";
 import { lowerToMir } from "../lower-mir/index.js";
+import type { Evaluate, ResumeEvaluate } from "../evaluate/contract.js";
+import { evaluate, resumeEvaluate } from "../evaluate/index.js";
 import type { AnalyzeStorageUse } from "../analyses/liveness/contract.js";
 import { analyzeStorageUse } from "../analyses/liveness/index.js";
 import type { AnalyzeBodyRound, ProveInitialization } from "../analyses/body/contract.js";
@@ -41,6 +43,7 @@ export interface PipelineWiring {
   readonly elaborate: { readonly attachFormalDefault: AttachFormalDefault; readonly elaborate: Elaborate;
     readonly elaborateSelectedCall: ElaborateSelectedCall };
   readonly lowerMir: { readonly lowerToMir: LowerToMir };
+  readonly evaluate: { readonly evaluate: Evaluate; readonly resumeEvaluate: ResumeEvaluate };
   readonly liveness: { readonly analyzeStorageUse: AnalyzeStorageUse };
   readonly bodyAnalysis: { readonly analyzeBodyRound: AnalyzeBodyRound; readonly proveInitialization: ProveInitialization };
   readonly summaries: { readonly bindDeclaredSummary: BindDeclaredSummary; readonly componentsOf: ComponentsOf;
@@ -59,6 +62,8 @@ export interface DeclsWiring {
   readonly memberTypeOf: MemberTypeOf;
   readonly produceType: ProduceType;
   readonly resumeProduceType: ResumeProduceType;
+  readonly enumOf: EnumOf;
+  readonly resumeEnumOf: ResumeEnumOf;
 }
 
 export interface FrontWiring {
@@ -77,11 +82,12 @@ export const pipelineWiring: PipelineWiring = {
   front: { createCheckerExtensions, extensionReferencesOf, openCheckedProgram, captureProgramModules, captureModule, lowerModuleDefinitions,
     lowerModuleExports, lowerModule },
   decls: { classifyCycle, describeDefinitions, declaredSignatureOf, resumeDeclaredSignatureOf, errorSignature, placeSignature, membersOf, memberTypeOf,
-    produceType, resumeProduceType },
+    produceType, resumeProduceType, enumOf, resumeEnumOf },
   rules: { createRuleTable, decideCaptureModes, matchTypePattern },
   infer: { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup },
   elaborate: { attachFormalDefault, elaborate, elaborateSelectedCall },
   lowerMir: { lowerToMir },
+  evaluate: { evaluate, resumeEvaluate },
   liveness: { analyzeStorageUse },
   bodyAnalysis: { analyzeBodyRound, proveInitialization },
   summaries: { bindDeclaredSummary, componentsOf, dependenciesOf, convergeComponent },

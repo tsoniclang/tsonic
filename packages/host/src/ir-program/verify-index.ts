@@ -9,7 +9,7 @@ import { indexSyntaxTree } from "../ir-hir/index.js";
 import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, floatingBitsFit, instanceKey, nativeCarrierOf, nativeFactsKey, optionalValueDomainOf, verifyNativeFacts, verifyTypes } from "../ir-types/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { BindingVerificationInput, NativeFloatingFormat, TypeRule, TypeSite, TypeTerm } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingVerificationInput, ConstantReference, NativeFloatingFormat, TypeRule, TypeSite, TypeTerm } from "../ir-types/contract.js";
 import type { Violation } from "../diag/contract.js";
 import type {
   ProgramIndex,
@@ -201,8 +201,9 @@ function verifySourceInventory(
 
 function verifyBodyBindings(
   index: ProgramIndex, context: ProgramVerificationContext,
-  bindings: BindingVerificationInput[], sites: ProgramSite[],
-): readonly ProgramViolation[] {
+  bindings: BindingVerificationInput[], sites: ProgramSite[], modules: ReadonlyMap<ModuleId, TirVerifierInput | null>,
+  account: DataflowAccount,
+): DataflowResult<readonly ProgramViolation[]> {
   const violations: ProgramViolation[] = [];
   for (const record of index.bodies) {
     switch (record.instance.bindings.kind) {
@@ -220,20 +221,48 @@ function verifyBodyBindings(
     }
   }
   for (const constant of index.constants) {
-    const site: ProgramSite = { kind: "body", instance: constant.reference.initializer };
-    const owner = context.facts.bodyOwner(constant.reference.initializer.body);
-    if (owner === null) {
-      violations.push({ rule: "cross-owner-reference-resolves", site, detail: [textDetail(constant.reference.initializer.body)] });
-    } else if (constant.reference.initializer.bindings.kind === "instantiated") {
+    const { reference } = constant;
+    const site = constantSite(reference);
+    let owner: DefId;
+    let environment: ArtifactBindings;
+    if (reference.context === "enum-member") {
+      const work = chargeWork(account, 1 + reference.member.length);
+      if (work !== null) return work;
+      const occurrence = context.facts.declarationSourceOf(reference.member);
+      const path = context.definitionPathOf(reference.member);
+      const node = occurrence === null || path === null ? null : modules.get(path.module)?.nodeOf(occurrence) ?? null;
+      if (node?.kind !== "EnumMember" || node.origin.module !== path?.module
+        || node.tsonic.declaration.kind !== "definition" || node.tsonic.declaration.definition !== reference.member) {
+        violations.push({ rule: "cross-owner-reference-resolves", site, detail: [textDetail(reference.member)] });
+        continue;
+      }
+      owner = reference.member;
+      environment = reference.bindings;
+    } else {
+      const initializer = reference.initializer;
+      const declaration = context.facts.bodyOwner(initializer.body);
+      if (declaration === null) {
+        violations.push({ rule: "cross-owner-reference-resolves", site, detail: [textDetail(initializer.body)] });
+        continue;
+      }
+      owner = declaration;
+      environment = initializer.bindings;
+    }
+    if (environment.kind === "instantiated") {
       const scope = context.facts.bindingScopeOf(owner);
       if (scope === null) violations.push({ rule: "bindings-complete", site, detail: [textDetail(owner)] });
       else {
-        bindings.push({ vector: constant.reference.initializer.bindings.bindings, scope });
+        bindings.push({ vector: environment.bindings, scope });
         sites.push(site);
       }
     }
   }
-  return violations;
+  return { kind: "complete", value: violations };
+}
+
+function constantSite(reference: ConstantReference): ProgramSite {
+  return reference.context === "enum-member" ? { kind: "definition", definition: reference.member }
+    : { kind: "body", instance: reference.initializer };
 }
 
 function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificationContext): ProgramVerificationResult {
@@ -277,8 +306,13 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
   let previousConstant: string | null = null;
   const constantKeys = new Set<string>();
   for (const constant of index.constants) {
-    const key = constantReferenceKey(constant.reference);
-    const site: ProgramSite = { kind: "body", instance: constant.reference.initializer };
+    const { reference } = constant;
+    if (reference.context === "enum-member") {
+      const stop = chargeWork(account, reference.member.length) ?? admitArtifactIdentity(reference.bindings, account);
+      if (stop !== null) return refuseVerification(index, context.resources, stop);
+    }
+    const key = constantReferenceKey(reference);
+    const site = constantSite(reference);
     if (previousConstant !== null && previousConstant > key) {
       violations.push({ rule: "constants-order", site, detail: [textDetail(previousConstant), textDetail(key)] });
     }
@@ -412,7 +446,9 @@ export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
   const signatures = verifySignatures(lookup, index, context, modules, bindings, bindingSites, state.account);
   if (signatures.kind !== "complete") return refuseVerification(index, context.resources, signatures);
   for (const violation of signatures.value) violations.push(violation);
-  for (const violation of verifyBodyBindings(index, context, bindings, bindingSites)) violations.push(violation);
+  const bodyBindings = verifyBodyBindings(index, context, bindings, bindingSites, modules, state.account);
+  if (bodyBindings.kind !== "complete") return refuseVerification(index, context.resources, bodyBindings);
+  for (const violation of bodyBindings.value) violations.push(violation);
   const records = verifyPublishedRecords(index, context);
   if (records.kind !== "complete") return refuseVerification(index, context.resources, records);
   for (const violation of records.violations) violations.push(violation);
