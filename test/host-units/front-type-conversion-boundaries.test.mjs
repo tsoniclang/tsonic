@@ -33,6 +33,134 @@ function rejects(actual, raw, root, pattern, overrides = {}) {
   assert.equal(conversion.convertedSignatures.size, 0);
 }
 
+test("an authored numeric union cannot borrow an equal native answer from another operand", async () => {
+  const actual = await captured("export type Exact = 9007199254740992 | 9007199254740993;");
+  const declaration = actual.raw.tree.statements.nodes[0];
+  const row = actual.raw.types.types.find(entry => entry.authoredTypeNode?.node === declaration.type.id);
+  assert.equal(row.form.value.kind, "union");
+  assert.deepEqual(row.form.value.numericOrigin, { kind: "authored", annotation: { module: actual.raw.module, node: declaration.type.id } });
+  const [first, second] = row.form.value.members;
+  const crossed = structuredClone(actual.raw);
+  crossed.types.types[row.id].form.value.members = [second, first];
+  rejects(actual, crossed, { kind: "type", id: row.id }, /actual ordered constituent positions/u);
+  const approximated = structuredClone(actual.raw);
+  approximated.types.types[second].literal.value.value = { kind: "checker-value", value: 9007199254740992 };
+  rejects(actual, approximated, { kind: "type", id: row.id }, /actual exact singleton operands/u);
+  const types = actual.fixture.types.createTypeInterner();
+  const deps = actual.fixture.lowerDepsFor(actual.definitions, types, actual.source, { maximumWork: 0 });
+  const stopped = actual.conversion.createTypeConversion(deps, actual.raw);
+  assert.deepEqual(actual.conversion.convertRawType(stopped, row.id), { kind: "resource-limit", dimension: "work", maximum: 0 });
+  assert.equal(actual.fixture.types.viewTypes(types).terms.length, 0);
+});
+
+test("a closed numeric indexed result verifies the actual selected source vector", async () => {
+  const actual = await captured(`
+    export type Read = { left: 9007199254740992; right: 9007199254740993 }["left" | "right"];
+    export type Partial = { left: 1; right?: 2 }["left" | "right"];
+  `);
+  const [read, partial] = actual.raw.tree.statements.nodes;
+  const row = actual.raw.types.types.find(entry => entry.authoredTypeNode?.node === read.type.id);
+  const value = row.form.value;
+  assert.equal(value.kind, "union");
+  assert.equal(value.numericOrigin.kind, "indexed-read");
+  assert.deepEqual(value.numericOrigin.annotation, { module: actual.raw.module, node: read.type.id });
+  const sources = read.type.objectType.members.nodes.map(member => ({ module: actual.raw.module, node: member.type.id }));
+  assert.deepEqual(new Set(value.numericOrigin.sources.map(source => source.node)), new Set(sources.map(source => source.node)));
+  assert.deepEqual(value.members.map(id => actual.raw.types.types[id].authoredTypeNode), value.numericOrigin.sources);
+  assert.equal(actual.raw.types.types.find(entry => entry.authoredTypeNode?.node === partial.type.id).form.value.numericOrigin, undefined);
+  for (const change of [
+    origin => { origin.sources.reverse(); },
+    origin => { origin.annotation = { ...origin.annotation, node: read.type.objectType.id }; },
+    origin => { origin.sources[0] = { ...origin.sources[0], module: "foreign" }; },
+  ]) {
+    const crossed = structuredClone(actual.raw);
+    change(crossed.types.types[row.id].form.value.numericOrigin);
+    rejects(actual, crossed, { kind: "type", id: row.id }, /actual ordered constituent positions/u);
+  }
+});
+
+test("original signatures retain authored operator syntax separately from their real parameter and result positions", async () => {
+  const actual = await captured(`
+    export declare function conditional<T>(value: T extends string ? boolean : number): T extends string ? number : boolean;
+    export declare function indexed<T extends {flag: boolean}>(value: T["flag"]): T["flag"];
+  `);
+  for (const [index, name] of ["conditional", "indexed"].entries()) {
+    const declaration = actual.raw.tree.statements.nodes[index];
+    const signature = actual.raw.types.signatures.find(candidate => candidate.declaration?.node === declaration.id);
+    assert.ok(signature);
+    const formal = signature.parameters[0];
+    const parameter = actual.raw.types.types[formal.type];
+    const result = actual.raw.types.types[signature.result.value];
+    for (const [position, component] of [[parameter, "parameter"], [result, "result"]]) {
+      const raw = actual.raw.types.components[position.component];
+      assert.equal(raw.path.step.kind, component);
+      assert.equal(raw.path.step.signature, signature.id);
+      assert.notEqual(raw.root.node, position.form.value.operator.node);
+      assert.deepEqual(position.authoredTypeNode, position.form.value.operator);
+    }
+    const types = actual.fixture.types.createTypeInterner();
+    const deps = actual.fixture.lowerDepsFor(actual.definitions, types, actual.source);
+    const converted = actual.conversion.signatureOf(actual.conversion.createTypeConversion(deps, actual.raw), signature.id);
+    assert.equal(converted.kind, "complete");
+    const checked = actual.fixture.types.readSignature(types, converted.value);
+    for (const type of [checked.parameters[0].type, checked.result]) {
+      const term = actual.fixture.types.readType(types, type);
+      assert.equal(term.kind, "projection");
+      assert.equal(term.projection.kind, name);
+    }
+    for (const [position, substitute] of [[parameter, result], [result, parameter]]) {
+      const crossed = structuredClone(actual.raw);
+      const operator = substitute.form.value.operator;
+      crossed.types.types[position.id].authoredTypeNode = operator;
+      crossed.types.types[position.id].form.value.operator = operator;
+      rejects(actual, crossed, { kind: "signature", id: signature.id }, /projection requires its actual checked operator component/u);
+    }
+    const wrongSlot = structuredClone(actual.raw);
+    wrongSlot.types.components[formal.component].path.step.index = 1;
+    rejects(actual, wrongSlot, { kind: "signature", id: signature.id }, /projection requires its actual checked operator component/u);
+  }
+});
+
+test("an authored conditional keeps its native substitution under the exact true-branch index", async () => {
+  const actual = await captured(`
+    export type Selected<T, P> = P extends keyof T ? T[P] : never;
+    export type Other<T, P> = P extends keyof T ? T[P] : never;
+  `);
+  const [selected, other] = actual.raw.tree.statements.nodes.map(row => row.type.id);
+  const substitutions = actual.raw.types.types.filter(row => row.form.kind === "available" && row.form.value.kind === "substitution");
+  const owned = substitutions.find(row => row.form.value.operator.node === selected);
+  const unrelated = substitutions.find(row => row.form.value.operator.node === other);
+  assert.ok(owned && unrelated);
+  const types = actual.fixture.types.createTypeInterner();
+  const deps = actual.fixture.lowerDepsFor(actual.definitions, types, actual.source);
+  const conversion = actual.conversion.createTypeConversion(deps, actual.raw);
+  const converted = actual.conversion.convertRawType(conversion, owned.id);
+  assert.equal(converted.kind, "complete");
+  const term = actual.fixture.types.readType(types, converted.value.type);
+  assert.equal(term.projection.kind, "substitution");
+  assert.equal(actual.fixture.types.readType(types, term.source).kind, "param");
+  assert.equal(actual.fixture.types.readType(types, term.projection.constraint).projection.kind, "keyof");
+  for (const replacement of [
+    { constraint: unrelated.form.value.constraint },
+    { base: unrelated.form.value.base },
+    { operator: unrelated.form.value.operator },
+  ]) {
+    const crossed = structuredClone(actual.raw);
+    Object.assign(crossed.types.types[owned.id].form.value, replacement);
+    rejects(actual, crossed, { kind: "type", id: owned.id }, /actual conditional and ordered checked operands/u);
+  }
+  const crossedTarget = structuredClone(actual.raw);
+  const key = crossedTarget.types.types[owned.form.value.constraint].form.value;
+  key.target = crossedTarget.types.types[unrelated.form.value.constraint].form.value.target;
+  rejects(actual, crossedTarget, { kind: "type", id: owned.id }, /actual checked keyof operator and target components/u);
+  rejects(actual, actual.raw, { kind: "type", id: owned.id }, /actual checked index occurrence/u, {
+    sourceOccurrenceOf: reference => {
+      const value = deps.sourceOccurrenceOf(reference);
+      return value?.typeSyntax?.kind === "indexed" ? { ...value, typeSyntax: { ...value.typeSyntax, index: value.node } } : value;
+    },
+  });
+});
+
 test("actual graph result projections require their selected type and signature mappings", async () => {
   const actual = await captured("export function value(input:boolean):boolean{return input;}");
   const types = actual.fixture.types.createTypeInterner();
@@ -47,7 +175,7 @@ test("actual graph result projections require their selected type and signature 
   assert.equal(publishedSignature, converted.value);
   const target = actual.fixture.types.createTypeInterner();
   const result = actual.fixture.types.internTypeGraph({ types: target,
-    work: actual.fixture.types.createTypePublicationWork(deps.typePublication) },
+    work: actual.fixture.lowerDepsFor(actual.definitions, target, actual.source).typeWork },
   { typeBase: 0, signatureBase: 0, terms: [{ kind: "primitive", primitive: "bool" }],
     signatures: [{ ...input, parameters: input.parameters.map(parameter => ({ ...parameter, type: actual.fixture.ids.tyId(0) })),
       result: actual.fixture.ids.tyId(0) }] });
@@ -229,10 +357,10 @@ test("captured callable boundary failures cannot become a signature or a partial
     [undefined, /callable inventory must name its captured signature/u],
     [{ ...signature, result: unavailable }, /unavailable callable result/u],
     [{ ...signature, parameters: [undefined] }, /captured parameter inventory must be dense/u],
-    [{ ...signature, typeParameters: unavailable }, /generic or receiver-bearing/u],
-    [{ ...signature, receiver: unavailable }, /generic or receiver-bearing/u],
-    [{ ...signature, typeParameters: { kind: "available", value: [signature.declaration] } }, /generic or receiver-bearing/u],
-    [{ ...signature, receiver: { kind: "available", value: signature.parameters[0] } }, /generic or receiver-bearing/u],
+    [{ ...signature, typeParameters: unavailable }, /incomplete or receiver-bearing/u],
+    [{ ...signature, receiver: unavailable }, /incomplete or receiver-bearing/u],
+    [{ ...signature, typeParameters: { kind: "available", value: [signature.parameters[0].type] } }, /actual captured parameter type/u],
+    [{ ...signature, receiver: { kind: "available", value: signature.parameters[0] } }, /incomplete or receiver-bearing/u],
     [{ ...signature, composition: { kind: "union", signatures: [signature.id] } }, /composed callable signature/u],
     [{ ...signature, declaration: null }, /declarationless callable signature/u],
     [{ ...signature, parameters: [{ ...signature.parameters[0], declaration: null }] }, /declarationless callable parameter/u],

@@ -114,6 +114,7 @@ test("MR-14: diagnostic identity is the captured checker reference, or the origi
   const host = (code, value) => ({ kind: "host", code, unit: value });
   const body = node => ({ kind: "source-node", node: { kind: "body", value: { body: "m#f", node } } });
   const item = node => ({ kind: "source-node", node: { kind: "item", value: { owner: "m#f", node } } });
+  const detector = (execution, node) => ({ kind: "execution-source-node", execution, node: { body: "m#f", node } });
   const template = host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(4)));
   const sameAgain = host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(4)));
   const distinct = [
@@ -131,6 +132,10 @@ test("MR-14: diagnostic identity is the captured checker reference, or the origi
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [["construction-argument", "Map", 0]] })),
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [["construction-argument", "Map", 1]] })),
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [] })),
+    host("TSONIC_READ_BEFORE_INITIALIZATION", unit("bodyFactsOf", "first", detector("provided-one", 4))),
+    host("TSONIC_READ_BEFORE_INITIALIZATION", unit("bodyFactsOf", "first", detector("provided-two", 4))),
+    host("TSONIC_READ_BEFORE_INITIALIZATION", unit("bodyFactsOf", "first", detector("provided-one", 5))),
+    host("TSONIC_READ_BEFORE_INITIALIZATION", unit("bodyFactsOf", "first", { kind: "execution-result", execution: "provided-one" })),
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "result" })),
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("solutionOf", "g", { kind: "inference-variable", group: "g", variable: 0 })),
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("solutionOf", "g", { kind: "inference-variable", group: "g", variable: 1 })),

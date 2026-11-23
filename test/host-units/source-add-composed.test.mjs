@@ -1,4 +1,6 @@
+import { insertFixtureType } from "./fixtures/types-construction.mjs";
 import assert from "node:assert/strict";
+import { suppliedTirScopes, tirFixtureBodyVerifier, tirFixtureVerifier } from "./fixtures/typed-occurrence-witnesses.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { before, test } from "node:test";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
@@ -11,6 +13,8 @@ let pipeline;
 let semanticQueries;
 let query;
 let irTir;
+let verifyBody;
+let verifyChapter;
 let irMir;
 let lowerMirStep;
 let inferenceStep;
@@ -23,6 +27,8 @@ before(async () => {
   semanticQueries = await import("../../packages/host/dist/pipeline/semantic-queries.js");
   query = await import("../../packages/host/dist/query/index.js");
   irTir = await import("../../packages/host/dist/ir-tir/index.js");
+  verifyBody = await tirFixtureBodyVerifier(irTir.verifyTir);
+  verifyChapter = await tirFixtureVerifier(irTir.verifyTirModule);
   irMir = await import("../../packages/host/dist/ir-mir/index.js");
   lowerMirStep = await import("../../packages/host/dist/pipeline/lower-mir-step.js");
   inferenceStep = await import("../../packages/host/dist/pipeline/inference-step.js");
@@ -33,14 +39,14 @@ const EXPANSION = { maximumDepth: 64, maximumVisits: 4096, maximumUnionMembers: 
 for (const resultAnnotation of [": number", ""])
 test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotated"} result passes HIR, genuine Decls/Rules/Infer, composed TIR and actual LowerMir/MIR`, () => {
   const source = `export function add(a: number, b: number)${resultAnnotation} { return a + b; }\n`;
-  const { checked, interner, module, snapshot } = fixture.checkedModuleOf(source);
+  const { checked, interner, typeWork, module, snapshot } = fixture.checkedModuleOf(source);
   const { types, hir } = fixture;
   assert.deepEqual(fixture.verifyChecked(checked, interner), [], "the actual checked source passes HIR");
   const nodes = hir.indexSyntaxTree(checked.tree);
   const domain = checkedDomain(checked, hir);
   const items = new Map(checked.items.map(item => [item.definition, nodes[item.node]]));
   items.set(checked.tree.tsonic.definition, checked.tree);
-  const definitionTable = wiring.decls.describeDefinitions({ module: checked, nodes }, []);
+  const definitionTable = wiring.decls.describeDefinitions({ module: checked, nodes }, hir.deriveDeclarationScopes(checked, nodes), []);
   const descriptions = new Map(definitionTable.definitions.map(description => [description.definition, description]));
   const declarationOf = definition => {
     const item = items.get(definition);
@@ -49,9 +55,10 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
       parameterCount: "parameters" in item && "nodes" in item.parameters ? item.parameters.nodes.length : null,
       endpoints: "signatures" in item.tsonic ? item.tsonic.signatures : [] };
   };
-  const inputs = { modules: [{ module: checked, nodes }], types: interner, typeExpansion: EXPANSION };
-  const deps = pipeline.inferDepsOf({
-    rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] }, types: interner, typeExpansion: EXPANSION },
+  const inputs = { modules: [{ module: checked, nodes }], types: interner, typeWork, typeExpansion: EXPANSION };
+  const deps = pipeline.inferDepsOf({ typeWork, structuralCuts: domain.sources.structuralCuts, cuts: domain.sources.cuts, checkedNodeOf: domain.nodeOf,
+    rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] }, types: interner,
+      selectedNativeFacts: snapshot.nativeFacts, typeExpansion: EXPANSION },
     hirBody: body => domain.bodyOf.get(body) ?? assert.fail("the requested body is not in the ready module"),
     itemOf: definition => items.get(definition) ?? assert.fail("the requested declaration is not in the ready module"),
     bindings: [checked.bindings], ...hir.createModuleBindingViews([checked.bindings]),
@@ -62,13 +69,18 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   assert.equal(grouped.kind, "ok");
   const table = types.viewTypes(interner);
   const tableOf = () => table;
-  const semanticInputs = { declarations: inputs, inference: deps, groups: grouped.value, sources: domain.sources,
+  const base = { declarations: inputs, instantiation: { maximumWork: 65536, maximumCreatedRecords: 65536 } };
+  const formSites = wiring.validate.indexFormDiagnostics({ role: "source", scopeOf: domain.sources.formScopeOf }, checked);
+  assert.equal(formSites.length, 0);
+  const semanticInputs = { inference: deps, groups: grouped.value, sources: domain.sources,
+    forms: semanticQueries.formDiagnosticsQuery(base, site => formSites.includes(site)), projectForms: new Map(), groupForms: () => formSites,
+    bindingScopeOf: definition => descriptions.get(definition).generics,
     verification: (group, constraints) => ({ types: table, declarationOf, nominalOf: () => null,
       nodeExists: reference => domain.nodeOf(reference) !== null, localExists: domain.localExists,
       bindingScopes: constraints.constraints.flatMap(set => set.constraints.filter(constraint => constraint.kind === "flow")
         .map(() => descriptions.get(domain.bodyOf.get(set.body).owner).generics)) }) };
-  const registered = semanticQueries.createSourceSemanticQueries(semanticInputs);
-  const database = query.createDatabase(semanticInputs, { maximumRecords: 65536 },
+  const registered = semanticQueries.createSourceSemanticQueries(base, semanticInputs).queries;
+  const database = query.createDatabase(base, { maximumRecords: 65536 },
     () => assert.fail("add's ready declarations and group-local placement must not close an active key"), "recorded");
   const solved = new Map();
   for (const group of grouped.value) {
@@ -85,14 +97,15 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
       checkedBody.root.kind === "SourceFile" ? [] : ["op", "flow"]);
   }
   const typed = new Map();
-  const elaborateDeps = { types: interner, rules: deps.rules, nodeOf: domain.nodeOf, typeOf: type => types.readType(interner, type),
+  const elaborateDeps = { cuts: domain.sources.cuts, types: interner, typeWork, rules: deps.rules, nodeOf: domain.nodeOf, typeOf: type => types.readType(interner, type),
+    staticStorageOf: () => null,
     signatureOf: signature => types.readSignature(interner, signature), bindingOf: deps.bindingOf, checkerDiagnosticsOf: () => checked.checkerDiagnostics };
   const elaborate = body => {
     const record = solved.get(body.body);
     const result = wiring.elaborate.elaborate(elaborateDeps, {
       instance: { body: body.body, bindings: { kind: "parametric" } }, scope: descriptions.get(body.owner).generics,
-      body, constraints: record.constraints,
-      solution: record.solution, template: null, nestedBodies: body.nestedBodies.map(nested => typed.get(nested)), initializers: [],
+      body, typing: { kind: "ready", constraints: record.constraints, solution: record.solution, template: null },
+      nestedBodies: body.nestedBodies.map(nested => typed.get(nested)), initializers: [],
     });
     assert.equal(result.kind, "ok");
     typed.set(body.body, result.value);
@@ -107,7 +120,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   assert.equal(functionBody.owner, checked.tree.statements.nodes[0].tsonic.definition);
   const actualFunction = elaborate(functionBody);
   assert.equal(actualFunction.signature, declared.value.id);
-  const float64 = types.internType(interner, { kind: "primitive", primitive: "float64" });
+  const float64 = insertFixtureType(types, interner, { kind: "primitive", primitive: "float64" });
   assert.equal(isDeepStrictEqual(actualFunction, expectedComposedAdd(functionBody, { signature: actualFunction.signature, float64,
     parameters: checked.tree.statements.nodes[0].parameters.nodes })), true,
     "the authored saved expectation is consumed, not derived from output");
@@ -127,18 +140,19 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   assert.deepEqual(types.readType(interner, actualModule.completion), { kind: "intrinsic", intrinsic: "void" });
   const publication = { module, tree: actualModule.root, bodies: checked.bodies.map(body => typed.get(body.body)) };
   const verifier = { source: checked, module: publication, types: tableOf(), declarationOf,
-    bindingScopesOf: target => {
+    bindingScopesOf: suppliedTirScopes(target => {
       if (target.kind === "module") return target.module === module ? [] : null;
       const body = domain.bodyOf.get(target.instance.body);
       const scope = descriptions.get(body?.owner)?.generics;
       if (scope === undefined) return null;
       return body.root.kind === "SourceFile" ? [scope, scope,
         ...checked.tree.statements.nodes.map(statement => descriptions.get(statement.tsonic.definition).generics)] : [scope];
-    },
+    }),
+    staticStorageOf: () => null,
     memberTableOf: () => null, bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null : null,
     nominalOf: () => null, nodeOf: domain.nodeOf, localExists: domain.localExists, diagnostics: checked.checkerDiagnostics };
-  assert.deepEqual(irTir.verifyTirModule(verifier, publication), [], "the genuine composed typed module passes its barrier");
-  for (const body of publication.bodies) assert.deepEqual(irTir.verifyTir(verifier, body), [], "each canonical body passes TIR");
+  assert.deepEqual(verifyChapter(verifier, publication), [], "the genuine composed typed module passes its barrier");
+  for (const body of publication.bodies) assert.deepEqual(verifyBody(verifier, body), [], "each canonical body passes TIR");
   const scope = descriptions.get(functionBody.owner).generics;
   assert.deepEqual([scope.classParameters.length, scope.methodParameters.length, scope.capturedParameters.length, scope.selfOwners.length],
     [0, 0, 0, 0], "the actual checked declaration has no class, method, captured or self formal slots");
@@ -152,12 +166,13 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
       { kind: "inferred-part", part }, database.errorOf));
   assert.equal(actualParts.length, resultAnnotation === "" ? 1 : 0);
   const selectedSignature = wiring.decls.placeSignature(inputs, { kind: "callable-body", instance: selected, parts: actualParts },
-    { query: "typedBody", key: [selected.body, types.artifactBindingsData(selected.bindings)] });
+    { query: "typedBody", key: [selected.body, types.artifactBindingsData(selected.bindings)] }, domain.sources.cuts);
   assert.equal(selectedSignature.kind, "done");
   assert.equal(selectedSignature.value.kind, "ok");
-  assert.equal(selectedSignature.value.value.id, actualFunction.signature, "actual selected empty-scope placement preserves the canonical signature");
+  assert.equal(selectedSignature.value.value.signature.id, actualFunction.signature, "actual selected empty-scope placement preserves the canonical signature");
+  assert.equal(selectedSignature.value.value.request.bindings === selected.bindings, true, "the actual complete environment accompanies the answer");
   const replay = template => wiring.elaborate.elaborate(elaborateDeps, { instance: selected, scope, body: functionBody,
-    constraints: record.constraints, solution: record.solution, template, nestedBodies: [], initializers: [] });
+    typing: { kind: "ready", constraints: record.constraints, solution: record.solution, template }, nestedBodies: [], initializers: [] });
   assert.throws(() => replay(null), /without its template/u);
   assert.throws(() => replay({ ...actualFunction, owner: moduleBody.owner }), /actual parametric body template/u);
   const selectedResult = replay(actualFunction);
@@ -165,14 +180,15 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   const actualExecution = selectedResult.value;
   assert.equal(actualExecution.root === actualFunction.root, false, "the selected body is genuinely elaborated from checked input, not cloned and retagged TIR");
   assert.equal(actualExecution.bindings === selected.bindings, true);
-  assert.equal(actualExecution.signature, selectedSignature.value.value.id);
+  assert.equal(actualExecution.signature, selectedSignature.value.value.signature.id);
   const selectedPublication = { ...publication, bodies: [...publication.bodies, actualExecution] };
   const selectedVerifier = { ...verifier, module: selectedPublication, bodyOf: instance => instance.body === selected.body
     && types.artifactBindingsKey(instance.bindings) === types.artifactBindingsKey(selected.bindings) ? actualExecution : verifier.bodyOf(instance),
-    bindingScopesOf: target => target.kind === "body" && target.instance.body === selected.body
-      && target.instance.bindings.kind === "instantiated" ? [scope, scope] : verifier.bindingScopesOf(target) };
-  assert.deepEqual(irTir.verifyTir(selectedVerifier, actualExecution), [], "the actual selected execution body passes the typed-body barrier");
-  assert.deepEqual(irTir.verifyTirModule(selectedVerifier, selectedPublication), [], "the canonical publication retains both template and selected execution once");
+    bindingScopesOf: (target, subject, visit) => target.kind === "body" && target.instance.body === selected.body
+      && target.instance.bindings.kind === "instantiated" ? { kind: "complete", scopes: [scope, scope] }
+      : verifier.bindingScopesOf(target, subject, visit) };
+  assert.deepEqual(verifyBody(selectedVerifier, actualExecution), [], "the actual selected execution body passes the typed-body barrier");
+  assert.deepEqual(verifyChapter(selectedVerifier, selectedPublication), [], "the canonical publication retains both template and selected execution once");
   const text = irTir.printTir(actualExecution);
   const parsed = irTir.parseTir(text);
   assert.equal(isDeepStrictEqual(parsed, { kind: "parsed", value: actualExecution }), true,
@@ -194,14 +210,14 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   ]) {
     const candidate = structuredClone(actualExecution);
     mutate(candidate);
-    assert.equal(irTir.verifyTir(candidateVerifier(candidate), candidate).length > 0, true,
+    assert.equal(verifyBody(candidateVerifier(candidate), candidate).length > 0, true,
       "foreign, duplicate and mismatched selected headers are not admitted");
   }
   for (const missing of [true, false]) {
     const wrongSource = { ...selectedVerifier, nodeOf: reference => reference.kind === "item"
       && reference.value.owner === actualExecution.params[0].tsonic.declaration
       ? missing ? null : checked.tree : domain.nodeOf(reference) };
-    assert.equal(irTir.verifyTir(wrongSource, actualExecution).some(violation => violation.rule === "parameter-order"), true,
+    assert.equal(verifyBody(wrongSource, actualExecution).some(violation => violation.rule === "parameter-order"), true,
       "a missing or foreign checked ITEM/header relation cannot be replaced by a globally present node");
   }
   const run = {
@@ -209,8 +225,8 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
     interner,
     table: tableOf(),
     defs: {
-      completionSelector: types.internType(interner, { kind: "primitive", primitive: "int32" }),
-      exceptionStorage: types.internType(interner, { kind: "intrinsic", intrinsic: "unknown" }),
+      completionSelector: insertFixtureType(types, interner, { kind: "primitive", primitive: "int32" }),
+      exceptionStorage: insertFixtureType(types, interner, { kind: "intrinsic", intrinsic: "unknown" }),
     },
     lowering: { maximumRecords: 100000 },
     verification: { maximumWork: 1000000 },
@@ -254,7 +270,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   for (const nested of [null, { ...actualFunction, body: moduleBody.body }, { ...actualFunction, owner: moduleBody.owner },
     { ...actualFunction, bindings: selected.bindings }]) {
     const invalidView = { ...verifier, bodyOf: instance => instance.body === functionBody.body ? nested : verifier.bodyOf(instance) };
-    assert.equal(irTir.verifyTir(invalidView, actualModule).length > 0, true, "a nested parameter context must be its actual canonical parametric body");
+    assert.equal(verifyBody(invalidView, actualModule).length > 0, true, "a nested parameter context must be its actual canonical parametric body");
   }
   for (const mutate of [
     parameter => { parameter.tsonic.local = null; },
@@ -269,7 +285,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
     const changedBodyOf = new Map(changed.bodies.map(body => [body.body, body]));
     const changedVerifier = { ...verifier, module: changed,
       bodyOf: instance => instance.bindings.kind === "parametric" ? changedBodyOf.get(instance.body) ?? null : null };
-    const violations = irTir.verifyTir(changedVerifier, changedBodyOf.get(moduleBody.body));
+    const violations = verifyBody(changedVerifier, changedBodyOf.get(moduleBody.body));
     assert.equal(violations.some(violation => violation.rule === "binding-storage" || violation.rule === "parameter-order"), true,
       "nested parameter storage/formal rules remain enforced in the enclosing module body");
   }

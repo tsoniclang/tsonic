@@ -1,41 +1,62 @@
 import { ProgramWork } from "./work.js";
+import type { DataflowResult, DataflowStop } from "../dataflow/contract.js";
+import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { DefId, ModuleId, PackageId } from "../ids/contract.js";
 import { encodeDefId, encodeModuleId } from "../ids/index.js";
 import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
 import { bindingVectorKey, instanceKey } from "../ir-types/index.js";
 import { encodeKey } from "../ids/index.js";
 import type { ProgramIndex, ProgramSite, ProgramVerificationContext } from "./contract.js";
-import type { ProgramLookup, ProgramViolation } from "./program-values.js";
+import type { ProgramLookup } from "./work.js";
+import type { ProgramViolation } from "./work-data.js";
 import { compareInstances, compareText, numberDetail, summaryBindingsOf, summaryReferenceKey, summaryReferenceOf, textDetail } from "./program-values.js";
 
-export function verifyBindingBounds(index: ProgramIndex, context: ProgramVerificationContext): readonly ProgramViolation[] {
-  const maximum = ProgramWork.state(context.resources).limits.maximumBindingVectorsPerArtifact;
+export function verifyBindingBounds(index: ProgramIndex, context: ProgramVerificationContext): DataflowResult<readonly ProgramViolation[]> {
+  const { account, limits } = ProgramWork.state(context.resources);
+  const maximum = limits.maximumBindingVectorsPerArtifact;
   const groups = new Map<string, { readonly bindings: Set<string>; exceeded: boolean }>();
   const violations: ProgramViolation[] = [];
-  function register(artifact: string, bindings: ArtifactBindings, site: ProgramSite): void {
-    if (bindings.kind === "parametric") return;
+  function register(artifact: string, bindings: ArtifactBindings, siteEntries: number): DataflowStop | number | null {
+    if (bindings.kind === "parametric") return null;
     let group = groups.get(artifact);
     if (group === undefined) {
       group = { bindings: new Set<string>(), exceeded: false };
       groups.set(artifact, group);
     }
-    if (group.exceeded) return;
+    if (group.exceeded) return null;
     const key = bindingVectorKey(bindings.bindings);
-    if (group.bindings.has(key)) return;
-    group.bindings.add(key);
-    if (group.bindings.size > maximum) {
+    if (group.bindings.has(key)) return null;
+    if (group.bindings.size === maximum) {
+      const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 4 + siteEntries);
+      if (stop !== null) return stop;
       group.exceeded = true;
-      violations.push({ rule: "binding-vectors-bounded", site, detail: [numberDetail(maximum), numberDetail(group.bindings.size)] });
+      return group.bindings.size + 1;
     }
+    group.bindings.add(key);
+    return null;
   }
-  for (const body of index.bodies) register(encodeKey(["body", body.instance.body]), body.instance.bindings, { kind: "body", instance: body.instance });
-  for (const metadata of index.metadata) register(encodeKey(["metadata", metadata.key.definition]), metadata.key.bindings, {
-    kind: "artifact", artifact: { kind: "metadata", definition: metadata.key.definition }, bindings: metadata.key.bindings,
-  });
-  for (const summary of index.summaries) register(summaryReferenceKey(summaryReferenceOf(summary.key)), summaryBindingsOf(summary.key), {
-    kind: "artifact", artifact: summaryReferenceOf(summary.key), bindings: summaryBindingsOf(summary.key),
-  });
-  return violations;
+  const report = (site: ProgramSite, count: number): void => {
+    violations.push({ rule: "binding-vectors-bounded", site, detail: [numberDetail(maximum), numberDetail(count)] });
+  };
+  for (const { instance } of index.bodies) {
+    const result = register(encodeKey(["body", instance.body]), instance.bindings, 1);
+    if (typeof result === "number") report({ kind: "body", instance }, result);
+    else if (result !== null) return result;
+  }
+  for (const { key } of index.metadata) {
+    const result = register(encodeKey(["metadata", key.definition]), key.bindings, 2);
+    if (typeof result === "number")
+      report({ kind: "artifact", artifact: { kind: "metadata", definition: key.definition }, bindings: key.bindings }, result);
+    else if (result !== null) return result;
+  }
+  for (const { key } of index.summaries) {
+    const artifact = summaryReferenceOf(key);
+    const bindings = summaryBindingsOf(key);
+    const result = register(summaryReferenceKey(artifact), bindings, 1);
+    if (typeof result === "number") report({ kind: "artifact", artifact, bindings }, result);
+    else if (result !== null) return result;
+  }
+  return { kind: "complete", value: violations };
 }
 
 export function verifyPackages(lookup: ProgramLookup, index: ProgramIndex): readonly ProgramViolation[] {

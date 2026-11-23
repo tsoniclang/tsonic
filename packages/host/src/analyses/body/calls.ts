@@ -2,29 +2,46 @@ import type { CallerRefusal, DataflowResult } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { UnitRef } from "../../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
-import type { AppliedSummary, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueEntryBinding } from "../../ir-facts/contract.js";
-import { admitSummaryIdentity, applySummary, summaryKey } from "../../ir-facts/index.js";
+import type { AppliedSummary, BoundInitializationRow, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
+import { admitSummaryIdentity, applySummary, bindInitialization, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
-import type { LocalId, OriginsId, ValueContextId } from "../../ids/contract.js";
+import type { OriginsId, ValueContextId } from "../../ids/contract.js";
 import { valueContextId } from "../../ids/index.js";
-import type { BodyInstance } from "../../ir-types/contract.js";
-import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
+import type { BodyInstance, Signature } from "../../ir-types/contract.js";
+import type { BodyRoundDeps, BodyRoundInput, RoundCallRead, RoundLeast } from "./contract.js";
 import { valueKind } from "./values.js";
 import { readLocal } from "./places.js";
 import { callWrites, primitiveExitLocals } from "./writes.js";
+import type { StaticCalleeCells } from "./static-calls.js";
 
 export interface CallError {
   readonly kind: "error";
   readonly key: string;
-  readonly unit: UnitRef;
+  readonly grounds: readonly [UnitRef, ...UnitRef[]];
+  readonly provided: number;
+}
+
+type SelectedBodySummary = Summary & { readonly key: Extract<SummaryKey, { readonly kind: "body" }> };
+export type SelectedCall = SelectedBodySummary | CallError | RoundLeast;
+
+function isAdmittedBodySummary(_summary: Summary, offered: SummaryKey): _summary is SelectedBodySummary {
+  return offered.kind === "body";
+}
+
+function isAdmittedLeast(selected: Summary | RoundLeast, least: RoundLeast | null): selected is RoundLeast {
+  return selected === least;
 }
 
 function frontier(operation: MirTerminator, message: string): never {
   return throwInvariant({ owner: "analyses/body", query: null, origin: operation.origin, message });
 }
 
-export function isCallError(value: ReadonlySet<unknown> | Summary | CallError | null): value is CallError {
-  return value !== null && "kind" in value;
+export function isCallError(value: SelectedCall): value is CallError {
+  return "kind" in value && value.kind === "error";
+}
+
+export function isLeastCall(value: SelectedCall): value is RoundLeast {
+  return "kind" in value && value.kind === "least";
 }
 
 export function callInstance(operation: Extract<MirTerminator, { readonly kind: "call" }>): BodyInstance {
@@ -46,7 +63,7 @@ export function scalarArgument(deps: BodyRoundDeps, operation: Extract<MirTermin
 }
 
 export function callSummary(deps: BodyRoundDeps, body: MirBody,
-  operation: Extract<MirTerminator, { readonly kind: "call" }>): DataflowResult<Summary | CallError> {
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, answers?: Map<string, RoundCallRead>): DataflowResult<SelectedCall> {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
   const admission = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 3);
@@ -60,51 +77,142 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
   }
   if (operation.receiver !== null || operation.callee.kind === "body" && operation.arguments.length !== 0)
     return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call.");
-  for (let index = 0; index < operation.arguments.length; index += 1) {
-    const argument = scalarArgument(deps, operation, index);
-    if (argument.kind !== "complete") return argument;
+  let provided = 0;
+  let signature: Signature | null = null;
+  if (operation.callee.kind !== "body") for (let index = 0; index < operation.arguments.length; index += 1) {
+    const work = chargeWork(deps.account, 1);
+    if (work !== null) return work;
+    const argument = operation.arguments[index];
+    if (argument?.kind === "omitted") {
+      const decision = operation.callee.resolution.decision;
+      const mapping = decision.parameters[index];
+      if (mapping?.parameter !== index || mapping.kind !== "default" && mapping.kind !== "omitted")
+        return frontier(operation, "BodyAnalysis requires the actual selected argument omission and default mapping.");
+      if (signature === null) {
+        const signatureRead = chargeWork(deps.account, 1);
+        if (signatureRead !== null) return signatureRead;
+        signature = deps.signatureOf(decision.completion.signature);
+        const stopped = accountFailure(deps.account);
+        if (stopped !== null) return stopped;
+      }
+      const formalRead = chargeWork(deps.account, 1);
+      if (formalRead !== null) return formalRead;
+      const formal = signature.parameters[index];
+      if (mapping.kind === "omitted") {
+        if (formal?.kind !== "optional" || !formal.acceptsOmission || formal.passing !== "by-value"
+          || formal.initializer !== null || mapping.type !== formal.type)
+          return frontier(operation, "BodyAnalysis requires the actual absence omission of a selected formal without an initializer.");
+      } else if (formal?.kind !== "default" || !formal.acceptsOmission || formal.passing !== "by-value"
+          || formal.initializer !== mapping.initializer)
+        return frontier(operation, "BodyAnalysis requires the actual default of each omitted fixed formal.");
+      continue;
+    }
+    if (index !== provided || argument?.kind !== "value" || argument.passing !== "by-value")
+      return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call.");
+    provided += 1;
   }
-  const key: SummaryKey = { kind: "body", execution: { instance, provided: operation.arguments.length } };
+  const key: SummaryKey = { kind: "body", execution: { instance, provided } };
   const identity = admitSummaryIdentity(key, deps.account);
   if (identity !== null) return identity;
   const requested = summaryKey(key);
   const read = chargeWork(deps.account, 1);
   if (read !== null) return read;
-  const answer = deps.summaryOf(key);
-  const stopped = accountFailure(deps.account);
-  if (stopped !== null) return stopped;
-  const summary = answer.value;
-  if ("kind" in summary) return { kind: "complete", value: { kind: "error", key: requested, unit: answer.unit } };
-  const returned = admitSummaryIdentity(summary.key, deps.account);
+  let answer = answers?.get(requested);
+  if (answer === undefined) {
+    const retain = chargeResultEntries(deps.account, answers === undefined ? 0 : 1);
+    if (retain !== null) return retain;
+    answer = deps.summaryOf(key, requested);
+    const stopped = accountFailure(deps.account);
+    if (stopped !== null) return stopped;
+    answers?.set(requested, answer);
+  }
+  let admittedRead: Summary | RoundLeast;
+  let leastRead: RoundLeast | null = null;
+  if ("kind" in answer) {
+    switch (answer.kind) {
+      case "prior-error":
+        return { kind: "complete", value: { kind: "error", key: requested, grounds: answer.grounds, provided } };
+      case "prior-summary":
+        admittedRead = answer.summary;
+        break;
+      case "least":
+        admittedRead = answer;
+        leastRead = answer;
+        break;
+    }
+  } else {
+    if ("kind" in answer.value) {
+      const growth = chargeResultEntries(deps.account, 1);
+      return growth ?? { kind: "complete", value: { kind: "error", key: requested, grounds: [answer.unit], provided } };
+    }
+    admittedRead = answer.value;
+  }
+  const selected = admittedRead;
+  const least = isAdmittedLeast(selected, leastRead);
+  const offered: SummaryKey = least ? { kind: "body", execution: selected.execution } : selected.key;
+  const returned = admitSummaryIdentity(offered, deps.account);
   if (returned !== null) return returned;
-  if (summaryKey(summary.key) !== requested)
+  if ((!least && !isAdmittedBodySummary(selected, offered)) || summaryKey(offered) !== requested)
     return frontier(operation, "A call reads the Summary of its exact complete selected execution and provided count.");
-  const signatureRead = chargeWork(deps.account, 1);
-  if (signatureRead !== null) return signatureRead;
-  const signature = deps.signatureOf(summary.signature);
-  const signatureStop = accountFailure(deps.account);
-  if (signatureStop !== null) return signatureStop;
+  if (least && (selected.entry.provided !== provided || operation.step !== null))
+    return frontier(operation, "A private least relation requires the actual selected ordinary entry and provided count.");
+  const signatureId = selected.signature;
+  if (signature === null) {
+    const signatureRead = chargeWork(deps.account, 1);
+    if (signatureRead !== null) return signatureRead;
+    signature = deps.signatureOf(signatureId);
+    const signatureStop = accountFailure(deps.account);
+    if (signatureStop !== null) return signatureStop;
+  }
   if (signature.receiver !== null || signature.parameters.length !== operation.arguments.length)
     return frontier(operation, "BodyAnalysis requires the actual selected argument mapping of this callee signature.");
   if (operation.callee.kind === "direct" && (operation.callee.resolution.decision.parameters.length !== operation.arguments.length
-    || operation.callee.resolution.decision.completion.signature !== summary.signature
+    || operation.callee.resolution.decision.completion.signature !== signatureId
     || operation.callee.resolution.decision.result !== signature.result))
     return frontier(operation, "A direct call retains its actual selected completion and result association.");
-  if (operation.callee.kind === "direct") for (let index = 0; index < signature.parameters.length; index += 1) {
+  if (operation.callee.kind === "direct") for (let index = 0; index < provided; index += 1) {
     const read = chargeWork(deps.account, 1);
     if (read !== null) return read;
     const mapping = operation.callee.resolution.decision.parameters[index];
-    if (signature.parameters[index]?.passing !== "by-value" || mapping?.kind !== "argument" || mapping.parameter !== index
+    const formal = signature.parameters[index];
+    if (formal?.passing !== "by-value" || mapping?.kind !== "argument" || mapping.parameter !== index
       || mapping.argument !== index || mapping.component !== null || mapping.passing !== "by-value")
       return frontier(operation, "BodyAnalysis requires the actual fixed by-value mapping for each selected argument.");
   }
+  if (least) return { kind: "complete", value: selected };
   if (operation.destination !== null && body.places[operation.destination]?.storage !== signature.result)
     return frontier(operation, "A placed initializer retains its actual selected destination storage and result type.");
-  if (summary.suspends)
+  if (selected.suspends)
     return frontier(operation, "BodyAnalysis requires the actual suspension transport of this selected callee.");
-  if (summary.unwinds && operation.unwind.kind !== "escape")
+  if (selected.unwinds && operation.unwind.kind !== "escape")
     return frontier(operation, "BodyAnalysis requires the actual selected callee failure continuation and its handled state transport.");
-  return { kind: "complete", value: summary };
+  return { kind: "complete", value: selected };
+}
+
+function callRelationRefusal(deps: BodyRoundDeps, operation: MirTerminator,
+  limit: "maximumOriginAlternatives" | "maximumConditionAlternatives"): CallerRefusal {
+  return { kind: "refused", diagnostics: [
+    resourceLimitDiagnostic({ owner: "analyses/body", limit: `analysis.${limit}`, maximum: deps.limits[limit],
+      site: { kind: "source", origin: operation.origin }, unit: { request: deps.unit, position: { kind: "result" } } }),
+  ] };
+}
+
+export function bindCallInitialization(deps: BodyRoundDeps, operation: Extract<MirTerminator, { readonly kind: "call" }>,
+  summary: Summary, caller: RelationalArena, bindings: readonly { readonly kind: "cell"; readonly index: number }[]):
+  DataflowResult<readonly BoundInitializationRow[]> {
+  const setup = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 12);
+  if (setup !== null) return setup;
+  const cells = [];
+  for (const cell of summary.initialization.cells) {
+    const read = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
+    if (read !== null) return read;
+    cells.push(requirePresent(bindings[cell], { owner: "analyses/body", query: null, origin: operation.origin,
+      message: "A callee initialization formal retains its actual caller cell binding." }));
+  }
+  return bindInitialization({ application: { owner: { kind: "summary", key: summary.key }, arena: summary.arena,
+    table: summary.initialization, binding: { cells, events: [] } }, caller, events: [] },
+  { account: deps.account, maximumConditionAlternatives: deps.limits.maximumConditionAlternatives,
+    refusal: callRelationRefusal(deps, operation, "maximumConditionAlternatives"), eventCount: 0 });
 }
 
 export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
@@ -115,15 +223,12 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   if (admission !== null) return admission;
   if (summary.arena.cells.length !== cells.length)
     return frontier(operation, "BodyAnalysis requires the actual caller-cell bindings of this selected callee.");
-  const refusal = (limit: "maximumOriginAlternatives" | "maximumConditionAlternatives"): CallerRefusal => ({ kind: "refused", diagnostics: [
-    resourceLimitDiagnostic({ owner: "analyses/origins", limit: `analysis.${limit}`, maximum: deps.limits[limit],
-      site: { kind: "source", origin: operation.origin }, unit: { request: deps.unit, position: { kind: "result" } } }),
-  ] });
   const applied = applySummary({ summary, callee: summary.key, at: { execution: input.execution, point }, context,
     caller: arena, entries, cells, events: [], eventBindings: [] }, {
     account: deps.account, maximumOriginAlternatives: deps.limits.maximumOriginAlternatives,
     maximumConditionAlternatives: deps.limits.maximumConditionAlternatives,
-    originRefusal: refusal("maximumOriginAlternatives"), conditionRefusal: refusal("maximumConditionAlternatives"),
+    originRefusal: callRelationRefusal(deps, operation, "maximumOriginAlternatives"),
+    conditionRefusal: callRelationRefusal(deps, operation, "maximumConditionAlternatives"),
   });
   if (applied.kind !== "complete") return applied;
   const value = applied.value;
@@ -136,9 +241,9 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
     + value.callbacks.length + value.resultCells.length + value.backing.length;
   if (effects !== 0)
     return frontier(operation, "BodyAnalysis requires the actual caller cell, event, callback or backing producer for these applied effects.");
-  const written = callWrites(deps, input, operation, summary, summary.writes, value.writes)
-    ?? callWrites(deps, input, operation, summary, summary.contentsOnReturn, value.contentsOnReturn)
-    ?? callWrites(deps, input, operation, summary, summary.contentsOnUnwind, value.contentsOnUnwind);
+  const written = callWrites(deps, operation, cells, summary.writes, value.writes)
+    ?? callWrites(deps, operation, cells, summary.contentsOnReturn, value.contentsOnReturn)
+    ?? callWrites(deps, operation, cells, summary.contentsOnUnwind, value.contentsOnUnwind);
   if (written !== null) return written;
   for (let index = 0; index < value.subjects.length; index += 1) {
     const work = chargeWork(deps.account, 1);
@@ -183,40 +288,58 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
 }
 
 export type CallValueEffects =
-  | { readonly kind: "primitive"; readonly result: OriginsId; readonly contents: readonly LocalId[] }
+  | { readonly kind: "primitive"; readonly contents: readonly number[] }
   | { readonly kind: "applied"; readonly value: AppliedSummary };
 
+export function callCellIndex(summary: Summary, source: number, captures: readonly CaptureLocation[],
+  statics: StaticCalleeCells | null): number | undefined {
+  const role = summary.arena.cells[source]?.role;
+  if (role?.kind === "capture") return captures[role.index]?.cell;
+  return role?.kind === "static" && statics !== null ? statics(summary, source) : undefined;
+}
+
 export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
-  operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: Summary,
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: SelectedBodySummary,
   arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[],
-  fallback: OriginsId, captures: readonly CaptureLocation[]): DataflowResult<CallValueEffects> {
-  const read = chargeWork(deps.account, 1);
-  if (read !== null) return read;
-  const signature = deps.signatureOf(summary.signature);
-  const stopped = accountFailure(deps.account);
-  if (stopped !== null) return stopped;
-  const kind = valueKind(deps, signature.result);
-  const classified = accountFailure(deps.account);
-  if (classified !== null) return classified;
-  if (kind === null) return frontier(operation, "BodyAnalysis requires the actual selected call-result representation and Origins producer.");
-  if (kind !== "reference") {
+  captures: readonly CaptureLocation[], statics: StaticCalleeCells | null = null): DataflowResult<CallValueEffects> {
+  let usePrimitiveContents = true;
+  if (operation.destination !== null) {
+    const read = chargeWork(deps.account, 1);
+    if (read !== null) return read;
+    const signature = deps.signatureOf(summary.signature);
+    const stopped = accountFailure(deps.account);
+    if (stopped !== null) return stopped;
+    const kind = valueKind(deps, signature.result);
+    const classified = accountFailure(deps.account);
+    if (classified !== null) return classified;
+    if (kind === null) return frontier(operation, "BodyAnalysis requires the actual selected call-result representation and Origins producer.");
+    usePrimitiveContents = kind !== "reference" && kind !== "primitive-optional" && kind !== "reference-optional";
+  }
+  if (usePrimitiveContents) {
     const contents = primitiveExitLocals(deps, input, operation, summary, "return");
     if (contents.kind !== "complete") return contents;
     if (contents.value !== null) {
       const output = chargeResultEntries(deps.account, 1);
       if (output !== null) return output;
-      return { kind: "complete", value: { kind: "primitive", result: fallback, contents: contents.value } };
+      return { kind: "complete", value: { kind: "primitive", contents: contents.value } };
     }
   }
+  const provided = summary.key.execution.provided;
   const setup = chargeWork(deps.account, operation.arguments.length + arena.contexts.length)
     ?? chargeResultEntries(deps.account, operation.arguments.length + arena.contexts.length + 3);
   if (setup !== null) return setup;
-  const arguments_: OriginsId[] = [];
-  for (const argument of operation.arguments) {
-    if (argument.kind !== "value") return frontier(operation, "A selected by-value call retains its actual operand.");
+  const arguments_: ValueArgument[] = [];
+  for (let index = 0; index < operation.arguments.length; index += 1) {
+    const argument = operation.arguments[index];
+    if (index >= provided) {
+      arguments_.push({ kind: "omitted" });
+      continue;
+    }
+    if (argument?.kind !== "value") return frontier(operation, "A selected by-value call retains its actual operand.");
     const operand = argument.operand;
-    arguments_.push(requirePresent(operand.kind === "constant" ? constants[operand.constant] : state[Number(readLocal(input.mir, operand))],
-      { owner: "analyses/body", query: null, origin: operation.origin, message: "A selected argument retains its actual value-flow Origins." }));
+    arguments_.push({ kind: "provided", origins: requirePresent(
+      operand.kind === "constant" ? constants[operand.constant] : state[Number(readLocal(input.mir, operand))],
+      { owner: "analyses/body", query: null, origin: operation.origin, message: "A selected argument retains its actual value-flow Origins." }) });
   }
   const entries: ValueEntryBinding[] = [];
   for (const bound of summary.arena.boundProducers) {
@@ -229,18 +352,19 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
       const local = readLocal(input.mir, { kind: "place", place: captured.place });
       entries.push({ formal: bound.id, actual: requirePresent(state[local], { owner: "analyses/body", query: null,
         origin: operation.origin, message: "A selected capture retains its actual caller slot content at this call." }) });
-    } else if (producer?.kind === "parameter" && producer.path === null && operation.callee.kind === "direct")
-      entries.push({ formal: bound.id, actual: requirePresent(arguments_[producer.index], { owner: "analyses/body", query: null,
-        origin: operation.origin, message: "A selected callee formal retains its actual caller argument." }) });
-    else return frontier(operation, "BodyAnalysis requires the actual selected non-formal reference binding for this call.");
+    } else if (producer?.kind === "parameter" && producer.path === null && operation.callee.kind === "direct") {
+      const slot = arguments_[producer.index];
+      if (slot?.kind !== "provided") return frontier(operation, "An incoming formal value requires an actual provided argument.");
+      entries.push({ formal: bound.id, actual: slot.origins });
+    } else return frontier(operation, "BodyAnalysis requires the actual selected non-formal reference binding for this call.");
   }
   const cellWork = chargeWork(deps.account, summary.arena.cells.length) ?? chargeResultEntries(deps.account, summary.arena.cells.length);
   if (cellWork !== null) return cellWork;
   const cells: SummaryApplicationInput["cells"][number][] = [];
   for (const cell of summary.arena.cells) {
-    const location = cell.role.kind === "capture" ? captures[cell.role.index] : undefined;
-    if (location === undefined) return frontier(operation, "A selected callee cell requires its actual capture or created-cell binding.");
-    cells.push({ kind: "cell", index: location.cell });
+    const location = callCellIndex(summary, cell.id, captures, statics);
+    if (location === undefined) return frontier(operation, "A selected callee cell requires its actual static, capture or created-cell binding.");
+    cells.push({ kind: "cell", index: location });
   }
   const context = valueContextId(arena.contexts.length);
   const caller = { ...arena, contexts: [...arena.contexts, { id: context, receiver: null, arguments: arguments_, captures }] };

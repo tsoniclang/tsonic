@@ -12,6 +12,7 @@ import { parseSources } from "../architecture/host/import-graph.mjs";
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { runCase } from "../host-cases/case.mjs";
 import { compareCaseValues } from "../host-cases/compare.mjs";
+import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
@@ -22,7 +23,7 @@ const runtimeNames = ["index", "print", "parse", "text-data", "text-decisions", 
   "verify", "verify-contributions", "verify-solution", "inferred-parts", "capture-law", "text-errors"];
 const runtimeFiles = runtimeNames.map(name => resolve(emitted, `${name}.js`));
 const ownedSources = ["contract", ...runtimeNames].map(name => `${owner}/${name}.ts`).sort();
-const dependencies = ["ids", "diag", "ir-types", "ir-hir"];
+const dependencies = ["ids", "diag", "ir-types", "ir-hir", "step"];
 const coverageSession = new Session();
 const packageIdentity = "P[project]";
 const moduleIdentity = `M[${packageIdentity};source.ts]`;
@@ -102,6 +103,7 @@ const emptyScope = { classParameters: [], methodParameters: [], capturedParamete
 const signature = { id: 0, declaration: definition, owner: source, composition: null, kind: "call",
   typeParameters: [], receiver: null, parameters: [], result: 0 };
 const bodyTyping = { body, captures: [], signature: 0, completion: 0, yielded: null, sent: null };
+const selectedEndpoints = (advertised, api) => ({ advertised, advertisedSignature: advertised.signature, api, apiSignature: api.signature });
 const declarationFacts = { scope: emptyScope, parameterCount: 0, endpoints: [
   { declaration: definition, role: "advertised", signature: 0, body: null },
   { declaration: definition, role: "api-body", signature: 0, body },
@@ -109,16 +111,18 @@ const declarationFacts = { scope: emptyScope, parameterCount: 0, endpoints: [
 ] };
 
 function verificationInput(records = {}) {
-  const { declarations = [[definition, declarationFacts]], nominals = [],
+  const { declarations = [[definition, declarationFacts]], nominals = [], placements = [[body, signature.id]],
     nodes = [{ owner: source, ids: [0] }, { owner: { kind: "item", value: { owner: definition, node: 0 } }, ids: [0] }],
     locals = [{ body, ids: [0] }], ...input } = records;
   const declarationMap = new Map(declarations);
   const nominalMap = new Map(nominals);
+  const placed = new Map(placements);
   const nodeMap = new Map(nodes.map(row => [row.owner.kind === "body" ? `body:${row.owner.value.body}` : `item:${row.owner.value.owner}`, new Set(row.ids)]));
   const localMap = new Map(locals.map(row => [row.body, new Set(row.ids)]));
   return { group: { id: group, bodies: [body], signatures: [] }, constraints: [constraintSet()], contributions: [], solution: null,
     types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature] }, bindingScopes: [], ...input,
     declarationOf: value => declarationMap.get(value) ?? null, nominalOf: value => nominalMap.get(value) ?? null,
+    placedSignatureOf: value => placed.get(value) ?? null,
     nodeExists: value => !Object.is(value.value.node, -0) &&
       nodeMap.get(value.kind === "body" ? `body:${value.value.body}` : `item:${value.value.owner}`)?.has(value.value.node) === true,
     localExists: value => !Object.is(value.local, -0) && localMap.get(value.body)?.has(value.local) === true };
@@ -134,6 +138,7 @@ const variableSite = variable => ({ kind: "variable", group, variable });
 const constraintSite = index => ({ kind: "constraint", constraint: { body, index } });
 const localVariable = id => ({ kind: "local", id, occurrence, local: null });
 const completeSolution = () => ({ group, variables: [], constraints: [], checks: [], bodies: [bodyTyping] });
+const parameterFacts = declarations => declarations.map(declaration => [declaration, { scope: emptyScope, parameterCount: null, endpoints: [] }]);
 const checkedRules = new Set();
 const exercisedPorts = new Set();
 const inputArms = { constraints: new Set(), variables: new Set(), contributions: new Set() };
@@ -186,7 +191,7 @@ test("group ownership, stable variable namespaces and final record totality have
 test("duplicate inventories and each stable group ordering retain their complete positional findings", () => {
   const equality = { kind: "eq", occurrence, left: 0, right: 0 };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const set = { ...constraintSet([equality], [localVariable(0)]), candidates: [{ id: 0, candidates: [candidate] }] };
   ruleCase("group-ownership", { constraints: [set] }, { constraints: [set, set] }, [
     violation("group-ownership", bodySite, "constraints"),
@@ -261,7 +266,7 @@ test("constraint, candidate and contribution references are qualified complete r
   ruleCase("contribution-reads-bounds-declared", original, { ...original, contributions: [{ ...contribution, reads: [0] }] },
     [violation("contribution-reads-bounds-declared", { kind: "contribution", key }, "reads")]);
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null, typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0, candidates: [candidate] }] };
   ruleCase("candidate-reference", { constraints: [set] }, { constraints: [{ ...set, candidates: [] }] },
@@ -272,7 +277,7 @@ test("constraint, candidate and contribution references are qualified complete r
 
 test("candidate inventories retain HIR original ordinals instead of dense list positions", () => {
   const candidate = { declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const input = ordinals => verificationInput({ constraints: [{ ...constraintSet(),
     candidates: [{ id: 0, candidates: ordinals.map(ordinal => ({ ...candidate, ordinal })) }] }] });
   for (const ordinals of [[1], [2, 4], [0, 3, 6, 9]])
@@ -333,7 +338,7 @@ test("ordinary peer arena holes retain missing rows through the one canonical ve
   check({ terms: [primitive, array], signatures: [] }, [], [constraintSet([{ ...equality, left: 1, right: 1 }])]);
   check({ terms: indirectType, signatures: [] }, [missingRoot, missingType], [constraintSet([{ ...equality, left: 1, right: 1 }])]);
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const candidateSet = { ...constraintSet(), candidates: [{ id: 0, candidates: [candidate] }] };
   check({ terms: [primitive], signatures: [signature] }, [], [candidateSet]);
   check({ terms: [primitive], signatures: new Array(1) },
@@ -386,7 +391,7 @@ test("open variable references keep their numeric domain through actual type and
   const variable = localVariable(0);
   const equality = root => ({ kind: "eq", occurrence, left: root, right: 0 });
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const rows = value => {
     const open = { kind: "open", group, variable: value };
     const terms = [primitive, open];
@@ -430,7 +435,7 @@ test("open variable references keep their numeric domain through actual type and
 test("all actual declaration occurrences use the same genuine reference reader even before selection", () => {
   const missing = `D[${moduleIdentity};absent]`;
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const set = { ...constraintSet(), candidates: [{ id: 0, candidates: [candidate] }] };
   ruleCase("qualified-reference", { constraints: [set] }, { constraints: [{ ...set,
     candidates: [{ id: 0, candidates: [{ ...candidate, declaration: missing }] }] }] },
@@ -497,6 +502,53 @@ test("the seven final-record footprint kinds retain every dependency and explici
   fullEqual(product.verifyInference(verificationInput({ constraints: [constraintSet([closed])], types: cyclicTypes,
     contributions: [{ key: { node: occurrence, candidate: null, role: { kind: "equality", direction: "left-to-right" } },
       reads: [], bounds: [], constraint: { body, index: 0 } }] })), [], "cyclic type closure is iterative and does not invent an open variable");
+});
+
+test("a native literal default projects its exact final read; explicit defaults still write their bounds", () => {
+  const literal = { kind: "literal", id: 0, occurrence,
+    value: { kind: "number", token: "1", value: { numerator: 1n, denominator: 1n, negativeZero: false } } };
+  const constraint = { kind: "default", occurrence, variable: literal.id, rule: "literal-native-default", type: null };
+  const reference = { body, index: 0 };
+  const contribution = { key: { node: occurrence, candidate: null, role: { kind: "default" } },
+    reads: [literal.id], bounds: [], constraint: reference };
+  const solution = { ...completeSolution(), variables: [{ variable: 0, ...inferenceValue() }],
+    constraints: [{ constraint: reference, decision: { kind: "default", type: 0 } }] };
+  const input = { constraints: [constraintSet([constraint], [literal])], contributions: [contribution], solution,
+    types: { terms: [{ kind: "primitive", primitive: "int64" }, { kind: "primitive", primitive: "float64" }], signatures: [signature] } };
+  ruleCase("contribution-footprint-complete", input,
+    { ...input, contributions: [{ ...contribution, reads: [], bounds: [literal.id] }] },
+    [violation("contribution-footprint-complete", { kind: "contribution", key: contribution.key }, "bounds"),
+      violation("check-recorded", { kind: "contribution", key: contribution.key }, "checks")], "a projected default has no second producer");
+  ruleCase("decision-kind", input, { ...input, solution: { ...solution, constraints: [
+    { constraint: reference, decision: { kind: "default", type: 1 } },
+  ] } }, [violation("decision-kind", constraintSite(0), "decision")], "the projected type is the actual final read");
+  const discharge = { kind: "discharge", occurrence, checkerDiagnostic: 0, obligations: [reference] };
+  const cumulative = { ...contribution, key: { ...contribution.key, role: { kind: "discharge" } }, constraint: { body, index: 1 } };
+  const nested = { ...input, solution: null, constraints: [constraintSet([constraint, discharge], [literal])], contributions: [cumulative] };
+  ruleCase("contribution-footprint-complete", nested, { ...nested, contributions: [{ ...cumulative, reads: [] }] },
+    [violation("contribution-footprint-complete", { kind: "contribution", key: cumulative.key }, "bounds")], "transitive evidence retains the native default read");
+});
+
+test("a checked signature completion retains its exact resolved void decision and read", () => {
+  const part = { definition, part: { kind: "return" } };
+  const variable = { kind: "signature", id: 0, occurrence, signature: part };
+  const constraint = { kind: "default", occurrence, variable: 0, rule: "signature-producers", type: 0 };
+  const reference = { body, index: 0 };
+  const contribution = { key: { node: occurrence, candidate: null, role: { kind: "default" } },
+    reads: [0], bounds: [], constraint: reference };
+  const solution = { ...completeSolution(), variables: [{ variable: 0,
+    value: { ...evidence(), category: { kind: "dynamic" } }, error: null }],
+    constraints: [{ constraint: reference, decision: { kind: "default", type: 0 } }] };
+  const input = { group: { id: group, bodies: [body], signatures: [part] },
+    types: { terms: [{ kind: "intrinsic", intrinsic: "void" }, { kind: "primitive", primitive: "bool" }], signatures: [signature] },
+    constraints: [constraintSet([constraint], [variable])], contributions: [contribution], solution };
+  ruleCase("decision-kind", input, { ...input, solution: { ...solution, constraints: [
+    { constraint: reference, decision: { kind: "default", type: 1 } },
+  ] } }, [violation("decision-kind", constraintSite(0), "decision")], "no-value default can't borrow a value type");
+  ruleCase("contribution-footprint-complete", input, { ...input, solution: null,
+    contributions: [{ ...contribution, reads: [] }] },
+  [violation("contribution-footprint-complete", { kind: "contribution", key: contribution.key }, "bounds")],
+  "no-value default must read its actual final type");
 });
 
 test("typed bad numeric references reach their actual verifier without text normalization", () => {
@@ -579,7 +631,6 @@ test("discharge reaching any selected relationship is a direct component law, no
 test("type and signature closure follows every actual arena edge without traversing IDs as inline records", () => {
   const nominal = `D[${moduleIdentity};Model]`;
   const enumeration = `D[${moduleIdentity};Choice]`;
-  const parameter = { owner: nominal, index: 0 };
   const parameterDeclaration = `D[${moduleIdentity};Model/T]`;
   const memberOrigins = [{ kind: "declared", declaration: `D[${moduleIdentity};Model/field]` }];
   const member = { key: { kind: "text", value: "field" }, origins: memberOrigins, readOrigins: memberOrigins, writeOrigins: memberOrigins,
@@ -597,14 +648,17 @@ test("type and signature closure follows every actual arena edge without travers
     { kind: "callable", calls: [0], constructs: [1] },
     { kind: "declared", definition: nominal, arguments: [0], facet: "instance", extent: null },
     { kind: "construction-reference", definition: { occurrence, captures: [{ body, local: 0 }] }, arguments: [0] },
-    { kind: "enum", definition: enumeration }, { kind: "param", parameter }, { kind: "self", owner: nominal },
+    { kind: "enum", definition: enumeration }, { kind: "param", parameter: parameterDeclaration }, { kind: "self", owner: nominal },
     { kind: "projection", source: 0, projection: { kind: "awaited" } },
     { kind: "projection", source: 0, projection: { kind: "component", component: { root: source,
       path: [{ kind: "parameter", signature: 1, index: 0 }] } } },
     { kind: "open", group, variable: 0 }, { kind: "error" },
+    { kind: "projection", source: 0, projection: { kind: "indexed", index: 19 } },
+    ...["extends", "whenTrue", "whenFalse"].map((edge) => ({ kind: "projection", source: 0,
+      projection: { kind: "conditional", extends: 0, whenTrue: 0, whenFalse: 0, distributive: false, inferParameter: null, [edge]: 19 } })),
   ];
   const extra = { ...signature, id: 1, declaration: null, owner: null, kind: "construct",
-    typeParameters: [{ identity: parameter, declaration: parameterDeclaration, constraint: 0, default: 1 }],
+    typeParameters: [{ declaration: parameterDeclaration, constraint: 0, default: 1 }],
     receiver: 0, parameters: [{ declaration: parameterDeclaration, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false }],
     result: 19 };
   const constraints = terms.map((term, index) => ({ kind: "eq", occurrence: { body, node: index }, left: index, right: 0 }));
@@ -619,6 +673,15 @@ test("type and signature closure follows every actual arena edge without travers
   ruleCase("contribution-footprint-complete", input, bad,
     [violation("contribution-footprint-complete", { kind: "contribution", key: contributions[10].key }, "bounds")],
     "open result reached through a shape's construct signature");
+  const projectionEdges = ["indexed key", "conditional extends", "conditional true branch", "conditional false branch"];
+  for (const [offset, edge] of projectionEdges.entries()) {
+    const selected = contributions.length - projectionEdges.length + offset;
+    const missingBound = { ...input, contributions: contributions.map((contribution, index) =>
+      index === selected ? { ...contribution, bounds: [] } : contribution) };
+    ruleCase("contribution-footprint-complete", input, missingBound,
+      [violation("contribution-footprint-complete", { kind: "contribution", key: contributions[selected].key }, "bounds")],
+      `open result reached through the ${edge} rather than the projection source`);
+  }
   for (const [read, write] of [[null, 0], [0, null]]) {
     const shape = { ...terms[10], members: [{ ...member, read, write, readonly: write === null }],
       indexes: [{ ...terms[10].indexes[0], write: null, readonly: true }] };
@@ -695,11 +758,12 @@ test("positional scopes are authentic complete environments, never inferred from
     { constraints: [constraintSet([flow])] }, [violation("binding-vector-complete", constraintSite(0), "bindingScopes[0]")], "missing occurrence scope");
   ruleCase("binding-vector-complete", {}, { bindingScopes: [emptyScope] },
     [violation("binding-vector-complete", groupSite, "bindingScopes[0]")], "extra occurrence scope");
-  const parameter = { owner: definition, index: 0 };
+  const parameter = typeParameterDeclaration(definition, 0);
+  const declarations = [[definition, declarationFacts], ...parameterFacts([parameter])];
   const genericScope = { ...emptyScope, capturedParameters: [parameter] };
   const genericFlow = { ...flow, bindings: { ...emptyBindings, capturedBindings: [{ kind: "rigid", parameter }] } };
-  ruleCase("binding-vector-complete", { constraints: [constraintSet([genericFlow])], bindingScopes: [genericScope] },
-    { constraints: [constraintSet([flow])], bindingScopes: [genericScope] },
+  ruleCase("binding-vector-complete", { constraints: [constraintSet([genericFlow])], bindingScopes: [genericScope], declarations },
+    { constraints: [constraintSet([flow])], bindingScopes: [genericScope], declarations },
     [violation("binding-vector-complete", constraintSite(0), "binding-vector-complete")], "real captured generic tail versus nongeneric empty tail");
   const shared = flow.bindings;
   fullEqual(product.verifyInference(verificationInput({ constraints: [constraintSet([flow, { ...flow, bindings: shared }])],
@@ -707,19 +771,19 @@ test("positional scopes are authentic complete environments, never inferred from
   const sparseScopes = [];
   sparseScopes.length = 2;
   sparseScopes[1] = genericScope;
-  ruleCase("binding-vector-complete", { constraints: [constraintSet([flow, genericFlow])], bindingScopes: [emptyScope, genericScope] },
-    { constraints: [constraintSet([flow, flow])], bindingScopes: sparseScopes }, [
+  ruleCase("binding-vector-complete", { constraints: [constraintSet([flow, genericFlow])], bindingScopes: [emptyScope, genericScope], declarations },
+    { constraints: [constraintSet([flow, flow])], bindingScopes: sparseScopes, declarations }, [
       violation("binding-vector-complete", constraintSite(0), "bindingScopes[0]"),
       violation("binding-vector-complete", constraintSite(1), "binding-vector-complete"),
     ], "skipping an absent scope cannot shift a later canonical failure onto the missing occurrence");
 });
 
 test("canonical type findings retain their original order and every actual binding and evidence occurrence", () => {
-  const parameter = { owner: definition, index: 0 };
+  const parameter = typeParameterDeclaration(definition, 0);
   const classOwner = `D[${moduleIdentity};Container]`;
   const capturedOwner = `D[${moduleIdentity};outer]`;
-  const classParameter = { owner: classOwner, index: 0 };
-  const capturedParameter = { owner: capturedOwner, index: 0 };
+  const classParameter = typeParameterDeclaration(classOwner, 0);
+  const capturedParameter = typeParameterDeclaration(capturedOwner, 0);
   const flow = node => ({ kind: "flow", occurrence: { body, node }, from: 0, to: 0, role: "assignment", bindings: emptyBindings });
   const scope = { ...emptyScope, classParameters: [classParameter], methodParameters: [parameter], capturedParameters: [capturedParameter] };
   const first = { ...flow(0), bindings: { ...emptyBindings,
@@ -732,11 +796,12 @@ test("canonical type findings retain their original order and every actual bindi
     [definition, { ...declarationFacts, scope }],
     [classOwner, { scope: { ...emptyScope, classParameters: [classParameter] }, parameterCount: null, endpoints: [] }],
     [capturedOwner, { scope: { ...emptyScope, methodParameters: [capturedParameter] }, parameterCount: 0, endpoints: [] }],
-  ], types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [{ ...signature, typeParameters: [{ identity: parameter,
-    declaration: `D[${moduleIdentity};run/T]`, constraint: null, default: null }] }] } };
+    ...parameterFacts([parameter, classParameter, capturedParameter, typeParameterDeclaration(capturedOwner, 1)]),
+  ], types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [{ ...signature, typeParameters: [{
+    declaration: parameter, constraint: null, default: null }] }] } };
   const invalid = { ...valid, constraints: [{ ...set, constraints: [{ ...flow(0), bindings: { ...emptyBindings,
     capturedBindings: [{ kind: "rigid", parameter: capturedParameter }] } }, { ...second, bindings: { ...first.bindings,
-    capturedBindings: [{ kind: "rigid", parameter: { owner: capturedOwner, index: 1 } }] } }, third], evidence: [inferenceValue(9), inferenceValue()] }],
+    capturedBindings: [{ kind: "rigid", parameter: typeParameterDeclaration(capturedOwner, 1) }] } }, third], evidence: [inferenceValue(9), inferenceValue()] }],
   types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [{ ...valid.types.signatures[0], result: 9 }] } };
   ruleCase("binding-vector-complete", valid, invalid, [
     violation("qualified-reference", bodySite, "types"),
@@ -1038,7 +1103,7 @@ test("discharge obligation references preserve every original missing or nonordi
 
 test("actual formal tables and canonical endpoint associations are independent of endpoint spelling", () => {
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const argument = { occurrence: { body, node: 1 }, kind: "value", type: 0, tuple: null, closure: null };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null, typeArguments: [], arguments: [argument], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0, candidates: [candidate] }] };
@@ -1125,7 +1190,7 @@ test("actual formal tables and canonical endpoint associations are independent o
 test("overloads map optional, default and rest implementation formals rather than the advertised empty signature", () => {
   const initializer = `B[D[${moduleIdentity};run/defaulted];default-argument;0]`;
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const constraints = [{ ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0, candidates: [candidate] }] }];
@@ -1144,8 +1209,8 @@ test("overloads map optional, default and rest implementation formals rather tha
     const implementation = { ...signature, id: 1, parameters: [{ declaration: `D[${moduleIdentity};run/implementation]`,
       kind, type: 0, passing: "by-value", initializer: kind === "default" ? initializer : null, acceptsOmission: true }] };
     const actualConstraints = [{ ...constraints[0], candidates: [{ id: 0, candidates: [{ ...candidate,
-      endpoints: { kind: "available", value: { advertised: selected.advertised, api } } }] }] }];
-    const input = { constraints: actualConstraints, solution: solved([mapping]), bindingScopes: [emptyScope, emptyScope],
+      endpoints: { kind: "available", value: selectedEndpoints(selected.advertised, api) } }] }] }];
+    const input = { constraints: actualConstraints, solution: solved([mapping]), placements: [[body, implementation.id]], bindingScopes: [emptyScope, emptyScope],
       declarations: [[definition, { ...declarationFacts, parameterCount: 1, endpoints: [selected.advertised, api,
         ...(role === "api-signature" ? [{ ...api, role: "api-body", body }] : [])] }]],
       types: { terms: [{ kind: "primitive", primitive: "int32" }, { kind: "string" }], signatures: [signature, implementation] } };
@@ -1158,27 +1223,27 @@ test("overloads map optional, default and rest implementation formals rather tha
 
 test("every binder family is checked against the genuine original candidate declaration scope", () => {
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const constraint = { kind: "call", occurrence, application };
-  const parameter = { owner: definition, index: 0 };
+  const parameter = typeParameterDeclaration(definition, 0);
   for (const original of [0, 2, 4]) for (const [family, field] of [
     ["class", "classParameters"], ["method", "methodParameters"], ["captured", "capturedParameters"],
   ]) {
     const variable = { kind: "binder", id: 0, occurrence, application: occurrence, candidate: original, family, parameter };
     const set = { ...constraintSet([constraint], [variable]), candidates: [{ id: 0, candidates: [{ ...candidate, ordinal: original }] }] };
     const input = { constraints: [set], declarations: [[definition, { ...declarationFacts,
-      scope: { ...emptyScope, [field]: [parameter] } }]] };
+      scope: { ...emptyScope, [field]: [parameter] } }], ...parameterFacts([parameter, typeParameterDeclaration(definition, 1)])] };
     ruleCase("binding-vector-complete", input, { ...input, constraints: [{ ...set,
-      variables: [{ ...variable, parameter: { ...parameter, index: 1 } }] }] },
+      variables: [{ ...variable, parameter: typeParameterDeclaration(definition, 1) }] }] },
     [violation("binding-vector-complete", variableSite(0), "parameter")], `actual ${family} binder identity`);
     ruleCase("candidate-reference", input, { ...input, constraints: [{ ...set,
       variables: [{ ...variable, application: { body, node: 1 } }] }], nodes: [{ owner: source, ids: [0, 1] }] },
     [violation("candidate-reference", variableSite(0), "application")], `actual ${family} application`);
     ruleCase("binding-vector-complete", input, { ...input, constraints: [{ ...set,
-      variables: [{ ...variable, parameter: { ...parameter, index: -0 } }] }] },
-    [violation("binding-vector-complete", variableSite(0), "parameter")], `actual ${family} parameter excludes negative zero`);
+      variables: [{ ...variable, parameter: definition }] }] },
+    [violation("binding-vector-complete", variableSite(0), "parameter")], `actual ${family} excludes the enclosing definition itself`);
     for (const selected of [-0, 1]) ruleCase("candidate-reference", input, { ...input, constraints: [{ ...set,
       variables: [{ ...variable, candidate: selected }] }] },
     [violation("candidate-reference", variableSite(0), "candidate")], `actual ${family} original candidate domain`);
@@ -1206,8 +1271,8 @@ test("selected endpoint roles follow the endpoint family of the selected declara
   const declared = { declaration: bodiless, role: "api-signature", signature: 2, body: null };
   const candidateOf = declaration => ({ ordinal: 0, declaration, appliedSignature: { kind: "available", value: 0 },
     bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [],
-    endpoints: { kind: "available", value: { advertised: declaration === ordinary ? endpoint : declaration === bodiless ? declared : declarationFacts.endpoints[0],
-      api: declaration === ordinary ? endpoint : declaration === bodiless ? declared : declarationFacts.endpoints[1] } } });
+    endpoints: { kind: "available", value: selectedEndpoints(declaration === ordinary ? endpoint : declaration === bodiless ? declared : declarationFacts.endpoints[0],
+      declaration === ordinary ? endpoint : declaration === bodiless ? declared : declarationFacts.endpoints[1]) } });
   const raw = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const setOf = declaration => ({ ...constraintSet([{ kind: "call", occurrence, application: raw }]),
@@ -1248,8 +1313,8 @@ test("selected endpoint roles follow the endpoint family of the selected declara
   const [advertised, apiBody] = declarationFacts.endpoints;
   const second = { ...advertised, signature: 1 };
   const twoSignatures = application => ({ ...records(definition, application), constraints: [{ ...setOf(definition),
-    candidates: [{ id: 0, candidates: [{ ...candidateOf(definition), endpoints: { kind: "available", value: {
-      advertised: application.advertised.signature === second.signature ? second : advertised, api: apiBody } } }] }] }],
+    candidates: [{ id: 0, candidates: [{ ...candidateOf(definition), endpoints: { kind: "available",
+      value: selectedEndpoints(application.advertised.signature === second.signature ? second : advertised, apiBody) } }] }] }],
     declarations: [[definition, { ...declarationFacts, endpoints: [...declarationFacts.endpoints, second] }],
       [ordinary, { scope: emptyScope, parameterCount: 0, endpoints: [endpoint] }]] });
   fullEqual(product.verifyInference(verificationInput(twoSignatures(applicationOf(second, apiBody)))), [], "the second advertised row is a family member");
@@ -1264,8 +1329,8 @@ test("selected endpoint roles follow the endpoint family of the selected declara
 
 test("bodyless APIs retain their own complete generic environment independently of advertised bindings", () => {
   const apiDefinition = `D[${moduleIdentity};nativeRun]`;
-  const advertisedParameter = { owner: definition, index: 0 };
-  const apiParameter = { owner: apiDefinition, index: 0 };
+  const advertisedParameter = typeParameterDeclaration(definition, 0);
+  const apiParameter = typeParameterDeclaration(apiDefinition, 0);
   const advertisedScope = { ...emptyScope, methodParameters: [advertisedParameter] };
   const apiScope = { ...emptyScope, methodParameters: [apiParameter] };
   const advertisedBindings = { ...emptyBindings, methodBindings: [{ kind: "rigid", parameter: advertisedParameter }] };
@@ -1273,7 +1338,7 @@ test("bodyless APIs retain their own complete generic environment independently 
   const advertised = { declaration: definition, role: "advertised", signature: 0, body: null };
   const api = { declaration: apiDefinition, role: "api-signature", signature: 1, body: null };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised, api } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(advertised, api) } };
   const raw = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application: raw }]), candidates: [{ id: 0, candidates: [candidate] }] };
@@ -1281,11 +1346,11 @@ test("bodyless APIs retain their own complete generic environment independently 
     parameters: [], completion: { signature: 1, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
   const solution = { ...completeSolution(), constraints: [{ constraint: { body, index: 0 },
     decision: { kind: "call", application, operation: null } }] };
-  const parameter = identity => ({ identity, declaration: `D[${moduleIdentity};${identity.owner === definition ? "run" : "nativeRun"}/T]`,
-    constraint: null, default: null });
+  const parameter = declaration => ({ declaration, constraint: null, default: null });
   const input = { constraints: [set], solution, bindingScopes: [advertisedScope, apiScope], declarations: [
     [definition, { ...declarationFacts, scope: advertisedScope, endpoints: [...declarationFacts.endpoints, api] }],
     [apiDefinition, { scope: apiScope, parameterCount: 0, endpoints: [api] }],
+    ...parameterFacts([advertisedParameter, apiParameter]),
   ], types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [
     { ...signature, typeParameters: [parameter(advertisedParameter)] },
     { ...signature, id: 1, declaration: apiDefinition, owner: { kind: "item", value: { owner: apiDefinition, node: 0 } },
@@ -1302,8 +1367,8 @@ test("bodyless APIs retain their own complete generic environment independently 
     application: { ...application, bindings: emptyBindings, implementationBindings: emptyBindings }, operation: null } }] } };
   fullEqual(product.verifyInference(verificationInput(nongeneric)), [], "nongeneric API has a genuine complete empty vector, never null");
   const apiDefinitionGolden = scalarGolden(apiDefinition, "def");
-  const parameterGolden = recordGolden("TypeParameterIdentity", { owner: apiDefinitionGolden, index: scalarGolden(0) });
-  const advertisedParameterGolden = recordGolden("TypeParameterIdentity", { owner: definitionGolden, index: scalarGolden(0) });
+  const parameterGolden = scalarGolden(apiParameter, "def");
+  const advertisedParameterGolden = scalarGolden(advertisedParameter, "def");
   const bindings = value => recordGolden("BindingVector", { classBindings: emptyGolden,
     methodBindings: arrayGolden([recordGolden("rigid", { parameter: value }, "rigid")]), capturedBindings: emptyGolden, selfBindings: emptyGolden });
   const bodyless = recordGolden("ApplicationDecision", { candidate: scalarGolden(0), advertised: endpointGolden(),
@@ -1329,7 +1394,7 @@ test("all four formal mapping dispositions use the real signature and authored a
     { occurrence: { body, node: 3 }, kind: "spread", type: 0, tuple: [0], closure: null },
   ];
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const raw = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: arguments_, candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application: raw }]), candidates: [{ id: 0, candidates: [candidate] }] };
@@ -1478,12 +1543,12 @@ test("all thirteen deferred rule families retain their independently observable 
   const construction = { kind: "construct-literal", occurrence, construction: "object",
     parts: [{ kind: "property", occurrence: { body, node: 1 }, key, type: 0 }], destination: null, result: 0 };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const application = { captured: captureGolden.value, permissionScope: occurrence, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const call = { kind: "call", occurrence, application };
-  const endpoint = { ordinal: 0, declaration: definition, advertised: declarationFacts.endpoints[0],
-    api: declarationFacts.endpoints[1], bindings: emptyBindings, conditionalFailure: null };
+  const endpoint = { ordinal: 0, declaration: definition, ...selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]),
+    bindings: emptyBindings, conditionalFailure: null };
   const actualArguments = [
     { kind: "value", occurrence, type: 0, tuple: null, closure: null },
     { kind: "spread", occurrence: { body, node: 1 }, type: 0, tuple: [0, 0], closure: null },
@@ -1510,9 +1575,9 @@ test("all thirteen deferred rule families retain their independently observable 
       { context, receiver: value, key, access: "write", origins: [] }, [emptyScope, emptyScope]],
     [index, { rule: "index", input: { context, receiver: value, key: value, access: "read" } },
       { context, receiver: value, key: value, access: "write" }, [emptyScope, emptyScope]],
-    [construction, { rule: "construct-literal", input: { context, construction: "object", destination: null,
+    [construction, { rule: "construct-literal", input: { context, construction: "object", destination: null, result: value,
       parts: [{ kind: "property", occurrence: { body, node: 1 }, key, value }] } },
-    { context, construction: "object", destination: null, parts: [] }, [emptyScope]],
+    { context, construction: "object", destination: null, result: value, parts: [] }, [emptyScope]],
     [candidateCall, { rule: "candidate", input: candidateInput }, { ...candidateInput, candidates: [] }, [emptyScope, emptyScope]],
     [operator, { rule: "operator", input: { context, operator: "+", operands: [value, value], permissionScope: occurrence } },
       { context, operator: "+", operands: [value], permissionScope: occurrence }, [emptyScope]],
@@ -1541,6 +1606,11 @@ test("all thirteen deferred rule families retain their independently observable 
     const invalidScopes = invocation.rule === "candidate" ? [emptyScope] : bindingScopes;
     ruleCase("deferred-invocation", input, { ...input, bindingScopes: invalidScopes, solution: solved(changed) },
       [violation("deferred-invocation", constraintSite(0), expectedFields[row])], `structural ${invocation.rule}`);
+    if (invocation.rule === "construct-literal") {
+      const result = { ...value, component: { kind: "body", value: { body, node: 1 } } };
+      ruleCase("deferred-invocation", input, { ...input, solution: solved({ ...invocation, input: { ...invocation.input, result } }) },
+        [violation("deferred-invocation", constraintSite(0), "input")], "the result evidence cannot borrow the actual property occurrence");
+    }
     if (invocation.rule === "domain-fit")
       fullEqual(product.verifyInference(verificationInput({ ...input,
         constraints: [constraintSet([equality])], bindingScopes: [emptyScope] })), [],
@@ -1563,8 +1633,8 @@ test("all thirteen deferred rule families retain their independently observable 
 test("saved accessor and helper inputs use genuine endpoint and declaration facts without inventing raw dispatch", () => {
   const member = { kind: "member", occurrence, receiver: 0, key: { kind: "text", value: "field" },
     access: "read", result: 0, origins: [], bindings: emptyBindings };
-  const endpoint = { ordinal: 0, declaration: definition, advertised: declarationFacts.endpoints[0],
-    api: declarationFacts.endpoints[1], bindings: emptyBindings, conditionalFailure: null };
+  const endpoint = { ordinal: 0, declaration: definition, ...selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]),
+    bindings: emptyBindings, conditionalFailure: null };
   const solved = invocation => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 },
     decision: { kind: "deferred", deferred: { invocation, result: 0 } } }] });
   for (const kind of ["accessor-get", "accessor-set"]) {
@@ -1892,7 +1962,7 @@ test("every closed constraint and variable arm has an independently authored com
     recordGolden("discharge", { occurrence: nodeGolden, checkerDiagnostic: scalarGolden(9910000), obligations: arrayGolden([referenceGolden]) }, "discharge"),
     recordGolden("default", { occurrence: nodeGolden, variable: scalarGolden(0), rule: scalarGolden("local-producers"), type: nullGolden }, "default"),
   ];
-  const parameter = recordGolden("TypeParameterIdentity", { owner: definitionGolden, index: scalarGolden(0) });
+  const parameter = scalarGolden(typeParameterDeclaration(definition, 0), "def");
   const variables = [
     recordGolden("signature", { id: scalarGolden(0), occurrence: nodeGolden, signature: recordGolden("InferredSignaturePart", {
       definition: definitionGolden, part: recordGolden("return", {}, "return") }) }, "signature"),
@@ -1929,7 +1999,7 @@ test("all contribution role ranks and numeric payload columns have complete adja
       { kind: "spread", occurrence, type: 0, tuple: null, closure: body },
     ], candidates: 0, result: 0 };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const constraints = [
     { kind: "eq", occurrence, left: 0, right: 0 },
     { kind: "flow", occurrence, from: 0, to: 0, role: "assignment", bindings: emptyBindings },
@@ -1985,7 +2055,7 @@ test("all contribution role ranks and numeric payload columns have complete adja
 
 test("application contribution roles retain actual arguments, closures, receivers and original candidates", () => {
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: 0, typeArguments: [], arguments: [
     { kind: "value", occurrence, type: 0, tuple: null, closure: null },
     { kind: "spread", occurrence, type: 0, tuple: [0, 0], closure: body },
@@ -2055,7 +2125,7 @@ test("application contribution roles retain actual arguments, closures, receiver
 });
 
 test("closed operator, flow, default, access and native-carrier spellings each retain their complete data", () => {
-  const operators = ["+", "-", "!", "~", "typeof", "void", "delete", "*", "/", "%", "**", "&", "|", "^",
+  const operators = ["+", "-", "!", "~", "++", "--", "typeof", "void", "delete", "*", "/", "%", "**", "&", "|", "^",
     "<<", ">>", ">>>", "<", "<=", ">", ">=", "==", "!=", "===", "!==", "in", "instanceof"];
   const flows = ["initialization", "assignment", "argument", "return", "receiver", "yield", "member-write"];
   const defaults = ["signature-producers", "local-producers", "binder-declared-default", "literal-native-default", "refuse-unseeded"];
@@ -2103,11 +2173,12 @@ test("complete captured Core families survive without provider interpretation or
   const field = recordGolden("HirFieldMarkerCapture", { name: scalarGolden("field"), typeNode: sourceGolden,
     type: available(typeGolden), readonly: scalarGolden(true) });
   const markers = [
-    recordGolden("HirMarkersCapture", { struct: nullGolden, field: nullGolden, defaultValue: nullGolden, jsString: scalarGolden(false) }),
+    recordGolden("HirMarkersCapture", { struct: nullGolden, field: nullGolden, defaultValue: nullGolden, jsString: scalarGolden(false), application: available(nullGolden) }),
     recordGolden("HirMarkersCapture", { struct: recordGolden("Record", { valueType: scalarGolden(true), fields: available(arrayGolden([field])) }),
-      field, defaultValue: recordGolden("Record", { typeNode: sourceGolden, type: available(typeGolden) }), jsString: scalarGolden(true) }),
+      field, defaultValue: recordGolden("Record", { typeNode: sourceGolden, type: available(typeGolden) }), jsString: scalarGolden(true),
+      application: available(recordGolden("HirMarkerApplication", { role: scalarGolden("field"), occurrence: nodeGolden, declaration: definitionGolden })) }),
     recordGolden("HirMarkersCapture", { struct: recordGolden("Record", { valueType: scalarGolden(false), fields: unavailableGolden }),
-      field: nullGolden, defaultValue: nullGolden, jsString: scalarGolden(false) }),
+      field: nullGolden, defaultValue: nullGolden, jsString: scalarGolden(false), application: unavailableGolden }),
   ];
   const pointers = [recordGolden("raw-address", {}, "raw-address"),
     ...["readonly", "readwrite", "unspecified"].map(mutability => recordGolden("typed-location", {
@@ -2291,7 +2362,8 @@ test("every saved rule invocation retains its actual closed input rather than on
   const candidateArguments = [recordGolden("value", { occurrence: nodeGolden, value: evidenceGolden, tuple: nullGolden }, "value"),
     recordGolden("spread", { occurrence: nodeGolden, value: evidenceGolden, tuple: arrayGolden([evidenceGolden]) }, "spread")];
   const candidate = recordGolden("CandidateEndpoint", { ordinal: scalarGolden(0), declaration: definitionGolden,
-    advertised: endpointGolden(), api: endpointGolden("api-signature"), bindings: bindingGolden, conditionalFailure: nullGolden });
+    advertised: endpointGolden(), advertisedSignature: signatureGolden, api: endpointGolden("api-signature"), apiSignature: signatureGolden,
+    bindings: bindingGolden, conditionalFailure: nullGolden });
   const invocations = [
     deferredGolden("embed", recordGolden("EmbedInput", { context: contextGolden, from: evidenceGolden, to: evidenceGolden, role: scalarGolden("return") })),
     deferredGolden("domain-fit", recordGolden("DomainFitInput", { context: contextGolden, value: evidenceGolden, domain: evidenceGolden })),
@@ -2299,7 +2371,7 @@ test("every saved rule invocation retains its actual closed input rather than on
     deferredGolden("member", recordGolden("MemberInput", { context: contextGolden, receiver: evidenceGolden, key: textKeyGolden, access: scalarGolden("call"), origins: emptyGolden })),
     deferredGolden("index", recordGolden("IndexInput", { context: contextGolden, receiver: evidenceGolden, key: evidenceGolden, access: scalarGolden("read") })),
     deferredGolden("construct-literal", recordGolden("LiteralConstructionInput", { context: contextGolden,
-      construction: scalarGolden("array"), parts: arrayGolden(constructionParts), destination: evidenceGolden })),
+      construction: scalarGolden("array"), parts: arrayGolden(constructionParts), destination: evidenceGolden, result: evidenceGolden })),
     ...["call", "construct", "accessor-get", "accessor-set"].map(kind => deferredGolden("candidate", recordGolden(kind, {
       context: contextGolden, callee: evidenceGolden, receiver: evidenceGolden, typeArguments: arrayGolden([evidenceGolden]),
       arguments: arrayGolden(candidateArguments), candidates: arrayGolden([candidate]) }, kind))),
@@ -2347,7 +2419,7 @@ test("all host numbers and exact literals survive text before semantic validatio
 });
 
 test("binding families, sum components, nominal identity and pointer evidence remain separate complete data", () => {
-  const parameter = recordGolden("TypeParameterIdentity", { owner: definitionGolden, index: scalarGolden(0) });
+  const parameter = scalarGolden(typeParameterDeclaration(definition, 0), "def");
   const bound = recordGolden("bound", { parameter, type: typeGolden }, "bound");
   const rigid = recordGolden("rigid", { parameter }, "rigid");
   const bindings = recordGolden("BindingVector", { classBindings: arrayGolden([bound]), methodBindings: arrayGolden([rigid]),
@@ -2413,14 +2485,15 @@ test("original candidate order, captured availability and complete diagnostic pa
     recordGolden("TextEdit", { origin: originGolden, replacement: scalarGolden("replacement") }),
   ]) }) });
   const captured = value => recordGolden("available", { value }, "available");
-  const parameter = recordGolden("TypeParameterIdentity", { owner: definitionGolden, index: scalarGolden(0) });
+  const parameter = scalarGolden(typeParameterDeclaration(definition, 0), "def");
   const contribution = (role, type = captured(typeGolden)) => recordGolden("HirInferenceContribution", { parameter, role: scalarGolden(role), source: sourceGolden,
     component: componentGolden, type });
   const candidates = [recordGolden("InferenceCandidate", { ordinal: scalarGolden(0), declaration: definitionGolden,
     appliedSignature: captured(signatureGolden), bindings: captured(bindingGolden), conditionalFailure: captured(diagnostic),
     contributions: arrayGolden(["argument", "receiver", "context", "result", "type-argument"].map(role => contribution(role))),
     endpoints: recordGolden("available", { value: recordGolden("CandidateEndpoints", {
-      advertised: endpointGolden(), api: endpointGolden("api-body", bodyGolden) }) }, "available") }),
+      advertised: endpointGolden(), advertisedSignature: signatureGolden,
+      api: endpointGolden("api-body", bodyGolden), apiSignature: signatureGolden }) }, "available") }),
   ...["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"].map((reason, index) => {
     const unavailable = recordGolden("unavailable", { reason: scalarGolden(reason), causes: arrayGolden([]) }, "unavailable");
     return recordGolden("InferenceCandidate", { ordinal: scalarGolden(index + 1), declaration: definitionGolden,
@@ -3319,7 +3392,7 @@ test("the complete actual producer is strict-isolated against genuine allowed pu
   }
   const closure = new Set(interfaceSources);
   for (const path of closure) for (const target of edges.get(path) ?? []) closure.add(target);
-  assert.equal([...closure].every(path => inventory.includes(path)), true, "no source outside the actual four admitted dependency owners");
+  assert.equal([...closure].every(path => inventory.includes(path)), true, "no source outside the actual admitted dependency owners");
   const report = await compileIsolated(deps, hostCatalogue.find(module => module.name === "ir-infer"), {
     root: repository, sourceFiles: ownedSources, interfaceSources, declarationSources: [...closure].sort(),
     outputDirectory: ".temp/host-f-ir-infer/isolation",
@@ -3340,19 +3413,19 @@ test("fresh emitted declarations admit all nine ports and reject exact readonly,
   for (const module of ["ir-infer", ...dependencies]) {
     mkdirSync(resolve(stage, module));
     for (const name of module === "ir-infer" ? ["contract.d.ts", "index.d.ts"]
-      : module === "ir-types" ? ["contract.d.ts", "arena.d.ts", "data.d.ts", "native-facts-data.d.ts"]
+      : module === "ir-types" ? ["contract.d.ts", "arena.d.ts", "data.d.ts", "native-facts-data.d.ts", "work.d.ts"]
         : module === "ir-hir" ? ["contract.d.ts", "binding-data.d.ts", "capture-data.d.ts"] : ["contract.d.ts"])
       writeFileSync(resolve(stage, module, name), readFileSync(resolve(repository, `packages/host/dist/${module}/${name}`)));
   }
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
   const positive = `import { printConstraints, parseConstraints, printContributions, parseContributions, printInferenceGroup, parseInferenceGroup, printSolution, parseSolution, verifyInference } from "./ir-infer/index.js";
 import type { AtomicContribution, ConstraintSet, InferenceGroup, InferVerificationInput, Solution, PrintConstraints, ParseConstraints, PrintContributions, ParseContributions, PrintInferenceGroup, ParseInferenceGroup, PrintSolution, ParseSolution, VerifyInference } from "./ir-infer/contract.js";
-import type { BindingScope, CategoryEvidence, TypeEvidence, TypeParameterIdentity, TypeTable, TypeTerm, Signature } from "./ir-types/contract.js";
+import type { BindingScope, CategoryEvidence, TypeEvidence, TypeTable, TypeTerm, Signature } from "./ir-types/contract.js";
 import type { DefId } from "./ids/contract.js";
 export const callerScopeHoles: readonly BindingScope[] = [
-  { classParameters: new Array<TypeParameterIdentity>(2), methodParameters: [], capturedParameters: [], selfOwners: [] },
-  { classParameters: [], methodParameters: new Array<TypeParameterIdentity>(2), capturedParameters: [], selfOwners: [] },
-  { classParameters: [], methodParameters: [], capturedParameters: new Array<TypeParameterIdentity>(2), selfOwners: [] },
+  { classParameters: new Array<DefId>(2), methodParameters: [], capturedParameters: [], selfOwners: [] },
+  { classParameters: [], methodParameters: new Array<DefId>(2), capturedParameters: [], selfOwners: [] },
+  { classParameters: [], methodParameters: [], capturedParameters: new Array<DefId>(2), selfOwners: [] },
   { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: new Array<DefId>(2) },
 ];
 export const peerTermHoles: TypeTable = { terms: new Array<TypeTerm>(1), signatures: [] };
@@ -3394,7 +3467,7 @@ export function consume(input: InferVerificationInput, constraints: ConstraintSe
   deepEqual(accepted.text.split(/\r?\n/u).filter(path => path.startsWith(stage)).map(path => relative(stage, path).split(sep).join("/")).sort(),
     ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ir-hir/contract.d.ts", "ir-infer/contract.d.ts", "ir-infer/index.d.ts",
       "ir-hir/binding-data.d.ts", "ir-hir/capture-data.d.ts", "ir-types/contract.d.ts", "ir-types/arena.d.ts",
-      "ir-types/data.d.ts", "ir-types/native-facts-data.d.ts"].sort());
+      "ir-types/data.d.ts", "ir-types/native-facts-data.d.ts", "ir-types/work.d.ts", "step/contract.d.ts"].sort());
   const negatives = [
     ["removed-check-failure-owner.ts", 'import type { CheckFailure } from "./ir-infer/contract.js"; export type Old = CheckFailure;', 2459],
     ["removed-receiver-access-owner.ts", 'import type { ReceiverAccess } from "./ir-infer/contract.js"; export type Old = ReceiverAccess;', 2459],
@@ -3424,7 +3497,7 @@ export function consume(input: InferVerificationInput, constraints: ConstraintSe
 });
 
 test("authoritative candidates retain available or original unavailable endpoints without accepting the retired row", () => {
-  const endpoints = { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } };
+  const endpoints = { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
     bindings: { kind: "available", value: emptyBindings }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints };
   const constraint = { kind: "call", occurrence, application: { captured: captureGolden.value, permissionScope: null,
@@ -3456,6 +3529,21 @@ test("authoritative candidates retain available or original unavailable endpoint
     api: { ...endpoints.value.api, body: `B[${definition};function;1]` } } } };
   fullEqual(product.verifyInference(verificationInput({ constraints: [set(foreign)], bindingScopes: [emptyScope] })),
     [violation("endpoint-agreement", bodySite, "candidate")], "An available pair still requires actual checked endpoint membership.");
+  const wrongDeclaration = `D[${moduleIdentity};foreign]`;
+  const foreignOwner = { kind: "item", value: { owner: wrongDeclaration, node: 0 } };
+  const types = { terms: [{ kind: "primitive", primitive: "int32" }, { kind: "string" }], signatures: [signature,
+    { ...signature, id: 1, declaration: wrongDeclaration, owner: foreignOwner }, { ...signature, id: 2, result: 1 }] };
+  const scope = { types, bindingScopes: [emptyScope], declarations: [[definition, declarationFacts], [wrongDeclaration, declarationFacts]],
+    nodes: [{ owner: source, ids: [0] }, { owner: foreignOwner, ids: [0] }] };
+  const distinct = { ...candidate, endpoints: { kind: "available", value: { ...endpoints.value, advertisedSignature: 2, apiSignature: 2 } } };
+  fullEqual(product.verifyInference(verificationInput({ ...scope, constraints: [set(distinct)] })), [],
+    "Separate applied signatures can be admitted without replacing the original endpoint selectors.");
+  for (const field of ["advertisedSignature", "apiSignature"]) for (const unavailable of [-0, 1, 3]) {
+    const crossed = { ...candidate, endpoints: { kind: "available", value: { ...endpoints.value, [field]: unavailable } } };
+    fullEqual(product.verifyInference(verificationInput({ ...scope, constraints: [set(crossed)] })),
+      [unavailable === 1 ? violation("endpoint-agreement", bodySite, "candidate-signatures") : violation("qualified-reference", bodySite, "types")],
+      "Applied authority must name a real signature of the original declaration.");
+  }
 });
 
 test("authoritative candidate membership indexes the actual checked endpoint inventory once", () => {
@@ -3467,7 +3555,7 @@ test("authoritative candidate membership indexes the actual checked endpoint inv
     const candidates = Array.from({ length: count }, (_, ordinal) => ({ ordinal, declaration: definition,
       appliedSignature: { kind: "available", value: 0 }, bindings: { kind: "unavailable", reason: "not-provided", causes: [] },
       conditionalFailure: { kind: "available", value: null }, contributions: [],
-      endpoints: { kind: "available", value: { advertised: endpoint, api: endpoint } } }));
+      endpoints: { kind: "available", value: selectedEndpoints(endpoint, endpoint) } }));
     fullEqual(product.verifyInference(verificationInput({ constraints: [{ ...constraintSet(), candidates: [{ id: 0, candidates }] }],
       declarations: [[definition, { ...declarationFacts, endpoints }]] })), [], "All candidates retain the same genuine ready endpoint inventory.");
     assert.equal(reads, 2, "The checked inventory is read for one index and one overload predicate, not per candidate.");
@@ -3529,40 +3617,43 @@ test("authored triples use the existing case runner and compare complete outcome
 
 test("shared genuine declaration scopes and final bounds retain complete membership opposites", () => {
   const count = 4096;
-  const parameters = Array.from({ length: count }, (_, index) => ({ owner: definition, index }));
+  const parameters = Array.from({ length: count }, (_, index) => typeParameterDeclaration(definition, index));
+  const parameterDeclarations = parameterFacts([...parameters, typeParameterDeclaration(definition, count)]);
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   for (const [family, field] of [["class", "classParameters"], ["method", "methodParameters"], ["captured", "capturedParameters"]]) {
     const variables = parameters.map((_, id) => ({ kind: "binder", id, occurrence, application: occurrence, candidate: 0,
       family, parameter: parameters.at(-1) }));
     const set = { ...constraintSet([{ kind: "call", occurrence, application }], variables), candidates: [{ id: 0, candidates: [candidate] }] };
-    const input = { constraints: [set], declarations: [[definition, { ...declarationFacts, scope: { ...emptyScope, [field]: parameters } }]] };
+    const input = { constraints: [set], declarations: [[definition, { ...declarationFacts, scope: { ...emptyScope, [field]: parameters } }],
+      ...parameterDeclarations] };
     ruleCase("binding-vector-complete", input, { ...input, constraints: [{ ...set, variables: [...variables.slice(0, -1),
-      { ...variables.at(-1), parameter: { owner: definition, index: count } }] }] },
+      { ...variables.at(-1), parameter: typeParameterDeclaration(definition, count) }] }] },
     [violation("binding-vector-complete", variableSite(count - 1), "parameter")], `shared ${family} scope is genuine data, not per-variable copying`);
     const freshParameters = parameters.slice(0, 32);
     const independent = verificationInput({ ...input, constraints: [{ ...set, variables: variables.slice(0, 32).map(variable =>
       ({ ...variable, parameter: freshParameters.at(-1) })) }], declarations: [[definition,
-      { ...declarationFacts, scope: { ...emptyScope, [field]: freshParameters } }]] });
+      { ...declarationFacts, scope: { ...emptyScope, [field]: freshParameters } }], ...parameterFacts(freshParameters)] });
     const original = independent.declarationOf;
     independent.declarationOf = owner => {
       const value = original(owner);
       return value === null ? null : { ...value, scope: { ...value.scope,
-        [field]: value.scope[field].map(parameter => ({ ...parameter })) } };
+        [field]: [...value.scope[field]] } };
     };
     fullEqual(product.verifyInference(independent), [], `${family} equal fresh scope values do not require object identity`);
   }
   const constraint = { kind: "default", occurrence, variable: 0, rule: "local-producers", type: 0 };
   const key = { node: occurrence, candidate: null, role: { kind: "default" } };
-  const contribution = { key, reads: [], bounds: parameters.map(parameter => parameter.index), constraint: { body, index: 0 } };
-  const checks = parameters.map(parameter => ({ variable: parameter.index, contribution: key,
-    bound: { contribution: key, variable: parameter.index, kind: "producer", value: evidence(), error: null },
+  const variableIds = Array.from({ length: count }, (_, index) => index);
+  const contribution = { key, reads: [], bounds: variableIds, constraint: { body, index: 0 } };
+  const checks = variableIds.map(variable => ({ variable, contribution: key,
+    bound: { contribution: key, variable, kind: "producer", value: evidence(), error: null },
     outcome: { kind: "satisfied", embedding: { kind: "identity" } } }));
-  const solution = { ...completeSolution(), variables: parameters.map(parameter => ({ variable: parameter.index, value: evidence(), error: null })),
+  const solution = { ...completeSolution(), variables: variableIds.map(variable => ({ variable, value: evidence(), error: null })),
     constraints: [{ constraint: { body, index: 0 }, decision: { kind: "default", type: 0 } }], checks };
-  const input = { constraints: [constraintSet([constraint], parameters.map(parameter => localVariable(parameter.index)))], contributions: [contribution], solution };
+  const input = { constraints: [constraintSet([constraint], variableIds.map(localVariable))], contributions: [contribution], solution };
   ruleCase("check-recorded", input, { ...input, contributions: [{ ...contribution, bounds: contribution.bounds.slice(0, -1) }] },
     [violation("check-recorded", { kind: "check", index: count - 1 }, "bound")], "one actual published bounds inventory serves every check");
   const small = { constraints: [constraintSet([constraint], [localVariable(0)])],
@@ -3584,9 +3675,9 @@ test("shared genuine declaration scopes and final bounds retain complete members
 
 test("canonical declaration scope equality charges actual occurrence rows in every family", () => {
   const count = 4096;
-  const parameters = Array.from({ length: count }, (_, index) => ({ owner: definition, index }));
+  const parameters = Array.from({ length: count }, (_, index) => typeParameterDeclaration(definition, index));
   const selfOwners = parameters.map((_, index) => `D[${moduleIdentity};scope${index}]`);
-  const owners = selfOwners.map(owner => [owner, { scope: emptyScope, parameterCount: null, endpoints: [] }]);
+  const owners = [...selfOwners.map(owner => [owner, { scope: emptyScope, parameterCount: null, endpoints: [] }]), ...parameterFacts(parameters)];
   const candidate = ordinal => ({ ordinal, declaration: definition,
     appliedSignature: { kind: "unavailable", reason: "not-provided", causes: [] },
     bindings: { kind: "available", value: emptyBindings },
@@ -3638,7 +3729,10 @@ test("canonical scope equality never copies a borrowed long owner per short occu
   const longOwner = owner("X".repeat(4096));
   const shortOwner = owner("S");
   const sameLengthOwner = owner("Y".repeat(4096));
-  const parameter = (owner, index = 0) => ({ owner, index });
+  const parameter = owner => typeParameterDeclaration(owner, 0);
+  const ordinalParameter = ordinal => ids.encodeDefId({ module, segments: [{ name: "S", ordinal: 0 }, { name: "T", ordinal }] });
+  const parameterDeclarations = parameterFacts([parameter(longOwner), parameter(shortOwner), parameter(sameLengthOwner),
+    ordinalParameter(0), ordinalParameter(1)]);
   const facts = { scope: emptyScope, parameterCount: null, endpoints: [] };
   const candidatesFor = (length, oneList, bindings) => {
     const candidate = ordinal => ({ ordinal, declaration: definition,
@@ -3654,7 +3748,7 @@ test("canonical scope equality never copies a borrowed long owner per short occu
     return verificationInput({ constraints: [{ ...constraintSet(), candidates: candidatesFor(length, oneList, bindings) }],
       types: { terms: [], signatures: [] }, bindingScopes: Array.from({ length }, () => scope),
       declarations: [[definition, { ...facts, scope: { ...emptyScope, [field]: canonicalRows } }],
-        [longOwner, facts], [shortOwner, facts], [sameLengthOwner, facts]] });
+        [longOwner, facts], [shortOwner, facts], [sameLengthOwner, facts], ...parameterDeclarations] });
   };
   for (const [field, bindingField] of [["classParameters", "classBindings"], ["methodParameters", "methodBindings"],
     ["capturedParameters", "capturedBindings"], ["selfOwners", "selfBindings"]]) {
@@ -3683,12 +3777,11 @@ test("canonical scope equality never copies a borrowed long owner per short occu
       Array.from({ length: 2 }, () => violation("binding-vector-complete", bodySite, "declarationScope")),
       `${field}: a later row mismatch cannot be hidden by an equal first row`);
     if (field === "selfOwners") continue;
-    for (const [expected, actual, equal] of [[NaN, NaN, true], [-0, -0, true], [0, 0, true],
-      [-0, 0, false], [0, -0, false], [NaN, 0, false], [0, NaN, false]]) {
-      fullEqual(product.verifyInference(inputFor(field, bindingField, [parameter(shortOwner, expected)],
-        [parameter(shortOwner, actual)], 2, false)), equal ? [] :
+    for (const [expected, actual] of [[0, 0], [1, 1], [0, 1], [1, 0]]) {
+      fullEqual(product.verifyInference(inputFor(field, bindingField, [ordinalParameter(expected)],
+        [ordinalParameter(actual)], 2, false)), expected === actual ? [] :
         Array.from({ length: 2 }, () => violation("binding-vector-complete", bodySite, "declarationScope")),
-      `${field}: numeric parameter identity preserves NaN and both zero spellings exactly`);
+      `${field}: equal parameter names with different genuine declaration ordinals stay distinct`);
     }
   }
 });
@@ -3698,7 +3791,7 @@ test("paired caller scope holes retain their exact canonical and lower-owner fin
   for (const [field, bindingField] of [["classParameters", "classBindings"], ["methodParameters", "methodBindings"],
     ["capturedParameters", "capturedBindings"], ["selfOwners", "selfBindings"]]) {
     const rows = field === "selfOwners" ? [definition, other]
-      : [{ owner: definition, index: 0 }, { owner: definition, index: 1 }];
+      : [typeParameterDeclaration(definition, 0), typeParameterDeclaration(definition, 1)];
     const bindings = { ...emptyBindings, [bindingField]: rows.map(value => field === "selfOwners"
       ? { kind: "rigid", owner: value } : { kind: "rigid", parameter: value }) };
     for (const length of [1, 2]) for (const holes of length === 1 ? [[0]] : [[0], [1], [0, 1]]) {
@@ -3714,7 +3807,7 @@ test("paired caller scope holes retain their exact canonical and lower-owner fin
           constraints: [{ ...constraintSet(), candidates: [{ id: 0, candidates: Array.from({ length: count }, (_, index) => candidate(index)) }] }],
           types: { terms: [], signatures: [] }, bindingScopes: Array.from({ length: count }, () => ({ ...emptyScope, [field]: supplied })),
           declarations: [[definition, { scope: { ...emptyScope, [field]: canonical }, parameterCount: null, endpoints: [] }],
-            [other, { scope: emptyScope, parameterCount: null, endpoints: [] }]],
+            [other, { scope: emptyScope, parameterCount: null, endpoints: [] }], ...parameterFacts(field === "selfOwners" ? [] : rows)],
         });
         const declarationFindings = Array.from({ length: count }, () => violation("binding-vector-complete", bodySite, "declarationScope"));
         const lowerFindings = Array.from({ length: count * holes.length }, () => violation("binding-vector-complete", bodySite,
@@ -3851,7 +3944,7 @@ test("transported numbers have exact total public key ordering before domain ref
     }
   }
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: { advertised: declarationFacts.endpoints[0], api: declarationFacts.endpoints[1] } } };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0,
@@ -3962,6 +4055,7 @@ test("complete two-body solutions retain order, originating sets and independent
   const sets = [{ ...constraintSet(), group: actualGroup }, { ...constraintSet(), group: actualGroup, body: otherBody }];
   const solution = { ...completeSolution(), group: actualGroup, bodies: [bodyTyping, otherTyping] };
   const input = { group: { id: actualGroup, bodies: [body, otherBody], signatures: [] }, constraints: sets, solution,
+    placements: [[body, signature.id], [otherBody, otherTyping.signature]],
     declarations: [[definition, declarationFacts], [otherDefinition, otherFacts]],
     types: { terms: [{ kind: "primitive", primitive: "int32" }],
       signatures: [signature, { ...signature, id: 1, declaration: otherDefinition, owner: otherSource }] },
@@ -3976,6 +4070,23 @@ test("complete two-body solutions retain order, originating sets and independent
     declarations: [[definition, declarationFacts], [otherDefinition, { ...otherFacts, endpoints: [] }]] },
     [violation("body-completion-endpoints", { kind: "body", body: otherBody }, "endpoint")],
     "the second actual callable's body endpoint is checked from its own declaration facts");
+});
+
+test("a completed body retains the placed signature and independently verifies the authored endpoint", () => {
+  const selected = { ...signature, id: 1, result: 1 };
+  const solution = { ...completeSolution(), bodies: [{ ...bodyTyping, signature: selected.id, completion: selected.result }] };
+  const input = { solution, placements: [[body, selected.id]], types: { signatures: [signature, selected],
+    terms: [{ kind: "primitive", primitive: "float64" }, { kind: "primitive", primitive: "int64" }] } };
+  for (const invalid of [{ ...input, placements: [] }, { ...input, solution: completeSolution() }]) {
+    ruleCase("body-completion-endpoints", input, invalid, [violation("body-completion-endpoints", bodySite, "signature")]);
+  }
+  const endpoint = declarationFacts.endpoints.find(row => row.role === "api-body" && row.body === body);
+  assert.notEqual(endpoint, undefined);
+  for (const endpoints of [[], [endpoint, endpoint], [{ ...endpoint, role: "advertised" }],
+    [{ ...endpoint, signature: -0 }], [{ ...endpoint, signature: 8 }], [{ ...endpoint, declaration: `D[${moduleIdentity};unrelated]` }]]) {
+    ruleCase("body-completion-endpoints", input, { ...input, declarations: [[definition, { ...declarationFacts, endpoints }]] },
+      [violation("body-completion-endpoints", bodySite, "endpoint")]);
+  }
 });
 
 test("sum evidence retains its own complete binding occurrence in the public verifier", () => {
@@ -4075,6 +4186,9 @@ test("semantic inference values retain every original cause and position through
       owner: definitionGolden, node: scalarGolden(0, "n") }) }, "item") }, "source-node"),
     recordGolden("inference-variable", { group: groupGolden, variable: scalarGolden(1) }, "inference-variable"),
     recordGolden("component", { path: arrayGolden(keys.map(key)) }, "component"),
+    recordGolden("execution-result", { execution: scalarGolden("historical opaque execution") }, "execution-result"),
+    recordGolden("execution-source-node", { execution: scalarGolden("historical opaque execution"),
+      node: nodeGolden }, "execution-source-node"),
   ];
   const checker = recordGolden("checker", { module: scalarGolden(moduleIdentity, "mod"), index: scalarGolden(2) }, "checker");
   checker.value = { kind: "checker", diagnostic: { module: moduleIdentity, index: 2 } };
@@ -4107,6 +4221,10 @@ test("semantic inference values retain every original cause and position through
     "a missing required semantic error field is not interpreted as known-null");
   assert.equal(product.parseConstraints(constraints.text.replace("first=diagnostic", "missing=diagnostic")).kind, "invalid-text",
     "the canonical error vector has a required actual first cause");
+  assert.equal(product.parseConstraints(constraints.text.replace("execution-source-node(execution=", "execution-source-node(missing=")).kind,
+    "invalid-text");
+  assert.equal(product.parseConstraints(constraints.text.replace('execution-source-node(execution="historical opaque execution", node=NodeRef(',
+    'execution-source-node(execution="historical opaque execution", node=ItemNodeRef(')).kind, "invalid-text");
   const sparse = [causes[0].value];
   sparse.length = 2;
   assert.throws(() => product.printConstraints({ ...constraints.value,
@@ -4129,7 +4247,7 @@ test("the independent logic inventory includes every approved port and every nam
   assert.equal(resultArms.public.size, 10);
   deepEqual([...nestedArms.stringOperators].sort(), ["+", "==", "!=", "===", "!==", "<", "<=", ">", ">="].sort());
   deepEqual([...nestedArms.booleanOperators].sort(), ["!", "&&", "||", "==", "!=", "===", "!=="].sort());
-  const operators = ["+", "-", "!", "~", "typeof", "void", "delete", "*", "/", "%", "**", "&", "|", "^", "<<", ">>", ">>>",
+  const operators = ["+", "-", "!", "~", "++", "--", "typeof", "void", "delete", "*", "/", "%", "**", "&", "|", "^", "<<", ">>", ">>>",
     "<", "<=", ">", ">=", "==", "!=", "===", "!==", "in", "instanceof"];
   deepEqual([...nestedArms.nativeOperators].sort(), [...operators].sort());
   deepEqual([...nestedArms.bigintOperators].sort(), [...operators].sort());
@@ -4142,5 +4260,5 @@ test("the independent logic inventory includes every approved port and every nam
     "no-open-in-solution", "check-recorded", "decision-kind", "binding-vector-complete", "parameter-mapping-total", "endpoint-agreement", "proof-reference",
     "proof-order", "qualified-reference", "body-completion-endpoints", "construction-part-total", "protocol-channels", "api-endpoint-role", "deferred-invocation",
     "access-location", "closure-capture-total", "closure-capture-binding"].sort());
-  console.log("F.ir-infer logic ports14/14 input-outer-arms35/35 result-outer-arms56/56 rules35/35 limits0/0 nested-string9/9 boolean7/7 native27/27 bigint27/27 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
+  console.log("F.ir-infer logic ports15/15 input-outer-arms35/35 result-outer-arms56/56 rules35/35 limits0/0 nested-string9/9 boolean7/7 native29/29 bigint29/29 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
 });

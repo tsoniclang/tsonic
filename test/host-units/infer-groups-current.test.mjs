@@ -6,11 +6,13 @@ import { startInferCoverage } from "./infer-coverage-gate.mjs";
 let fixture;
 let infer;
 let finishCoverage;
+let checkedSourceViews;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
   finishCoverage = await startInferCoverage(["groups.js"], "groups-current");
   fixture = await loadFrontFixture();
+  ({ checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js"));
   infer = await import("../../packages/host/dist/infer/index.js");
 });
 
@@ -26,18 +28,66 @@ function input(source = PAIR) {
   const items = new Map(checked.items.map(item => [item.definition, nodes[item.node]]));
   items.set(checked.tree.tsonic.definition, checked.tree);
   const bodies = new Map(checked.bodies.map(body => [body.body, body]));
-  return { checked, modules: [checked], interner, nodes, items, bodies };
+  const { structuralCuts } = checkedSourceViews([{ module: checked, nodes }]);
+  return { checked, modules: [checked], interner, nodes, items, bodies, structuralCuts };
 }
 
 function deps(program, graph = AMPLE) {
-  return { hirBody: body => program.bodies.get(body) ?? assert.fail("a genuine body must be in the ready inventory"),
+  return { structuralCuts: program.structuralCuts, hirBody: body => program.bodies.get(body) ?? assert.fail("a genuine body must be in the ready inventory"),
     itemOf: definition => program.items.get(definition) ?? assert.fail("a genuine owner must be in the ready inventory"),
     bindings: program.modules.map(module => module.bindings), graph };
+}
+
+function cloneInput(program) {
+  const { structuralCuts, ...data } = program;
+  const cloned = structuredClone(data);
+  return { ...cloned, structuralCuts: checkedSourceViews([{ module: cloned.checked, nodes: cloned.nodes }]).structuralCuts };
 }
 
 function run(program, graph = AMPLE, order = [...program.bodies.keys()]) {
   return infer.groupsOf(deps(program, graph), order);
 }
+
+test("a real cut nested execution is excluded without removing its eligible enclosing module or sibling", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const selected = analysisInput(fixture, "sdk-minimal", `export declare function hidden(value: boolean = true): boolean { return value; }
+export function healthy(value: boolean): boolean { return !value; }`);
+  const capture = captureSourceBarrier(selected);
+  assert.equal(capture.kind, "ok");
+  const { module } = capture.value.modules.find(row => row.module.module === selected.snapshot.entryPoint);
+  const [hidden, healthy] = module.tree.statements.nodes;
+  const outer = module.bodies.find(row => row.root === module.tree);
+  const denied = module.bodies.find(row => row.body === hidden.tsonic.body);
+  const displaced = denied.params[0].initializer;
+  assert.ok(outer.nestedBodies.includes(denied.body));
+  assert.ok(outer.nestedBodies.includes(healthy.tsonic.body));
+  const partition = pipelineWiring.infer.groupsOf;
+  let actual;
+  try {
+    pipelineWiring.infer.groupsOf = (deps, inventory) => {
+      assert.equal(deps.structuralCuts.body(denied.body), true);
+      assert.equal(deps.structuralCuts.body(displaced), true);
+      Object.defineProperty(denied.root.statements.nodes[0].expression, "tsonic", {
+        get: () => assert.fail("grouping must not read an excluded nested body"),
+      });
+      actual = partition(deps, inventory);
+      return actual;
+    };
+    const typed = typeSourceBarrier(selected, capture.value, createAccount(selected.limits.dataflow));
+    assert.equal(typed.kind, "refused");
+    assert.deepEqual(typed.diagnostics.map(row => row.code.rendered), ["TSONIC_SOURCE_FORM_UNSUPPORTED"]);
+    assert.equal(actual.kind, "ok");
+    const bodies = actual.value.flatMap(group => group.bodies);
+    assert.equal(bodies.includes(outer.body) && bodies.includes(healthy.tsonic.body), true);
+    assert.equal(bodies.includes(denied.body) || bodies.includes(displaced), false);
+  } finally {
+    pipelineWiring.infer.groupsOf = partition;
+  }
+});
 
 test("a genuine inferred local depends on its own initializer's part through the qualified local declaration", () => {
   const program = input("export function local(): boolean { const value = true; return value; }");
@@ -80,6 +130,104 @@ test("actual annotated mutual recursion has one ready group per body, with no pr
   assert.deepEqual(result.value.map(group => group.bodies), [...program.bodies.keys()].sort().map(body => [body]));
   assert.equal(result.value.every(group => group.signatures.length === 0), true);
   assert.deepEqual(run(program, AMPLE, [...program.bodies.keys()].reverse()), result);
+});
+
+test("actual intrinsic absence and an original missing-name cause do not invent group dependencies", () => {
+  const program = input("export function missing(): boolean { return missingName; } "
+    + "export function absent(): boolean | undefined { return undefined; }");
+  const [missing, absent] = functions(program).map(declaration => declaration.body.statements.nodes[0].expression);
+  assert.equal(missing.tsonic.resolution.kind, "unavailable");
+  const failure = missing.tsonic.value.views.read;
+  assert.equal(failure.kind, "unavailable");
+  assert.equal(failure.reason, "checker-error");
+  const [cause] = failure.causes;
+  assert.equal(cause.kind, "diagnostic");
+  assert.equal(cause.diagnostic.kind, "checker");
+  assert.deepEqual(cause.diagnostic.diagnostic, { module: program.checked.module, index: 0 });
+  assert.deepEqual(program.checked.checkerDiagnostics.map(row => row.code.rendered), ["TS2304"]);
+  assert.deepEqual(absent.tsonic.resolution, { kind: "intrinsic-value", intrinsic: "undefined" });
+  const result = run(program);
+  assert.equal(result.kind, "ok");
+  assert.deepEqual(result.value.map(group => group.bodies), [...program.bodies.keys()].sort().map(body => [body]));
+  assert.equal(result.value.every(group => group.signatures.length === 0), true);
+});
+
+test("checked error frontiers prune actual resolved descendants without merging their inferred groups", () => {
+  const program = input(`export function wanted(flag: boolean) { let marker: Missing<typeof bad> = flag; return flag; }
+export function bad(flag: boolean) { if (flag) return true; return wanted(flag); }`);
+  const [wanted, bad] = functions(program);
+  const frontier = program.nodes.find(node => node.kind === "TypeReference");
+  const original = frontier.tsonic.type;
+  const descendant = fixture.hir.indexSyntaxTree(frontier).find(node => node.kind === "Identifier" && node.text === "bad");
+  assert.deepEqual(descendant.tsonic.resolution, { kind: "declarations", definitions: [bad.tsonic.definition] });
+  assert.equal(original.kind, "unavailable");
+  assert.equal(original.reason, "checker-error");
+  assert.deepEqual(program.checked.checkerDiagnostics.map(row => row.code.rendered), ["TS2304"]);
+  const causes = [];
+  Object.defineProperty(causes, 0, { get: () => assert.fail("the frontier cannot read an original cause") });
+  let envelopeReads = 0;
+  Object.defineProperty(frontier.tsonic, "type", { get() { envelopeReads += 1; return { ...original, causes }; } });
+  Object.defineProperty(frontier, "typeArguments", { get: () => assert.fail("the frontier cannot descend") });
+  const result = run(program);
+  assert.equal(result.kind, "ok");
+  assert.equal(envelopeReads, 1);
+  const groupOf = body => result.value.findIndex(group => group.bodies.includes(body));
+  assert.equal(groupOf(wanted.tsonic.body) < groupOf(bad.tsonic.body), true);
+  let firstRead = null;
+  let complete = false;
+  for (let maximumWork = 0; maximumWork < 2048; maximumWork += 1) {
+    envelopeReads = 0;
+    const attempt = run(program, { ...AMPLE, maximumWork });
+    if (attempt.kind === "ok") {
+      assert.deepEqual(attempt, result);
+      assert.equal(envelopeReads, 1);
+      complete = true;
+      break;
+    }
+    assert.equal("value" in attempt, false);
+    if (envelopeReads !== 0) firstRead ??= maximumWork;
+    assert.equal(envelopeReads, firstRead === null ? 0 : 1);
+  }
+  assert.ok(firstRead > 0);
+  assert.equal(complete, true);
+
+  const known = input(`type Id<T> = T;
+export function wanted(flag: boolean) { if (flag) return true; return bad(flag); }
+export function bad(flag: boolean) { let marker: Id<typeof wanted> = wanted; return flag; }`);
+  const checkedType = known.nodes.find(node => node.kind === "TypeReference").tsonic.type;
+  assert.equal(checkedType.kind, "available");
+  Object.defineProperty(checkedType, "value", { get: () => assert.fail("grouping cannot read a type payload") });
+  const joined = run(known);
+  assert.equal(joined.kind, "ok");
+  assert.deepEqual(joined.value.find(group => group.bodies.length === 2).bodies,
+    functions(known).map(node => node.tsonic.body).sort());
+});
+
+test("a failed property has no member edge but retains its actual receiver's inference dependency", () => {
+  const program = input("const receiver = { value: true }; export function read(): boolean { return receiver.missing; }");
+  const [declaration] = program.checked.tree.statements.nodes[0].declarationList.declarations.nodes;
+  const [reader] = functions(program);
+  const property = reader.body.statements.nodes[0].expression;
+  assert.equal(property.kind, "PropertyAccessExpression");
+  const failure = property.tsonic.value.views.read;
+  assert.equal(failure.kind, "unavailable");
+  assert.equal(failure.reason, "checker-error");
+  assert.equal(property.tsonic.origins === failure, true);
+  assert.deepEqual(program.checked.checkerDiagnostics.map(diagnostic => diagnostic.code.rendered), ["TS2339"]);
+  Object.defineProperty(property.tsonic.value.views, "read", { get: () => assert.fail("an unavailable origin adds no edge without a type read") });
+  const result = run(program);
+  assert.equal(result.kind, "ok");
+  const groupOf = body => result.value.findIndex(group => group.bodies.includes(body));
+  const initializerGroup = groupOf(declaration.tsonic.initializer);
+  const readerGroup = groupOf(reader.tsonic.body);
+  assert.equal(initializerGroup >= 0 && readerGroup > initializerGroup, true);
+  assert.deepEqual(result.value[initializerGroup].signatures,
+    [{ definition: declaration.tsonic.declaration.definition, part: { kind: "variable" } }]);
+  assert.deepEqual(run(program, AMPLE, [...program.bodies.keys()].reverse()), result);
+  for (const origins of [{ ...failure, reason: "not-provided" }, { ...failure, causes: [] }]) {
+    property.tsonic.origins = origins;
+    assert.deepEqual(run(program), result);
+  }
 });
 
 test("inferred-part unit inventory closes mutual dependency before any declared-signature computation", () => {
@@ -160,24 +308,24 @@ test("real chained formal dependencies retain only their actual initializer edge
     }
     assert.equal(complete, true);
   }
-  const duplicate = structuredClone(program);
+  const duplicate = cloneInput(program);
   duplicate.bodies.get(callable.body).params.push({ ...callable.params[0] });
   assert.throws(() => run(duplicate), /formal dependency inventory repeats/u);
-  const wrong = structuredClone(program);
+  const wrong = cloneInput(program);
   wrong.items.get(callable.params[1].declaration).tsonic.initializer = first;
   wrong.bodies.get(callable.body).locals[callable.params[1].local].declaration = {
     kind: "item", value: { owner: callable.params[0].declaration, node: owner.parameters.nodes[0].id },
   };
   assert.throws(() => run(wrong), /actual checked initializer declaration/u);
-  const unavailable = structuredClone(program);
-  unavailable.items.get(callable.params[1].declaration).tsonic.declaredType = {
-    kind: "unavailable", reason: "not-provided", causes: [],
-  };
-  assert.throws(() => run(unavailable), /annotation availability is missing/u);
-  const annotated = structuredClone(program);
-  annotated.items.get(callable.params[1].declaration).tsonic.declaredType = owner.parameters.nodes[0].tsonic.declaredType;
-  assert.equal(run(annotated).kind, "ok");
-  const missing = structuredClone(program);
+  const unavailable = cloneInput(program);
+  Object.defineProperty(unavailable.items.get(callable.params[1].declaration).tsonic, "declaredType", {
+    get: () => assert.fail("a formal edge is authored rather than obtained from an annotation answer"),
+  });
+  assert.deepEqual(run(unavailable), result);
+  const crossed = cloneInput(program);
+  crossed.items.get(callable.params[1].declaration).initializer = crossed.bodies.get(second).root;
+  assert.throws(() => run(crossed), /actual checked initializer declaration/u);
+  const missing = cloneInput(program);
   const missingParameter = missing.bodies.get(callable.body).params[1];
   const missingDeclaration = missing.items.get(missingParameter.declaration);
   const outside = fixture.ids.encodeBodyId({ owner: missingParameter.declaration, role: "initializer", ordinal: 99 });
@@ -185,6 +333,48 @@ test("real chained formal dependencies retain only their actual initializer edge
   missingDeclaration.tsonic.initializer = outside;
   missingParameter.initializer = outside;
   assert.throws(() => run(missing), /formal initializer dependency is outside/u);
+});
+
+test("authored explicit and invalid formal annotations do not create an inferred default edge", () => {
+  for (const [annotation, codes, inferred] of [["", [], true], [": boolean", [], false], [": Missing", ["TS2304"], false]]) {
+    const program = input(`export function wanted(flag: boolean, z${annotation} = flag, a = z): boolean { return a; }`);
+    const [owner] = functions(program);
+    const formal = owner.parameters.nodes[1];
+    const body = program.bodies.get(owner.tsonic.body);
+    const first = body.params[1].initializer;
+    const second = body.params[2].initializer;
+    assert.deepEqual(program.checked.checkerDiagnostics.map(row => row.code.rendered), codes);
+    assert.equal(formal.type === null, inferred);
+    Object.defineProperty(formal.tsonic, "declaredType", { get: () => assert.fail("grouping must not read an explicit annotation answer") });
+    const result = run(program);
+    assert.equal(result.kind, "ok");
+    const groupOf = body => result.value.findIndex(group => group.bodies.includes(body));
+    assert.equal(groupOf(first) < groupOf(second), inferred);
+    assert.deepEqual(result.value[groupOf(first)].signatures,
+      inferred ? [{ definition: owner.tsonic.definition, part: { kind: "parameter-initializer", index: 1 } }] : []);
+  }
+});
+
+test("both inferred and annotated formal joins reject a crossed initializer body role", () => {
+  for (const annotation of ["", ": boolean"]) {
+    const program = input(`export function outer(value${annotation} = true): boolean { return value; }`);
+    const [owner] = functions(program);
+    const callable = program.bodies.get(owner.tsonic.body);
+    const parameter = callable.params[0];
+    const formal = owner.parameters.nodes[0];
+    const previous = parameter.initializer;
+    const body = program.bodies.get(previous);
+    const crossed = fixture.ids.encodeBodyId({ owner: body.owner, role: "initializer", ordinal: 0 });
+    assert.strictEqual(formal.initializer, body.root);
+    assert.equal(body.owner, parameter.declaration);
+    assert.notEqual(crossed, previous);
+    program.bodies.delete(previous);
+    program.bodies.set(crossed, { ...body, body: crossed });
+    for (const entry of program.bodies.values()) entry.nestedBodies = entry.nestedBodies.map(child => child === previous ? crossed : child);
+    parameter.initializer = crossed;
+    formal.tsonic.initializer = crossed;
+    assert.throws(() => run(program), annotation === "" ? /actual default-argument body role/u : /actual checked initializer declaration/u);
+  }
 });
 
 test("group graph work and result refusal retain the original maximum and never return partial groups", () => {
@@ -279,7 +469,7 @@ test("malformed grouping inputs are caller defects, not semantic source errors o
   assert.throws(() => infer.groupsOf({ ...deps(program), hirBody: () => wrongOwner }, [keys[0]]), /checked owner/);
   const module = program.bodies.get(keys.find(body => program.bodies.get(body).root.kind === "SourceFile"));
   assert.throws(() => infer.groupsOf(deps(program), [module.body]), /outside/);
-  const repeated = structuredClone(program);
+  const repeated = cloneInput(program);
   const repeatedModule = repeated.bodies.get(module.body);
   repeatedModule.nestedBodies.push(repeatedModule.nestedBodies[0]);
   assert.throws(() => run(repeated), /unique enclosing/);
@@ -290,11 +480,11 @@ test("default parts preserve actual ready metadata and reject missing or foreign
   const owner = functions(program)[0];
   const callable = [...program.bodies.values()].find(body => body.owner === owner.tsonic.definition);
   for (const params of [[], callable.params.map(parameter => ({ ...parameter, initializer: null }))]) {
-    const changed = structuredClone(program);
+    const changed = cloneInput(program);
     changed.bodies.get(callable.body).params = params;
     assert.throws(() => run(changed), /actual initializer execution/);
   }
-  const changed = structuredClone(program);
+  const changed = cloneInput(program);
   const missing = callable.params.find(parameter => parameter.initializer !== null).initializer;
   changed.bodies.delete(missing);
   for (const body of changed.bodies.values()) body.nestedBodies = body.nestedBodies.filter(nested => nested !== missing);
@@ -345,7 +535,7 @@ function memberInput(kind, origins) {
 test("scripted checked member origins and declaration read roles feed the one inferred-part owner relation", () => {
   for (const kind of ["PropertyAccessExpression", "ElementAccessExpression"]) {
     for (const origins of [[], ["declared"], ["class-prototype"], ["declared", "class-prototype"]]) assert.equal(run(memberInput(kind, origins)).kind, "ok");
-    assert.throws(() => run(memberInput(kind, null)), /actual declaration origins are unavailable/);
+    assert.deepEqual(run(memberInput(kind, null)), run(memberInput(kind, [])));
   }
   for (const role of ["value", "shorthand-value", "type-name", "assignment-target"]) {
     const program = input();
@@ -476,21 +666,28 @@ test("binding semantic targets retain actual origins and absence without inventi
       name.tsonic = { ...name.tsonic, resolution: target };
       assert.equal(run(program).kind, "ok");
       target.origins = { kind: "unavailable", reason: "parameter-dependent", causes: [] };
-      assert.throws(() => run(program), /binding member whose actual declaration origins are unavailable/);
+      const absence = run(program);
+      assert.equal(absence.kind, "ok");
+      target.origins = { kind: "available", value: [] };
+      assert.deepEqual(run(program), absence);
     }
   }
 });
 
-test("missing binding evidence stays an explicit producer frontier, and malformed graph inputs are defects", () => {
-  const { program } = aliasInput();
+test("missing binding targets add no inferred edge, and malformed graph inputs are defects", () => {
+  const { program, reader, producer } = aliasInput();
   const row = program.checked.bindings[0];
   const original = row.target;
+  const groups = result => result.value.map(group => group.bodies[0]);
+  const baseline = groups(run(program));
+  assert.equal(baseline.indexOf(producer.tsonic.body) < baseline.indexOf(reader.tsonic.body), true);
   row.target = { kind: "unavailable", reason: "missing-original-component", causes: [] };
-  assert.throws(() => run(program), /nearest target is unavailable \(missing-original-component\)/);
+  const disconnected = groups(run(program));
+  assert.equal(disconnected.indexOf(reader.tsonic.body) < disconnected.indexOf(producer.tsonic.body), true);
   const name = program.nodes.find(node => node.kind === "Identifier" && node.text === "right" && node.tsonic.role === "value");
   const binding = name.tsonic.resolution;
   name.tsonic = { ...name.tsonic, resolution: { kind: "unavailable", reason: "checker-error", causes: [] } };
-  assert.throws(() => run(program), /dependency evidence is unavailable \(checker-error\)/);
+  assert.deepEqual(groups(run(program)), disconnected);
   name.tsonic = { ...name.tsonic, resolution: binding };
   row.target = original;
   program.checked.bindings = [];
@@ -519,14 +716,16 @@ test("genuine multi-module source imports retain all nearest alias edges before 
   });
   const items = new Map();
   const bodies = new Map();
+  const modules = [];
   for (const module of actual.modules) {
     assert.deepEqual(fixture.verifyChecked(module, actual.interner, actual.modules), []);
     const nodes = fixture.hir.indexSyntaxTree(module.tree);
+    modules.push({ module, nodes });
     items.set(module.tree.tsonic.definition, module.tree);
     for (const item of module.items) items.set(item.definition, nodes[item.node]);
     for (const body of module.bodies) bodies.set(body.body, body);
   }
-  const result = infer.groupsOf({ bindings: actual.modules.map(module => module.bindings),
+  const result = infer.groupsOf({ structuralCuts: checkedSourceViews(modules).structuralCuts, bindings: actual.modules.map(module => module.bindings),
     hirBody: body => bodies.get(body) ?? assert.fail("actual cross-module body required"),
     itemOf: definition => items.get(definition) ?? assert.fail("actual cross-module item required"), graph: AMPLE }, [...bodies.keys()]);
   assert.equal(result.kind, "ok");

@@ -5,7 +5,7 @@ import type { Cursor, TextStep } from "./parse-values.js";
 import type { SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
 import { readBoolean, readNull, readStringChoice, atomicText, fieldText } from "./parse-values.js";
 import { readTypedBindingElementText, readTypedBindingText, readTypedBindingPatternText, readTypedParameterText, readTypedCallableText, readTypedClassText, readTypedHeritageText, readTypedInterfaceText, readTypedAliasText, readTypedStorageDeclarationText, readTypedEnumText, readTypedIndexDeclarationText, readTypedStaticBlockText } from "./parse-phase-declarations.js";
-import { readTypedIterationText, readTypedControlTransferText, readTypedVariableListText, readTypedClassValueText } from "./parse-phase.js";
+import { readTypedCaseText, readTypedIterationText, readTypedControlTransferText, readTypedVariableListText, readTypedClassValueText } from "./parse-phase.js";
 import { resolveSyntaxValue, syntaxAlternatives, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readNullableSyntax, readSyntaxList } from "./parse-syntax-values.js";
 
 export function readEmptyStatementSyntax<Root>(cursor: Cursor, _ports: SyntaxReadPorts, kind: "EmptyStatement", finish: (value: SyntaxValue<EmptyStatement<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
@@ -143,7 +143,7 @@ export function readCaseClauseSyntax<Root>(cursor: Cursor, ports: SyntaxReadPort
   return readSyntaxRecord(cursor, (fields, header) =>
     fieldText<SyntaxValue<Expression<TypedPhase>>, Root>(cursor, fields, "expression", (next, done) => readSyntaxReference(next, ports.Expression, done), expressionValue =>
     fieldText<SyntaxValue<NodeList<Statement<TypedPhase>>>, Root>(cursor, fields, "statements", (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.Statement, done), "NodeList", done), statementsValue =>
-    fieldText<null, Root>(cursor, fields, "tsonic", (next, done) => atomicText(next, readNull, done), tsonicValue =>
+    fieldText<CaseClause<TypedPhase>["tsonic"], Root>(cursor, fields, "tsonic", readTypedCaseText, tsonicValue =>
     finishSyntaxRecord<CaseClause<TypedPhase>, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(expressionValue, expressionResolved => resolveSyntaxValue(statementsValue, statementsResolved => ({ ...header, kind, expression: expressionResolved, statements: statementsResolved, tsonic: tsonicValue }))),
     }, finish)))));

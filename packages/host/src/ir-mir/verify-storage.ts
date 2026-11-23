@@ -1,6 +1,8 @@
 import type { Violation } from "../diag/contract.js";
-import type { LocalId, NodeId, PlaceId, SigId, TyId } from "../ids/contract.js";
+import type { DefId, LocalId, NodeId, PlaceId, SigId, TyId } from "../ids/contract.js";
 import { localId, placeId } from "../ids/index.js";
+import type { Expression } from "../ir-hir/contract.js";
+import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ExactRational, LiteralValue, TypeTerm } from "../ir-types/contract.js";
 import { literalCompatibilityOf } from "../ir-types/index.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
@@ -562,13 +564,30 @@ export function verifyValues(
   };
   const report = (rule: MirRule, site: MirViolationSite): void => { violations.push({ rule, site, detail: [] }); };
   const term = (type: TyId): TypeTerm | null => densePosition(type, context.types.terms.length) ? context.types.terms[type] ?? null : null;
-  const placeType = (place: PlaceId, site: MirViolationSite): TyId | null => {
+  const staticTarget = (target: Expression<TypedPhase>): DefId | null => {
+    while (target.kind === "ParenthesizedExpression") {
+      chargeWork(meter, 1);
+      if (meter.exhausted) return null;
+      target = target.expression;
+    }
+    return target.kind === "Identifier" && target.tsonic.role === "assignment-target" && target.tsonic.resolution.kind === "static"
+      ? target.tsonic.resolution.declaration.owner : null;
+  };
+  const staticUpdateTarget = (node: SourceNode["node"] | undefined): DefId | null => {
+    return node?.kind === "PostfixUnaryExpression" || node?.kind === "PrefixUnaryExpression" && node.tsonic.role === "update"
+      ? staticTarget(node.operand) : null;
+  };
+  const placeType = (place: PlaceId, site: MirViolationSite, staticTarget?: DefId | null,
+    staticRule: "static-read-exact" | "static-write-exact" = "static-read-exact"): TyId | null => {
     const selected = densePosition(place, body.places.length) ? body.places[place] : undefined;
     if (selected === undefined || !Object.is(selected.id, place)) { report("operand-resolves", site); return null; }
+    if (staticTarget !== undefined && (selected.base.kind === "static" ? selected.base.definition !== staticTarget : staticTarget !== null))
+      report(staticRule, site);
     return selected.storage;
   };
-  const operandType = (operand: MirOperand, site: MirViolationSite): TyId | null => {
-    if (operand.kind === "place") return placeType(operand.place, site);
+  const operandType = (operand: MirOperand, site: MirViolationSite, readFrom: DefId | null = null): TyId | null => {
+    if (operand.kind === "place") return placeType(operand.place, site, readFrom);
+    if (readFrom !== null) report("static-read-exact", site);
     const constant = densePosition(operand.constant, body.constants.length) ? body.constants[operand.constant] : undefined;
     if (constant === undefined || !Object.is(constant.id, operand.constant)) { report("operand-resolves", site); return null; }
     return constant.type;
@@ -605,7 +624,19 @@ export function verifyValues(
   };
   const rvalueType = (value: MirRvalue, node: SourceNode | undefined, site: MirViolationSite): TyId | null => {
     switch (value.kind) {
-      case "use": return operandType(value.operand, site);
+      case "use": {
+        const source = node?.node;
+        const selected = source?.kind === "Identifier" ? source.tsonic : null;
+        if (selected !== null && (selected.role === "value" || selected.role === "assignment-target") && selected.resolution.kind === "static") {
+          const read = selected.role === "value" ? selected.type : selected.access.kind === "read-write" ? selected.access.read : null;
+          if (read !== null) {
+            const actual = operandType(value.operand, site, selected.resolution.declaration.owner);
+            match(actual, read, "static-read-exact", site);
+            return actual;
+          }
+        }
+        return operandType(value.operand, site);
+      }
       case "unary": case "binary": case "convert": return operationResult(value, site);
       case "aggregate": {
         const expected = selectedType(node);
@@ -692,6 +723,7 @@ export function verifyValues(
   // A literal constant is a value of its declared type: `literalHolds` below states what each declared type holds.
   const literalHeld = (value: LiteralValue, type: TyId): boolean => {
     const result = literalCompatibilityOf(context.types, type, value, context.selectedNativeFacts, {
+      numericRepresentation: "literal-operand",
       typeOf: selected => {
         chargeWork(meter, 1);
         return meter.exhausted ? null : context.types.terms[selected];
@@ -793,7 +825,14 @@ export function verifyValues(
         const source = statement.tir.body === context.source.body ? findSourceNode(nodes, statement.tir.node) : undefined;
         const actual = rvalueType(statement.value, source, site);
         if (meter.exhausted) return { violations, types, signatures };
-        const expected = placeType(statement.place, site);
+        const authored = source?.node;
+        const target = authored?.kind === "BinaryExpression" && authored.tsonic.role === "assignment"
+          && (authored.tsonic.calculation === null || statement.value.kind === "use")
+          ? staticTarget(authored.left)
+          : authored?.kind === "VariableDeclaration" && authored.tsonic.declaration.kind === "definition"
+            ? authored.tsonic.declaration.definition : statement.value.kind === "use" ? staticUpdateTarget(authored) : null;
+        if (meter.exhausted) return { violations, types, signatures };
+        const expected = placeType(statement.place, site, target, "static-write-exact");
         if (expected !== null) match(actual, expected, "assignment-type", site);
       } else {
         const local = densePosition(statement.local, body.locals.length) ? body.locals[statement.local] : undefined;
@@ -837,7 +876,8 @@ export function verifyValues(
         const decision = terminator.callee.resolution.decision;
         if (!signatureReference(decision.api.signature, site) || !signatureReference(decision.advertised.signature, site)
           || !signatureReference(decision.completion.signature, site)) return { violations, types, signatures };
-        const signature = densePosition(decision.api.signature, context.types.signatures.length) ? context.types.signatures[decision.api.signature] : undefined;
+        const signature = densePosition(decision.completion.signature, context.types.signatures.length)
+          ? context.types.signatures[decision.completion.signature] : undefined;
         if (terminator.callee.kind === "indirect") {
           const actual = operandType(terminator.callee.operand, site);
           if (sourceNode !== undefined) {
@@ -900,7 +940,13 @@ export function verifyValues(
           if (expected !== undefined) match(actual, expected, "operation-selected", site);
         }
         if (!reference(terminator.operation.decision.result, site)) return { violations, types, signatures };
-        if (terminator.destination !== null) match(placeType(terminator.destination, site), terminator.operation.decision.result, "call-destination-type", site);
+        if (terminator.destination !== null) {
+          const target = staticUpdateTarget(sourceNode?.node);
+          if (meter.exhausted) return { violations, types, signatures };
+          const actual = target === null ? placeType(terminator.destination, site)
+            : placeType(terminator.destination, site, null, "static-write-exact");
+          match(actual, terminator.operation.decision.result, "call-destination-type", site);
+        }
         break;
       case "await": case "yield": case "delegate": {
         if (terminator.kind === "delegate") operandType(terminator.iterator, site);

@@ -212,13 +212,16 @@ export function termReferences(term: TypeTerm, visitData: DataVisitor, path: str
     case "projection": {
       const types = [term.source];
       const signatures: SigId[] = [];
-      if (term.projection.kind === "component") visitData({ kind: "TypeComponent", value: term.projection.component }, reference => {
+      if (term.projection.kind === "indexed") types.push(term.projection.index);
+      else if (term.projection.kind === "conditional") types.push(term.projection.extends, term.projection.whenTrue, term.projection.whenFalse);
+      else if (term.projection.kind === "component") visitData({ kind: "TypeComponent", value: term.projection.component }, reference => {
         if (reference.kind === "type") types.push(reference.value);
         else if (reference.kind === "signature") signatures.push(reference.value);
       }, `${path}.projection.component`);
       return { types, signatures };
     }
     case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
+    case "source-environment":
       return { types: [], signatures: [] };
   }
 }
@@ -263,6 +266,7 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
   root: OwnedConstraint, typeFlags: ReadonlyMap<number, number>, bounds: ReadonlySet<number>, reads: readonly number[], visitData: DataVisitor): boolean | null {
   const visited = new Set<string>();
   const variables = new Set<number>();
+  let defaultReads: Set<number> | undefined;
   const types = new Set<TyId>();
   const pending = [root];
   for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
@@ -284,7 +288,11 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
         types.add(value.result);
         break;
       case "default":
-        variables.add(value.variable);
+        if (value.rule === "literal-native-default" && value.type === null
+          || value.rule === "signature-producers" && value.type !== null) {
+          if (current === root && (reads.length !== 1 || reads[0] !== value.variable || bounds.size !== 0)) return false;
+          if (current !== root && !(defaultReads ??= new Set(reads)).has(value.variable)) return false;
+        } else variables.add(value.variable);
         if (value.type !== null) types.add(value.type);
         break;
       case "discharge":

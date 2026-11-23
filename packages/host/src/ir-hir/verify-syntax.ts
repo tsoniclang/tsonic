@@ -8,6 +8,7 @@ export interface HirNodeEntry {
   readonly ordinal: number;
   readonly parent: HirNodeEntry | null;
   readonly body: HirBody | null;
+  readonly sourceBody: HirBody | null;
   readonly item: DefId;
   readonly source: SourceNodeRef;
   readonly required: [number, number, number];
@@ -132,7 +133,7 @@ type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" |
   | "CheckedProperty" | "CheckedBinding" | "CheckedBindingList" | "CheckedIteration" | "CheckedModule"
   | "CheckedTypeParameter" | "HirLocal" | "HirParam" | "HirLexicalScope" | "HirBody" | "HirDeclarationEntry"
   | "HirUnaryOperator" | "HirBinaryOperator" | "ProofObligation" | "HirDiagnosticRoot" | "HirModule"
-  | "HirExportTarget" | "HirBindingTarget" | "HirModuleExport" | "HirModuleBinding" | "CheckerDiagnosticRef"
+  | "HirExportTarget" | "HirBindingTarget" | "HirModuleExport" | "HirModuleBinding" | "HirModuleLink" | "CheckerDiagnosticRef"
   | "Cause" | "DiagnosticIdentity" | "UnitRef" | "UnitRequest" | "UnitPosition" | "KeyData" | "KeyRecord" | "KeyField";
 type HirShapeBody = HirIdentityShape | HirHostCodeShape | HirLiteralShape | HirArrayShape | HirChoiceShape | HirRecordShape | HirDictionaryShape;
 export type HirShape = "string" | "number" | "bigint" | "boolean" | "null" | "SyntaxNode" | HirSchemaName | HirShapeBody;
@@ -544,6 +545,7 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly HirBindingTarget: HirShapeBody;
   readonly HirModuleExport: HirShapeBody;
   readonly HirModuleBinding: HirShapeBody;
+  readonly HirModuleLink: HirShapeBody;
   readonly CheckerDiagnosticRef: HirShapeBody;
   readonly HostDiagnosticCode: HirHostCodeShape;
   readonly DefId: HirShapeBody;

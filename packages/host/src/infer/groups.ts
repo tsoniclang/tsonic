@@ -6,7 +6,7 @@ import type { InferenceGroup, InferredSignaturePart } from "../ir-infer/contract
 import type { GroupDeps, GroupsOf } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { decodeBodyId, encodeGroupId } from "../ids/index.js";
-import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
+import { checkedGroupingFrontierOf, iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import { inferredPartsOf } from "../ir-infer/index.js";
 import { chargeResultEntries, chargeWork, createAccount, stronglyConnectedComponents } from "../dataflow/index.js";
 import { callerDefect, notInferredYet, validateGraphLimits } from "./frontier.js";
@@ -67,6 +67,7 @@ export const partition: GroupsOf = (deps, bodies) => {
     if (!take(1)) return stop();
     for (const nested of body.nestedBodies) {
       if (!take(1)) return stop();
+      if (deps.structuralCuts.body(nested)) continue;
       const target = index.get(nested);
       if (target === undefined) return callerDefect(PORT, "a nested body is outside the checked inventory");
       if (nested === body.body || parent.has(nested)) return callerDefect(PORT, "a nested body has no unique enclosing execution");
@@ -96,8 +97,11 @@ export const partition: GroupsOf = (deps, bodies) => {
         const parameter = parameters[part.part.index];
         if (parameter === undefined || parameter.initializer === null)
           return callerDefect(PORT, "an inferred parameter part has no actual initializer execution");
+        if (deps.structuralCuts.body(parameter.initializer)) continue;
         const initializer = index.get(parameter.initializer);
         if (initializer === undefined) return callerDefect(PORT, "an inferred parameter initializer is outside the checked inventory");
+        if (roles[initializer] !== "default-argument")
+          return callerDefect(PORT, "an inferred parameter initializer must retain its actual default-argument body role");
         target = initializer;
       }
       parts.push({ part, body: target });
@@ -111,14 +115,18 @@ export const partition: GroupsOf = (deps, bodies) => {
       if (!edge(declaration, target)) return stop();
     }
   }
-  const useResolution = bindingDependencies(deps, successors, definitions, index, take, edge);
+  const useResolution = bindingDependencies(deps, successors, definitions, index, ready, roles, take, edge);
   if (useResolution === null) return stop();
   for (const [position, body] of ready.entries()) {
     if (!take(1)) return stop();
     const ownParts = definitions.get(body.owner);
     if (callable(present(items.get(body.owner), "the body's declaration")) && ownParts !== undefined && !edge(position, ownParts)) return stop();
     if (!take(body.nestedBodies.length)) return stop();
-    const excluded = new Set<NodeId>(body.nestedBodies.map(nested => present(ready[present(index.get(nested), "a nested body's index")], "a nested body").root.id));
+    const excluded = new Set<NodeId>();
+    for (const nested of body.nestedBodies) {
+      if (deps.structuralCuts.body(nested)) continue;
+      excluded.add(present(ready[present(index.get(nested), "a nested body's index")], "a nested body").root.id);
+    }
     const seen = new Set<HirNode>();
     const pending: Iterator<HirNode>[] = [];
     let current: HirNode | null = body.root;
@@ -135,7 +143,9 @@ export const partition: GroupsOf = (deps, bodies) => {
       if (!take(1)) return stop();
       const node: HirNode = current;
       current = null;
-      if (excluded.has(node.id) || seen.has(node) || node.kind === "InterfaceDeclaration" || node.kind === "TypeAliasDeclaration") continue;
+      if (deps.structuralCuts.syntax(node) || excluded.has(node.id) || seen.has(node)
+        || node.kind === "InterfaceDeclaration" || node.kind === "TypeAliasDeclaration") continue;
+      if (checkedGroupingFrontierOf(node)) continue;
       const growth = chargeResultEntries(account, 2);
       if (growth !== null) return refuse(growth);
       seen.add(node);
@@ -146,12 +156,12 @@ export const partition: GroupsOf = (deps, bodies) => {
         }
       } else if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression") {
         const member = node.tsonic;
-        if (member.origins.kind === "unavailable") return notInferredYet(PORT,
-          "a member whose actual declaration origins are unavailable (" + member.origins.reason + ")", node.origin);
-        for (const origin of member.origins.value) {
-          if (!take(1)) return stop();
-          const target = origin.kind === "declared" ? definitions.get(origin.declaration) : undefined;
-          if (target !== undefined && !edge(position, target)) return stop();
+        if (member.origins.kind === "available") {
+          for (const origin of member.origins.value) {
+            if (!take(1)) return stop();
+            const target = origin.kind === "declared" ? definitions.get(origin.declaration) : undefined;
+            if (target !== undefined && !edge(position, target)) return stop();
+          }
         }
       }
       pending.push(iterateChildrenOfSyntax(node));
@@ -177,7 +187,7 @@ interface BindingVertex {
 }
 
 function bindingDependencies(deps: GroupDeps, successors: Set<number>[], definitions: ReadonlyMap<DefId, number>,
-  bodyIndices: ReadonlyMap<BodyId, number>,
+  bodyIndices: ReadonlyMap<BodyId, number>, bodiesInOrder: readonly HirBody[], roles: readonly BodyRole[],
   take: (count: number) => boolean, edge: (from: number, to: number) => boolean):
   ((from: number, target: HirResolution, origin: Origin) => boolean) | null {
   const items = new Map<DefId, Map<NodeId, BindingVertex>>();
@@ -223,6 +233,7 @@ function bindingDependencies(deps: GroupDeps, successors: Set<number>[], definit
     for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
       const actual = next.target;
       switch (actual.kind) {
+        case "intrinsic-value": break;
         case "binding": {
           const binding = bindingOf(actual.occurrence);
           if (!edge(next.from, binding.vertex)) return false;
@@ -230,24 +241,20 @@ function bindingDependencies(deps: GroupDeps, successors: Set<number>[], definit
           if (!take(1)) return false;
           binding.expanded = true;
           const nearest = binding.row.target;
-          if (nearest.kind === "unavailable")
-            return notInferredYet(PORT, "a binding whose actual nearest target is unavailable (" + nearest.reason + ")", origin);
-          pending.push({ from: binding.vertex, target: nearest.value });
+          if (nearest.kind === "available") pending.push({ from: binding.vertex, target: nearest.value });
           break;
         }
         case "declarations":
           for (const definition of actual.definitions) if (!declaration(next.from, definition)) return false;
           break;
         case "member":
-          if (actual.origins.kind === "unavailable") return notInferredYet(PORT,
-            "a binding member whose actual declaration origins are unavailable (" + actual.origins.reason + ")", origin);
+          if (actual.origins.kind === "unavailable") break;
           for (const member of actual.origins.value) {
             if (!take(1)) return false;
             if (member.kind === "declared" && !declaration(next.from, member.declaration)) return false;
           }
           break;
-        case "unavailable":
-          return notInferredYet(PORT, "a checked resolution whose actual dependency evidence is unavailable (" + actual.reason + ")", origin);
+        case "unavailable": break;
         case "local": {
           if (!take(1)) return false;
           const owner = deps.hirBody(actual.local.body);
@@ -272,18 +279,19 @@ function bindingDependencies(deps: GroupDeps, successors: Set<number>[], definit
             const parameter = rows.get(actual.local.local);
             if (parameter !== undefined && parameter.initializer !== null) {
               if (!take(1)) return false;
+              if (deps.structuralCuts.body(parameter.initializer)) break;
               const source = deps.itemOf(parameter.declaration);
               if (source.kind !== "Parameter" || local.declaration.kind !== "item"
                 || local.declaration.value.owner !== parameter.declaration || source.id !== local.declaration.value.node
-                || source.tsonic.initializer !== parameter.initializer)
+                || source.tsonic.parent !== owner.owner || source.tsonic.initializer !== parameter.initializer
+                || parameter.role !== "default")
                 return callerDefect(PORT, "a formal dependency retains its actual checked initializer declaration");
-              if (source.tsonic.declaredType.kind !== "available") return notInferredYet(PORT,
-                "a formal dependency whose actual annotation availability is missing", source.origin);
-              if (source.tsonic.declaredType.value === null) {
-                const target = bodyIndices.get(parameter.initializer);
-                if (target === undefined) return callerDefect(PORT, "a formal initializer dependency is outside the actual body inventory");
-                if (!edge(next.from, target)) return false;
-              }
+              const target = bodyIndices.get(parameter.initializer);
+              if (target === undefined) return callerDefect(PORT, "a formal initializer dependency is outside the actual body inventory");
+              const initializer = present(bodiesInOrder[target], "the actual formal initializer body");
+              if (source.initializer !== initializer.root || initializer.owner !== parameter.declaration || roles[target] !== "default-argument")
+                return callerDefect(PORT, "a formal dependency retains its actual checked initializer declaration");
+              if (source.type === null && !edge(next.from, target)) return false;
             }
           }
           break;

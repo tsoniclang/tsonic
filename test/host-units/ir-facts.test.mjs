@@ -54,6 +54,76 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   suite.after(async () => { await post("Profiler.stopPreciseCoverage"); inspector.disconnect(); });
   const product = await import("../../packages/host/dist/ir-facts/index.js");
+
+  await suite.test("paid formal transport preserves the original first stop before its actual result key", async () => {
+    const { argumentTransportKey } = product;
+    const { accountFailure, createAccount, refuseAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+    const { publicationFixture } = await import("./fixtures/program-publication.mjs");
+    const { instance, definition } = publicationFixture();
+    const owner = { kind: "body", execution: { instance, provided: 0 } };
+    const actual = { kind: "omitted", parameter: definition, parameterIndex: 0, formal: { owner, producer: 0 } };
+    const limits = { maximumWork: 10000, maximumResultEntries: 10000 };
+    const full = createAccount(limits);
+    const eligible = argumentTransportKey(actual, full);
+    assert.equal(eligible.kind, "complete");
+    assert.notEqual(eligible.value, "");
+    assert.deepEqual(argumentTransportKey(null, createAccount({ maximumWork: 0, maximumResultEntries: 0 })), { kind: "complete", value: "" });
+    const needed = limits.maximumWork - remainingWork(full);
+    const exact = createAccount({ ...limits, maximumWork: needed });
+    assert.deepEqual(argumentTransportKey(actual, exact), eligible);
+    for (let maximum = 0; maximum < needed; maximum += 1) {
+      const account = createAccount({ ...limits, maximumWork: maximum });
+      const stopped = argumentTransportKey({ ...actual, get parameter() { assert.fail("A refused formal never reaches the encoder"); } }, account);
+      assert.equal(stopped, accountFailure(account));
+    }
+    const refused = createAccount(limits);
+    const original = refuseAccount(refused, conditionRefusal);
+    assert.equal(argumentTransportKey(actual, refused), original);
+    assert.equal(argumentTransportKey(null, refused), original);
+  });
+  await suite.test("binding identity admits the actual indexed row and does not open later families on refusal", async () => {
+    const { accountFailure, createAccount, refuseAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+    const { definition } = (await import("./fixtures/program-publication.mjs")).publicationFixture();
+    const binding = { kind: "rigid", parameter: definition };
+    const needed = 2 + definition.length;
+    const limits = { maximumWork: needed, maximumResultEntries: 6 };
+    function traced() {
+      const reads = [];
+      const rows = [];
+      Object.defineProperty(rows, 0, { get() { reads.push("class row"); return binding; } });
+      const vector = {
+        get classBindings() { reads.push("class"); return rows; },
+        get methodBindings() { reads.push("method"); return []; },
+        get capturedBindings() { reads.push("captured"); return []; },
+        get selfBindings() { reads.push("self"); return []; },
+      };
+      return { reads, vector };
+    }
+    for (const field of ["maximumWork", "maximumResultEntries"]) {
+      for (let maximum = 0; maximum < limits[field]; maximum += 1) {
+        const account = createAccount({ ...limits, [field]: maximum });
+        const { reads, vector } = traced();
+        const stop = product.admitBindingIdentity(vector, account);
+        assert.equal(stop, accountFailure(account));
+        assert.notEqual(stop, null);
+        const expected = field === "maximumWork" ? maximum === 0 ? [] : maximum === 1 ? ["class"] : ["class", "class row"]
+          : maximum < 5 ? [] : ["class", "class row"];
+        assert.deepEqual(reads, expected);
+        assert.equal(product.admitBindingIdentity(vector, account), stop);
+        assert.deepEqual(reads, expected);
+      }
+    }
+    const exact = createAccount(limits);
+    const successful = traced();
+    assert.equal(product.admitBindingIdentity(successful.vector, exact), null);
+    assert.equal(remainingWork(exact), 0);
+    assert.deepEqual(successful.reads, ["class", "class row", "method", "captured", "self"]);
+    const refused = createAccount(limits);
+    const original = refuseAccount(refused, conditionRefusal);
+    const untouched = traced();
+    assert.equal(product.admitBindingIdentity(untouched.vector, refused), original);
+    assert.deepEqual(untouched.reads, []);
+  });
   const { summaryPositionCases } = await import("./fixtures/facts-summary-position.mjs");
   await summaryPositionCases(suite);
   const { escapeKeyCases } = await import("./fixtures/facts-escape-key.mjs");
@@ -248,8 +318,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       abiText(64).replace(`item(value=ItemNodeRef(owner=def:"${definitions.abi64}", node=n:0))`, `body(value=${nodeText(1)})`), product.printMetadata, product.parseMetadata);
   }
   await textCase("one real call component", graph(), graphText, product.printDependencyInventory, product.parseDependencyInventory);
-  await suite.test("every exported value is exactly the current twenty-six own-contract ports", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["admitSummaryIdentity", "applySummary", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "escapeTargetKey", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "summaryEquals", "summaryKey", "summaryPositionKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
+  await suite.test("every exported value is an exact current own-contract port", () => {
+    assert.deepEqual(Object.keys(product).sort(), ["admitArtifactIdentity", "admitBindingIdentity", "admitSummaryIdentity", "applySummary", "argumentTransportKey", "bindInitialization", "compareBoundActivations", "compareConstructionAlternatives", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "escapeTargetKey", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "staticDeclarationKey", "staticInitializationCellOf", "staticInitializationOf", "summaryEquals", "summaryKey", "summaryPositionKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
   });
   await suite.test("required verifier accounts retain exact measured path budgets and the original first stop", async () => {
     const flow = await import("../../packages/host/dist/dataflow/index.js");
@@ -741,8 +811,19 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   for (const [projection, expected] of [[{ kind: "element" }, "element()"], [{ kind: "deref" }, "deref()"], [{ kind: "index", constant: 9007199254740993n }, "index(constant=9007199254740993n)"]]) {
     await arenaTextCase(`projection transport ${projection.kind}`, "projections", [{ id: 0, parent: null, projection }], [`ProjectionPath(id=path:0, parent=null, projection=${expected})`]);
   }
-  await arenaTextCase("full correlated value-context transport", "contexts", [{ id: 0, receiver: 1, arguments: [1, 0], captures: [{ index: 0, location: 1, cell: 0 }] }],
-    [`ValueContext(id=context:0, receiver=origins:1, arguments=${arrayText(["origins:1", "origins:0"])}, captures=${arrayText(["CaptureLocation(index=0, location=bound:1, cell=cell:0)"])})`]);
+  await arenaTextCase("full correlated value-context transport", "contexts", [{ id: 0, receiver: 1, arguments: [{ kind: "provided", origins: 1 }, { kind: "provided", origins: 0 }], captures: [{ index: 0, location: 1, cell: 0 }] }],
+    [`ValueContext(id=context:0, receiver=origins:1, arguments=${arrayText(["provided(origins=origins:1)", "provided(origins=origins:0)"])}, captures=${arrayText(["CaptureLocation(index=0, location=bound:1, cell=cell:0)"])})`]);
+  await suite.test("omitted and provided origins have distinct closed wire arms", () => {
+    const input = emptyFacts();
+    input.arena.contexts = [{ id: 0, receiver: null, arguments: [{ kind: "omitted" }, { kind: "provided", origins: 0 }], captures: [] }];
+    input.arena.origins = [{ id: 0, kind: "complete", producers: [], includesAbsence: true }];
+    const printed = product.printFacts(input);
+    assert.equal(printed.includes("omitted()"), true);
+    assert.equal(printed.includes("provided(origins=origins:0)"), true);
+    equal(product.parseFacts(printed), { kind: "parsed", value: input }, "provided absence is not omission");
+    assert.equal(product.parseFacts(printed.replace("omitted()", "omitted(origins=origins:0)")).kind, "invalid-text");
+    assert.equal(product.parseFacts(printed.replace("provided(origins=origins:0)", "origins:0")).kind, "invalid-text");
+  });
   for (const kind of ["complete", "open"]) {
     const row = { kind, id: 0, producers: [0, 1], includesAbsence: true };
     if (kind === "open") row.boundaries = [1, 0];
@@ -851,7 +932,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       "Producer, complete type bindings and value context remain one canonical correlated alternative."],
     ["capture-locations-exact", value => { value.arena.cells = [cell(0)]; value.arena.contexts[0].captures = [{ index: 0, location: 0, cell: 0 }]; }, arenaSite("context", "context", 0),
       "A capture vector retains actual storage locations rather than creation-time values."],
-    ["context-arguments-total", value => { value.arena.contexts[0].arguments = [0]; }, arenaSite("context", "context", 0),
+    ["context-arguments-total", value => { value.arena.contexts[0].arguments = [{ kind: "provided", origins: 0 }]; }, arenaSite("context", "context", 0),
       "A value context retains every actual parameter and the actual receiver slot."],
     ["node-resolves", value => { value.initialization.reads = [{ node: 99, place: 0, assigned: true }]; }, nodeSite(99), "Every fact retains an actual source occurrence in its declared body domain."],
     ["place-resolves", value => { value.initialization.reads = [{ node: 1, place: 99, assigned: true }]; }, nodeSite(1), "A place reference resolves in this exact MIR body."],
@@ -895,8 +976,13 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       violation("context-arguments-total", arenaSite("context", "context", 0), "A value context retains every actual parameter and the actual receiver slot."),
     ]);
   await factOpposite("a value context retains its actual parameter origins", unchanged,
-    input => { input.arena.contexts[0].arguments = [99]; }, [
+    input => { input.arena.contexts[0].arguments = [{ kind: "provided", origins: 99 }]; }, [
       violation("origins-resolves", arenaSite("context", "context", 0), "Every parameter-ordered argument must reference origins in its own arena."),
+      violation("context-arguments-total", arenaSite("context", "context", 0), "A value context retains every actual parameter and the actual receiver slot."),
+    ]);
+  for (const invalid of [0, { kind: "omitted", origins: 0 }]) await factOpposite("a value context rejects an old or mixed slot arm", unchanged,
+    input => { input.arena.contexts[0].arguments = [invalid]; }, [
+      violation("context-arguments-total", arenaSite("context", "context", 0), "A parameter slot is either explicitly omitted or provided with actual origins."),
       violation("context-arguments-total", arenaSite("context", "context", 0), "A value context retains every actual parameter and the actual receiver slot."),
     ]);
   for (const field of ["subject", "owner"]) await factOpposite(`a boundary retains its actual ${field} producer`, unchanged,
@@ -969,9 +1055,9 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     ["subjects-order", ["origins", "subjects"], node => ({ node, role: "value", path: null, origins: 0 })],
     ["writes-order", ["origins", "writes"], node => ({ node, point: { block: 0, statement: null }, operation: "initialization", destination: "binding", targets: [], owner: null, values: [], boundaries: [] })],
     ["escapes-order", ["origins", "escapes"], node => ({ node, point: { block: 0, statement: null }, producer: 0, target: { kind: "return" } })],
-    ["callbacks-order", ["origins", "callbacks"], node => ({ node, argument: { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
+    ["callbacks-order", ["origins", "callbacks"], node => ({ node, argument: { kind: "provided", authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: summaryOwner(calleeSummaryKey()), producer: 0 }, projection: null }, timing: "synchronous", rejection: null, inputs: [] })],
-    ["activations-order", ["origins", "activations"], node => ({ node, point: { block: 0, statement: null }, activation: instance(), context: 0, caller: null, entry: { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
+    ["activations-order", ["origins", "activations"], node => ({ node, point: { block: 0, statement: null }, activation: instance(), context: 0, caller: null, entry: { kind: "provided", authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: summaryOwner(calleeSummaryKey()), producer: 0 }, projection: null } })],
     ["frontiers-order", ["origins", "frontiers"], node => ({ node, kind: "origin", subject: 0, context: 0 })],
     ["constructions-order", ["origins", "constructions"], node => ({ node, root: nodeRef(node), allocation: nodeRef(node), implementation: null, body: null, regions: [] })],
@@ -1561,8 +1647,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     supplied.types.signatures.push(signature(1, [parameter(definitions.capture)], null, definitions.callee));
     supplied.callbackSignatures.set(callbackKey(input.key, 0), [1]);
     input.arena.producers[0] = { id: 0, kind: "parameter", index: 0, path: null };
-    input.arena.contexts[0].arguments = [0];
-    input.arena.contexts.push({ id: 1, receiver: null, arguments: [1], captures: [] });
+    input.arena.contexts[0].arguments = [{ kind: "provided", origins: 0 }];
+    input.arena.contexts.push({ id: 1, receiver: null, arguments: [{ kind: "provided", origins: 1 }], captures: [] });
     const template = clone(supplied.mir.blocks[0]);
     supplied.mir.blocks = [0, 1].map(id => ({ ...clone(template), id,
       terminator: { kind: "call", callee: { kind: "body", instance: { body: otherBody, bindings: parametric() }, captures: [] },
@@ -1587,6 +1673,14 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     ["position", input => { input.callbacks[0].at = { ...input.callbacks[0].at, point: { block: 99, statement: null } }; }, "relational-site-resolves", "A known callback retains its actual selected execution position."],
   ]) await summaryOpposite(`known exchange actual ${name} opposite`, knownCallbacks, amend,
     [violation(rule, summarySite(), message)]);
+  await summaryOpposite("known callback derives its entry from the actual omitted slot", (input, supplied) => {
+    knownCallbacks(input, supplied);
+    supplied.types.signatures[1].parameters[0].kind = "optional";
+    supplied.types.signatures[1].parameters[0].acceptsOmission = true;
+    input.callbacks[1].provided = 0;
+    input.arena.contexts[1].arguments[0] = { kind: "omitted" };
+  }, input => { input.callbacks[1].provided = 1; },
+  [violation("callback-input-resolves", summarySite(), "A callback retains its actual provided entry, receiver and parameter transport.")]);
   await summaryOpposite("unknown exchange retains its actual boundary rather than a fabricated invocation", oneDeclaredCallback,
     input => { input.callbacks[0].boundary.boundary = 99; },
     [violation("known-negative-distinct", summarySite(), "An ordinary unknown exchange retains its real qualified boundary.")]);
@@ -1702,8 +1796,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       const value = initializedSummary();
       const input = value.input;
       value.supplied.types.signatures[1].parameters.push({ ...parameter(), kind: "rest" });
-      input.arena.contexts[0].arguments.push(0);
-      input.arena.contexts[1].arguments.push(0);
+      input.arena.contexts[0].arguments.push({ kind: "provided", origins: 0 });
+      input.arena.contexts[1].arguments.push({ kind: "provided", origins: 0 });
       value.supplied.canonicalArenas.set(ownerKey(summaryOwner(input.key)), clone(input.arena));
       input.callbacks[0].shared = [{ target: 0, value: 1 }];
       input.concurrentWrites = [{ target: 0, value: 0 }, { target: 0, value: 1 }, { target: 1, value: 1 }];
@@ -1980,10 +2074,10 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     supplied.mir.blocks[0].tir = nodeRef(1); supplied.mir.blocks[0].terminator.tir = nodeRef(1);
     supplied.signatureRequests.set(signatureRequestKey(calleeSummaryKey().execution.request), 1);
     const selectedOwner = summaryOwner(calleeSummaryKey());
-    const transports = [definitions.parameter, definitions.capture].map((parameter, index) => ({ authoredIndex: index, parameter, parameterIndex: index,
+    const transports = [definitions.parameter, definitions.capture].map((parameter, index) => ({ kind: "provided", authoredIndex: index, parameter, parameterIndex: index,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: clone(selectedOwner), producer: index }, projection: null }));
     supplied.canonicalArenas.set(ownerKey(selectedOwner), { projections: [], producers: transports.map((value, index) => ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
-    input.arena.contexts[0].arguments = [0, 0];
+    input.arena.contexts[0].arguments = [{ kind: "provided", origins: 0 }, { kind: "provided", origins: 0 }];
     input.origins.invocations = [{ node: 1, point: { block: 0, statement: null }, kind: "call", alternatives: [{ resolution, context: 0, arguments: transports, result: 0, thrown: 0,
       summary: calleeSummaryKey() }], boundaries: [] }];
     supplied.mir.constants = [1n, 2n].map((value, id) => ({ id, type: 0, value: { kind: "literal",
@@ -2039,8 +2133,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     const selectedOwner = summaryOwner(alternative.summary);
     supplied.canonicalArenas.set(ownerKey(selectedOwner), { projections: [], producers: supplied.types.signatures[1].parameters.map((formal, index) =>
       ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
-    input.arena.contexts[0].arguments = mode === "head" ? [0, 0] : [0];
-    const transport = (parameterIndex, projection, repeated = false) => ({ authoredIndex: 0,
+    input.arena.contexts[0].arguments = mode === "head" ? [{ kind: "provided", origins: 0 }, { kind: "provided", origins: 0 }] : [{ kind: "provided", origins: 0 }];
+    const transport = (parameterIndex, projection, repeated = false) => ({ kind: "provided", authoredIndex: 0,
       parameter: supplied.types.signatures[1].parameters[parameterIndex].declaration, parameterIndex, repeated, passing: "by-value", actual: 0,
       formal: { owner: clone(selectedOwner), producer: parameterIndex }, projection });
     if (mode === "empty") alternative.arguments = [];
@@ -2094,7 +2188,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   for (const mode of ["empty", "finite", "dynamic", "value", "head"]) await factOpposite(`actual selected rest ${mode}`, (input, supplied) => restFixture(mode, input, supplied),
     input => {
       const alternative = input.origins.invocations[0].alternatives[0];
-      if (mode === "empty") alternative.arguments = [{ authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, repeated: false,
+      if (mode === "empty") alternative.arguments = [{ kind: "provided", authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, repeated: false,
         passing: "by-value", actual: 0, formal: { owner: summaryOwner(alternative.summary), producer: 0 }, projection: null }];
       else if (mode === "value") alternative.arguments[0].repeated = true;
       else if (mode === "head") alternative.arguments[1].projection = 2;
@@ -2108,7 +2202,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     input.refinements.integers = [1, 2].map(node => ({ node, range: null, nonnegative: false }));
   }, input => {
     const alternative = input.origins.invocations[0].alternatives[0];
-    alternative.arguments = [{ authoredIndex: null, parameter: definitions.parameter, parameterIndex: 0, repeated: false,
+    alternative.arguments = [{ kind: "provided", authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, repeated: false,
       passing: "by-value", actual: 0, formal: { owner: summaryOwner(alternative.summary), producer: 0 }, projection: null }];
   }, [violation("argument-transports-total", nodeSite(1), "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins."),
     violation("argument-transports-total", nodeSite(1), restMessage)]);
@@ -2120,15 +2214,14 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     formal.acceptsOmission = true;
     formal.initializer = kind === "default" ? initializer : null;
     alternative.resolution.decision.parameters[1] = kind === "default" ? { kind, parameter: 1, initializer } : { kind, parameter: 1, type: 1 };
-    alternative.arguments[1].authoredIndex = null;
+    const { parameter, parameterIndex, formal: formalProducer } = alternative.arguments[1];
+    alternative.arguments[1] = { kind: "omitted", parameter, parameterIndex, formal: formalProducer };
+    input.arena.contexts[0].arguments[1] = { kind: "omitted" };
     supplied.tir.root.arguments.nodes.pop();
     supplied.tir.root.tsonic.application.decision.arguments[1] = { kind: "omitted", parameter: 1,
       value: kind === "default" ? { kind: "initializer", instance: { body: initializer, bindings: parametric() } } : { kind: "absence" } };
     input.refinements.integers.pop();
-    if (kind === "omitted") {
-      input.arena.origins.push({ id: 2, kind: "complete", producers: [], includesAbsence: true });
-      input.arena.contexts[0].arguments[1] = 2; alternative.arguments[1].actual = 2;
-    }
+    supplied.mir.blocks[0].terminator.arguments[1] = { kind: "omitted" };
     if (overload) {
       const advertisedId = supplied.types.signatures.length;
       supplied.types.signatures.push(signature(advertisedId, [supplied.types.signatures[1].parameters[0]], null, definitions.callee));
@@ -2136,7 +2229,22 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       supplied.types.terms[3].calls = [advertisedId];
     }
   }, input => { input.origins.invocations[0].alternatives[0].arguments[1].authoredIndex = 1; },
-    [violation("argument-transports-total", nodeSite(1), "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins.")]);
+    [violation("argument-transports-total", nodeSite(1), "An omitted formal carries no authored operand, passing mode, origins or projection.")]);
+  await factOpposite("a supplied absence is provided, not an omitted formal", (input, supplied) => {
+    invocationFixture(input, supplied);
+    const origins = input.arena.origins.length;
+    input.arena.origins.push({ id: origins, kind: "complete", producers: [], includesAbsence: true });
+    input.arena.contexts[0].arguments[1] = { kind: "provided", origins };
+    input.origins.invocations[0].alternatives[0].arguments[1].actual = origins;
+  }, input => {
+    const args = input.origins.invocations[0].alternatives[0].arguments;
+    const { parameter, parameterIndex, formal } = args[1];
+    args[1] = { kind: "omitted", parameter, parameterIndex, formal };
+  }, [
+    violation("argument-transports-total", nodeSite(1), "Transports retain complete selected formals, passing modes and effective actual components exactly once."),
+    violation("argument-transports-total", nodeSite(1), "A transport retains its actual MIR provided or omitted disposition."),
+    violation("argument-transports-total", nodeSite(1), "An omitted transport must match its selected omission and omitted context slot."),
+  ]);
   const invocationCases = [
     ["signature-resolves", (input, supplied) => { input.origins.invocations[0].alternatives[0].resolution.decision.completion.signature = 99; },
       "A fact signature resolves in the actual supplied signature table."],
@@ -2178,7 +2286,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
           "Transports retain authored actual evaluation order without inventing a flattened runtime slot.")] : [])]);
   }
   await factOpposite("actual context origins cannot be independently permuted", (input, supplied) => { invocationFixture(input, supplied);
-    input.arena.contexts[0].arguments = [0, 1]; input.origins.invocations[0].alternatives[0].arguments[1].actual = 1; },
+    input.arena.contexts[0].arguments = [{ kind: "provided", origins: 0 }, { kind: "provided", origins: 1 }]; input.origins.invocations[0].alternatives[0].arguments[1].actual = 1; },
     input => { input.arena.contexts[0].arguments.reverse(); }, [violation("origin-alternatives-correlated", arenaSite("context", "context", 0),
       "A value context retains its actual receiver and parameter origins without mixing alternatives."),
       ...[0, 1].map(() => violation("argument-transports-total", nodeSite(1), "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins."))]);
@@ -2248,7 +2356,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       supplied.types.signatures[0].parameters = [parameter()];
       supplied.tir.params = [parameterSyntax(supplied.tir, 0, parameter())];
       supplied.tir.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
-      input.arena.contexts[0].arguments = [1];
+      input.arena.contexts[0].arguments = [{ kind: "provided", origins: 1 }];
     } else if (kind === "capture") {
       supplied.tir.captures = [{ local: { body: otherBody, local: 0 }, capture: "captured-location" }];
       supplied.tir.locals = [{ id: 0, declaration: { kind: "body", value: { body: otherBody, node: 1 } }, name: "captured", role: "capture",
@@ -2274,6 +2382,14 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     }, input => { if (kind === "receiver") input.arena.producers[0] = { id: 0, path: null, kind: "parameter", index: 0 }; else input.arena.producers[0].index = 1; },
     [violation("summary-finite", summarySite(), "A summary producer retains its actual formal, receiver or captured-location slot.")]);
   }
+  await factOpposite("no bound incoming producer can inhabit an omitted formal", (input, supplied) => {
+    formalInventory("parameter", input, supplied);
+    input.arena.contexts[0].arguments = [{ kind: "provided", origins: 0 }];
+  }, input => { input.arena.contexts[0].arguments[0] = { kind: "omitted" }; }, [
+    violation("origin-alternatives-correlated", arenaSite("context", "context", 0),
+      "A value context retains its actual receiver and parameter origins without mixing alternatives."),
+    violation("context-arguments-total", arenaSite("bound-producer", "producer", 0), "An omitted formal has no incoming caller value to bind."),
+  ]);
   for (const kind of ["parameter", "capture"]) for (const index of [-0, -1, 0.5, NaN, Infinity]) {
     await factOpposite(`typed ${kind} index ${Object.is(index, -0) ? "negative zero" : String(index)}`,
       (input, supplied) => formalInventory(kind, input, supplied), input => { input.arena.producers[0].index = index; }, [
@@ -3330,7 +3446,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     `EscapeFact(point=MirPoint(block=b:0, statement=null), node=n:1, producer=producer:0, target=${authored})`);
 
   const endpointText = role => `HirCallableEndpoint(declaration=def:"${definitions.callee}", role="${role}", signature=sig:1, body=null)`;
-  const argumentText = (index, parameter) => `ArgumentTransport(authoredIndex=${index}, parameter=def:"${parameter}", parameterIndex=${index}, repeated=false, passing="by-value", actual=origins:0, formal=ProducerRef(owner=summary(key=${calleeSummaryText}), producer=producer:${index}), projection=null)`;
+  const argumentText = (index, parameter) => `provided(parameter=def:"${parameter}", parameterIndex=${index}, formal=ProducerRef(owner=summary(key=${calleeSummaryText}), producer=producer:${index}), authoredIndex=${index}, repeated=false, passing="by-value", actual=origins:0, projection=null)`;
   const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText("advertised")}, api=${endpointText("api-signature")}, bindings=${bindingsText}, implementationBindings=${bindingsText}, parameters=${arrayText([
     'argument(parameter=0, argument=0, component=null, passing="by-value")', 'argument(parameter=1, argument=1, component=null, passing="by-value")',
   ])}, completion=CompletionEndpoint(signature=sig:1, completion=t:1, yielded=null, sent=null), result=t:1, activation=null)`;
@@ -3348,13 +3464,14 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   for (const kind of ["default", "omitted"]) {
     const input = bodyFacts(); invocationFixture(input, setup());
     const row = input.origins.invocations[0]; const alternative = row.alternatives[0];
-    alternative.arguments[1].authoredIndex = null;
+    const { parameter, parameterIndex, formal } = alternative.arguments[1];
+    alternative.arguments[1] = { kind: "omitted", parameter, parameterIndex, formal };
     alternative.resolution.decision.parameters[1] = kind === "default" ? { kind, parameter: 1, initializer: body } : { kind, parameter: 1, type: 1 };
     const authoredMapping = kind === "default" ? `default(parameter=1, initializer=body:"${body}")` : "omitted(parameter=1, type=t:1)";
     const callee = resolvedText.replace('argument(parameter=1, argument=1, component=null, passing="by-value")', authoredMapping);
-    await factTransport(`nullable authored index retains ${kind} disposition in the actual mapping only`, ["origins", "invocations"], "invocations=[]", row,
+    await factTransport(`omitted transport retains ${kind} disposition without any authored operand`, ["origins", "invocations"], "invocations=[]", row,
       `call(node=n:1, point=MirPoint(block=b:0, statement=null), alternatives=${arrayText([`InvocationAlternative(resolution=${callee}, context=context:0, arguments=${arrayText([
-        argumentText(0, definitions.parameter), argumentText(1, definitions.capture).replace("authoredIndex=1", "authoredIndex=null"),
+        argumentText(0, definitions.parameter), `omitted(parameter=def:"${definitions.capture}", parameterIndex=1, formal=ProducerRef(owner=summary(key=${calleeSummaryText}), producer=producer:1))`,
       ])}, result=origins:0, thrown=origins:0, summary=${calleeSummaryText})`])}, boundaries=[])`);
   }
   {
@@ -3785,7 +3902,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   }, (input, supplied) => { delete supplied.types.terms[3]; },
   [violation("type-resolves", arenaSite("projection", "projection", 2), "Every bound type resolves in the actual supplied canonical type table.")]);
   for (const mode of ["missing", "wrong-id"]) await factOpposite(`an invocation completion requires an actual ${mode} signature row`, (input, supplied) => {
-    invocationFixture(input, supplied); supplied.types.signatures.push(signature(2, [], null, definitions.callee));
+    invocationFixture(input, supplied);
+    supplied.types.signatures.push(signature(2, supplied.types.signatures[1].parameters, null, definitions.callee));
     input.origins.invocations[0].alternatives[0].resolution.decision.completion.signature = 2;
   }, (input, supplied) => {
     if (mode === "missing") delete supplied.types.signatures[2]; else supplied.types.signatures[2].id = 3;
@@ -3850,7 +3968,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await factOpposite("an actually selected added context cannot invent canonical arity or captures", input => {
     input.origins.frontiers = [{ node: 1, kind: "origin", subject: 0, context: 0 }];
   }, input => {
-    input.arena.contexts.push({ id: 1, receiver: null, arguments: [1], captures: [] });
+    input.arena.contexts.push({ id: 1, receiver: null, arguments: [{ kind: "provided", origins: 1 }], captures: [] });
     input.origins.frontiers[0].context = 1;
   }, [violation("context-resolves", arenaSite("context", "context", 1), contextIdentityMessage)]);
   for (const mode of ["missing", "wrong-id", "negative-zero"]) {
@@ -3952,7 +4070,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     input.arena.producers.push({ id: 1, path: null, kind: "shared", definition: definitions.other });
     input.arena.boundProducers.push({ id: 1, producer: 1, bindings: emptyBindings(), context: 0 });
     input.arena.cells = [cell(0)]; input.arena.contexts[0].captures = [{ index: 0, location: 0, cell: 0 }, { index: 1, location: 1, cell: 0 }];
-    input.arena.contexts.push({ id: 1, receiver: null, arguments: [0, 0], captures: [{ index: 0, location: 1, cell: 0 }] });
+    input.arena.contexts.push({ id: 1, receiver: null, arguments: [{ kind: "provided", origins: 0 }, { kind: "provided", origins: 0 }], captures: [{ index: 0, location: 1, cell: 0 }] });
     first.resolution.activation = { body: selectedBody, bindings: { kind: "instantiated",
       bindings: clone(first.resolution.decision.implementationBindings) } }; first.resolution.decision.api.body = selectedBody;
     const second = clone(first); second.context = 1; second.summary.execution.request.definition = definitions.other;
@@ -4244,12 +4362,19 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
 
   const callbackFixture = (input, supplied) => {
     const foreign = summaryOwner(calleeSummaryKey());
-    const argument = { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, repeated: false, passing: "by-value", actual: 0,
+    const argument = { kind: "provided", authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, repeated: false, passing: "by-value", actual: 0,
       formal: { owner: foreign, producer: 0 }, projection: null };
     input.origins.callbacks = [{ node: 1, argument, timing: "synchronous", rejection: null, inputs: [] }];
     supplied.canonicalArenas.set(ownerKey(foreign), { projections: [], producers: [{ id: 0, path: null, kind: "parameter", index: 0 }],
       contexts: [], boundProducers: [], origins: [], boundaries: [] });
   };
+  await factOpposite("a callback entry cannot turn an omitted formal into an authored callable", callbackFixture,
+    input => {
+      const row = input.origins.callbacks[0];
+      const { parameter, parameterIndex, formal } = row.argument;
+      row.argument = { kind: "omitted", parameter, parameterIndex, formal };
+      assert.equal(product.parseFacts(product.printFacts(input)).kind, "invalid-text");
+    }, [violation("argument-transports-total", nodeSite(1), "A callback argument requires an actual provided transport.")]);
   for (const [name, input, badField] of [
     ["argument formal", { kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }, "parameterIndex"],
     ["argument source", { kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }, "sourceParameterIndex"],
@@ -4335,7 +4460,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     [violation("cross-owner-qualified", nodeSite(2), activationOccurrenceMessage)]);
   await factOpposite("a direct activation under another value context is not the selected instance", (input, supplied) => {
     directActivation(input, supplied);
-    input.arena.contexts.push({ id: input.arena.contexts.length, receiver: null, arguments: [0, 0], captures: [] });
+    input.arena.contexts.push({ id: input.arena.contexts.length, receiver: null, arguments: [{ kind: "provided", origins: 0 }, { kind: "provided", origins: 0 }], captures: [] });
   }, input => { input.origins.activations[0].context = input.arena.contexts.length - 1; },
     [violation("cross-owner-qualified", nodeSite(1), activationContextMessage)]);
   await factOpposite("a direct activation is not selected by a bodyless alternative", (input, supplied) => {
@@ -4415,12 +4540,20 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   // AC3, AC8: same node and instance; contexts, callers and entries order the rows.
   await factOpposite("AC3/AC8 contexts, callers and entries complete the activation order", (input, supplied) => {
     invocationFixture(input, supplied);
-    input.arena.contexts.push({ id: input.arena.contexts.length, receiver: null, arguments: [0, 0], captures: [] });
+    input.arena.contexts.push({ id: input.arena.contexts.length, receiver: null, arguments: [{ kind: "provided", origins: 0 }, { kind: "provided", origins: 0 }], captures: [] });
     const entries = input.origins.invocations[0].alternatives[0].arguments.map(clone);
     const row = (context, caller, entry) => ({ node: 2, point: { block: 0, statement: null }, activation: { body: otherBody, bindings: parametric() }, context, caller, entry });
     input.origins.activations = [row(0, null, entries[0]), row(0, null, entries[1]), row(0, 0, entries[0]), row(0, 1, entries[0]), row(1, null, entries[0])];
   }, input => { const rows = input.origins.activations; input.origins.activations = [rows[1], rows[0], rows[3], rows[2], rows[4]]; },
     [violation("activations-order", nodeSite(2), orderMessage), violation("activations-order", nodeSite(2), orderMessage)]);
+  await factOpposite("an argument-sourced activation cannot borrow an omitted formal", (input, supplied) => {
+    invocationFixture(input, supplied);
+    input.origins.activations = [{ node: 2, point: { block: 0, statement: null }, activation: { body: otherBody, bindings: parametric() },
+      context: 0, caller: null, entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]) }];
+  }, input => {
+    const { parameter, parameterIndex, formal } = input.origins.activations[0].entry;
+    input.origins.activations[0].entry = { kind: "omitted", parameter, parameterIndex, formal };
+  }, [violation("argument-transports-total", nodeSite(2), "An argument-sourced activation retains an actual provided transport.")]);
   await factOpposite("AC10 two bodies of one definition are two activations", (input, supplied) => {
     invocationFixture(input, supplied);
     const initializer = ids.encodeBodyId({ owner: definitions.other, role: "initializer", ordinal: 0 });
@@ -4473,7 +4606,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     alternative.resolution.decision.parameters = [0, 1].map(index => ({ kind: "argument", parameter: index, argument: 0, component: index, passing: "by-value" }));
     alternative.arguments[1].parameter = definitions.capture; alternative.arguments[1].parameterIndex = 1; alternative.arguments[1].formal.producer = 1;
     supplied.tir.root.tsonic.application.decision.arguments = [0, 1].map(parameter => ({ kind: "provided", parameter, expression: 4 }));
-    input.arena.contexts[0].arguments = [0, 0];
+    input.arena.contexts[0].arguments = [{ kind: "provided", origins: 0 }, { kind: "provided", origins: 0 }];
     supplied.canonicalArenas.set(ownerKey(alternative.arguments[0].formal.owner), { projections: [],
       producers: [0, 1].map(index => ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
   }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.parameters[1].component = 99; },
@@ -4753,7 +4886,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
         else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts")) files.set(path, readFileSync(resolve(repository, path), "utf8"));
       }
     };
-    for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "snapshot", "dataflow"]) visit(`packages/host/src/${name}`);
+    for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "snapshot", "dataflow", "step"]) visit(`packages/host/src/${name}`);
     const graph = readImportGraph(parseSources(files), files);
     const production = new Set(interfaces);
     for (const path of production) for (const edge of graph) if (edge.source === path && edge.target !== null) {
@@ -4823,9 +4956,9 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
         ["facts-retired-scope-reader", 'context.bindingScopesOf({ kind: "body", instance: facts.execution.instance });', [2551]],
         ["facts-retired-instance-scope-root", 'context.sourceBindingScopesOf({ kind: "body", instance: facts.execution.instance });', [2353]],
         ["tir-current-instance-scope-root", [
-          'import type { TirVerifierInput } from "./packages/host/src/ir-tir/contract.js";',
-          'declare const typed: TirVerifierInput;',
-          'typed.bindingScopesOf({ kind: "body", instance: facts.execution.instance });',
+          'import type { TirBody, TirVerifierInput } from "./packages/host/src/ir-tir/contract.js";',
+          'declare const typed: TirVerifierInput; declare const actualTir: TirBody;',
+          'typed.bindingScopesOf({ kind: "body", instance: facts.execution.instance }, actualTir, null);',
         ].join("\n"), []],
         ["summary-readonly", "summary.result = summary.result;", [2540]], ["metadata-readonly", "metadata.key.definition = metadata.key.definition;", [2540]],
         ["inventory-readonly", "graph.dependencies = [];", [2540]], ["producer-vector-readonly", "facts.arena.producers.push(facts.arena.producers[0]);", [2339]],

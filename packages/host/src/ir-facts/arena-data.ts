@@ -50,10 +50,12 @@ export interface CaptureLocation {
   readonly cell: number;
 }
 
+export type ValueArgument = { readonly kind: "provided"; readonly origins: OriginsId } | { readonly kind: "omitted" };
+
 export interface ValueContext {
   readonly id: ValueContextId;
   readonly receiver: OriginsId | null;
-  readonly arguments: readonly OriginsId[];
+  readonly arguments: readonly ValueArgument[];
   readonly captures: readonly CaptureLocation[];
 }
 

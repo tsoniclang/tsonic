@@ -2,7 +2,7 @@ import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
 import { encodeDefId } from "../ids/index.js";
-import type { AwaitExpression, BinaryOperatorOf, CheckedPhase, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirCandidateList, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, SpreadElement, VerifyHir, YieldExpression } from "./contract.js";
+import type { AwaitExpression, BinaryOperatorOf, CheckedPhase, CompoundAssignmentOperatorOf, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirCandidateList, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, PrefixOperatorOf, ShortCircuitOperatorOf, SpreadElement, TypeNode, VerifyHir, YieldExpression } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
 import { walkHirData } from "./verify-syntax.js";
 import { hirBodyData, hirDiagnosticsData, hirItemsData, hirModuleBindingData, hirModuleExportData, hirNodeData, hirObligationsData } from "./text-data.js";
@@ -11,7 +11,7 @@ import type { HirBindingRequest, HirIdentityPaths } from "./verify-bindings.js";
 import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
 import type { HirCaptureReaders } from "./verify-captures.js";
 import { syntaxChildEdges } from "./children.js";
-import { hasOverloadEndpoints, selectedEndpointRoleFaults } from "./endpoints.js";
+import { checkedParameterHeadersOf, hasOverloadEndpoints, selectedEndpointRoleFaults } from "./endpoints.js";
 import { verifyExportBindings } from "./verify-export-bindings.js";
 import { hirChildPath, hirDataPathText } from "./walk.js";
 import type { HirDataPath } from "./walk.js";
@@ -37,10 +37,12 @@ export function createHirInventory(module: HirModule): HirInventory {
   const parents = new Map<HirNode, HirNode | null>();
   const owners = new Map<HirNode, HirBody>();
   const itemOwners = new Map<HirNode, DefId>();
-  const itemDefinitions = new Map<number, DefId>();
+  const itemDefinitions = new Map<NodeId, DefId>();
   for (const item of module.items) if (!itemDefinitions.has(item.node)) itemDefinitions.set(item.node, item.definition);
+  const definitionAt = (node: NodeId): DefId | undefined => itemDefinitions.get(node);
   const bodies = new Map<BodyId, HirBody>();
   const roots = new Map<HirNode, HirBody>();
+  const headerOwners = new Map<HirNode, HirBody>();
   const bodyParents = new Map<HirBody, HirBody | null>();
   const repeated: HirNodeEntry[] = [];
   const active = new Set<HirNode>();
@@ -64,7 +66,7 @@ export function createHirInventory(module: HirModule): HirInventory {
       frame.entry.end = nodes.length;
       ends.set(frame.entry.node, nodes.length);
       const parent = frame.entry.parent;
-      if (parent !== null && parent.body === frame.entry.body) {
+      if (parent !== null && parent.sourceBody === frame.entry.sourceBody) {
         parent.required[0] += frame.entry.required[0];
         parent.required[1] += frame.entry.required[1];
         parent.required[2] += frame.entry.required[2];
@@ -90,11 +92,12 @@ export function createHirInventory(module: HirModule): HirInventory {
     const declaredBody = roots.get(frame.node);
     const inheritedBody = frame.parent === null ? null : frame.parent.body;
     const body = declaredBody ?? inheritedBody;
+    const sourceBody = declaredBody ?? headerOwners.get(frame.node) ?? frame.parent?.sourceBody ?? null;
     const item = itemDefinitions.get(frame.node.id) ?? (frame.parent === null ? module.tree.tsonic.definition : frame.parent.item);
     if (declaredBody !== undefined) bodyParents.set(declaredBody, inheritedBody);
-    const entry: HirNodeEntry = { node: frame.node, ordinal: nodes.length, parent: frame.parent, body, item,
-      source: body === null ? { kind: "item", value: { owner: item, node: frame.node.id } } :
-        { kind: "body", value: { body: body.body, node: frame.node.id } }, end: nodes.length,
+    const entry: HirNodeEntry = { node: frame.node, ordinal: nodes.length, parent: frame.parent, body, sourceBody, item,
+      source: sourceBody === null ? { kind: "item", value: { owner: item, node: frame.node.id } } :
+        { kind: "body", value: { body: sourceBody.body, node: frame.node.id } }, end: nodes.length,
       required: [Number(writeFitOf(frame.node) !== null), Number(operationOf(frame.node) !== null),
         Number(frame.node.kind === "ElementAccessExpression")] };
     entriesByNode.set(frame.node, entry);
@@ -110,6 +113,14 @@ export function createHirInventory(module: HirModule): HirInventory {
       entriesById.set(frame.node.id, entry);
     }
     if (body !== null) owners.set(frame.node, body);
+    const annotation = frame.node.tsonic;
+    if (annotation !== null && "body" in annotation && annotation.body !== null) {
+      const execution = bodies.get(annotation.body);
+      if (execution !== undefined && execution.params.length !== 0) {
+        const headers = checkedParameterHeadersOf(frame.node, execution, definitionAt);
+        if (headers !== null) for (const header of headers) headerOwners.set(header, execution);
+      }
+    }
     const following: NodeFrame = { kind: "leave", node: frame.node, entry, next: pending };
     pending = syntaxChildEdges(frame.node).reduceRight<NodeFrame | null>((next, child) => ({
       kind: "enter", node: child.node, parent: entry, member: true, path: hirChildPath(frame.path, child.fields), next,
@@ -392,6 +403,39 @@ function candidateViolations(inventory: HirInventory, context: HirVerificationCo
     const node = entry.node;
     const metadata = node.tsonic;
     const site: HirSite = { kind: "node", node: entry.source };
+    if (node.kind === "CallExpression" && node.tsonic.application.kind === "available") {
+      const application = node.tsonic.application.value;
+      const authored = node.arguments.nodes;
+      if (application.kind !== "call" || authored.length !== application.arguments.length)
+        report("node-reference", site, "application arguments must retain their exact authored roles in this execution");
+      else for (let index = 0; index < authored.length; index += 1) {
+        const argument = authored[index];
+        const captured = application.arguments[index];
+        const expected = argument?.kind === "SpreadElement" ? argument.expression : argument;
+        const actual = captured === undefined ? undefined : inventory.entriesById.get(captured.expression);
+        if (entry.sourceBody === null || expected === undefined || actual?.node !== expected || actual.sourceBody !== entry.sourceBody
+          || captured?.kind !== (argument?.kind === "SpreadElement" ? "spread" : "value")) {
+          report("node-reference", site, "application arguments must retain their exact authored roles in this execution");
+          break;
+        }
+      }
+    }
+    const capturedMarkers = metadata?.core.markers;
+    if (capturedMarkers?.kind === "available" && capturedMarkers.value.application.kind === "available"
+      && capturedMarkers.value.application.value !== null) {
+      const marker = capturedMarkers.value.application.value;
+      const capturedApplication = node.kind === "CallExpression" ? node.tsonic.application : null;
+      const signature = capturedApplication?.kind === "available" ? capturedApplication.value.resolvedSignature : null;
+      const candidates = capturedApplication?.kind === "available" ? capturedApplication.value.candidates : null;
+      const list = candidates?.kind === "available" && validHirIndex(candidates.value) ? entry.body?.candidateLists[candidates.value] : undefined;
+      const selected = list?.candidates.length === 1 ? list.candidates[0] : undefined;
+      if (entry.source.kind !== "body" || marker.occurrence.body !== entry.source.value.body || marker.occurrence.node !== entry.source.value.node
+        || capturedMarkers.value[marker.role] === null || signature?.kind !== "available" || signature.value === null || !validHirIndex(signature.value)
+        || context.types.signatures[signature.value]?.declaration !== marker.declaration
+        || selected?.declaration !== marker.declaration || selected.appliedSignature.kind !== "available"
+        || !Object.is(selected.appliedSignature.value, signature.value))
+        report("core-capture-reference", site, "a marker application retains its exact checked call, marker payload and selected declaration");
+    }
     if (metadata !== null && "body" in metadata && metadata.body !== null) {
       const body = inventory.bodies.get(metadata.body);
       const root = node.kind === "SourceFile" ? node : "body" in node ? node.body : null;
@@ -401,6 +445,9 @@ function candidateViolations(inventory: HirInventory, context: HirVerificationCo
     if (node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "EnumMember" ||
       node.kind === "PropertySignature" || node.kind === "PropertyDeclaration") {
       const initializer = node.tsonic.initializer;
+      const expectsBound = node.kind === "VariableDeclaration" && node.type === null && node.initializer !== null;
+      if ((node.tsonic.inferredTypeBound !== null) !== expectsBound)
+        report("inferred-type-bound", site, "an inferred declaration bound must belong to its unannotated variable initializer");
       if (initializer !== null) {
         const body = inventory.bodies.get(initializer);
         if (body === undefined || body.root !== node.initializer)
@@ -462,6 +509,36 @@ export const binaryOperatorOf: BinaryOperatorOf = token => {
   }
 };
 
+export const compoundAssignmentOperatorOf: CompoundAssignmentOperatorOf = token => {
+  switch (token) {
+    case "PlusEqualsToken": case "MinusEqualsToken": case "AsteriskEqualsToken": case "AsteriskAsteriskEqualsToken":
+    case "SlashEqualsToken": case "PercentEqualsToken": case "AmpersandEqualsToken": case "BarEqualsToken":
+    case "CaretEqualsToken": case "LessThanLessThanEqualsToken": case "GreaterThanGreaterThanEqualsToken":
+    case "GreaterThanGreaterThanGreaterThanEqualsToken":
+      return binaryOperatorOf(token);
+    default: return null;
+  }
+};
+
+export const shortCircuitOperatorOf: ShortCircuitOperatorOf = (token, role) => {
+  if (role === "assignment") {
+    return token === "AmpersandAmpersandEqualsToken" ? "and" : token === "BarBarEqualsToken" ? "or"
+      : token === "QuestionQuestionEqualsToken" ? "coalesce" : null;
+  }
+  return token === "AmpersandAmpersandToken" ? "and" : token === "BarBarToken" ? "or" : token === "QuestionQuestionToken" ? "coalesce" : null;
+};
+
+export const prefixOperatorOf: PrefixOperatorOf = token => {
+  switch (token) {
+    case "PlusToken": return "+";
+    case "MinusToken": return "-";
+    case "ExclamationToken": return "!";
+    case "TildeToken": return "~";
+    case "PlusPlusToken": return "++";
+    case "MinusMinusToken": return "--";
+  }
+};
+
 interface HirOperation {
   readonly operator: HirUnaryOperator | HirBinaryOperator;
   readonly operands: readonly NodeId[];
@@ -472,11 +549,8 @@ function operationOf(node: HirNode): HirOperation | null {
     const operator = binaryOperatorOf(node.operatorToken.kind);
     return operator === null ? null : { operator, operands: [node.left.id, node.right.id] };
   }
-  if (node.kind === "PrefixUnaryExpression" && node.tsonic.role !== "type-literal") {
-    const operator = node.operator === "PlusToken" ? "+" : node.operator === "MinusToken" ? "-" :
-      node.operator === "ExclamationToken" ? "!" : node.operator === "TildeToken" ? "~" : null;
-    return operator === null ? null : { operator, operands: [node.operand.id] };
-  }
+  if (node.kind === "PostfixUnaryExpression" || node.kind === "PrefixUnaryExpression" && node.tsonic.role !== "type-literal")
+    return { operator: prefixOperatorOf(node.operator), operands: [node.operand.id] };
   if (node.kind === "DeleteExpression" || node.kind === "TypeOfExpression" || node.kind === "VoidExpression")
     return { operator: node.kind === "DeleteExpression" ? "delete" : node.kind === "TypeOfExpression" ? "typeof" : "void", operands: [node.expression.id] };
   return null;
@@ -519,6 +593,16 @@ function writeFitOf(node: HirNode): HirWriteFit | null {
   return null;
 }
 
+function authoredReturnType(body: HirBody | null, inventory: HirInventory): TypeNode<CheckedPhase> | null {
+  if (body === null) return null;
+  const callable = inventory.parents.get(body.root);
+  switch (callable?.kind) {
+    case "FunctionDeclaration": case "FunctionExpression": case "ArrowFunction": case "MethodDeclaration": case "GetAccessor":
+      return callable.tsonic.body === body.body ? callable.type : null;
+    default: return null;
+  }
+}
+
 function obligationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext,
   paths: HirIdentityPaths, report: HirReport): void {
   const moduleSite: HirSite = { kind: "module", module: module.module };
@@ -544,7 +628,7 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
       const occurrenceEntry = inventory.entriesById.get(obligation.occurrence.node);
       const reference: SourceNodeRef = { kind: "body", value: obligation.occurrence };
       const associated = ownerEntry !== null && occurrenceEntry !== undefined && sourceNodeExists(reference, module, inventory, context, paths) &&
-        containsHirNode(ownerEntry, occurrenceEntry) && ownerEntry.body === occurrenceEntry.body;
+        containsHirNode(ownerEntry, occurrenceEntry) && ownerEntry.sourceBody === occurrenceEntry.sourceBody;
       if (!associated)
         report("obligation-complete", site, "every obligation must belong to its diagnostic root");
       if (occurrenceEntry === undefined) return;
@@ -565,10 +649,19 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
       } else if (obligation.kind === "write-fit") {
         const expected = writeFitOf(occurrence);
         const value = localSourceEntry({ kind: "body", value: obligation.value }, module, inventory, paths);
-        if (expected !== null) {
+        if (occurrence.kind === "ReturnStatement") {
+          const annotation = authoredReturnType(occurrenceEntry.body, inventory);
+          if (occurrence.expression === null || value?.node !== occurrence.expression || value.body !== occurrenceEntry.body
+            || annotation?.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== obligation.destinationType
+            || localSourceNode(obligation.destination, module, inventory, paths) !== annotation)
+            report("obligation-complete", site, "return write-fit must retain its actual value and annotated completion");
+        } else if (expected !== null) {
           const body = inventory.owners.get(expected.value);
+          const annotation = occurrence.kind === "VariableDeclaration" || occurrence.kind === "Parameter" ||
+            occurrence.kind === "PropertyDeclaration" ? occurrence.type : null;
           if (body === undefined || !Object.is(obligation.value.node, expected.value.id) || obligation.value.body !== body.body ||
-            localSourceNode(obligation.destination, module, inventory, paths) !== expected.destination)
+            localSourceNode(obligation.destination, module, inventory, paths) !== (annotation ?? expected.destination) ||
+            annotation !== null && (annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== obligation.destinationType))
             report("obligation-complete", site, "write-fit obligation must retain its actual value and destination");
           else if (associated) present[0].add(occurrence);
         } else if (value === null || !containsHirNode(occurrenceEntry, value))

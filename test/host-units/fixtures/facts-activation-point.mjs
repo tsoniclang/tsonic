@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { publicationFixture } from "./program-publication.mjs";
 import { moduleFixture, encodeContextKey } from "../ir-program-fixtures.mjs";
 import { verifyFacts, printFacts, parseFacts } from "../../../packages/host/dist/ir-facts/index.js";
-import { canonicalizeProgram } from "../../../packages/host/dist/ir-program/index.js";
 import { createAccount, accountFailure, refuseAccount } from "../../../packages/host/dist/dataflow/index.js";
 import { InvocationAccount } from "../../../packages/host/dist/dataflow/account.js";
 
@@ -72,7 +71,7 @@ await suite.test("direct body binding retains the actual MIR point without a fab
   const omittedPoint = text.replace("point=MirPoint(block=b:0, statement=null), ", "");
   assert.equal(omittedPoint !== text, true);
   assert.equal(parseFacts(omittedPoint).kind, "invalid-text");
-  const rewritten = canonicalizeProgram({ index: input.index, modules: [input.module] }, {
+  const rewritten = projectFixtureProgram({ index: input.index, modules: [input.module] }, {
     table: input.index.types, types: [0], signatures: [0],
   });
   const selected = rewritten.modules[0].bodies.find(body => body.kind === "selected");
@@ -219,3 +218,4 @@ await suite.test("direct binding verification retains both exact shared bounds a
   assert.equal(verifyFacts(unread, unread, unread, stopped), original);
 });
 }
+import { projectFixtureProgram } from "./program-executions.mjs";

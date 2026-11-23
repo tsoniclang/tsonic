@@ -221,7 +221,7 @@ export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, cap
   const { diagnosticSchema, hirCallableEndpointSchema } = captureValues;
   const { hirCoreCaptureSchema } = captures;
   const { accessRoleSchema, captureSourceSchema, constructionKindSchema, flowRoleSchema, operatorSchema } = constraints;
-  const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, originSchema } = data;
+  const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, originSchema, sigSchema } = data;
   const { typeEvidenceSchema } = evidence;
   const ruleContextSchema = recordSchema<RuleContext>("RuleContext", "RuleContext", read => {
     const occurrence = read("occurrence", () => nodeRefSchema, value => value.occurrence);
@@ -274,7 +274,8 @@ export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, cap
     const construction = read("construction", () => constructionKindSchema, value => value.construction);
     const parts = read("parts", () => arraySchema(literalConstructionPartSchema), value => value.parts);
     const destination = read("destination", () => nullableSchema(typeEvidenceSchema), value => value.destination);
-    return { fields: [context, construction, parts, destination], value: () => ({ context: context.value(), construction: construction.value(), parts: parts.value(), destination: destination.value() }) };
+    const result = read("result", () => typeEvidenceSchema, value => value.result);
+    return { fields: [context, construction, parts, destination, result], value: () => ({ context: context.value(), construction: construction.value(), parts: parts.value(), destination: destination.value(), result: result.value() }) };
   });
 
   const literalConstructionPartSchema: RecordSchema<LiteralConstructionPart> = unionSchema<LiteralConstructionPart>("LiteralConstructionPart",
@@ -381,10 +382,15 @@ export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, cap
     const ordinal = read("ordinal", () => numberSchema, value => value.ordinal);
     const declaration = read("declaration", () => defSchema, value => value.declaration);
     const advertised = read("advertised", () => hirCallableEndpointSchema, value => value.advertised);
+    const advertisedSignature = read("advertisedSignature", () => sigSchema, value => value.advertisedSignature);
     const api = read("api", () => hirCallableEndpointSchema, value => value.api);
+    const apiSignature = read("apiSignature", () => sigSchema, value => value.apiSignature);
     const bindings = read("bindings", () => bindingVectorSchema, value => value.bindings);
     const conditionalFailure = read("conditionalFailure", () => nullableSchema(diagnosticSchema), value => value.conditionalFailure);
-    return { fields: [ordinal, declaration, advertised, api, bindings, conditionalFailure], value: () => ({ ordinal: ordinal.value(), declaration: declaration.value(), advertised: advertised.value(), api: api.value(), bindings: bindings.value(), conditionalFailure: conditionalFailure.value() }) };
+    return { fields: [ordinal, declaration, advertised, advertisedSignature, api, apiSignature, bindings, conditionalFailure],
+      value: () => ({ ordinal: ordinal.value(), declaration: declaration.value(), advertised: advertised.value(),
+        advertisedSignature: advertisedSignature.value(), api: api.value(), apiSignature: apiSignature.value(),
+        bindings: bindings.value(), conditionalFailure: conditionalFailure.value() }) };
   });
 
   const operatorInputSchema = recordSchema<OperatorInput>("OperatorInput", "OperatorInput", read => {

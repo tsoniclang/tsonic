@@ -9,7 +9,7 @@ import type {
   DefId, NodeRef, SourceNodeRef, TyId
 } from "../ids/contract.js";
 import type {
-  CapturedFact, HirArgumentPassingCapture, HirAttributeCapture, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerOperationCapture, HirPointerTypeCapture, HirRecordBindingCapture, HirRecordFieldBindingCapture, HirSafetyCapture, HirSafetySelectionCapture
+  CapturedFact, HirArgumentPassingCapture, HirAttributeCapture, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkerApplication, HirMarkersCapture, HirPointerOperationCapture, HirPointerTypeCapture, HirRecordBindingCapture, HirRecordFieldBindingCapture, HirSafetyCapture, HirSafetySelectionCapture
 } from "../ir-hir/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, nullableWork, sequenceWork } from "./text-layouts.js";
@@ -139,7 +139,19 @@ export const createCapturesText = (kernel: TirTextKernel, read: CapturesTextRead
     .field("field", "?HirFieldMarkerCapture", value => nullableWork(value.field, actual => work_HirFieldMarkerCapture.write(actual)), nullableReader(lazyReader(() => work_HirFieldMarkerCapture.reader)))
     .field("defaultValue", "?Record.defaultValue", value => nullableWork(value.defaultValue, actual => work_Record_defaultValue.write(actual)), nullableReader(lazyReader(() => work_Record_defaultValue.reader)))
     .field("jsString", "boolean", value => scalarWork("boolean", value.jsString), booleanReader)
-    .finish((field_struct, field_field, field_defaultValue, field_jsString) => ({ struct: field_struct, field: field_field, defaultValue: field_defaultValue, jsString: field_jsString })));
+    .field("application", "C<?HirMarkerApplication>", value => markerApplicationCapture.write(value.application), lazyReader(() => markerApplicationCapture.reader))
+    .finish((field_struct, field_field, field_defaultValue, field_jsString, application) => ({ struct: field_struct, field: field_field, defaultValue: field_defaultValue, jsString: field_jsString, application })));
+  const markerApplication = defineRecord<HirMarkerApplication>("HirMarkerApplication", "HirMarkerApplication", null, "HirMarkerApplication", null, null, fields => fields
+    .field("role", "MarkerRole", value => scalarWork("MarkerRole", value.role), literalReader<HirMarkerApplication["role"]>("MarkerRole", ["struct", "field"]))
+    .field("occurrence", "NodeRef", value => read.work_NodeRef.write(value.occurrence), lazyReader(() => read.work_NodeRef.reader))
+    .field("declaration", "def", value => referenceWork("def", value.declaration), definitionReader)
+    .finish((role, occurrence, declaration) => ({ role, occurrence, declaration })));
+  type AvailableMarkerApplication = Extract<HirMarkersCapture["application"], { readonly kind: "available" }>;
+  const availableMarkerApplication = defineRecord<AvailableMarkerApplication>("C<?HirMarkerApplication>#available", "C<?HirMarkerApplication>", { field: "kind", value: "available" }, "available", null, null, fields => fields
+    .field("value", "?HirMarkerApplication", application => nullableWork(application.value, marker => markerApplication.write(marker)), nullableReader(lazyReader(() => markerApplication.reader)))
+    .finish(value => ({ kind: "available", value })));
+  const markerApplicationCapture = unionRecord<HirMarkersCapture["application"]>("C<?HirMarkerApplication>", value => value.kind === "available"
+    ? availableMarkerApplication.write(value) : work_C__def__unavailable.write(value), () => [availableMarkerApplication.reader, work_C__def__unavailable.reader]);
   const work_Record_structMarker: TirRecordCodec<NonNullable<HirMarkersCapture["struct"]>> = defineRecord<NonNullable<HirMarkersCapture["struct"]>>("Record.structMarker", "Record", null, "Record", null, null, fields => fields
     .field("valueType", "boolean", value => scalarWork("boolean", value.valueType), booleanReader)
     .field("fields", "C<[HirFieldMarkerCapture]>", value => work_C__HirFieldMarkerCapture__.write(value.fields), lazyReader(() => work_C__HirFieldMarkerCapture__.reader))

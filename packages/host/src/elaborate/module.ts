@@ -1,13 +1,13 @@
-import type { Result } from "../diag/contract.js";
+import type { Diagnostic, Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId } from "../ids/contract.js";
+import type { BodyInstance } from "../ir-types/contract.js";
 import type { CheckedPhase, Expression, FunctionDeclaration, ParameterDeclaration, SourceFile, Statement, VariableDeclaration } from "../ir-hir/contract.js";
-import type { BodyTyping } from "../ir-infer/contract.js";
 import type { TirBody, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
-import type { ElaborateDeps, ElaborateInput } from "./contract.js";
-import { artifactBindingsKey } from "../ir-types/index.js";
-import { declarationAlias, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation } from "./declarations.js";
-import { elaborateExport, elaborateImport } from "./imports.js";
+import { typePublicationRefusalOf } from "../ir-types/index.js";
+import type { ElaborateDeps, ElaborationCause, ElaborationChild, ElaborationNoResult } from "./contract.js";
+import { declarationAlias, declarationFunction, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation } from "./declarations.js";
+import { elaborateExport, elaborateImport, moduleLinkRefusal } from "./imports.js";
 
 function defect(message: string): never {
   return throwInvariant({ owner: "elaborate", query: null, origin: null, message });
@@ -15,8 +15,8 @@ function defect(message: string): never {
 
 const templateOf = (body: TirBody): TypedBodyTemplate => ({ body: body.body, lexicalBindings: body.lexicalBindings, dependence: body.dependence });
 
-export function elaborateParameter(deps: ElaborateDeps, node: ParameterDeclaration<CheckedPhase>, body: BodyId, selected: TypedParameter,
-  initializer: Expression<TypedPhase> | null): ParameterDeclaration<TypedPhase> {
+export function elaborateParameter<State>(deps: ElaborateDeps<State>, node: ParameterDeclaration<CheckedPhase>, body: BodyId, selected: TypedParameter,
+  initializer: Expression<TypedPhase> | null): Result<ParameterDeclaration<TypedPhase>> {
   if (node.name.kind !== "Identifier" || node.name.tsonic.role !== "declaration-name"
     || node.name.tsonic.declaration.kind !== "local") return defect("not elaborated yet: a nonlocal parameter declaration.");
   const local = node.name.tsonic.declaration.local;
@@ -25,46 +25,53 @@ export function elaborateParameter(deps: ElaborateDeps, node: ParameterDeclarati
   if (node.initializer === null ? initializer !== null || selected.initializer !== null
     : initializer === null || initializer.id !== node.initializer.id || initializer.parent !== node.id || selected.initializer === null)
     return defect("A parameter retains exactly its separately completed initializer syntax.");
-  return { ...node, modifiers: modifiers(node.modifiers),
+  const type = annotation(deps, node.type);
+  if (type.kind === "refused") return type;
+  return { kind: "ok", diagnostics: [], value: { ...node, modifiers: modifiers(node.modifiers),
     dotDotDotToken: node.dotDotDotToken === null ? null : { ...node.dotDotDotToken, tsonic: null },
     questionToken: node.questionToken === null ? null : { ...node.questionToken, tsonic: null },
-    name: name(node.name, selected.storage), type: annotation(deps, node.type), initializer, tsonic: selected };
+    name: name(node.name, selected.storage), type: type.value, initializer, tsonic: selected } };
 }
 
-function callable(deps: ElaborateDeps, node: FunctionDeclaration<CheckedPhase>, bodies: ReadonlyMap<BodyId, TirBody>): FunctionDeclaration<TypedPhase> {
+function callable<State>(deps: ElaborateDeps<State>, node: FunctionDeclaration<CheckedPhase>, body: TirBody): Result<FunctionDeclaration<TypedPhase>> {
   const checked = node.tsonic;
-  const body = checked.body === null ? undefined : bodies.get(checked.body);
-  if (body === undefined || body.owner !== checked.definition || body.root.kind !== "Block")
+  if (body.body !== checked.body || body.owner !== checked.definition || body.root.kind !== "Block")
     return defect("A module function requires its actual completed callable body.");
   if (node.typeParameters !== null && node.typeParameters.nodes.length !== 0)
     return defect("not elaborated yet: a generic module callable declaration.");
   if (node.name === null) return defect("not elaborated yet: an unnamed module callable.");
-  for (const endpoint of checked.signatures) {
-    if (endpoint.body !== body.body || endpoint.signature !== body.signature)
-      return defect("not elaborated yet: a separate advertised or changed callable endpoint.");
-  }
+  const [endpoint] = checked.signatures;
+  if (checked.signatures.length !== 1 || endpoint?.body !== body.body || endpoint.declaration !== checked.definition || endpoint.role !== "api-body")
+    return defect("not elaborated yet: a separate advertised or unrelated callable endpoint.");
   const signature = deps.signatureOf(body.signature);
-  if (signature.declaration !== checked.definition) return defect("The typed body signature belongs to another declaration.");
+  if (signature.declaration !== checked.definition || signature.result !== body.completion)
+    return defect("The typed body must retain its actual placed signature and completion.");
   if (node.parameters.nodes.length !== body.params.length)
     return defect("The selected callable header must retain exactly its actual parameter inventory.");
-  return { ...node, name: name(node.name, null), modifiers: modifiers(node.modifiers), typeParameters: null,
+  const type = annotation(deps, node.type);
+  if (type.kind === "refused") return type;
+  const signatureType = annotation(deps, node.fullSignature);
+  if (signatureType.kind === "refused") return signatureType;
+  return { kind: "ok", diagnostics: [], value: { ...node, name: name(node.name, null), modifiers: modifiers(node.modifiers), typeParameters: null,
     parameters: { ...node.parameters, nodes: node.parameters.nodes.map((item, index) => {
       const selected = body.params[index];
       if (selected === undefined || selected.id !== item.id || selected.parent !== item.parent)
         return defect("The selected callable must reuse its actual typed parameter occurrences.");
       return selected;
     }) },
-    type: annotation(deps, node.type), fullSignature: annotation(deps, node.fullSignature),
+    type: type.value, fullSignature: signatureType.value,
     asteriskToken: node.asteriskToken === null ? null : { ...node.asteriskToken, tsonic: null }, body: body.root,
     tsonic: { definition: checked.definition, parameters: checked.parameters, signatures: checked.signatures,
-      template: templateOf(body), attributes: checked.attributes } };
+      template: templateOf(body), attributes: checked.attributes } } };
 }
 
-export function elaborateVariable(deps: ElaborateDeps, node: VariableDeclaration<CheckedPhase>,
-  bodies: ReadonlyMap<BodyId, TirBody>, definition: DefId): VariableDeclaration<TypedPhase> {
+export function elaborateVariable<State>(deps: ElaborateDeps<State>, node: VariableDeclaration<CheckedPhase>,
+  bodies: ReadonlyMap<BodyId, TirBody>, definition: DefId): Result<VariableDeclaration<TypedPhase>> {
   const checked = node.tsonic;
   if (node.name.kind !== "Identifier" || checked.declaration.kind === "definition" && checked.declaration.definition !== definition)
     return defect("A variable requires its actual checked declaration and identifier.");
+  const type = annotation(deps, node.type);
+  if (type.kind === "refused") return type;
   if (checked.declaredType.kind !== "available") return defect("A module variable requires its actual checked annotation availability.");
   const body = checked.initializer === null ? null : bodies.get(checked.initializer)
     ?? defect("A module variable requires its actual completed initializer execution.");
@@ -82,48 +89,84 @@ export function elaborateVariable(deps: ElaborateDeps, node: VariableDeclaration
     ?? defect("A variable without an annotation or initializer requires its actual inferred storage producer.");
   if (body !== null && body.completion !== storage)
     return defect("The completed initializer and actual variable storage disagree.");
-  return { ...node, name: name(node.name, storage), type: annotation(deps, node.type), initializer,
+  return { kind: "ok", diagnostics: [], value: { ...node, name: name(node.name, storage), type: type.value, initializer,
     exclamationToken: node.exclamationToken === null ? null : { ...node.exclamationToken, tsonic: null },
-    tsonic: { declaration: checked.declaration, storage, initializer: checked.initializer } };
+    tsonic: { declaration: checked.declaration, storage, initializer: checked.initializer } } };
 }
 
-export function elaborateModuleBody(deps: ElaborateDeps, input: ElaborateInput, root: SourceFile<CheckedPhase>, typing: BodyTyping): Result<TirBody> {
-  const { body, instance, solution, constraints } = input;
-  const children = new Map<BodyId, TirBody>();
-  for (const child of input.nestedBodies) {
-    if (children.has(child.body) || artifactBindingsKey(child.bindings) !== artifactBindingsKey(instance.bindings))
-      return defect("The module requires one canonical subtree per direct nested body under the same actual bindings.");
-    children.set(child.body, child);
+export function isInlineModuleStatement(statement: Statement<CheckedPhase>): boolean {
+  return statement.kind === "ExpressionStatement" || statement.kind === "ThrowStatement" || statement.kind === "EmptyStatement"
+    || statement.kind === "VariableStatement" || statement.kind === "Block" || statement.kind === "IfStatement" || statement.kind === "LabeledStatement"
+    || statement.kind === "WhileStatement" || statement.kind === "DoStatement" || statement.kind === "ForStatement"
+    || statement.kind === "SwitchStatement";
+}
+
+export function elaborateModuleSyntax<State>(deps: ElaborateDeps<State>, root: SourceFile<CheckedPhase>,
+  children: ReadonlyMap<BodyId, ElaborationChild>, instance: BodyInstance,
+  typing: ElaborationNoResult | { readonly kind: "ready"; readonly template: TypedBodyTemplate;
+    readonly statementOf: (statement: Statement<CheckedPhase>) => Statement<TypedPhase> | ElaborationNoResult },
+): Result<SourceFile<TypedPhase>> | ElaborationNoResult {
+  const statements: Statement<TypedPhase>[] = [];
+  let diagnostics: [Diagnostic, ...Diagnostic[]] | null = null;
+  const causes: ElaborationCause[] = typing.kind === "no-result" ? [...typing.causes] : [];
+  const append = (earned: readonly Diagnostic[]): void => {
+    for (const diagnostic of earned) {
+      if (diagnostics === null) diagnostics = [diagnostic];
+      else diagnostics.push(diagnostic);
+    }
+  };
+  for (const statement of root.statements.nodes) {
+    const cut = deps.cuts.syntax(statement);
+    if (cut !== null) { causes.push({ kind: "form", cut }); continue; }
+    if (isInlineModuleStatement(statement)) {
+      if (typing.kind === "no-result") continue;
+      const selected = typing.statementOf(statement);
+      if (selected.kind === "no-result") {
+        causes.push(...selected.causes);
+        append(selected.diagnostics);
+      } else statements.push(selected);
+      continue;
+    }
+    let selected: Result<Statement<TypedPhase>>;
+    switch (statement.kind) {
+      case "ImportDeclaration": case "ExportDeclaration": {
+        const refusal = moduleLinkRefusal(deps, statement);
+        if (refusal === null) {
+          statements.push(statement.kind === "ExportDeclaration" ? elaborateExport(statement) : elaborateImport(statement));
+          continue;
+        }
+        selected = { kind: "refused", diagnostics: refusal };
+        break;
+      }
+      case "FunctionDeclaration": {
+        if (statement.body === null) { selected = declarationFunction(deps, statement); break; }
+        const body = statement.tsonic.body;
+        const child = body === null ? undefined : children.get(body);
+        if (child === undefined) return defect("A module function requires its actual child attempt.");
+        if ("kind" in child) {
+          causes.push(...child.causes);
+          continue;
+        }
+        selected = callable(deps, statement, child);
+        break;
+      }
+      case "InterfaceDeclaration": selected = declarationInterface(deps, statement); break;
+      case "TypeAliasDeclaration": selected = declarationAlias(deps, statement); break;
+      default: return defect(`not elaborated yet: module statement ${statement.kind}.`);
+    }
+    if (selected.kind === "refused") {
+      if (typePublicationRefusalOf(deps.typeWork) !== null)
+        return { kind: "refused", diagnostics: diagnostics === null ? selected.diagnostics : [...diagnostics, ...selected.diagnostics] };
+      append(selected.diagnostics);
+      continue;
+    }
+    statements.push(selected.value);
   }
-  if (children.size !== body.nestedBodies.length || body.nestedBodies.some(nested => !children.has(nested)))
-    return defect("The completed nested bodies must be exactly the module's actual direct body inventory.");
-  if (body.locals.length !== 0 || body.params.length !== 0 || body.captures.length !== 0
-    || constraints.constraints.length !== 0 || solution.constraints.length !== 0 || solution.variables.length !== 0)
-    return defect("not elaborated yet: executable module values or storage.");
-  const statements: Statement<TypedPhase>[] = root.statements.nodes.map(statement => {
-    if (statement.kind === "ImportDeclaration") return elaborateImport(statement);
-    if (statement.kind === "ExportDeclaration") return elaborateExport(statement);
-    if (statement.kind === "FunctionDeclaration") return callable(deps, statement, children);
-    if (statement.kind === "InterfaceDeclaration") return declarationInterface(deps, statement);
-    if (statement.kind === "TypeAliasDeclaration") return declarationAlias(deps, statement);
-    if (statement.kind === "VariableStatement") return { ...statement, modifiers: modifiers(statement.modifiers),
-      declarationList: { ...statement.declarationList,
-        declarations: { ...statement.declarationList.declarations,
-          nodes: statement.declarationList.declarations.nodes.map(declaration => {
-            if (declaration.tsonic.declaration.kind !== "definition") return defect("A module variable retains its actual definition target.");
-            return elaborateVariable(deps, declaration, children, declaration.tsonic.declaration.definition);
-          }) },
-        tsonic: { role: "ordinary" } }, tsonic: null };
-    return defect(`not elaborated yet: module statement ${statement.kind}.`);
-  });
-  const lexicalBindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
-  const typed: SourceFile<TypedPhase> = { ...root, statements: { ...root.statements, nodes: statements },
+  const [cause, ...others] = causes;
+  if (cause !== undefined) return { kind: "no-result", instance, causes: [cause, ...others], diagnostics: diagnostics ?? [] };
+  if (diagnostics !== null) return { kind: "refused", diagnostics };
+  if (typing.kind !== "ready") return defect("A complete module requires its actual ready typing.");
+  return { kind: "ok", diagnostics: [], value: { ...root, statements: { ...root.statements, nodes: statements },
     endOfFileToken: { ...root.endOfFileToken, tsonic: null },
-    tsonic: { module: root.origin.module, template: { body: body.body,
-      lexicalBindings, dependence: "parametric" } } };
-  return { kind: "ok", diagnostics: [], value: { body: body.body, owner: body.owner, bindings: instance.bindings,
-    lexicalBindings,
-    dependence: "parametric", signature: typing.signature, completion: typing.completion, yielded: typing.yielded, sent: typing.sent,
-    root: typed, params: [], locals: [], nestedBodies: body.nestedBodies, captures: [], scopes: body.scopes, evidence: [],
-    asynchronous: body.asynchronous, generator: body.generator } };
+    tsonic: { module: root.origin.module, template: typing.template } } };
 }

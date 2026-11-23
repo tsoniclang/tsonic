@@ -1,4 +1,5 @@
 import type { TyId, SigId, SourceNodeRef } from "../ids/contract.js";
+import { decodeDefId } from "../ids/index.js";
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { VerifyTypes, TypeRule, TypeSite, ExactRational, TypeTerm,
   MemberOrigin, TypeEvidence, TypeVerificationInput, TypeComponent, ConstructionDefinition, Signature,
@@ -14,6 +15,7 @@ function validReference(value: number, length: number): boolean {
 }
 
 function rationalNormalized(value: ExactRational): boolean {
+  if (typeof value.numerator !== "bigint" || typeof value.denominator !== "bigint" || typeof value.negativeZero !== "boolean") return false;
   if (value.denominator <= 0n || value.negativeZero && value.numerator !== 0n) return false;
   let numerator = value.numerator < 0n ? -value.numerator : value.numerator;
   let denominator = value.denominator;
@@ -22,7 +24,7 @@ function rationalNormalized(value: ExactRational): boolean {
 }
 
 interface Checks {
-  readonly input: TypeVerificationInput;
+  readonly input: TypeVerificationInput | null;
   readonly add: Add;
   readonly type: (value: TyId, site: TypeSite) => void;
   readonly signature: (value: SigId, site: TypeSite) => void;
@@ -37,7 +39,7 @@ function vector<Value>(values: readonly Value[], rule: TypeRule, site: TypeSite,
 }
 
 function qualified(value: SourceNodeRef, rule: TypeRule, site: TypeSite, field: string, checks: Checks): void {
-  if (!checks.input.nodeExists(value)) checks.add(rule, site, field);
+  if (checks.input !== null && !checks.input.nodeExists(value)) checks.add(rule, site, field);
 }
 
 function memberOrigin(value: MemberOrigin, site: TypeSite, checks: Checks): void {
@@ -51,7 +53,7 @@ function memberOrigin(value: MemberOrigin, site: TypeSite, checks: Checks): void
 function construction(value: ConstructionDefinition, site: TypeSite, checks: Checks): void {
   qualified({ kind: "body", value: value.occurrence }, "construction-captures-qualified", site, "definition.occurrence", checks);
   for (const [position, capture] of value.captures.entries()) {
-    if (capture === undefined || capture.body !== value.occurrence.body || !checks.input.localExists(capture))
+    if (capture === undefined || capture.body !== value.occurrence.body || checks.input !== null && !checks.input.localExists(capture))
       checks.add("construction-captures-qualified", site, "definition.captures", position);
   }
 }
@@ -145,12 +147,18 @@ function termReferences(value: TypeTerm, site: TypeSite, checks: Checks, path: I
   const types = (values: readonly TyId[], field: string): void => vector(values, "type-reference", site, field, checks, type => checks.type(type, site));
   const signatures = (values: readonly SigId[], field: string): void => vector(values, "signature-reference", site, field, checks, signature => checks.signature(signature, site));
   switch (value.kind) {
+    case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error": break;
     case "literal": checks.type(value.base, site); break;
     case "union": case "intersection": types(value.members, "members"); break;
     case "optional": checks.type(value.value, site); break;
     case "array": case "fixed-array": checks.type(value.element, site); break;
     case "tuple":
       for (const element of value.elements) if (element !== undefined) checks.type(element.type, site);
+      break;
+    case "source-environment":
+      for (const member of value.members) if (member !== undefined)
+        for (const origins of [member.origins, member.readOrigins, member.writeOrigins])
+          vector(origins, "member-origins", site, "members.origins", checks, origin => memberOrigin(origin, site, checks));
       break;
     case "shape":
       for (const member of value.members) if (member !== undefined) {
@@ -172,7 +180,18 @@ function termReferences(value: TypeTerm, site: TypeSite, checks: Checks, path: I
       checks.type(value.source, site);
       if (value.projection.kind === "component") component(value.projection.component, site, checks,
         { parent: path, part: ".projection.component" });
+      else if (value.projection.kind === "indexed") checks.type(value.projection.index, site);
+      else if (value.projection.kind === "substitution") checks.type(value.projection.constraint, site);
+      else if (value.projection.kind === "conditional") {
+        checks.type(value.projection.extends, site);
+        checks.type(value.projection.whenTrue, site);
+        checks.type(value.projection.whenFalse, site);
+        const binder = value.projection.inferParameter;
+        if (binder !== null && (typeof binder !== "string" || decodeDefId(binder).kind !== "decoded"))
+          checks.add("projection-owner", site, "projection.inferParameter");
+      }
       break;
+    default: throw new TypeError("Types verification requires an actual canonical type term");
   }
 }
 
@@ -259,14 +278,14 @@ function verifyEvidence(evidence: readonly TypeEvidence[], terms: readonly TypeT
   }
 }
 
-export const verifyTypes: VerifyTypes = input => {
+export function verifyTypeRows(table: TypeVerificationInput["table"], input: TypeVerificationInput | null):
+  readonly Violation<TypeRule, TypeSite>[] {
   const violations: Violation<TypeRule, TypeSite>[] = [];
   const add: Add = (rule, site, field, value) => {
     const detail: MessageArgument[] = [{ kind: "text", value: field }];
     if (value !== undefined) detail.push({ kind: "number", value });
     violations.push(({ rule, site: (site), detail: (detail.map(argument => (argument))) }));
   };
-  const { table } = input;
   const typeOf = (value: TyId, site: TypeSite): TyId => {
     if (!validReference(value, table.terms.length)) add("type-reference", site, "reference", value);
     return value;
@@ -280,7 +299,7 @@ export const verifyTypes: VerifyTypes = input => {
     const site: TypeSite = { kind: "type", type: typeIdentifier(position) };
     if (value === undefined) { add("type-reference", site, "terms", position); continue; }
     termReferences(value, site, checks, { parent: null, part: `.table.terms[${position}]` });
-    if (value.kind === "declared" || value.kind === "enum") {
+    if (input !== null && (value.kind === "declared" || value.kind === "enum")) {
       const nominal = input.nominalOf(value.definition);
       if (nominal === null || nominal.kind !== value.kind || value.kind === "declared" && !nominal.facets.includes(value.facet))
         add("nominal-definition", site, "definition");
@@ -302,7 +321,7 @@ export const verifyTypes: VerifyTypes = input => {
       }
     } else if (value.kind === "literal") {
       if (value.value.kind === "number" && !rationalNormalized(value.value.value)) add("rational-normalized", site, "value");
-    } else if (value.kind === "shape") {
+    } else if (value.kind === "shape" || value.kind === "source-environment") {
       let previous: string | null = null;
       for (const [index, member] of value.members.entries()) {
         if (member === undefined) { add("member-order", site, "members", index); continue; }
@@ -310,8 +329,15 @@ export const verifyTypes: VerifyTypes = input => {
         if (previous !== null && compareText(previous, key) >= 0) add("member-order", site, "members", index);
         previous = key;
         if (!originsValid(member.origins, member.readOrigins, member.writeOrigins)) add("member-origins", site, "members.origins", index);
+        if (value.kind === "source-environment" && (member.key.kind !== "text" || member.kind !== "property"
+          || member.readOrigins.length === 0 || member.readonly !== (member.writeOrigins.length === 0)
+          || member.origins.some(origin => origin.kind !== "declared" && origin.kind !== "intrinsic")
+          || member.origins.some(origin => origin.kind === "intrinsic" && (member.origins.length !== 1
+            || member.key.kind !== "text" || member.key.value !== (origin.symbol === "global-this" ? "globalThis" : "undefined")))))
+          add("member-origins", site, "members.origins", index);
         if (member.key.kind === "number" && !rationalNormalized(member.key.value)) add("rational-normalized", site, "members.key", index);
       }
+      if (value.kind === "source-environment") continue;
       let previousIndex: typeof value.indexes[number] | null = null;
       for (const [index, entry] of value.indexes.entries()) {
         if (entry === undefined) { add("index-order", site, "indexes", index); continue; }
@@ -353,9 +379,13 @@ export const verifyTypes: VerifyTypes = input => {
       if (parameter.kind === "optional") optional = true;
     }
   }
-  for (const step of bindingChecks(input.bindings, table.terms.length)) {
-    if (step.kind === "violation") violations.push(step.violation);
+  if (input !== null) {
+    for (const step of bindingChecks(input.bindings, table.terms.length)) {
+      if (step.kind === "violation") violations.push(step.violation);
+    }
+    verifyEvidence(input.evidence, table.terms, checks);
   }
-  verifyEvidence(input.evidence, table.terms, checks);
   return (violations);
-};
+}
+
+export const verifyTypes: VerifyTypes = input => verifyTypeRows(input.table, input);

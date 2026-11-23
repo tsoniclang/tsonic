@@ -5,10 +5,10 @@ import type { Cause } from "../diag/contract.js";
 import type { BindingScope } from "../ir-types/contract.js";
 import { bindingVectorKey, instanceKey } from "../ir-types/index.js";
 import type { CheckedPhase, HirBody, HirNode, HirParam, ParameterDeclaration } from "../ir-hir/contract.js";
-import { childrenOfSyntax, iterateChildrenOfSyntax } from "../ir-hir/index.js";
-import type { CaptureSource, LogicalCapture } from "../ir-infer/contract.js";
+import { childrenOfSyntax, iterateChildrenOfSyntax, shortCircuitOperatorOf } from "../ir-hir/index.js";
+import type { CaptureSource } from "../ir-infer/contract.js";
 import { captureRequiresLocation, sameCaptureSource } from "../ir-infer/index.js";
-import type { TirBody, TirModule, TirNode, TirSelection, TirVerifierInput, TypedBinding, TypedParameter, TypedPhase } from "./contract.js";
+import type { TirBody, TirModule, TirNode, TirReadyReadAdmission, TirSelection, TirVerifierInput, TypedBinding, TypedParameter, TypedPhase } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 import type { TirSemanticInventory, TirStructure } from "./verify-occurrences.js";
 import { sameLocalReference, sameSourceReference, typedValueOf } from "./verify-occurrences.js";
@@ -308,10 +308,7 @@ export const verifyControlledContexts = (
         { root: node.whenFalse.id, when: "false", active: selection.disposition === "dynamic" ? "conditional" : selection.disposition === "false" ? "always" : "never" });
     } else if (node.kind === "BinaryExpression" && (node.tsonic.role === "short-circuit" || node.tsonic.role === "assignment")) {
       selection = node.tsonic.selection;
-      const token = node.operatorToken.kind;
-      const expected = token === "AmpersandAmpersandToken" || token === "AmpersandAmpersandEqualsToken" ? "and"
-        : token === "BarBarToken" || token === "BarBarEqualsToken" ? "or"
-        : token === "QuestionQuestionToken" || token === "QuestionQuestionEqualsToken" ? "coalesce" : null;
+      const expected = shortCircuitOperatorOf(node.operatorToken.kind, node.tsonic.role);
       if (selection === null ? expected !== null : selection.kind === "conditional" || selection.kind !== expected ||
         selection.control !== node.left.id || selection.right !== node.right.id) {
         emit("controlled-demand", node, "selection does not retain its authored control and branch endpoints");
@@ -380,10 +377,15 @@ export const verifyControlledContexts = (
   }
 };
 
-export const verifyBindingSlots = (
+type BindingRead<Value, Stop extends object> =
+  | { readonly kind: "complete"; readonly value: Value }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+
+export const verifyBindingSlots = <Stop extends object>(
   body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, sources: ReadonlyMap<BodyId, HirBody>,
   published: readonly (TirBody | undefined)[], bodyOf: TirVerifierInput["bodyOf"], nodeOf: TirVerifierInput["nodeOf"], emit: TirOccurrenceEmit,
-): void => {
+  admit: TirReadyReadAdmission<Stop>,
+): Stop | null => {
   const checkedParameters = new Map<BodyId, { readonly declarations: ReadonlyMap<DefId, HirParam>;
     readonly locals: ReadonlyMap<LocalId, HirParam> }>();
   const checkedParameterRows = (owner: BodyId) => {
@@ -423,40 +425,60 @@ export const verifyBindingSlots = (
     }
     return null;
   };
-  const creatorOf = (creating: BodyId): TirBody | null => {
+  let environment: string | null = null;
+  const creatorOf = (creating: BodyId): BindingRead<TirBody | null, Stop> => {
     const known = creators.get(creating);
-    if (known !== undefined) return known;
-    const environment = bindingVectorKey(body.lexicalBindings);
+    if (known !== undefined) return { kind: "complete", value: known };
     let selected: TirBody | null = null;
     let count = 0;
-    for (const candidate of published) if (candidate !== undefined && candidate.body === creating) {
+    for (let index = 0; index < published.length; index += 1) {
+      const row = admit({ kind: "row" });
+      if (row !== null) return { kind: "resource-stop", stop: row };
+      const candidate = published[index];
+      if (candidate === undefined || candidate.body !== creating) continue;
       const node = contains(candidate.root);
       const template = node !== null && (node.kind === "ArrowFunction" || node.kind === "FunctionExpression") ? node.tsonic.callable.template : null;
-      if (template !== null && template.body === body.body && bindingVectorKey(template.lexicalBindings) === environment) {
+      if (template === null || template.body !== body.body) continue;
+      if (environment === null) {
+        const field = admit({ kind: "row" });
+        if (field !== null) return { kind: "resource-stop", stop: field };
+        const lexical = body.lexicalBindings;
+        const identity = admit({ kind: "bindings", bindings: lexical });
+        if (identity !== null) return { kind: "resource-stop", stop: identity };
+        environment = bindingVectorKey(lexical);
+      }
+      const field = admit({ kind: "row" });
+      if (field !== null) return { kind: "resource-stop", stop: field };
+      const lexical = template.lexicalBindings;
+      const identity = admit({ kind: "bindings", bindings: lexical });
+      if (identity !== null) return { kind: "resource-stop", stop: identity };
+      if (bindingVectorKey(lexical) === environment) {
         selected = candidate;
         count += 1;
       }
     }
     const creator = count === 1 ? selected : null;
     creators.set(creating, creator);
-    return creator;
+    return { kind: "complete", value: creator };
   };
-  const enclosingRow = (creating: BodyId, from: LocalRef): LogicalCapture | null =>
-    creatorOf(creating)?.captures.find(row => sameLocalReference(row.local, from))?.capture ?? null;
-  const incomingOf = (reference: LocalRef): CaptureSource | null => {
+  const incomingOf = (reference: LocalRef): BindingRead<CaptureSource | null, Stop> => {
     const source = sources.get(reference.body);
     if (source !== undefined) {
       const local = source.locals[reference.local];
-      if (local === undefined) return null;
+      if (local === undefined) return { kind: "complete", value: null };
       if (local.role === "capture") {
-        const capture = local.capturedFrom === null ? null : enclosingRow(reference.body, local.capturedFrom);
-        return capture === null ? null : { kind: "capture", capture };
+        const from = local.capturedFrom;
+        if (from === null) return { kind: "complete", value: null };
+        const creator = creatorOf(reference.body);
+        if (creator.kind === "resource-stop") return creator;
+        const capture = creator.value?.captures.find(row => sameLocalReference(row.local, from))?.capture ?? null;
+        return { kind: "complete", value: capture === null ? null : { kind: "capture", capture } };
       }
       const parameter = local.role === "parameter" ? checkedParameterRows(reference.body)?.locals.get(reference.local) : undefined;
-      if (parameter !== undefined && !Object.is(parameter.local, reference.local)) return null;
-      return parameter === undefined ? { kind: "binding" } : { kind: "parameter", passing: parameter.passing };
+      if (parameter !== undefined && !Object.is(parameter.local, reference.local)) return { kind: "complete", value: null };
+      return { kind: "complete", value: parameter === undefined ? { kind: "binding" } : { kind: "parameter", passing: parameter.passing } };
     }
-    return null;
+    return { kind: "complete", value: null };
   };
   if (body.captures.length !== 0 && body.root.parent !== null) {
     const authored = originals.get(body.root.parent);
@@ -467,7 +489,8 @@ export const verifyBindingSlots = (
       for (const row of body.captures) {
         const mutable = reassignable(row.local);
         const incoming = incomingOf(row.local);
-        if (row.capture === "captured-value" && (mutable === true || incoming !== null && captureRequiresLocation(false, incoming)))
+        if (incoming.kind === "resource-stop") return incoming.stop;
+        if (row.capture === "captured-value" && (mutable === true || incoming.value !== null && captureRequiresLocation(false, incoming.value)))
           emit("closure-capture-binding", body.root, "a placed body must capture writable outer storage as a location");
       }
     }
@@ -487,10 +510,22 @@ export const verifyBindingSlots = (
       && node.kind !== "GetAccessor" && node.kind !== "SetAccessor" && node.kind !== "ArrowFunction" && node.kind !== "FunctionExpression") continue;
     const callable = node.kind === "ArrowFunction" || node.kind === "FunctionExpression" ? node.tsonic.callable : node.tsonic;
     if (callable.template === null || callable.template.body === body.body && node === body.root) continue;
-    const nested = bodyOf({ body: callable.template.body, bindings: body.bindings });
-    if (nested === null || nested.body !== callable.template.body || nested.owner !== callable.definition
-      || instanceKey({ body: nested.body, bindings: nested.bindings }) !== instanceKey({ body: callable.template.body, bindings: body.bindings })
-      || nested.params.length !== node.parameters.nodes.length
+    const instanceRead = admit({ kind: "row" });
+    if (instanceRead !== null) return instanceRead;
+    const instance = { body: callable.template.body, bindings: body.bindings };
+    const lookup = admit({ kind: "artifact", instance });
+    if (lookup !== null) return lookup;
+    const nested = bodyOf(instance);
+    if (nested === null || nested.body !== callable.template.body || nested.owner !== callable.definition) continue;
+    const nestedRead = admit({ kind: "row" });
+    if (nestedRead !== null) return nestedRead;
+    const actual = { body: nested.body, bindings: nested.bindings };
+    const nestedIdentity = admit({ kind: "artifact", instance: actual });
+    if (nestedIdentity !== null) return nestedIdentity;
+    const actualKey = instanceKey(actual);
+    const expected = admit({ kind: "artifact", instance });
+    if (expected !== null) return expected;
+    if (actualKey !== instanceKey(instance) || nested.params.length !== node.parameters.nodes.length
       || node.parameters.nodes.some((parameter, index) => nested.params[index] !== parameter)) continue;
     for (const parameter of nested.params) registerParameter(parameter, nested);
   }
@@ -543,22 +578,31 @@ export const verifyBindingSlots = (
           }))) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
       }
       if (closure.kind === "decided") {
-        if (closure.decision.captures.some(row => {
-          if (row.capture !== "captured-value") return false;
+        for (const row of closure.decision.captures) {
+          if (row.capture !== "captured-value") continue;
           const incoming = incomingOf(row.local);
-          // with no incoming storage known, only the reassignment fact is evidence
-          return incoming === null ? reassignable(row.local) === true : captureRequiresLocation(reassignable(row.local) === true, incoming);
-        }))
-          emit("closure-capture-binding", node, "a binding whose storage another party can write is a captured location");
+          if (incoming.kind === "resource-stop") return incoming.stop;
+          const mutable = reassignable(row.local) === true;
+          if (incoming.value === null ? mutable : captureRequiresLocation(mutable, incoming.value)) {
+            emit("closure-capture-binding", node, "a binding whose storage another party can write is a captured location");
+            break;
+          }
+        }
       } else if (closure.deferred.invocation.rule === "closure") {
-        if (closure.deferred.invocation.input.captures.some(capture => {
+        for (const capture of closure.deferred.invocation.input.captures) {
           const evidence = reassignable(capture.local);
           const incoming = incomingOf(capture.local);
-          return evidence !== null && capture.reassignable !== evidence || incoming !== null && !sameCaptureSource(capture.incoming, incoming);
-        })) emit("closure-capture-binding", node, "saved capture evidence does not state the binding evidence of its captured locals");
+          if (incoming.kind === "resource-stop") return incoming.stop;
+          if (evidence !== null && capture.reassignable !== evidence
+            || incoming.value !== null && !sameCaptureSource(capture.incoming, incoming.value)) {
+            emit("closure-capture-binding", node, "saved capture evidence does not state the binding evidence of its captured locals");
+            break;
+          }
+        }
       }
     }
   }
+  return null;
 };
 
 export const verifyPublishedInstance = (
@@ -569,18 +613,45 @@ export const verifyPublishedInstance = (
   }
 };
 
-export const verifyPublicationInventory = (module: TirModule, selected: TirBody, emit: TirOccurrenceEmit): void => {
-  const keys = new Set<string>();
-  let duplicate = false;
-  let selectedCount = 0;
-  for (const body of module.bodies) {
-    if (body === undefined) { duplicate = true; continue; }
-    if (body === selected) selectedCount++;
-    const key = instanceKey({ body: body.body, bindings: body.bindings });
-    if (keys.has(key)) duplicate = true;
-    keys.add(key);
-  }
-  if (duplicate || selectedCount !== 1) {
-    emit("template-shared-once", null, "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once");
-  }
-};
+export function publicationMembership<Stop extends object>(input: TirVerifierInput, admit: TirReadyReadAdmission<Stop>):
+  (selected: TirBody, emit: TirOccurrenceEmit) => Stop | null {
+  let proof: ReadonlyMap<string, TirBody> | null = null;
+  let proofDuplicate = false;
+  return (selected, emit) => {
+    let current = proof;
+    let duplicate = proofDuplicate;
+    if (current === null) {
+      const setup = admit({ kind: "retain-publication-entry" });
+      if (setup !== null) return setup;
+      const bodies = new Map<string, TirBody>();
+      const inventory = input.module.bodies;
+      for (let position = 0; position < inventory.length; position += 1) {
+        const step = admit({ kind: "row" });
+        if (step !== null) return step;
+        const body = inventory[position];
+        if (body === undefined) { duplicate = true; continue; }
+        const instance = { body: body.body, bindings: body.bindings };
+        const identity = admit({ kind: "artifact", instance });
+        if (identity !== null) return identity;
+        const key = instanceKey(instance);
+        if (bodies.has(key)) { duplicate = true; continue; }
+        const retain = admit({ kind: "retain-publication-entry" });
+        if (retain !== null) return retain;
+        bodies.set(key, body);
+      }
+      current = bodies;
+    }
+    const selectedRow = admit({ kind: "row" });
+    if (selectedRow !== null) return selectedRow;
+    const instance = { body: selected.body, bindings: selected.bindings };
+    const identity = admit({ kind: "artifact", instance });
+    if (identity !== null) return identity;
+    const member = current.get(instanceKey(instance)) === selected;
+    if (duplicate || !member) {
+      emit("template-shared-once", null, "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once");
+    }
+    proof = current;
+    proofDuplicate = duplicate;
+    return null;
+  };
+}

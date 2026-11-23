@@ -9,6 +9,14 @@ import {
 import type * as Hir from "../ir-hir/contract.js";
 import { orderPragmaArguments } from "../ir-hir/index.js";
 import type { ModuleId, NodeId, Origin } from "../ids/contract.js";
+import type { RawNumericLiteral } from "./contract.js";
+
+export const writtenCompoundAssignmentKinds: readonly string[] = [
+  "PlusEqualsToken", "MinusEqualsToken", "AsteriskEqualsToken", "AmpersandEqualsToken", "BarEqualsToken", "CaretEqualsToken",
+  "LessThanLessThanEqualsToken", "GreaterThanGreaterThanEqualsToken", "GreaterThanGreaterThanGreaterThanEqualsToken",
+  "SlashEqualsToken", "PercentEqualsToken",
+  "AmpersandAmpersandEqualsToken", "BarBarEqualsToken", "QuestionQuestionEqualsToken",
+];
 
 /** A node of the checker's tree. */
 export type SyntaxNodeOf = Node;
@@ -38,7 +46,47 @@ interface CapturedPragmas {
 
 export interface SyntaxCaptureContext extends SyntaxLocationContext, CapturedPragmas {
   readonly module: ModuleId;
+  readonly sourceText: string;
+  readonly numericLiterals: Map<Node, RawNumericLiteral>;
   readonly numbering: FileNumbering;
+}
+
+function numericTokenAt(sourceText: string, origin: Origin): string {
+  const token = sourceText.slice(origin.start, origin.start + origin.length);
+  if (origin.length === 0 || token.length !== origin.length) return defect("a numeric literal has no exact authored token");
+  return token;
+}
+
+export function numericSyntaxText(context: SyntaxCaptureContext, node: Node, origin: Origin): string {
+  const token = numericTokenAt(context.sourceText, origin);
+  context.numericLiterals.set(node, { token, origin });
+  return token;
+}
+
+type AuthoredTypeContext = Pick<SyntaxCaptureContext, "ast" | "module" | "sourceText" | "displacement">;
+
+export function authoredNumericType(context: AuthoredTypeContext, node: Node): RawNumericLiteral | null {
+  const ast = context.ast;
+  if (ast.kindName(node) !== "KindLiteralType") return null;
+  const literal = ast.as.AsLiteralTypeNode(node)?.Literal;
+  if (literal === undefined) return defect("a literal annotation has no actual child");
+  const kind = ast.kindName(literal);
+  if (kind === "KindNumericLiteral") {
+    const origin = originOf(context, literal);
+    return { token: numericTokenAt(context.sourceText, origin), origin };
+  }
+  if (kind !== "KindPrefixUnaryExpression" || ast.operatorKindName(literal) !== "KindMinusToken") return null;
+  const operand = ast.as.AsPrefixUnaryExpression(literal)?.Operand;
+  if (operand === undefined || ast.kindName(operand) !== "KindNumericLiteral") return null;
+  const origin = originOf(context, literal);
+  return { token: "-" + numericTokenAt(context.sourceText, originOf(context, operand)), origin };
+}
+
+export function numericTypeSpelling(literal: Hir.LiteralTypeChild<Hir.SyntaxPhase>): RawNumericLiteral | null {
+  if (literal.kind === "NumericLiteral") return { token: literal.text, origin: literal.origin };
+  if (literal.kind === "PrefixUnaryExpression" && literal.operator === "MinusToken" && literal.operand.kind === "NumericLiteral")
+    return { token: "-" + literal.operand.text, origin: literal.origin };
+  return null;
 }
 
 /** A condition that the checker and HIR's schema cannot both be right about: a compiler defect, never a diagnostic. */
@@ -57,7 +105,7 @@ export function rangeOf(context: SyntaxLocationContext, loc: { readonly pos: num
   return originalRange(context, loc.pos, loc.end);
 }
 
-function originOf(context: SyntaxCaptureContext, node: SyntaxNodeOf): Origin {
+export function originOf(context: Pick<AuthoredTypeContext, "ast" | "module" | "displacement">, node: SyntaxNodeOf): Origin {
   const authored = context.ast.authoredRange(node);
   if (authored.kind !== "authored") return defect(`a ${context.ast.kindName(node)} node of a checked file has no authored range`);
   return { module: context.module, start: authored.start + context.displacement, length: authored.end - authored.start, derived: [] };

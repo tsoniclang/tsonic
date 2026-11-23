@@ -1,10 +1,11 @@
 import type { GoPtr } from "../go/compat.js";
 import type { TypeIndexedAccessComponents, TypeIndexedAccessSelection } from "./type-indexed-access.js";
-import { type TypeAliasApplicationInfo } from "./type-applications.js";
+import type { TypeKeyOfComponents, TypeSubstitutionComponents } from "./type-dependent-operands.js";
+import { type RetainedTypeAliasApplication, type TypeAliasApplicationInfo } from "./type-applications.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Program } from "../internal/compiler/program.js";
-import type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
+import type { CheckerDiagnosticMembership, ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 import type { Context } from "../go/context.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 export interface TypeIndexInfo {
@@ -20,19 +21,41 @@ export interface TypeReferenceArgumentInfo {
     readonly argument: Type;
     readonly scope: "outer" | "local";
 }
+export interface TypeConditionalBranch {
+    readonly kind: "completed" | "invariant-atom";
+    readonly type: Type;
+}
+export interface TypeConditionalComponents {
+    readonly declaration: Node;
+    readonly checkType: Type;
+    readonly extendsType: Type;
+    readonly distributive: boolean;
+    readonly inferParameters: readonly Type[];
+    readonly application: RetainedTypeAliasApplication["bindings"] | null;
+    readonly trueBranch: TypeConditionalBranch | undefined;
+    readonly falseBranch: TypeConditionalBranch | undefined;
+}
 export interface TypeMappedPropertyInfo {
     readonly keyType: GoPtr<Type>;
     readonly syntheticOrigin: GoPtr<Symbol>;
     readonly declaration: GoPtr<Node>;
 }
-export interface TypePropertyInfo {
+export interface TypePropertyHeader {
     readonly symbol: Symbol;
     readonly rootSymbols: readonly Symbol[];
     readonly name: string;
-    readonly type: Type;
     readonly optional: boolean;
     readonly readonly: boolean;
     readonly intrinsicOrigin?: "global-this" | "undefined";
+    readonly classPrototype?: Node;
+}
+export interface TypePropertyInfo extends TypePropertyHeader {
+    readonly type: Type;
+    readonly typeSource?: Node;
+    readonly bindingPattern?: {
+        readonly element: Node;
+        readonly keyType: Type;
+    };
     readonly mapped?: TypeMappedPropertyInfo;
 }
 export interface TypeTupleElementInfo {
@@ -40,9 +63,14 @@ export interface TypeTupleElementInfo {
     readonly elementKind: "required" | "optional" | "rest" | "variadic";
     readonly declaration?: Node;
 }
+export interface TypeTupleInfo {
+    readonly readonly: boolean;
+    readonly elements: readonly TypeTupleElementInfo[];
+}
 export interface TypeSignatureParameterInfo {
     readonly sourceSymbol: Symbol;
     readonly type: Type;
+    readonly typeSource?: Node;
     readonly parameterKind: "required" | "optional" | "rest";
     readonly acceptsOmission: boolean;
     readonly declaration?: Node;
@@ -56,11 +84,12 @@ export interface TypeSignatureInfo {
     readonly signature: Signature;
     readonly parameters: readonly TypeSignatureParameterInfo[];
     readonly thisParameter?: TypeSignatureThisParameterInfo;
-    readonly returnType: Type | undefined;
+    readonly returnType: ResolvedSourceTypeInfo | undefined;
 }
 export interface CreateTypeShapeQueriesOptions {
     readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
+    readonly admitsCheckerDiagnostic?: CheckerDiagnosticMembership;
 }
 export interface TypeIntrinsicNullishFlags {
     readonly null: boolean;
@@ -70,7 +99,7 @@ export interface TypeShapeQueries {
     readonly typeToString: (type: GoPtr<Type>) => string;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly instantiateTypeAlias: (declaration: GoPtr<Node>, arguments_: readonly Type[]) => TypeAliasApplicationInfo | undefined;
-    readonly getTypeAliasApplication: (type: GoPtr<Type>) => TypeAliasApplicationInfo | undefined;
+    readonly getTypeAliasApplication: (type: GoPtr<Type>) => RetainedTypeAliasApplication | undefined;
     readonly getConstantValue: (node: GoPtr<Node>) => unknown;
     readonly getNumericLiteralTypeValue: (type: GoPtr<Type>) => number | bigint | undefined;
     readonly getStringLiteralTypeValue: (type: GoPtr<Type>) => string | undefined;
@@ -80,6 +109,7 @@ export interface TypeShapeQueries {
     readonly isUnknown: (type: GoPtr<Type>) => boolean;
     readonly isNever: (type: GoPtr<Type>) => boolean;
     readonly isNonPrimitive: (type: GoPtr<Type>) => boolean;
+    readonly isGlobalScopeObject: (type: GoPtr<Type>) => boolean;
     readonly isVoidLike: (type: GoPtr<Type>) => boolean;
     readonly isNullish: (type: GoPtr<Type>) => boolean;
     readonly intrinsicNullishFlags: (type: GoPtr<Type>) => TypeIntrinsicNullishFlags;
@@ -100,9 +130,11 @@ export interface TypeShapeQueries {
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceArgumentInfos: (type: GoPtr<Type>) => readonly TypeReferenceArgumentInfo[] | undefined;
     readonly getInstantiatedBaseTypes: (type: GoPtr<Type>) => readonly Type[] | undefined;
-    readonly getSubstitutionBaseType: (type: GoPtr<Type>) => GoPtr<Type>;
-    readonly getTupleElementTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
-    readonly getTupleElementInfos: (type: GoPtr<Type>) => readonly TypeTupleElementInfo[];
+    readonly getKeyOfComponents: (type: GoPtr<Type>) => TypeKeyOfComponents | undefined;
+    readonly getSubstitutionComponents: (type: GoPtr<Type>) => TypeSubstitutionComponents | undefined;
+    readonly getTupleInfo: (type: GoPtr<Type>) => TypeTupleInfo | undefined;
+    readonly getObjectPropertyInfo: (type: GoPtr<Type>, name: string) => TypePropertyInfo | null | undefined;
+    readonly forEachObjectPropertyHeader: (type: GoPtr<Type>, admit: () => boolean, visit: (header: TypePropertyHeader) => boolean) => "complete" | "stopped" | undefined;
     readonly getPropertyInfos: (type: GoPtr<Type>) => readonly TypePropertyInfo[];
     readonly getCallSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
@@ -110,9 +142,10 @@ export interface TypeShapeQueries {
     readonly getDeclarationSignatureInfo: (declaration: GoPtr<Node>) => TypeSignatureInfo | undefined;
     readonly getSignatureParameterInfos: (signature: GoPtr<Signature>) => readonly TypeSignatureParameterInfo[];
     readonly getSignatureThisParameterInfo: (signature: GoPtr<Signature>) => TypeSignatureThisParameterInfo | undefined;
-    readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;
+    readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly getIndexInfos: (type: GoPtr<Type>) => readonly TypeIndexInfo[];
     readonly getIndexedAccessComponents: (type: GoPtr<Type>) => TypeIndexedAccessComponents | undefined;
+    readonly getConditionalComponents: (type: GoPtr<Type>) => TypeConditionalComponents | undefined;
     readonly selectIndexedAccess: (objectType: GoPtr<Type>, indexType: GoPtr<Type>) => TypeIndexedAccessSelection | undefined;
     readonly getApparentType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getWidenedType: (type: GoPtr<Type>) => GoPtr<Type>;

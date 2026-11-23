@@ -1,14 +1,15 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, LocalId, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
-import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, VariableDeclaration } from "../ir-hir/contract.js";
-import { resolveModuleBinding, walkSyntaxTree } from "../ir-hir/index.js";
-import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision } from "../ir-infer/contract.js";
-import type { TirArgument, TirBody, TirLocal, TirResolution, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
-import { artifactBindingsKey } from "../ir-types/index.js";
-import type { ElaborateDeps, ElaborateInput } from "./contract.js";
-import { elaborateModuleBody, elaborateParameter, elaborateVariable } from "./module.js";
-import { declarationModifiers } from "./declarations.js";
+import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
+import { checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { TargetAccess, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
+import { artifactBindingsKey, optionalValueDomainOf, readType } from "../ir-types/index.js";
+import type { ElaborateDeps, ElaborateInput, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
+import { elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
+import { declarationAlias, declarationInterface, declarationModifiers, declarationType } from "./declarations.js";
 
 const failure = (kind: string, what: string, origin: Origin | null): InvariantFailure =>
   ({ owner: "elaborate", query: null, origin, message: `${kind}: ${what}` });
@@ -16,6 +17,14 @@ const failure = (kind: string, what: string, origin: Origin | null): InvariantFa
 const notElaboratedYet = (what: string, origin: Origin | null): never => throwInvariant(failure("not elaborated yet", what, origin));
 const callerDefect = (what: string, origin: Origin | null): never => throwInvariant(failure("caller defect", what, origin));
 const compilerDefect = (what: string, origin: Origin | null): never => throwInvariant(failure("compiler defect", what, origin));
+
+function matchesNumericLiteral(node: HirNode | undefined, value: LiteralValue): boolean {
+  if (node?.kind !== "NumericLiteral" || node.tsonic.role !== "value" || value.kind !== "number") return false;
+  const actual = node.tsonic.literal;
+  return actual.kind === "number" && value.token === node.text && actual.token === node.text
+    && value.value.numerator === actual.value.numerator && value.value.denominator === actual.value.denominator
+    && value.value.negativeZero === actual.value.negativeZero;
+}
 
 interface Flow {
   readonly embedding: EmbeddingDecision;
@@ -26,7 +35,7 @@ interface Flow {
 const header = (node: NodeHeader): NodeHeader =>
   ({ id: node.id, origin: node.origin, parent: node.parent, flags: node.flags, loc: node.loc });
 
-function signaturePartType(deps: ElaborateDeps, body: HirBody, typing: BodyTyping, part: InferredSignaturePart): TyId {
+function signaturePartType<State>(deps: ElaborateDeps<State>, body: HirBody, typing: BodyTyping, part: InferredSignaturePart): TyId {
   const origin = body.root.origin;
   if (part.part.kind === "return" || part.part.kind === "yield") {
     if (part.definition !== body.owner)
@@ -67,8 +76,39 @@ function signaturePartType(deps: ElaborateDeps, body: HirBody, typing: BodyTypin
   return typing.completion;
 }
 
-export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Result<TirBody> {
-  const { instance, body, constraints, solution, template } = input;
+export function elaborateBody<State>(deps: ElaborateDeps<State>, input: ElaborateInput): ElaborationResult {
+  const { instance, body, typing } = input;
+  const cut = deps.cuts.body(body.body);
+  if (cut !== null) return { kind: "no-result", instance, causes: [{ kind: "form", cut }], diagnostics: [] };
+  const childStates = new Map<BodyId, ElaborationChild>();
+  const bindings = artifactBindingsKey(instance.bindings);
+  for (const child of input.nestedBodies) {
+    const owner = "kind" in child ? child.instance : child;
+    if (childStates.has(owner.body) || artifactBindingsKey(owner.bindings) !== bindings)
+      return callerDefect("a nested initializer must be its unique completed body or exact no-result under the same actual bindings", body.root.origin);
+    childStates.set(owner.body, child);
+  }
+  if (childStates.size !== body.nestedBodies.length || body.nestedBodies.some(nested => !childStates.has(nested)))
+    return callerDefect("the nested execution inputs must retain the actual direct body inventory", body.root.origin);
+  const normalize = (refusal: Extract<Result<never>, { readonly kind: "refused" }>): ElaborationNoResult =>
+    ({ kind: "no-result", instance, causes: [{ kind: "producer", refusal }], diagnostics: refusal.diagnostics });
+  if (typing.kind === "no-result") {
+    if (typing.instance.body !== instance.body || artifactBindingsKey(typing.instance.bindings) !== bindings)
+      return callerDefect("an unavailable typing result must retain its actual body instance", body.root.origin);
+    if (body.root.kind !== "SourceFile") return typing;
+    const produced = elaborateModuleSyntax(deps, body.root, childStates, instance, typing);
+    if (produced.kind === "ok") return compilerDefect("a blocked module cannot produce a complete source tree", body.root.origin);
+    return produced.kind === "refused" ? normalize(produced) : produced;
+  }
+  const result = elaborateReady(deps, input, typing, childStates);
+  return result.kind === "refused" ? normalize(result) : result;
+}
+
+function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput,
+  ready: Extract<ElaborateInput["typing"], { readonly kind: "ready" }>, childStates: ReadonlyMap<BodyId, ElaborationChild>,
+): Result<TirBody> | ElaborationNoResult {
+  const { instance, body } = input;
+  const { constraints, solution, template } = ready;
   const root = body.root;
   const rootOrigin = root.origin;
   if (instance.body !== body.body) callerDefect("the instance names another body than the checked body", rootOrigin);
@@ -95,34 +135,43 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   if (template !== null && (template.signature !== typing.signature || template.completion !== typing.completion ||
     template.yielded !== typing.yielded || template.sent !== typing.sent))
     callerDefect("the selected closed-scope replay does not retain the solved template body channels", rootOrigin);
-  if (root.kind === "SourceFile") {
-    if (input.initializers.length !== 0) return callerDefect("a module has no formal initializer inputs", rootOrigin);
-    return elaborateModuleBody(deps, input, root, typing);
-  }
+  const moduleStatements = root.kind === "SourceFile" ? root.statements.nodes : null;
+  if (moduleStatements !== null && (input.initializers.length !== 0 || body.params.length !== 0
+    || body.captures.length !== 0))
+    return callerDefect("a module has no formal inputs or captures", rootOrigin);
   const children = new Map<BodyId, TirBody>();
-  for (const child of input.nestedBodies) {
-    if (children.has(child.body) || artifactBindingsKey(child.bindings) !== artifactBindingsKey(instance.bindings))
-      return callerDefect("a nested initializer must be its unique completed body under the same actual bindings", rootOrigin);
-    children.set(child.body, child);
-  }
-  if (children.size !== body.nestedBodies.length || body.nestedBodies.some(nested => !children.has(nested)))
-    return callerDefect("the nested execution inputs must retain the actual direct body inventory", rootOrigin);
+  for (const [id, child] of childStates) if (!("kind" in child)) children.set(id, child);
 
-  const nodes = walkSyntaxTree(root, []);
-  const first = root.id;
-  for (const [position, node] of nodes.entries()) {
-    if (node.id !== first + position) callerDefect("the body's node identities are not one preorder range", node.origin);
+  const skipped: NodeId[] = [];
+  if (moduleStatements !== null) {
+    for (const statement of moduleStatements) if (!isInlineModuleStatement(statement)) skipped.push(statement.id);
+    for (const child of children.values()) skipped.push(child.root.id);
   }
+  const nodes = walkSyntaxTree(root, skipped);
+  const first = root.id;
+  const modulePositions = moduleStatements === null ? null : new Map<NodeId, number>();
+  let previous = -1;
+  for (const [position, node] of nodes.entries()) {
+    if (modulePositions === null) {
+      if (node.id !== first + position) callerDefect("the body's node identities are not one preorder range", node.origin);
+    } else {
+      if (node.id <= previous) return callerDefect("the module's executing identities must follow source preorder", node.origin);
+      modulePositions.set(node.id, position);
+      previous = node.id;
+    }
+  }
+  const nodePosition = (id: NodeId): number => modulePositions === null ? id - first : modulePositions.get(id) ?? -1;
   const positionOf = (reference: NodeRef): number => {
     if (reference.body !== body.body) callerDefect("an occurrence of another body", rootOrigin);
-    const position = reference.node - first;
+    const position = nodePosition(reference.node);
     return position >= 0 && position < nodes.length ? position : callerDefect("an occurrence outside the body", rootOrigin);
   };
   const originAt = (position: number): Origin => requirePresent(nodes[position], failure("compiler defect", "a position without a node", rootOrigin)).origin;
 
   const operations: (TypedOperation | undefined)[] = [];
   const flows: (Flow | undefined)[] = [];
-  const variables: (TyId | undefined)[] = [];
+  const variables: ({ readonly kind: "local" | "literal" | "literal-decision"; readonly id: number; readonly type: TyId }
+    | { readonly kind: "contextual-literal"; readonly type: TyId; target: number | null } | undefined)[] = [];
   const applications: (ApplicationDecision | undefined)[] = [];
   const members: (MemberDecision | undefined)[] = [];
   const calleeTypes = new Map<NodeId, TyId>();
@@ -146,6 +195,20 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       if (operations[position] !== undefined) callerDefect("two operator decisions at one occurrence", origin);
       if (decision.kind === "deferred") notElaboratedYet("a retained (deferred) operator decision", origin);
       if (decision.kind !== "op") return callerDefect(`an operator constraint solved by a decision of kind ${decision.kind}`, origin);
+      const node = nodes[position];
+      if (node?.kind === "PrefixUnaryExpression" && prefixOperatorOf(node.operator) !== constraint.operator)
+        return callerDefect("the unary operator constraint must retain its authored operator", origin);
+      if (node?.kind === "VoidExpression" && constraint.operator !== "void")
+        return callerDefect("the void operator constraint must retain its authored operator", origin);
+      if (node?.kind === "CaseClause" && constraint.operator !== "===")
+        return callerDefect("a case comparison must retain strict equality", origin);
+      if (node?.kind === "BinaryExpression") {
+        const authored = compoundAssignmentOperatorOf(node.operatorToken.kind);
+        if (authored !== null && constraint.operator !== authored)
+          return callerDefect("the compound assignment must retain its authored operator", origin);
+      }
+      if (decision.operation.operation.kind === "native-operator" && decision.operation.operation.operator !== constraint.operator)
+        return callerDefect("the native operator decision must retain its selected operator", origin);
       const scope = constraint.permissionScope;
       if (scope !== null) positionOf(scope);
       operations[position] = { decision: decision.operation, permissionScope: scope === null ? null : scope.node };
@@ -167,6 +230,23 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       if (node?.kind !== "CallExpression") return callerDefect("a call decision must name its actual call syntax", origin);
       applications[position] = decision.application;
       calleeTypes.set(node.expression.id, finalType(constraint.application.callee, origin));
+    } else if (constraint.kind === "default") {
+      if (constraint.rule === "signature-producers") {
+        if (position !== 0 || root.kind !== "Block" || decision.kind !== "default"
+          || decision.type !== constraint.type || decision.type !== finals[constraint.variable] || decision.type !== typing.completion)
+          return callerDefect("a no-value default must retain the actual checked body completion", origin);
+        continue;
+      }
+      if (constraint.rule !== "literal-native-default" || decision.kind !== "default" || constraint.type !== null
+        || decision.type !== finals[constraint.variable] || nodes[position]?.kind !== "NumericLiteral" || variables[position] !== undefined)
+        return callerDefect("a literal default must retain the selected type of its actual solved occurrence", origin);
+      variables[position] = { kind: "literal-decision", id: constraint.variable, type: decision.type };
+    } else if (constraint.kind === "literal") {
+      if (decision.kind !== "literal" || variables[position] !== undefined || !matchesNumericLiteral(nodes[position], constraint.value))
+        return callerDefect("a contextual literal requires its one actual decision and exact authored payload", origin);
+      if (decision.embedding.kind !== "identity")
+        return notElaboratedYet("an authored literal that does not fit its selected native destination", origin);
+      variables[position] = { kind: "contextual-literal", type: finalType(constraint.destination, origin), target: null };
     } else {
       notElaboratedYet(`a solved ${constraint.kind} constraint`, origin);
     }
@@ -181,8 +261,18 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         return callerDefect("an inferred signature part and its solved body channel disagree", origin);
       continue;
     }
+    if (variable.kind === "literal") {
+      const node = nodes[position];
+      const selected = variables[position];
+      if (selected?.kind !== "literal-decision" || selected.id !== variable.id || !matchesNumericLiteral(node, variable.value))
+        return callerDefect("a native literal decision requires the actual variable, exact payload and syntax", origin);
+      variables[position] = { ...selected, kind: "literal" };
+      continue;
+    }
     if (variable.kind !== "local" || variable.local !== null) notElaboratedYet(`an inference variable of kind ${variable.kind}`, origin);
-    variables[position] = finals[variable.id] ?? compilerDefect(`open position: variable ${variable.id} has no final value`, origin);
+    if (variables[position] !== undefined) return callerDefect("two inferred values at the same occurrence", origin);
+    variables[position] = { kind: "local", id: variable.id,
+      type: finals[variable.id] ?? compilerDefect(`open position: variable ${variable.id} has no final value`, origin) };
   }
 
   const signature = deps.signatureOf(typing.signature);
@@ -194,16 +284,18 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   for (const parameter of body.params) if (parameter.initializer !== null) expectedInitializers.add(parameter.initializer);
   const initializers = new Map<BodyId, TirBody>();
   const bindingsKey = artifactBindingsKey(instance.bindings);
-  for (const initializer of input.initializers) {
+  for (const child of input.initializers) {
+    const initializer = "kind" in child ? child.instance : child;
     if (!expectedInitializers.has(initializer.body) || initializers.has(initializer.body)
       || artifactBindingsKey(initializer.bindings) !== bindingsKey)
       return callerDefect("a formal initializer must be its unique completed body under the same actual bindings", rootOrigin);
-    initializers.set(initializer.body, initializer);
+    if ("kind" in child) return { ...child, instance, diagnostics: [] };
+    initializers.set(initializer.body, child);
   }
   if (initializers.size !== expectedInitializers.size)
     return callerDefect("the formal initializer inputs must be exactly the actual selected parameter initializers", rootOrigin);
   for (const [position, row] of body.params.entries()) {
-    if (row.role !== "required" && row.role !== "default") notElaboratedYet(`a parameter of role ${row.role}`, rootOrigin);
+    if (row.role !== "required" && row.role !== "optional" && row.role !== "default") notElaboratedYet(`a parameter of role ${row.role}`, rootOrigin);
     const parameter = requirePresent(signature.parameters[position], failure("compiler defect", "a parameter position past the count", rootOrigin));
     if (parameter.kind !== row.role || parameter.initializer !== row.initializer)
       callerDefect("the selected parameter and its signature disagree on kind or initializer body", rootOrigin);
@@ -225,8 +317,10 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         return callerDefect("the completed formal initializer must retain its checked owner, expression and selected result", header.origin);
       initializerRoot = root;
     }
-    params.push(elaborateParameter(deps, header, body.body, { local: { body: body.body, local: row.local }, declaration: row.declaration,
-      role: row.role, passing: row.passing, initializer: row.initializer, storage: parameter.type }, initializerRoot));
+    const selected = elaborateParameter(deps, header, body.body, { local: { body: body.body, local: row.local }, declaration: row.declaration,
+      role: row.role, passing: row.passing, initializer: row.initializer, storage: parameter.type }, initializerRoot);
+    if (selected.kind === "refused") return selected;
+    params.push(selected.value);
   }
   const variablesByNode = new Map<NodeId, VariableDeclaration<TypedPhase>>();
   const captureLocals = new Map<BodyId, Map<LocalId, LocalId | null>>();
@@ -264,28 +358,35 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   }
   for (const local of body.locals) {
     if (local.role === "parameter" || local.role === "capture") continue;
+    if (local.declaration.kind === "item" && deps.cuts.declaration(local.declaration.value.owner) !== null) continue;
     const declaration = deps.nodeOf(local.declaration);
     if (local.role !== "binding" || local.declaration.kind !== "item" || declaration?.kind !== "VariableDeclaration"
       || declaration.id !== local.declaration.value.node || declaration.tsonic.declaration.kind !== "local"
       || declaration.tsonic.declaration.local.body !== body.body || !Object.is(declaration.tsonic.declaration.local.local, local.id))
       return notElaboratedYet("the actual checked declaration of a non-parameter local", rootOrigin);
     const selected = elaborateVariable(deps, declaration, children, local.declaration.value.owner);
-    storageOf[local.id] = selected.tsonic.storage;
-    variablesByNode.set(declaration.id, selected);
+    if (selected.kind === "refused") return selected;
+    storageOf[local.id] = selected.value.tsonic.storage;
+    variablesByNode.set(declaration.id, selected.value);
   }
-  const locals: TirLocal[] = body.locals.map(local => ({ id: local.id, declaration: local.declaration, name: local.name, role: local.role,
-    capturedFrom: local.capturedFrom, mutable: local.mutable,
-    storage: storageOf[local.id] ?? notElaboratedYet(`the local ${local.name}, which no parameter names`, rootOrigin) }));
+  const locals: TirLocal[] = [];
+  for (const local of body.locals) {
+    if (local.declaration.kind === "item" && deps.cuts.declaration(local.declaration.value.owner) !== null) continue;
+    locals.push({ id: local.id, declaration: local.declaration, name: local.name, role: local.role,
+      capturedFrom: local.capturedFrom, mutable: local.mutable,
+      storage: storageOf[local.id] ?? notElaboratedYet(`the local ${local.name}, which no parameter names`, rootOrigin) });
+  }
 
   const statements: (Statement<TypedPhase> | undefined)[] = [];
   const expressions: (Expression<TypedPhase> | undefined)[] = [];
   const values: (TypedValue | undefined)[] = [];
+  const demands: (TypedValue["demand"] | undefined)[] = [];
   const built = (node: HirNode): string => `a ${node.kind} read before it was typed`;
-  const statementOf = (node: HirNode): Statement<TypedPhase> => requirePresent(statements[node.id - first], failure("compiler defect", built(node), node.origin));
-  const expressionOf = (node: HirNode): Expression<TypedPhase> => requirePresent(expressions[node.id - first], failure("compiler defect", built(node), node.origin));
+  const statementOf = (node: HirNode): Statement<TypedPhase> => requirePresent(statements[nodePosition(node.id)], failure("compiler defect", built(node), node.origin));
+  const expressionOf = (node: HirNode): Expression<TypedPhase> => requirePresent(expressions[nodePosition(node.id)], failure("compiler defect", built(node), node.origin));
 
   const valueOf = (position: number, type: TyId, origin: Origin): TypedValue => {
-    const variable = variables[position];
+    const variable = variables[position]?.type;
     read.variables.add(position);
     if (variable !== undefined && variable !== type) callerDefect("the variable at the occurrence and its decision disagree on its type", origin);
     const flow = flows[position];
@@ -295,8 +396,10 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
     if (flow !== undefined) {
       if (flow.embedding.kind === "identity") {
         if (flow.destination !== type) callerDefect("an identity flow whose destination is not the value's type", origin);
-      } else if (flow.embedding.kind === "conversion" && flow.embedding.conversion === "literal-fit"
-        && flow.embedding.check.kind === "none") {
+      } else if (flow.embedding.kind === "conversion" && flow.embedding.check.kind === "none"
+        && (flow.embedding.conversion === "literal-fit"
+          || (flow.embedding.conversion === "absence" || flow.embedding.conversion === "union-injection")
+            && optionalValueDomainOf(readType(deps.types, flow.destination), value => readType(deps.types, value)).kind === "optional-value")) {
         convertedType = flow.destination;
         conversion = { kind: "convert", role: flow.role, operation: { permissionScope: null, decision: {
           kind: "selected", operation: { kind: "conversion", from: type, to: convertedType, embedding: flow.embedding },
@@ -304,7 +407,7 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         } } };
       } else notElaboratedYet(`a conversion of kind ${flow.embedding.kind}`, origin);
     }
-    const value: TypedValue = { type, convertedType, conversion, narrowing: null, evidenceIndex: null, demand: { kind: "always" } };
+    const value: TypedValue = { type, convertedType, conversion, narrowing: null, evidenceIndex: null, demand: demands[position] ?? { kind: "always" } };
     values[position] = value;
     return value;
   };
@@ -312,7 +415,14 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   const block = (node: Block<CheckedPhase>): Block<TypedPhase> => ({ ...header(node), kind: "Block", multiLine: node.multiLine, tsonic: null,
     statements: { loc: node.statements.loc, nodes: node.statements.nodes.map(statementOf) } });
 
-  const binaryRoles: ("arithmetic" | "comparison" | "assignment" | undefined)[] = [];
+  const binaryRoles: (TypedBinary["role"] | undefined)[] = [];
+  type ShortCircuitOperator = NonNullable<ReturnType<typeof shortCircuitOperatorOf>>;
+  const demandArm = (control: NodeId, arm: Expression<CheckedPhase>, when: "true" | "false" | "absent"): void => {
+    demands[nodePosition(arm.id)] = { kind: "selected", control, when };
+  };
+  const demandRight = (node: BinaryExpression<CheckedPhase>, logical: ShortCircuitOperator): void => {
+    demandArm(node.left.id, node.right, logical === "and" ? "true" : logical === "or" ? "false" : "absent");
+  };
   const names: ({ readonly resolution: TirResolution; readonly storage: TyId; readonly role: "value" | "assignment-target" } | undefined)[] = [];
   const visited = (node: HirNode): InvariantFailure => failure("compiler defect", `a ${node.kind} built without its visit`, node.origin);
 
@@ -322,13 +432,37 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
     const binding = checked.resolution.kind === "binding" ? resolveModuleBinding(deps, checked.resolution.occurrence) : null;
     const resolution = binding === null ? checked.resolution : binding.target.kind === "available" ? binding.target.value
       : notElaboratedYet("a binding whose actual nearest target is unavailable (" + binding.target.reason + ")", node.origin);
+    if (resolution.kind === "intrinsic-value") {
+      if (checked.role !== "value" || checked.value.views.read.kind !== "available")
+        return callerDefect("an intrinsic value requires its actual checked read type", node.origin);
+      names[position] = { resolution, storage: checked.value.views.read.value, role: checked.role };
+      return;
+    }
     if (resolution.kind === "declarations") {
       const definition = resolution.definitions[0];
-      const storage = calleeTypes.get(node.id);
-      if (resolution.definitions.length !== 1 || definition === undefined || storage === undefined)
+      if (resolution.definitions.length !== 1 || definition === undefined)
         return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
-      if (checked.role !== "value") return notElaboratedYet("an assignment to a declaration value", node.origin);
-      names[position] = { resolution: { kind: "definition", definition, aliases: binding?.aliases ?? [] }, storage, role: checked.role };
+      const aliases = binding?.aliases ?? [];
+      const callee = calleeTypes.get(node.id);
+      if (callee !== undefined && checked.role === "value") {
+        names[position] = { resolution: { kind: "definition", definition, aliases }, storage: callee, role: checked.role };
+        return;
+      }
+      const item = deps.itemOf(definition);
+      if (item.kind !== "VariableDeclaration" || item.tsonic.declaration.kind !== "definition"
+        || item.tsonic.declaration.definition !== definition)
+        return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
+      const declaration = { owner: definition, node: item.id };
+      const storage = deps.staticStorageOf(declaration);
+      if (storage === null) return notElaboratedYet("the actual completed static declaration storage type", node.origin);
+      if (checked.role === "assignment-target") {
+        const checkedStorage = checkedVariableStorageOf(item);
+        const selected = checked.access === "read-write" ? readWriteRootStorageOf(checked.place, checked.resolution)
+          : writableRootStorageOf(checked.place, checked.resolution);
+        if (checkedStorage === null || selected !== checkedStorage)
+          return callerDefect("a static assignment target retains its actual qualified writable storage type", node.origin);
+      }
+      names[position] = { resolution: { kind: "static", declaration, aliases }, storage, role: checked.role };
       return;
     }
     if (resolution.kind !== "local") return notElaboratedYet(`a name resolving to a ${resolution.kind}`, node.origin);
@@ -337,54 +471,134 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
     const storage = slot === undefined || slot === null ? undefined : storageOf[slot];
     if (storage === undefined) return callerDefect("a name resolving to no actual owned or captured local storage", node.origin);
     if (checked.role === "assignment-target") {
-      const place = checked.place;
-      if (checked.access !== "write" || place.kind !== "available" || place.value.step !== null
-        || place.value.base.kind !== "root" || place.value.base.resolution.kind !== "local"
-        || place.value.base.resolution.local.body !== resolution.local.body || place.value.base.resolution.local.local !== resolution.local.local
-        || place.value.write.kind !== "available" || place.value.write.value !== storage)
-        return callerDefect("a plain assignment target retains its actual qualified writable storage type", node.origin);
+      const checkedSlot = slot === undefined || slot === null ? undefined : body.locals[slot]?.checkerSlot;
+      const selected = checked.access === "write" ? writableRootStorageOf(checked.place, checked.resolution)
+        : readWriteRootStorageOf(checked.place, checked.resolution);
+      if (checkedSlot?.kind !== "available" || selected !== checkedSlot.value)
+        return callerDefect("an assignment target retains its actual qualified writable storage type", node.origin);
     }
     names[position] = { resolution: { kind: "local", local: resolution.local }, storage, role: checked.role };
   };
   const admitBinary = (node: BinaryExpression<CheckedPhase>, position: number): void => {
     if (node.modifiers !== null || node.type !== null) notElaboratedYet("a binary expression with modifiers or a type", node.origin);
     const role = node.tsonic.role;
-    if (role !== "arithmetic" && role !== "comparison" && role !== "assignment") return notElaboratedYet(`a binary expression of role ${role}`, node.origin);
-    if (role === "assignment") {
-      const target = node.tsonic.target;
-      if (node.operatorToken.kind !== "EqualsToken" || node.left.kind !== "Identifier"
-        || node.left.tsonic.role !== "assignment-target" || node.left.tsonic.access !== "write"
-        || node.left.tsonic.resolution.kind !== "local" || node.left.tsonic.place.kind !== "available"
-        || node.left.tsonic.place.value.write.kind !== "available"
-        || target.kind !== "available" || target.value.base.kind !== "root" || target.value.base.resolution.kind !== "local"
-        || target.value.base.resolution.local.body !== node.left.tsonic.resolution.local.body
-        || target.value.base.resolution.local.local !== node.left.tsonic.resolution.local.local
-        || target.value.step !== null || target.value.write.kind !== "available" || target.value.write.value === null
-        || target.value.write.value !== node.left.tsonic.place.value.write.value)
-        return notElaboratedYet("a plain assignment without its checked local target", node.origin);
+    if (role !== "arithmetic" && role !== "comparison" && role !== "assignment" && role !== "short-circuit" && role !== "sequence")
+      return notElaboratedYet(`a binary expression of role ${role}`, node.origin);
+    if (role === "short-circuit") {
+      const logical = shortCircuitOperatorOf(node.operatorToken.kind, role);
+      if (logical === null) return callerDefect("a short-circuit expression without its authored operator", node.origin);
+      demandRight(node, logical);
+    } else if (role === "assignment") {
+      const logical = shortCircuitOperatorOf(node.operatorToken.kind, "assignment");
+      const reads = logical !== null || compoundAssignmentOperatorOf(node.operatorToken.kind) !== null;
+      const leaf = unparenthesizedExpression<CheckedPhase>(node.left);
+      const name = leaf.kind === "Identifier" ? leaf.tsonic : null;
+      const storageOf = reads ? readWriteRootStorageOf : writableRootStorageOf;
+      const selected = name?.role === "assignment-target" && name.access === (reads ? "read-write" : "write")
+        && (logical === null || name.resolution.kind === "local") ? storageOf(node.tsonic.target, name.resolution) : null;
+      if (node.operatorToken.kind !== "EqualsToken" && !reads || selected === null || name?.role !== "assignment-target"
+        || storageOf(name.place, name.resolution) !== selected)
+        return notElaboratedYet(reads ? "an assignment without its checked read-write root target" : "a plain assignment without its checked writable root target", node.origin);
+      if (logical !== null) demandRight(node, logical);
+      const literal = unparenthesizedExpression<CheckedPhase>(node.right);
+      if (literal.kind === "NumericLiteral") {
+        const decision = variables[nodePosition(literal.id)];
+        if (decision?.kind === "contextual-literal" && decision.target === null) {
+          decision.target = nodePosition(leaf.id);
+        } else {
+          const ordinary = flows[nodePosition(node.right.id)];
+          if (decision !== undefined || reads || ordinary?.role !== "assignment"
+            || ordinary.embedding.kind !== "conversion"
+            || (ordinary.embedding.conversion !== "literal-fit"
+              && (ordinary.embedding.conversion !== "union-injection" || ordinary.destination !== selected)))
+            return callerDefect("a numeric assignment requires its actual contextual literal or exact embedding decision", literal.origin);
+        }
+      }
     }
     binaryRoles[position] = role;
   };
 
   const identifier = (node: Identifier<CheckedPhase>, position: number): Identifier<TypedPhase> => {
     const name = requirePresent(names[position], visited(node));
-    if (name.role === "assignment-target") return { ...header(node), kind: "Identifier", text: node.text,
-      tsonic: { role: "assignment-target", resolution: name.resolution, access: { kind: "write", storage: name.storage } } };
+    if (name.role === "assignment-target") {
+      const access: TargetAccess = node.tsonic.role === "assignment-target" && node.tsonic.access === "read-write"
+        ? { kind: "read-write", storage: name.storage, read: name.storage, narrowing: null, evidenceIndex: null }
+        : { kind: "write", storage: name.storage };
+      return { ...header(node), kind: "Identifier", text: node.text,
+        tsonic: { role: "assignment-target", resolution: name.resolution, access } };
+    }
     return { ...header(node), kind: "Identifier", text: node.text,
       tsonic: { role: "value", resolution: name.resolution, ...valueOf(position, name.storage, node.origin) } };
   };
 
+  const shortCircuitOf = (node: BinaryExpression<CheckedPhase>, logical: ShortCircuitOperator, result: TyId,
+    read: TyId | undefined, right: TypedValue | undefined): TirSelection => {
+    const type = readType(deps.types, result);
+    const checked = node.tsonic.value.views.read;
+    const domain = logical === "coalesce" ? optionalValueDomainOf(type, value => readType(deps.types, value)) : null;
+    const guard = node.tsonic.role === "short-circuit" && logical !== "coalesce" && read !== undefined
+      ? read === result ? type : readType(deps.types, read) : null;
+    const takesRight = guard?.kind === "literal" && guard.value.kind === "boolean"
+      ? guard.value.value === (logical === "and") : null;
+    const supported = takesRight !== null
+      ? (type.kind === "primitive" && type.primitive === "bool" || type.kind === "literal" && type.value.kind === "boolean")
+        && (takesRight ? right?.convertedType === result : read === result)
+      : read === result && right?.convertedType === result && (logical === "coalesce"
+        ? domain?.kind === "optional-value" && right.type === result
+          && checked.kind === "available" && checked.value === result
+        : type.kind === "primitive" && type.primitive === "bool");
+    if (!supported)
+      return notElaboratedYet("a logical selection without its selected read and same-carrier result", node.origin);
+    return { kind: logical, control: node.left.id, right: node.right.id, disposition: "dynamic" };
+  };
+
   const binary = (node: BinaryExpression<CheckedPhase>, position: number): BinaryExpression<TypedPhase> => {
     const role = requirePresent(binaryRoles[position], visited(node));
+    if (role === "sequence") {
+      if (node.operatorToken.kind !== "CommaToken") return callerDefect("a sequence without its authored comma", node.origin);
+      const right = requirePresent(values[nodePosition(node.right.id)], visited(node.right));
+      return { ...header(node), kind: "BinaryExpression", modifiers: null, type: null,
+        left: expressionOf(node.left), operatorToken: { ...header(node.operatorToken), kind: node.operatorToken.kind, tsonic: null },
+        right: expressionOf(node.right), tsonic: { role, ...valueOf(position, right.convertedType, node.origin) } };
+    }
+    if (role === "short-circuit") {
+      const logical = shortCircuitOperatorOf(node.operatorToken.kind, role);
+      const result = node.tsonic.value.views.read;
+      if (logical === null || result.kind !== "available")
+        return callerDefect("a short-circuit expression without its actual checked operator and result", node.origin);
+      const selection = shortCircuitOf(node, logical, result.value, values[nodePosition(node.left.id)]?.convertedType, values[nodePosition(node.right.id)]);
+      return { ...header(node), kind: "BinaryExpression", modifiers: null, type: null, left: expressionOf(node.left),
+        operatorToken: { ...header(node.operatorToken), kind: node.operatorToken.kind, tsonic: null }, right: expressionOf(node.right),
+        tsonic: { role, selection, ...valueOf(position, result.value, node.origin) } };
+    }
     if (role === "assignment") {
       const left = expressionOf(node.left);
+      const target = unparenthesizedExpression<TypedPhase>(left);
       const right = expressionOf(node.right);
-      if (left.kind !== "Identifier" || left.tsonic.role !== "assignment-target" || left.tsonic.access.kind !== "write")
-        return callerDefect("a plain assignment retains its actual typed writable local", node.origin);
-      const storage = left.tsonic.access.storage;
+      const compound = compoundAssignmentOperatorOf(node.operatorToken.kind) !== null;
+      const logical = shortCircuitOperatorOf(node.operatorToken.kind, "assignment");
+      if (target.kind !== "Identifier" || target.tsonic.role !== "assignment-target"
+        || target.tsonic.access.kind !== (compound || logical !== null ? "read-write" : "write"))
+        return callerDefect("an assignment retains its actual typed storage access", node.origin);
+      const access = target.tsonic.access;
+      const storage = access.storage;
+      let calculation: RuleOutcome<TypedOperation> | null = null;
+      let selection: TirSelection | null = null;
+      const endpoint = values[nodePosition(node.right.id)];
+      if (compound) {
+        const operation = operations[position] ?? compilerDefect("open position: no compound assignment decision", node.origin);
+        const operands = operation.decision.operands;
+        if (access.kind !== "read-write" || operands.length !== 2 || operands[0] !== access.read
+          || endpoint === undefined || operands[1] !== endpoint.convertedType || operation.decision.result !== storage)
+          return notElaboratedYet("a compound assignment without its selected read, operand and same-storage result", node.origin);
+        read.operations.add(position);
+        calculation = { kind: "decided", decision: operation };
+      } else if (logical !== null) {
+        selection = shortCircuitOf(node, logical, storage, access.kind === "read-write" ? access.read : undefined, endpoint);
+      }
       return { ...header(node), kind: "BinaryExpression", modifiers: null, type: null, left,
         operatorToken: { ...header(node.operatorToken), kind: node.operatorToken.kind, tsonic: null }, right,
-        tsonic: { role, storage, calculation: null, selection: null, ...valueOf(position, storage, node.origin) } };
+        tsonic: { role, storage, calculation, selection, ...valueOf(position, storage, node.origin) } };
     }
     const operation = operations[position] ?? compilerDefect("open position: no operator decision at the binary expression", node.origin);
     read.operations.add(position);
@@ -394,17 +608,57 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       tsonic: { role, operation: { kind: "decided", decision: operation }, ...valueOf(position, operation.decision.result, node.origin) } };
   };
 
-  interface Frame { readonly phase: "visit" | "build"; readonly node: HirNode }
-  const stack: Frame[] = [];
-  const visit = (node: HirNode): void => { stack.push({ phase: "visit", node }); };
-  const visitList = (list: readonly HirNode[], origin: Origin): void => {
-    for (let index = list.length - 1; index >= 0; index -= 1) visit(requirePresent(list[index], failure("compiler defect", "a child index past its list", origin)));
+  interface Frame { readonly phase: "visit" | "build"; readonly node: HirNode; readonly loop: NodeId | null;
+    readonly breakTarget: NodeId | null; readonly parent: NodeId | null }
+  const labelOf = (node: Identifier<CheckedPhase>):
+    Identifier<TypedPhase> & { readonly tsonic: Extract<Identifier<TypedPhase>["tsonic"], { readonly role: "label" }> } => {
+    const checked = node.tsonic;
+    if (checked.role !== "label" || checked.target === null || checked.target.body !== body.body)
+      return notElaboratedYet("a label without its actual enclosing checked control target", node.origin);
+    return { ...header(node), kind: node.kind, text: node.text, tsonic: { role: "label", target: checked.target } };
   };
-  const step = (frame: Frame): void => {
+  const variableList = (list: VariableDeclarationList<CheckedPhase>): Result<VariableDeclarationList<TypedPhase>> => {
+    const nodes: VariableDeclaration<TypedPhase>[] = [];
+    for (const declaration of list.declarations.nodes) {
+      const target = declaration.tsonic.declaration;
+      if (target.kind === "definition" && moduleStatements !== null) {
+        const selected = elaborateVariable(deps, declaration, children, target.definition);
+        if (selected.kind === "refused") return selected;
+        nodes.push(selected.value);
+      } else nodes.push(requirePresent(variablesByNode.get(declaration.id),
+        failure("compiler defect", "a variable has no actual selected local binding", declaration.origin)));
+    }
+    return { kind: "ok", diagnostics: [], value: { ...header(list), kind: list.kind, tsonic: { role: "ordinary" },
+      declarations: { loc: list.declarations.loc, nodes } } };
+  };
+  const stack: Frame[] = [];
+  const blocked = new Map<NodeId, ElaborationNoResult>();
+  let enclosingLoop: NodeId | null = null;
+  let enclosingBreak: NodeId | null = null;
+  let visiting: NodeId | null = null;
+  const visit = (node: HirNode, loop = enclosingLoop, breakTarget = enclosingBreak): void => {
+    stack.push({ phase: "visit", node, loop, breakTarget, parent: visiting });
+  };
+  const visitList = (list: readonly HirNode[], origin: Origin, breakTarget = enclosingBreak): void => {
+    for (let index = list.length - 1; index >= 0; index -= 1)
+      visit(requirePresent(list[index], failure("compiler defect", "a child index past its list", origin)), enclosingLoop, breakTarget);
+  };
+  const step = (frame: Frame): Extract<Result<never>, { readonly kind: "refused" }> | void => {
+    enclosingLoop = frame.loop;
+    enclosingBreak = frame.breakTarget;
     const node = frame.node;
-    const position = node.id - first;
+    visiting = node.id;
+    const cut = deps.cuts.syntax(node);
+    const unavailable: ElaborationNoResult | undefined = cut === null ? blocked.get(node.id)
+      : { kind: "no-result", instance, diagnostics: [], causes: [{ kind: "form", cut }] };
+    if (unavailable !== undefined) {
+      blocked.set(node.id, unavailable);
+      if (frame.parent !== null && !blocked.has(frame.parent)) blocked.set(frame.parent, unavailable);
+      return;
+    }
+    const position = nodePosition(node.id);
     const building = frame.phase === "build";
-    if (!building) stack.push({ phase: "build", node });
+    if (!building) stack.push({ ...frame, phase: "build" });
     switch (node.kind) {
       case "Block":
         if (building) statements[position] = block(node);
@@ -412,9 +666,13 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         return;
       case "ReturnStatement": {
         const value = node.expression;
-        if (value === null) return notElaboratedYet("a return statement without a value", node.origin);
-        if (building) statements[position] = { ...header(node), kind: "ReturnStatement", expression: expressionOf(value), tsonic: null };
-        else visit(value);
+        if (value === null) {
+          const completion = readType(deps.types, typing.completion);
+          if (completion.kind !== "intrinsic" || completion.intrinsic !== "void")
+            return callerDefect("a bare return without its actual selected void completion", node.origin);
+        }
+        if (building) statements[position] = { ...header(node), kind: "ReturnStatement", expression: value === null ? null : expressionOf(value), tsonic: null };
+        else if (value !== null) visit(value);
         return;
       }
       case "ExpressionStatement":
@@ -422,9 +680,64 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         else visit(node.expression);
         return;
       case "ThrowStatement":
-        if (building) statements[position] = { ...header(node), kind: "ThrowStatement", expression: expressionOf(node.expression), tsonic: null };
-        else visit(node.expression);
+        if (building) {
+          const expression = expressionOf(node.expression);
+          let producer = expression;
+          while (producer.kind === "ParenthesizedExpression") {
+            const child = producer.expression;
+            const value = values[nodePosition(child.id)];
+            const wrapper = values[nodePosition(producer.id)];
+            if (value === undefined || wrapper === undefined || wrapper.type !== value.convertedType)
+              return callerDefect("a throw parenthesis does not retain its actual child value endpoint", producer.origin);
+            producer = child;
+          }
+          const slot = nodePosition(producer.id);
+          const value = requirePresent(values[slot], failure("compiler defect", "a throw without a selected operand endpoint", node.expression.origin));
+          const occurrence = { body: body.body, node: producer.id };
+          const application = producer.kind === "CallExpression" ? applications[slot] : undefined;
+          if (producer.kind === "CallExpression" && (application === undefined || application.result !== value.type))
+            return callerDefect("a throw call must retain its actual selected result endpoint", producer.origin);
+          const checked = deps.rules.checkThrowOperandUse({ instance, statement: { body: body.body, node: node.id },
+            operand: { body: body.body, node: node.expression.id }, origin: node.expression.origin,
+            selected: application === undefined ? { kind: "value", producer: occurrence, type: value.type }
+              : { kind: "application", producer: occurrence, decision: application } });
+          if (checked.kind === "refused") return checked;
+          statements[position] = { ...header(node), kind: "ThrowStatement", expression, tsonic: null };
+        } else visit(node.expression);
         return;
+      case "EmptyStatement":
+        if (building) statements[position] = { ...header(node), kind: node.kind, tsonic: null };
+        return;
+      case "InterfaceDeclaration": case "TypeAliasDeclaration":
+        if (building) {
+          const declaration = node.kind === "InterfaceDeclaration" ? declarationInterface(deps, node) : declarationAlias(deps, node);
+          if (declaration.kind === "refused") return declaration;
+          statements[position] = declaration.value;
+        }
+        return;
+      case "BreakStatement": case "ContinueStatement": {
+        if (node.label !== null) {
+          if (building) {
+            const label = labelOf(node.label);
+            statements[position] = { ...header(node), kind: node.kind, label, tsonic: { target: label.tsonic.target } };
+          }
+          return;
+        }
+        const target = node.kind === "ContinueStatement" ? enclosingLoop : enclosingBreak;
+        if (target === null) return callerDefect("an unlabelled transfer has no enclosing target in its own execution", node.origin);
+        if (building) statements[position] = { ...header(node), kind: node.kind, label: null,
+          tsonic: { target: { body: body.body, node: target } } };
+        return;
+      }
+      case "LabeledStatement": {
+        if (building) {
+          const label = labelOf(node.label);
+          if (label.tsonic.target.node !== node.id) return callerDefect("a label does not name its own checked declaration", node.origin);
+          statements[position] = { ...header(node), kind: node.kind, label, statement: statementOf(node.statement),
+            tsonic: { target: label.tsonic.target } };
+        } else visit(node.statement);
+        return;
+      }
       case "IfStatement":
         if (building) statements[position] = { ...header(node), kind: "IfStatement", expression: expressionOf(node.expression),
           thenStatement: statementOf(node.thenStatement), elseStatement: node.elseStatement === null ? null : statementOf(node.elseStatement), tsonic: null };
@@ -434,13 +747,108 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
           visit(node.expression);
         }
         return;
-      case "VariableStatement":
-        if (building) statements[position] = { ...header(node), kind: "VariableStatement", modifiers: declarationModifiers(node.modifiers),
-          declarationList: { ...header(node.declarationList), kind: "VariableDeclarationList", tsonic: { role: "ordinary" },
-            declarations: { loc: node.declarationList.declarations.loc, nodes: node.declarationList.declarations.nodes.map(declaration =>
-              requirePresent(variablesByNode.get(declaration.id), failure("compiler defect", "a variable has no actual selected local binding", declaration.origin))) } },
-          tsonic: null };
+      case "SwitchStatement": {
+        const { caseBlock } = node;
+        if (!building) {
+          for (let index = caseBlock.clauses.nodes.length - 1; index >= 0; index -= 1) {
+            const clause = requirePresent(caseBlock.clauses.nodes[index], failure("compiler defect", "a switch clause list has a hole", caseBlock.origin));
+            visitList(clause.statements.nodes, clause.origin, node.id);
+            if (clause.kind === "CaseClause") visit(clause.expression);
+          }
+          visit(node.expression);
+          return;
+        }
+        statements[position] = { ...header(node), kind: node.kind, expression: expressionOf(node.expression),
+          caseBlock: { ...header(caseBlock), kind: caseBlock.kind, tsonic: null, clauses: { loc: caseBlock.clauses.loc,
+            nodes: caseBlock.clauses.nodes.map(clause => {
+              const statements = { loc: clause.statements.loc, nodes: clause.statements.nodes.map(statementOf) };
+              const common = { ...header(clause), statements };
+              if (clause.kind === "DefaultClause") return { ...common, kind: clause.kind, expression: null, tsonic: null };
+              const casePosition = nodePosition(clause.id);
+              const operation = operations[casePosition] ?? compilerDefect("open position: no operator decision at the case", clause.origin);
+              if (operation.decision.operands.length !== 2
+                || operation.decision.operands[0] !== values[nodePosition(node.expression.id)]?.convertedType
+                || operation.decision.operands[1] !== values[nodePosition(clause.expression.id)]?.convertedType)
+                return callerDefect("a case comparison must retain its actual switch subject and label", clause.origin);
+              read.operations.add(casePosition);
+              return { ...common, kind: clause.kind, expression: expressionOf(clause.expression),
+                tsonic: { operation: { kind: "decided", decision: operation } } };
+            }) } }, tsonic: null };
         return;
+      }
+      case "WhileStatement": case "DoStatement":
+        if (building) statements[position] = { ...header(node), kind: node.kind, expression: expressionOf(node.expression),
+          statement: statementOf(node.statement), tsonic: null };
+        else if (node.kind === "WhileStatement") {
+          visit(node.statement, node.id, node.id);
+          visit(node.expression);
+        } else {
+          visit(node.expression);
+          visit(node.statement, node.id, node.id);
+        }
+        return;
+      case "ForStatement": {
+        const initializer = node.initializer;
+        if (initializer?.kind === "MissingDeclaration")
+          return notElaboratedYet("a for initializer with a missing declaration", node.origin);
+        if (initializer?.kind === "VariableDeclarationList" && (initializer.flags.includes("Using") || initializer.flags.includes("AwaitUsing")))
+          return notElaboratedYet("a disposal declaration in a for initializer", node.origin);
+        if (building) {
+          let selectedInitializer: Expression<TypedPhase> | VariableDeclarationList<TypedPhase> | null;
+          if (initializer?.kind === "VariableDeclarationList") {
+            const variables = variableList(initializer);
+            if (variables.kind === "refused") return variables;
+            selectedInitializer = variables.value;
+          } else selectedInitializer = initializer === null ? null : expressionOf(initializer);
+          statements[position] = { ...header(node), kind: node.kind,
+            initializer: selectedInitializer,
+            condition: node.condition === null ? null : expressionOf(node.condition),
+            incrementor: node.incrementor === null ? null : expressionOf(node.incrementor),
+            statement: statementOf(node.statement), tsonic: null };
+        }
+        else {
+          visit(node.statement, node.id, node.id);
+          if (node.incrementor !== null) visit(node.incrementor);
+          if (node.condition !== null) visit(node.condition);
+          if (initializer !== null && initializer.kind !== "VariableDeclarationList") visit(initializer);
+        }
+        return;
+      }
+      case "VariableStatement":
+        if (building) {
+          const variables = variableList(node.declarationList);
+          if (variables.kind === "refused") return variables;
+          statements[position] = { ...header(node), kind: "VariableStatement", modifiers: declarationModifiers(node.modifiers),
+            declarationList: variables.value, tsonic: null };
+        }
+        return;
+      case "ConditionalExpression": {
+        if (!building) {
+          demandArm(node.condition.id, node.whenTrue, "true");
+          demandArm(node.condition.id, node.whenFalse, "false");
+          visit(node.whenFalse);
+          visit(node.whenTrue);
+          visit(node.condition);
+          return;
+        }
+        const result = node.tsonic.views.read;
+        if (result.kind !== "available") return callerDefect("a conditional expression without its actual checked result", node.origin);
+        const guard = values[nodePosition(node.condition.id)]?.convertedType;
+        const control = guard === undefined ? null : readType(deps.types, guard);
+        const type = readType(deps.types, result.value);
+        const optional = optionalValueDomainOf(type, value => readType(deps.types, value));
+        const booleanControl = control?.kind === "primitive" && control.primitive === "bool" || control?.kind === "literal" && control.value.kind === "boolean";
+        const selectedResult = type.kind === "primitive" || type.kind === "string" || optional.kind === "optional-value";
+        if (!booleanControl || !selectedResult || values[nodePosition(node.whenTrue.id)]?.convertedType !== result.value
+          || values[nodePosition(node.whenFalse.id)]?.convertedType !== result.value)
+          return notElaboratedYet("a conditional expression without its Boolean control and same-carrier arms", node.origin);
+        expressions[position] = { ...header(node), kind: "ConditionalExpression", condition: expressionOf(node.condition),
+          questionToken: { ...header(node.questionToken), kind: "QuestionToken", tsonic: null }, whenTrue: expressionOf(node.whenTrue),
+          colonToken: { ...header(node.colonToken), kind: "ColonToken", tsonic: null }, whenFalse: expressionOf(node.whenFalse),
+          tsonic: { ...valueOf(position, result.value, node.origin), selection: { kind: "conditional", control: node.condition.id,
+            whenTrue: node.whenTrue.id, whenFalse: node.whenFalse.id, disposition: "dynamic" } } };
+        return;
+      }
       case "BinaryExpression":
         if (building) {
           expressions[position] = binary(node, position);
@@ -450,17 +858,58 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
           visit(node.left);
         }
         return;
-      case "PrefixUnaryExpression":
-        if (node.operator !== "ExclamationToken" || node.tsonic.role !== "value")
+      case "VoidExpression": {
+        if (!building) {
+          visit(node.expression);
+          return;
+        }
+        const operation = operations[position] ?? compilerDefect("open position: no operator decision at the void expression", node.origin);
+        const checked = node.tsonic.views.read;
+        const operand = values[nodePosition(node.expression.id)];
+        if (checked.kind !== "available" || checked.value !== operation.decision.result
+          || operation.decision.operation.kind !== "discard" || operation.decision.execution.kind !== "pure"
+          || operation.decision.operands.length !== 1 || operation.decision.operands[0] !== operand?.convertedType)
+          return callerDefect("a typed void expression retains its checked result and one actual discarded value", node.origin);
+        read.operations.add(position);
+        expressions[position] = { ...header(node), kind: node.kind, expression: expressionOf(node.expression),
+          tsonic: { ...valueOf(position, checked.value, node.origin), operation: { kind: "decided", decision: operation } } };
+        return;
+      }
+      case "PrefixUnaryExpression": case "PostfixUnaryExpression": {
+        const operator = prefixOperatorOf(node.operator);
+        const update = operator === "++" || operator === "--";
+        if (update) {
+          const leaf = unparenthesizedExpression<CheckedPhase>(node.operand);
+          const target = leaf.kind === "Identifier" ? leaf.tsonic : null;
+          const storage = target?.role === "assignment-target" && target.access === "read-write"
+            ? readWriteRootStorageOf(target.place, target.resolution) : null;
+          if (node.tsonic.role !== "update" || target === null || target.role !== "assignment-target" || storage === null
+            || readWriteRootStorageOf(node.tsonic.target, target.resolution) !== storage)
+            return notElaboratedYet("the actual selected read-write root update target", node.origin);
+        } else if (node.tsonic.role !== "value")
           return notElaboratedYet(`the unary operator ${node.operator} of role ${node.tsonic.role}`, node.origin);
         if (building) {
           const operation = operations[position] ?? compilerDefect("open position: no operator decision at the unary expression", node.origin);
           read.operations.add(position);
-          expressions[position] = { ...header(node), kind: "PrefixUnaryExpression", operator: node.operator,
-            operand: expressionOf(node.operand), tsonic: { role: "value", operation: { kind: "decided", decision: operation },
-              ...valueOf(position, operation.decision.result, node.origin) } };
+          const operand = expressionOf(node.operand);
+          const outcome: RuleOutcome<TypedOperation> = { kind: "decided", decision: operation };
+          const selected = { operation: outcome, ...valueOf(position, operation.decision.result, node.origin) };
+          if (update) {
+            const target = unparenthesizedExpression<TypedPhase>(operand);
+            if (target.kind !== "Identifier" || target.tsonic.role !== "assignment-target" || target.tsonic.access.kind !== "read-write")
+              return callerDefect("a typed update retains its actual read-write root", node.origin);
+            const { storage, read: operandType } = target.tsonic.access;
+            if (operation.decision.result !== storage || operation.decision.operands.length !== 1 || operation.decision.operands[0] !== operandType)
+              return callerDefect("a typed update retains its selected read and write endpoints", node.origin);
+            expressions[position] = node.kind === "PostfixUnaryExpression"
+              ? { ...header(node), kind: node.kind, operator: node.operator, operand, tsonic: { ...selected, storage } }
+              : { ...header(node), kind: node.kind, operator: node.operator, operand, tsonic: { ...selected, role: "update", storage } };
+          } else if (node.kind === "PrefixUnaryExpression") {
+            expressions[position] = { ...header(node), kind: node.kind, operator: node.operator, operand, tsonic: { ...selected, role: "value" } };
+          }
         } else visit(node.operand);
         return;
+      }
       case "PropertyAccessExpression":
         if (building) {
           const member = members[position] ?? compilerDefect("a property read has no actual selected member decision", node.origin);
@@ -479,10 +928,25 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       case "CallExpression":
         if (building) {
           const application = applications[position] ?? compilerDefect("a call has no solved selected application", node.origin);
-          if (node.typeArguments !== null || node.questionDotToken !== null
-            || application.parameters.length !== node.arguments.nodes.length)
+          const provided = node.arguments.nodes.length;
+          if (node.questionDotToken !== null || provided > application.parameters.length)
             return notElaboratedYet("the selected argument and receiver transport of this call", node.origin);
+          const activation: BodyInstance | null = application.api.body === null ? null : { body: application.api.body,
+            bindings: instance.bindings.kind === "parametric" ? instance.bindings
+              : { kind: "instantiated", bindings: application.implementationBindings } };
+          const formals = provided === application.parameters.length ? null : deps.signatureOf(application.completion.signature).parameters;
           const arguments_ = application.parameters.map((mapping, parameter): TirArgument => {
+            if (parameter >= provided) {
+              const formal = formals?.[parameter];
+              if (mapping.parameter !== parameter || activation === null || formal === undefined || !formal.acceptsOmission)
+                return callerDefect("an omitted argument retains its actual selected omission and callee activation", node.origin);
+              if (mapping.kind === "omitted" && formal.kind === "optional" && formal.initializer === null && mapping.type === formal.type)
+                return { kind: "omitted", parameter, value: { kind: "absence" } };
+              if (mapping.kind !== "default" || formal.kind !== "default" || mapping.initializer !== formal.initializer)
+                return callerDefect("an omitted argument retains its actual selected default and callee activation", node.origin);
+              return { kind: "omitted", parameter, value: { kind: "initializer",
+                instance: { body: mapping.initializer, bindings: activation.bindings } } };
+            }
             const source = node.arguments.nodes[parameter];
             if (source === undefined || mapping.kind !== "argument" || mapping.parameter !== parameter || mapping.argument !== parameter
               || mapping.component !== null || mapping.passing !== "by-value")
@@ -490,13 +954,21 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
             return { kind: "provided", parameter, expression: source.id };
           });
           read.applications.add(position);
+          let typeArguments: TypeArgumentList<TypedPhase> | null = null;
+          if (node.typeArguments !== null) {
+            const typedArguments: TypeNode<TypedPhase>[] = [];
+            for (const type of node.typeArguments.nodes) {
+              const selected = declarationType(deps, type);
+              if (selected.kind === "refused") return selected;
+              typedArguments.push(selected.value ?? compilerDefect("a selected call has no typed source argument", type.origin));
+            }
+            typeArguments = { ...node.typeArguments, nodes: typedArguments };
+          }
           expressions[position] = { ...header(node), kind: "CallExpression", expression: expressionOf(node.expression),
-            arguments: { ...node.arguments, nodes: node.arguments.nodes.map(expressionOf) }, typeArguments: null, questionDotToken: null,
+            arguments: { ...node.arguments, nodes: node.arguments.nodes.map(expressionOf) }, typeArguments, questionDotToken: null,
             tsonic: { ...valueOf(position, application.result, node.origin), operation: null,
-              application: { kind: "decided", decision: { callee: { decision: application,
-                activation: application.api.body === null ? null : { body: application.api.body,
-                  bindings: instance.bindings.kind === "parametric" ? instance.bindings
-                    : { kind: "instantiated", bindings: application.implementationBindings } } }, receiver: null, arguments: arguments_ } } } };
+              application: { kind: "decided", decision: { callee: { decision: application, activation },
+                receiver: null, arguments: arguments_ } } } };
         } else {
           visitList(node.arguments.nodes, node.origin);
           visit(node.expression);
@@ -504,27 +976,75 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         return;
       case "ParenthesizedExpression":
         if (building) {
-          const inner = requirePresent(values[node.expression.id - first], failure("compiler defect", "an operand without a typed value", node.origin));
-          expressions[position] = { ...header(node), kind: "ParenthesizedExpression", expression: expressionOf(node.expression),
-            tsonic: valueOf(position, inner.convertedType, node.origin) };
+          const expression = expressionOf(node.expression);
+          const type = expression.kind === "Identifier" && expression.tsonic.role === "assignment-target"
+            ? expression.tsonic.access.storage
+            : requirePresent(values[nodePosition(node.expression.id)], failure("compiler defect", "an operand without a typed value", node.origin)).convertedType;
+          expressions[position] = { ...header(node), kind: "ParenthesizedExpression", expression, tsonic: valueOf(position, type, node.origin) };
         } else {
           visit(node.expression);
         }
         return;
+      case "NonNullExpression": {
+        if (!building) {
+          visit(node.expression);
+          return;
+        }
+        const result = node.tsonic.views.read;
+        const operand = values[nodePosition(node.expression.id)];
+        if (result.kind !== "available" || operand?.convertedType !== result.value)
+          return notElaboratedYet("a non-null assertion without an already-present native operand", node.origin);
+        const type = readType(deps.types, result.value);
+        if (type.kind !== "primitive" && type.kind !== "string" && !(type.kind === "literal" && type.value.kind !== "absence"))
+          return notElaboratedYet("a non-null assertion without an already-present native operand", node.origin);
+        expressions[position] = { ...header(node), kind: node.kind, expression: expressionOf(node.expression),
+          tsonic: valueOf(position, result.value, node.origin) };
+        return;
+      }
+      case "AsExpression": case "TypeAssertionExpression": case "SatisfiesExpression": {
+        if (!building) {
+          visit(node.expression);
+          return;
+        }
+        const type = declarationType(deps, node.type);
+        if (type.kind === "refused") return type;
+        const result = node.tsonic.views.read;
+        const target = node.type.tsonic.type;
+        const operand = values[nodePosition(node.expression.id)];
+        if (target.kind !== "available" || result.kind !== "available" || target.value !== result.value || operand?.convertedType !== result.value)
+          return notElaboratedYet("an assertion without the same selected operand, target and result type", node.origin);
+        expressions[position] = { ...header(node), kind: node.kind, expression: expressionOf(node.expression),
+          type: type.value ?? compilerDefect("an assertion has no typed annotation", node.origin),
+          tsonic: valueOf(position, result.value, node.origin) };
+        return;
+      }
       case "Identifier":
         if (building) expressions[position] = identifier(node, position);
         else admitName(node, position);
         return;
-      case "TrueKeyword": case "FalseKeyword": case "StringLiteral": case "NullKeyword": {
+      case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "StringLiteral":
+      case "NoSubstitutionTemplateLiteral": case "NullKeyword": {
         if (node.tsonic.role !== "value" || node.tsonic.value.views.read.kind !== "available")
           return callerDefect("a literal has no actual checked value type", node.origin);
         if (building) {
-          const value = valueOf(position, node.tsonic.value.views.read.value, node.origin);
-          if (node.kind === "StringLiteral") {
+          const variable = variables[position];
+          if (variable?.kind === "literal-decision") return callerDefect("a literal decision has no actual declared variable", node.origin);
+          if (variable?.kind === "contextual-literal" && (variable.target === null || names[variable.target]?.storage !== variable.type))
+            return callerDefect("a contextual literal must use its actual qualified assignment destination", node.origin);
+          const value = valueOf(position, variable?.kind === "literal" || variable?.kind === "contextual-literal"
+            ? variable.type : node.tsonic.value.views.read.value, node.origin);
+          if (node.kind === "NumericLiteral") {
+            if (node.tsonic.literal.kind !== "number" || node.tsonic.literal.token !== node.text)
+              return callerDefect("a numeric occurrence has no actual captured exact token and value", node.origin);
+            expressions[position] = { ...header(node), kind: "NumericLiteral", text: node.text, tokenFlags: node.tokenFlags,
+              tsonic: { role: "value", value: node.tsonic.literal.value, ...value } };
+          } else if (node.kind === "StringLiteral" || node.kind === "NoSubstitutionTemplateLiteral") {
             if (node.tsonic.literal.kind !== "string")
               return callerDefect("a string occurrence has no actual captured string value", node.origin);
-            expressions[position] = { ...header(node), kind: "StringLiteral", text: node.text, tokenFlags: node.tokenFlags,
-              tsonic: { role: "value", value: node.tsonic.literal.value, ...value } };
+            const tsonic: TypedPhase["StringLiteral"] = { role: "value", value: node.tsonic.literal.value, ...value };
+            const spelling = { ...header(node), text: node.text, tokenFlags: node.tokenFlags, tsonic };
+            expressions[position] = node.kind === "StringLiteral" ? { ...spelling, kind: node.kind }
+              : { ...spelling, kind: node.kind, rawText: node.rawText, templateFlags: node.templateFlags };
           } else expressions[position] = { ...header(node), kind: node.kind, tsonic: { role: "value", ...value } };
         }
         return;
@@ -533,11 +1053,31 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         notElaboratedYet(`a ${node.kind}`, node.origin);
     }
   };
-  if (root.kind === "Block") visitList(root.statements.nodes, root.origin);
-  else visit(root);
-  for (let frame = stack.pop(); frame !== undefined; frame = stack.pop()) step(frame);
+  visiting = root.id;
+  if (moduleStatements !== null) {
+    for (let index = moduleStatements.length - 1; index >= 0; index -= 1) {
+      const statement = moduleStatements[index];
+      if (statement !== undefined && isInlineModuleStatement(statement)) visit(statement);
+    }
+  }
+  else if (root.kind === "Block") visitList(root.statements.nodes, root.origin);
+  else { visiting = null; visit(root); }
+  for (let frame = stack.pop(); frame !== undefined; frame = stack.pop()) {
+    const refusal = step(frame);
+    if (refusal !== undefined) return refusal;
+  }
 
-  const typedRoot = root.kind === "Block" ? block(root) : expressionOf(root);
+  const lexicalBindings = instance.bindings.kind === "instantiated" ? instance.bindings.bindings
+    : { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const moduleRoot = root.kind === "SourceFile" ? elaborateModuleSyntax(deps, root, childStates, instance, {
+    kind: "ready", template: { body: body.body, lexicalBindings, dependence: "parametric" },
+    statementOf: statement => blocked.get(statement.id) ?? statementOf(statement),
+  }) : null;
+  if (moduleRoot !== null && moduleRoot.kind !== "ok") return moduleRoot;
+  const rootBlock = blocked.get(root.id);
+  if (rootBlock !== undefined) return rootBlock;
+  for (const child of childStates.values()) if ("kind" in child) return { ...child, instance, diagnostics: [] };
+  const typedRoot = moduleRoot === null ? root.kind === "Block" ? block(root) : expressionOf(root) : moduleRoot.value;
   const refuseUnread = (entries: readonly unknown[], seen: ReadonlySet<number>, label: string): void => {
     for (const [position, entry] of entries.entries()) {
       if (entry !== undefined && !seen.has(position)) {
@@ -554,8 +1094,7 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
 
   return { kind: "ok", diagnostics: [], value: {
     body: body.body, owner: body.owner, bindings: instance.bindings,
-    lexicalBindings: instance.bindings.kind === "instantiated" ? instance.bindings.bindings
-      : { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] },
+    lexicalBindings,
     dependence: "parametric", signature: typing.signature, completion: typing.completion, yielded: typing.yielded, sent: typing.sent,
     params, locals, root: typedRoot, nestedBodies: body.nestedBodies, captures: typing.captures, scopes: body.scopes, evidence: [],
     asynchronous: body.asynchronous, generator: body.generator } };

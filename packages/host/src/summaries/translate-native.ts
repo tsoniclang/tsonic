@@ -3,7 +3,8 @@ import { boundProducerId, encodeKey, openBoundaryId, originsId, producerId, proj
 import type { BindingVector, DeclaredExecution, Signature } from "../ir-types/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { BoundProducer, CaptureEffect, CaptureLocation, EffectPaths, EscapeTarget, OpenBoundary, Origins, ParameterEffect,
-  DeclaredCellInventory, Producer, Projection, ProjectionPath, SummaryRetention, Summary, SummaryRelations, SummaryWrite } from "../ir-facts/contract.js";
+  DeclaredCellInventory, Producer, Projection, ProjectionPath, SummaryRetention, Summary, SummaryRelations, SummaryWrite,
+  ValueArgument } from "../ir-facts/contract.js";
 import type { AdmittedNativeGuarantee, NativeExportAssociation } from "../libraries/contract.js";
 
 type NativeStatement = AdmittedNativeGuarantee["statement"];
@@ -107,6 +108,10 @@ export function translateNativeSummary(raw: NativeStatement, selected: ExportVal
   }
   for (let position = 0; position < signature.parameters.length; position += 1) {
     const identifier = producerId(producers.length);
+    if (position >= execution.provided && signature.parameters[position]?.kind !== "rest") {
+      producers.push({ id: identifier, kind: "parameter", index: position, path: null });
+      continue;
+    }
     const assigned = add({ id: identifier, kind: "parameter", index: position, path: null }, position, environment);
     formals.set(slotKey("parameter", position), { ...assigned, kind: "parameter", index: position });
   }
@@ -154,7 +159,8 @@ export function translateNativeSummary(raw: NativeStatement, selected: ExportVal
       continue;
     }
     if (producer.kind === "receiver" && signature.receiver === null) return null;
-    if (producer.kind === "parameter" && !ordinal(producer.index, signature.parameters.length)) return null;
+    if (producer.kind === "parameter" && (!ordinal(producer.index, signature.parameters.length)
+      || !formals.has(slotKey("parameter", producer.index)))) return null;
     if (producer.kind === "capture" && !ordinal(producer.index, raw.captures.length)) return null;
     const id = producerId(producers.length);
     const path = producer.path === null ? null : projectionIds.get(producer.path);
@@ -212,7 +218,7 @@ export function translateNativeSummary(raw: NativeStatement, selected: ExportVal
   const captureEffects = new Map<number, CaptureStatement>();
   for (const effect of raw.captures) captureEffects.set(effect.index, effect);
   const parameters: ParameterEffect[] = [];
-  const argumentsOrigins: OriginsId[] = [];
+  const argumentsOrigins: ValueArgument[] = signature.parameters.map(() => ({ kind: "omitted" }));
   const captures: CaptureLocation[] = [];
   const capturedCells = new Map<number, number>();
   for (const capture of cells.captures) {
@@ -245,10 +251,15 @@ export function translateNativeSummary(raw: NativeStatement, selected: ExportVal
         receiver = formalOrigins;
         parameters.push({ slot: { kind: "receiver" }, reads, writes });
       } else {
-        argumentsOrigins.push(formalOrigins);
-        parameters.push({ slot: { kind: "parameter", index: formal.index }, reads, writes });
+        argumentsOrigins[formal.index] = { kind: "provided", origins: formalOrigins };
+        parameters[formal.index + (signature.receiver === null ? 0 : 1)] = { slot: { kind: "parameter", index: formal.index }, reads, writes };
       }
     }
+  }
+  for (let position = 0; position < argumentsOrigins.length; position += 1) if (argumentsOrigins[position]?.kind === "omitted") {
+    if (parameterEffects.has(slotKey("parameter", position))) return null;
+    const effects: EffectPaths = { kind: "complete", paths: [] };
+    parameters[position + (signature.receiver === null ? 0 : 1)] = { slot: { kind: "parameter", index: position }, reads: effects, writes: effects };
   }
   const writes: SummaryWrite[] = [];
   const locations = new Map<number, number>();

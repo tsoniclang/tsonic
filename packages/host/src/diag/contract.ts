@@ -1,4 +1,4 @@
-import type { GroupId, KeyData, ModuleId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
+import type { GroupId, KeyData, ModuleId, NodeId, NodeRef, Origin, SourceNodeRef } from "../ids/contract.js";
 
 export type HostDiagnosticCode = string & {
   readonly diagnosticKind: "host";
@@ -71,6 +71,8 @@ export type UnitPosition =
   | { readonly kind: "result" }
   | { readonly kind: "module-node"; readonly module: ModuleId; readonly node: NodeId }
   | { readonly kind: "source-node"; readonly node: SourceNodeRef }
+  | { readonly kind: "execution-result"; readonly execution: string }
+  | { readonly kind: "execution-source-node"; readonly execution: string; readonly node: NodeRef }
   | { readonly kind: "inference-variable"; readonly group: GroupId; readonly variable: number }
   | { readonly kind: "component"; readonly path: readonly KeyData[] };
 
@@ -192,12 +194,6 @@ export type InvariantOwner =
   | "metadata"
   | "analyses/body"
   | "analyses/liveness"
-  | "analyses/initialization"
-  | "analyses/refinements"
-  | "analyses/origins"
-  | "analyses/suspension"
-  | "analyses/errorStorage"
-  | "analyses/pointerBacking"
   | "summaries"
   | "pipeline"
   | "project"

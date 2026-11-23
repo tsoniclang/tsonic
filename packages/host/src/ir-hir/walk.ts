@@ -1,10 +1,17 @@
-import type { HirNode, IndexSyntaxTree, Phase, SyntaxNode, WalkSyntaxTree } from "./contract.js";
+import type { HirNode, IndexSyntaxTree, Phase, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
+  WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { HirResolution } from "./contract.js";
 import type { MemberKey } from "../ir-types/contract.js";
 import type { CheckerDiagnosticRef } from "../diag/contract.js";
 import type { HirBindingTarget } from "./contract.js";
-import { syntaxChildEdges } from "./children.js";
+import { iterateSyntaxChildSlots, syntaxChildEdges } from "./children.js";
+import type { SyntaxChildSlot } from "./children.js";
+
+export const unparenthesizedExpression: UnparenthesizedExpression = expression => {
+  while (expression.kind === "ParenthesizedExpression") expression = expression.expression;
+  return expression;
+};
 
 type PendingNode<PhaseType extends Phase> = (
   | { readonly kind: "enter"; readonly node: SyntaxNode<PhaseType>; readonly path: HirDataPath }
@@ -45,6 +52,69 @@ export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends Phase>(
 };
 
 export const indexSyntaxTree: IndexSyntaxTree = root => walkSyntaxTree(root, []);
+
+export const walkSyntaxForest: WalkSyntaxForest = <PhaseType extends Phase, Stop>(
+  roots: Iterable<SyntaxRootSlot<PhaseType>>,
+  admission: SyntaxWalkAdmission<PhaseType, Stop>,
+) => {
+  interface Path { readonly parent: Path | null; readonly segment: string }
+  type Frame =
+    | { readonly kind: "root"; readonly iterator: Iterator<SyntaxRootSlot<PhaseType>>; readonly first: boolean }
+    | { readonly kind: "first-root-end" }
+    | { readonly kind: "enter"; readonly node: SyntaxNode<PhaseType>; readonly path: Path }
+    | { readonly kind: "children"; readonly iterator: Iterator<SyntaxChildSlot<PhaseType>>; readonly path: Path }
+    | { readonly kind: "leave"; readonly node: SyntaxNode<PhaseType> };
+  const wire = new Map<SyntaxNode<PhaseType>, number>();
+  const active = new Set<SyntaxNode<PhaseType>>();
+  const nodes: SyntaxNode<PhaseType>[] = [];
+  const postorder: SyntaxNode<PhaseType>[] = [];
+  const pending: Frame[] = [{ kind: "root", iterator: roots[Symbol.iterator](), first: true }];
+  let firstRootSize = 0;
+  for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
+    switch (frame.kind) {
+      case "root": {
+        const slot = frame.iterator.next();
+        if (slot.done) break;
+        const stop = admission.root();
+        if (stop !== null) return stop;
+        pending.push({ ...frame, first: false });
+        if (frame.first) pending.push({ kind: "first-root-end" });
+        pending.push({ kind: "enter", node: slot.value.read(), path: { parent: null, segment: slot.value.path } });
+        break;
+      }
+      case "first-root-end": firstRootSize = nodes.length; break;
+      case "enter": {
+        if (active.has(frame.node)) {
+          const segments: string[] = [];
+          for (let at: Path | null = frame.path; at !== null; at = at.parent) segments.push(at.segment);
+          throw new TypeError("Syntax object cycle at " + segments.reverse().join(""));
+        }
+        if (wire.has(frame.node)) break;
+        const stop = admission.node(frame.node);
+        if (stop !== null) return stop;
+        active.add(frame.node);
+        wire.set(frame.node, nodes.length);
+        nodes.push(frame.node);
+        pending.push({ kind: "leave", node: frame.node },
+          { kind: "children", iterator: iterateSyntaxChildSlots(frame.node)[Symbol.iterator](), path: frame.path });
+        break;
+      }
+      case "children": {
+        const slot = frame.iterator.next();
+        if (slot.done) break;
+        const stop = admission.edge();
+        if (stop !== null) return stop;
+        const node = slot.value.read();
+        let segment = "";
+        for (const field of slot.value.fields) segment += typeof field === "number" ? "[" + field + "]" : "." + field;
+        pending.push(frame, { kind: "enter", node, path: { parent: frame.path, segment } });
+        break;
+      }
+      case "leave": active.delete(frame.node); postorder.push(frame.node); break;
+    }
+  }
+  return { kind: "complete", value: { nodes, postorder, wireOf: (node: SyntaxNode<PhaseType>) => wire.get(node), firstRootSize } };
+};
 
 export interface HirDataPath {
   readonly parent: HirDataPath | null;

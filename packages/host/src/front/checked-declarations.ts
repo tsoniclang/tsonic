@@ -1,8 +1,10 @@
 import type { DefId, NodeId, SigId, TyId } from "../ids/contract.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
-import type { MemberKey, TypeParameter } from "../ir-types/contract.js";
+import type { LiteralTypeValue, MemberKey, TypeParameter } from "../ir-types/contract.js";
 import { isGroup17 as isTypeNode } from "./syntax-capture.js";
+import type { RawNumericLiteral } from "./contract.js";
+import { numericTypeSpelling } from "./syntax-support.js";
 import type { ConversionResult } from "./type-conversion.js";
 
 type Syntax = Hir.SyntaxPhase;
@@ -11,12 +13,16 @@ type Checked = Hir.CheckedPhase;
 export interface DeclarationLowering {
   readonly core: (node: NodeId) => Hir.HirCoreCapture;
   readonly definitions: ReadonlyMap<NodeId, DefId>;
-  readonly resolution: (node: NodeId) => Hir.HirResolution;
+  readonly resolution: (node: NodeId) => ConversionResult<Hir.HirResolution>;
   readonly memory: (node: NodeId) => Hir.CapturedFact<Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCapture | null>;
-  readonly checkedType: (node: NodeId) => ConversionResult<Hir.CapturedFact<TyId>>;
+  readonly checkedType: (node: Hir.TypeNode<Syntax>, inferParameter: NodeId | null) => ConversionResult<Hir.CapturedFact<TyId>>;
+  readonly numericLiteral: (type: Hir.CapturedFact<TyId>, spelling: RawNumericLiteral) =>
+    ConversionResult<Extract<LiteralTypeValue, { readonly kind: "number" }>>;
+  readonly numericOperand: (node: Hir.NumericLiteral<Syntax>) => ConversionResult<Hir.CapturedFact<TyId>>;
   readonly signature: (node: NodeId) => ConversionResult<SigId>;
   readonly expression: (node: Hir.Expression<Syntax>) => Hir.Expression<Checked>;
-  readonly property: (node: NodeId) => Hir.CapturedFact<MemberKey>;
+  readonly prepareNameExpression: (node: Hir.SyntaxNode<Syntax>, owner: DefId, typeOf: TypeReader) => ConversionResult<void>;
+  readonly property: (node: Hir.ComputedPropertyName<Syntax>) => ConversionResult<Hir.CapturedFact<MemberKey>>;
 }
 
 function header(node: Hir.NodeHeader): Hir.NodeHeader {
@@ -47,49 +53,129 @@ function definitionOf(context: DeclarationLowering, node: NodeId): DefId {
   return context.definitions.get(node) ?? fail("a declaration must retain its actual F1 identity");
 }
 
-type TypeReader = (node: Hir.TypeNode<Syntax>, owner: DefId) => ConversionResult<Hir.TypeNode<Checked>>;
+export type TypeReader = (node: Hir.TypeNode<Syntax>, owner: DefId) => ConversionResult<Hir.TypeNode<Checked>>;
 
 function presentType(node: Hir.TypeNode<Checked>): TyId {
   const fact = node.tsonic.type;
   return fact.kind === "available" ? fact.value : fail("a type parameter requires its actual available checked annotation");
 }
 
-export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNode<Syntax>, owner: DefId): ConversionResult<Hir.TypeNode<Checked>> {
+function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syntax>, owner: DefId): ConversionResult<TypeReader> {
   const completed = new Map<NodeId, Hir.TypeNode<Checked>>();
+  const binders = new Map<NodeId, NodeId>();
   const child = (node: Hir.TypeNode<Syntax>): Hir.TypeNode<Checked> => completed.get(node.id)
     ?? fail("a type child must complete before its containing annotation");
-  const enter = (node: Hir.SyntaxNode<Syntax>, parent: DefId) => ({ node,
+  const typeOf: TypeReader = node => ({ kind: "complete", value: child(node) });
+  const enter = (node: Hir.SyntaxNode<Syntax>, parent: DefId, nameExpression: boolean, pattern: NodeId | null) => ({ node, nameExpression, pattern,
     owner: context.definitions.get(node.id) ?? parent, children: iterateChildrenOfSyntax(node) });
-  const pending = [enter(root, owner)];
+  const pending = [enter(root, owner, false, null)];
   for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
+    const node = frame.node;
     const next = frame.children.next();
     if (!next.done) {
-      pending.push(frame, enter(next.value, frame.owner));
+      const nextNode = next.value;
+      const nameExpression = (node.kind === "PropertySignature" || node.kind === "MethodSignature")
+          && node.name === nextNode && nextNode.kind === "ComputedPropertyName"
+        || frame.nameExpression && !isTypeNode(nextNode)
+          && (node.kind !== "ComputedPropertyName" || node.expression === nextNode)
+          && (node.kind !== "PropertyAccessExpression" || node.name !== nextNode)
+          && (node.kind !== "PropertyAssignment" || node.initializer === nextNode);
+      const pattern = node.kind === "ConditionalType" && node.extendsType === nextNode ? node.id : frame.pattern;
+      pending.push(frame, enter(nextNode, frame.owner, nameExpression, pattern));
       continue;
     }
-    const node = frame.node;
+    if (frame.nameExpression) {
+      const ready = context.prepareNameExpression(node, frame.owner, typeOf);
+      if (ready.kind !== "complete") return ready;
+      continue;
+    }
     if (!isTypeNode(node)) continue;
-    const type = context.checkedType(node.id);
+    if (node.kind === "TemplateLiteralTypeSpan") {
+      const type = child(node.type);
+      completed.set(node.id, { ...header(node), kind: node.kind, type, literal: { ...node.literal, tsonic: null },
+        tsonic: { ...type.tsonic, core: context.core(node.id) } });
+      continue;
+    }
+    const type = context.checkedType(node, binders.get(node.id) ?? null);
     if (type.kind !== "complete") return type;
     const tsonic: Hir.CheckedType = { core: context.core(node.id), type: type.value, referencedDefinitions: [] };
     let result: Hir.TypeNode<Checked>;
     switch (node.kind) {
       case "NumberKeyword": case "StringKeyword": case "BooleanKeyword": case "BigIntKeyword": case "SymbolKeyword":
-      case "AnyKeyword": case "UnknownKeyword": case "NeverKeyword": case "ObjectKeyword": case "UndefinedKeyword": case "VoidKeyword":
+      case "AnyKeyword": case "UnknownKeyword": case "NeverKeyword": case "ObjectKeyword": case "UndefinedKeyword": case "VoidKeyword": case "ThisType":
         result = { ...header(node), kind: node.kind, tsonic }; break;
       case "UnionType": case "IntersectionType":
         result = { ...header(node), kind: node.kind, types: { loc: node.types.loc, nodes: node.types.nodes.map(child) }, tsonic }; break;
-      case "ParenthesizedType": result = { ...header(node), kind: node.kind, type: child(node.type), tsonic }; break;
+      case "ParenthesizedType": case "OptionalType":
+        result = { ...header(node), kind: node.kind, type: child(node.type), tsonic }; break;
       case "ArrayType": result = { ...header(node), kind: node.kind, elementType: child(node.elementType), tsonic }; break;
+      case "LiteralType": {
+        const literal = node.literal;
+        const core = context.core(literal.id);
+        if (literal.kind === "StringLiteral" || literal.kind === "NoSubstitutionTemplateLiteral") {
+          result = { ...header(node), kind: node.kind, tsonic,
+            literal: { ...literal, tsonic: { core, role: "type-literal", type: type.value, literal: { kind: "string", value: literal.text } } } };
+        } else if (literal.kind === "NullKeyword" || literal.kind === "TrueKeyword" || literal.kind === "FalseKeyword") {
+          result = { ...header(node), kind: node.kind, tsonic,
+            literal: { ...literal, tsonic: { core, role: "type-literal", type: type.value,
+              literal: literal.kind === "NullKeyword" ? { kind: "absence" } : { kind: "boolean", value: literal.kind === "TrueKeyword" } } } };
+        } else if (literal.kind === "NumericLiteral") {
+          const exact = context.numericLiteral(type.value, { token: literal.text, origin: literal.origin });
+          if (exact.kind !== "complete") return exact;
+          result = { ...header(node), kind: node.kind, tsonic,
+            literal: { ...literal, tsonic: { core, role: "type-literal", type: type.value, literal: exact.value } } };
+        } else if (literal.kind === "PrefixUnaryExpression" && literal.operator === "MinusToken" && literal.operand.kind === "NumericLiteral") {
+          const spelling = numericTypeSpelling(literal) ?? fail("a signed literal annotation requires its actual authored spelling");
+          const signed = context.numericLiteral(type.value, spelling);
+          if (signed.kind !== "complete") return signed;
+          const operand = context.numericOperand(literal.operand);
+          if (operand.kind !== "complete") return operand;
+          const magnitude = context.numericLiteral(operand.value, { token: literal.operand.text, origin: literal.operand.origin });
+          if (magnitude.kind !== "complete") return magnitude;
+          result = { ...header(node), kind: node.kind, tsonic, literal: { ...literal,
+            operand: { ...literal.operand, tsonic: { core: context.core(literal.operand.id), role: "type-literal",
+              type: operand.value, literal: magnitude.value } },
+            tsonic: { core, role: "type-literal", type: type.value, literal: signed.value } } };
+        } else return fail(`${node.kind} ${literal.kind}`);
+        break;
+      }
+      case "TupleType":
+        result = { ...header(node), kind: node.kind, elements: { loc: node.elements.loc, nodes: node.elements.nodes.map(child) }, tsonic }; break;
+      case "TypeOperator":
+        result = { ...header(node), kind: node.kind, operator: node.operator, type: child(node.type), tsonic }; break;
+      case "IndexedAccessType":
+        result = { ...header(node), kind: node.kind, objectType: child(node.objectType), indexType: child(node.indexType), tsonic }; break;
+      case "ConditionalType":
+        result = { ...header(node), kind: node.kind, checkType: child(node.checkType), extendsType: child(node.extendsType),
+          trueType: child(node.trueType), falseType: child(node.falseType), tsonic }; break;
+      case "InferType": {
+        if (frame.pattern === null && type.value.kind === "available") return fail("an inference parameter outside its actual extends pattern");
+        if (frame.pattern !== null) {
+          if (binders.has(frame.pattern)) return fail("multiple inference binders for one actual extends pattern");
+          binders.set(frame.pattern, node.typeParameter.id);
+        }
+        const binder = typeParameter(context, node.typeParameter, frame.owner, typeOf);
+        if (binder.kind !== "complete") return binder;
+        result = { ...header(node), kind: node.kind, typeParameter: binder.value, tsonic };
+        break;
+      }
+      case "TemplateLiteralType":
+        result = { ...header(node), kind: node.kind, head: { ...node.head, tsonic: null }, templateSpans: { ...node.templateSpans,
+          nodes: node.templateSpans.nodes.map(span => {
+            const selected = child(span);
+            return selected.kind === "TemplateLiteralTypeSpan" ? selected : fail("template type span");
+          }) }, tsonic }; break;
       case "TypeLiteral": {
-        const members = typeElements(context, node.members.nodes, frame.owner, type => ({ kind: "complete", value: child(type) }));
+        const members = typeElements(context, node.members.nodes, frame.owner, typeOf);
         if (members.kind !== "complete") return members;
         result = { ...header(node), kind: node.kind, members: { loc: node.members.loc, nodes: members.value }, tsonic }; break;
       }
       case "TypeReference": {
         const name = node.typeName;
         if (name.kind !== "Identifier") return fail("qualified type reference");
-        const resolution = context.resolution(name.id);
+        const resolved = context.resolution(name.id);
+        if (resolved.kind !== "complete") return resolved;
+        const resolution = resolved.value;
         result = { ...header(node), kind: node.kind,
           typeName: { ...header(name), kind: "Identifier", text: name.text, tsonic: { core: context.core(name.id), role: "type-name", resolution } },
           typeArguments: node.typeArguments === null ? null : { loc: node.typeArguments.loc, nodes: node.typeArguments.nodes.map(child) },
@@ -99,7 +185,9 @@ export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNod
       case "TypeQuery": {
         const name = node.exprName;
         if (name.kind !== "Identifier" || node.typeArguments !== null) return fail("qualified or applied type query");
-        const resolution = context.resolution(name.id);
+        const resolved = context.resolution(name.id);
+        if (resolved.kind !== "complete") return resolved;
+        const resolution = resolved.value;
         result = { ...header(node), kind: node.kind, typeArguments: null,
           exprName: { ...header(name), kind: "Identifier", text: name.text, tsonic: { core: context.core(name.id), role: "type-name", resolution } },
           tsonic: { ...tsonic, referencedDefinitions: resolution.kind === "declarations" ? resolution.definitions : [] } };
@@ -109,16 +197,25 @@ export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNod
     }
     completed.set(node.id, result);
   }
-  return { kind: "complete", value: child(root) };
+  return { kind: "complete", value: typeOf };
 }
 
-function propertyName(context: DeclarationLowering, node: Hir.PropertyName<Syntax>, declaration: DefId): Hir.PropertyName<Checked> {
-  if (node.kind === "Identifier") return declarationName(context, node, declaration);
-  if (node.kind === "ComputedPropertyName") return { ...header(node), kind: node.kind,
-    expression: context.expression(node.expression), tsonic: { core: context.core(node.id), key: context.property(node.id),
-      origins: { kind: "unavailable", reason: "not-provided", causes: [] } } };
-  if (node.kind === "StringLiteral") return { ...header(node), kind: node.kind, text: node.text, tokenFlags: node.tokenFlags,
-    tsonic: { core: context.core(node.id), role: "declaration-name", declaration: { kind: "definition", definition: declaration } } };
+export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNode<Syntax>, owner: DefId): ConversionResult<Hir.TypeNode<Checked>> {
+  const annotations = lowerAnnotations(context, root, owner);
+  return annotations.kind === "complete" ? annotations.value(root, owner) : annotations;
+}
+
+function propertyName(context: DeclarationLowering, node: Hir.PropertyName<Syntax>, declaration: DefId): ConversionResult<Hir.PropertyName<Checked>> {
+  if (node.kind === "Identifier") return { kind: "complete", value: declarationName(context, node, declaration) };
+  if (node.kind === "ComputedPropertyName") {
+    const key = context.property(node);
+    if (key.kind !== "complete") return key;
+    return { kind: "complete", value: { ...header(node), kind: node.kind,
+      expression: context.expression(node.expression), tsonic: { core: context.core(node.id), key: key.value,
+        origins: { kind: "unavailable", reason: "not-provided", causes: [] } } } };
+  }
+  if (node.kind === "StringLiteral" || node.kind === "NumericLiteral") return { kind: "complete", value: { ...header(node), kind: node.kind, text: node.text, tokenFlags: node.tokenFlags,
+    tsonic: { core: context.core(node.id), role: "declaration-name", declaration: { kind: "definition", definition: declaration } } } };
   return fail(node.kind);
 }
 
@@ -138,9 +235,26 @@ function parameters(context: DeclarationLowering, source: Hir.ParameterList<Synt
       name: declarationName(context, node.name, declaration), questionToken: node.questionToken === null ? null : token(node.questionToken),
       type: type === null ? null : type.value, initializer: null,
       tsonic: { ...facts(context, node, owner), declaration: { kind: "definition", definition: declaration },
-        declaredType: type === null ? { kind: "available", value: null } : type.value.tsonic.type, initializer: null } });
+        declaredType: type === null ? { kind: "available", value: null } : type.value.tsonic.type, inferredTypeBound: null, initializer: null } });
   }
   return { kind: "complete", value: { loc: source.loc, nodes } };
+}
+
+function typeParameter(context: DeclarationLowering, node: Hir.TypeParameterDeclaration<Syntax>,
+  owner: DefId, typeOf: TypeReader): ConversionResult<Hir.TypeParameterDeclaration<Checked>> {
+  if (node.expression !== null) return fail("a type parameter with an expression");
+  const declaration = definitionOf(context, node.id);
+  const constraint = node.constraint === null ? null : typeOf(node.constraint, declaration);
+  if (constraint !== null && constraint.kind !== "complete") return constraint;
+  const defaultType = node.defaultType === null ? null : typeOf(node.defaultType, declaration);
+  if (defaultType !== null && defaultType.kind !== "complete") return defaultType;
+  const parameter: TypeParameter = { declaration,
+    constraint: constraint === null ? null : presentType(constraint.value),
+    default: defaultType === null ? null : presentType(defaultType.value) };
+  return { kind: "complete", value: { ...header(node), kind: "TypeParameter", modifiers: lowerCheckedModifiers(node.modifiers),
+    name: declarationName(context, node.name, declaration), expression: null,
+    constraint: constraint === null ? null : constraint.value, defaultType: defaultType === null ? null : defaultType.value,
+    tsonic: { ...facts(context, node, owner), definition: declaration, parameter } } };
 }
 
 function typeParameters(context: DeclarationLowering, source: Hir.TypeParameterList<Syntax> | null,
@@ -148,19 +262,9 @@ function typeParameters(context: DeclarationLowering, source: Hir.TypeParameterL
   if (source === null) return { kind: "complete", value: null };
   const nodes: Hir.TypeParameterDeclaration<Checked>[] = [];
   for (const node of source.nodes) {
-    if (node.expression !== null) return fail("a type parameter with an expression");
-    const declaration = definitionOf(context, node.id);
-    const constraint = node.constraint === null ? null : typeOf(node.constraint, declaration);
-    if (constraint !== null && constraint.kind !== "complete") return constraint;
-    const defaultType = node.defaultType === null ? null : typeOf(node.defaultType, declaration);
-    if (defaultType !== null && defaultType.kind !== "complete") return defaultType;
-    const parameter: TypeParameter = { declaration,
-      constraint: constraint === null ? null : presentType(constraint.value),
-      default: defaultType === null ? null : presentType(defaultType.value) };
-    nodes.push({ ...header(node), kind: "TypeParameter", modifiers: lowerCheckedModifiers(node.modifiers),
-      name: declarationName(context, node.name, declaration), expression: null,
-      constraint: constraint === null ? null : constraint.value, defaultType: defaultType === null ? null : defaultType.value,
-      tsonic: { ...facts(context, node, owner), definition: declaration, parameter } });
+    const selected = typeParameter(context, node, owner, typeOf);
+    if (selected.kind !== "complete") return selected;
+    nodes.push(selected.value);
   }
   return { kind: "complete", value: { loc: source.loc, nodes } };
 }
@@ -213,11 +317,13 @@ function typeElements(context: DeclarationLowering, source: readonly Hir.TypeEle
       if (node.initializer !== null) return fail("property signature initializer");
       const type = node.type === null ? null : typeOf(node.type, declaration);
       if (type !== null && type.kind !== "complete") return type;
+      const name = propertyName(context, node.name, declaration);
+      if (name.kind !== "complete") return name;
       elements.push({ ...header(node), kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers),
-        name: propertyName(context, node.name, declaration), postfixToken: node.postfixToken === null ? null : token(node.postfixToken),
+        name: name.value, postfixToken: node.postfixToken === null ? null : token(node.postfixToken),
         type: type === null ? null : type.value, initializer: null,
         tsonic: { ...facts(context, node, owner), declaration: { kind: "definition", definition: declaration },
-          declaredType: type === null ? { kind: "available", value: null } : type.value.tsonic.type, initializer: null } });
+          declaredType: type === null ? { kind: "available", value: null } : type.value.tsonic.type, inferredTypeBound: null, initializer: null } });
       continue;
     }
     if (node.kind !== "CallSignature" && node.kind !== "ConstructSignature" && node.kind !== "MethodSignature" && node.kind !== "IndexSignature"
@@ -231,11 +337,15 @@ function typeElements(context: DeclarationLowering, source: readonly Hir.TypeEle
     switch (node.kind) {
       case "CallSignature": case "ConstructSignature": elements.push({ ...common, kind: node.kind }); break;
       case "IndexSignature": elements.push({ ...common, kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers) }); break;
-      case "MethodSignature": elements.push({ ...common, kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers),
-        name: propertyName(context, node.name, declaration), postfixToken: node.postfixToken === null ? null : token(node.postfixToken) }); break;
-      case "GetAccessor": case "SetAccessor": elements.push({ ...common, kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers),
-        name: propertyName(context, node.name, declaration), postfixToken: node.postfixToken === null ? null : token(node.postfixToken),
-        body: null, asteriskToken: null }); break;
+      case "MethodSignature": case "GetAccessor": case "SetAccessor": {
+        const name = propertyName(context, node.name, declaration);
+        if (name.kind !== "complete") return name;
+        const selected = { ...common, modifiers: lowerCheckedModifiers(node.modifiers), name: name.value,
+          postfixToken: node.postfixToken === null ? null : token(node.postfixToken) };
+        if (node.kind === "MethodSignature") elements.push({ ...selected, kind: node.kind });
+        else elements.push({ ...selected, kind: node.kind, body: null, asteriskToken: null });
+        break;
+      }
     }
   }
   return { kind: "complete", value: elements };
@@ -244,7 +354,9 @@ function typeElements(context: DeclarationLowering, source: readonly Hir.TypeEle
 export function lowerCheckedInterface(context: DeclarationLowering, source: Hir.InterfaceDeclaration<Syntax>, owner: DefId): ConversionResult<Hir.InterfaceDeclaration<Checked>> {
   if (source.heritageClauses !== null) return fail("interface heritage");
   const definition = definitionOf(context, source.id);
-  const typeOf: TypeReader = (node, owner) => lowerCheckedType(context, node, owner);
+  const annotations = lowerAnnotations(context, source, owner);
+  if (annotations.kind !== "complete") return annotations;
+  const typeOf = annotations.value;
   const formals = typeParameters(context, source.typeParameters, definition, typeOf);
   if (formals.kind !== "complete") return formals;
   const members = typeElements(context, source.members.nodes, definition, typeOf);

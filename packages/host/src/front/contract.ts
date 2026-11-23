@@ -1,9 +1,9 @@
 import type { Cause, Diagnostic, Result } from "../diag/contract.js";
 import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, SourceNodeRef, RawCandidateListId, RawComponentId,
   RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
-import type { IntrinsicMemberOrigin, LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationLimits } from "../ir-types/contract.js";
-import type { HirModule, HirModuleBinding, HirModuleExport, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
-import type { LibraryCatalogue, WellKnownSymbol } from "../libraries/contract.js";
+import type { IntrinsicMemberOrigin, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
+import type { HirModule, HirModuleBinding, HirModuleExport, IntrinsicValueResolution, ModuleEvaluation, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
+import type { WellKnownSymbol } from "../libraries/contract.js";
 import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
 import type { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { ProgramModuleSet } from "./program-data.js";
@@ -68,12 +68,10 @@ export interface LowerDeps {
   readonly exportsOf: (module: ModuleId) => ModuleExports | null;
   readonly definitionOf: (reference: RawNodeRef) => DefId;
   readonly sourceOccurrenceOf: (reference: RawNodeRef) => ModuleSourceOccurrence | null;
-  readonly definitionOfExport: (identity: LibraryExportIdentity) => DefId;
   readonly sourceTextOf: (module: ModuleId) => string;
-  readonly libraries: LibraryCatalogue;
   readonly types: TypeInterner;
   readonly typeExpansion: TypeExpansionLimits;
-  readonly typePublication: TypePublicationLimits;
+  readonly typeWork: TypePublicationWork;
   readonly literalCapture: LiteralCaptureLimits;
 }
 
@@ -117,13 +115,19 @@ export type RawLiteral =
   | { readonly kind: "symbol"; readonly declaration: RawNodeRef };
 
 export type RawMemberKey =
+  | RawComputedMemberKey
+  | { readonly kind: "private"; readonly owner: RawNodeRef; readonly name: string };
+
+export type RawComputedMemberKey =
   | { readonly kind: "text"; readonly value: string }
-  | { readonly kind: "numeric"; readonly value: RawNumericValue }
+  | { readonly kind: "numeric"; readonly value: number; readonly origin: Origin }
   | { readonly kind: "symbol"; readonly declaration: RawNodeRef; readonly wellKnown: WellKnownSymbol | null };
 
 export type RawComponentStep =
-  | { readonly kind: "class-value" | "element" | "optional-value" }
+  | { readonly kind: "class-value" | "element" | "optional-value" | "projection-source" | "projection-index"
+      | "projection-extends" | "projection-when-true" | "projection-when-false" }
   | { readonly kind: "member"; readonly declaration: RawNodeRef; readonly access: "read" | "write" }
+  | Extract<RawMemberOrigin, { readonly kind: "source-member" }>
   | { readonly kind: "intrinsic-member"; readonly symbol: IntrinsicMemberOrigin; readonly access: "read" | "write" }
   | { readonly kind: "class-prototype"; readonly declaration: RawNodeRef }
   | { readonly kind: "mapped-member"; readonly declaration: RawNodeRef; readonly source: RawComponentId;
@@ -131,6 +135,7 @@ export type RawComponentStep =
   | { readonly kind: "parameter"; readonly signature: RawSignatureId; readonly index: number }
   | { readonly kind: "receiver" | "result"; readonly signature: RawSignatureId }
   | { readonly kind: "type-argument"; readonly declaration: RawNodeRef; readonly index: number }
+  | { readonly kind: "projection-argument"; readonly index: number }
   | { readonly kind: "union-member" | "intersection-member" | "tuple-element" | "argument-place" | "parameter-place"; readonly index: number }
   | { readonly kind: "index-key" | "index-value"; readonly origin: RawNodeRef; readonly key: RawTypeId }
   | { readonly kind: "argument-tail" | "parameter-tail"; readonly start: number }
@@ -140,7 +145,7 @@ export type RawComponentStep =
 export interface RawComponent {
   readonly id: RawComponentId;
   readonly root: RawNodeRef;
-  readonly path: readonly RawComponentStep[];
+  readonly path: { readonly prefix: RawComponentId | null; readonly step: RawComponentStep } | null;
 }
 
 export interface RawSymbol {
@@ -181,7 +186,7 @@ export type RawMemberOrigin =
   | { readonly kind: "mapped"; readonly declaration: RawNodeRef; readonly source: RawComponentId;
       readonly key: RawMemberKey; readonly access: "read" | "write" };
 
-export interface RawMember {
+export interface RawMemberHeader {
   readonly key: RawMemberKey;
   readonly name: string;
   readonly origins: readonly RawMemberOrigin[];
@@ -190,9 +195,12 @@ export interface RawMember {
   readonly setters: readonly RawNodeRef[];
   readonly optional: boolean;
   readonly readonly: boolean;
+  readonly readKind: "property" | "accessor" | "method" | "class-prototype" | "mapped" | "unavailable";
+}
+
+export interface RawMember extends RawMemberHeader {
   readonly read: RawFact<RawTypeId | null>;
   readonly write: RawFact<RawTypeId | null>;
-  readonly readKind: "property" | "accessor" | "method" | "class-prototype" | "mapped" | "unavailable";
 }
 
 export interface RawIndexSignature {
@@ -221,6 +229,14 @@ export interface RawTypeArgument {
   readonly scope: "outer" | "local";
 }
 
+export type RawConditionalBranch =
+  | { readonly kind: "ready"; readonly type: RawTypeId }
+  | { readonly kind: "deferred"; readonly source: RawNodeRef };
+
+export type RawNumericUnionOrigin =
+  | { readonly kind: "authored"; readonly annotation: RawNodeRef }
+  | { readonly kind: "indexed-read"; readonly annotation: RawNodeRef; readonly sources: readonly RawNodeRef[] };
+
 export type RawTypeForm =
   | { readonly kind: "scalar"; readonly scalar: "number" | "bigint" | "boolean" | "string" | "symbol"
       | "null" | "undefined" | "void" | "any" | "unknown" | "object" | "never" }
@@ -231,13 +247,24 @@ export type RawTypeForm =
       readonly parameters: readonly RawNodeRef[]; readonly arguments: readonly RawTypeArgument[];
       readonly definition: RawTypeId | null;
       readonly extent: RawFact<{ readonly length: bigint; readonly runtimeBase: "number" | "bigint" } | null> }
-  | { readonly kind: "union" | "intersection"; readonly members: readonly RawTypeId[] }
+  | { readonly kind: "union"; readonly members: readonly RawTypeId[]; readonly numericOrigin?: RawNumericUnionOrigin }
+  | { readonly kind: "intersection"; readonly members: readonly RawTypeId[] }
   | { readonly kind: "array"; readonly readonly: boolean; readonly element: RawTypeId }
   | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly RawParameter[] }
   | { readonly kind: "structure"; readonly inventory: RawMemberTableId }
-  | { readonly kind: "indexed-access"; readonly object: RawTypeId; readonly index: RawTypeId;
-      readonly selection: RawFact<RawTypeId> }
-  | { readonly kind: "substitution"; readonly base: RawTypeId };
+  | { readonly kind: "source-environment"; readonly members: readonly RawMemberHeader[] }
+  | { readonly kind: "merged-interface-dependency"; readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]];
+      readonly arguments: readonly { readonly parameters: readonly [RawNodeRef, ...RawNodeRef[]];
+        readonly type: RawTypeId; readonly scope: "outer" | "local" }[] }
+  | { readonly kind: "merged-slot-parameter"; readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]] }
+  | { readonly kind: "indexed-access"; readonly operator: RawNodeRef | null; readonly object: RawTypeId; readonly index: RawTypeId }
+  | { readonly kind: "keyof"; readonly operator: RawNodeRef; readonly target: RawTypeId }
+  | { readonly kind: "indexed-alias-dependency"; readonly operator: RawNodeRef }
+  | { readonly kind: "conditional"; readonly operator: RawNodeRef; readonly check: RawTypeId; readonly extends: RawTypeId;
+      readonly whenTrue: RawConditionalBranch; readonly whenFalse: RawConditionalBranch; readonly distributive: boolean;
+      readonly inferParameters: readonly RawNodeRef[];
+      readonly application: readonly { readonly parameter: RawNodeRef; readonly type: RawTypeId }[] | null }
+  | { readonly kind: "substitution"; readonly operator: RawNodeRef; readonly base: RawTypeId; readonly constraint: RawTypeId };
 
 export interface RawCheckedType {
   readonly id: RawTypeId;
@@ -247,7 +274,8 @@ export interface RawCheckedType {
   readonly definitionOwner: RawNodeRef | null;
   readonly definitionFacet: "instance" | "value" | null;
   readonly definitionParameters: RawFact<readonly RawNodeRef[]>;
-  readonly alias: RawFact<{ readonly declaration: RawNodeRef; readonly arguments: readonly RawTypeArgument[] } | null>;
+  readonly alias: RawFact<{ readonly declaration: RawNodeRef;
+    readonly arguments: readonly { readonly parameter: RawNodeRef; readonly type: RawTypeId }[] } | null>;
   readonly instantiatedBases: RawFact<readonly RawTypeId[]>;
   readonly literal: RawFact<RawLiteral | null>;
   readonly primitive: RawFact<{ readonly primitive: NativePrimitive;
@@ -381,26 +409,26 @@ export interface RawProviderDeclaration {
   readonly wellKnownDeclaration: RawFact<RawNodeRef | null>;
 }
 
-export interface RawReference {
+export type RawReference = {
   readonly occurrence: RawNodeRef;
-  readonly meaning: "value" | "type" | "namespace";
-  readonly target: RawFact<RawBindingTarget>;
-}
+} & (
+  | { readonly meaning: "value"; readonly target: RawFact<RawBindingTarget | IntrinsicValueResolution> }
+  | { readonly meaning: "type" | "namespace"; readonly target: RawFact<RawBindingTarget> });
 
 export interface RawModuleLink {
   readonly declaration: RawNodeRef;
   readonly specifier: RawNodeRef;
   readonly kind: "import" | "export";
-  readonly resolution:
+  readonly evaluation: ModuleEvaluation;
+  readonly resolution: RawFact<
     | { readonly kind: "project"; readonly module: ModuleId }
-    | { readonly kind: "non-project"; readonly module: LibraryModuleIdentity }
-    | { readonly kind: "unresolved" };
+    | { readonly kind: "non-project"; readonly module: LibraryModuleIdentity }>;
 }
 
 export interface RawModuleExport {
   readonly name: string;
-  readonly declaration: RawNodeRef;
-  readonly module: ModuleId;
+  readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]];
+  readonly typeOnlyStar: RawNodeRef | null;
 }
 
 export type RawBindingTarget =
@@ -472,7 +500,7 @@ export interface RawEnum {
 
 export interface RawPropertyName {
   readonly node: RawNodeRef;
-  readonly selected: RawFact<RawMemberKey | null>;
+  readonly selected: RawFact<RawComputedMemberKey | null>;
   readonly numericIndex: boolean;
 }
 
@@ -593,6 +621,7 @@ export interface RawMarkers {
   readonly field: RawFieldMarker | null;
   readonly defaultValue: { readonly typeNode: RawNodeRef } | null;
   readonly jsString: boolean;
+  readonly application: RawFact<{ readonly role: "struct" | "field"; readonly declaration: RawNodeRef } | null>;
 }
 
 export type RawPointerType =
@@ -837,8 +866,14 @@ export interface ModuleDefinitionRow {
 
 export interface ModuleSourceOccurrence {
   readonly node: NodeId;
+  readonly parent: NodeId | null;
   readonly kind: SyntaxKind;
+  readonly origin: Origin;
   readonly occurrence: SourceNodeRef;
+  readonly typeSyntax?: { readonly kind: "keyof"; readonly target: NodeId }
+    | { readonly kind: "conditional"; readonly check: NodeId; readonly extends: NodeId; readonly whenTrue: NodeId }
+    | { readonly kind: "indexed"; readonly index: NodeId }
+    | { readonly kind: "union"; readonly members: readonly NodeId[] };
 }
 
 /** Every definition identity of one module, in the syntax tree's preorder; the module's own row first. */
@@ -869,9 +904,3 @@ export type ConvertCheckedType = (
   module: RawModule,
   type: RawTypeId,
 ) => Result<ConvertedCheckedType>;
-
-export type CaptureNumericLiteral = (
-  deps: LowerDeps,
-  literal: RawNumericLiteral,
-) => Result<LiteralValue>;
-

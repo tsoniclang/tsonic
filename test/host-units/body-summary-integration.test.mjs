@@ -108,3 +108,57 @@ test("the integrated convergence boundary preserves the original stop before rea
   assert.equal(result, accountFailure(account));
   assert.equal(convergeComponent({ resources: { account, conditionRefusal } }, input), result);
 });
+
+test("two real calls to the same outside execution retain and charge only one dependency key", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const { admitSummaryIdentity, summaryKey } = await import("../../packages/host/dist/ir-facts/index.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const fixture = await loadFrontFixture();
+  const source = "function pass(value: boolean): boolean { return value; } "
+    + "export function caller(value: boolean): boolean { return pass(pass(value)); }";
+  let selected;
+  const converge = pipelineWiring.summaries.convergeComponent;
+  pipelineWiring.summaries.convergeComponent = (deps, input) => {
+    const body = fixture.ids.decodeBodyId(input.members[0].execution.instance.body).value;
+    const definition = fixture.ids.decodeDefId(body.owner).value;
+    if (definition.segments.at(-1)?.name === "caller") selected = { deps, input };
+    return converge(deps, input);
+  };
+  try {
+    const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source));
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  } finally {
+    pipelineWiring.summaries.convergeComponent = converge;
+  }
+  assert.ok(selected);
+  const { deps, input } = selected;
+  const member = { kind: "body", execution: input.members[0].execution };
+  const rows = input.inventory.components[input.component].rows.map(index => input.inventory.dependencies[index]);
+  assert.equal(input.members.length, 1);
+  assert.equal(input.outside.length, 1);
+  assert.equal(rows.filter(row => row.reason === "call").length, 2);
+  const outside = input.outside[0];
+  assert.equal(rows.every(row => summaryKey(row.target) === summaryKey(outside.key)), true);
+  const identities = createAccount(flowLimits);
+  for (const key of [member, member, ...rows.flatMap(row => [{ kind: "body", execution: row.dependent }, row.target]),
+    outside.key, outside.answer.value.key]) assert.equal(admitSummaryIdentity(key, identities), null);
+  const exact = 5 + 1 + 1 + 1 + InvocationAccount.stateOf(identities).entries;
+  const run = account => convergeComponent({ ...deps, resources: { ...deps.resources, account } }, { ...input, maximumIterations: 0 });
+  const enough = createAccount({ ...flowLimits, maximumResultEntries: exact });
+  assert.equal(run(enough) === input.iterationRefusal, true, "only one retained entry for the repeated outside key");
+  assert.equal(accountFailure(enough) === input.iterationRefusal, true);
+  const { work } = InvocationAccount.stateOf(enough);
+  for (const [field, dimension, limit] of [["maximumWork", "work", work], ["maximumResultEntries", "result-entries", exact]]) {
+    for (let maximum = 0; maximum < limit; maximum += 1) {
+      const limited = createAccount({ ...flowLimits, [field]: maximum });
+      const stopped = run(limited);
+      assert.deepEqual(stopped, { kind: "resource-limit", dimension, maximum });
+      assert.equal(stopped === accountFailure(limited), true);
+      assert.equal(run(limited) === stopped, true);
+    }
+    assert.equal(run(createAccount({ ...flowLimits, [field]: limit })) === input.iterationRefusal, true);
+  }
+});

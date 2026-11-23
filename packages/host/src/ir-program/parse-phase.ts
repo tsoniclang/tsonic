@@ -1,10 +1,11 @@
 import type { DefId, TyId, NodeRef, SourceNodeRef } from "../ids/contract.js";
 import type { BindingVector, ExactRational, MemberKey } from "../ir-types/contract.js";
 import type { CapturedFact, ImportTarget, DeclarationTarget } from "../ir-hir/contract.js";
-import type { DeclarationNameExpression } from "../ir-tir/contract.js";
+import type { DeclarationNameExpression, TypedCall, TypedValueOccurrence, TypedValue } from "../ir-tir/contract.js";
 import type { ApplicationDecision, ClosureDecision, ConstructionPartDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
 import type { TypedOperation, TirResolution, MemberSelection, TirApplication, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedName, TypedPropertyKey, TypedString, TypedNumber, TypedBigInt, TypedKeyword, TypedBinary, TypedUnary, TypedPrefix, TypedUpdate, TypedConditional, TargetAccess, TypedMember, TypedApplication, TypedProtocolValue, TypedSpread, TypedObjectSpread, TypedConstruction, TypedTemplate, TypedInstantiation, TypedProperty, TypedShorthand, TypedOmission, TypedIteration, TypedControlTransfer, TypedDecorator, TypedVariableList, TypedCallable, TypedClosure, TypedClass, TypedClassValue } from "../ir-tir/contract.js";
 import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
+import type { TypedCase } from "../ir-tir/contract.js";
 import { delimiter, readString, readNumber, readBigInt, choice, readBoolean, readStringChoice, openRecord, startFieldChoice, closeRecord, readDefinitionId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readMemberKeyText, readExactRational, readBindings } from "./parse-types.js";
 import { readNodeRef, readSourceNodeRef } from "./parse-diagnostics.js";
@@ -12,6 +13,7 @@ import { readCapturedFactText, readDeclarationTargetText, readImportTargetText }
 import { readApplicationDecisionText, readClosureDecisionText, readConstructionPartDecisionText, readRefinementDecisionText, readRuleOutcomeText } from "./parse-inference.js";
 import { readConversionDecisionText, readTirDemandText, readTirResolutionText, readTargetAccessText, readTirApplicationText, readTirProtocolText, readTypedOperationText, readTirSelectionText, readMemberSelectionText } from "./parse-tir.js";
 import { readTypedCallableText, readTypedClassText } from "./parse-phase-declarations.js";
+import { readTypedValueFields } from "./parse-tir.js";
 
 function readNameableText<Value, Root>(cursor: Cursor, label: string, read: (fields: RecordFields) => TextStep<Root>,
   finish: (value: Value | DeclarationNameExpression) => TextStep<Root>): TextStep<Root> {
@@ -23,6 +25,10 @@ function readNameableText<Value, Root>(cursor: Cursor, label: string, read: (fie
         (next, done) => atomicText(next, value => readStringChoice(value, ["declaration-name-expression"]), done), role =>
           atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role }, finish)));
     }));
+}
+
+export function readTypedValueOccurrenceText<Root>(cursor: Cursor, finish: (value: TypedValueOccurrence) => TextStep<Root>): TextStep<Root> {
+  return readNameableText<TypedValue, Root>(cursor, "TypedValue", fields => readTypedValueFields(cursor, fields, finish), finish);
 }
 
 export function readTypedNameText<Root>(cursor: Cursor, finish: (value: TypedName) => TextStep<Root>): TextStep<Root> {
@@ -112,6 +118,12 @@ export function readTypedIterationText<Root>(cursor: Cursor, finish: (value: Typ
     fieldText<RuleOutcome<TirProtocol>, Root>(cursor, fields, "protocol", (next, done) => readRuleOutcomeText(next, readTirProtocolText, done), protocolValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
         acceptText({ protocol: protocolValue }, finish))));
+}
+
+export function readTypedCaseText<Root>(cursor: Cursor, finish: (value: TypedCase) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "TypedCase"), fields =>
+    fieldText<RuleOutcome<TypedOperation>, Root>(cursor, fields, "operation", (next, done) => readRuleOutcomeText(next, readTypedOperationText, done), operation =>
+    atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ operation }, finish))));
 }
 
 export function readTypedControlTransferText<Root>(cursor: Cursor, finish: (value: TypedControlTransfer) => TextStep<Root>): TextStep<Root> {
@@ -437,8 +449,15 @@ export function readTypedMemberText<Root>(cursor: Cursor, finish: (value: TypedM
 }
 
 export function readTypedApplicationText<Root>(cursor: Cursor, finish: (value: TypedApplication) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => openRecord(next, "TypedApplication"), fields =>
-    fieldText<TyId, Root>(cursor, fields, "type", (next, done) => atomicText(next, readTypeId, done), typeValue =>
+  return atomicText(cursor, next => openRecord(next, "TypedApplication"), fields => readTypedApplicationFields(cursor, fields, finish));
+}
+
+export function readTypedCallText<Root>(cursor: Cursor, finish: (value: TypedCall) => TextStep<Root>): TextStep<Root> {
+  return readNameableText<TypedApplication, Root>(cursor, "TypedApplication", fields => readTypedApplicationFields(cursor, fields, finish), finish);
+}
+
+function readTypedApplicationFields<Root>(cursor: Cursor, fields: RecordFields, finish: (value: TypedApplication) => TextStep<Root>): TextStep<Root> {
+  return fieldText<TyId, Root>(cursor, fields, "type", (next, done) => atomicText(next, readTypeId, done), typeValue =>
     fieldText<TyId, Root>(cursor, fields, "convertedType", (next, done) => atomicText(next, readTypeId, done), convertedTypeValue =>
       fieldText<ConversionDecision, Root>(cursor, fields, "conversion", readConversionDecisionText, conversionValue =>
         fieldText<RefinementDecision | null, Root>(cursor, fields, "narrowing", (next, done) => nullableText(next, readRefinementDecisionText, done), narrowingValue =>
@@ -447,7 +466,7 @@ export function readTypedApplicationText<Root>(cursor: Cursor, finish: (value: T
               fieldText<RuleOutcome<TirApplication>, Root>(cursor, fields, "application", (next, done) => readRuleOutcomeText(next, readTirApplicationText, done), applicationValue =>
                 fieldText<RuleOutcome<TypedOperation> | null, Root>(cursor, fields, "operation", (next, done) => nullableText(next, (next, done) => readRuleOutcomeText(next, readTypedOperationText, done), done), operationValue =>
                   atomicText(cursor, next => closeRecord(next, fields), () =>
-                      acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue, application: applicationValue, operation: operationValue }, finish)))))))))));
+                      acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue, application: applicationValue, operation: operationValue }, finish))))))))));
 }
 
 export function readTypedSpreadText<Root>(cursor: Cursor, finish: (value: TypedSpread) => TextStep<Root>): TextStep<Root> {

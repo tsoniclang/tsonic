@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { pairedModuleFixture } from "./ir-program-fixtures.mjs";
 import { publicationFixture } from "./fixtures/program-publication.mjs";
 import { accountFailure, createAccount, refuseAccount } from "../../packages/host/dist/dataflow/index.js";
-import { canonicalizeProgram, createProgramVerificationWork, parseProgramIndex, printProgramIndex, verifyModuleBodies, verifyProgramIndex } from "../../packages/host/dist/ir-program/index.js";
+import { createProgramVerificationWork, parseProgramIndex, printProgramIndex, verifyModuleBodies, verifyProgramIndex } from "../../packages/host/dist/ir-program/index.js";
 import { ProgramWork } from "../../packages/host/dist/ir-program/work.js";
 
 test("constructed Program publication has one required operation inventory and rejects the retired execution vector", () => {
@@ -50,12 +50,13 @@ test("canonical Program rewriting preserves dependency positions and rewrites th
     at: { body: fixture.bodyId, node: 0 }, reason: "call", target: operation }], components };
   const publication = { table: { terms: [fixture.index.types.terms[1], fixture.index.types.terms[0]],
     signatures: fixture.index.types.signatures.map(row => ({ ...row, result: 1 })) }, types: [1, 0], signatures: [0] };
-  const result = canonicalizeProgram({ index: fixture.index, modules: [fixture.module] }, publication);
+  const result = projectFixtureProgram({ index: fixture.index, modules: [fixture.module] }, publication);
   const inventory = result.index.dependencyInventory;
   assert.equal(inventory.components, components);
   assert.equal(inventory.operations[0].execution.instance.bindings.bindings.methodBindings[0].type, 0);
-  assert.deepEqual(inventory.dependencies[0].dependent, inventory.operations[0].execution);
-  assert.deepEqual(inventory.dependencies[0].target, inventory.operations[0]);
+  assert.equal(inventory.dependencies[0].dependent, inventory.operations[0].execution);
+  assert.equal(inventory.dependencies[0].target.execution, inventory.operations[0].execution);
+  assert.equal(execution.instance.bindings.bindings.methodBindings[0].type, 1);
   assert.equal("executions" in result.index, false);
 });
 
@@ -88,3 +89,4 @@ test("Program inventory validation returns its same original first stop before l
   refuseAccount(enclosing, refusal);
   assert.equal(verifyProgramIndex(next.index, next.context), refusal);
 });
+import { projectFixtureProgram } from "./fixtures/program-executions.mjs";

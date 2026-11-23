@@ -1,5 +1,5 @@
 import type { DataflowResult, DataflowStop } from "../dataflow/contract.js";
-import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { ParameterMapping } from "../ir-infer/contract.js";
 import type { TirArgument } from "../ir-tir/contract.js";
 import { admitArtifactIdentity, admitOwnerIdentity, recordFinding } from "./verification.js";
@@ -14,7 +14,7 @@ import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
 import { instanceKey } from "../ir-types/index.js";
 import { verifyCells } from "./verify-cells.js";
 import type {
-  ArgumentTransport, BoundActivation, ConstructionAlternative, EscapeFact, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
+  ArgumentTransport, ArgumentTransportKey, BoundActivation, CompareBoundActivations, CompareConstructionAlternatives, ConstructionAlternative, EscapeFact, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
   RetentionFact, VerifyFacts,
 } from "./contract.js";
 import { collectSelectionChecks, compareNumbers, ownerKey, relationalUsage, sameBindings, validIndex, verifyRelationalArena } from "./verify-relations.js";
@@ -33,9 +33,19 @@ const compareNullableNumber = (left: number | null, right: number | null, nullOr
 const compareDeclarations = (left: DeclarationTarget, right: DeclarationTarget): number => left.kind === "local"
   ? right.kind === "local" ? compareText(left.local.body, right.local.body) || compareNumbers(left.local.local, right.local.local) : -1
   : right.kind === "local" ? 1 : compareText(left.definition, right.definition);
-const transportKey = (transport: ArgumentTransport | null): string => transport === null ? "" : encodeKey([
-  transport.authoredIndex, transport.parameter, transport.parameterIndex, transport.repeated, transport.passing, transport.actual,
-  ownerKey(transport.formal.owner), transport.formal.producer, transport.projection]);
+export const argumentTransportKey: ArgumentTransportKey = (transport, account) => {
+  const previous = accountFailure(account);
+  if (previous !== null) return previous;
+  if (transport === null) return { kind: "complete", value: "" };
+  const stop = admitOwnerIdentity(transport.formal.owner, account);
+  if (stop !== null) return stop;
+  const value = encodeKey(transport.kind === "provided"
+    ? [transport.authoredIndex, transport.parameter, transport.parameterIndex, transport.repeated, transport.passing, transport.actual,
+      ownerKey(transport.formal.owner), transport.formal.producer, transport.projection]
+    : [transport.kind, transport.parameter, transport.parameterIndex, ownerKey(transport.formal.owner), transport.formal.producer]);
+  return { kind: "complete", value };
+};
+type ProvidedTransport = Extract<ArgumentTransport, { readonly kind: "provided" }>;
 
 interface TransportShape {
   readonly authoredIndex: number | null;
@@ -46,18 +56,29 @@ interface TransportShape {
 const comparePoints = (left: MirPoint, right: MirPoint): number =>
   compareNumbers(left.block, right.block) || compareNullableNumber(left.statement, right.statement, 1);
 
+export const compareBoundActivations: CompareBoundActivations = (left, leftInstance, leftTransport, right, rightInstance, rightTransport) =>
+  comparePoints(left.point, right.point) || compareNumbers(left.node, right.node) || compareText(leftInstance, rightInstance)
+  || compareNumbers(left.context, right.context) || compareNullableNumber(left.caller, right.caller, -1) || compareText(leftTransport, rightTransport);
+
+export const compareConstructionAlternatives: CompareConstructionAlternatives = (left, leftBody, right, rightBody) =>
+  compareNumbers(left.node, right.node)
+  || compareText(left.root.body, right.root.body) || compareNumbers(left.root.node, right.root.node)
+  || compareText(left.allocation.body, right.allocation.body) || compareNumbers(left.allocation.node, right.allocation.node)
+  || compareText(left.implementation ?? "", right.implementation ?? "") || compareText(leftBody, rightBody);
+
 export const verifyFacts: VerifyFacts = (facts, mir, context, account) => {
   const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 6);
   if (initial !== null) return initial;
   const violations: Violation<FactsRule, FactsSite>[] = [];
   const bodySite: FactsSite = { kind: "execution", execution: facts.execution };
   const owner: RelationalOwner = { kind: "body", execution: facts.execution };
+  const inputIdentity = admitArtifactIdentity(facts.execution.instance.bindings, account);
+  if (inputIdentity !== null) return inputIdentity;
   const tir = context.tirBody(facts.execution.instance);
   const at = (node: NodeId): FactsSite => ({ kind: "node", at: { kind: "body", value: { body: facts.execution.instance.body, node } } });
   const report = (rule: FactsRule, site: FactsSite, text: string): DataflowStop | null =>
     recordFinding(account, violations, "last", rule, site, text);
-  const identity = admitArtifactIdentity(facts.execution.instance.bindings, account)
-    ?? admitArtifactIdentity(mir.bindings, account) ?? admitArtifactIdentity(tir.bindings, account);
+  const identity = admitArtifactIdentity(mir.bindings, account) ?? admitArtifactIdentity(tir.bindings, account);
   if (identity !== null) return identity;
   if (facts.execution.instance.body !== mir.body || facts.execution.instance.body !== tir.body ||
     !sameBindings(facts.execution.instance.bindings, mir.bindings) || !sameBindings(facts.execution.instance.bindings, tir.bindings)) {
@@ -419,9 +440,16 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
   const checkArgument = (argument: ArgumentTransport, site: FactsSite): DataflowStop | null => {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
-    { const stop = origins(argument.actual, site); if (stop !== null) return stop; } { const stop = path(argument.projection, site); if (stop !== null) return stop; }
+    if (argument.kind === "provided") {
+      const stop = origins(argument.actual, site) ?? path(argument.projection, site);
+      if (stop !== null) return stop;
+    } else if (argument.kind !== "omitted" || "authoredIndex" in argument || "repeated" in argument
+      || "passing" in argument || "actual" in argument || "projection" in argument) {
+      const stop = report("argument-transports-total", site, "An omitted formal carries no authored operand, passing mode, origins or projection.");
+      if (stop !== null) return stop;
+    }
     if (!Number.isSafeInteger(argument.parameterIndex) || argument.parameterIndex < 0 || Object.is(argument.parameterIndex, -0) ||
-      argument.authoredIndex !== null && (!Number.isSafeInteger(argument.authoredIndex) || argument.authoredIndex < 0 || Object.is(argument.authoredIndex, -0))) {
+      argument.kind === "provided" && (!Number.isSafeInteger(argument.authoredIndex) || argument.authoredIndex < 0 || Object.is(argument.authoredIndex, -0))) {
       { const stop = report("argument-transports-total", site, "A transport retains actual nonnegative authored and formal indices."); if (stop !== null) return stop; }
     }
     const identity = admitOwnerIdentity(argument.formal.owner, account);
@@ -452,8 +480,9 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
       if (stop !== null) return stop;
     }
     const syntax = nodes.get(invocation.node);
-    const application = (syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression" || syntax?.kind === "TaggedTemplateExpression") && syntax.tsonic.application.kind === "decided"
-      ? syntax.tsonic.application.decision : null;
+    const phase = syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression" || syntax?.kind === "TaggedTemplateExpression"
+      ? syntax.tsonic : null;
+    const application = phase !== null && "application" in phase && phase.application.kind === "decided" ? phase.application.decision : null;
     const authored = new Map<NodeId, number>();
     if (syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression") {
       for (const [index, argument] of (syntax.arguments?.nodes ?? []).entries()) {
@@ -481,7 +510,8 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
       { const stop = type(decision.result, site); if (stop !== null) return stop; } { const stop = type(decision.completion.completion, site); if (stop !== null) return stop; }
       if (decision.completion.yielded !== null) { const stop = type(decision.completion.yielded, site); if (stop !== null) return stop; }
       if (decision.completion.sent !== null) { const stop = type(decision.completion.sent, site); if (stop !== null) return stop; }
-      const selected = context.types.signatures[decision.api.signature];
+      const completion = context.types.signatures[decision.completion.signature];
+      const selected = Object.is(completion?.id, decision.completion.signature) ? completion : undefined;
       const receiver = facts.arena.contexts[alternative.context];
       const mappings = new Map<number, ParameterMapping>();
       const restAuthored = new Map<number, Set<number>>();
@@ -568,35 +598,48 @@ if (!consumed.get(index)?.has(component)) {
         "Each invocation context retains every actual selected parameter and receiver slot."); if (stop !== null) return stop; }
       let previousAuthored: number | null = null;
       const supplied = new Map<number, number>();
-      const rests = new Map<number, ArgumentTransport[]>();
+      const rests = new Map<number, ProvidedTransport[]>();
       for (const argument of alternative.arguments) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
 
         { const stop = checkArgument(argument, site); if (stop !== null) return stop; }
-        if (argument.authoredIndex !== null) {
+        if (argument.kind === "provided") {
           if (previousAuthored !== null && compareNumbers(previousAuthored, argument.authoredIndex) > 0) { const stop = report("argument-transports-authored-order", site,
             "Transports retain authored actual evaluation order without inventing a flattened runtime slot."); if (stop !== null) return stop; }
           previousAuthored = argument.authoredIndex;
         }
         const parameter = selected?.parameters[argument.parameterIndex];
         const mapping = mappings.get(argument.parameterIndex);
-        if (parameter === undefined || parameter.declaration !== argument.parameter || parameter.passing !== argument.passing ||
-          mapping === undefined || mapping.kind !== "rest" && argument.repeated) { const stop = report("argument-transports-total", site,
+        if ((selected !== undefined && (parameter === undefined || parameter.declaration !== argument.parameter
+          || (argument.kind === "provided" ? parameter.passing !== argument.passing : !parameter.acceptsOmission))) ||
+          mapping === undefined || argument.kind === "provided" && mapping.kind !== "rest" && argument.repeated) { const stop = report("argument-transports-total", site,
           "Transports retain complete selected formals, passing modes and effective actual components exactly once."); if (stop !== null) return stop; }
-        if (mapping !== undefined && (argument.authoredIndex === null || Number.isSafeInteger(argument.authoredIndex) && argument.authoredIndex >= 0 && !Object.is(argument.authoredIndex, -0))) {
+        const slot = receiver?.arguments[argument.parameterIndex];
+        const actualSlot = operation?.kind === "call" && operation.callee.kind === "direct" && application !== null
+          && mapping !== undefined && mapping.kind !== "rest" ? operation.arguments[argument.parameterIndex] : undefined;
+        if (actualSlot !== undefined && (actualSlot.kind === "omitted") !== (argument.kind === "omitted")) {
+          const stop = report("argument-transports-total", site, "A transport retains its actual MIR provided or omitted disposition.");
+          if (stop !== null) return stop;
+        }
+        if (argument.kind === "omitted") {
+          if ((mapping?.kind !== "default" && mapping?.kind !== "omitted") || receiver !== undefined && slot?.kind !== "omitted") {
+            const stop = report("argument-transports-total", site, "An omitted transport must match its selected omission and omitted context slot.");
+            if (stop !== null) return stop;
+          }
+        } else if (argument.kind === "provided" && mapping !== undefined &&
+          Number.isSafeInteger(argument.authoredIndex) && argument.authoredIndex >= 0 && !Object.is(argument.authoredIndex, -0)) {
           const valid = mapping.kind === "argument" ? argument.authoredIndex === mapping.argument
-            : mapping.kind === "rest" ? argument.authoredIndex !== null && restAuthored.get(mapping.parameter)?.has(argument.authoredIndex) === true
-              : argument.authoredIndex === null;
+            : mapping.kind === "rest" && restAuthored.get(mapping.parameter)?.has(argument.authoredIndex) === true;
           const projection = argument.projection === null ? null : facts.arena.projections[argument.projection]?.projection;
-          if (!valid || mapping.kind !== "rest" && receiver !== undefined && receiver.arguments[argument.parameterIndex] !== argument.actual ||
+          if (!valid || receiver !== undefined && (slot?.kind !== "provided" || mapping.kind !== "rest" && slot.origins !== argument.actual) ||
             mapping.kind === "argument" && (mapping.component === null ? argument.projection !== null
               : !Number.isSafeInteger(mapping.component) || mapping.component < 0 || Object.is(mapping.component, -0) ||
                 projection?.kind !== "index" || projection.constant !== BigInt(mapping.component))) {
             { const stop = report("argument-transports-total", site, "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins."); if (stop !== null) return stop; }
           }
         }
-        if (mapping?.kind === "rest") {
+        if (mapping?.kind === "rest" && argument.kind === "provided") {
           const rows = rests.get(argument.parameterIndex);
           const output = chargeResultEntries(account, rows === undefined ? 2 : 1);
           if (output !== null) return output;
@@ -682,7 +725,12 @@ if (parameter.kind === "argument") provided += 1;
     const step = chargeWork(account, 1);
     if (step !== null) return step;
 
-    { const stop = node(callback.node); if (stop !== null) return stop; } { const stop = checkArgument(callback.argument, at(callback.node)); if (stop !== null) return stop; }
+    { const stop = node(callback.node); if (stop !== null) return stop; }
+    if (callback.argument.kind !== "provided") {
+      const stop = report("argument-transports-total", at(callback.node), "A callback argument requires an actual provided transport.");
+      if (stop !== null) return stop;
+    }
+    { const stop = checkArgument(callback.argument, at(callback.node)); if (stop !== null) return stop; }
     for (const input of callback.inputs) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
@@ -720,17 +768,16 @@ if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 || O
   let previousTransport = "";
   for (const activation of facts.origins.activations) {
     const work = chargeWork(account, 1 + activation.activation.body.length)
-      ?? admitArtifactIdentity(activation.activation.bindings, account)
-      ?? (activation.entry === null ? null : admitOwnerIdentity(activation.entry.formal.owner, account));
+      ?? admitArtifactIdentity(activation.activation.bindings, account);
     if (work !== null) return work;
+    const identity = argumentTransportKey(activation.entry, account);
+    if (identity.kind !== "complete") return identity;
     const instance = instanceKey(activation.activation);
-    const transport = transportKey(activation.entry);
+    const transport = identity.value;
     const comparison = chargeWork(account, instance.length + transport.length + previousInstance.length + previousTransport.length);
     if (comparison !== null) return comparison;
-    if (previousActivation !== null && (comparePoints(previousActivation.point, activation.point)
-      || compareNumbers(previousActivation.node, activation.node)
-      || compareText(previousInstance, instance) || compareNumbers(previousActivation.context, activation.context)
-      || compareNullableNumber(previousActivation.caller, activation.caller, -1) || compareText(previousTransport, transport)) >= 0) {
+    if (previousActivation !== null && compareBoundActivations(previousActivation, previousInstance, previousTransport,
+      activation, instance, transport) >= 0) {
       const stop = report("activations-order", at(activation.node), "Fact rows retain distinct canonical endpoint order.");
       if (stop !== null) return stop;
     }
@@ -750,6 +797,10 @@ if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 || O
     if (activatedOwner === null || !context.definitionExists(activatedOwner)) { const stop = report("producer-resolves", site,
       "An activation retains its actual executed body and its existing owner declaration."); if (stop !== null) return stop; }
     if (activation.entry !== null) {
+      if (activation.entry.kind !== "provided") {
+        const stop = report("argument-transports-total", site, "An argument-sourced activation retains an actual provided transport.");
+        if (stop !== null) return stop;
+      }
       const stop = checkArgument(activation.entry, site);
       if (stop !== null) return stop;
       continue;
@@ -795,10 +846,7 @@ if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 || O
     const body = construction.body === null ? "" : instanceKey(construction.body);
     const comparison = chargeWork(account, body.length + previousConstructionBody.length);
     if (comparison !== null) return comparison;
-    if (previousConstruction !== null && (compareNumbers(previousConstruction.node, construction.node)
-      || compareText(previousConstruction.root.body, construction.root.body) || compareNumbers(previousConstruction.root.node, construction.root.node)
-      || compareText(previousConstruction.allocation.body, construction.allocation.body) || compareNumbers(previousConstruction.allocation.node, construction.allocation.node)
-      || compareText(previousConstruction.implementation ?? "", construction.implementation ?? "") || compareText(previousConstructionBody, body)) >= 0) {
+    if (previousConstruction !== null && compareConstructionAlternatives(previousConstruction, previousConstructionBody, construction, body) >= 0) {
       const stop = report("constructions-order", at(construction.node), "Fact rows retain distinct canonical endpoint order.");
       if (stop !== null) return stop;
     }

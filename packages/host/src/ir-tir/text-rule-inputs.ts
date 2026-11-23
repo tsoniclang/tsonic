@@ -95,13 +95,13 @@ export interface RuleInputsTextModel {
 }
 
 export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsTextReads): RuleInputsTextModel => {
-  const { defineRecord, booleanReader, definitionReader, numberReader, typeReader } = kernel;
+  const { defineRecord, booleanReader, definitionReader, numberReader, signatureReader, typeReader } = kernel;
   const work_OperationIdentity_native_operator: TirRecordCodec<OperationIdentity & { readonly kind: "native-operator" }> = defineRecord<OperationIdentity & { readonly kind: "native-operator" }>("OperationIdentity#native-operator", "OperationIdentity", { field: "kind", value: "native-operator" }, "native-operator", null, null, fields => fields
-    .field("operator", "Operator", value => scalarWork("Operator", value.operator), literalReader<(OperationIdentity & { readonly kind: "native-operator" })["operator"]>("Operator", ["+","-","!","~","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]))
+    .field("operator", "Operator", value => scalarWork("Operator", value.operator), literalReader<(OperationIdentity & { readonly kind: "native-operator" })["operator"]>("Operator", ["+","-","!","~","++","--","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]))
     .field("carrier", "NativePrimitive", value => scalarWork("NativePrimitive", value.carrier), literalReader<(OperationIdentity & { readonly kind: "native-operator" })["carrier"]>("NativePrimitive", ["bool","char","int8","uint8","int16","uint16","int32","uint32","int64","uint64","int128","uint128","native-int","native-uint","float16","float32","float64","decimal"]))
     .finish((field_operator, field_carrier) => ({ kind: "native-operator", operator: field_operator, carrier: field_carrier })));
   const work_OperationIdentity_bigint_operator: TirRecordCodec<OperationIdentity & { readonly kind: "bigint-operator" }> = defineRecord<OperationIdentity & { readonly kind: "bigint-operator" }>("OperationIdentity#bigint-operator", "OperationIdentity", { field: "kind", value: "bigint-operator" }, "bigint-operator", null, null, fields => fields
-    .field("operator", "Operator", value => scalarWork("Operator", value.operator), literalReader<(OperationIdentity & { readonly kind: "bigint-operator" })["operator"]>("Operator", ["+","-","!","~","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]))
+    .field("operator", "Operator", value => scalarWork("Operator", value.operator), literalReader<(OperationIdentity & { readonly kind: "bigint-operator" })["operator"]>("Operator", ["+","-","!","~","++","--","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]))
     .finish((field_operator) => ({ kind: "bigint-operator", operator: field_operator })));
   const work_OperationIdentity_string_operator: TirRecordCodec<OperationIdentity & { readonly kind: "string-operator" }> = defineRecord<OperationIdentity & { readonly kind: "string-operator" }>("OperationIdentity#string-operator", "OperationIdentity", { field: "kind", value: "string-operator" }, "string-operator", null, null, fields => fields
     .field("operator", "StringOperator", value => scalarWork("StringOperator", value.operator), literalReader<(OperationIdentity & { readonly kind: "string-operator" })["operator"]>("StringOperator", ["+","==","!=","===","!==","<","<=",">",">="]))
@@ -257,7 +257,8 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
     .field("construction", "ConstructionKind", value => scalarWork("ConstructionKind", value.construction), literalReader<(LiteralConstructionInput)["construction"]>("ConstructionKind", ["object","array"]))
     .field("parts", "[LiteralConstructionPart]", value => sequenceWork("[LiteralConstructionPart]", value.parts, actual => read.work_LiteralConstructionPart.write(actual)), sequenceReader("[LiteralConstructionPart]", lazyReader(() => read.work_LiteralConstructionPart.reader)))
     .field("destination", "?TypeEvidence", value => nullableWork(value.destination, actual => read.work_TypeEvidence.write(actual)), nullableReader(lazyReader(() => read.work_TypeEvidence.reader)))
-    .finish((field_context, field_construction, field_parts, field_destination) => ({ context: field_context, construction: field_construction, parts: field_parts, destination: field_destination })));
+    .field("result", "TypeEvidence", value => read.work_TypeEvidence.write(value.result), lazyReader(() => read.work_TypeEvidence.reader))
+    .finish((field_context, field_construction, field_parts, field_destination, field_result) => ({ context: field_context, construction: field_construction, parts: field_parts, destination: field_destination, result: field_result })));
   const work_CandidateInput: TirRecordCodec<CandidateInput> = defineRecord<CandidateInput>("CandidateInput", "CandidateInput", null, "CandidateInput", null, null, fields => fields
     .field("context", "RuleContext", value => work_RuleContext.write(value.context), lazyReader(() => work_RuleContext.reader))
     .field("kind", "ApplicationKind", value => scalarWork("ApplicationKind", value.kind), literalReader<(CandidateInput)["kind"]>("ApplicationKind", ["call","construct","accessor-get","accessor-set"]))
@@ -280,16 +281,19 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
     .field("ordinal", "number", value => scalarWork("number", value.ordinal), numberReader)
     .field("declaration", "def", value => referenceWork("def", value.declaration), definitionReader)
     .field("advertised", "HirCallableEndpoint", value => read.work_HirCallableEndpoint.write(value.advertised), lazyReader(() => read.work_HirCallableEndpoint.reader))
+    .field("advertisedSignature", "sig", value => referenceWork("sig", value.advertisedSignature), signatureReader)
     .field("api", "HirCallableEndpoint", value => read.work_HirCallableEndpoint.write(value.api), lazyReader(() => read.work_HirCallableEndpoint.reader))
+    .field("apiSignature", "sig", value => referenceWork("sig", value.apiSignature), signatureReader)
     .field("bindings", "BindingVector", value => withBindingOwner(read.work_BindingVector.write(value.bindings), value.advertised.declaration), lazyReader(() => read.work_BindingVector.reader))
     .field("conditionalFailure", "?Diagnostic", value => nullableWork(value.conditionalFailure, actual => read.work_Diagnostic.write(actual)), nullableReader(lazyReader(() => read.work_Diagnostic.reader)))
-    .finish((field_ordinal, field_declaration, field_advertised, field_api, field_bindings, field_conditionalFailure) => ({
-      ordinal: field_ordinal, declaration: field_declaration, advertised: field_advertised, api: field_api, bindings: field_bindings,
+    .finish((field_ordinal, field_declaration, field_advertised, field_advertisedSignature, field_api, field_apiSignature, field_bindings, field_conditionalFailure) => ({
+      ordinal: field_ordinal, declaration: field_declaration, advertised: field_advertised, advertisedSignature: field_advertisedSignature,
+      api: field_api, apiSignature: field_apiSignature, bindings: field_bindings,
       conditionalFailure: field_conditionalFailure,
     })));
   const work_OperatorInput: TirRecordCodec<OperatorInput> = defineRecord<OperatorInput>("OperatorInput", "OperatorInput", null, "OperatorInput", null, null, fields => fields
     .field("context", "RuleContext", value => work_RuleContext.write(value.context), lazyReader(() => work_RuleContext.reader))
-    .field("operator", "Operator", value => scalarWork("Operator", value.operator), literalReader<(OperatorInput)["operator"]>("Operator", ["+","-","!","~","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]))
+    .field("operator", "Operator", value => scalarWork("Operator", value.operator), literalReader<(OperatorInput)["operator"]>("Operator", ["+","-","!","~","++","--","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]))
     .field("operands", "[TypeEvidence]", value => sequenceWork("[TypeEvidence]", value.operands, actual => read.work_TypeEvidence.write(actual)), sequenceReader("[TypeEvidence]", lazyReader(() => read.work_TypeEvidence.reader)))
     .field("permissionScope", "?NodeRef", value => nullableWork(value.permissionScope, actual => read.work_NodeRef.write(actual)), nullableReader(lazyReader(() => read.work_NodeRef.reader)))
     .finish((field_context, field_operator, field_operands, field_permissionScope) => ({ context: field_context, operator: field_operator, operands: field_operands, permissionScope: field_permissionScope })));

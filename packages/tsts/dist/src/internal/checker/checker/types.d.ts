@@ -2766,6 +2766,7 @@ export declare function Checker_getBindingElementTypeFromParentType(receiver: Go
 export declare function Checker_getTypeFromBindingPattern(receiver: GoPtr<Checker>, pattern: GoPtr<Node>, includePatternInType: bool, reportErrors: bool): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeFromObjectBindingPattern","kind":"method","status":"implemented","sigHash":"65d50e43e8789b02c71fe04b3d2f247329d171d38300c8a63e187953e69c12e1","bodyHash":"ddf110f859754a750d7cc60954bdf88ef735156ca55becc00d799dbf290345e7"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"R5-29 retains the actual binding element and native key in the completed synthetic member links, without modifying type selection, cache lifetime or declarations."}
  *
  * Go source:
  * func (c *Checker) getTypeFromObjectBindingPattern(pattern *ast.Node, includePatternInType bool, reportErrors bool) *Type {

@@ -2,11 +2,9 @@ import assert from "node:assert/strict";
 import { publicationFixture } from "./program-publication.mjs";
 import { verifyRelationalArena } from "../../../packages/host/dist/ir-facts/verify-relations.js";
 import { verifyFacts, printFacts, parseFacts } from "../../../packages/host/dist/ir-facts/index.js";
-import { canonicalizeProgram, instantiate } from "../../../packages/host/dist/ir-program/index.js";
-import { inventoryBodyFacts } from "../../../packages/host/dist/ir-program/instantiate-facts.js";
-import { createProjectionInventory, drainProjectionInventory } from "../../../packages/host/dist/ir-program/program-values.js";
-import { createInstantiationMeter, ProgramWork } from "../../../packages/host/dist/ir-program/work.js";
-import { accountFailure, refuseAccount, remainingWork } from "../../../packages/host/dist/dataflow/index.js";
+import { instantiate } from "../../../packages/host/dist/ir-program/index.js";
+import { ProgramWork } from "../../../packages/host/dist/ir-program/work.js";
+import { accountFailure, refuseAccount } from "../../../packages/host/dist/dataflow/index.js";
 import { verificationAccount, verificationStops } from "./facts-verification.mjs";
 
 function fixture(role = "binding") {
@@ -102,49 +100,34 @@ export async function localProducerCases(suite) {
     assert.equal(verifyRelationalArena(unread, unread, unread, account), refusal);
   });
 
-  await suite.test("Program canonical transport preserves qualified local subjects without aliasing the input reference", () => {
+  await suite.test("Program borrows immutable qualified local subjects without creating another producer", () => {
     const input = fixture();
-    const result = canonicalizeProgram({ index: input.index, modules: [input.module] }, {
+    const result = projectFixtureProgram({ index: input.index, modules: [input.module] }, {
       table: input.index.types, types: [0], signatures: [0],
     });
     const facts = result.modules[0].bodies.find(row => row.kind === "selected").facts[0];
-    assert.deepEqual(facts.arena.producers, input.facts.arena.producers);
-    assert.equal(facts.arena.producers[0].local === input.local, false);
+    assert.equal(facts.arena.producers === input.facts.arena.producers, true);
+    assert.equal(facts.arena.producers[0].local === input.local, true);
     assert.equal(facts.arena.contexts[0].captures[0].cell, 0, "cell binding remains separately supplied, never inferred from the location");
-    const limits = { ...ProgramWork.state(input.programContext.resources).limits, maximumWork: 100000, maximumCreatedRecords: 10000 };
-    const artifact = instantiate(input.index, input.module, { kind: "facts", body: input.bodyId, provided: 0 }, input.instance.bindings.bindings, limits);
-    assert.equal(artifact.kind, "instantiated");
-    assert.deepEqual(artifact.artifact.facts.arena.producers, input.facts.arena.producers);
-  });
-
-  await suite.test("Program admits the local row and nested LocalRef footprint on the same work and created-record meter", () => {
-    const input = fixture();
-    const limits = { ...ProgramWork.state(input.programContext.resources).limits, maximumWork: 100000, maximumCreatedRecords: 10000 };
-    const inventory = (facts, meter) => {
-      const scan = createProjectionInventory(meter, { parameterBinding: () => { assert.fail("No parameter substitution."); },
-        selfBinding: () => { assert.fail("No self substitution."); } });
-      return inventoryBodyFacts(scan, facts) ?? drainProjectionInventory(scan);
-    };
-    const empty = structuredClone(input.facts);
-    empty.arena.producers = [];
-    const baseline = createInstantiationMeter(limits);
-    const measured = createInstantiationMeter(limits);
-    assert.equal(inventory(empty, baseline), null);
-    assert.equal(inventory(input.facts, measured), null);
-    const work = limits.maximumWork - remainingWork(measured.account);
-    assert.equal(work - (limits.maximumWork - remainingWork(baseline.account)), 9, "one kind lookup plus actual 4-field row and 2-field LocalRef records");
-    assert.equal(measured.created - baseline.created, 2);
-    for (const [field, needed] of [["maximumWork", work], ["maximumCreatedRecords", measured.created]]) {
-      for (let maximum = 0; maximum <= needed; maximum += 1) {
-        const meter = createInstantiationMeter({ ...limits, [field]: maximum });
-        const stop = inventory(input.facts, meter);
-        if (maximum === needed) assert.equal(stop, null);
-        else {
-          assert.equal(stop.kind, "resource-limit");
-          assert.equal(stop.dimension, field === "maximumWork" ? "work" : "created-records");
-          assert.equal(stop, meter.failure ?? accountFailure(meter.account));
-        }
-      }
+    const seedWork = 137;
+    const seedRecords = 65;
+    const limits = { ...ProgramWork.state(input.programContext.resources).limits, maximumCreatedRecords: seedRecords };
+    const reference = { kind: "facts", body: input.bodyId, provided: 0 };
+    const bindings = input.instance.bindings.bindings;
+    const select = maximumWork => instantiate(input.index, input.module, reference, bindings, { ...limits, maximumWork });
+    const exact = seedWork + 4;
+    for (let maximum = 0; maximum < exact; maximum += 1) {
+      assert.deepEqual(select(maximum), { kind: "resource-limit", dimension: "work", maximum });
     }
+    const selected = select(exact);
+    assert.equal(selected.kind, "instantiated");
+    assert.equal(selected.artifact.facts === input.facts, true);
+    assert.equal(selected.artifact.facts.arena.producers === input.facts.arena.producers, true);
+    assert.equal(selected.types === input.index.types, false);
+    assert.deepEqual(selected.types, input.index.types);
+    assert.deepEqual(instantiate(input.index, input.module, reference, bindings,
+      { ...limits, maximumWork: exact, maximumCreatedRecords: seedRecords - 1 }),
+    { kind: "resource-limit", dimension: "created-records", maximum: seedRecords - 1 });
   });
 }
+import { projectFixtureProgram } from "./program-executions.mjs";

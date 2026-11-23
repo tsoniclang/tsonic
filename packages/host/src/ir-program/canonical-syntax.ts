@@ -1,462 +1,85 @@
-import type { SyntaxInventory } from "./syntax-arena.js";
-import { inventorySyntax, moduleSyntaxRoots } from "./syntax-arena.js";
-import type { TirBody } from "../ir-tir/contract.js";
-import type { ModuleBodies } from "./contract.js";
-import type { TypeRewrite } from "./canonical-types.js";
-import { rewriteArtifactBindings, rewriteExecution, rewriteInstance } from "./canonical-types.js";
-import { rewriteBodyFacts, rewriteObservations } from "./canonical-facts.js";
-import { rewriteTirBody, rewriteMirBody } from "./canonical-tir.js";
-import type { SyntaxCopyPorts } from "./syntax-arena.js";
-import { planSyntaxNode } from "./syntax-arena.js";
-import { createStatementsPlans } from "./syntax-statements.js";
-import { createExpressionsPlans } from "./syntax-expressions.js";
-import { createTypesPlans } from "./syntax-types.js";
-import { createAuxiliaryPlans } from "./syntax-auxiliary.js";
+import type { SyntaxCopyResult, SyntaxRootSlot } from "../ir-hir/contract.js";
+import type { TirBody, TypedPhase } from "../ir-tir/contract.js";
+import type { InstantiationStop } from "./work.js";
+import type { PreparedTypedSyntax } from "./instantiate-syntax.js";
+import { prepareTypedForest } from "./instantiate-syntax.js";
+import type { AdmittedTirSyntax } from "./instantiate-tir.js";
+import { inventoryTirBody } from "./instantiate-tir.js";
+import type { ModuleBodies, PublishedBody } from "./contract.js";
+import type { TypeReferenceRewrite } from "./canonical-types.js";
+import { projectBodyFacts, projectInstance, projectObservations } from "./canonical-facts.js";
+import { projectMirBody } from "./canonical-tir.js";
+import type { ProjectionInventory, ProjectionResult } from "./program-values.js";
+import { copiedProjection, projectRead, projectRecord, projectRows } from "./program-values.js";
+import type { InvariantFailure } from "../diag/contract.js";
+import { requirePresent } from "../diag/index.js";
+import { typedSyntaxPhaseCopy } from "./canonical-phase.js";
 
-
-function createSyntaxPlans(rewrite: TypeRewrite, at: string): SyntaxCopyPorts {
-  const statements = createStatementsPlans(rewrite, () => ports, at);
-  const expressions = createExpressionsPlans(rewrite, () => ports, at);
-  const types = createTypesPlans(rewrite, () => ports);
-  const auxiliary = createAuxiliaryPlans(rewrite, () => ports);
-  const ports: SyntaxCopyPorts = {
-    ...statements, ...expressions, ...types, ...auxiliary,
-    SyntaxNode: node => planSyntaxNode(ports, node),
-    EntityName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "QualifiedName": return ports.QualifiedName(node);
-      }
-    },
-    Expression: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "PrivateIdentifier": return ports.PrivateIdentifier(node);
-        case "ClassExpression": return ports.ClassExpression(node);
-        case "OmittedExpression": return ports.OmittedExpression(node);
-        case "NullKeyword": case "TrueKeyword": case "FalseKeyword": case "ThisKeyword": case "SuperKeyword": case "ImportKeyword": return ports.KeywordExpression(node);
-        case "StringLiteral": return ports.StringLiteral(node);
-        case "NumericLiteral": return ports.NumericLiteral(node);
-        case "BigIntLiteral": return ports.BigIntLiteral(node);
-        case "RegularExpressionLiteral": return ports.RegularExpressionLiteral(node);
-        case "NoSubstitutionTemplateLiteral": return ports.NoSubstitutionTemplateLiteral(node);
-        case "BinaryExpression": return ports.BinaryExpression(node);
-        case "PrefixUnaryExpression": return ports.PrefixUnaryExpression(node);
-        case "PostfixUnaryExpression": return ports.PostfixUnaryExpression(node);
-        case "YieldExpression": return ports.YieldExpression(node);
-        case "ArrowFunction": return ports.ArrowFunction(node);
-        case "FunctionExpression": return ports.FunctionExpression(node);
-        case "AsExpression": return ports.AsExpression(node);
-        case "SatisfiesExpression": return ports.SatisfiesExpression(node);
-        case "ConditionalExpression": return ports.ConditionalExpression(node);
-        case "PropertyAccessExpression": return ports.PropertyAccessExpression(node);
-        case "ElementAccessExpression": return ports.ElementAccessExpression(node);
-        case "CallExpression": return ports.CallExpression(node);
-        case "NewExpression": return ports.NewExpression(node);
-        case "MetaProperty": return ports.MetaProperty(node);
-        case "NonNullExpression": return ports.NonNullExpression(node);
-        case "SpreadElement": return ports.SpreadElement(node);
-        case "TemplateExpression": return ports.TemplateExpression(node);
-        case "TaggedTemplateExpression": return ports.TaggedTemplateExpression(node);
-        case "ParenthesizedExpression": return ports.ParenthesizedExpression(node);
-        case "ArrayLiteralExpression": return ports.ArrayLiteralExpression(node);
-        case "ObjectLiteralExpression": return ports.ObjectLiteralExpression(node);
-        case "DeleteExpression": return ports.DeleteExpression(node);
-        case "TypeOfExpression": return ports.TypeOfExpression(node);
-        case "VoidExpression": return ports.VoidExpression(node);
-        case "AwaitExpression": return ports.AwaitExpression(node);
-        case "TypeAssertionExpression": return ports.TypeAssertion(node);
-        case "ExpressionWithTypeArguments": return ports.ExpressionWithTypeArguments(node);
-        case "PartiallyEmittedExpression": return ports.PartiallyEmittedExpression(node);
-        case "JsxElement": return ports.JsxElement(node);
-        case "JsxAttributes": return ports.JsxAttributes(node);
-        case "JsxNamespacedName": return ports.JsxNamespacedName(node);
-        case "JsxOpeningElement": return ports.JsxOpeningElement(node);
-        case "JsxSelfClosingElement": return ports.JsxSelfClosingElement(node);
-        case "JsxFragment": return ports.JsxFragment(node);
-        case "JsxOpeningFragment": return ports.JsxOpeningFragment(node);
-        case "JsxClosingFragment": return ports.JsxClosingFragment(node);
-        case "JsxExpression": return ports.JsxExpression(node);
-        case "JsxText": return ports.JsxText(node);
-        case "SyntheticReferenceExpression": return ports.SyntheticReferenceExpression(node);
-      }
-    },
-    LeftHandSideExpression: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "PrivateIdentifier": return ports.PrivateIdentifier(node);
-        case "ClassExpression": return ports.ClassExpression(node);
-        case "StringLiteral": return ports.StringLiteral(node);
-        case "NumericLiteral": return ports.NumericLiteral(node);
-        case "BigIntLiteral": return ports.BigIntLiteral(node);
-        case "RegularExpressionLiteral": return ports.RegularExpressionLiteral(node);
-        case "FunctionExpression": return ports.FunctionExpression(node);
-        case "PropertyAccessExpression": return ports.PropertyAccessExpression(node);
-        case "ElementAccessExpression": return ports.ElementAccessExpression(node);
-        case "CallExpression": return ports.CallExpression(node);
-        case "NewExpression": return ports.NewExpression(node);
-        case "MetaProperty": return ports.MetaProperty(node);
-        case "NonNullExpression": return ports.NonNullExpression(node);
-        case "TemplateExpression": return ports.TemplateExpression(node);
-        case "TaggedTemplateExpression": return ports.TaggedTemplateExpression(node);
-        case "ParenthesizedExpression": return ports.ParenthesizedExpression(node);
-        case "ArrayLiteralExpression": return ports.ArrayLiteralExpression(node);
-        case "ObjectLiteralExpression": return ports.ObjectLiteralExpression(node);
-        case "ExpressionWithTypeArguments": return ports.ExpressionWithTypeArguments(node);
-        case "PartiallyEmittedExpression": return ports.PartiallyEmittedExpression(node);
-        case "JsxElement": return ports.JsxElement(node);
-        case "JsxAttributes": return ports.JsxAttributes(node);
-        case "JsxSelfClosingElement": return ports.JsxSelfClosingElement(node);
-        case "JsxFragment": return ports.JsxFragment(node);
-      }
-    },
-    Statement: node => {
-      switch (node.kind) {
-        case "EmptyStatement": return ports.EmptyStatement(node);
-        case "IfStatement": return ports.IfStatement(node);
-        case "DoStatement": return ports.DoStatement(node);
-        case "WhileStatement": return ports.WhileStatement(node);
-        case "ForStatement": return ports.ForStatement(node);
-        case "ForInStatement": return ports.ForInStatement(node);
-        case "ForOfStatement": return ports.ForOfStatement(node);
-        case "BreakStatement": return ports.BreakStatement(node);
-        case "ContinueStatement": return ports.ContinueStatement(node);
-        case "ReturnStatement": return ports.ReturnStatement(node);
-        case "WithStatement": return ports.WithStatement(node);
-        case "SwitchStatement": return ports.SwitchStatement(node);
-        case "ThrowStatement": return ports.ThrowStatement(node);
-        case "TryStatement": return ports.TryStatement(node);
-        case "DebuggerStatement": return ports.DebuggerStatement(node);
-        case "LabeledStatement": return ports.LabeledStatement(node);
-        case "ExpressionStatement": return ports.ExpressionStatement(node);
-        case "Block": return ports.Block(node);
-        case "VariableStatement": return ports.VariableStatement(node);
-        case "MissingDeclaration": return ports.MissingDeclaration(node);
-        case "FunctionDeclaration": return ports.FunctionDeclaration(node);
-        case "ClassDeclaration": return ports.ClassDeclaration(node);
-        case "InterfaceDeclaration": return ports.InterfaceDeclaration(node);
-        case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": return ports.TypeAliasDeclaration(node);
-        case "EnumDeclaration": return ports.EnumDeclaration(node);
-        case "ModuleBlock": return ports.ModuleBlock(node);
-        case "NotEmittedStatement": return ports.NotEmittedStatement(node);
-        case "ImportDeclaration": case "JSImportDeclaration": return ports.ImportDeclaration(node);
-        case "ExportAssignment": return ports.ExportAssignment(node);
-        case "NamespaceExportDeclaration": return ports.NamespaceExportDeclaration(node);
-        case "ModuleDeclaration": return ports.ModuleDeclaration(node);
-        case "ImportEqualsDeclaration": return ports.ImportEqualsDeclaration(node);
-        case "ExportDeclaration": return ports.ExportDeclaration(node);
-      }
-    },
-    ForInitializer: node => {
-      switch (node.kind) {
-        case "MissingDeclaration": return ports.MissingDeclaration(node);
-        case "VariableDeclarationList": return ports.VariableDeclarationList(node);
-      }
-      return ports.Expression(node);
-    },
-    CaseOrDefaultClause: node => {
-      switch (node.kind) {
-        case "CaseClause": return ports.CaseClause(node);
-        case "DefaultClause": return ports.DefaultClause(node);
-      }
-    },
-    BindingName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "ObjectBindingPattern": case "ArrayBindingPattern": return ports.BindingPattern(node);
-      }
-    },
-    TypeNode: node => {
-      switch (node.kind) {
-        case "AnyKeyword": case "BigIntKeyword": case "BooleanKeyword": case "IntrinsicKeyword": case "NeverKeyword": case "NumberKeyword": case "ObjectKeyword": case "StringKeyword": case "SymbolKeyword": case "UndefinedKeyword": case "UnknownKeyword": case "VoidKeyword": return ports.KeywordTypeNode(node);
-        case "UnionType": return ports.UnionTypeNode(node);
-        case "IntersectionType": return ports.IntersectionTypeNode(node);
-        case "ConditionalType": return ports.ConditionalTypeNode(node);
-        case "TypeOperator": return ports.TypeOperatorNode(node);
-        case "InferType": return ports.InferTypeNode(node);
-        case "ArrayType": return ports.ArrayTypeNode(node);
-        case "IndexedAccessType": return ports.IndexedAccessTypeNode(node);
-        case "TypeReference": return ports.TypeReferenceNode(node);
-        case "LiteralType": return ports.LiteralTypeNode(node);
-        case "ThisType": return ports.ThisTypeNode(node);
-        case "TypePredicate": return ports.TypePredicateNode(node);
-        case "TypeQuery": return ports.TypeQueryNode(node);
-        case "MappedType": return ports.MappedTypeNode(node);
-        case "TypeLiteral": return ports.TypeLiteralNode(node);
-        case "TupleType": return ports.TupleTypeNode(node);
-        case "NamedTupleMember": return ports.NamedTupleMember(node);
-        case "OptionalType": return ports.OptionalTypeNode(node);
-        case "RestType": return ports.RestTypeNode(node);
-        case "ParenthesizedType": return ports.ParenthesizedTypeNode(node);
-        case "FunctionType": return ports.FunctionTypeNode(node);
-        case "ConstructorType": return ports.ConstructorTypeNode(node);
-        case "TemplateLiteralType": return ports.TemplateLiteralTypeNode(node);
-        case "TemplateLiteralTypeSpan": return ports.TemplateLiteralTypeSpan(node);
-        case "JSDocTypeExpression": return ports.JSDocTypeExpression(node);
-        case "JSDocNonNullableType": return ports.JSDocNonNullableType(node);
-        case "JSDocNullableType": return ports.JSDocNullableType(node);
-        case "JSDocAllType": return ports.JSDocAllType(node);
-        case "JSDocVariadicType": return ports.JSDocVariadicType(node);
-        case "JSDocOptionalType": return ports.JSDocOptionalType(node);
-        case "JSDocSignature": return ports.JSDocSignature(node);
-        case "JSDocNameReference": return ports.JSDocNameReference(node);
-        case "ImportType": return ports.ImportTypeNode(node);
-        case "JSDocTypeLiteral": return ports.JSDocTypeLiteral(node);
-      }
-    },
-    PropertyName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "StringLiteral": return ports.StringLiteral(node);
-        case "NoSubstitutionTemplateLiteral": return ports.NoSubstitutionTemplateLiteral(node);
-        case "NumericLiteral": return ports.NumericLiteral(node);
-        case "ComputedPropertyName": return ports.ComputedPropertyName(node);
-        case "PrivateIdentifier": return ports.PrivateIdentifier(node);
-        case "BigIntLiteral": return ports.BigIntLiteral(node);
-      }
-    },
-    BlockOrExpression: node => {
-      switch (node.kind) {
-        case "Block": return ports.Block(node);
-      }
-      return ports.Expression(node);
-    },
-    ClassElement: node => {
-      switch (node.kind) {
-        case "Constructor": return ports.ConstructorDeclaration(node);
-        case "GetAccessor": return ports.GetAccessorDeclaration(node);
-        case "SetAccessor": return ports.SetAccessorDeclaration(node);
-        case "IndexSignature": return ports.IndexSignatureDeclaration(node);
-        case "MethodDeclaration": return ports.MethodDeclaration(node);
-        case "PropertyDeclaration": return ports.PropertyDeclaration(node);
-        case "SemicolonClassElement": return ports.SemicolonClassElement(node);
-        case "ClassStaticBlockDeclaration": return ports.ClassStaticBlockDeclaration(node);
-      }
-    },
-    TypeElement: node => {
-      switch (node.kind) {
-        case "NotEmittedTypeElement": return ports.NotEmittedTypeElement(node);
-        case "CallSignature": return ports.CallSignatureDeclaration(node);
-        case "ConstructSignature": return ports.ConstructSignatureDeclaration(node);
-        case "GetAccessor": return ports.GetAccessorDeclaration(node);
-        case "SetAccessor": return ports.SetAccessorDeclaration(node);
-        case "IndexSignature": return ports.IndexSignatureDeclaration(node);
-        case "MethodSignature": return ports.MethodSignatureDeclaration(node);
-        case "PropertySignature": return ports.PropertySignatureDeclaration(node);
-      }
-    },
-    ModuleExportName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "StringLiteral": return ports.StringLiteral(node);
-      }
-    },
-    MemberName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "PrivateIdentifier": return ports.PrivateIdentifier(node);
-      }
-    },
-    TemplateMiddleOrTail: node => {
-      switch (node.kind) {
-        case "TemplateMiddle": return ports.TemplateMiddle(node);
-        case "TemplateTail": return ports.TemplateTail(node);
-      }
-    },
-    TemplateLiteral: node => {
-      switch (node.kind) {
-        case "TemplateExpression": return ports.TemplateExpression(node);
-        case "NoSubstitutionTemplateLiteral": return ports.NoSubstitutionTemplateLiteral(node);
-      }
-    },
-    ObjectLiteralElementLike: node => {
-      switch (node.kind) {
-        case "PropertyAssignment": return ports.PropertyAssignment(node);
-        case "ShorthandPropertyAssignment": return ports.ShorthandPropertyAssignment(node);
-        case "SpreadAssignment": return ports.SpreadAssignment(node);
-        case "MethodDeclaration": return ports.MethodDeclaration(node);
-        case "GetAccessor": return ports.GetAccessorDeclaration(node);
-        case "SetAccessor": return ports.SetAccessorDeclaration(node);
-      }
-    },
-    LiteralTypeChild: node => {
-      switch (node.kind) {
-        case "StringLiteral": return ports.StringLiteral(node);
-        case "NumericLiteral": return ports.NumericLiteral(node);
-        case "BigIntLiteral": return ports.BigIntLiteral(node);
-        case "NoSubstitutionTemplateLiteral": return ports.NoSubstitutionTemplateLiteral(node);
-        case "TrueKeyword": case "FalseKeyword": case "NullKeyword": return ports.LiteralKeywordExpression(node);
-        case "PrefixUnaryExpression": return ports.PrefixUnaryExpression(node);
-      }
-    },
-    TypePredicateParameterName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "ThisType": return ports.ThisTypeNode(node);
-      }
-    },
-    ImportAttributeName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "StringLiteral": return ports.StringLiteral(node);
-      }
-    },
-    JsxChild: node => {
-      switch (node.kind) {
-        case "JsxText": return ports.JsxText(node);
-        case "JsxExpression": return ports.JsxExpression(node);
-        case "JsxElement": return ports.JsxElement(node);
-        case "JsxSelfClosingElement": return ports.JsxSelfClosingElement(node);
-        case "JsxFragment": return ports.JsxFragment(node);
-      }
-    },
-    JsxAttributeLike: node => {
-      switch (node.kind) {
-        case "JsxAttribute": return ports.JsxAttribute(node);
-        case "JsxSpreadAttribute": return ports.JsxSpreadAttribute(node);
-      }
-    },
-    JsxTagNameExpression: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "NullKeyword": case "TrueKeyword": case "FalseKeyword": case "ThisKeyword": case "SuperKeyword": case "ImportKeyword": return ports.KeywordExpression(node);
-        case "PropertyAccessExpression": return ports.PropertyAccessExpression(node);
-        case "JsxNamespacedName": return ports.JsxNamespacedName(node);
-      }
-    },
-    JsxAttributeName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "JsxNamespacedName": return ports.JsxNamespacedName(node);
-      }
-    },
-    JsxAttributeValue: node => {
-      switch (node.kind) {
-        case "StringLiteral": return ports.StringLiteral(node);
-        case "JsxExpression": return ports.JsxExpression(node);
-        case "JsxElement": return ports.JsxElement(node);
-        case "JsxSelfClosingElement": return ports.JsxSelfClosingElement(node);
-        case "JsxFragment": return ports.JsxFragment(node);
-      }
-    },
-    JSDocComment: node => {
-      switch (node.kind) {
-        case "JSDocText": return ports.JSDocText(node);
-        case "JSDocLink": return ports.JSDocLink(node);
-        case "JSDocLinkCode": return ports.JSDocLinkCode(node);
-        case "JSDocLinkPlain": return ports.JSDocLinkPlain(node);
-      }
-    },
-    JSDocTag: node => {
-      switch (node.kind) {
-        case "JSDocTypeTag": return ports.JSDocTypeTag(node);
-        case "JSDocUnknownTag": return ports.JSDocUnknownTag(node);
-        case "JSDocTemplateTag": return ports.JSDocTemplateTag(node);
-        case "JSDocReturnTag": return ports.JSDocReturnTag(node);
-        case "JSDocPublicTag": return ports.JSDocPublicTag(node);
-        case "JSDocPrivateTag": return ports.JSDocPrivateTag(node);
-        case "JSDocProtectedTag": return ports.JSDocProtectedTag(node);
-        case "JSDocReadonlyTag": return ports.JSDocReadonlyTag(node);
-        case "JSDocOverrideTag": return ports.JSDocOverrideTag(node);
-        case "JSDocDeprecatedTag": return ports.JSDocDeprecatedTag(node);
-        case "JSDocSeeTag": return ports.JSDocSeeTag(node);
-        case "JSDocImplementsTag": return ports.JSDocImplementsTag(node);
-        case "JSDocAugmentsTag": return ports.JSDocAugmentsTag(node);
-        case "JSDocSatisfiesTag": return ports.JSDocSatisfiesTag(node);
-        case "JSDocThrowsTag": return ports.JSDocThrowsTag(node);
-        case "JSDocThisTag": return ports.JSDocThisTag(node);
-        case "JSDocImportTag": return ports.JSDocImportTag(node);
-        case "JSDocCallbackTag": return ports.JSDocCallbackTag(node);
-        case "JSDocOverloadTag": return ports.JSDocOverloadTag(node);
-        case "JSDocTypedefTag": return ports.JSDocTypedefTag(node);
-        case "JSDocParameterTag": case "JSDocPropertyTag": return ports.JSDocParameterOrPropertyTag(node);
-      }
-    },
-    JSDocFullName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "ModuleDeclaration": return ports.ModuleDeclaration(node);
-      }
-    },
-    NodeBody: node => {
-      switch (node.kind) {
-        case "ModuleBlock": return ports.ModuleBlock(node);
-        case "ModuleDeclaration": return ports.ModuleDeclaration(node);
-      }
-      return ports.BlockOrExpression(node);
-    },
-    ModuleName: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "StringLiteral": return ports.StringLiteral(node);
-      }
-    },
-    ModuleReference: node => {
-      switch (node.kind) {
-        case "Identifier": return ports.Identifier(node);
-        case "QualifiedName": return ports.QualifiedName(node);
-        case "ExternalModuleReference": return ports.ExternalModuleReference(node);
-      }
-    },
-    NamedExportBindings: node => {
-      switch (node.kind) {
-        case "NamespaceExport": return ports.NamespaceExport(node);
-        case "NamedExports": return ports.NamedExports(node);
-      }
-    },
-    NamedImportBindings: node => {
-      switch (node.kind) {
-        case "NamespaceImport": return ports.NamespaceImport(node);
-        case "NamedImports": return ports.NamedImports(node);
-      }
-    },
-    ModifierLike: node => {
-      switch (node.kind) {
-        case "AbstractKeyword": case "AccessorKeyword": case "AsyncKeyword": case "ConstKeyword": case "DeclareKeyword": case "DefaultKeyword": case "ExportKeyword": case "InKeyword": case "PrivateKeyword": case "ProtectedKeyword": case "PublicKeyword": case "ReadonlyKeyword": case "OutKeyword": case "OverrideKeyword": case "StaticKeyword": return () => node;
-        case "Decorator": return ports.Decorator(node);
-      }
-    },
-    BodyRoot: node => {
-      switch (node.kind) {
-        case "SourceFile": return ports.SourceFile(node);
-      }
-      return ports.BlockOrExpression(node);
-    },
-  };
-  return ports;
-}
-
-
-function materializedSyntax(rewrite: TypeRewrite, syntax: SyntaxInventory, at: string): SyntaxCopyPorts {
-  const ports = createSyntaxPlans(rewrite, at);
-  for (const node of syntax.postorder) planSyntaxNode(ports, node)();
-  return ports;
-}
+const missingSyntax: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "A syntax chapter can only project a node from its admitted forest." };
 
 export function rewriteBodySyntax(
-  rewrite: TypeRewrite, body: TirBody, syntax: SyntaxInventory, at: string,
-): Pick<TirBody, "root" | "params"> {
-  const ports = materializedSyntax(rewrite, syntax, at);
-  return { root: ports.BodyRoot(body.root)(), params: body.params.map(parameter => ports.ParameterDeclaration(parameter)()) };
+  rewrite: TypeReferenceRewrite, roots: AdmittedTirSyntax, syntax: PreparedTypedSyntax,
+): SyntaxCopyResult<Pick<TirBody, "root" | "params">, InstantiationStop> {
+  const projected = syntax.materialize(rewrite);
+  if (projected.kind === "refused") return projected;
+  const image = projected.value;
+  for (const [index, parameter] of roots.params.entries())
+    roots.params[index] = requirePresent(image.parameterOf(parameter) ?? undefined, missingSyntax);
+  return { kind: "copied", value: { root: requirePresent(image.bodyRootOf(roots.root) ?? undefined, missingSyntax), params: roots.params } };
 }
 
-export function rewriteModuleSyntax(rewrite: TypeRewrite, module: ModuleBodies, at: string): ModuleBodies {
-  const ports = materializedSyntax(rewrite, inventorySyntax(moduleSyntaxRoots(module, at)), at);
-  return {
-    module: module.module,
-    tree: ports.SourceFile(module.tree)(),
-    bodies: module.bodies.map((body, position) => {
-      const common = {
-        instance: rewriteInstance(rewrite, body.instance),
-        tir: rewriteTirBody(rewrite, body.tir, ports.BodyRoot(body.tir.root)(), rewriteArtifactBindings(rewrite, body.tir.bindings),
-          body.tir.params.map(parameter => ports.ParameterDeclaration(parameter)())),
-      };
-      return body.kind === "template" ? { ...common, kind: "template" } : {
-        ...common, kind: "selected",
-        mir: rewriteMirBody(rewrite, body.mir, at + ".bodies[" + position + "].mir", rewriteArtifactBindings(rewrite, body.mir.bindings)),
-        facts: body.facts.map(facts => rewriteBodyFacts(rewrite, facts, rewriteExecution(rewrite, facts.execution))),
-        observations: rewriteObservations(rewrite, body.observations),
-      };
-    }),
-  };
+export function projectModuleSyntax(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, module: ModuleBodies, at: string,
+  remember: (source: PublishedBody, projected: PublishedBody) => InstantiationStop | null,
+): ProjectionResult<ModuleBodies & { readonly bodies: PublishedBody[] }> {
+  return projectRecord(scan, 3, () => {
+    const rows = projectRows(scan, module.bodies, read => projectRecord(scan, 3, () => {
+      const source = read();
+      const instance = projectInstance(scan, rewrite, source.instance);
+      if (instance.kind === "refused") return instance;
+      const body = inventoryTirBody(scan, source.tir);
+      if (body.kind !== "complete") return { kind: "refused", stop: body };
+      return copiedProjection({ source, instance: instance.value, body: body.value });
+    }));
+    if (rows.kind === "refused") return rows;
+    const admittedRows = rows.value;
+    const originalTree = module.tree;
+    function* slots(): Generator<SyntaxRootSlot<TypedPhase>> {
+      yield { read: () => originalTree, path: at + ".tree" };
+      for (const [position, { body }] of admittedRows.entries()) {
+        const path = at + ".bodies[" + position + "].tir";
+        yield { read: () => body.roots.root, path: path + ".root" };
+        for (const [index, parameter] of body.roots.params.entries())
+          yield { read: () => parameter, path: path + ".params[" + index + "]" };
+      }
+    }
+    const syntax = prepareTypedForest(scan, slots(), typedSyntaxPhaseCopy(scan, at));
+    if (syntax.kind !== "complete") return { kind: "refused", stop: syntax };
+    const completed = syntax.value.materialize(rewrite);
+    if (completed.kind === "refused") return completed;
+    const image = completed.value;
+    const bodies: PublishedBody[] = [];
+    for (const [position, { source, instance, body }] of admittedRows.entries()) {
+      const roots = body.roots;
+      for (const [index, parameter] of roots.params.entries())
+        roots.params[index] = requirePresent(image.parameterOf(parameter) ?? undefined, missingSyntax);
+      const root = requirePresent(image.bodyRootOf(roots.root) ?? undefined, missingSyntax);
+      const tir = body.project(rewrite, root, roots.params, instance.bindings);
+      let selected: PublishedBody;
+      if (source.kind === "template") selected = { kind: "template", instance, tir };
+      else {
+        const mir = projectMirBody(scan, source.mir, rewrite, at + ".bodies[" + position + "].mir");
+        if (mir.kind === "refused") return mir;
+        const observations = projectObservations(scan, rewrite, source.observations);
+        if (observations.kind === "refused") return observations;
+        const facts = projectRows(scan, source.facts, read => projectRead(scan, () => projectBodyFacts(scan, rewrite, read())));
+        if (facts.kind === "refused") return facts;
+        selected = { kind: "selected", instance, tir, mir: mir.value, observations: observations.value, facts: facts.value };
+      }
+      const stop = remember(source, selected);
+      if (stop !== null) return { kind: "refused", stop };
+      bodies.push(selected);
+    }
+    return copiedProjection({ module: module.module, tree: requirePresent(image.sourceFileOf(originalTree) ?? undefined, missingSyntax), bodies });
+  });
 }

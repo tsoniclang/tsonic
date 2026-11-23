@@ -53,7 +53,7 @@ test("actual foreign default and constraint requests close before F1 even when r
   const foreign = captures[1];
   const parameter = foreign.tree.statements.nodes[0].typeParameters.nodes[0];
   const roots = captures[0].types.components.filter(component => component.root.module === foreign.module).map(component => component.root);
-  assert.deepEqual([...new Set(roots.map(root => root.node))], [parameter.constraint.id, parameter.defaultType.id]);
+  assert.deepEqual([...new Set(roots.map(root => root.node))], [parameter.constraint.id, parameter.defaultType.id, parameter.id]);
   const baseline = fixture.front.lowerModuleDefinitions({ module: foreign, componentRoots: [] });
   const requested = fixture.front.lowerModuleDefinitions({ module: foreign, componentRoots: roots });
   assert.equal(baseline.kind, "ok");
@@ -62,7 +62,7 @@ test("actual foreign default and constraint requests close before F1 even when r
   for (const root of roots) {
     const selected = requested.value.sourceOccurrences.filter(source => source.node === root.node);
     assert.equal(selected.length, 1, "repeated genuine demands retain one ready row");
-    assert.equal(selected[0].kind, "BooleanKeyword");
+    assert.equal(selected[0].kind, root.node === parameter.id ? "TypeParameter" : "BooleanKeyword");
     assert.equal(selected[0].occurrence.kind, "body");
     const body = fixture.ids.decodeBodyId(selected[0].occurrence.value.body);
     assert.equal(body.kind, "decoded");
@@ -88,7 +88,9 @@ test("actual foreign default and constraint requests close before F1 even when r
     if (component.root.module !== foreign.module) continue;
     const result = convertRawType(conversion, row.id);
     assert.equal(result.kind, "complete");
-    assert.deepEqual(fixture.types.readType(types, result.value.type), { kind: "primitive", primitive: "bool" });
+    assert.deepEqual(fixture.types.readType(types, result.value.type), component.root.node === parameter.id
+      ? { kind: "param", parameter: deps.definitionOf({ module: foreign.module, node: parameter.id }) }
+      : { kind: "primitive", primitive: "bool" });
     assert.deepEqual(result.value.evidence.component, deps.sourceOccurrenceOf(component.root).occurrence);
     const local = foreign.types.types.find(row => foreign.types.components[row.component].root.node === component.root.node);
     assert.equal(local !== undefined, true, "the same real authored scalar has an independently captured local view");

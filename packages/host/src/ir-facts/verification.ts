@@ -1,7 +1,7 @@
 import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingVector, Execution, MemberKey, MemberStorageSelection } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingVector, Execution, MemberKey, MemberStorageSelection, TypeBinding } from "../ir-types/contract.js";
 import { artifactBindingsKey } from "../ir-types/index.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
@@ -39,18 +39,24 @@ export function recordFinding<Rule extends string>(account: DataflowAccount, vio
 export function admitBindingIdentity(bindings: BindingVector, account: DataflowAccount): DataflowStop | null {
   const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
   if (initial !== null) return initial;
-  for (const family of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings]) {
-    for (const binding of family) {
+  function family(rows: readonly TypeBinding[]): DataflowStop | null {
+    for (let position = 0; position < rows.length; position += 1) {
       const step = chargeWork(account, 1);
       if (step !== null) return step;
+      const binding = rows[position];
       if (binding === undefined) continue;
       const stop = chargeWork(account, binding.parameter.length) ?? chargeResultEntries(account, 1);
       if (stop !== null) return stop;
     }
+    return null;
   }
-  for (const binding of bindings.selfBindings) {
+  const parameters = family(bindings.classBindings) ?? family(bindings.methodBindings) ?? family(bindings.capturedBindings);
+  if (parameters !== null) return parameters;
+  const selves = bindings.selfBindings;
+  for (let position = 0; position < selves.length; position += 1) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
+    const binding = selves[position];
     if (binding === undefined) continue;
     const stop = chargeWork(account, binding.owner.length) ?? chargeResultEntries(account, 1);
     if (stop !== null) return stop;
@@ -147,11 +153,11 @@ export function admitSelectionIdentity(selection: MemberSelection, account: Data
 
 export function selectedMirBody(execution: Execution, context: FactsVerificationContext,
   account: DataflowAccount): DataflowResult<MirBody | null> {
-  const initial = chargeWork(account, 1);
+  const initial = chargeWork(account, 1) ?? admitArtifactIdentity(execution.instance.bindings, account);
   if (initial !== null) return initial;
   const value = context.mirBody(execution.instance);
   if (value === null || value.body !== execution.instance.body) return { kind: "complete", value: null };
-  const identity = admitArtifactIdentity(execution.instance.bindings, account) ?? admitArtifactIdentity(value.bindings, account);
+  const identity = admitArtifactIdentity(value.bindings, account);
   if (identity !== null) return identity;
   if (artifactBindingsKey(execution.instance.bindings) !== artifactBindingsKey(value.bindings)) return { kind: "complete", value: null };
   for (const entry of value.entries) {

@@ -1,17 +1,22 @@
 import { ProgramWork } from "./work.js";
-import type { NodeId, SourceNodeRef } from "../ids/contract.js";
+import type { InvariantFailure } from "../diag/contract.js";
+import { requirePresent } from "../diag/index.js";
+import { accountFailure } from "../dataflow/index.js";
+import type { ConstId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { BindingVector, TypeInterner } from "../ir-types/contract.js";
-import { bindingVectorKey, rigidBindings, substituteBindingValues } from "../ir-types/index.js";
+import { bindingVectorKey, rigidBindings, projectBindingValues } from "../ir-types/index.js";
 import type { MetadataKey, MetadataRecord } from "../ir-facts/contract.js";
 import type { HirFieldBindingCapture } from "../ir-hir/contract.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { MirOperand, MirRvalue, MirSite, MirTerminator } from "../ir-mir/contract.js";
 import type { ProgramVerificationResult, ProgramVerificationContext, PublishedBody } from "./contract.js";
-import type { ProgramLookup, ProgramViolation } from "./program-values.js";
+import type { ProgramLookup } from "./work.js";
+import type { ProgramViolation } from "./work-data.js";
 import type { InstantiationAllocationStop } from "./work.js";
 import { artifactEnvironmentKey, numberDetail, textDetail, uniqueRows } from "./program-values.js";
 import { chargeInstantiationWork, emitInstantiationRecord } from "./work.js";
+import { programTypeWork } from "./verification-work.js";
 
 const sourceKey = (source: SourceNodeRef): string => encodeKey([source.kind,
   source.kind === "body" ? source.value.body : source.value.owner, source.value.node]);
@@ -21,6 +26,9 @@ const stopped = (stop: InstantiationAllocationStop): ProgramVerificationResult =
 const rootOccurrence = (metadata: MetadataRecord): SourceNodeRef | null => metadata.kind === "data-layout"
   ? metadata.occurrence : metadata.kind === "memory-layout" ? metadata.layouts[metadata.root]?.occurrence ?? null
   : metadata.fields[metadata.root]?.occurrence ?? null;
+
+const missingSwitchCase: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "A MIR switch must retain its actual dense case inventory." };
 
 function authorize(published: Extract<PublishedBody, { readonly kind: "selected" }>, input: TirVerifierInput, lookup: ProgramLookup,
   context: ProgramVerificationContext, types: TypeInterner,
@@ -128,19 +136,28 @@ function authorize(published: Extract<PublishedBody, { readonly kind: "selected"
       }
     }
   }
-  let selected: readonly BindingVector[] = vectors;
-  if (published.instance.bindings.kind === "instantiated") {
-    const transformed = substituteBindingValues(types, { types: [], bindings: vectors },
-      published.instance.bindings.bindings, ProgramWork.state(context.resources).limits.typeExpansion);
-    if (transformed.kind === "resource-limit") return { ...transformed, site: { kind: "body", instance: published.instance } };
+  let selected: readonly (BindingVector | null)[] = vectors;
+  if (published.instance.bindings.kind === "instantiated" && vectors.length !== 0) {
+    const meter = ProgramWork.state(context.resources);
+    const transformed = projectBindingValues(types, { types: [], bindings: vectors },
+      published.instance.bindings.bindings, meter.limits.typeExpansion, programTypeWork(meter));
+    if (transformed.kind !== "complete") {
+      const original = meter.failure ?? accountFailure(meter.account);
+      if (original !== null) return stopped(original);
+      if (transformed.kind === "resource-limit" && (transformed.dimension === "depth" || transformed.dimension === "visits"
+        || transformed.dimension === "union-members" || transformed.dimension === "intersection-members"))
+        return { ...transformed, site: { kind: "body", instance: published.instance } };
+      throw new TypeError("Metadata projection retains the original work or expansion stop.");
+    }
     selected = transformed.value.bindings;
   }
   for (const candidate of candidates) {
     const vector = selected[candidate.vector];
+    if (vector === undefined || vector === null) continue;
     const scope = candidate.key.bindings.kind === "parametric" ? context.facts.bindingScopeOf(candidate.key.definition) : null;
     const expected = candidate.key.bindings.kind === "instantiated" ? candidate.key.bindings.bindings
       : scope === null ? null : rigidBindings(scope);
-    if (vector !== undefined && expected !== null && bindingVectorKey(vector) === bindingVectorKey(expected)) {
+    if (expected !== null && bindingVectorKey(vector) === bindingVectorKey(expected)) {
       const stop = allow(candidate.node, candidate.key);
       if (stop !== null) return stopped(stop);
     }
@@ -161,7 +178,10 @@ export function verifyMetadataOperands(published: Extract<PublishedBody, { reado
     if (refusal !== null || value.kind !== "constant") return;
     refusal = chargeInstantiationWork(ProgramWork.state(context.resources));
     if (refusal !== null) return;
-    const identity = encodeKey([value.constant]);
+    useConstant(value.constant, site, path);
+  }
+  function useConstant(id: ConstId, site: MirSite, path: string): void {
+    const identity = encodeKey([id]);
     const constant = constants.get(identity);
     if (constant === undefined || constant === null || constant.value.kind !== "metadata") return;
     let key = constantKeys.get(identity);
@@ -171,7 +191,7 @@ export function verifyMetadataOperands(published: Extract<PublishedBody, { reado
     }
     if (site.tir.body !== published.instance.body) {
       violations.push({ rule: "metadata-constant-not-materialised", site: { kind: "body", instance: published.instance },
-        detail: [textDetail(path), numberDetail(value.constant), textDetail(key)] });
+        detail: [textDetail(path), numberDetail(id), textDetail(key)] });
       return;
     }
     const position = encodeKey([site.tir.node, key]);
@@ -184,7 +204,7 @@ export function verifyMetadataOperands(published: Extract<PublishedBody, { reado
     }
     refusal = emitInstantiationRecord(ProgramWork.state(context.resources));
     if (refusal !== null) return;
-    request.uses.push({ constant: value.constant, path });
+    request.uses.push({ constant: id, path });
   }
   function rvalue(value: MirRvalue, site: MirSite, path: string): void {
     switch (value.kind) {
@@ -226,8 +246,11 @@ export function verifyMetadataOperands(published: Extract<PublishedBody, { reado
       case "switch":
         operand(value.operand, value, path + ".operand");
         if (refusal !== null) return;
-        for (const [position, target] of value.targets.entries()) {
-          operand({ kind: "constant", constant: target.constant }, value, path + ".targets[" + position + "].constant");
+        for (let position = 0; position < value.targets.length; position += 1) {
+          refusal = chargeInstantiationWork(ProgramWork.state(context.resources));
+          if (refusal !== null) return;
+          const target = requirePresent(value.targets[position], missingSwitchCase);
+          useConstant(target.constant, value, path + ".targets[" + position + "].constant");
           if (refusal !== null) return;
         }
         break;

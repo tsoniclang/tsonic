@@ -1,3 +1,4 @@
+import { insertFixtureType } from "./types-construction.mjs";
 import assert from "node:assert/strict";
 import { encodePackageId, encodeModuleId, encodeDefId } from "../../../packages/host/dist/ids/index.js";
 
@@ -9,8 +10,8 @@ export async function graphInsertionCases(suite, types) {
   const limits = { maximumWork: 10000000, maximumCreatedRecords: 10000000 };
   const create = () => {
     const arena = types.createTypeInterner();
-    const bool = types.internType(arena, { kind: "primitive", primitive: "bool" });
-    const string = types.internType(arena, { kind: "string" });
+    const bool = insertFixtureType(types, arena, { kind: "primitive", primitive: "bool" });
+    const string = insertFixtureType(types, arena, { kind: "string" });
     return { arena, bool, string, table: types.viewTypes(arena) };
   };
   const run = (arena, terms, signatures = [], work = types.createTypePublicationWork(limits)) => {
@@ -57,9 +58,9 @@ export async function graphInsertionCases(suite, types) {
     assert.equal(types.exportTypes(current.arena, limits).kind, "complete");
   });
 
-  await suite.test("redirected staged keys deduplicate acyclic rows while separate live cycles are not bisimulation-merged", () => {
+  await suite.test("redirected staged keys and equivalent recursive batches reuse already admitted representatives", () => {
     const current = create();
-    const existing = types.internType(current.arena, { kind: "array", element: current.bool, readonly: false });
+    const existing = insertFixtureType(types, current.arena, { kind: "array", element: current.bool, readonly: false });
     const first = run(current.arena, [{ kind: "primitive", primitive: "bool" },
       { kind: "array", element: 3, readonly: false }, { kind: "array", element: 3, readonly: false }]).result;
     assert.equal(first.kind, "complete");
@@ -67,11 +68,10 @@ export async function graphInsertionCases(suite, types) {
     const left = run(current.arena, [shape(current.table.terms.length)]).result;
     const right = run(current.arena, [shape(current.table.terms.length)]).result;
     assert.equal(left.kind === "complete" && right.kind === "complete", true);
-    assert.equal(left.value.types[0] !== right.value.types[0], true, "exact-key live IDs are not replaced with graph bisimulation");
+    assert.equal(left.value.types[0] === right.value.types[0], true, "no second representative is issued for the equivalent cycle");
     const published = types.exportTypes(current.arena, limits);
     assert.equal(published.kind, "complete");
-    assert.equal(published.value.types[left.value.types[0]], published.value.types[right.value.types[0]],
-      "whole-graph publication retains its existing canonical partition");
+    assert.equal(new Set(published.value.types).size, current.table.terms.length, "final publication only permutes admitted IDs");
   });
 
   await suite.test("every work and record prefix refuses atomically and keeps the first original stop unread", () => {

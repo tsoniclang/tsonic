@@ -20,7 +20,8 @@ import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8")).areas.map(area => area.directory);
-const names = ["index", "print", "parse", "verify", "verify-control", "verify-laws", "verify-storage", "verify-types", "local-ownership", "text", "text-decisions"];
+const names = ["index", "print", "parse", "verify", "verify-control", "verify-laws", "verify-storage", "verify-types", "local-ownership", "text", "text-decisions",
+  "constant-projection", "project-values"];
 const runtimeFiles = names.map(name => resolve(repository, `packages/host/dist/ir-mir/${name}.js`));
 const sourceFiles = [...names, "contract"].map(name => `packages/host/src/ir-mir/${name}.ts`);
 const evidenceDirectory = resolve(repository, ".analysis/20261111-f-ir-mir/unit-proof");
@@ -117,6 +118,285 @@ function invalidText(text, offset, expected, found, line = 1, column = offset + 
   same(product.parseMir(text), { kind: "invalid-text", offset, line, column, expected, found }, `complete invalid-text result for ${JSON.stringify(text)}`);
 }
 
+test("MIR keys admit the complete signed width before encoding their actual immutable payload", async () => {
+  const { accountFailure, chargeWork, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const { admitArtifactIdentity } = await import("../../packages/host/dist/ir-facts/index.js");
+  const { createProgramVerificationWork } = await import("../../packages/host/dist/ir-program/index.js");
+  const { ProgramWork } = await import("../../packages/host/dist/ir-program/work.js");
+  const { createProjectionInventory, finishProjection, prepareBindingsProjection, prepareMirBindingsProjection, projectRecord } =
+    await import("../../packages/host/dist/ir-program/program-values.js");
+  const create = maximumWork => createAccount({ maximumWork, maximumResultEntries: 128 });
+  const limits = { maximumCreatedRecords: 10000, maximumBindingVectorsPerArtifact: 8,
+    typeExpansion: { maximumDepth: 8, maximumVisits: 16, maximumUnionMembers: 4, maximumIntersectionMembers: 4 } };
+  const expected = value => ({ kind: "copied", value: { type: 0, value, key: product.constantKeyOfMir(0, value) } });
+  const key = (value, account, maximumCreatedRecords = limits.maximumCreatedRecords) => {
+    const meter = ProgramWork.state(createProgramVerificationWork({ ...limits, maximumCreatedRecords }, account));
+    const scan = createProjectionInventory(meter, { parameterBinding: value => value, selfBinding: value => value },
+      path => assert.fail(path));
+    const refusal = stop => stop === null ? null : { kind: "refused", stop };
+    return product.projectMirConstantKey(() => 0, () => value, {
+      work: count => refusal(chargeWork(account, count)), record: (fields, build) => projectRecord(scan, fields, build),
+      bindings: bindings => finishProjection(scan, prepareMirBindingsProjection(scan, bindings), { type: value => value, signature: value => value }),
+      artifact: bindings => refusal(admitArtifactIdentity(bindings, account)),
+    });
+  };
+  for (const [integer, widths] of [
+    [-129n, [8, 16]], [-128n, [8]], [127n, [8]], [128n, [8, 16]],
+    [-(1n << 256n), [8, 16, 32, 64, 128, 256, 512]], [1n << 256n, [8, 16, 32, 64, 128, 256, 512]],
+  ]) {
+    const token = integer.toString() + "n";
+    const value = { kind: "literal", value: { kind: "bigint", token, value: integer } };
+    const required = 6 + token.length + widths.reduce((sum, width) => sum + width, 0) + widths.at(-1) + 8 + 3;
+    const exact = create(required);
+    same(key(value, exact), expected(value), "exact signed magnitude key");
+    assert.equal(remainingWork(exact), 0);
+    for (let maximum = 0; maximum < required; maximum += 1) {
+      const account = create(maximum);
+      const refusal = key(value, account);
+      assert.equal(refusal.kind, "refused");
+      assert.equal(refusal.stop === accountFailure(account), true);
+    }
+  }
+  const denominator = 10n ** 200n;
+  const token = "-1e-200";
+  const complete = { numerator: -1n, denominator, negativeZero: false };
+  const value = { kind: "literal", value: { kind: "number", token, value: complete } };
+  const numeratorCharge = 5 + token.length + 1 + 8 + 8 + 8;
+  const denominatorCharge = 1 + (8 + 16 + 32 + 64 + 128 + 256 + 512 + 1024) + 1024 + 8;
+  const reads = [];
+  const traced = { ...value, value: { ...value.value, value: { ...complete,
+    get numerator() { reads.push("numerator"); return complete.numerator; },
+    get denominator() { reads.push("denominator"); return complete.denominator; },
+    get negativeZero() { reads.push("negativeZero"); return complete.negativeZero; },
+  } } };
+  for (const [maximum, expected] of [[numeratorCharge - 1, ["numerator"]], [numeratorCharge, ["numerator"]],
+    [numeratorCharge + 1, ["numerator", "denominator"]],
+    [numeratorCharge + denominatorCharge, ["numerator", "denominator"]]]) {
+    reads.length = 0;
+    const account = create(maximum);
+    const stopped = key(traced, account);
+    assert.equal(stopped.stop === accountFailure(account), true);
+    assert.deepEqual(reads, expected);
+  }
+  const exact = create(numeratorCharge + denominatorCharge + 1 + 1 + 4);
+  same(key(value, exact), expected(value), "same canonical rational");
+  assert.equal(remainingWork(exact), 0);
+  const ordinary = { kind: "literal", value: { kind: "number", token: "0.125", value: { numerator: 1n, denominator: 8n, negativeZero: false } } };
+  let rawToken = 0;
+  let rawNumerator = 0;
+  const crossed = { kind: "literal", value: { kind: "number", get token() {
+    if (++rawToken !== 1) assert.fail("the encoder must not read the raw token again");
+    return ordinary.value.token;
+  }, value: { ...ordinary.value.value, get numerator() {
+    return ++rawNumerator === 1 ? 1n : 1n << 4096n;
+  } } } };
+  same(key(crossed, create(200)), expected(ordinary), "the retained admitted numeric value is the exact encoded value");
+  assert.equal(rawToken, 1);
+  assert.equal(rawNumerator, 1);
+  const bindingSource = { kind: "instantiated", bindings: bindingVector };
+  for (const other of [{ kind: "literal", value: { kind: "absence" } }, { kind: "literal", value: { kind: "boolean", value: true } },
+    { kind: "literal", value: { kind: "string", value: "Ω𐐀" } }, { kind: "literal", value: { kind: "unique-symbol", declaration: endpoint.declaration } },
+    { kind: "definition", definition: endpoint.declaration, bindings: bindingSource },
+    { kind: "definition", definition: endpoint.declaration, bindings: { kind: "parametric" } },
+    { kind: "metadata", definition: endpoint.declaration, bindings: bindingSource }, { kind: "observation", at: nodeRef },
+    { kind: "constant", reference: { initializer: { ...instance, bindings: bindingSource }, context: "compile-time" } },
+  ]) {
+    const accounted = create(10000);
+    same(key(other, accounted), expected(other), `paid ${other.kind} key`);
+    const price = 10000 - remainingWork(accounted);
+    const under = create(price - 1);
+    assert.equal(key(other, under).stop === accountFailure(under), true);
+  }
+  const parameter = identities.encodeDefId({ module: origin.module, segments: [{ name: "run", ordinal: 0 }, { name: "T", ordinal: 0 }] });
+  const owner = endpoint.declaration;
+  const beforeTag = create(3 + owner.length);
+  const tagStop = key({ kind: "definition", definition: owner, bindings: {
+    get kind() { return assert.fail("the actual artifact tag must wait for its own paid admission"); },
+  } }, beforeTag);
+  assert.equal(tagStop.kind === "refused" && tagStop.stop === accountFailure(beforeTag), true);
+  assert.equal("value" in tagStop, false);
+  const unreadContext = { kind: "constant", reference: { initializer: { ...instance, bindings: bindingSource },
+    get context() { return assert.fail("a refused binding projection cannot read the constant context"); },
+  } };
+  assert.deepEqual(key(unreadContext, create(10000), 0),
+    { kind: "refused", stop: { kind: "resource-limit", dimension: "created-records", maximum: 0 } });
+  let parameterReads = 0;
+  let selfReads = 0;
+  let tagReads = 0;
+  const decision = { kind: "metadata", definition: owner, bindings: { kind: "instantiated", bindings: {
+    ...bindingVector,
+    methodBindings: [{ get kind() { tagReads += 1; return "rigid"; },
+      get parameter() { if (++parameterReads !== 1) assert.fail("the raw parameter cannot reach the key encoder"); return parameter; } }],
+    selfBindings: [{ get kind() { tagReads += 1; return "rigid"; },
+      get owner() { if (++selfReads !== 1) assert.fail("the raw self owner cannot reach the key encoder"); return owner; } }],
+  } } };
+  const expectedDecision = { kind: "metadata", definition: owner, bindings: { kind: "instantiated", bindings: {
+    ...bindingVector,
+    methodBindings: [{ kind: "rigid", parameter }],
+    selfBindings: [{ kind: "rigid", owner }],
+  } } };
+  same(key(decision, create(10000)), expected(expectedDecision), "qualified identity uses the single admitted rigid row");
+  assert.deepEqual([tagReads, parameterReads, selfReads], [2, 1, 1]);
+  for (const [maximum, expectedTags, expectedSelf] of [[1, 1, 0], [2, 2, 1]]) {
+    tagReads = 0; parameterReads = 0; selfReads = 0;
+    const stopped = key(decision, create(10000), maximum);
+    assert.deepEqual(stopped, { kind: "refused", stop: { kind: "resource-limit", dimension: "created-records", maximum } });
+    assert.deepEqual([tagReads, parameterReads, selfReads], [expectedTags, 0, expectedSelf]);
+  }
+  for (const [extra, expectedTags, expectedSelf] of [[12, 1, 0], [15, 2, 1]]) {
+    tagReads = 0; parameterReads = 0; selfReads = 0;
+    const account = create(owner.length + extra);
+    assert.equal(key(decision, account).stop === accountFailure(account), true);
+    assert.deepEqual([tagReads, parameterReads, selfReads], [expectedTags, 0, expectedSelf]);
+  }
+  const borrowedAccount = create(6);
+  const borrowedMeter = ProgramWork.state(createProgramVerificationWork({ ...limits, maximumCreatedRecords: 1 }, borrowedAccount));
+  const borrowedScan = createProjectionInventory(borrowedMeter, { parameterBinding: value => value, selfBinding: value => value },
+    path => assert.fail(path));
+  const rigid = { kind: "rigid", parameter };
+  const borrowed = finishProjection(borrowedScan, prepareBindingsProjection(borrowedScan, { ...bindingVector, methodBindings: [rigid] }),
+    { type: value => value, signature: value => value });
+  assert.equal(borrowed.value.methodBindings[0] === rigid, true);
+  assert.equal(remainingWork(borrowedAccount), 0);
+  assert.equal(borrowedMeter.created, 1);
+});
+
+test("one MIR ordinal image follows all operand roles and restores actual switch order", async () => {
+  const { accountFailure, chargeWork, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const { createInstantiationMeter } = await import("../../packages/host/dist/ir-program/work.js");
+  const { createProjectionInventory, followingProjection, orderProjection, projectRead, projectRecord, projectRows } =
+    await import("../../packages/host/dist/ir-program/program-values.js");
+  const copies = value => ({ kind: "copied", value });
+  const limits = { maximumWork: 100000, maximumCreatedRecords: 100000, maximumBindingVectorsPerArtifact: 1,
+    typeExpansion: { maximumDepth: 8, maximumVisits: 16, maximumUnionMembers: 4, maximumIntersectionMembers: 4 } };
+  const setup = bounded => {
+    const meter = createInstantiationMeter(bounded);
+    const scan = createProjectionInventory(meter, { parameterBinding: value => value, selfBinding: value => value },
+      path => assert.fail(path));
+    const ops = {
+      read: build => projectRead(scan, build), record: (fields, build) => projectRecord(scan, fields, build),
+      rows: (source, row) => projectRows(scan, source, row),
+      orderedRows: (source, row, compare) => followingProjection(projectRows(scan, source, row),
+        rows => orderProjection(scan, rows, compare)),
+      work: count => { const stop = meter.failure ?? chargeWork(meter.account, count); return stop === null ? null : { kind: "refused", stop }; },
+      type: type => type + 10, member: copies, instance: copies, operation: copies, callee: copies,
+    };
+    let missing = 0;
+    const ordinals = rows => product.projectMirConstantOrdinals(compare => orderProjection(scan, rows, compare), ops, () => {
+      missing += 1;
+      return { owner: "ir-mir", query: null, origin: null, message: "A constant use has no admitted ordinal image." };
+    });
+    return { meter, ops, ordinals, missingReads: () => missing };
+  };
+  const first = { kind: "literal", value: { kind: "boolean", value: false } };
+  const second = { kind: "literal", value: { kind: "boolean", value: true } };
+  const rows = [{ id: 0, type: 2, value: first, key: product.constantKeyOfMir(2, first) },
+    { id: 1, type: 1, value: second, key: product.constantKeyOfMir(1, second) }];
+  const oldFirst = constantOperand;
+  const oldSecond = { kind: "constant", constant: 1 };
+  const finalFirst = oldSecond;
+  const finalSecond = oldFirst;
+  const switchUses = { ...site, kind: "switch", operand: oldFirst, targets: [{ constant: 0, target: 2 }, { constant: 1, target: 3 }],
+    otherwise: 4, step: null };
+  const switchImage = { ...switchUses, operand: finalFirst, targets: [{ constant: 0, target: 3 }, { constant: 1, target: 2 }] };
+  const run = bounded => {
+    const reads = [];
+    const targets = [];
+    for (const [ordinal, target] of switchUses.targets.entries())
+      Object.defineProperty(targets, ordinal, { get() { reads.push(ordinal); return target; } });
+    const { meter, ops, ordinals } = setup(bounded);
+    const image = ordinals(rows.slice());
+    const result = image.kind === "refused" ? image : product.projectMirValues(ops, image.value.constantOf).terminator(
+      () => ({ ...switchUses, targets }), "switch");
+    return { result, reads, meter };
+  };
+  const needed = { ...limits, maximumWork: 40 + rows[0].key.length + rows[1].key.length, maximumCreatedRecords: 14 };
+  const exact = run(needed);
+  same(exact.result, copies(switchImage), "exact ConstId switch association and original block targets");
+  assert.deepEqual(exact.reads, [0, 1]);
+  assert.equal(remainingWork(exact.meter.account), 0);
+  assert.equal(exact.meter.created, needed.maximumCreatedRecords);
+  for (const field of ["maximumWork", "maximumCreatedRecords"]) {
+    for (let maximum = 0; maximum < needed[field]; maximum += 1) {
+      const cut = run({ ...needed, [field]: maximum });
+      assert.equal(cut.result.kind, "refused");
+      assert.equal(cut.result.stop === (cut.meter.failure ?? accountFailure(cut.meter.account)), true);
+      assert.deepEqual(cut.reads, exact.reads.slice(0, cut.reads.length));
+      if (field === "maximumCreatedRecords" && maximum === 12) assert.deepEqual(cut.reads, [0]);
+    }
+  }
+  const { ops, ordinals, missingReads } = setup(limits);
+  const image = ordinals(rows.slice());
+  same(image.value.constants, [{ id: 0, type: 1, value: second }, { id: 1, type: 2, value: first }], "dense final table");
+  same(ordinals([rows[1], rows[0]]).value.constants, image.value.constants, "already canonical input");
+  assert.deepEqual(ordinals([rows[0], { ...rows[0], id: 1 }]).value.constants.map(row => row.id), [0, 1],
+    "malformed equal keys are never silently coalesced");
+  assert.equal(image.value.constantOf(1), 0);
+  assert.equal(missingReads(), 0);
+  assert.throws(() => image.value.constantOf(2), { message: "A constant use has no admitted ordinal image." });
+  assert.equal(missingReads(), 1);
+  assert.throws(() => ordinals([rows[0], { ...rows[1], id: 0 }]),
+    { message: "A constant ordinal is published more than once." });
+  const values = product.projectMirValues(ops, image.value.constantOf);
+  for (const kind of ["place", "checked"]) {
+    const base = { kind, place: 1, tir: nodeRef, projection: { kind: "index", operand: oldFirst } };
+    same(values.placeBase(() => base), copies({ ...base, projection: { kind: "index", operand: finalFirst } }), kind);
+  }
+  const field = { kind: "place", place: 1, tir: nodeRef, projection: { kind: "field", member } };
+  same(values.placeBase(() => field), copies(field), "already selected field authority");
+  for (const base of [{ kind: "local", local: 0 }, { kind: "static", definition: endpoint.declaration },
+    ...[{ kind: "deref" }, { kind: "refined" }, { kind: "capture", index: 0 }, { kind: "element", index: 1 }]
+      .map(projection => ({ ...field, projection }))]) assert.equal(values.placeBase(() => base).value === base, true);
+  function assign(value, expected) {
+    const statement = { ...site, kind: "assign", place: 1, value, step: null };
+    same(values.statement(() => statement, "statement"), copies({ ...statement, value: expected }), value.kind);
+  }
+  assign({ kind: "use", operand: oldFirst }, { kind: "use", operand: finalFirst });
+  assign({ kind: "unary", operation, operand: oldFirst }, { kind: "unary", operation, operand: finalFirst });
+  assign({ kind: "binary", operation, left: oldFirst, right: oldSecond },
+    { kind: "binary", operation, left: finalFirst, right: finalSecond });
+  assign({ kind: "convert", operation, operand: oldFirst, to: 1 }, { kind: "convert", operation, operand: finalFirst, to: 11 });
+  assign({ kind: "address-of", place: 0, type: 1 }, { kind: "address-of", place: 0, type: 11 });
+  const closure = { kind: "closure", instance, captures: [] };
+  assign(closure, closure);
+  for (const kind of ["array", "tuple", "fixed-array"]) {
+    assign({ kind: "aggregate", type: 2, aggregate: { kind, elements: [oldSecond, placeOperand, oldFirst] } },
+      { kind: "aggregate", type: 12, aggregate: { kind, elements: [finalSecond, placeOperand, finalFirst] } });
+  }
+  for (const kind of ["object", "record"]) {
+    assign({ kind: "aggregate", type: 2, aggregate: { kind, fields: [{ member, value: oldFirst }] } },
+      { kind: "aggregate", type: 12, aggregate: { kind, fields: [{ member, value: finalFirst }] } });
+  }
+  for (const kind of ["storage-live", "storage-dead"]) {
+    const statement = { ...site, kind, local: 1 };
+    assert.equal(values.statement(() => statement, "storage").value === statement, true);
+  }
+  const unwind = { kind: "escape" };
+  const indirect = { kind: "indirect", resolution: callee, operand: oldSecond };
+  const args = [{ kind: "value", passing: "move", operand: oldFirst }, { kind: "omitted" }, { kind: "place", passing: "byref-readwrite", place: 1 }];
+  const call = { ...site, kind: "call", callee: indirect, receiver: oldFirst, arguments: args, destination: 1, next: 2, unwind, step: null };
+  same(values.terminator(() => call, "call"), copies({ ...call, callee: { ...indirect, operand: finalSecond }, receiver: finalFirst,
+    arguments: [{ ...args[0], operand: finalFirst }, args[1], args[2]] }), "call receiver, indirect callee and actual argument order");
+  for (const selected of [{ kind: "direct", resolution: callee }, { kind: "body", instance, captures: [] }]) {
+    const direct = { ...call, callee: selected, receiver: null, arguments: [] };
+    same(values.terminator(() => direct, "call"), copies(direct), selected.kind);
+  }
+  const common = { ...site, destination: 1, resume: 2, unwind, step: null };
+  for (const [source, expected] of [
+    [{ ...site, kind: "invoke", operation, operands: [oldFirst, oldSecond], destination: 1, next: 2, unwind, step: null },
+      { operands: [finalFirst, finalSecond] }],
+    [{ ...common, kind: "await", operand: oldFirst }, { operand: finalFirst }],
+    [{ ...common, kind: "yield", operand: oldFirst, return: { destination: 2, target: 3 } }, { operand: finalFirst }],
+    [{ ...common, kind: "yield", operand: null, return: { destination: 2, target: 3 } }, {}],
+    [{ ...common, kind: "delegate", iterator: oldSecond, return: { destination: 2, target: 3 } }, { iterator: finalSecond }],
+    [{ ...site, kind: "return", value: oldFirst }, { value: finalFirst }],
+    [{ ...site, kind: "return", value: null }, {}],
+    [{ ...site, kind: "throw", operand: oldSecond, unwind }, { operand: finalSecond }],
+  ]) same(values.terminator(() => source, source.kind), copies({ ...source, ...expected }), source.kind);
+  for (const term of [{ ...site, kind: "goto", target: 2 }, { ...site, kind: "check", place: 1, next: 2, unwind },
+    { ...site, kind: "unreachable" }]) assert.equal(values.terminator(() => term, term.kind).value === term, true);
+});
+
 for (const level of ["function", "verifier"]) for (const name of readdirSync(resolve(repository, `test/host-cases/ir-mir/${level}`)).filter(name => name.endsWith(".case.json")).sort()) {
   test(`MIR independently authored ${level} fixture ${name}`, async () => {
     const descriptor = `test/host-cases/ir-mir/${level}/${name}`;
@@ -158,7 +438,8 @@ for (const level of ["function", "verifier"]) for (const name of readdirSync(res
 }
 
 test("MIR public index has exactly the five current ports", () => {
-  same(Object.keys(product).sort(), ["constantKeyOfMir", "localOwnershipOfMir", "parseMir", "printMir", "verifyMir"], "exact public value inventory");
+  same(Object.keys(product).sort(), ["constantKeyOfMir", "localOwnershipOfMir", "parseMir", "printMir", "projectMirConstantKey",
+    "projectMirConstantOrdinals", "projectMirValues", "verifyMir"], "exact public value inventory");
 });
 
 test("MIR storage modes preserve their exact scalar transport and one ownership projection", () => {
@@ -1054,6 +1335,57 @@ test("MIR root collectors pre-admit sparse and huge root vectors before any unpa
   const result = verifyValues({ ...base, locals }, context, new Map(), new Map(), meter);
   assert.equal(meter.exhausted, true);
   same(result.types, [], "the admitted sparse slot creates no root");
+});
+
+test("MIR verification pays each wrapped static target before attributing its store or invocation", async () => {
+  const { verifyValues } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
+  const base = parsedBody();
+  const context = sourceContext(base);
+  const definition = context.source.owner;
+  const resolution = { kind: "static", declaration: { owner: definition, node: 2 }, aliases: [] };
+  const operand = { kind: "place", place: 1 };
+  const type = { type: 3, convertedType: 3, conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" } };
+  for (const kind of ["BinaryExpression", "PostfixUnaryExpression"]) {
+    const invocation = kind === "PostfixUnaryExpression";
+    const access = invocation ? { kind: "read-write", storage: 3, read: 3, narrowing: null, evidenceIndex: null } : { kind: "write", storage: 3 };
+    const name = { kind: "Identifier", tsonic: { role: "assignment-target", resolution, access } };
+    const readSite = { ...site, tir: { ...site.tir, node: 2 } };
+    const wrap = expression => ({ kind: "ParenthesizedExpression", expression, tsonic: type });
+    const wrapped = wrap(wrap(name));
+    const body = { ...base, locals: [
+      { id: 0, storage: 3, role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin },
+    ], places: [
+      { id: 0, storage: 3, base: { kind: "static", definition } },
+      { id: 1, storage: 3, base: { kind: "local", local: 0 } },
+    ], blocks: [{ ...base.blocks[0], statements: invocation ? [
+      { kind: "assign", ...readSite, place: 1, value: { kind: "use", operand: { kind: "place", place: 0 } }, step: null },
+    ] : [
+      { kind: "assign", ...site, place: 0, value: { kind: "use", operand }, step: null },
+    ], terminator: invocation ? { kind: "invoke", ...site, operation: { ...operation,
+      decision: { ...operation.decision, operation: { kind: "native-operator", operator: "++", carrier: "int32" },
+        execution: { kind: "invocation", failure: "abort", writesStorage: false }, operands: [3], result: 3 } },
+      operands: [operand], destination: 1, next: 0, unwind: { kind: "abort" }, step: null }
+      : base.blocks[0].terminator }] };
+    const verify = (expression, maximum) => {
+      const node = invocation ? { kind, operand: expression, tsonic: { ...type, storage: 3 } }
+        : { kind, left: expression, tsonic: { ...type, role: "assignment", calculation: null } };
+      const nodes = new Map([[site.tir.node, { node }]]);
+      if (invocation) nodes.set(readSite.tir.node, { node: name });
+      const meter = { spent: 0, maximum, exhausted: false };
+      const result = verifyValues(body, context, nodes, new Map(), meter);
+      return { meter, result };
+    };
+    const direct = verify(name, 1000);
+    const exact = direct.meter.spent + 2;
+    assert.deepEqual(direct.result.violations, []);
+    assert.deepEqual(verify(wrapped, exact).result, direct.result);
+    for (let maximum = 0; maximum <= exact; maximum += 1) {
+      const state = verify(wrapped, maximum);
+      assert.equal(state.meter.spent, maximum);
+      assert.equal(state.meter.exhausted, maximum < exact);
+      assert.deepEqual(state.result.violations, []);
+    }
+  }
 });
 
 test("MIR literal constant types compare every exact declared value family without authored-token normalization", () => {
@@ -2357,8 +2689,8 @@ test("MIR constant-type: a literal is a value its declared native carrier holds 
   const ty = { bool: 1, string: 2, int32: 3, unknown: 4, ...Object.fromEntries(extra.map(([name], position) => [name, 5 + position])) };
   const input = { ...context, types: { ...context.types, terms: [...context.types.terms, ...extra.map(([, term]) => term)] } };
   const number = (numerator, denominator = 1n, negativeZero = false) => ({ kind: "number", token: "n", value: { numerator, denominator, negativeZero } });
-  const held = (type, value) => {
-    const findings = verified({ ...base, constants: [{ id: identities.constId(0), type: identities.tyId(ty[type]), value: { kind: "literal", value } }] }, input);
+  const held = (type, value, selected = input) => {
+    const findings = verified({ ...base, constants: [{ id: identities.constId(0), type: identities.tyId(ty[type]), value: { kind: "literal", value } }] }, selected);
     const constantType = findings.filter(violation => violation.rule === "constant-type");
     assert.equal(findings.length, constantType.length, `${type}: no other finding`);
     return constantType.length === 0;
@@ -2384,11 +2716,12 @@ test("MIR constant-type: a literal is a value its declared native carrier holds 
     ["optional-int32", { kind: "absence" }, true], ["optional-int32", number(5n), true], ["optional-int32", number(1n, 2n), false],
     ["optional-optional", number(5n), true], ["optional-optional", { kind: "string", value: "x" }, false],
     ["unknown", { kind: "string", value: "anything" }, true], ["array", { kind: "string", value: "anything" }, false],
+    ["float64", number(0n, 1n, true), true], ["float64", number(2n ** 1024n - 2n ** 971n), true],
   ];
   assert.equal(ty["optional-int32"], 17);
   const unproven = [
     ["char", number(65535n)], ["char", number(65536n)], ["char", number(1n, 2n)], ["char", { kind: "string", value: "a" }],
-    ["float64", number(1n, 10n)], ["float64", number(0n, 1n, true)], ["float64", number(2n ** 1024n - 2n ** 971n)],
+    ["float64", number(1n, 10n)],
     ["float64", number(2n ** 1024n - 2n ** 970n - 1n)], ["float64", number(2n ** 1024n - 2n ** 970n)], ["float64", number(-(2n ** 1024n))], ["float64", { kind: "bigint", token: "b", value: 1n }],
     ["float32", number(2n ** 128n - 2n ** 104n)], ["float32", number(2n ** 128n - 2n ** 103n - 1n)], ["float32", number(2n ** 128n - 2n ** 103n)],
     ["float16", number(65504n)], ["float16", number(65519n)], ["float16", number(65520n)], ["float16", number(131039n, 2n)],
@@ -2399,6 +2732,8 @@ test("MIR constant-type: a literal is a value its declared native carrier holds 
   for (const [type, value] of unproven) assert.throws(() => held(type, value),
     new RegExp(`missing selected literal ${type === "char" || type === "decimal" ? "representation" : "literal-conversion"} evidence`),
     "missing actual selected representation is an explicit compiler-input frontier, never a fit certificate or false value");
+  assert.throws(() => held("float64", number(0n, 1n, true), { ...input,
+    selectedNativeFacts: { ...input.selectedNativeFacts, floatingFormats: [] } }), /missing selected literal literal-conversion evidence/u);
   for (const [type, value] of [["float16", number(131040n, 2n)], ["decimal", number(2n ** 68n - 1n, 5n ** 28n)]])
     assert.equal(held(type, value), false, "an unreduced rational fails integrity before a missing conversion can be consumed");
   // A type the table does not have: its reference is the type rule's finding, and the literal is not compared.
@@ -3636,8 +3971,8 @@ test("MIR JSON strings preserve every escape and reject complete lexical/type fa
   invalidText("MirBody(body=body:true)", "MirBody(body=body:".length, ["string"], "t");
 });
 
-const dependencyNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir"];
-const interfaceSources = ["ids/contract", "ids/index", "diag/contract", "ir-types/contract", "ir-types/index", "ir-hir/contract", "ir-hir/index", "ir-infer/contract", "ir-tir/contract"]
+const dependencyNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "step"];
+const interfaceSources = ["ids/contract", "ids/index", "diag/contract", "diag/index", "ir-types/contract", "ir-types/index", "ir-hir/contract", "ir-hir/index", "ir-infer/contract", "ir-tir/contract"]
   .map(name => `packages/host/src/${name}.ts`);
 
 test("MIR complete module isolates against real original public dependency values and actual strict declaration closure", async () => {
@@ -3765,9 +4100,9 @@ after(async () => {
     writeFileSync(resolve(evidenceDirectory, "coverage.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(evidenceDirectory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, 11, "all eleven genuine runtime owners need nonempty source-identified raw evidence");
+    assert.equal(result.length, 13, "all thirteen genuine runtime owners need nonempty source-identified raw evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
-    assert.equal(report.files.filter(file => file.status === "covered").length, 11);
+    assert.equal(report.files.filter(file => file.status === "covered").length, 13);
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1, "only the actual type-only contract is N/A");
     for (const file of report.files.filter(file => file.status === "covered")) {
       assert.equal(file.lines, 100, basename(file.path));

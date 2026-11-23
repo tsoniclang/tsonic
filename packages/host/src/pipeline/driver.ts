@@ -28,10 +28,17 @@ export type ApplyRoute<Inputs, Answer, Witness, ErrorData> = <Out>(
   reader: <Value, Request, Inner, State>(application: Application<Inputs, Value, Request, Inner, State, Answer, Witness, ErrorData>) => Out,
 ) => Out;
 
+export type ReadReportRoute<Inputs, Witness, ErrorData> = <Out>(
+  reader: <Key, Value>(query: Query<Inputs, Key, Value, Witness, ErrorData>, key: Key, witness: Witness,
+    report: (value: Value, errorOf: (unit: UnitRef) => UnitErrorRead) => UnitRef) => Out,
+) => Out;
+
 export type Route<Inputs, Answer, Witness, ErrorData> =
   | { readonly way: "fact"; readonly read: ReadRoute<Inputs, Answer, Witness, ErrorData> }
   | { readonly way: "projection"; readonly read: ReadRoute<Inputs, Answer, Witness, ErrorData> }
-  | { readonly way: "nested"; readonly apply: ApplyRoute<Inputs, Answer, Witness, ErrorData> };
+  | { readonly way: "nested"; readonly apply: ApplyRoute<Inputs, Answer, Witness, ErrorData> }
+  | { readonly way: "report"; readonly read: ReadReportRoute<Inputs, Witness, ErrorData> }
+  | { readonly way: "abandon"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] };
 
 export interface Row<Inputs, Key, Value, Request, Answer, State, Witness, ErrorData> {
   readonly name: string;
@@ -54,6 +61,13 @@ export function projectionRoute<Inputs, Key, Value, Answer, Witness, ErrorData>(
   project: (value: Value, errorOf: (unit: UnitRef) => UnitErrorRead) => Answer,
 ): Route<Inputs, Answer, Witness, ErrorData> {
   return ({ way: "projection", read: reader => reader(query, key, project) });
+}
+
+export function abandonAtReport<Inputs, Key, Value, Witness, ErrorData>(
+  query: Query<Inputs, Key, Value, Witness, ErrorData>, key: Key, witness: Witness,
+  report: (value: Value, errorOf: (unit: UnitRef) => UnitErrorRead) => UnitRef,
+): Route<Inputs, never, Witness, ErrorData> {
+  return { way: "report", read: reader => reader(query, key, witness, report) };
 }
 
 /**
@@ -129,6 +143,9 @@ export function defineQuery<Inputs, Key, Value, Request, Answer, State, Witness,
       return stated;
     }
 
+    const refused = (diagnostics: readonly [Diagnostic, ...Diagnostic[]]): Computation =>
+      ({ kind: "abandoned", diagnostics, earned: hand() });
+
     function settle<Now>(progress: Progress<Inputs, Now, Value, Witness, ErrorData>, then: (value: Now) => Computation): Computation {
       return progress.kind === "now" ? then(progress.value) : progress.computation;
     }
@@ -141,6 +158,10 @@ export function defineQuery<Inputs, Key, Value, Request, Answer, State, Witness,
       for (let next = requests.next(); next.done !== true; next = requests.next()) {
         const request = next.value;
         const selected = operations.route(request);
+        if (selected.way === "abandon") return { kind: "later", computation: refused(selected.diagnostics) };
+        if (selected.way === "report") return { kind: "later", computation: selected.read((query, key, witness, report) =>
+          context.get(query, key, { witness, earned: hand() }, value => ({ kind: "abandoned-at-report",
+            report: report(value, context.errorOf), earned: hand() }))) };
         if (selected.way !== "nested") {
           return ({ kind: "later", computation: selected.read((query, dependencyKey, answer) =>
             context.get(query, dependencyKey, { witness: operations.witness(request, state, answers), earned: hand() }, value => {
@@ -148,8 +169,6 @@ export function defineQuery<Inputs, Key, Value, Request, Answer, State, Witness,
               return proceed();
             })) });
         }
-        const refused = (diagnostics: readonly [Diagnostic, ...Diagnostic[]]): Computation =>
-          ({ kind: "abandoned", diagnostics, earned: hand() });
         const nested = selected.apply((application): Progress<Inputs, UnitResult<Answer>, Value, Witness, ErrorData> => {
           const progress = runSteps(application.start(context.inputs), application, result => {
             const outcome = mapResult(result, application.answer);

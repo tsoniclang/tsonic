@@ -1,7 +1,7 @@
 import type { ComponentSelector, SumArmRole, SumFamily, TypeComponent, TypeProjection } from "./contract.js";
 import type { TypeTextValues } from "./text-values.js";
 import type { RecordReader } from "./text-readers.js";
-import { arrayReader, lazyReader, recordReader, unionReader } from "./text-readers.js";
+import { arrayReader, lazyReader, nullableReader, recordReader, unionReader } from "./text-readers.js";
 
 export function createTypeComponentReaders(values: TypeTextValues) {
   const reader_component = recordReader<TypeComponent>("TypeComponent", read => {
@@ -127,10 +127,31 @@ export function createTypeComponentReaders(values: TypeTextValues) {
     default: return null;
     }
   });
-  const reader_projection: RecordReader<TypeProjection> = unionReader(["awaited","component"], label => {
+  const reader_projection: RecordReader<TypeProjection> = unionReader(["awaited","keyof","indexed","substitution","conditional","component"], label => {
     switch (label) {
     case "awaited": return recordReader<TypeProjection>("awaited", () => {
       return { fields: [], value: () => ({ kind: "awaited" }) };
+    });
+    case "keyof": return recordReader<TypeProjection>("keyof", () => {
+      return { fields: [], value: () => ({ kind: "keyof" }) };
+    });
+    case "indexed": return recordReader<TypeProjection>("indexed", read => {
+      const field_index = read("index", lazyReader(() => values["type-id"]));
+      return { fields: [field_index], value: () => ({ kind: "indexed", index: field_index.value() }) };
+    });
+    case "substitution": return recordReader<TypeProjection>("substitution", read => {
+      const constraint = read("constraint", lazyReader(() => values["type-id"]));
+      return { fields: [constraint], value: () => ({ kind: "substitution", constraint: constraint.value() }) };
+    });
+    case "conditional": return recordReader<TypeProjection>("conditional", read => {
+      const extended = read("extends", lazyReader(() => values["type-id"]));
+      const whenTrue = read("whenTrue", lazyReader(() => values["type-id"]));
+      const whenFalse = read("whenFalse", lazyReader(() => values["type-id"]));
+      const distributive = read("distributive", lazyReader(() => values["boolean"]));
+      const inferParameter = read("inferParameter", nullableReader(() => values["definition-id"]));
+      return { fields: [extended, whenTrue, whenFalse, distributive, inferParameter], value: () => ({ kind: "conditional",
+        extends: extended.value(), whenTrue: whenTrue.value(), whenFalse: whenFalse.value(), distributive: distributive.value(),
+        inferParameter: inferParameter.value() }) };
     });
     case "component": return recordReader<TypeProjection>("component", read => {
       const field_component = read("component", lazyReader(() => reader_component));

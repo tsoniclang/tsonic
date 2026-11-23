@@ -1,4 +1,5 @@
-import { Program_GetDefaultResolutionModeForFile, Program_GetSourceFileForResolvedModule, Program_GetSourceFile, Program_GetSourceFiles, Program_ResolveModuleName, } from "../internal/compiler/program.js";
+import { Node_ModuleSpecifier } from "../internal/ast/ast.js";
+import { Program_GetDefaultResolutionModeForFile, Program_GetResolvedModuleFromModuleSpecifier, Program_GetSourceFileForResolvedModule, Program_GetSourceFile, Program_GetSourceFiles, Program_ResolveModuleName, } from "../internal/compiler/program.js";
 import { ResolvedModule_IsResolved } from "../internal/module/types.js";
 import { createAstReader } from "../services/ast-reader.js";
 import { createTypeCheckerQueries } from "../services/type-checker.js";
@@ -31,10 +32,12 @@ export function createSourceProgramQueries(program, options = {}) {
         }
         const sourceChecker = createTypeCheckerQueries(program, {
             ...(options.context === undefined ? {} : { context: options.context }),
+            ...(options.admitsCheckerDiagnostic === undefined ? {} : { admitsCheckerDiagnostic: options.admitsCheckerDiagnostic }),
             sourceFile,
         });
         const sourceTypeShape = createTypeShapeQueries(program, {
             ...(options.context === undefined ? {} : { context: options.context }),
+            ...(options.admitsCheckerDiagnostic === undefined ? {} : { admitsCheckerDiagnostic: options.admitsCheckerDiagnostic }),
             sourceFile,
         });
         const created = Object.freeze({
@@ -45,6 +48,24 @@ export function createSourceProgramQueries(program, options = {}) {
         });
         sourceFileQueries.set(sourceFile, created);
         return created;
+    };
+    const getCheckedModulePackage = (moduleSpecifier) => {
+        if (moduleSpecifier === undefined)
+            return undefined;
+        const kind = ast.kindName(moduleSpecifier);
+        const parent = ast.parent(moduleSpecifier);
+        const parentKind = ast.kindName(parent);
+        const owner = parentKind === "KindLiteralType" ? ast.parent(parent) : undefined;
+        const staticReference = (parentKind === "KindImportDeclaration" || parentKind === "KindExportDeclaration")
+            ? Node_ModuleSpecifier(parent) === moduleSpecifier
+            : parentKind === "KindLiteralType" && ast.as.AsLiteralTypeNode(parent)?.Literal === moduleSpecifier &&
+                ast.kindName(owner) === "KindImportType" && ast.as.AsImportTypeNode(owner)?.Argument === parent;
+        const file = ast.getSourceFile(moduleSpecifier);
+        if (!staticReference || (kind !== "KindStringLiteral" && kind !== "KindNoSubstitutionTemplateLiteral") ||
+            file === undefined || !containsSourceFile(file) || !included(file))
+            return undefined;
+        const resolved = Program_GetResolvedModuleFromModuleSpecifier(program, file, moduleSpecifier);
+        return resolved?.PackageId.Name ? resolved.PackageId : undefined;
     };
     const resolveModuleSourceFile = (moduleSpecifier) => {
         if (moduleSpecifier === undefined) {
@@ -90,6 +111,7 @@ export function createSourceProgramQueries(program, options = {}) {
             }
             return Object.freeze(constraints);
         },
+        getCheckedModulePackage,
         resolveModuleSourceFile,
     });
 }

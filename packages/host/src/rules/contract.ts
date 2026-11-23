@@ -1,17 +1,19 @@
 import type { Result } from "../diag/contract.js";
-import type { TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
+import type { SelectedNativeFacts, TypeExpansionLimits, TypeInterner, TypeTerm } from "../ir-types/contract.js";
 import type {
   ApplicationDecision, CandidateInput, CaptureModeEvidence, CaptureRow, ClosureDecision, ClosureInput, CoreInput, DomainFitInput, EmbedInput,
   EmbeddingDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralFitInput,
-  MemberDecision, MemberInput, MemoryEquivalentInput, OperationDecision, OperatorInput,
-  ProtocolInput, RefinementDecision, RefinementInput, RuleOutcome, RuleTable,
+  MemberDecision, MemoryEquivalentInput, OperationDecision, OperatorInput,
+  ProtocolInput, RefinementDecision, RefinementInput, RuleOutcome, RuleTable, TypePatternMatchOutcome,
 } from "../ir-infer/contract.js";
 import type { Libraries } from "../libraries/contract.js";
+import type { MemberSuspension } from "./member-pause.js";
 
 // No synchronous readers of members, signatures, attributes, constants or produced types: a rule's answers arrive in its
 // input (COMPONENTS §3 part 9).
 export interface RulesDeps {
   readonly libraries: Libraries;
+  readonly selectedNativeFacts: SelectedNativeFacts;
   readonly types: TypeInterner;
   readonly typeExpansion: TypeExpansionLimits;
 }
@@ -31,10 +33,8 @@ export type MemoryEquivalent = (
   input: MemoryEquivalentInput,
 ) => Result<RuleOutcome<boolean>>;
 
-export type LookupMember = (
-  deps: RulesDeps,
-  input: MemberInput,
-) => Result<RuleOutcome<MemberDecision>>;
+export type MemberRuleContinuation = MemberSuspension;
+export type TypePatternMatch = (check: TypeTerm, pattern: TypeTerm) => TypePatternMatchOutcome;
 
 export type LookupIndex = (
   deps: RulesDeps,
@@ -91,4 +91,4 @@ export type DecideCaptureModes = (
   input: readonly CaptureModeEvidence[],
 ) => Result<readonly CaptureRow[]>;
 
-export type CreateRuleTable = (deps: RulesDeps) => RuleTable;
+export type CreateRuleTable = (deps: RulesDeps) => RuleTable<MemberRuleContinuation>;

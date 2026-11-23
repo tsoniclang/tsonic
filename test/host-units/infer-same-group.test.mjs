@@ -1,3 +1,4 @@
+import { fixtureTypeWork, insertFixtureType, insertFixtureSignature } from "./fixtures/types-construction.mjs";
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { before, test } from "node:test";
@@ -21,21 +22,49 @@ const LIMITS = { maximumVariablesPerGroup: 128, maximumAtomicContributionsPerGro
 const GRAPH = { maximumWork: 65536, maximumResultEntries: 65536 };
 
 function ready(source) {
-  const { checked, interner } = fixture.checkedModuleOf(source);
+  const { checked, interner, snapshot } = fixture.checkedModuleOf(source);
   assert.deepEqual(fixture.verifyChecked(checked, interner), []);
   const domain = checkedDomain(checked, fixture.hir);
   const { nodes } = domain;
   const items = new Map(checked.items.map(item => [item.definition, nodes[item.node]]));
   items.set(checked.tree.tsonic.definition, checked.tree);
-  const descriptions = new Map(wiring.decls.describeDefinitions({ module: checked, nodes }, []).definitions
+  const scopes = fixture.hir.deriveDeclarationScopes(checked, nodes);
+  const descriptions = new Map(wiring.decls.describeDefinitions({ module: checked, nodes }, scopes, []).definitions
     .map(item => [item.definition, item]));
-  const deps = pipeline.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] },
-    types: interner, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual body required"),
+  const typeWork = fixtureTypeWork(fixture.types);
+  const deps = pipeline.inferDepsOf({ structuralCuts: domain.sources.structuralCuts, cuts: domain.sources.cuts, checkedNodeOf: domain.nodeOf, typeWork,
+    rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] },
+    types: interner, selectedNativeFacts: snapshot.nativeFacts, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual body required"),
     itemOf: definition => items.get(definition) ?? assert.fail("actual declaration required"), bindings: [checked.bindings], ...fixture.hir.createModuleBindingViews([checked.bindings]), limits: LIMITS, graph: GRAPH });
-  const inputs = { modules: [{ module: checked, nodes }], types: interner, typeExpansion: EXPANSION };
+  const inputs = { modules: [{ module: checked, nodes }], types: interner, typeWork, typeExpansion: EXPANSION };
   const partition = wiring.infer.groupsOf(deps, checked.bodies.map(body => body.body));
   assert.equal(partition.kind, "ok");
   return { checked, interner, domain, descriptions, deps, inputs, items, groups: partition.value };
+}
+
+function verificationViews(program, record) {
+  const { group, constraints } = record;
+  const exported = fixture.types.exportTypes(program.interner, { maximumWork: 1000000, maximumCreatedRecords: 100000 });
+  assert.equal(exported.kind, "complete");
+  const types = { terms: exported.value.types.map((unused, index) => fixture.types.readType(program.interner, index)),
+    signatures: exported.value.signatures.map((unused, index) => fixture.types.readSignature(program.interner, index)) };
+  const declarationOf = definition => {
+    const node = program.items.get(definition);
+    const description = program.descriptions.get(definition);
+    return node === undefined || description === undefined ? null : { scope: description.generics,
+      parameterCount: "parameters" in node && "nodes" in node.parameters ? node.parameters.nodes.length : null,
+      endpoints: "signatures" in node.tsonic ? node.tsonic.signatures : [] };
+  };
+  return { types, declarationOf, nominalOf: () => null,
+    bindingScopes: irInfer.inferenceBindingSites({ group, constraints, solution: record.solution }).map(binding =>
+      program.descriptions.get(binding.definition ?? program.domain.bodyOf.get(binding.site.kind === "body" ? binding.site.body
+        : binding.site.kind === "constraint" ? binding.site.constraint.body : assert.fail("This fixture requires its actual binding owner.")).owner).generics),
+    nodeExists: reference => program.domain.nodeOf(reference) !== null, localExists: program.domain.localExists };
+}
+
+function verifyRecord(program, record) {
+  return irInfer.verifyInference({ ...record, ...verificationViews(program, record),
+    placedSignatureOf: body => record.placements.get(body) ?? null });
 }
 
 function drive(program) {
@@ -44,7 +73,7 @@ function drive(program) {
   const signature = (request, group) => {
     assert.equal(group.signatures.some(part => part.definition === request.definition), false,
       "a group never requests its own completed declaration");
-    let step = wiring.decls.declaredSignatureOf(program.inputs, request);
+    let step = wiring.decls.declaredSignatureOf(program.inputs, request, program.domain.sources.cuts);
     if (step.kind === "paused") {
       const answers = step.requests.map(request => {
         const result = parts.get(irInfer.inferredPartKey(request.part));
@@ -74,7 +103,7 @@ function drive(program) {
     assert.equal(solving.kind, "paused");
     const answers = solving.requests.map(request => {
       if (request.kind === "declaredSignatureOf") return { kind: request.kind, value: signature(request.request, group) };
-      const step = wiring.decls.placeSignature(program.inputs, request.placement, { query: "solutionOf", key: group.id });
+      const step = wiring.decls.placeSignature(program.inputs, request.placement, { query: "solutionOf", key: group.id }, program.domain.sources.cuts);
       assert.equal(step.kind, "done");
       assert.equal(step.value.kind, "ok");
       assert.equal(step.value.positions.every(position => position.error === null), true);
@@ -83,23 +112,13 @@ function drive(program) {
     const done = wiring.infer.resumeSolveGroup(program.deps, solving.paused, answers);
     assert.equal(done.kind, "done");
     assert.equal(done.value.kind, "ok");
-    const record = { group, constraints, ...done.value.value };
-    const exported = fixture.types.exportTypes(program.interner, { maximumWork: 1000000, maximumCreatedRecords: 100000 });
-    assert.equal(exported.kind, "complete");
-    const types = { terms: exported.value.types.map((unused, index) => fixture.types.readType(program.interner, index)),
-      signatures: exported.value.signatures.map((unused, index) => fixture.types.readSignature(program.interner, index)) };
-    const declarationOf = definition => {
-      const node = program.items.get(definition);
-      const description = program.descriptions.get(definition);
-      return node === undefined || description === undefined ? null : { scope: description.generics,
-        parameterCount: "parameters" in node && "nodes" in node.parameters ? node.parameters.nodes.length : null,
-        endpoints: "signatures" in node.tsonic ? node.tsonic.signatures : [] };
-    };
-    assert.deepEqual(irInfer.verifyInference({ ...record, types, declarationOf, nominalOf: () => null,
-      bindingScopes: irInfer.inferenceBindingSites({ group, constraints, solution: record.solution }).map(binding =>
-        program.descriptions.get(binding.definition ?? program.domain.bodyOf.get(binding.site.kind === "body" ? binding.site.body
-          : binding.site.kind === "constraint" ? binding.site.constraint.body : assert.fail("This fixture requires its actual binding owner.")).owner).generics),
-      nodeExists: reference => program.domain.nodeOf(reference) !== null, localExists: program.domain.localExists }), []);
+    const placements = new Map(group.bodies.map((body, index) => {
+      const answer = answers[index];
+      return [body, (answer.kind === "placeSignature" ? answer.value.signature : answer.value).id];
+    }));
+    const record = { group, constraints, generated: generation.value.value, placements, ...done.value.value,
+      handoff: { requests: solving.requests, answers } };
+    assert.deepEqual(verifyRecord(program, record), []);
     for (const set of constraints) for (const variable of set.variables) if (variable.kind === "signature")
       parts.set(irInfer.inferredPartKey(variable.signature), { part: variable.signature,
         type: record.solution.variables[variable.id].value.type, error: record.solution.variables[variable.id].error,
@@ -109,6 +128,243 @@ function drive(program) {
   }
   return completed;
 }
+
+test("a checked no-value result has one default decision and no invented producer", () => {
+  const program = ready("export function quit() { return; } export function value(flag: boolean) { return flag; }");
+  const records = [...drive(program).values()];
+  const record = records.find(row => row.constraints.some(set =>
+    set.constraints.some(constraint => constraint.kind === "default" && constraint.rule === "signature-producers")));
+  assert.ok(record);
+  const [set] = record.constraints;
+  const [variable] = set.variables;
+  const [fallback] = set.constraints;
+  assert.equal(variable.kind, "signature");
+  assert.equal(variable.signature.part.kind, "return");
+  assert.deepEqual(fallback, { kind: "default", rule: "signature-producers", variable: variable.id,
+    occurrence: variable.occurrence, type: record.solution.bodies[0].completion });
+  assert.deepEqual(set.evidence, []);
+  assert.equal(record.contributions.length, 1);
+  assert.deepEqual(record.contributions[0].reads, [variable.id]);
+  assert.deepEqual(record.contributions[0].bounds, []);
+  assert.deepEqual(record.solution.checks, []);
+  assert.deepEqual(record.solution.constraints[0].decision, { kind: "default", type: fallback.type });
+  const value = records.find(row => row !== record && row.group.signatures.some(part => part.part.kind === "return"));
+  const type = value.solution.bodies[0].completion;
+  const crossed = { ...record, solution: { ...record.solution, constraints: record.solution.constraints.map(row =>
+    ({ ...row, decision: { ...row.decision, type } })) } };
+  assert.equal(verifyRecord(program, crossed).some(violation => violation.rule === "decision-kind"), true);
+});
+
+test("verified group placement retains the actual endpoint and rejects a same-table foreign answer", async () => {
+  const { completeInference } = await import("../../packages/host/dist/pipeline/inference-step.js");
+  const program = ready("export function left(flag: boolean): boolean { return flag; } "
+    + "export function right(flag: boolean): boolean { return flag; }");
+  const records = [...drive(program).values()];
+  const callable = records.filter(record => record.handoff.requests[0].placement.kind === "callable-body");
+  assert.equal(callable.length, 2);
+  const [first, second] = callable;
+  const body = first.group.bodies[0];
+  const answer = first.handoff.answers[0];
+  const foreign = second.handoff.answers[0];
+  const views = verificationViews(program, first);
+  const complete = handoff => completeInference(first.group, first.generated, first, views, handoff, program.deps.hirBody);
+  assert.equal(complete(first.handoff).placed.get(body) === answer.value, true);
+  assert.equal(views.types.signatures[foreign.value.signature.id] === foreign.value.signature, true);
+  assert.throws(() => complete({ ...first.handoff, answers: [foreign] }), /actual complete bindings/u);
+  assert.throws(() => complete({ ...first.handoff, answers: [{ ...answer, value: { ...answer.value, signature: foreign.value.signature } }] }),
+    /actual checked declaration/u);
+  const root = program.deps.hirBody(body).root;
+  const originalOwner = answer.value.signature.owner;
+  const owner = answer.value.request.definition;
+  const otherOwner = originalOwner?.kind === "body"
+    ? { kind: "item", value: { owner, node: program.items.get(owner).id } }
+    : { kind: "body", value: { body, node: root.id } };
+  const crossedId = insertFixtureSignature(fixture.types, program.interner, { ...answer.value.signature, owner: otherOwner });
+  const crossed = fixture.types.readSignature(program.interner, crossedId);
+  const crossedResult = { ...first, solution: { ...first.solution, bodies: [{ ...first.solution.bodies[0], signature: crossedId }] } };
+  const crossedHandoff = { ...first.handoff, answers: [{ ...answer, value: { ...answer.value, signature: crossed } }] };
+  assert.throws(() => completeInference(first.group, first.generated, crossedResult, verificationViews(program, crossedResult),
+    crossedHandoff, program.deps.hirBody), /actual checked signature owner occurrence/u);
+  for (const request of [
+    { ...answer.value.request, endpoint: "api-signature" },
+    { ...answer.value.request, ordinal: 1 },
+  ]) {
+    assert.throws(() => complete({ ...first.handoff, answers: [{ ...answer, value: { ...answer.value, request } }] }),
+      /actual checked endpoint role, ordinal and body/u);
+  }
+  assert.throws(() => complete({ ...first.handoff, answers: [{ ...answer, value: { ...answer.value,
+    request: { ...answer.value.request, bindings: foreign.value.request.bindings },
+  } }] }), /actual complete bindings/u);
+
+  const request = answer.value.request;
+  const declared = wiring.decls.declaredSignatureOf(program.inputs, request, program.domain.sources.cuts);
+  assert.equal(declared.kind, "done");
+  assert.equal(declared.value.kind, "ok");
+  const fromDeclaration = complete({ requests: [{ kind: "declaredSignatureOf", request }],
+    answers: [{ kind: "declaredSignatureOf", value: declared.value.value }] }).placed.get(body);
+  assert.equal(fromDeclaration.request === request && fromDeclaration.signature === declared.value.value, true);
+});
+
+test("an actual numeric assignment selects against ready native storage without bounding it again", () => {
+  const program = ready("export let value = 1; value = (9_007_199_254_740_993);");
+  const scheme = program.deps.rules.constraints.literal;
+  let evaluation;
+  const literal = { ...scheme, evaluate: input => {
+    evaluation = input;
+    return scheme.evaluate(input);
+  } };
+  const traced = { ...program, deps: { ...program.deps, rules: { ...program.deps.rules,
+    constraints: { ...program.deps.rules.constraints, literal } } } };
+  const record = [...drive(traced).values()].find(row => row.contributions.some(item => item.key.role.kind === "literal"));
+  const { constraint, evidence, contribution } = evaluation;
+  const [destination] = evidence;
+  const authored = program.domain.nodeOf({ kind: "body", value: constraint.occurrence });
+  const target = program.domain.nodeOf(destination.value.component);
+  assert.deepEqual(constraint.value, authored.tsonic.literal);
+  assert.equal(target.tsonic.role, "assignment-target");
+  assert.notEqual(target.tsonic.place.value.write.value, constraint.destination);
+  assert.deepEqual(fixture.types.readType(program.interner, constraint.destination), { kind: "primitive", primitive: "int64" });
+  assert.deepEqual(contribution.reads, []);
+  assert.deepEqual(contribution.bounds, []);
+  assert.deepEqual(record.solution.constraints.find(row => row.decision.kind === "literal").decision,
+    { kind: "literal", embedding: { kind: "identity" } });
+  assert.throws(() => scheme.evaluate({ ...evaluation, evidence: [] }), /one actual destination evidence/);
+  const selected = program.deps.rules.literalFit({ context: { occurrence: constraint.occurrence, origin: authored.origin,
+    bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
+  literal: constraint.value, destination: destination.value });
+  assert.deepEqual(selected.value, { kind: "decided", decision: { kind: "identity" } });
+});
+
+test("a supplied argument retains its outside inferred part and its actual use occurrence", () => {
+  const program = ready("function use(value = wide) { return value; } const wide = 9_007_199_254_740_993; export const observed = use(wide);");
+  const records = [...drive(program).values()];
+  const caller = records.find(record => record.constraints.some(set => set.constraints.some(row => row.kind === "call")));
+  const system = caller.constraints.find(set => set.constraints.some(row => row.kind === "call"));
+  const index = system.constraints.findIndex(row => row.kind === "call");
+  const call = system.constraints[index];
+  const [argument] = call.application.arguments;
+  const source = program.domain.nodeOf({ kind: "body", value: argument.occurrence });
+  assert.equal(source.kind, "Identifier");
+  assert.equal(source.text, "wide");
+  const [producer] = records.filter(record => record.group.id !== caller.group.id
+    && record.constraints.some(set => set.variables.some(variable => variable.kind === "literal")));
+  const [variable] = producer.constraints.flatMap(set => set.variables).filter(row => row.kind === "signature" && row.signature.part.kind === "variable");
+  const finalized = producer.solution.variables[variable.id].value.type;
+  assert.equal(argument.type, finalized);
+  assert.deepEqual(fixture.types.readType(program.interner, finalized), { kind: "primitive", primitive: "int64" });
+  const [evidence] = system.evidence.filter(row => row.value.component.kind === "body"
+    && row.value.component.value.node === argument.occurrence.node);
+  assert.deepEqual(evidence.value.component, { kind: "body", value: argument.occurrence });
+  assert.equal(evidence.value.type, finalized);
+  const contribution = caller.contributions.find(row => row.constraint.body === system.body && row.constraint.index === index);
+  assert.deepEqual(contribution.reads, []);
+  assert.equal(contribution.bounds.length, 1);
+  const decision = caller.solution.constraints.find(row => row.constraint.body === system.body && row.constraint.index === index).decision;
+  assert.deepEqual(decision.application.parameters, [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }]);
+  assert.equal(decision.application.result, finalized);
+});
+
+test("native default reads the finalized exact literal rather than writing a second producer", () => {
+  const program = ready("export const value = 9_007_199_254_740_993;");
+  const completed = [...drive(program).values()].find(record => record.constraints.some(set => set.constraints.some(entry => entry.kind === "default")));
+  assert.ok(completed);
+  const source = completed.constraints.find(set => set.constraints.some(entry => entry.kind === "default"));
+  const constraint = source.constraints.find(entry => entry.kind === "default");
+  const literal = source.variables.find(variable => variable.id === constraint.variable);
+  assert.equal(literal.kind, "literal");
+  assert.equal(literal.value.value.numerator, 9007199254740993n);
+  const contribution = completed.contributions.find(row => row.key.role.kind === "default");
+  assert.deepEqual(contribution.bounds, []);
+  assert.deepEqual(contribution.reads, [literal.id]);
+  const final = completed.solution.variables[literal.id];
+  assert.deepEqual(fixture.types.readType(program.interner, final.value.type), { kind: "primitive", primitive: "int64" });
+  const decision = completed.solution.constraints.find(row => row.decision.kind === "default");
+  assert.deepEqual(decision.decision, { kind: "default", type: final.value.type });
+  const crossedType = insertFixtureType(fixture.types, program.interner, { kind: "primitive", primitive: "float64" });
+  assert.equal(verifyRecord(program, { ...completed, solution: { ...completed.solution,
+    constraints: completed.solution.constraints.map(row => row === decision ? { ...row, decision: { kind: "default", type: crossedType } } : row),
+  } }).some(violation => violation.rule === "decision-kind"), true);
+  assert.equal(verifyRecord(program, { ...completed, contributions: completed.contributions.map(row => row === contribution
+    ? { ...row, reads: [], bounds: [literal.id] } : row),
+  }).some(violation => violation.rule === "contribution-footprint-complete"), true);
+  const rule = program.deps.rules.constraints.default;
+  assert.throws(() => rule.evaluate({ constraint, reads: [], evidence: [], candidates: [], contribution }),
+    /reads its own finalized variable/u);
+  const group = completed.group;
+  const generated = wiring.infer.constraintsOf(program.deps, group);
+  assert.equal(generated.kind, "done");
+  assert.equal(generated.value.kind, "ok");
+  const limits = { ...program.deps.graph, maximumWork: source.variables.length };
+  const stopped = wiring.infer.solveGroup({ ...program.deps, graph: limits }, group, generated.value.value,
+    { query: "solutionOf", key: group.id });
+  assert.equal(stopped.kind, "done");
+  assert.equal(stopped.value.kind, "refused");
+  assert.equal(stopped.value.diagnostics[0].code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
+});
+
+test("native literal defaults follow only the actual unannotated producer positions", () => {
+  const program = ready("export function inferred(flag: boolean) { if (flag) return (1); return (2); } "
+    + "export function withDefault(value = (3)) { return value; } export const sum = (4) + 5;");
+  const defaults = [...drive(program).values()].flatMap(record => record.constraints.flatMap(set => set.constraints
+    .filter(constraint => constraint.kind === "default").map(constraint => {
+      const literal = program.domain.nodeOf({ kind: "body", value: constraint.occurrence });
+      const body = program.domain.bodyOf.get(set.body);
+      assert.equal(literal.kind, "NumericLiteral");
+      assert.equal(literal.tsonic.literal.value.numerator, BigInt(literal.text));
+      assert.deepEqual(fixture.types.readType(program.interner, record.solution.variables[constraint.variable].value.type),
+        { kind: "primitive", primitive: "int64" });
+      return [literal.text, body.root.kind];
+    })));
+  assert.deepEqual(defaults.sort(([left], [right]) => left.localeCompare(right)),
+    [["1", "Block"], ["2", "Block"], ["3", "ParenthesizedExpression"], ["4", "BinaryExpression"], ["5", "BinaryExpression"]]);
+
+  for (const source of ["export function declared(): number { return (1); }",
+    "export function declared(value: number = (1)): number { return value; }"]) {
+    const annotated = ready(source);
+    const generated = annotated.groups.flatMap(group => {
+      let step = wiring.infer.constraintsOf(annotated.deps, group);
+      if (step.kind === "paused") step = wiring.infer.resumeConstraintsOf(annotated.deps, step.paused, step.requests.map(request => {
+        assert.equal(request.kind, "declaredSignatureOf");
+        const declared = wiring.decls.declaredSignatureOf(annotated.inputs, request.request, annotated.domain.sources.cuts);
+        assert.equal(declared.kind, "done");
+        assert.equal(declared.value.kind, "ok");
+        return { kind: request.kind, value: declared.value.value };
+      }));
+      assert.equal(step.kind, "done");
+      assert.equal(step.value.kind, "ok");
+      return step.value.value.constraints.flatMap(set => set.constraints);
+    });
+    assert.equal(generated.some(constraint => constraint.kind === "default"), false);
+    const flows = generated.filter(constraint => constraint.kind === "flow"
+      && fixture.types.readType(annotated.interner, constraint.from).kind === "literal");
+    assert.equal(flows.length, 1);
+    assert.deepEqual(fixture.types.readType(annotated.interner, flows[0].to), { kind: "primitive", primitive: "float64" });
+  }
+});
+
+test("Rules finalizes an inferred Boolean against its own checked bound, never a borrowed literal bound", () => {
+  const program = ready("export let state = true; export const exact = false;");
+  const completed = [...drive(program).values()];
+  const initializers = completed.flatMap(record => record.constraints.flatMap(set => set.variables
+    .filter(variable => variable.kind === "signature" && variable.signature.part.kind === "variable")
+    .map(variable => ({ variable, solution: record.solution, declaration: program.items.get(variable.signature.definition) }))));
+  const mutable = initializers.find(row => row.declaration.name.text === "state");
+  const constant = initializers.find(row => row.declaration.name.text === "exact");
+  assert.ok(mutable && constant);
+  const check = mutable.solution.checks.find(entry => entry.variable === mutable.variable.id && entry.bound.kind === "producer");
+  assert.ok(check);
+  const input = { variable: mutable.variable, producers: [check.bound], demands: [],
+    default: null, declaredConstraint: null, declaredDefault: null };
+  const { finalize } = program.deps.rules.variables.signature;
+  const actual = finalize({ ...input, inferredTypeBound: mutable.declaration.tsonic.inferredTypeBound });
+  assert.equal(actual.kind, "ok");
+  assert.deepEqual(fixture.types.readType(program.interner, actual.value.value.type), { kind: "primitive", primitive: "bool" });
+  assert.equal(check.outcome.embedding.conversion, "literal-fit");
+  assert.throws(() => finalize({ ...input, inferredTypeBound: constant.declaration.tsonic.inferredTypeBound }),
+    /inside its actual checker bound/u);
+  assert.throws(() => finalize({ ...input, inferredTypeBound: { kind: "unavailable", reason: "not-provided", causes: [] } }),
+    /actual checker bound for an inferred Boolean initializer/u);
+});
 
 test("real boolean negation retains one unary operator constraint with its actual operand evidence", () => {
   const program = ready("export function negate(flag: boolean): boolean { return !flag; }\n");
@@ -140,7 +396,7 @@ test("unary elaboration retains the actual Rules decision and rejects a missing 
     set.constraints.some(constraint => constraint.kind === "op")));
   const constraints = record.constraints.find(set => set.constraints.some(constraint => constraint.kind === "op"));
   const body = program.domain.bodyOf.get(constraints.body);
-  const deps = { types: program.interner, rules: program.deps.rules, nodeOf: program.domain.nodeOf, bindingOf: program.deps.bindingOf,
+  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.inputs.typeWork, rules: program.deps.rules, nodeOf: program.domain.nodeOf, bindingOf: program.deps.bindingOf,
     typeOf: type => fixture.types.readType(program.interner, type),
     signatureOf: signature => fixture.types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: module => {
@@ -148,8 +404,8 @@ test("unary elaboration retains the actual Rules decision and rejects a missing 
       return program.checked.checkerDiagnostics;
     } };
   const input = { instance: { body: body.body, bindings: { kind: "parametric" } },
-    scope: program.descriptions.get(body.owner).generics, body, constraints, solution: record.solution,
-    template: null, nestedBodies: [], initializers: [] };
+    scope: program.descriptions.get(body.owner).generics, body,
+    typing: { kind: "ready", constraints, solution: record.solution, template: null }, nestedBodies: [], initializers: [] };
   const result = wiring.elaborate.elaborate(deps, input);
   assert.equal(result.kind, "ok");
   const expression = result.value.root.statements.nodes[0].expression;
@@ -159,8 +415,13 @@ test("unary elaboration retains the actual Rules decision and rejects a missing 
   assert.equal(expression.id, body.root.statements.nodes[0].expression.id);
   assert.equal(expression.operand.id, body.root.statements.nodes[0].expression.operand.id);
   const incomplete = { ...record.solution, constraints: record.solution.constraints.filter(solved => solved.decision.kind !== "op") };
-  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, solution: incomplete }),
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, typing: { ...input.typing, solution: incomplete } }),
     error => error.cause?.owner === "elaborate" && error.message.includes("no operator decision at the unary expression"));
+  const crossed = { ...record.solution, constraints: record.solution.constraints.map(solved => solved.decision.kind === "op"
+    ? { ...solved, decision: { ...solved.decision, operation: { ...retained, operation: { ...retained.operation, operator: "~" } } } }
+    : solved) };
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, typing: { ...input.typing, solution: crossed } }),
+    error => error.cause?.owner === "elaborate" && error.message.includes("the native operator decision must retain its selected operator"));
   for (const [field, value] of [["operator", "TildeToken"], ["role", "update"]]) {
     const changed = structuredClone(body);
     const unary = changed.root.statements.nodes[0].expression;
@@ -179,13 +440,13 @@ test("boolean negation never substitutes truthiness for a different native opera
     bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }, operator: "!", operands: [{ type,
     component: { kind: "body", value: occurrence }, category: { kind: "dynamic" },
     numeric: null, sum: null, nominal: null, pointer: null }] });
-  const boolean = fixture.types.internType(program.interner, { kind: "primitive", primitive: "bool" });
+  const boolean = insertFixtureType(fixture.types, program.interner, { kind: "primitive", primitive: "bool" });
   const selected = program.deps.rules.operator(input(boolean));
   assert.equal(selected.kind, "ok");
   assert.equal(selected.value.kind, "decided");
   assert.equal(selected.value.decision.result, boolean);
   for (const primitive of ["float64", "int32", "char"]) {
-    const type = fixture.types.internType(program.interner, { kind: "primitive", primitive });
+    const type = insertFixtureType(fixture.types, program.interner, { kind: "primitive", primitive });
     assert.throws(() => program.deps.rules.operator(input(type)),
       error => error.cause?.owner === "rules" && error.message.includes(`the unary operator ! over ${primitive}`));
   }
@@ -258,12 +519,12 @@ test("a same-group call reads its actual finalized argument, preserves dependenc
       actual.constraint.application.arguments[0], actual.constraint.application.arguments[0]] } };
   assert.deepEqual(scheme.enumerate({ ...enumeration, constraint: repeated }).value[0].reads,
     [result.variable, argument.variable].sort((left, right) => left - right));
-  const foreign = fixture.types.internType(program.interner, { kind: "open",
+  const foreign = insertFixtureType(fixture.types, program.interner, { kind: "open",
     group: program.groups.find(group => group.id !== record.group.id).id, variable: argument.variable });
   assert.throws(() => scheme.enumerate({ ...enumeration, constraint: { ...actual.constraint,
     application: { ...actual.constraint.application, arguments: [{ ...actual.constraint.application.arguments[0], type: foreign }] } } }),
   error => error.cause?.owner === "rules" && error.message.includes("an open type of group"));
-  const errorType = fixture.types.internType(program.interner, { kind: "error" });
+  const errorType = insertFixtureType(fixture.types, program.interner, { kind: "error" });
   const error = { kind: "error", causes: [{ kind: "unit", unit: { request: { query: "solutionOf", key: record.group.id },
     position: { kind: "inference-variable", group: record.group.id, variable: argument.variable } } }] };
   const failed = scheme.evaluate({ ...actual, reads: [{ ...actual.reads[0], value: { ...actual.reads[0].value,
@@ -280,9 +541,12 @@ test("a same-group call reads its actual finalized argument, preserves dependenc
   assert.deepEqual([system.variables.length, record.contributions.length,
     record.contributions.reduce((count, contribution) => count + contribution.reads.length, 0),
     record.contributions.reduce((count, contribution) => count + contribution.bounds.length, 0),
-    record.solution.constraints.length], [2, 3, 1, 3, 3]);
-  const generated = { constraints: record.constraints, outsideParts: [] };
+    record.solution.constraints.length], [2, 3, 2, 2, 3]);
+  const observed = { occurrence: actual.constraint.occurrence, origin: actual.origin };
+  const generated = { constraints: record.constraints, outsideParts: [], selectionOrigins: [observed] };
   const unit = { query: "solutionOf", key: record.group.id };
+  const crossed = { ...generated, selectionOrigins: [{ ...observed, occurrence: actual.constraint.application.arguments[0].occurrence }] };
+  assert.throws(() => wiring.infer.solveGroup(program.deps, record.group, crossed, unit), /actual checked occurrence origin in constraint order/);
   for (let maximumWork = 0; maximumWork < 14; maximumWork += 1) {
     const under = wiring.infer.solveGroup({ ...program.deps, graph: { ...GRAPH, maximumWork },
       hirBody: () => assert.fail("a refused solve cannot read a later signature body"),
@@ -313,13 +577,14 @@ test("constructed call result categories retain the selected native carrier with
       [{ kind: "primitive", primitive }, { kind: "dynamic" }]),
   ];
   for (const [term, category] of cases) {
-    const resultType = fixture.types.internType(program.interner, term);
-    const selected = fixture.types.internSignature(program.interner, { ...signature, result: resultType });
-    const calleeType = fixture.types.internType(program.interner, { kind: "callable", calls: [selected], constructs: [] });
+    const resultType = insertFixtureType(fixture.types, program.interner, term);
+    const selected = insertFixtureSignature(fixture.types, program.interner, { ...signature, result: resultType });
+    const calleeType = insertFixtureType(fixture.types, program.interner, { kind: "callable", calls: [selected], constructs: [] });
     const candidate = { ...originalCandidate, appliedSignature: { kind: "available", value: selected },
       endpoints: { kind: "available", value: {
         advertised: { ...originalCandidate.endpoints.value.advertised, signature: selected },
-        api: { ...originalCandidate.endpoints.value.api, signature: selected } } } };
+        advertisedSignature: selected,
+        api: { ...originalCandidate.endpoints.value.api, signature: selected }, apiSignature: selected } } };
     const candidates = [{ ...system.candidates[0], candidates: [candidate] }];
     const constraint = { ...original, application: { ...original.application, callee: calleeType } };
     const value = type => ({ value: { type, component: { kind: "body", value: constraint.occurrence },
@@ -379,7 +644,7 @@ test("actual fixed call arguments retain their checked source and reject malform
     assert.equal(paused.kind, "paused");
     const answers = paused.requests.map(request => {
       assert.equal(request.kind, "declaredSignatureOf");
-      const answer = wiring.decls.declaredSignatureOf(program.inputs, request.request);
+      const answer = wiring.decls.declaredSignatureOf(program.inputs, request.request, program.domain.sources.cuts);
       assert.equal(answer.kind, "done");
       assert.equal(answer.value.kind, "ok");
       return { kind: request.kind, value: answer.value.value };
@@ -552,14 +817,14 @@ test("Elaborate replays the actual solved placed-body rows without selecting mod
   const record = records.find(record => record.solution.bodies.some(typing => typing.body === body.body));
   const constraints = record.constraints.find(set => set.body === body.body);
   const typing = record.solution.bodies.find(typing => typing.body === body.body);
-  const deps = { types: program.interner, rules: { ...program.deps.rules,
+  const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.inputs.typeWork, rules: { ...program.deps.rules,
     decideCaptureModes: () => assert.fail("Elaborate retains Rules authority; it does not select capture modes.") },
     ...fixture.hir.createModuleBindingViews([program.checked.bindings]),
     typeOf: type => fixture.types.readType(program.interner, type),
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), nodeOf: program.domain.nodeOf,
     checkerDiagnosticsOf: () => [] };
   const input = { instance: { body: body.body, bindings: { kind: "parametric" } }, scope: program.descriptions.get(body.owner).generics,
-    body, constraints, solution: record.solution, template: null, nestedBodies: [], initializers: [] };
+    body, typing: { kind: "ready", constraints, solution: record.solution, template: null }, nestedBodies: [], initializers: [] };
   const result = wiring.elaborate.elaborate(deps, input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.captures === typing.captures, true);
@@ -570,9 +835,10 @@ test("Elaborate replays the actual solved placed-body rows without selecting mod
   assert.equal(captured.storage, constraints.evidence[0].value.type);
   for (const captures of [[], [{ ...typing.captures[0], local: { body: body.body, local: 0 } }]])
     assert.throws(() => wiring.elaborate.elaborate(deps, { ...input,
-      solution: { ...record.solution, bodies: record.solution.bodies.map(row => row.body === body.body ? { ...row, captures } : row) } }),
+      typing: { ...input.typing, solution: { ...record.solution,
+        bodies: record.solution.bodies.map(row => row.body === body.body ? { ...row, captures } : row) } } }),
     /actual ordered qualified body captures/u);
-  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, constraints: { ...constraints, evidence: [] } }),
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, typing: { ...input.typing, constraints: { ...constraints, evidence: [] } } }),
     /which no parameter names/u, "no initializer completion or checked slot is substituted for absent actual read evidence");
 });
 
@@ -623,7 +889,7 @@ test("outside-part resume rejects a missing or wrong identity and retains the or
   assert.deepEqual(step.requests.map(request => request.kind), ["inferred-part"]);
   const part = step.requests[0].part;
   assert.throws(() => wiring.infer.resumeConstraintsOf(program.deps, step.paused, []), /answers for/u);
-  const type = fixture.types.internType(program.interner, { kind: "error" });
+  const type = insertFixtureType(fixture.types, program.interner, { kind: "error" });
   const owner = program.groups.find(candidate => candidate.signatures.some(owned => irInfer.inferredPartKey(owned) === irInfer.inferredPartKey(part)));
   const actual = wiring.infer.constraintsOf(program.deps, owner).value.value.constraints.flatMap(set => set.variables)
     .find(variable => variable.kind === "signature" && irInfer.inferredPartKey(variable.signature) === irInfer.inferredPartKey(part));
@@ -675,11 +941,11 @@ test("SolveGroup's scripted multi-bound scheme reads its declared footprint line
   const group = program.groups.find(group => program.domain.bodyOf.get(group.bodies[0]).root.kind === "Block");
   const body = group.bodies[0];
   const occurrence = { body, node: program.domain.bodyOf.get(body).root.id };
-  const type = fixture.types.internType(program.interner, { kind: "primitive", primitive: "float64" });
+  const type = insertFixtureType(fixture.types, program.interner, { kind: "primitive", primitive: "float64" });
   const evidence = { type, component: { kind: "body", value: occurrence }, category: { kind: "known", category: "number" },
     numeric: null, sum: null, nominal: null, pointer: null };
   for (const count of [8, 64, 256]) {
-    const open = Array.from({ length: count }, (unused, variable) => fixture.types.internType(program.interner, { kind: "open", group: group.id, variable }));
+    const open = Array.from({ length: count }, (unused, variable) => insertFixtureType(fixture.types, program.interner, { kind: "open", group: group.id, variable }));
     const variables = open.map((unused, id) => ({ kind: "local", id, occurrence, local: null }));
     let visits = 0;
     let evaluations = 0;
@@ -697,7 +963,7 @@ test("SolveGroup's scripted multi-bound scheme reads its declared footprint line
         decision: null, selectedCandidate: null } };
       },
     };
-    const generated = { outsideParts: [], constraints: [{ group: group.id, body, variables, candidates: [],
+    const generated = { outsideParts: [], selectionOrigins: [], constraints: [{ group: group.id, body, variables, candidates: [],
       constraints: [{ kind: "op", occurrence, operator: "+", operands: open, result: type, permissionScope: null }],
       evidence: [...open.map(type => ({ value: { ...evidence, type }, error: null })), { value: evidence, error: null }] }] };
     const deps = { ...program.deps, rules: { ...program.deps.rules, constraints: { ...program.deps.rules.constraints, op: scheme } },
@@ -730,7 +996,7 @@ test("a genuine good signature final and an errored demand retain distinct final
   const system = generated.constraints[0];
   const original = system.constraints[0];
   const types = fixture.types;
-  const errorType = types.internType(program.interner, { kind: "error" });
+  const errorType = insertFixtureType(types, program.interner, { kind: "error" });
   const diagnosticUnit = { request: { query: "demandError", key: "actual-demand" }, position: { kind: "result" } };
   const identity = { kind: "host", unit: diagnosticUnit, code: "TEST_DEMAND_ERROR" };
   const diagnostic = { code: { kind: "host", name: identity.code, rendered: identity.code }, severity: "error",
@@ -756,7 +1022,7 @@ test("a genuine good signature final and an errored demand retain distinct final
   assert.equal(step.paused.positions.find(entry => entry.position.kind === "result").error !== null, true);
   const answers = step.requests.map(request => {
     assert.equal(request.kind, "placeSignature");
-    const placed = wiring.decls.placeSignature(program.inputs, request.placement, unit);
+    const placed = wiring.decls.placeSignature(program.inputs, request.placement, unit, program.domain.sources.cuts);
     assert.equal(placed.kind, "done");
     assert.equal(placed.value.kind, "ok");
     return { kind: request.kind, value: placed.value.value };
@@ -805,10 +1071,11 @@ test("an annotated initializer absorbs its failed initialization at the earlier 
   assert.equal(placement.kind, "execution-body");
   assert.deepEqual(placement.error, { kind: "error", causes: [{ kind: "unit", unit: { request: unit, position: source.position } }] });
   assert.equal(fixture.types.readType(program.interner, placement.completion).kind, "error");
-  const placed = wiring.decls.placeSignature(program.inputs, placement, unit);
+  const placed = wiring.decls.placeSignature(program.inputs, placement, unit, program.domain.sources.cuts);
   assert.equal(placed.kind, "done");
   assert.equal(placed.value.kind, "ok");
-  assert.equal(placed.value.value.result, placement.completion);
+  assert.equal(placed.value.value.request, null);
+  assert.equal(placed.value.value.signature.result, placement.completion);
   assert.deepEqual(placed.value.diagnostics, []);
   const completed = wiring.infer.resumeSolveGroup(deps, solved.paused, [{ kind: "placeSignature", value: placed.value.value }]);
   assert.equal(completed.kind, "done");
@@ -824,7 +1091,7 @@ test("actual Rules propagate only dependent error operands with every original c
   const system = generated.constraints[0];
   const operation = system.constraints.find(constraint => constraint.kind === "op");
   const types = fixture.types;
-  const errorType = types.internType(program.interner, { kind: "error" });
+  const errorType = insertFixtureType(types, program.interner, { kind: "error" });
   const causes = [0, 1].map(index => ({ kind: "unit", unit: {
     request: { query: "realOperand", key: index }, position: { kind: "result" },
   } }));
@@ -854,7 +1121,7 @@ test("actual Rules propagate only dependent error operands with every original c
   const finalized = program.deps.rules.variables.signature.finalize({
     variable, producers: [{ contribution: enumeration.value[0].key, variable: variable.id, kind: "producer",
       ...system.evidence[0] }, { ...combined.value.bounds[0], variable: variable.id }],
-    demands: [], default: null, declaredConstraint: null, declaredDefault: null,
+    demands: [], inferredTypeBound: null, default: null, declaredConstraint: null, declaredDefault: null,
   });
   assert.equal(finalized.kind, "ok");
   assert.equal(finalized.value.error === combined.value.decision.error, true);

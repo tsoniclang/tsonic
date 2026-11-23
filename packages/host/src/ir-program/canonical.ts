@@ -1,44 +1,333 @@
-import type { CanonicalizeProgram, SignatureRecord } from "./contract.js";
-import type { TypeRewrite } from "./canonical-types.js";
-import { publicationRewrite, rewriteArtifactBindings, rewriteConstant, rewriteExecution, rewriteInstance } from "./canonical-types.js";
-import { rewriteMetadata, rewriteSummary, rewriteSummaryKey } from "./canonical-facts.js";
-import { rewriteModuleSyntax } from "./canonical-syntax.js";
+import type {
+  HostProgram, CanonicalizeProgram, ModuleBodies, ProgramEvidence, ProgramIndex, ProgramInitialization, ProgramMemberEvidence, ProjectProgramEvidence,
+  PublishedBody, ResolvedExternalEntry, SignatureRecord,
+} from "./contract.js";
+import type { TypeReferenceRewrite } from "./canonical-types.js";
+import type { BodyFacts, BodyObservations, MetadataRecord, Summary, SummaryKey } from "../ir-facts/contract.js";
+import type { TirBody, TirModule } from "../ir-tir/contract.js";
+import type { MirBody } from "../ir-mir/contract.js";
+import type { BodyInstance, Execution, MemberInventory } from "../ir-types/contract.js";
+import type { CheckedModuleImage, CheckedPhase, HirModule, SyntaxRootSlot } from "../ir-hir/contract.js";
+import type { OrderedTextRecord, ProjectionInventory, ProjectionResult } from "./program-values.js";
+import type { InstantiationStop } from "./work.js";
+import type { InvariantFailure } from "../diag/contract.js";
+import { requirePresent } from "../diag/index.js";
+import { copyCheckedModule, walkSyntaxForest } from "../ir-hir/index.js";
+import { encodeKey } from "../ids/index.js";
+import { chargeWork } from "../dataflow/index.js";
+import { admitArtifactIdentity, admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
+import { artifactBindingsData, artifactBindingsKey, compareIndexSignatures, constantReferenceKey } from "../ir-types/index.js";
+import {
+  copiedProjection, createProjectionInventory, finishProjection, followingProjection, inventoryRecord, prepareArtifactBindings,
+  prepareBindingsProjection, prepareComponentProjection, prepareParameterProjection, orderProjection, orderTextProjection, projectRead, projectRecord, projectRows,
+} from "./program-values.js";
+import { publicationRewrite, rewriteConstant } from "./canonical-types.js";
+import { projectExecution, projectInstance, projectMetadata, projectSummary, projectSummaryKey } from "./canonical-facts.js";
+import { projectModuleSyntax } from "./canonical-syntax.js";
+import { admitCheckedProjection, chargeInstantiationWork, ProgramWork } from "./work.js";
+import { prepareCoreProjection } from "./instantiate-phase.js";
 
-function rewriteSignature(rewrite: TypeRewrite, record: SignatureRecord): SignatureRecord {
-  const common = {
-    definition: record.definition, bindings: rewriteArtifactBindings(rewrite, record.bindings),
-    ordinal: record.ordinal, signature: rewrite.signature(record.signature),
-  };
-  switch (record.kind) {
-    case "advertised":
-    case "api-signature": return { ...common, kind: record.kind };
-    case "api-body": return { ...common, kind: "api-body", body: record.body };
-  }
+const dense: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "A completed Program projection has dense keyed records." };
+function instanceKeys<Value>(scan: ProjectionInventory, value: Value, instance: BodyInstance):
+  ProjectionResult<OrderedTextRecord<Value>> {
+  const stop = chargeWork(scan.meter.account, instance.body.length) ?? admitArtifactIdentity(instance.bindings, scan.meter.account);
+  return stop === null ? copiedProjection({ value, group: instance.body, key: artifactBindingsKey(instance.bindings) }) : { kind: "refused", stop };
 }
 
-export const canonicalizeProgram: CanonicalizeProgram = (program, publication) => {
+function signature(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, read: () => SignatureRecord):
+  ProjectionResult<SignatureRecord> {
+  return projectRecord(scan, 5, () => {
+    const record = read();
+    return followingProjection(finishProjection(scan, prepareArtifactBindings(scan, record.bindings), rewrite), (bindings): ProjectionResult<SignatureRecord> => {
+      const common = { definition: record.definition, bindings, ordinal: record.ordinal, signature: rewrite.signature(record.signature) };
+      switch (record.kind) {
+        case "advertised": case "api-signature": return copiedProjection({ ...common, kind: record.kind });
+        case "api-body": return copiedProjection({ ...common, kind: "api-body", body: record.body });
+      }
+    });
+  });
+}
+
+function initialization(scan: ProjectionInventory, source: ProgramInitialization,
+  executionImage: (source: Execution) => ProjectionResult<Execution>,
+): ProjectionResult<ProgramInitialization> {
+  return projectRecord(scan, 4, () => {
+    const external = projectRows(scan, source.external, read => projectRecord(scan, 4, () => {
+      const row = read();
+      return followingProjection(projectRows(scan, row.storage, readStorage => projectRecord<ResolvedExternalEntry["storage"][number]>(scan, 4, () => {
+        const reference = readStorage();
+        return followingProjection(executionImage(reference.owner.key.execution), execution =>
+          copiedProjection({ cell: reference.cell, owner: { kind: "summary", key: { kind: "body", execution } } }));
+      })), storage => copiedProjection({ ...row, storage }));
+    }));
+    if (external.kind === "refused") return external;
+    const modules = projectRows(scan, source.modules, read => projectRead(scan, () => executionImage(read())));
+    if (modules.kind === "refused") return modules;
+    const entries = projectRows(scan, source.entries, read => projectRead(scan, () => executionImage(read())));
+    if (entries.kind === "refused") return entries;
+    return copiedProjection({ entry: source.entry, external: external.value, modules: modules.value, entries: entries.value });
+  });
+}
+
+function projectIndex(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, program: HostProgram, table: ProgramIndex["types"],
+  summaryImage: Map<Summary, Summary>, metadataImage: Map<MetadataRecord, MetadataRecord>,
+): ProjectionResult<ProgramIndex> {
+  return projectRecord(scan, 13, () => {
+    const index = program.index;
+    const signatures = projectRows(scan, index.signatures, read => signature(scan, rewrite, read));
+    if (signatures.kind === "refused") return signatures;
+    const orderedSignatures = orderTextProjection(scan, signatures.value, value => {
+      const stop = chargeWork(scan.meter.account, value.definition.length) ?? admitArtifactIdentity(value.bindings, scan.meter.account);
+      return stop === null ? copiedProjection({ value, group: value.definition, key: encodeKey([
+        artifactBindingsData(value.bindings), value.kind, value.ordinal,
+      ]) }) : { kind: "refused", stop };
+    });
+    if (orderedSignatures.kind === "refused") return orderedSignatures;
+    const bodies = projectRows(scan, index.bodies, read => projectRecord(scan, 9, () => {
+      const row = read();
+      return followingProjection(projectInstance(scan, rewrite, row.instance), instance => copiedProjection({ ...row, instance }));
+    }));
+    if (bodies.kind === "refused") return bodies;
+    const orderedBodies = orderTextProjection(scan, bodies.value, value => instanceKeys(scan, value, value.instance));
+    if (orderedBodies.kind === "refused") return orderedBodies;
+    const executions = projectRecord(scan, 0, () => copiedProjection(new Map<Execution, Execution>()));
+    if (executions.kind === "refused") return executions;
+    const executionImage = (original: Execution): ProjectionResult<Execution> => {
+      const known = executions.value.get(original);
+      if (known !== undefined) return copiedProjection(known);
+      return projectRecord(scan, 0, () => followingProjection(projectExecution(scan, rewrite, original), mapped => {
+        executions.value.set(original, mapped);
+        return copiedProjection(mapped);
+      }));
+    };
+    const dependencies = projectRecord(scan, 4, () => {
+      const { operations, dependencies, components } = index.dependencyInventory;
+      const keys = new Map<SummaryKey, SummaryKey>();
+      const keyImage = (original: SummaryKey): ProjectionResult<SummaryKey> => {
+        const known = keys.get(original);
+        if (known !== undefined) return copiedProjection(known);
+        return projectRecord(scan, 0, () => {
+          const mapped: ProjectionResult<SummaryKey> = original.kind === "body"
+            ? projectRecord(scan, 2, () => followingProjection(executionImage(original.execution), execution =>
+              copiedProjection({ kind: "body", execution })))
+            : projectSummaryKey(scan, rewrite, original);
+          if (mapped.kind === "copied") keys.set(original, mapped.value);
+          return mapped;
+        });
+      };
+      const mapped = projectRows(scan, operations, read => projectRead(scan, () => keyImage(read())));
+      if (mapped.kind === "refused") return mapped;
+      const edges = projectRows(scan, dependencies, read => projectRecord(scan, 4, () => {
+        const row = read();
+        return followingProjection(executionImage(row.dependent), dependent =>
+          followingProjection(keyImage(row.target), target =>
+            copiedProjection({ dependent, at: row.at, reason: row.reason, target })));
+      }));
+      if (edges.kind === "refused") return edges;
+      return copiedProjection({ operations: mapped.value, dependencies: edges.value, components });
+    });
+    if (dependencies.kind === "refused") return dependencies;
+    const metadata = projectRows(scan, index.metadata, read => projectRecord(scan, 0, () => {
+      const source = read();
+      return followingProjection(projectMetadata(scan, rewrite, source), row => {
+        metadataImage.set(source, row);
+        return copiedProjection(row);
+      });
+    }));
+    if (metadata.kind === "refused") return metadata;
+    const orderedMetadata = orderTextProjection(scan, metadata.value, value => {
+      const key = value.key;
+      const stop = chargeWork(scan.meter.account, key.definition.length) ?? admitArtifactIdentity(key.bindings, scan.meter.account);
+      return stop === null ? copiedProjection({ value, group: key.definition, key: artifactBindingsKey(key.bindings) }) : { kind: "refused", stop };
+    });
+    if (orderedMetadata.kind === "refused") return orderedMetadata;
+    const summaries = projectRows(scan, index.summaries, read => projectRecord(scan, 0, () => {
+      const source = read();
+      return followingProjection(projectSummary(scan, rewrite, source), row => {
+        summaryImage.set(source, row);
+        return copiedProjection(row);
+      });
+    }));
+    if (summaries.kind === "refused") return summaries;
+    const orderedSummaries = orderTextProjection(scan, summaries.value, value => {
+      const stop = admitSummaryIdentity(value.key, scan.meter.account);
+      return stop === null ? copiedProjection({ value, group: "", key: summaryKey(value.key) }) : { kind: "refused", stop };
+    });
+    if (orderedSummaries.kind === "refused") return orderedSummaries;
+    const constants = projectRows(scan, index.constants, read => projectRecord(scan, 2, () => projectRecord(scan, 2, () => {
+      const row = read();
+      const reference = row.reference;
+      return followingProjection(projectInstance(scan, rewrite, reference.initializer), initializer =>
+        projectRecord(scan, 3, () => copiedProjection({ reference: { initializer, context: reference.context }, value: rewriteConstant(rewrite, row.value) })));
+    })));
+    if (constants.kind === "refused") return constants;
+    const orderedConstants = orderTextProjection(scan, constants.value, value => {
+      const ready = instanceKeys(scan, value, value.reference.initializer);
+      return ready.kind === "refused" ? ready : copiedProjection({ value, group: "", key: constantReferenceKey(value.reference) });
+    });
+    if (orderedConstants.kind === "refused") return orderedConstants;
+    return followingProjection(initialization(scan, index.initialization, executionImage), initialization => {
+      const { schema, nativeFactsKey, rootPackage, packages, modules, diagnostics } = index;
+      return copiedProjection({ schema, nativeFactsKey, rootPackage, packages, modules, diagnostics, types: table,
+        signatures: orderedSignatures.value, bodies: orderedBodies.value, dependencyInventory: dependencies.value,
+        metadata: orderedMetadata.value, summaries: orderedSummaries.value, constants: orderedConstants.value, initialization });
+    });
+  });
+}
+
+function inlineCycle(path: string): never {
+  throw new TypeError("Inline cycle at " + path);
+}
+
+export const canonicalizeProgram: CanonicalizeProgram = (program, publication, resources) => {
   const rewrite = publicationRewrite(publication);
-  const index = program.index;
-  return {
-    index: {
-      schema: index.schema, nativeFactsKey: index.nativeFactsKey, rootPackage: index.rootPackage, packages: index.packages, modules: index.modules,
-      types: publication.table, signatures: index.signatures.map(record => rewriteSignature(rewrite, record)),
-      bodies: index.bodies.map(record => ({ ...record, instance: rewriteInstance(rewrite, record.instance) })),
-      dependencyInventory: {
-        operations: index.dependencyInventory.operations.map(key => rewriteSummaryKey(rewrite, key)),
-        dependencies: index.dependencyInventory.dependencies.map(row => ({
-          dependent: rewriteExecution(rewrite, row.dependent), at: row.at, reason: row.reason,
-          target: rewriteSummaryKey(rewrite, row.target),
-        })),
-        components: index.dependencyInventory.components,
-      },
-      metadata: index.metadata.map(record => rewriteMetadata(rewrite, record)),
-      summaries: index.summaries.map(summary => rewriteSummary(rewrite, summary, rewriteSummaryKey(rewrite, summary.key))),
-      constants: index.constants.map(record => ({ reference: {
-        initializer: rewriteInstance(rewrite, record.reference.initializer), context: record.reference.context,
-      }, value: rewriteConstant(rewrite, record.value) })),
-      diagnostics: index.diagnostics,
-    },
-    modules: program.modules.map((module, position) => rewriteModuleSyntax(rewrite, module, `HostProgram.modules[${position}]`)),
+  const scan = createProjectionInventory(ProgramWork.state(resources), rewrite, inlineCycle);
+  const setup = projectRecord(scan, 7, () => copiedProjection({
+    trees: new Map<TirModule["tree"], TirModule["tree"]>(),
+    tir: new Map<TirBody, TirBody>(), mir: new Map<MirBody, MirBody>(), facts: new Map<BodyFacts, BodyFacts>(),
+    observations: new Map<BodyObservations, BodyObservations>(), summaries: new Map<Summary, Summary>(), metadata: new Map<MetadataRecord, MetadataRecord>(),
+  }));
+  if (setup.kind === "refused") return setup.stop;
+  const ready = setup.value;
+  const remember = (source: PublishedBody, image: PublishedBody): InstantiationStop | null => {
+    const tir = projectRecord(scan, 0, () => { ready.tir.set(source.tir, image.tir); return copiedProjection(null); });
+    if (tir.kind === "refused") return tir.stop;
+    if (source.kind !== "selected" || image.kind !== "selected") return null;
+    const mir = projectRecord(scan, 0, () => { ready.mir.set(source.mir, image.mir); return copiedProjection(null); });
+    if (mir.kind === "refused") return mir.stop;
+    const observations = projectRecord(scan, 0, () => { ready.observations.set(source.observations, image.observations); return copiedProjection(null); });
+    if (observations.kind === "refused") return observations.stop;
+    for (let position = 0; position < source.facts.length; position += 1) {
+      const entry = projectRecord(scan, 0, () => {
+        ready.facts.set(requirePresent(source.facts[position], dense), requirePresent(image.facts[position], dense));
+        return copiedProjection(null);
+      });
+      if (entry.kind === "refused") return entry.stop;
+    }
+    return null;
   };
+  const index = projectIndex(scan, rewrite, program, publication.table, ready.summaries, ready.metadata);
+  if (index.kind === "refused") return index.stop;
+  const originalInitialization = program.index.initialization;
+  const modules = projectRows(scan, program.modules, (read, position): ProjectionResult<ModuleBodies> => projectRecord(scan, 0, () => {
+    const original = read();
+    return followingProjection(projectModuleSyntax(scan, rewrite, original, "HostProgram.modules[" + position + "]", remember), module =>
+      followingProjection(orderTextProjection(scan, module.bodies, value => instanceKeys(scan, value, value.instance)), bodies => {
+        ready.trees.set(original.tree, module.tree);
+        return copiedProjection({ module: module.module, tree: module.tree, bodies });
+      }));
+  }));
+  if (modules.kind === "refused") return modules.stop;
+  return { kind: "complete", value: { index: index.value, modules: modules.value }, image: {
+    treeOf: source => ready.trees.get(source) ?? null,
+    tirOf: source => ready.tir.get(source) ?? null, mirOf: source => ready.mir.get(source) ?? null,
+    factsOf: source => ready.facts.get(source) ?? null, observationsOf: source => ready.observations.get(source) ?? null,
+    summaryOf: source => ready.summaries.get(source) ?? null, metadataOf: source => ready.metadata.get(source) ?? null,
+    initializationOf: source => source === originalInitialization ? index.value.initialization : null,
+  } };
+};
+
+function inlineCheckedCycle(path: string): never {
+  throw new TypeError("Inline cycle in checked Program TypeComponent at " + path);
+}
+
+function checkedModule(scan: ProjectionInventory, source: HirModule, rewrite: TypeReferenceRewrite): ProjectionResult<CheckedModuleImage> {
+  function* roots(): Generator<SyntaxRootSlot<CheckedPhase>> {
+    yield { path: "CheckedModule.tree", read: () => source.tree };
+  }
+  const work = () => chargeInstantiationWork(scan.meter);
+  const traversal = walkSyntaxForest<CheckedPhase, InstantiationStop>(roots(), { root: work, edge: work, node: work });
+  if (traversal.kind !== "complete") return { kind: "refused", stop: traversal };
+  return copyCheckedModule(source, traversal.value, {
+    admit: (units, records) => admitCheckedProjection(scan.meter, units, records),
+    syntaxNode: () => inventoryRecord(scan, 5),
+    type: type => projectRead(scan, () => copiedProjection(rewrite.type(type))),
+    signature: signature => projectRead(scan, () => copiedProjection(rewrite.signature(signature))),
+    bindings: bindings => finishProjection(scan, prepareBindingsProjection(scan, bindings), rewrite),
+    parameter: parameter => finishProjection(scan, prepareParameterProjection(scan, () => parameter), rewrite),
+    component: component => finishProjection(scan,
+      prepareComponentProjection(scan, component, "CheckedModule.component", inlineCheckedCycle), rewrite),
+    core: capture => finishProjection(scan, prepareCoreProjection(scan, capture, "CheckedModule.core", inlineCheckedCycle), rewrite),
+  });
+}
+
+function inventoryImage(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, value: MemberInventory): ProjectionResult<MemberInventory> {
+  return projectRecord(scan, 8, () => {
+    const indexes = projectRows(scan, value.indexes, read => projectRecord(scan, 3, () => {
+      const { origin, readonly, key } = read();
+      return copiedProjection({ origin, readonly, key: rewrite.type(key) });
+    }));
+    if (indexes.kind === "refused") return indexes;
+    const ordered = orderProjection(scan, indexes.value, (left, right) => {
+      const owner = left.origin.kind === "body" ? left.origin.value.body : left.origin.value.owner;
+      const other = right.origin.kind === "body" ? right.origin.value.body : right.origin.value.owner;
+      const stop = chargeWork(scan.meter.account, owner.length + other.length);
+      return stop === null ? copiedProjection(compareIndexSignatures(left, right)) : { kind: "refused", stop };
+    });
+    if (ordered.kind === "refused") return ordered;
+    const signatures = (source: MemberInventory["calls"]) => followingProjection(
+      projectRows(scan, source, read => projectRead(scan, () => copiedProjection(rewrite.signature(read())))),
+      rows => orderProjection(scan, rows, (left, right) => copiedProjection(left - right)));
+    const calls = signatures(value.calls);
+    if (calls.kind === "refused") return calls;
+    const constructs = signatures(value.constructs);
+    if (constructs.kind === "refused") return constructs;
+    const constructors = projectRows(scan, value.constructors, read => projectRecord(scan, 3, () => {
+      const { signature, declaration, body } = read();
+      return copiedProjection({ signature: rewrite.signature(signature), declaration, body });
+    }));
+    if (constructors.kind === "refused") return constructors;
+    const orderedConstructors = orderProjection(scan, constructors.value, (left, right) => copiedProjection(left.signature - right.signature));
+    if (orderedConstructors.kind === "refused") return orderedConstructors;
+    const { members, accessors, completeness } = value;
+    return copiedProjection({ receiver: rewrite.type(value.receiver), members, indexes: ordered.value,
+      calls: calls.value, constructs: constructs.value, accessors, constructors: orderedConstructors.value, completeness });
+  });
+}
+
+function memberImage(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, read: () => ProgramMemberEvidence):
+  ProjectionResult<ProgramMemberEvidence> {
+  return projectRecord(scan, 3, () => {
+    const row = read();
+    const instance = projectInstance(scan, rewrite, row.instance);
+    if (instance.kind === "refused") return instance;
+    const occurrence = row.occurrence;
+    const mapped = occurrence.kind === "selection" ? copiedProjection(occurrence) : projectRecord(scan, 6, () =>
+      followingProjection(finishProjection(scan,
+        prepareComponentProjection(scan, occurrence.destination, "ProgramEvidence.member.destination", inlineCheckedCycle), rewrite),
+      destination => copiedProjection({ ...occurrence, destination })));
+    if (mapped.kind === "refused") return mapped;
+    const inventory = row.inventory;
+    return followingProjection(inventory === null ? copiedProjection(null) : inventoryImage(scan, rewrite, inventory),
+      inventory => copiedProjection({ instance: instance.value, occurrence: mapped.value, inventory }));
+  });
+}
+
+export const projectProgramEvidence: ProjectProgramEvidence = (input, publication, resources) => {
+  const rewrite = publicationRewrite(publication);
+  const scan = createProjectionInventory(ProgramWork.state(resources), rewrite, inlineCheckedCycle);
+  const result = projectRecord(scan, 4, () => {
+    const checked = projectRows(scan, input.checked, read => projectRead(scan, () => checkedModule(scan, read(), rewrite)));
+    if (checked.kind === "refused") return checked;
+    const members = projectRows(scan, input.members, read => memberImage(scan, rewrite, read));
+    if (members.kind === "refused") return members;
+    const signatures = projectRows(scan, input.signatures, read => projectRecord<ProgramEvidence["signatures"][number]>(scan, 2, () => {
+      const row = read();
+      const signature = rewrite.signature(row.signature.id);
+      const request = row.request;
+      if (request === null) return copiedProjection({ request: null, signature });
+      return projectRecord(scan, 4, () =>
+        followingProjection(finishProjection(scan, prepareArtifactBindings(scan, request.bindings), rewrite), bindings =>
+          copiedProjection({ request: { ...request, bindings }, signature })));
+    }));
+    if (signatures.kind === "refused") return signatures;
+    const storage = projectRows(scan, input.storage, read => projectRecord(scan, 2, () => {
+      const { declaration, storage } = read();
+      return copiedProjection({ declaration, storage: storage === null ? null : rewrite.type(storage) });
+    }));
+    if (storage.kind === "refused") return storage;
+    return copiedProjection({ checked: checked.value, members: members.value, signatures: signatures.value, storage: storage.value });
+  });
+  return result.kind === "refused" ? result.stop : { kind: "complete", value: result.value };
 };

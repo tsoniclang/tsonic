@@ -1,4 +1,4 @@
-import type { TextParseResult, Violation } from "../diag/contract.js";
+import type { InvariantFailure, TextParseResult, Violation } from "../diag/contract.js";
 import type {
   BlockId,
   BodyId,
@@ -12,7 +12,7 @@ import type {
   TyId,
 } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BodyInstance, ConstantReference, LiteralValue, PassingMode, PlacePassingMode, SelectedNativeFacts, TypeTable,
+  ArtifactBindings, BindingVector, BodyInstance, ConstantReference, LiteralValue, PassingMode, PlacePassingMode, SelectedNativeFacts, TypeTable,
 } from "../ir-types/contract.js";
 import type { InferenceDeclaration, LogicalCapture } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
@@ -316,6 +316,7 @@ export type MirRule =
   | "constant-type"
   | "metadata-constant-not-materialised"
   | "assignment-type"
+  | "static-read-exact" | "static-write-exact"
   | "operation-selected"
   | "edge-target-resolves"
   | "switch-target-unique"
@@ -361,6 +362,66 @@ export type MirViolationSite =
 // emits constants in the order the verifier requires by using this one function. Null when the constant's bindings
 // are not complete.
 export type ConstantKeyOfMir = (type: TyId, value: MirConstantValue) => string | null;
+export interface MirCopyRefusal<Stop extends object> {
+  readonly kind: "refused";
+  readonly stop: Stop;
+}
+export type MirCopyResult<Value, Failure> =
+  { readonly kind: "copied"; readonly value: Value } | Failure;
+export type MirCopyRecord<Stop extends object, Failure extends MirCopyRefusal<Stop>> =
+  <Value>(fields: number, build: () => MirCopyResult<Value, Failure>) => MirCopyResult<Value, Failure>;
+export interface MirConstantKeyWork<Stop extends object, Failure extends MirCopyRefusal<Stop>> {
+  readonly work: (count: number) => Failure | null;
+  readonly record: MirCopyRecord<Stop, Failure>;
+  readonly bindings: (bindings: BindingVector) => MirCopyResult<BindingVector, Failure>;
+  readonly artifact: (bindings: ArtifactBindings) => Failure | null;
+}
+export interface MirConstantKeyImage {
+  readonly type: TyId;
+  readonly value: MirConstantValue;
+  readonly key: string | null;
+}
+export type ProjectMirConstantKey = <Stop extends object, Failure extends MirCopyRefusal<Stop>>(
+  type: () => TyId, read: () => MirConstantValue, admission: MirConstantKeyWork<Stop, Failure>,
+) => MirCopyResult<MirConstantKeyImage, Failure>;
+export interface MirKeyedConstant extends MirConstant {
+  readonly key: string;
+}
+export interface MirCopyOps<Stop extends object, Failure extends MirCopyRefusal<Stop>> {
+  readonly read: <Value>(build: () => MirCopyResult<Value, Failure>) => MirCopyResult<Value, Failure>;
+  readonly record: MirCopyRecord<Stop, Failure>;
+  readonly rows: <Source, Value>(source: readonly Source[], row: (read: () => Source, position: number) => MirCopyResult<Value, Failure>) =>
+    MirCopyResult<readonly Value[], Failure>;
+  readonly orderedRows: <Source, Value>(source: readonly Source[],
+    row: (read: () => Source, position: number) => MirCopyResult<Value, Failure>,
+    compare: (left: Value, right: Value) => MirCopyResult<number, Failure>,
+  ) => MirCopyResult<readonly Value[], Failure>;
+  readonly work: (count: number) => Failure | null;
+  readonly type: (type: TyId) => TyId;
+  readonly member: (value: MemberSelection) => MirCopyResult<MemberSelection, Failure>;
+  readonly instance: (value: BodyInstance) => MirCopyResult<BodyInstance, Failure>;
+  readonly operation: (value: TypedOperation, at: string) => MirCopyResult<TypedOperation, Failure>;
+  readonly callee: (value: ResolvedCallee) => MirCopyResult<ResolvedCallee, Failure>;
+}
+export type MirConstantOf = (prior: ConstId) => ConstId;
+export interface MirConstantImage {
+  readonly constants: readonly MirConstant[];
+  readonly constantOf: MirConstantOf;
+}
+export type ProjectMirConstantOrdinals = <Stop extends object, Failure extends MirCopyRefusal<Stop>>(
+  order: (compare: (left: MirKeyedConstant, right: MirKeyedConstant) => MirCopyResult<number, Failure>) =>
+    MirCopyResult<readonly MirKeyedConstant[], Failure>,
+  ops: MirCopyOps<Stop, Failure>,
+  missing: () => InvariantFailure,
+) => MirCopyResult<MirConstantImage, Failure>;
+export interface MirValueProjection<Stop extends object, Failure extends MirCopyRefusal<Stop>> {
+  readonly placeBase: (read: () => MirPlaceBase) => MirCopyResult<MirPlaceBase, Failure>;
+  readonly statement: (read: () => MirStatement, at: string) => MirCopyResult<MirStatement, Failure>;
+  readonly terminator: (read: () => MirTerminator, at: string) => MirCopyResult<MirTerminator, Failure>;
+}
+export type ProjectMirValues = <Stop extends object, Failure extends MirCopyRefusal<Stop>>(
+  ops: MirCopyOps<Stop, Failure>, constantOf: MirConstantOf,
+) => MirValueProjection<Stop, Failure>;
 export type MirLocalOwnership = "body" | "external" | "undecided";
 export type LocalOwnershipOfMir = (mode: MirLocalStorageMode) => MirLocalOwnership;
 export type PrintMir = (body: MirBody) => string;

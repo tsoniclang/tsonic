@@ -13,6 +13,7 @@ const LESS = native("<", "int32", [T.int32, T.int32], T.bool);
 const SIG_ADD = signature("add", [["left", T.int32], ["right", T.int32]], T.int32);
 const SIG_TOTAL = signature("total", [], T.int32);
 const SIG_COUNT = signature("count", [["limit", T.int32]], T.int32);
+const SIG_COUNT_INITIALIZER = signature("count.current", [], T.int32);
 
 export function wt1() {
   const a = builders("add");
@@ -28,15 +29,19 @@ export function wt1() {
         arguments: [{ kind: "provided", parameter: 0, expression: at("20") }, { kind: "provided", parameter: 1, expression: at("22") }] })) })) });
 
   const c = builders("count");
+  const countInitializer = typedBody("count.current", { role: "initializer", signature: SIG_COUNT_INITIALIZER, completion: T.int32,
+    root: builders("count.current", "initializer").num("0", T.int32) });
   const count = typedBody("count", { signature: SIG_COUNT, completion: T.int32,
     locals: [["limit", "parameter", T.int32], ["current", "binding", T.int32, true]],
     params: [[0, "required", T.int32]],
+    nestedBodies: [countInitializer.tir.body],
     root: c.block(
-      c.declare([c.variable(c.declName("current", 1), 1, T.int32, c.num("0", T.int32))]),
+      c.declare([{ $: "current", ...c.variable(c.declName("current", 1), 1, T.int32, c.num("0", T.int32), countInitializer.tir.body) }]),
       { $: "while", ...c.whileLoop(
         { $: "current<limit", ...c.comparison(c.id("current", 1, T.int32), "LessThanToken", c.id("limit", 0, T.int32), LESS) },
         c.expressionStatement(c.assign(c.target("current", 1, T.int32), "EqualsToken",
           { $: "current+1", ...c.arithmetic(c.id("current", 1, T.int32), "PlusToken", c.num("1", T.int32), T.int32, ADD) }, T.int32, T.int32))) },
       c.returns(c.id("current", 1, T.int32))) });
-  return { add, total, count };
+  count.tir.locals[1].declaration = { kind: "body", value: count.nodeRef("current") };
+  return { add, total, count, countInitializer };
 }

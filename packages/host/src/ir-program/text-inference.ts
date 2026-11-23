@@ -414,6 +414,7 @@ export function textLiteralConstructionInput(value: LiteralConstructionInput): T
       field("construction", text(value.construction)),
       field("parts", sequence(value.parts, entry0 => textLiteralConstructionPart(entry0))),
       field("destination", (value.destination === null ? token("null") : textTypeEvidence(value.destination))),
+      field("result", textTypeEvidence(value.result)),
     ]);
   });
 }
@@ -633,7 +634,9 @@ export function textCandidateEndpoint(value: CandidateEndpoint): TextWork {
       field("ordinal", numeric(value.ordinal)),
       field("declaration", identity("def", value.declaration)),
       field("advertised", textHirCallableEndpoint(value.advertised)),
+      field("advertisedSignature", numericIdentity("sig", value.advertisedSignature)),
       field("api", textHirCallableEndpoint(value.api)),
+      field("apiSignature", numericIdentity("sig", value.apiSignature)),
       field("bindings", textBindingVector(value.bindings)),
       field("conditionalFailure", (value.conditionalFailure === null ? token("null") : textDiagnostic(value.conditionalFailure))),
     ]);

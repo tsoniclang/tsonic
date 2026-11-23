@@ -1,3 +1,4 @@
+import { fixtureTypeWork, admitFixtureTable } from "./fixtures/types-construction.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
@@ -22,7 +23,10 @@ async function checked(source) {
   assert.equal(fixture.verifyChecked(result.value, interner).length, 0);
   const table = fixture.types.viewTypes(interner);
   const declarations = await import("../../packages/host/dist/elaborate/declarations.js");
-  const projection = { types: interner, signatureOf: id => {
+  const projection = { types: interner, typeWork: fixtureTypeWork(fixture.types), checkerDiagnosticsOf: owner => {
+    assert.equal(owner, result.value.module);
+    return result.value.checkerDiagnostics;
+  }, signatureOf: id => {
     const signature = table.signatures[id];
     assert.equal(signature !== undefined, true, "the endpoint names a genuine selected signature");
     return signature;
@@ -35,7 +39,9 @@ test("actual alias and interface members retain checked types, declarations and 
     "export type Fields<T> = { value: T; nested: { readonly leaf: boolean; }; method(input: boolean): boolean; get flag(): boolean; set flag(input: boolean | string); };\n"
     + "export interface Keys { [name: string]: boolean; }\n");
   const alias = tree.statements.nodes[0];
-  const typed = declarations.declarationAlias(projection, alias);
+  const selectedAlias = declarations.declarationAlias(projection, alias);
+  assert.equal(selectedAlias.kind, "ok");
+  const typed = selectedAlias.value;
   assert.equal(typed.type.kind, "TypeLiteral");
   assert.equal(typed.tsonic.type, alias.tsonic.type.value);
   assert.deepEqual(typed.typeParameters.nodes[0].tsonic.parameter, alias.typeParameters.nodes[0].tsonic.parameter);
@@ -63,7 +69,9 @@ test("actual alias and interface members retain checked types, declarations and 
   const nested = typed.type.members.nodes[1];
   assert.equal(nested.type.kind, "TypeLiteral");
   assert.equal(nested.type.members.nodes[0].kind, "PropertySignature");
-  const keys = declarations.declarationInterface(projection, tree.statements.nodes[1]);
+  const selectedKeys = declarations.declarationInterface(projection, tree.statements.nodes[1]);
+  assert.equal(selectedKeys.kind, "ok");
+  const keys = selectedKeys.value;
   assert.equal(keys.members.nodes[0].kind, "IndexSignature");
   assert.equal(keys.members.nodes[0].parameters.nodes[0].tsonic.local, null);
   assert.equal(keys.members.nodes[0].parameters.nodes[0].tsonic.passing, null);
@@ -119,16 +127,18 @@ test("twenty thousand checked member annotations project once through the same i
         name: { ...source.name, id: id + 2, parent: id + 1,
           tsonic: { ...source.name.tsonic, declaration: { kind: "definition", definition } } },
         type: node, tsonic: { ...source.tsonic, declaration: { kind: "definition", definition },
-          declaredType: { kind: "available", value: index + 1 } } }] } };
+          declaredType: { kind: "available", value: index + 1 }, inferredTypeBound: null } }] } };
   }
-  const interner = fixture.types.seedTypeInterner({ terms, signatures: [] });
+  const interner = admitFixtureTable(fixture.types, { terms, signatures: [] });
   const table = fixture.types.viewTypes(interner);
   assert.equal(table.terms.length, depth + 1);
   const unused = () => assert.fail("this closed shape graph has no component, nominal or local references");
   assert.equal(fixture.types.verifyTypes({ table, bindings: [], evidence: [], nominalOf: unused,
     nodeExists: unused, localExists: unused }).length, 0, "the deep fixture is a valid complete canonical TypeTable");
-  let completed = declarations.declarationType({ types: interner,
+  const result = declarations.declarationType({ types: interner, typeWork: fixtureTypeWork(fixture.types),
     signatureOf: () => assert.fail("no callable endpoint belongs to this constructed property-only graph") }, node);
+  assert.equal(result.kind, "ok");
+  let completed = result.value;
   for (let index = 0; index < depth; index += 1) {
     assert.equal(completed.kind, "TypeLiteral");
     assert.equal(completed.tsonic.type, index);
@@ -139,4 +149,21 @@ test("twenty thousand checked member annotations project once through the same i
   assert.equal(completed.kind, "BooleanKeyword");
   assert.equal(completed.tsonic.type, depth);
   assert.equal(reads.size, depth + 1);
+});
+
+test("a captured failed annotation returns its original diagnostic before reading a later type child", async () => {
+  const { declarations, projection, tree } = await checked('export type Early = Missing extends boolean ? "first" : "later";');
+  const alias = tree.statements.nodes[0];
+  const check = alias.type.checkType;
+  assert.equal(check.tsonic.type.reason, "checker-error");
+  const diagnostic = projection.checkerDiagnosticsOf(tree.origin.module)[0];
+  const unread = new Proxy({}, { get() { assert.fail("no later child may be read after refusal"); } });
+  const input = { ...alias, type: { ...alias.type, extendsType: unread } };
+  const selected = declarations.declarationAlias(projection, input);
+  assert.equal(selected.kind, "refused");
+  assert.equal(selected.diagnostics.length, 1);
+  assert.equal(selected.diagnostics[0] === diagnostic, true);
+  const missing = { ...check, tsonic: { ...check.tsonic, type: { kind: "unavailable", reason: "not-provided", causes: [] } } };
+  assert.throws(() => declarations.declarationAlias(projection, { ...input, type: { ...input.type, checkType: missing } }),
+    /actual captured type or original error/u);
 });

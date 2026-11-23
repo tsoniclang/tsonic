@@ -12,11 +12,9 @@ const row = (name, kind, imports, directory = `${root}/${name}`, effects = []) =
 
 const foundations = (["ids", "diag", "ir-types", "ir-hir", "ir-tir", "ir-mir", "ir-facts"]);
 const first = count => foundations.slice(0, count);
-const analyses = (["liveness", "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking"]);
-const decisionReadingAnalyses = (["refinements", "origins", "pointerBacking"]);
 const libraries = ([...first(4), "ir-infer", ...foundations.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot", "step"]);
 const components = (["front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
-  "analyses/body", ...analyses.map(name => `analyses/${name}`), "summaries"]);
+  "analyses/body", "analyses/liveness", "summaries"]);
 const drivers = (["project", "packages", "plugins", "artifacts"]);
 
 export const hostCatalogue = ([
@@ -44,7 +42,7 @@ export const hostCatalogue = ([
   row("evaluate", "component", [...first(6), "libraries", "ir-infer", "step"]),
   row("metadata", "component", [...first(4), "ir-facts", "step"]),
   row("analyses/body", "component", [...first(7), "dataflow"]),
-  ...analyses.map(name => row(`analyses/${name}`, "component", [...first(7), "dataflow", ...(decisionReadingAnalyses.includes(name) ? ["ir-infer"] : [])])),
+  row("analyses/liveness", "component", [...first(7), "dataflow"]),
   row("summaries", "component", [...first(7), "dataflow", "ir-infer", "libraries", "analyses/body", "analyses/liveness"]),
   row("pipeline", "pipeline", [...libraries, ...components]),
   ...drivers.map(name => row(name, "driver", ["ids", "diag", "snapshot"], `${root}/${name}`,

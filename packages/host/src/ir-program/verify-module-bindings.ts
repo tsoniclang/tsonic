@@ -1,9 +1,10 @@
 import type { ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { HirBindingTarget, HirModuleBinding } from "../ir-hir/contract.js";
-import { createModuleBindingViews, isModuleBindingKind } from "../ir-hir/index.js";
+import { createModuleBindingViews, isModuleBindingKind, isTypeOnlyExportStar } from "../ir-hir/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { ProgramIndex, ProgramRule, ProgramSite, ProgramVerificationContext } from "./contract.js";
-import type { ProgramLookup, ProgramViolation } from "./program-values.js";
+import type { ProgramLookup } from "./work.js";
+import type { ProgramViolation } from "./work-data.js";
 import { textDetail } from "./program-values.js";
 
 function ordinal(value: number): boolean {
@@ -85,7 +86,15 @@ export function verifyModuleBindings(lookup: ProgramLookup, index: ProgramIndex,
   };
   for (const record of index.modules) {
     const site: ProgramSite = { kind: "module", module: record.module };
-    for (const entry of record.exports) target(entry.target, site);
+    for (const entry of record.exports) {
+      target(entry.target, site);
+      if (entry.typeOnlyStar !== null) {
+        const owner = ownerModule(entry.typeOnlyStar);
+        const original = owner === null ? null : modules.get(owner)?.nodeOf(entry.typeOnlyStar);
+        if (!isTypeOnlyExportStar(original))
+          report("export-target-resolves", site, "a type-only star must name the actual authored export declaration");
+      }
+    }
     for (const row of record.bindings) if (row.target.kind === "available") target(row.target.value, site);
   }
   return violations;

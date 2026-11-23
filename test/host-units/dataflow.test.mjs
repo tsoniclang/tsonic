@@ -23,7 +23,7 @@ const caseDirectory = "test/host-cases/dataflow/function";
 const casePaths = readdirSync(resolve(repository, caseDirectory)).filter(name => name.endsWith(".case.json")).sort()
   .map(name => `${caseDirectory}/${name}`);
 const limits = { maximumWork: 1_000_000, maximumResultEntries: 1_000_000 };
-const interfaceNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir"];
+const interfaceNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "step"];
 const interfaceSources = [...interfaceNames.map(name => `packages/host/src/${name}/contract.ts`),
   "packages/host/src/diag/index.ts"];
 const declarationSources = [...interfaceSources,
@@ -1027,7 +1027,7 @@ test("the actual same account propagates original callback diagnostics before ev
   const diag = await import("../../packages/host/dist/diag/index.js");
   const makeRefusal = () => ({ kind: "refused", diagnostics: [{
     code: { kind: "host", name: diag.hostDiagnosticCode("TSONIC_COMPILER_RESOURCE_LIMIT"), rendered: "TSONIC_COMPILER_RESOURCE_LIMIT" },
-    severity: "error", site: { kind: "none" }, source: "analyses/origins", evidence: [],
+    severity: "error", site: { kind: "none" }, source: "analyses/body", evidence: [],
     message: "The constructed callback refused its actual projection bound.", arguments: [], related: [], fix: null,
   }] });
   const body = parsedBody([{ kind: "goto", target: identities.blockId(1) }, { kind: "return", value: null }],

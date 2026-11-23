@@ -669,6 +669,7 @@ export declare function Checker_isMappedTypeWithKeyofConstraintDeclaration(recei
 export declare function Checker_getConstraintDeclarationForMappedType(receiver: GoPtr<Checker>, t: GoPtr<Type>): GoPtr<Node>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeAliasInstantiation","kind":"method","status":"implemented","sigHash":"f6bed79b5fe6c3b11a594664f7e6283bbce7162f58985fb7a9856433761a34d8","bodyHash":"29d45b8fb5ebd9d1a56aa7137cb0fa907b55b3599d7035eceee083124e579c9e"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retain only the already selected suffix on the actual alias descriptor; preserve the native written argument vector, cache key and one default evaluation."}
  *
  * Go source:
  * func (c *Checker) getTypeAliasInstantiation(symbol *ast.Symbol, typeArguments []*Type, alias *TypeAlias) *Type {

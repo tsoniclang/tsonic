@@ -6,13 +6,23 @@ import { getPropertyNameFromType, isTypeUsableAsPropertyName } from "../internal
 import { readTypeIndexInfo, readTypePropertyInfo } from "./type-members.js";
 import { createTypeNormalization } from "./type-normalization.js";
 export function readTypeIndexedAccessComponents(query, type) {
+    const indexed = readOwnedIndexedAccess(query, type);
+    if (indexed === undefined)
+        return undefined;
+    return Object.freeze({ objectType: indexed.objectType, indexType: indexed.indexType });
+}
+export function readOwnedIndexedAccess(query, type) {
     if (query === undefined || type?.checker === undefined || !ownsChecker(query, type.checker) ||
         (type.flags & TypeFlagsIndexedAccess) === 0)
         return undefined;
     const indexed = Type_AsIndexedAccessType(type);
     const objectType = indexed?.objectType;
     const indexType = indexed?.indexType;
-    return objectType === undefined || indexType === undefined ? undefined : Object.freeze({ objectType, indexType });
+    if (indexed === undefined || objectType?.checker !== type.checker || indexType?.checker !== type.checker)
+        return undefined;
+    if (indexed.cacheKey === undefined || type.checker.indexedAccessTypes.get(indexed.cacheKey) !== type)
+        return undefined;
+    return indexed;
 }
 export function selectTypeIndexedAccess(query, objectType, indexType) {
     const checker = objectType?.checker;

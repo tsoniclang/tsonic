@@ -250,15 +250,19 @@ export const verifySummary: VerifySummary = (summary, context, resources) => {
       } else {
         let fixed = 0;
         let minimum = 0;
-        for (const parameter of signature.parameters) {
+        let dispositions = true;
+        for (const [index, parameter] of signature.parameters.entries()) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
+          const omitted = parameter.kind !== "rest" && fixed >= callback.provided;
+          if (value.arguments[index]?.kind !== (omitted ? "omitted" : "provided")) dispositions = false;
           if (parameter.kind === "rest") continue;
           fixed += 1;
           if (!parameter.acceptsOmission) minimum = fixed;
         }
         if (!Number.isSafeInteger(callback.provided) || Object.is(callback.provided, -0)
           || callback.provided < minimum || callback.provided > fixed
+          || !dispositions
           || value.arguments.length !== signature.parameters.length
           || (value.receiver === null) !== (signature.receiver === null)) {
           { const stop = report("callback-input-resolves", "A callback retains its actual provided entry, receiver and parameter transport."); if (stop !== null) return stop; }

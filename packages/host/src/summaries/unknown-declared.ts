@@ -1,6 +1,6 @@
 import { boundProducerId, openBoundaryId, originsId, producerId, valueContextId } from "../ids/index.js";
 import { rigidBindings } from "../ir-types/index.js";
-import type { BoundProducer, CallbackExchange, EffectPaths, OpenBoundary, Origins, ParameterEffect, Producer, RelationalOwner, SummaryRetention, Summary } from "../ir-facts/contract.js";
+import type { BoundProducer, CallbackExchange, EffectPaths, OpenBoundary, Origins, ParameterEffect, Producer, RelationalOwner, SummaryRetention, Summary, ValueArgument } from "../ir-facts/contract.js";
 import type { InitializationPoint } from "../ir-facts/contract.js";
 import type { DeclaredSummaryDeps, DeclaredSummaryInput } from "./contract.js";
 
@@ -16,7 +16,7 @@ export function unknownDeclaredSummary(deps: DeclaredSummaryDeps, input: Declare
   const origins: Origins[] = [{ id: originsId(0), kind: "open", producers: [], includesAbsence: true, boundaries: [boundary] }];
   const parameters: ParameterEffect[] = [];
   const retention: SummaryRetention[] = [];
-  const argumentsOrigins = [];
+  const argumentsOrigins: ValueArgument[] = [];
   const formals = new Map<string, ReturnType<typeof boundProducerId>>();
   let receiver = null;
   const formal = (kind: "receiver" | "parameter", index: number): ReturnType<typeof originsId> => {
@@ -33,11 +33,21 @@ export function unknownDeclaredSummary(deps: DeclaredSummaryDeps, input: Declare
     return origin;
   };
   if (deps.signature.receiver !== null) receiver = formal("receiver", 0);
-  for (let position = 0; position < deps.signature.parameters.length; position += 1) argumentsOrigins.push(formal("parameter", position));
+  for (const mapping of deps.parameters) {
+    if (mapping.kind === "argument" || mapping.kind === "rest") {
+      argumentsOrigins.push({ kind: "provided", origins: formal("parameter", mapping.parameter) });
+      continue;
+    }
+    const effects: EffectPaths = { kind: "complete", paths: [] };
+    producers.push({ id: producerId(producers.length), kind: "parameter", index: mapping.parameter, path: null });
+    parameters.push({ slot: { kind: "parameter", index: mapping.parameter }, reads: effects, writes: effects });
+    argumentsOrigins.push({ kind: "omitted" });
+  }
   const callbacks: CallbackExchange[] = [];
   const seen = new Set<string>();
   const owner: RelationalOwner = { kind: "summary", key: { kind: "declared", execution: input.execution } };
   for (const callable of deps.callables) {
+    if (callable.slot.kind === "parameter" && argumentsOrigins[callable.slot.index]?.kind === "omitted") continue;
     const key = callable.slot.kind === "receiver" ? "receiver" : `parameter:${callable.slot.index}`;
     const subject = formals.get(key);
     if (subject === undefined || seen.has(key) || callable.signatures.length === 0)

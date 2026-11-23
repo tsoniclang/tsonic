@@ -8,6 +8,16 @@ import { readNodeRef, readSourceNodeRef, readLocalRef, readLibraryModuleIdentity
 import type { Cause } from "../diag/contract.js";
 import { readCauseText } from "./text-causes.js";
 
+type MarkerApplication = NonNullable<Extract<HirMarkersCapture["application"], { readonly kind: "available" }>["value"]>;
+
+function readMarkerApplication<Root>(cursor: Cursor, finish: (value: MarkerApplication) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "HirMarkerApplication"), fields =>
+    fieldText<MarkerApplication["role"], Root>(cursor, fields, "role", (next, done) => atomicText(next, value => readStringChoice(value, ["struct", "field"]), done), role =>
+      fieldText<NodeRef, Root>(cursor, fields, "occurrence", (next, done) => atomicText(next, readNodeRef, done), occurrence =>
+        fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declaration =>
+          atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role, occurrence, declaration }, finish))))));
+}
+
 export function readHirCallableEndpointText<Root>(cursor: Cursor, finish: (value: HirCallableEndpoint) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "HirCallableEndpoint"), fields =>
     fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declarationValue =>
@@ -115,8 +125,10 @@ export function readHirMarkersCaptureText<Root>(cursor: Cursor, finish: (value: 
       atomicText(next, next => closeRecord(next, fields), () =>
           acceptText({ typeNode: typeNodeValue, type: typeValue }, done)))))), done), defaultValueValue =>
         fieldText<boolean, Root>(cursor, fields, "jsString", (next, done) => atomicText(next, readBoolean, done), jsStringValue =>
-          atomicText(cursor, next => closeRecord(next, fields), () =>
-              acceptText({ struct: structValue, field: fieldValue, defaultValue: defaultValueValue, jsString: jsStringValue }, finish)))))));
+          fieldText<HirMarkersCapture["application"], Root>(cursor, fields, "application",
+            (next, done) => readCapturedFactText(next, (inner, finish) => nullableText(inner, readMarkerApplication, finish), done), application =>
+              atomicText(cursor, next => closeRecord(next, fields), () =>
+                acceptText({ struct: structValue, field: fieldValue, defaultValue: defaultValueValue, jsString: jsStringValue, application }, finish))))))));
 }
 
 export function readHirPointerTypeCaptureText<Root>(cursor: Cursor, finish: (value: HirPointerTypeCapture) => TextStep<Root>): TextStep<Root> {

@@ -1,5 +1,5 @@
 import type { SourceNodeRef } from "../ids/contract.js";
-import type { DeclaredExecution, Execution } from "../ir-types/contract.js";
+import type { DeclarationRequest, DeclaredExecution, Execution } from "../ir-types/contract.js";
 import type { BoundProducerRef, MirPoint, RelationalOwner, StoreEdge, SummaryKey } from "./relations-data.js";
 import type { Condition } from "./conditions-data.js";
 import type { RelationalArena } from "./arena-data.js";
@@ -61,6 +61,12 @@ export interface InitializationApplication {
   readonly binding: InitializationBinding;
 }
 
+export interface InitializationApplicationInput {
+  readonly application: InitializationApplication;
+  readonly caller: RelationalArena;
+  readonly events: readonly InitializationEvent[];
+}
+
 export interface AppliedInitializationTable {
   readonly application: InitializationApplication;
   readonly point: number;
@@ -71,3 +77,19 @@ export interface BoundInitializationRow {
   readonly cell: BoundInitializationCell | null;
   readonly condition: Condition;
 }
+
+export interface UnmetStaticNeed {
+  readonly declaration: DeclarationRequest;
+  readonly at: SummaryPosition;
+  readonly witness: InitializationWitness;
+}
+
+export interface StaticInitializationCell {
+  readonly declaration: DeclarationRequest;
+  readonly source: SourceNodeRef;
+  readonly key: string;
+}
+
+export type StaticInitializationEffect =
+  | { readonly kind: "unbound" }
+  | { readonly kind: "bound"; readonly writes: readonly string[]; readonly unmet: readonly UnmetStaticNeed[] };

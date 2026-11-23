@@ -42,7 +42,7 @@ export const internTypeGraph: InternTypeGraph = (deps, input) => {
     if (!chargeWork(work, 1)) return workLimit(work);
     const value = terms[position];
     if (value === undefined) throw new TypeError("ir-types: a graph type vector must be dense.");
-    const admitted = readTypeData(value, work, "retain");
+    const admitted = readTypeData(value, work, "retain", true);
     if (admitted.kind === "resource-limit") return admitted;
     typeRows.set(typeBase + position, copyType(remapTerm(admitted.value, typeOf, signatureOf)));
   }
@@ -57,7 +57,7 @@ export const internTypeGraph: InternTypeGraph = (deps, input) => {
   }
   const grow = (count: number): TypePublicationStop | null => chargeWork(work, count) ? null : workLimit(work);
   const staged = stageGraph(types, typeRows, signatureRows, {
-    step: () => grow(1),
+    step: (count = 1) => grow(count),
     growth: grow,
     type: value => {
       const admitted = readTypeData(value, work, "retain");

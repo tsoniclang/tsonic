@@ -12,13 +12,13 @@ import type { Schema } from "./text-data.js";
 
 export interface NativeOperatorRecord {
   readonly kind: "native-operator";
-  readonly operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";
+  readonly operator: "+" | "-" | "!" | "~" | "++" | "--" | "typeof" | "void" | "delete" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";
   readonly carrier: "bool" | "char" | "int8" | "uint8" | "int16" | "uint16" | "int32" | "uint32" | "int64" | "uint64" | "int128" | "uint128" | "native-int" | "native-uint" | "float16" | "float32" | "float64" | "decimal";
 }
 
 export interface BigintOperatorRecord {
   readonly kind: "bigint-operator";
-  readonly operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";
+  readonly operator: "+" | "-" | "!" | "~" | "++" | "--" | "typeof" | "void" | "delete" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";
 }
 
 export interface StringOperatorRecord {

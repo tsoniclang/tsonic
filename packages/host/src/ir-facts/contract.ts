@@ -3,7 +3,7 @@ import type {
   BlockId, BodyId, BoundProducerId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclarationRequest, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
 import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
@@ -14,24 +14,38 @@ import type { MirPoint, RelationalOwner, StoreEdge, SummaryKey } from "./relatio
 import type { EscapeTarget, PointerBackingOperation, Summary, SummaryWrite } from "./summary-data.js";
 import type { AppliedSummary, SummaryApplicationInput, SummaryApplicationLimits } from "./application-data.js";
 import type { DependencyInventory } from "./dependency-data.js";
-import type { SummaryPosition } from "./initialization-data.js";
+import type { BoundInitializationRow, InitializationApplicationInput, StaticInitializationCell, StaticInitializationEffect, SummaryPosition } from "./initialization-data.js";
 export type { AppliedCallback, AppliedCell, AppliedContext, AppliedOriginsValue, AppliedProducerValue, AppliedSubject,
   AppliedSummary, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits, ValueEntryBinding } from "./application-data.js";
 export type { CallbackExchange, CaptureEffect, EffectPaths, EscapeTarget, ParameterEffect, ParameterSlot, PointerBackingOperation,
   Summary, SummaryAnswer, SummaryBacking, SummaryCompletion, SummaryRelations, SummaryResultCell, SummaryRetention, SummaryWrite } from "./summary-data.js";
 import type { ProducerRef, RelationalArena } from "./arena-data.js";
-export type { BoundProducer, CaptureLocation, OpenBoundary, OpenBoundaryRef, Origins, OriginsRef, Producer, ProducerRef, Projection, ProjectionPath, RelationalArena, ValueContext } from "./arena-data.js";
+export type { BoundProducer, CaptureLocation, OpenBoundary, OpenBoundaryRef, Origins, OriginsRef, Producer, ProducerRef, Projection, ProjectionPath, RelationalArena, ValueArgument, ValueContext } from "./arena-data.js";
 export type { Condition, ConditionLimits } from "./conditions-data.js";
 export type { BoundProducerRef, MirPoint, RelationalOwner, RelationalSite, StoreEdge, SummaryKey } from "./relations-data.js";
-export type { CreatedSlot, DeclaredCellInventory, LogicalCell, LogicalCellLifetime, LogicalCellOccurrence, LogicalCellRef, LogicalCellRow, StableReference } from "./cells-data.js";
+export type { CreatedSlot, DeclaredCellInventory, LogicalCell, LogicalCellLifetime, LogicalCellOccurrence, LogicalCellRef, LogicalCellRow,
+  ModuleStaticCellRef, StableReference } from "./cells-data.js";
 export type { InitializationEvent, InitializationPoint, InitializationRow, InitializationTable, InitializationWitness, SummaryPosition } from "./initialization-data.js";
+export type { BoundInitializationCell, BoundInitializationEvent, BoundInitializationRow, InitializationApplication,
+  InitializationApplicationInput, InitializationBinding, StaticInitializationCell, StaticInitializationEffect, UnmetStaticNeed } from "./initialization-data.js";
 export type { DependencyComponent, DependencyInventory, ExecutionDependency, RequiredOperations } from "./dependency-data.js";
 
 export type ConditionOr = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<Condition>;
 export type ConditionAnd = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<Condition>;
 export type ConditionEquals = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<boolean>;
 export type ConditionSubstitute = (condition: Condition, events: readonly Condition[], limits: ConditionLimits) => DataflowResult<Condition>;
+export type BindInitialization = (input: InitializationApplicationInput, limits: ConditionLimits) => DataflowResult<readonly BoundInitializationRow[]>;
+export type StaticInitializationOf = (summary: Summary, writtenOnEntry: (identity: string) => boolean,
+  limits: ConditionLimits) => DataflowResult<StaticInitializationEffect>;
+export type StaticInitializationCellOf = (summary: Summary, position: number, account: DataflowAccount) => DataflowResult<StaticInitializationCell | null>;
+export type StaticDeclarationKey = (declaration: DeclarationRequest, account: DataflowAccount) => DataflowResult<string>;
 export type AdmitSummaryIdentity = (key: SummaryKey, account: DataflowAccount) => DataflowStop | null;
+export type AdmitArtifactIdentity = (bindings: ArtifactBindings, account: DataflowAccount) => DataflowStop | null;
+export type AdmitBindingIdentity = (bindings: BindingVector, account: DataflowAccount) => DataflowStop | null;
+export type ArgumentTransportKey = (transport: ArgumentTransport | null, account: DataflowAccount) => DataflowResult<string>;
+export type CompareBoundActivations = (left: BoundActivation, leftInstance: string, leftTransport: string,
+  right: BoundActivation, rightInstance: string, rightTransport: string) => number;
+export type CompareConstructionAlternatives = (left: ConstructionAlternative, leftBody: string, right: ConstructionAlternative, rightBody: string) => number;
 
 export interface AnalysisLimits {
   readonly maximumProjectionDepth: number;
@@ -192,16 +206,18 @@ export interface EscapeFact {
   readonly target: EscapeTarget;
 }
 
-export interface ArgumentTransport {
-  readonly authoredIndex: number | null;
+export type ArgumentTransport = {
   readonly parameter: DefId;
   readonly parameterIndex: number;
+  readonly formal: ProducerRef;
+} & ({ readonly kind: "omitted" } | {
+  readonly kind: "provided";
+  readonly authoredIndex: number;
   readonly repeated: boolean;
   readonly passing: PassingMode;
   readonly actual: OriginsId;
-  readonly formal: ProducerRef;
   readonly projection: ProjectionPathId | null;
-}
+});
 
 export type SummaryIdentity = (key: SummaryKey) => string;
 export type SummaryPositionKey = (at: SummaryPosition) => string;

@@ -12,6 +12,21 @@ export const navigationCapture = { maximumCallableExpressionDepth: 64, maximumCa
 export const preparation = { roots: [], files: [], diagnostics: [] };
 const byId = (left, right) => left.id < right.id ? -1 : 1;
 
+export function rawComponentPath(components, component) {
+  const path = [];
+  let current = component;
+  while (current.path !== null) {
+    const { step, prefix } = current.path;
+    path.push(step);
+    if (prefix === null) break;
+    const parent = components[prefix];
+    assert.ok(parent?.id === prefix && prefix < current.id);
+    assert.deepEqual(parent.root, component.root);
+    current = parent;
+  }
+  return path.reverse();
+}
+
 export async function loadFrontFixture() {
   const front = await import("../../../../packages/host/dist/front/index.js");
   const ids = await import("../../../../packages/host/dist/ids/index.js");
@@ -26,7 +41,7 @@ export async function loadFrontFixture() {
 
   /** A verifier-valid snapshot: a project package with source modules, a package holding the bundled libraries, and packages of providers. */
   function projectSnapshot({ sourceFiles, libraries, providerPackages = [], declarationProviders = [], compilerExtensions = [], requiredProviderModules = [],
-    otherPackages = [], extraFiles = {}, installedDeclarations = "none", semanticModules = [] }) {
+    otherPackages = [], extraFiles = {}, installedDeclarations = "none", semanticModules = [], externalEntries = [] }) {
     const project = packageOf("/project");
     const checker = packageOf("/checker");
     const packages = [
@@ -66,7 +81,7 @@ export async function loadFrontFixture() {
       selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
       contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: libraries.map(library => ({ name: library.name, module: moduleOf(checker, library.name) }))
         .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0), installedDeclarations },
-        requiredProviderModules, compilerExtensions, declarationProviders, semanticModules, safetyProviders: [], dataLayouts: [] },
+        requiredProviderModules, compilerExtensions, declarationProviders, semanticModules, safetyProviders: [], dataLayouts: [], externalEntries },
       nativeFacts: nativeFactsFixture(),
     };
   }
@@ -88,7 +103,7 @@ export async function loadFrontFixture() {
   }
 
   /** The dependencies of lowerModuleExports and lowerModule for a program whose declarations are all in one module. */
-  function lowerDepsFor(definitions, interner, sourceText) {
+  function lowerDepsFor(definitions, interner, sourceText, typeLimits = {}) {
     const byNode = new Map(definitions.rows.map(row => [row.node, row.definition]));
     const occurrences = new Map(definitions.sourceOccurrences.map(row => [row.node, row]));
     return {
@@ -103,12 +118,19 @@ export async function loadFrontFixture() {
         assert.equal(reference.module, definitions.module, "every binding of this fixture is in its actual module");
         return occurrences.get(reference.node) ?? null;
       },
-      definitionOfExport: () => assert.fail("no library export is named by this program"),
-      sourceTextOf: () => sourceText, libraries: { sources: [] }, types: interner,
+      sourceTextOf: () => sourceText, types: interner,
       typeExpansion: { maximumDepth: 64, maximumVisits: 10000, maximumUnionMembers: 1000, maximumIntersectionMembers: 1000 },
-      typePublication: { maximumWork: 100000, maximumCreatedRecords: 100000 },
+      typeWork: types.createTypePublicationWork({ maximumWork: 100000, maximumCreatedRecords: 100000, ...typeLimits }),
       literalCapture: { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 },
     };
+  }
+
+  function* occurrenceRoots(raw) {
+    for (const component of raw.types.components) yield component.root;
+    for (const entry of raw.exports) if (entry.typeOnlyStar !== null) yield entry.typeOnlyStar;
+    for (const table of raw.types.members) for (const member of table.members) {
+      for (const origin of member.origins) if (origin.kind === "source-member") yield origin.occurrence;
+    }
   }
 
   /**
@@ -119,7 +141,7 @@ export async function loadFrontFixture() {
     const { deps, program, snapshot, module } = openedModule(sourceText);
     const raw = front.captureModule(deps, program, module);
     assert.equal(raw.kind, "ok", "captureModule");
-    const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
+    const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: [...occurrenceRoots(raw.value)].filter(root => root.module === raw.value.module) });
     assert.equal(definitions.kind, "ok", "lowerModuleDefinitions");
     const interner = types.createTypeInterner();
     const lowerDeps = lowerDepsFor(definitions.value, interner, sourceText);
@@ -127,7 +149,8 @@ export async function loadFrontFixture() {
     assert.equal(exported.kind, "ok", "lowerModuleExports");
     const checked = front.lowerModule({ ...lowerDeps, exportsOf: actual => actual === module ? exported.value : null }, raw.value);
     assert.equal(checked.kind, "ok", "lowerModule");
-    return { module, snapshot, raw: raw.value, definitions: definitions.value, interner, exports: exported.value, checked: checked.value };
+    return { module, snapshot, raw: raw.value, definitions: definitions.value, interner, typeWork: lowerDeps.typeWork,
+      exports: exported.value, checked: checked.value };
   }
 
   function captureModulesOf(snapshot, modules = snapshot.packages.modules) {
@@ -142,10 +165,10 @@ export async function loadFrontFixture() {
       return { module, text, raw: raw.value };
     });
     const requests = new Map();
-    for (const entry of captures) for (const component of entry.raw.types.components) {
-      const roots = requests.get(component.root.module) ?? [];
-      roots.push(component.root);
-      requests.set(component.root.module, roots);
+    for (const entry of captures) for (const occurrence of occurrenceRoots(entry.raw)) {
+      const roots = requests.get(occurrence.module) ?? [];
+      roots.push(occurrence);
+      requests.set(occurrence.module, roots);
     }
     const captured = captures.map(entry => {
       const definitions = front.lowerModuleDefinitions({ module: entry.raw, componentRoots: requests.get(entry.module) ?? [] });
@@ -189,20 +212,23 @@ export async function loadFrontFixture() {
    * identities, so the table it is verified against is the interner's rows in that numbering, read back one by one; the
    * publication gives only the row counts (its table is renumbered canonically, and Pipeline has no publication step yet).
    */
-  function verifyChecked(checked, interner, otherModules = []) {
+  function verifyChecked(checked, interner, otherModules = [], bindingScopeOf = () =>
+    ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] })) {
     const published = types.exportTypes(interner, { maximumWork: 1000000, maximumCreatedRecords: 100000 });
     assert.equal(published.kind, "complete");
     const table = { terms: published.value.types.map((unusedValue, position) => types.readType(interner, position)),
       signatures: published.value.signatures.map((unusedValue, position) => types.readSignature(interner, position)) };
     const modules = new Map([checked, ...otherModules].map(module => [module.module, module]));
     const domain = checkedSourceViews([...modules.values()].map(module => ({ module, nodes: hir.indexSyntaxTree(module.tree) })));
-    const scope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
     return hir.verifyHir(checked, {
       moduleOf: actual => modules.get(actual) ?? null,
       types: table,
       bodyPathOf: body => { const decoded = ids.decodeBodyId(body); return decoded.kind === "decoded" ? decoded.value : null; },
       definitionPathOf: identity => { const decoded = ids.decodeDefId(identity); return decoded.kind === "decoded" ? decoded.value : null; },
-      bindingScopeOf: scope, bindingScopeAt: scope, nominalOf: () => null, nodeOf: domain.nodeOf,
+      bindingScopeOf, bindingScopeAt: reference => {
+        const owner = reference.kind === "item" ? reference.value.owner : domain.bodies.get(reference.value.body)?.owner;
+        return owner === undefined ? null : bindingScopeOf(owner);
+      }, nominalOf: () => null, nodeOf: domain.nodeOf,
       localExists: domain.localExists,
     });
   }

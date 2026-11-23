@@ -1,7 +1,10 @@
+import type { CheckerDiagnosticRef, Diagnostic } from "../diag/contract.js";
 import type { SourceNodeRef } from "../ids/contract.js";
 import type { CheckedPhase, ExportDeclaration, Identifier, ImportDeclaration, ImportSpecifier, ModuleExportName, NamedExportBindings, NamedImportBindings } from "../ir-hir/contract.js";
+import { resolveModuleBinding } from "../ir-hir/index.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import { throwInvariant } from "../diag/index.js";
+import type { ElaborateDeps } from "./contract.js";
 
 function fail(message: string): never {
   return throwInvariant({ owner: "elaborate", query: null, origin: null, message });
@@ -11,6 +14,51 @@ function sameBinding(left: SourceNodeRef, right: SourceNodeRef): boolean {
   return left.kind === right.kind && left.value.node === right.value.node
     && (left.kind === "item" && right.kind === "item" && left.value.owner === right.value.owner
       || left.kind === "body" && right.kind === "body" && left.value.body === right.value.body);
+}
+
+function* moduleBindings(node: ImportDeclaration<CheckedPhase> | ExportDeclaration<CheckedPhase>): Iterable<SourceNodeRef> {
+  if (node.kind === "ExportDeclaration") {
+    const clause = node.exportClause;
+    if (clause?.kind === "NamespaceExport") yield clause.tsonic.binding;
+    else if (clause?.kind === "NamedExports") {
+      for (const element of clause.elements.nodes) yield element.tsonic.binding;
+    }
+  } else {
+    const clause = node.importClause;
+    if (clause === null) return;
+    yield* clause.tsonic.bindings;
+    const named = clause.namedBindings;
+    if (named?.kind === "NamespaceImport") yield* named.tsonic.bindings;
+    else if (named?.kind === "NamedImports") {
+      for (const element of named.elements.nodes) yield* element.tsonic.bindings;
+    }
+  }
+}
+
+export function moduleLinkRefusal<State>(deps: ElaborateDeps<State>,
+  node: ImportDeclaration<CheckedPhase> | ExportDeclaration<CheckedPhase>): readonly [Diagnostic, ...Diagnostic[]] | null {
+  let diagnostics: [Diagnostic, ...Diagnostic[]] | null = null;
+  const retain = (reference: CheckerDiagnosticRef): void => {
+    const diagnostic = deps.checkerDiagnosticsOf(reference.module)[reference.index];
+    if (diagnostic?.severity !== "error") return fail("An unresolved module link or binding must name its actual published checker error.");
+    if (diagnostics === null) diagnostics = [diagnostic];
+    else diagnostics.push(diagnostic);
+  };
+  const link = node.tsonic.target;
+  if (link.kind === "unavailable" && link.reason === "checker-error") {
+    for (const cause of link.causes) {
+      if (cause.kind !== "diagnostic" || cause.diagnostic.kind !== "checker")
+        return fail("An unresolved module link needs its actual original checker diagnostic identity.");
+      retain(cause.diagnostic.diagnostic);
+    }
+    return diagnostics ?? fail("An unresolved module link needs at least one original cause.");
+  }
+  for (const occurrence of moduleBindings(node)) {
+    const { target } = resolveModuleBinding(deps, occurrence);
+    if (target.kind !== "available" || target.value.kind !== "unresolved") continue;
+    for (const reference of target.value.diagnostics) retain(reference);
+  }
+  return diagnostics;
 }
 
 function identifier(node: Identifier<CheckedPhase>, binding: SourceNodeRef): Identifier<TypedPhase> {

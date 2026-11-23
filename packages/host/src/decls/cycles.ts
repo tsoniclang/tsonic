@@ -1,10 +1,9 @@
-import type { Cause, Diagnostic, DiagnosticIdentity, UnitPosition } from "../diag/contract.js";
+import type { Cause, Diagnostic, DiagnosticIdentity } from "../diag/contract.js";
 import { hostDiagnosticCode, throwInvariant } from "../diag/index.js";
 import { inferredPartKey } from "../ir-infer/index.js";
-import { encodeSelectorPath, signatureRequestKey } from "../ir-types/index.js";
-import type { ComponentSelector } from "../ir-types/contract.js";
+import { admitTypePublicationStep, refuseTypeConstruction, signatureRequestKey } from "../ir-types/index.js";
 import type { ClassifyCycle, DeclarationCycleMember, DeclaredSignatureErrorData } from "./contract.js";
-import { endpointOf } from "./signatures.js";
+import { endpointOf, prepareSignatureError, signatureComponentPosition } from "./signatures.js";
 
 function fail(message: string): never {
   return throwInvariant({ owner: "decls", query: null, origin: null, message });
@@ -41,9 +40,15 @@ export const classifyCycle: ClassifyCycle = (inputs, members) => {
     }
     if (indexOfPart + 1 !== producer.state.parts.length)
       return fail("The cycle witness has not supplied the readiness of later signature parts; their unavailability cannot be guessed.");
-    const payload: DeclaredSignatureErrorData = { kind: "declared-signature", state: producer.state,
-      ready: producer.ready.map((answer, index) => ({ index, answer })), unavailable: [indexOfPart] };
-    payloads.set(member, payload);
+    const stop = admitTypePublicationStep(inputs.typeWork, producer.ready.length);
+    if (stop !== null) {
+      const refusal = refuseTypeConstruction(inputs.typeWork, stop, endpointOf(inputs, producer.state.request).origin, member.unit);
+      return members.map(() => ({ kind: "refused", diagnostic: refusal.diagnostics[0] }));
+    }
+    const payload = prepareSignatureError(inputs, producer.state.request, { kind: "declared-signature", state: producer.state,
+      ready: producer.ready.map((answer, index) => ({ index, answer })), unavailable: [indexOfPart] });
+    if (payload.kind === "refused") return members.map(() => ({ kind: "refused", diagnostic: payload.diagnostics[0] }));
+    payloads.set(member, payload.value);
     const key = signatureRequestKey(producer.state.request);
     if (detectorKey === undefined || key < detectorKey) { detector = member; detectorKey = key; }
   }
@@ -52,15 +57,16 @@ export const classifyCycle: ClassifyCycle = (inputs, members) => {
   const state = detector.producer.state;
   const part = state.parts[detector.producer.ready.length]?.part.part;
   if (part === undefined) return fail("The detecting declaration has no actual unavailable type position.");
+  const prepared = payloads.get(detector);
+  if (prepared === undefined) return fail("The detecting declaration must have its final error signature.");
   const endpoint = endpointOf(inputs, state.request);
-  const selector: ComponentSelector = part.kind === "parameter-initializer"
-    ? { kind: "parameter", signature: state.signature.id, index: part.index }
-    : part.kind === "return" ? { kind: "result", signature: state.signature.id }
+  const selector = part.kind === "parameter-initializer" ? part.index : part.kind === "return" ? "result"
     : fail("A public signature cycle requires its actual type slot, not an executing body channel.");
-  const position: UnitPosition = { kind: "component", path: encodeSelectorPath([selector]) };
+  const position = signatureComponentPosition(prepared.signature.id, selector);
   const code = hostDiagnosticCode("TSONIC_TYPE_DEPENDENCY_CYCLE");
   const identity: DiagnosticIdentity = { kind: "host", code, unit: { request: detector.unit, position } };
-  const cause: Cause = { kind: "diagnostic", diagnostic: identity };
+  const originated: Cause = { kind: "diagnostic", diagnostic: identity };
+  const absorbed: Cause = { kind: "unit", unit: identity.unit };
   const diagnostic: Diagnostic = {
     code: { kind: "host", name: code, rendered: code }, severity: "error", site: { kind: "source", origin: endpoint.origin },
     source: "decls", evidence: [], message: "The inferred signature part depends on its own completed signature.",
@@ -70,7 +76,7 @@ export const classifyCycle: ClassifyCycle = (inputs, members) => {
     if (member.answerPolicy === "refusal-only") return { kind: "refused", diagnostic };
     const data = payloads.get(member);
     if (data === undefined) return fail("Every typed-error cycle member requires its actual classified constructor data.");
-    return { kind: "error", cause, data, diagnostics: member === detector ? [diagnostic] : [],
+    return { kind: "error", cause: member === detector ? originated : absorbed, data, diagnostics: member === detector ? [diagnostic] : [],
       emissions: member === detector ? [{ identity, diagnostic }] : [] };
   });
 };

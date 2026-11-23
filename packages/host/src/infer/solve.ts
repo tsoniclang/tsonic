@@ -1,18 +1,21 @@
 import type { Cause, Diagnostic, ErrorValue, Result, UnitAnswerPosition, UnitRequest } from "../diag/contract.js";
 import type { TyId } from "../ids/contract.js";
 import type {
-  AtomicContribution, Constraint, ConstraintDecision, ConstraintSet, ContributionOutcome, FinalVariable, InferenceGroup,
-  BodyTyping, CaptureRow, InferenceValue, InferredPartType, RecordedCheck, SolvedConstraint, VariableBound,
+  AtomicContribution, Constraint, ConstraintDecision, ConstraintSet, ContributionOutcome, DefaultConstraint, FinalVariable, InferenceGroup,
+  BodyTyping, CaptureRow, InferenceValue, InferenceVariable, InferredPartType, MemberRuleCompletion, MemberRuleStep, SolvedConstraint,
 } from "../ir-infer/contract.js";
-import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep, ResumeSolveGroup, SolveGroup, SolveRequest } from "./contract.js";
+import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep,
+  PlacementPaused, ResumeSolveGroup, SelectionConstraintOrigin, SolveAnswer, SolveGroup, SolveRequest } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { internType } from "../ir-types/index.js";
-import type { BodyInstance } from "../ir-types/contract.js";
+import type { BodyInstance, MemberInventory } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
-import { ownSignatureRequest } from "./own-signature.js";
+import { checkedVoidCompletion, ownSignatureRequest } from "./own-signature.js";
 import { bodyCaptureModes } from "./captures.js";
+import { issueMemberSolve, takeMemberSolve } from "./member-pause.js";
+import type { Enumerated, Reached, SolveFrame } from "./member-pause.js";
 
 const PORT = "SolveGroup";
 const RESUME = "ResumeSolveGroup";
@@ -32,44 +35,31 @@ export const solveGroup: SolveGroup = (deps, group, constraints, unit) => {
 
 export const resumeSolveGroup: ResumeSolveGroup = (deps, paused, answers) => {
   validateInferenceLimits(RESUME, deps.limits, deps.graph);
+  if (paused.kind === "member") return resumeMember(deps, paused, answers);
   if (answers.length !== paused.requests.length) return callerDefect(RESUME, `${answers.length} answers for ${paused.requests.length} requests`);
   if (paused.captures.length !== paused.group.bodies.length)
     return callerDefect(RESUME, "the retained capture rows must belong to every actual group body");
   const bodies: BodyTyping[] = [];
   for (const [index, answer] of answers.entries()) {
     const request = present(paused.requests[index], "the actual signature request");
-    if (request.kind !== answer.kind) return callerDefect(RESUME, "the signature answer must retain its actual request arm");
+    if (answer.kind === "membersOf" || answer.kind === "memberTypeOf" || request.kind !== answer.kind)
+      return callerDefect(RESUME, "the signature answer must retain its actual request arm");
     const body = present(paused.group.bodies[index], "the actual signature's body");
     const captures = present(paused.captures[index], "the actual retained Rules capture rows");
-    bodies.push({ body, captures, signature: answer.value.id,
-      completion: answer.value.result, yielded: null, sent: null });
+    const signature = answer.kind === "placeSignature" ? answer.value.signature : answer.value;
+    bodies.push({ body, captures, signature: signature.id,
+      completion: signature.result, yielded: null, sent: null });
   }
   return { kind: "done", value: { kind: "ok", value: { solution: { group: paused.group.id, variables: paused.variables,
     constraints: paused.solved, checks: paused.checks, bodies }, contributions: paused.contributions,
-    positions: paused.positions }, diagnostics: [] } };
+    positions: paused.positions, memberInventories: paused.memberInventories }, diagnostics: [] } };
 };
 
-type Reached =
-  | { readonly kind: "member"; readonly constraint: Extract<Constraint, { readonly kind: "member" }>; readonly evidence: readonly InferenceValue[] }
-  | { readonly kind: "op"; readonly constraint: Extract<Constraint, { readonly kind: "op" }>; readonly evidence: readonly InferenceValue[] }
-  | { readonly kind: "call"; readonly constraint: Extract<Constraint, { readonly kind: "call" }>; readonly evidence: readonly InferenceValue[] }
-  | { readonly kind: "flow"; readonly constraint: Extract<Constraint, { readonly kind: "flow" }>; readonly evidence: readonly InferenceValue[] };
+type Frame<State> = SolveFrame<InferDeps<State>, GroupConstraints>;
+type Step<State> = InferStep<GroupSolution, SolveRequest, InferPaused<State>>;
+type MemberStep<State> = MemberRuleStep<MemberRuleCompletion, State>;
 
-interface FiledBound {
-  readonly bound: VariableBound;
-  readonly flow: { readonly set: ConstraintSet; readonly index: number } | null;
-}
-
-interface Enumerated {
-  readonly contribution: AtomicContribution;
-  readonly index: number;
-  readonly reached: Reached;
-  readonly set: ConstraintSet;
-}
-
-type Step = InferStep<GroupSolution, SolveRequest, InferPaused>;
-
-function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstraints, unit: UnitRequest): Step {
+function solve<State>(deps: InferDeps<State>, group: InferenceGroup, generated: GroupConstraints, unit: UnitRequest): Step<State> {
   const sets = generated.constraints;
   const limits = deps.limits;
   const owned = sets.flatMap(set => set.variables);
@@ -80,58 +70,51 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
   const diagnostics: Diagnostic[] = [];
   const positions: UnitAnswerPosition[] = [];
   const enumerated: Enumerated[] = [];
+  let defaults: Map<number, DefaultConstraint> | null = null;
+  let selectionPosition = 0;
   for (const set of sets) {
     let offset = 0;
     for (const [index, constraint] of set.constraints.entries()) {
-    const reached = reach(constraint, set.evidence, offset);
-    offset += reached.evidence.length;
-    const listed = enumerate(deps, group, set, reached, index, limits.maximumAtomicContributionsPerGroup - enumerated.length);
-    if (listed.kind === "refused") return refused(...listed.diagnostics);
-    diagnostics.push(...listed.diagnostics);
-    for (const contribution of listed.value) {
-      if (enumerated.length + 1 > limits.maximumAtomicContributionsPerGroup)
-        return refused(limitDiagnostic(group, "atomic contributions per group", limits.maximumAtomicContributionsPerGroup));
-      enumerated.push({ contribution, index, reached, set });
-    }
+      if (constraint.kind === "default") {
+        const variable = owned[constraint.variable];
+        if (variable === undefined || !Object.is(variable.id, constraint.variable)
+          || variable.occurrence.body !== set.body || constraint.occurrence.body !== set.body
+          || variable.occurrence.node !== constraint.occurrence.node || defaults?.has(variable.id))
+          return callerDefect(PORT, "a default must name its unique actual variable and occurrence");
+        if (owned.length + (defaults?.size ?? 0) >= deps.graph.maximumWork)
+          return refused(...diagnostics, limitDiagnostic(group, "inference dependency work", deps.graph.maximumWork));
+        (defaults ??= new Map()).set(variable.id, constraint);
+      }
+      const source = constraint.kind === "member" || constraint.kind === "call" ? generated.selectionOrigins[selectionPosition++] : undefined;
+      const reached = reach(constraint, set.evidence, offset, source);
+      offset += reached.evidence.length;
+      const listed = enumerate(deps, group, set, reached, index, owned, limits.maximumAtomicContributionsPerGroup - enumerated.length);
+      if (listed.kind === "refused") return refused(...listed.diagnostics);
+      diagnostics.push(...listed.diagnostics);
+      for (const contribution of listed.value) {
+        if (enumerated.length + 1 > limits.maximumAtomicContributionsPerGroup)
+          return refused(limitDiagnostic(group, "atomic contributions per group", limits.maximumAtomicContributionsPerGroup));
+        enumerated.push({ contribution, index, reached, set });
+      }
     }
   }
+  if (selectionPosition !== generated.selectionOrigins.length)
+    return callerDefect(PORT, "the checked selection origins must name only the actual selection constraints");
   enumerated.sort((left, right) => compareContributionKeys(left.contribution.key, right.contribution.key));
 
-  const bounds: FiledBound[][] = owned.map(() => []);
-  const decisions = new Map<ConstraintSet["body"], Map<number, ConstraintDecision>>();
-  const sourceErrors = new Map<string, { readonly node: Constraint["occurrence"]; readonly errors: ErrorValue[] }>();
-  const decide = (set: ConstraintSet, index: number, decision: ConstraintDecision): boolean => {
-    if (decision.kind === "error") {
-      if (!take(1)) return false;
-      const node = present(set.constraints[index], "the decided constraint").occurrence;
-      const key = encodeKey([node.body, node.node]);
-      const source = sourceErrors.get(key);
-      if (source === undefined) sourceErrors.set(key, { node, errors: [decision.error] });
-      else source.errors.push(decision.error);
-    }
-    const entries = decisions.get(set.body) ?? new Map<number, ConstraintDecision>();
-    entries.set(index, decision);
-    decisions.set(set.body, entries);
-    return true;
-  };
-  let work = 0;
-  const take = (count: number): boolean => {
-    if (count > deps.graph.maximumWork - work) return false;
-    work += count;
-    return true;
-  };
-  const exhausted = (): Step => refused(limitDiagnostic(group, "inference dependency work", deps.graph.maximumWork));
-  if (!take(owned.length + enumerated.length)) return exhausted();
-  const remainingBounds = owned.map(() => 0);
-  const readers: number[][] = owned.map(() => []);
-  const remainingReads: number[] = [];
-  const contributionBounds: ReadonlySet<number>[] = [];
-  const ready: { readonly kind: "contribution" | "variable"; readonly index: number }[] = [];
+  const work = owned.length + enumerated.length + (defaults?.size ?? 0);
+  if (work > deps.graph.maximumWork)
+    return refused(...diagnostics, limitDiagnostic(group, "inference dependency work", deps.graph.maximumWork));
+  const frame: Frame<State> = { deps, group, generated, unit, owned, defaults, enumerated, diagnostics, positions, work, completed: 0,
+    bounds: owned.map(() => []), decisions: new Map(), sourceErrors: new Map(), remainingBounds: owned.map(() => 0),
+    readers: owned.map(() => []), remainingReads: [], contributionBounds: [], ready: [],
+    variables: owned.map(() => undefined), checks: [], memberInventories: [] };
+  const { readers, remainingReads, remainingBounds, ready, contributionBounds } = frame;
   for (const [index, item] of enumerated.entries()) {
     const contribution = item.contribution;
     if (index > 0 && compareContributionKeys(present(enumerated[index - 1], "a preceding contribution").contribution.key, contribution.key) === 0)
       return ruleDefect("a group's atomic contributions have duplicate qualified identities");
-    if (!take(contribution.reads.length + contribution.bounds.length)) return exhausted();
+    if (!take(frame, contribution.reads.length + contribution.bounds.length)) return exhausted(frame);
     const seenReads = new Set<number>();
     for (const variable of contribution.reads) {
       if (seenReads.has(variable)) return ruleDefect("a contribution reads a variable twice");
@@ -149,80 +132,180 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
     if (contribution.reads.length === 0) ready.push({ kind: "contribution", index });
   }
   for (const variable of owned) if (remainingBounds[variable.id] === 0) ready.push({ kind: "variable", index: variable.id });
-  const variables: (FinalVariable | undefined)[] = owned.map(() => undefined);
-  const checks: RecordedCheck[] = [];
-  let completed = 0;
-  for (let position = 0; position < ready.length; position += 1) {
+  return continueSolve(frame, 0);
+}
+
+function take<State>(frame: Frame<State>, count: number): boolean {
+  if (count > frame.deps.graph.maximumWork - frame.work) return false;
+  frame.work += count;
+  return true;
+}
+
+function exhausted<State>(frame: Frame<State>): Step<State> {
+  return refused(...frame.diagnostics, limitDiagnostic(frame.group, "inference dependency work", frame.deps.graph.maximumWork));
+}
+
+function decide<State>(frame: Frame<State>, set: ConstraintSet, index: number, decision: ConstraintDecision): boolean {
+  const { sourceErrors, decisions } = frame;
+  if (decision.kind === "error") {
+    if (!take(frame, 1)) return false;
+    const node = present(set.constraints[index], "the decided constraint").occurrence;
+    const key = encodeKey([node.body, node.node]);
+    const source = sourceErrors.get(key);
+    if (source === undefined) sourceErrors.set(key, { node, errors: [decision.error] });
+    else source.errors.push(decision.error);
+  }
+  const entries = decisions.get(set.body) ?? new Map<number, ConstraintDecision>();
+  entries.set(index, decision);
+  decisions.set(set.body, entries);
+  return true;
+}
+
+function finishContribution<State>(frame: Frame<State>, index: number, item: Enumerated, evaluated: Result<ContributionOutcome>,
+  inventory: MemberInventory | null): Step<State> | null {
+  const { diagnostics, contributionBounds, bounds, memberInventories, remainingBounds, ready } = frame;
+  if (evaluated.kind === "refused") return refused(...diagnostics, ...evaluated.diagnostics);
+  diagnostics.push(...evaluated.diagnostics);
+  const outcome: ContributionOutcome = evaluated.value;
+  const application = item.reached.kind === "call" ? item.reached.constraint.application : null;
+  if (outcome.selectedCandidate !== null && (item.reached.kind !== "call" || outcome.decision?.kind !== "call"
+    || outcome.decision.application.candidate !== outcome.selectedCandidate
+    || !item.set.candidates.some(list => list.id === application?.candidates
+      && list.candidates.some(candidate => candidate.ordinal === outcome.selectedCandidate))))
+    return ruleDefect("a selected candidate must retain its actual call constraint, decision and captured candidate identity");
+  const undecidedFlow = outcome.decision === null && item.reached.kind === "flow" && outcome.bounds.length === 1
+    ? { set: item.set, index: item.index } : null;
+  for (const bound of outcome.bounds) {
+    if (!present(contributionBounds[index], "the contribution's bound inventory").has(bound.variable))
+      return ruleDefect(`the ${item.reached.kind} scheme bounded variable ${bound.variable} outside its contribution`);
+    present(bounds[bound.variable], `the bound list of variable ${bound.variable}`).push({ bound, flow: undecidedFlow });
+  }
+  if (outcome.decision !== null) {
+    if (outcome.decision.kind === "member") {
+      if (inventory === null || item.reached.kind !== "member")
+        return ruleDefect("a selected member must retain its completed receiver inventory");
+      if (!take(frame, 1)) return exhausted(frame);
+      memberInventories.push({ occurrence: item.reached.constraint.occurrence, inventory });
+    }
+    if (!decide(frame, item.set, item.index, outcome.decision)) return exhausted(frame);
+  }
+  for (const variable of item.contribution.bounds) {
+    remainingBounds[variable] = present(remainingBounds[variable], "the remaining variable contributors") - 1;
+    if (remainingBounds[variable] === 0) ready.push({ kind: "variable", index: variable });
+  }
+  return null;
+}
+
+function finishVariable<State>(frame: Frame<State>, index: number): Step<State> | null {
+  const { owned, bounds, deps, diagnostics, variables, positions, checks, group, readers, remainingReads, ready } = frame;
+  const variable = present(owned[index], "the actual inference variable");
+  const own = present(bounds[variable.id], `the bound list of variable ${variable.id}`)
+    .sort((left, right) => compareContributionKeys(left.bound.contribution, right.bound.contribution));
+  const rule = deps.rules.variables[variable.kind];
+  const fallback = frame.defaults?.get(variable.id) ?? null;
+  let inferredTypeBound: Parameters<typeof rule.finalize>[0]["inferredTypeBound"] = null;
+  if (fallback?.rule === "signature-producers") {
+    const body = deps.hirBody(variable.occurrence.body);
+    if (variable.kind !== "signature" || variable.signature.part.kind !== "return" || body.owner !== variable.signature.definition
+      || body.root.id !== variable.occurrence.node || body.body !== variable.occurrence.body)
+      return callerDefect(PORT, "a no-value default must name its actual checked function result");
+    const type = checkedVoidCompletion(deps, body);
+    if (type === null || type !== fallback.type)
+      return callerDefect(PORT, "a no-value default must retain its actual checked void bound");
+    inferredTypeBound = { kind: "available", value: type };
+  } else if (variable.kind === "signature" && variable.signature.part.kind === "variable") {
+    const declaration = deps.itemOf(variable.signature.definition);
+    if (declaration.kind !== "VariableDeclaration" || declaration.type !== null
+      || declaration.initializer?.id !== variable.occurrence.node || declaration.tsonic.initializer !== variable.occurrence.body
+      || declaration.tsonic.inferredTypeBound === null)
+      return callerDefect(PORT, "an inferred variable requires the bound at its actual checked initializer");
+    inferredTypeBound = declaration.tsonic.inferredTypeBound;
+  }
+  const finalized = rule.finalize({ variable, producers: own.filter(filed => filed.bound.kind === "producer").map(filed => filed.bound),
+    demands: own.filter(filed => filed.bound.kind === "demand").map(filed => filed.bound), inferredTypeBound,
+    default: fallback, declaredConstraint: null, declaredDefault: null });
+  if (finalized.kind === "refused") return refused(...finalized.diagnostics);
+  diagnostics.push(...finalized.diagnostics);
+  variables[variable.id] = { variable: variable.id, ...finalized.value };
+  positions.push({ position: { kind: "inference-variable", group: group.id, variable: variable.id }, error: finalized.value.error });
+  for (const { bound, flow } of own) {
+    const checked = rule.check({ variable, final: finalized.value, bound });
+    if (checked.kind === "refused") return refused(...checked.diagnostics);
+    diagnostics.push(...checked.diagnostics);
+    checks.push({ variable: variable.id, contribution: bound.contribution, bound, outcome: checked.value });
+    if (flow !== null) {
+      if (checked.value.kind === "satisfied"
+        && !decide(frame, flow.set, flow.index, { kind: "flow", embedding: checked.value.embedding })) return exhausted(frame);
+      if (checked.value.kind === "error"
+        && !decide(frame, flow.set, flow.index, { kind: "error", error: checked.value.error })) return exhausted(frame);
+    }
+  }
+  for (const reader of present(readers[variable.id], "the actual variable's readers")) {
+    remainingReads[reader] = present(remainingReads[reader], "a reader's remaining final variables") - 1;
+    if (remainingReads[reader] === 0) ready.push({ kind: "contribution", index: reader });
+  }
+  return null;
+}
+
+function pauseMember<State>(frame: Frame<State>, step: Extract<MemberStep<State>, { readonly kind: "paused" }>,
+  position: number, index: number, item: Enumerated, inventory: MemberInventory | null): Step<State> {
+  const earned = [...frame.diagnostics, ...step.earned];
+  frame.diagnostics = [];
+  const pending = { position, index, requests: step.requests, rule: step.paused, inventory };
+  return { kind: "paused", earned, requests: step.requests,
+    paused: issueMemberSolve(frame, pending, item.reached.constraint.occurrence) };
+}
+
+function resumeMember<State>(deps: InferDeps<State>, paused: Extract<InferPaused<State>, { readonly kind: "member" }>,
+  answers: readonly SolveAnswer[]): Step<State> {
+  const { frame, pending } = takeMemberSolve(deps, paused);
+  if (answers.length !== pending.requests.length)
+    return callerDefect(RESUME, `${answers.length} answers for ${pending.requests.length} requests`);
+  const actual = answers.map(answer => answer.kind === "membersOf" || answer.kind === "memberTypeOf" ? answer
+    : callerDefect(RESUME, "a member contribution requires its actual member answers"));
+  const next = deps.rules.resumeMember(pending.rule, actual);
+  const held = actual.find(answer => answer.kind === "membersOf")?.value ?? pending.inventory;
+  const item = present(frame.enumerated[pending.index], "the paused atomic contribution");
+  if (next.kind === "paused") return pauseMember(frame, next, pending.position, pending.index, item, held);
+  return finishContribution(frame, pending.index, item, contributionOf(next.value), held) ?? continueSolve(frame, pending.position + 1);
+}
+
+function continueSolve<State>(frame: Frame<State>, start: number): Step<State> {
+  const { ready, enumerated, variables, deps, unit, group } = frame;
+  for (let position = start; position < ready.length; position += 1) {
     const task = present(ready[position], "the next inference dependency task");
-    if (!take(1)) return exhausted();
-    completed += 1;
-    if (task.kind === "contribution") {
+    if (!take(frame, 1)) return exhausted(frame);
+    frame.completed += 1;
+    if (task.kind === "variable") {
+      const stop = finishVariable(frame, task.index);
+      if (stop !== null) return stop;
+      continue;
+    }
     const item = present(enumerated[task.index], "the actual atomic contribution");
     const reads = item.contribution.reads.map(variable => {
       const final = present(variables[variable], "a completed variable read");
       return final.error === null ? final : { ...final, error: absorbed(unit, group.id, variable) };
     });
-    const evaluated = evaluate(deps, item.set, item, reads);
-    if (evaluated.kind === "refused") return refused(...evaluated.diagnostics);
-    diagnostics.push(...evaluated.diagnostics);
-    const outcome: ContributionOutcome = evaluated.value;
-    const application = item.reached.kind === "call" ? item.reached.constraint.application : null;
-    if (outcome.selectedCandidate !== null && (item.reached.kind !== "call" || outcome.decision?.kind !== "call"
-      || outcome.decision.application.candidate !== outcome.selectedCandidate
-      || !item.set.candidates.some(list => list.id === application?.candidates
-        && list.candidates.some(candidate => candidate.ordinal === outcome.selectedCandidate))))
-      return ruleDefect("a selected candidate must retain its actual call constraint, decision and captured candidate identity");
-    const undecidedFlow = outcome.decision === null && item.reached.kind === "flow" && outcome.bounds.length === 1
-      ? { set: item.set, index: item.index } : null;
-    for (const bound of outcome.bounds) {
-      if (!present(contributionBounds[task.index], "the contribution's bound inventory").has(bound.variable))
-        return ruleDefect(`the ${item.reached.kind} scheme bounded variable ${bound.variable} outside its contribution`);
-      present(bounds[bound.variable], `the bound list of variable ${bound.variable}`).push({ bound, flow: undecidedFlow });
-    }
-    if (outcome.decision !== null) {
-      if (!decide(item.set, item.index, outcome.decision)) return exhausted();
-    }
-    for (const variable of item.contribution.bounds) {
-      remainingBounds[variable] = present(remainingBounds[variable], "the remaining variable contributors") - 1;
-      if (remainingBounds[variable] === 0) ready.push({ kind: "variable", index: variable });
-    }
-    } else {
-    const variable = present(owned[task.index], "the actual inference variable");
-    const own = present(bounds[variable.id], `the bound list of variable ${variable.id}`)
-      .sort((left, right) => compareContributionKeys(left.bound.contribution, right.bound.contribution));
-    const rule = deps.rules.variables[variable.kind];
-    const finalized = rule.finalize({ variable, producers: own.filter(filed => filed.bound.kind === "producer").map(filed => filed.bound),
-      demands: own.filter(filed => filed.bound.kind === "demand").map(filed => filed.bound), default: null, declaredConstraint: null, declaredDefault: null });
-    if (finalized.kind === "refused") return refused(...finalized.diagnostics);
-    diagnostics.push(...finalized.diagnostics);
-    variables[variable.id] = { variable: variable.id, ...finalized.value };
-    positions.push({ position: { kind: "inference-variable", group: group.id, variable: variable.id }, error: finalized.value.error });
-    for (const { bound, flow } of own) {
-      const checked = rule.check({ variable, final: finalized.value, bound });
-      if (checked.kind === "refused") return refused(...checked.diagnostics);
-      diagnostics.push(...checked.diagnostics);
-      checks.push({ variable: variable.id, contribution: bound.contribution, bound, outcome: checked.value });
-      if (flow !== null) {
-        if (checked.value.kind === "satisfied"
-          && !decide(flow.set, flow.index, { kind: "flow", embedding: checked.value.embedding })) return exhausted();
-        if (checked.value.kind === "error"
-          && !decide(flow.set, flow.index, { kind: "error", error: checked.value.error })) return exhausted();
-      }
-    }
-    for (const reader of present(readers[variable.id], "the actual variable's readers")) {
-      remainingReads[reader] = present(remainingReads[reader], "a reader's remaining final variables") - 1;
-      if (remainingReads[reader] === 0) ready.push({ kind: "contribution", index: reader });
-    }
-    }
+    const evaluated = evaluate(deps, item, reads);
+    if (evaluated.kind === "paused") return pauseMember(frame, evaluated, position, task.index, item, null);
+    const result = evaluated.kind === "done" ? contributionOf(evaluated.value) : evaluated;
+    const stop = finishContribution(frame, task.index, item, result, null);
+    if (stop !== null) return stop;
   }
-  if (completed !== owned.length + enumerated.length) return notInferredYet(PORT, "a seeded or unseeded cyclic contribution component", null);
+  return finishSolve(frame);
+}
+
+function finishSolve<State>(frame: Frame<State>): Step<State> {
+  const { deps, group, generated, unit, owned, enumerated, positions, sourceErrors, decisions, variables, checks, diagnostics, memberInventories } = frame;
+  const sets = generated.constraints;
+  if (frame.completed !== owned.length + enumerated.length) return notInferredYet(PORT, "a seeded or unseeded cyclic contribution component", null);
   for (const source of sourceErrors.values()) {
     const [first, ...rest] = source.errors;
     const actual = present(first, "the source operation's actual error");
     let error = actual;
     if (rest.length !== 0) {
       const length = source.errors.reduce((count, error) => count + error.causes.length, 0);
-      if (!take(length)) return exhausted();
+      if (!take(frame, length)) return exhausted(frame);
       const causes = source.errors.flatMap(error => error.causes);
       error = { kind: "error", causes: [present(causes[0], "the source operation's original cause"), ...causes.slice(1)] };
     }
@@ -254,13 +337,13 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
   }
   const captures: (readonly CaptureRow[])[] = [];
   for (const reference of group.bodies) {
-    const selected = bodyCaptureModes(deps, deps.hirBody(reference), take);
-    if (selected === null) return exhausted();
+    const selected = bodyCaptureModes(deps, deps.hirBody(reference), count => take(frame, count));
+    if (selected === null) return exhausted(frame);
     if (selected.kind === "refused") return { kind: "done", value: selected };
     diagnostics.push(...selected.diagnostics);
     captures.push(selected.value);
   }
-  const requests: SolveRequest[] = group.bodies.map((reference, position) => {
+  const requests: PlacementPaused["requests"][number][] = group.bodies.map((reference, position) => {
     const body = deps.hirBody(reference);
     const owner = deps.itemOf(body.owner);
     if (body.asynchronous || body.generator) return notInferredYet(PORT, "the solved execution channels of an async or generator body", body.root.origin);
@@ -301,23 +384,30 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
   });
   const [first, ...rest] = requests;
   if (first === undefined) return callerDefect(PORT, "a solve requires actual execution bodies");
-  const pending: readonly [SolveRequest, ...SolveRequest[]] = [first, ...rest];
+  const pending: PlacementPaused["requests"] = [first, ...rest];
   const causes: Cause[] = positions.filter(position => position.error !== null)
     .map(position => ({ kind: "unit", unit: { request: unit, position: position.position } }));
   const [firstCause, ...restCauses] = causes;
   positions.push({ position: { kind: "result" }, error: firstCause === undefined ? null : { kind: "error", causes: [firstCause, ...restCauses] } });
-  const paused: InferPaused = { unit, positions, group, constraints: generated, contributions: enumerated.map(item => item.contribution), variables: finalized,
-    solved, checks, captures, requests: pending };
+  const paused: PlacementPaused = { kind: "placement", unit, positions, group, constraints: generated,
+    contributions: enumerated.map(item => item.contribution), variables: finalized, solved, checks, captures, requests: pending, memberInventories };
   return { kind: "paused", requests: pending, paused, earned: diagnostics };
 }
 
-function reach(constraint: Constraint, evidence: readonly InferenceValue[], offset: number): Reached {
-  if (constraint.kind === "member") return { kind: "member", constraint, evidence: evidence.slice(offset, offset + 2) };
+function reach(constraint: Constraint, evidence: readonly InferenceValue[], offset: number, source: SelectionConstraintOrigin | undefined): Reached {
+  if (constraint.kind === "member" || constraint.kind === "call") {
+    if (source?.occurrence.body !== constraint.occurrence.body || source.occurrence.node !== constraint.occurrence.node)
+      return callerDefect(PORT, "a selection constraint requires its actual checked occurrence origin in constraint order");
+    if (constraint.kind === "member")
+      return { kind: "member", constraint, origin: source.origin, evidence: evidence.slice(offset, offset + 2) };
+    return { kind: "call", constraint, origin: source.origin, evidence: evidence.slice(offset,
+      offset + 2 + (constraint.application.receiver === null ? 0 : 1) + constraint.application.typeArguments.length
+      + constraint.application.arguments.reduce((length, argument) => length + 1 + (argument.tuple?.length ?? 0), 0)) };
+  }
   if (constraint.kind === "op") return { kind: "op", constraint, evidence: evidence.slice(offset, offset + constraint.operands.length + 1) };
   if (constraint.kind === "flow") return { kind: "flow", constraint, evidence: evidence.slice(offset, offset + 2) };
-  if (constraint.kind === "call") return { kind: "call", constraint, evidence: evidence.slice(offset,
-    offset + 2 + (constraint.application.receiver === null ? 0 : 1) + constraint.application.typeArguments.length
-    + constraint.application.arguments.reduce((length, argument) => length + 1 + (argument.tuple?.length ?? 0), 0)) };
+  if (constraint.kind === "literal") return { kind: "literal", constraint, evidence: evidence.slice(offset, offset + 1) };
+  if (constraint.kind === "default") return { kind: "default", constraint, evidence: [] };
   return notInferredYet(PORT, `a constraint of kind ${constraint.kind}`, null);
 }
 
@@ -325,9 +415,9 @@ function absorbed(unit: UnitRequest, group: InferenceGroup["id"], variable: numb
   return { kind: "error", causes: [{ kind: "unit", unit: { request: unit, position: { kind: "inference-variable", group, variable } } }] };
 }
 
-function enumerate(deps: InferDeps, group: InferenceGroup, set: ConstraintSet, reached: Reached, index: number,
-  remainingContributions: number): Result<readonly AtomicContribution[]> {
-  const common = { group: group.id, remainingContributions, reference: { body: set.body, index }, variables: set.variables,
+function enumerate<State>(deps: InferDeps<State>, group: InferenceGroup, set: ConstraintSet, reached: Reached, index: number,
+  variables: readonly InferenceVariable[], remainingContributions: number): Result<readonly AtomicContribution[]> {
+  const common = { group: group.id, remainingContributions, reference: { body: set.body, index }, variables,
     candidates: set.candidates, evidence: reached.evidence };
   switch (reached.kind) {
     case "member": return remainingContributions === 0
@@ -335,21 +425,35 @@ function enumerate(deps: InferDeps, group: InferenceGroup, set: ConstraintSet, r
       : deps.rules.constraints.member.enumerate({ ...common, constraint: reached.constraint });
     case "op": return deps.rules.constraints.op.enumerate({ ...common, constraint: reached.constraint });
     case "flow": return deps.rules.constraints.flow.enumerate({ ...common, constraint: reached.constraint });
+    case "literal": return deps.rules.constraints.literal.enumerate({ ...common, constraint: reached.constraint });
     case "call": return deps.rules.constraints.call.enumerate({ ...common, constraint: reached.constraint });
+    case "default": return deps.rules.constraints.default.enumerate({ ...common, constraint: reached.constraint });
   }
 }
 
-function evaluate(deps: InferDeps, set: ConstraintSet, item: Enumerated, reads: readonly FinalVariable[]): Result<ContributionOutcome> {
-  const common = { contribution: item.contribution, candidates: set.candidates, evidence: item.reached.evidence, reads };
+function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
+  reads: readonly FinalVariable[]): MemberStep<State> | Result<ContributionOutcome> {
+  const common = { contribution: item.contribution, candidates: item.set.candidates, evidence: item.reached.evidence, reads };
   switch (item.reached.kind) {
-    case "member": return deps.rules.constraints.member.evaluate({ ...common, constraint: item.reached.constraint });
+    case "member": {
+      const { constraint, origin } = item.reached;
+      return deps.rules.constraints.member.evaluate({ ...common, constraint, origin });
+    }
     case "op": return deps.rules.constraints.op.evaluate({ ...common, constraint: item.reached.constraint });
     case "flow": return deps.rules.constraints.flow.evaluate({ ...common, constraint: item.reached.constraint });
-    case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint });
+    case "literal": return deps.rules.constraints.literal.evaluate({ ...common, constraint: item.reached.constraint });
+    case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin });
+    case "default": return deps.rules.constraints.default.evaluate({ ...common, constraint: item.reached.constraint });
   }
 }
 
-function refused(...diagnostics: Diagnostic[]): Step {
+function contributionOf(result: Result<MemberRuleCompletion>): Result<ContributionOutcome> {
+  if (result.kind === "refused") return result;
+  if (result.value.kind !== "contribution") return ruleDefect("A paused inference contribution must complete as that contribution.");
+  return { ...result, value: result.value.value };
+}
+
+function refused(...diagnostics: Diagnostic[]): Extract<Step<never>, { readonly kind: "done" }> {
   const [first, ...rest] = diagnostics;
   return { kind: "done", value: { kind: "refused", diagnostics: [present(first, "the refusal's diagnostic"), ...rest] } };
 }

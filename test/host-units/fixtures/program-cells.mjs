@@ -1,11 +1,11 @@
 import { remainingWork } from "../../../packages/host/dist/dataflow/index.js";
 import assert from "node:assert/strict";
+import { typeParameterDeclaration } from "./type-parameter-declarations.mjs";
 
 export async function cellTransportCases(suite) {
   const { createInstantiationMeter } = await import("../../../packages/host/dist/ir-program/work.js");
   const { createProjectionInventory, drainProjectionInventory } = await import("../../../packages/host/dist/ir-program/program-values.js");
-  const { inventorySummary } = await import("../../../packages/host/dist/ir-program/instantiate-facts.js");
-  const { rewriteSummary } = await import("../../../packages/host/dist/ir-program/canonical-facts.js");
+  const { prepareSummary } = await import("../../../packages/host/dist/ir-program/instantiate-facts.js");
   const ids = await import("../../../packages/host/dist/ids/index.js");
   const module = ids.encodeModuleId({ package: ids.encodePackageId("program-cells"), path: "source.ts" });
   const definition = ids.encodeDefId({ module, segments: [{ name: "run", ordinal: 0 }] });
@@ -26,9 +26,10 @@ export async function cellTransportCases(suite) {
   const identity = { type: value => value, signature: value => value, parameterBinding: value => value, selfBinding: value => value };
   const inventory = (value, maximumWork, maximumCreatedRecords) => {
     const meter = createInstantiationMeter(limits(maximumWork, maximumCreatedRecords));
-    const scan = createProjectionInventory(meter, identity);
-    const stop = inventorySummary(scan, value) ?? drainProjectionInventory(scan);
-    return { stop, meter, scan };
+    const scan = createProjectionInventory(meter, identity, path => assert.fail(path));
+    const result = prepareSummary(scan, value, null);
+    const stop = result.kind === "refused" ? result.stop : drainProjectionInventory(scan);
+    return { stop, meter, scan, project: stop === null ? result.value : null };
   };
 
   await suite.test("canonical Program cell inventory charges the actual seventh arena field and every copied row before rewriting", () => {
@@ -59,7 +60,7 @@ export async function cellTransportCases(suite) {
       assert.equal(exact.stop, null);
       assert.equal(work - remainingWork(exact.meter.account), work);
       assert.equal(exact.meter.created, records);
-      assert.deepEqual(rewriteSummary(identity, value, key), value);
+      assert.deepEqual(exact.project(identity), value);
       for (const [dimension, maximum] of [["work", work], ["created-records", records]]) {
         for (let allowance = 0; allowance < maximum; allowance += 1) {
           const result = inventory(value, dimension === "work" ? allowance : work,
@@ -77,7 +78,7 @@ export async function cellTransportCases(suite) {
 
   await suite.test("canonical Program cells rewrite every actual binding position without changing the dense row identity or provided count", () => {
     const vector = bindings();
-    vector.classBindings.push({ kind: "bound", parameter: { owner: definition, index: 0 }, type: 0 });
+    vector.classBindings.push({ kind: "bound", parameter: typeParameterDeclaration(definition, 0), type: 0 });
     const artifact = { kind: "instantiated", bindings: vector };
     const selectedExecution = { instance: { body, bindings: artifact }, provided: 2 };
     const selectedMember = { key: { kind: "text", value: "field" }, origins: [], selectedDeclarations: [definition],
@@ -94,7 +95,7 @@ export async function cellTransportCases(suite) {
     const scanned = inventory(value, 1000, 1000);
     assert.equal(scanned.stop, null);
     assert.deepEqual([...scanned.scan.types], [0], "static/physical/entry/statement/lifetime bindings all feed the actual projection inventory");
-    const rewritten = rewriteSummary({ ...identity, type: type => type + 7 }, value, key);
+    const rewritten = scanned.project({ ...identity, type: type => type + 7 });
     const expected = structuredClone(value);
     const expectedVector = { ...vector, classBindings: [{ ...vector.classBindings[0], type: 7 }] };
     expected.arena.cells[0].role.declaration.bindings.bindings = expectedVector;
@@ -109,6 +110,35 @@ export async function cellTransportCases(suite) {
     assert.equal(value.arena.cells[1].occurrence.execution.instance.bindings.bindings.classBindings[0].type, 0,
       "the one source arena is never mutated or reindexed");
   });
+  await suite.test("Program projects a qualified open Origins boundary with its exact binding", () => {
+    const closed = summary([]);
+    closed.arena.producers = [{ id: 0, path: null, kind: "parameter", index: 0 }];
+    closed.arena.contexts = [{ id: 0, receiver: null, arguments: [], captures: [] }];
+    closed.arena.origins = [{ id: 0, kind: "complete", producers: [], includesAbsence: false }];
+    const parameter = typeParameterDeclaration(definition, 0);
+    const inputBinding = { kind: "bound", parameter, type: 0 };
+    const boundary = { id: 0, kind: "external-input", at: { kind: "node", node: source }, subject: 0,
+      owner: null, bindings: { ...bindings(), methodBindings: [inputBinding] }, context: 0, detail: "entry parameter" };
+    const open = { ...closed, arena: { ...closed.arena, boundaries: [boundary],
+      origins: [{ ...closed.arena.origins[0], kind: "open", boundaries: [boundary.id] }] } };
+    const baseline = inventory(closed, 1000, 1000);
+    assert.equal(baseline.stop, null);
+    const work = 1000 - remainingWork(baseline.meter.account) + (1 + 8) + (1 + 4) + (1 + 3 + 1);
+    const created = baseline.meter.created + 3;
+    const exact = inventory(open, work, created);
+    assert.equal(exact.stop, null);
+    assert.equal(remainingWork(exact.meter.account), 0);
+    assert.equal(exact.meter.created, created);
+    assert.deepEqual([...exact.scan.types], [0]);
+    assert.deepEqual(inventory(open, work - 1, created).stop, { kind: "resource-limit", dimension: "work", maximum: work - 1 });
+    assert.deepEqual(inventory(open, work, created - 1).stop, { kind: "resource-limit", dimension: "created-records", maximum: created - 1 });
+    const rewritten = exact.project({ ...identity, type: type => type + 7 });
+    assert.deepEqual(rewritten.arena.boundaries, [{ ...boundary,
+      bindings: { ...boundary.bindings, methodBindings: [{ ...inputBinding, type: 7 }] } }]);
+    assert.equal(rewritten.arena.origins === open.arena.origins, true);
+    assert.equal(inputBinding.type, 0);
+  });
+
   await suite.test("Program transports the saved complete exchange, witness and backing records without semantic producer claims", () => {
     const value = summary([row({ kind: "detached" })]);
     const owner = { kind: "summary", key };
@@ -139,16 +169,16 @@ export async function cellTransportCases(suite) {
       points: [{ kind: "return" }, { kind: "unwind" }, { kind: "before", at: bodyAt, subject },
         { kind: "before", at: declaredAt, subject }, { kind: "completed", handle: subject, exit: "return" },
         { kind: "need", at: bodyAt, cell: 0, witness: { read: source, via: [{ key, row: 0 }, { key: declaredKey, row: 0 }] } }] };
-    assert.deepEqual(rewriteSummary(identity, value, key), value, "identity projection retains all supplied fields and qualified owners");
+    const rich = inventory(value, 10000, 10000);
+    assert.equal(rich.stop, null);
+    assert.deepEqual(rich.project(identity), value, "identity projection retains all supplied fields and qualified owners");
     const expected = structuredClone(value);
     expected.signature += 3;
     for (const callback of expected.callbacks) {
       if (callback.kind === "known") callback.signature += 3;
       else callback.signatures = callback.signatures.map(id => id + 3);
     }
-    assert.deepEqual(rewriteSummary({ ...identity, signature: value => value + 3 }, value, key), expected);
-    const rich = inventory(value, 10000, 10000);
-    assert.equal(rich.stop, null);
+    assert.deepEqual(rich.project({ ...identity, signature: value => value + 3 }), expected);
     const neededWork = 10000 - remainingWork(rich.meter.account);
     const neededRecords = rich.meter.created;
     for (const [dimension, needed] of [["work", neededWork], ["created-records", neededRecords]]) {

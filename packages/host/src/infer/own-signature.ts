@@ -1,9 +1,10 @@
 import type { HirBody } from "../ir-hir/contract.js";
-import type { DefId } from "../ids/contract.js";
-import type { DeclaredSignatureRequest, InferDeps } from "./contract.js";
+import type { DefId, TyId } from "../ids/contract.js";
+import { readSignature, readType } from "../ir-types/index.js";
+import type { DeclaredSignatureRequest, GroupDeps, InferenceInputs } from "./contract.js";
 import { callerDefect, notInferredYet } from "./frontier.js";
 
-export function ownSignatureRequest(deps: InferDeps, body: HirBody, port: string,
+export function ownSignatureRequest(deps: GroupDeps, body: HirBody, port: string,
   ownDefinitions: ReadonlySet<DefId>): DeclaredSignatureRequest | null {
   const owner = deps.itemOf(body.owner);
   if (owner.kind === "SourceFile") return null;
@@ -19,4 +20,17 @@ export function ownSignatureRequest(deps: InferDeps, body: HirBody, port: string
   const ordinal = endpoints.slice(0, position).filter(other => other.role === endpoint.role).length;
   return { kind: "declaredSignatureOf",
     request: { definition: endpoint.declaration, endpoint: endpoint.role, ordinal, bindings: { kind: "parametric" } } };
+}
+
+export function checkedVoidCompletion(deps: InferenceInputs, body: HirBody): TyId | null {
+  const owner = deps.itemOf(body.owner);
+  if (owner.kind !== "FunctionDeclaration" || owner.type !== null || owner.tsonic.body !== body.body
+    || owner.body?.id !== body.root.id || body.root.kind !== "Block") return null;
+  const [endpoint] = owner.tsonic.signatures;
+  if (owner.tsonic.signatures.length !== 1 || endpoint?.role !== "api-body"
+    || endpoint.declaration !== body.owner || endpoint.body !== body.body) return null;
+  const signature = readSignature(deps.types, endpoint.signature);
+  if (signature.kind !== "call" || signature.declaration !== endpoint.declaration) return null;
+  const result = readType(deps.types, signature.result);
+  return result.kind === "intrinsic" && result.intrinsic === "void" ? signature.result : null;
 }

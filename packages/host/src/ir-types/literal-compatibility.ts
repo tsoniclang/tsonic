@@ -1,5 +1,5 @@
 import type { TyId } from "../ids/contract.js";
-import type { LiteralCompatibilityOf, LiteralCompatibilityResult } from "./contract.js";
+import type { ExactFloat64LiteralFit, LiteralCompatibilityOf, LiteralCompatibilityResult } from "./contract.js";
 import type { TypeTerm } from "./data.js";
 import { readLiteralBase } from "./native-carrier.js";
 import { nativeIntegerGeometryOf } from "./native-facts.js";
@@ -11,6 +11,19 @@ interface Frame {
   next: number;
   missing: LiteralCompatibilityResult | null;
 }
+
+export const exactFloat64LiteralFit: ExactFloat64LiteralFit = (value, format) => {
+  if (format.carrier !== "float64" || format.interchange !== "ieee754-binary64") return false;
+  const maximumDyadicDenominator = 1n << 1074n;
+  const exclusiveMaximumMagnitude = 1n << 1024n;
+  const { numerator, denominator } = value;
+  if (denominator <= 0n || denominator > maximumDyadicDenominator
+    || numerator <= -exclusiveMaximumMagnitude || numerator >= exclusiveMaximumMagnitude) return false;
+  if (numerator === 0n) return denominator === 1n;
+  if (value.negativeZero || (denominator & (denominator - 1n)) !== 0n || denominator !== 1n && (numerator & 1n) === 0n) return false;
+  const magnitude = numerator < 0n ? -numerator : numerator;
+  return magnitude / (magnitude & -magnitude) < 0x20_0000_0000_0000n;
+};
 
 export const literalCompatibilityOf: LiteralCompatibilityOf = (table, type, value, facts, reader) => {
   if (!reader.admit(1, 3)) return { kind: "resource-stop" };
@@ -54,6 +67,18 @@ export const literalCompatibilityOf: LiteralCompatibilityOf = (table, type, valu
             break;
           case "primitive": {
             if (term.primitive === "bool") { result = { kind: value.kind === "boolean" ? "compatible" : "incompatible" }; break; }
+            if (term.primitive === "float64" && value.kind === "number") {
+              result = { kind: "needs-selected-evidence", type: base.type, primitive: "float64", requirement: "literal-conversion" };
+              if (reader.numericRepresentation !== "literal-operand") break;
+              for (let index = 0; index < facts.floatingFormats.length; index += 1) {
+                if (!reader.admit(1, 0)) return { kind: "resource-stop" };
+                const format = facts.floatingFormats[index];
+                if (format?.carrier !== "float64") continue;
+                if (exactFloat64LiteralFit(value.value, format)) result = { kind: "compatible" };
+                break;
+              }
+              break;
+            }
             const integer = nativeIntegerGeometryOf(term.primitive, facts, reader.admit);
             if (integer.kind === "resource-stop") return integer;
             if (integer.kind === "integer") {
@@ -74,7 +99,7 @@ export const literalCompatibilityOf: LiteralCompatibilityOf = (table, type, valu
             result = { kind: compatible ? "compatible" : "incompatible" };
             break;
           }
-          case "array": case "tuple": case "fixed-array": case "shape": case "callable":
+          case "array": case "tuple": case "fixed-array": case "shape": case "callable": case "source-environment":
           case "error": result = { kind: "incompatible" }; break;
           case "declared": case "construction-reference": case "enum": case "param": case "self": case "projection": case "open":
             result = { kind: "needs-selected-evidence", type: base.type, primitive: null, requirement: "checked-association" }; break;

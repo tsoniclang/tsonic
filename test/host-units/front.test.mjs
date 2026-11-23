@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { loadFrontFixture, navigationCapture, preparation } from "./fixtures/front/checked-module.mjs";
+import { loadFrontFixture, navigationCapture, preparation, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeFiles = ["index.js", "options.js", "checker.js", "handles.js", "lower-imports.js", "diagnostics.js"].map(name => resolve(repository, "packages/host/dist/front", name));
@@ -225,7 +225,8 @@ test("import lowering preserves an unavailable captured link and rejects unwritt
     assert.throws(() => front.lowerModule(actual.deps, replacement), /checked annotation not implemented: ImportDeclaration with/);
   }
   assert.throws(() => lowerImportDeclaration({ ...inputs, binding: () => null }, source), /default import lost its actual binding/);
-  const unavailable = { ...raw, links: raw.links.map(link => ({ ...link, resolution: { kind: "unresolved" } })) };
+  const unavailable = { ...raw, links: raw.links.map(link => ({ ...link,
+    resolution: { kind: "unavailable", reason: "incomplete-association", causes: [] } })) };
   const result = front.lowerModule(actual.deps, unavailable);
   assert.equal(result.kind, "ok");
   const imported = result.value.tree.statements.nodes[0];
@@ -451,7 +452,8 @@ test("provider session files share the actual opened source domain and retain re
       { id: "Take", name: "take", kind: "function", signatures: [{ id: "Take.call", parameters: [
         { name: "value", type: { kind: "number" }, passingMode: "byref-readwrite" }], returnType: { kind: "number" } }] }] }) };
   const registration = providerRegistration("/provider-one", provider);
-  const source = 'import { take } from "native:thing";\nexport function invoke(value: number): number { return take(value); }\n';
+  const source = 'import { take } from "native:thing";\nexport function invoke(value: number): number { return take(value); }\n'
+    + 'export const ready: boolean = true;\n';
   const snapshot = projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: bundled(),
     providerPackages: [{ root: "/provider-one", name: "provider-one-pkg" }], declarationProviders: [registration.reference] });
   const opened = openAndCapture(snapshot, [registration]);
@@ -463,6 +465,9 @@ test("provider session files share the actual opened source domain and retain re
   assert.equal(caller.kind, "ok");
   const call = caller.value.calls[0];
   assert.equal(call.kind, "applicable");
+  const literal = caller.value.tree.statements.nodes[2].declarationList.declarations.nodes[0].initializer;
+  assert.deepEqual(caller.value.core[literal.id].layoutQuery, { kind: "available", value: null });
+  assert.deepEqual(caller.value.core[call.invocation.node].layoutQuery, { kind: "unavailable", reason: "not-provided", causes: [] });
   const selected = caller.value.types.candidates[call.candidates].candidates[0];
   const signature = caller.value.types.signatures[selected.application.signature];
   assert.deepEqual(signature.parameters[0].passing, { kind: "available", value: "byref-readwrite" });
@@ -492,6 +497,24 @@ test("provider session files share the actual opened source domain and retain re
     assert.equal(core.provider.kind, "available");
     assert.equal(core.provider.value === entry.identity, true, "core transport projects the same actual captured association");
   }
+  const { indexSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");
+  const { createTypeInterner } = await import("../../packages/host/dist/ir-types/index.js");
+  const ownerDefinitions = front.lowerModuleDefinitions({ module: rawOwner.value,
+    componentRoots: rawOwner.value.types.components.map(component => component.root).filter(root => root.module === owner.document.module) });
+  assert.equal(ownerDefinitions.kind, "ok");
+  const loweredOwner = lowerWithReadyExports(lowerDepsFor(ownerDefinitions.value, createTypeInterner(), owner.document.text), rawOwner.value);
+  assert.equal(loweredOwner.kind, "ok");
+  const checkedNodes = indexSyntaxTree(loweredOwner.value.tree);
+  for (const captured of rawOwner.value.providerDeclarations) {
+    const definition = ownerDefinitions.value.rows.find(row => row.node === captured.node.node);
+    assert.ok(definition);
+    assert.deepEqual(checkedNodes[captured.node.node].tsonic.core.provider, { kind: "available", value: definition.definition });
+  }
+  const publicDocument = opened.set.modules.find(entry => entry.kind === "session-document" && entry.document.artifact === "public");
+  const rawPublic = front.captureModule(opened.deps, opened.program, publicDocument.document.module);
+  assert.equal(rawPublic.kind, "ok");
+  assert.deepEqual(rawPublic.value.providerDeclarations, [], "the public export alias is not the canonical declaration");
+  assert.equal(rawPublic.value.exports.length, 1);
   assert.equal(rawOwner.value.tree.origin.module, owner.document.module);
   assert.equal(OpenedProgram.file(opened.program, owner.document.module).text, owner.document.text);
   assert.deepEqual(front.captureModule(opened.deps, opened.program, owner.document.module), rawOwner);
@@ -731,6 +754,116 @@ test("a real extension's session receipt preserves its public code, category, ow
   } } };
   const atFile = projectSnapshot({ sourceFiles: plainSources, libraries: bundled(), compilerExtensions: [fileExtension.reference] });
   assert.equal(front.openCheckedProgram({ extensions: front.createCheckerExtensions([fileExtension]), navigationCapture }, atFile, preparation).kind, "ok");
+});
+
+test("file-scoped extension diagnostics retain actual sites and reindex the exact foreign checker cause", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureFileDiagnostics } = await import("../../packages/host/dist/front/diagnostics.js");
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const extensionId = "test.module.diagnostics";
+  const project = fixture.packageOf("/project");
+  const reference = { package: project, moduleSpecifier: "./diagnostics.js", exportId: "extension", version: "1" };
+  const leafText = "\uFEFF// λ🌱\nexport declare function make<T extends Missing=Missing>(value:T):T;";
+  const other = "export function other(): boolean { return true; }";
+  const registry = [{ reference, value: { kind: "compiler-extension", value: {
+    identity: { id: extensionId, version: "1", diagnosticRange: { start: 9_910_100, end: 9_910_109 } },
+    analyzeSource: ({ source, diagnostics }) => {
+      const file = source.getSourceFiles().find(candidate => source.ast.getFileName(candidate) === "/project/src/leaf.ts");
+      assert.equal(file !== undefined, true);
+      const name = source.ast.name(source.ast.statements(file)[0]);
+      const checkedText = source.ast.getSourceText(file);
+      const start = checkedText.indexOf("λ");
+      const nodeOrSpan = { sourceFile: file, pos: Buffer.byteLength(checkedText.slice(0, start)),
+        end: Buffer.byteLength(checkedText.slice(0, start + "λ🌱".length)) };
+      const cases = [
+        { extensionCode: "NODE", numericCode: 9_910_100, publicCode: "EXT_NODE", category: "warning",
+          message: "actual node", nodeOrSpan: name, evidence: [{ message: "original evidence" }] },
+        { extensionCode: "SPAN", numericCode: 9_910_101, category: "suggestion", message: "actual byte range", nodeOrSpan },
+      ];
+      for (const diagnostic of cases) assert.equal(diagnostics.append({ extensionId, ...diagnostic }), true);
+    },
+  } } }];
+  const mainText = "import {make} from './leaf.js'; export type Value=typeof make;";
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": mainText, "leaf.ts": leafText, "other.ts": other },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], compilerExtensions: [reference] });
+  const { program, deps } = fixture.openAndCapture(snapshot, registry);
+  const leaf = fixture.moduleOf(project, "src/leaf.ts");
+  const main = fixture.front.captureModule(deps, program, snapshot.entryPoint);
+  assert.equal(main.kind, "ok");
+  const foreignCauses = main.value.types.types.filter(row => row.authoredTypeNode?.module === leaf && row.form.reason === "checker-error")
+    .map(row => row.form.causes[0].diagnostic.diagnostic);
+  assert.deepEqual([...new Set(foreignCauses.map(cause => cause.index))].sort(), [2, 3]);
+  assert.equal(foreignCauses.every(cause => cause.module === leaf), true);
+  assert.deepEqual(main.value.checkerDiagnostics, []);
+  const raw = fixture.front.captureModule(deps, program, leaf);
+  assert.equal(raw.kind, "ok");
+  const { checkerDiagnostics, diagnosticCoverage } = raw.value;
+  assert.deepEqual(checkerDiagnostics.map(row => [row.code.kind, row.code.rendered]),
+    [["extension", "TSEXT9910101"], ["extension", "EXT_NODE"], ["checker", "TS2304"], ["checker", "TS2304"]]);
+  const site = (token, start = leafText.indexOf(token)) => ({ kind: "source",
+    origin: { module: leaf, start, length: token.length, derived: [] } });
+  for (const [ordinal, code, severity, token, message, evidence] of [
+    [0, "SPAN", "suggestion", "λ🌱", "actual byte range", []], [1, "NODE", "warning", "make", "actual node", ["original evidence"]],
+  ]) {
+    const diagnostic = checkerDiagnostics[ordinal];
+    assert.deepEqual(diagnostic.site, site(token));
+    assert.deepEqual([diagnostic.code.extensionCode, diagnostic.severity, diagnostic.source, diagnostic.message, diagnostic.evidence],
+      [code, severity, extensionId, message, evidence]);
+  }
+  assert.deepEqual(diagnosticCoverage, checkerDiagnostics.map((_, index) => ({ kind: "unavailable", root: { module: leaf, index } })));
+  const unrelated = fixture.front.captureModule(deps, program, fixture.moduleOf(project, "src/other.ts"));
+  assert.equal(unrelated.kind, "ok");
+  assert.deepEqual(unrelated.value.checkerDiagnostics, []);
+  const actualFile = OpenedProgram.file(program, leaf);
+  const { ids } = OpenedProgram.syntax(program).get("/project/src/leaf.ts").outcome.numbering;
+  for (let maximum = 0; maximum <= 11; maximum += 1) {
+    const originals = new Map();
+    let attempts = 0;
+    const earned = captureFileDiagnostics(program, leaf, actualFile, ids, originals, () => ++attempts <= maximum);
+    assert.equal(attempts, Math.min(maximum + 1, 11), `facts ${maximum}`);
+    assert.equal(originals.size, maximum === 11 ? 2 : 0, `complete original index ${maximum}`);
+    assert.equal(earned.length, maximum >= 10 ? 4 : maximum >= 8 ? 3 : maximum >= 4 ? 2 : maximum >= 1 ? 1 : 0);
+    if (maximum === 11) assert.deepEqual(earned, checkerDiagnostics);
+  }
+  const originals = new Map();
+  captureFileDiagnostics(program, leaf, actualFile, ids, originals, () => true);
+  assert.throws(() => captureFileDiagnostics(program, leaf, actualFile, ids, originals, () => true),
+    error => error.cause?.message === "An original checker diagnostic cannot belong to two published roots.");
+  const native = OpenedProgram.checked(program);
+  const altered = (ast, extensionDiagnostics) => OpenedProgram.create({ ...native, ast, extensionDiagnostics },
+    deps.extensions, [actualFile], [], OpenedProgram.contributions(program));
+  const [nodeDiagnostic, spanDiagnostic] = native.extensionDiagnostics;
+  const collect = changed => captureFileDiagnostics(changed, leaf, actualFile, ids, new Map(), () => true);
+  assert.deepEqual(collect(altered(native.ast, [{ ...nodeDiagnostic, nodeOrSpan: undefined }])), checkerDiagnostics.slice(2));
+  for (const [ast, entries, message] of [
+    [{ ...native.ast, authoredRange: () => native.ast.authoredRange(undefined) }, [nodeDiagnostic],
+      "An extension diagnostic needs its actual authored node range."],
+    [{ ...native.ast, sourceRange: (file, start, end) => start === spanDiagnostic.nodeOrSpan.pos && end === spanDiagnostic.nodeOrSpan.end
+      ? native.ast.sourceRange(undefined, 0, 0) : native.ast.sourceRange(file, start, end) }, [spanDiagnostic],
+      "An extension diagnostic span needs its actual checked file."],
+    [native.ast, [{ ...spanDiagnostic, nodeOrSpan: { ...spanDiagnostic.nodeOrSpan, pos: "0" } }],
+      "An extension diagnostic span must retain its actual checked byte range."],
+  ]) assert.throws(() => collect(altered(ast, entries)), error => error.cause?.message === message);
+  const readyText = "\uFEFF// λ🌱\nexport type make = boolean;";
+  const readySnapshot = fixture.projectSnapshot({ sourceFiles: { "leaf.ts": readyText },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }], compilerExtensions: [reference] });
+  const ready = fixture.openAndCapture(readySnapshot, registry);
+  const readyRaw = fixture.front.captureModule(ready.deps, ready.program, leaf);
+  assert.equal(readyRaw.kind, "ok");
+  const definitions = fixture.front.lowerModuleDefinitions({ module: readyRaw.value,
+    componentRoots: readyRaw.value.types.components.map(component => component.root) });
+  assert.equal(definitions.kind, "ok");
+  const types = fixture.types.createTypeInterner();
+  const lowering = fixture.lowerDepsFor(definitions.value, types, readyText);
+  const exports = fixture.front.lowerModuleExports(lowering, readyRaw.value);
+  assert.equal(exports.kind, "ok");
+  const checked = fixture.front.lowerModule({ ...lowering, exportsOf: actual => actual === leaf ? exports.value : null }, readyRaw.value);
+  assert.equal(checked.kind, "ok");
+  assert.equal(checked.value.checkerDiagnostics === readyRaw.value.checkerDiagnostics, true);
+  assert.deepEqual(checked.value.checkerDiagnostics, [checkerDiagnostics[0],
+    { ...checkerDiagnostics[1], site: site("make", readyText.indexOf("make")) }]);
+  assert.deepEqual(checked.value.obligations, []);
+  assert.deepEqual(fixture.verifyChecked(checked.value, types), []);
 });
 
 const optionRecord = (policy, changes = {}) => ({ ...Object.fromEntries(optionModule.optionSet(policy).map(option => [option.name, option.value])), ...changes });
@@ -976,7 +1109,7 @@ test("checkpoint 1: add is opened through the checker and the snapshot, captured
   // The export entry.
   const exported = front.lowerModuleExports(lowerDeps, raw.value);
   assert.deepEqual(exported, { kind: "ok", diagnostics: [], value: { module,
-    entries: [{ name: "add", target: { kind: "declarations", definitions: [addDefinition] } }], bindings: [] } });
+    entries: [{ name: "add", typeOnlyStar: null, target: { kind: "declarations", definitions: [addDefinition] } }], bindings: [] } });
   // The checked module.
   const lowered = lowerWithReadyExports(lowerDeps, raw.value);
   assert.equal(lowered.kind, "ok");
@@ -1040,13 +1173,35 @@ test("checkpoint 1: add is opened through the checker and the snapshot, captured
 
 test("checkpoint 1, the development frontier: a module holding a kind whose checked annotation is not written is refused at once by the one check, never lowered in part", async () => {
   const types = await import("../../packages/host/dist/ir-types/index.js");
-  const sourceText = "export function negate(a: number): number { return -a; }\n";
+  const sourceText = "export function update(a: { x: number }): number { return ++a.x; }\n";
   const { deps, program, module } = openedModule(sourceText);
   const raw = front.captureModule(deps, program, module);
   assert.equal(raw.kind, "ok", "capture covers every syntax kind");
   const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
   assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
-    { name: "TypeError", message: "front: checked annotation not implemented: PrefixUnaryExpression MinusToken" });
+    { name: "TypeError", message: "front: checked annotation not implemented: PrefixUnaryExpression with a non-identifier update target" });
+});
+
+test("checked prefix and postfix updates retain the same qualified slot for their read and write", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const { checked, interner, raw } = checkedModuleOf("export function update(value: number): number { ++value; return value--; }\n");
+  const callable = checked.tree.statements.nodes[0];
+  const [prefix, postfix] = callable.body.statements.nodes.map(node => node.expression);
+  for (const update of [prefix, postfix]) {
+    const target = update.operand.tsonic;
+    assert.equal(update.tsonic.role, "update");
+    assert.equal(target.access, "read-write");
+    assert.equal(target.resolution.kind, "local");
+    assert.deepEqual(update.tsonic.target, target.place);
+    assert.equal(target.place.value.read.value, target.place.value.write.value);
+    const selected = raw.storage.find(row => row.node.node === update.operand.id);
+    assert.equal(selected.fact.value.writable, true);
+    assert.equal(selected.fact.value.declaration.node, callable.parameters.nodes[0].id);
+  }
+  assert.deepEqual(verifyChecked(checked, interner), []);
+  const parsed = hir.parseHir(hir.printHir(checked));
+  assert.equal(parsed.kind, "parsed");
+  assert.deepEqual(parsed.value, checked);
 });
 
 
@@ -1085,6 +1240,41 @@ test("K-3313.3: an unannotated parameter retains its actual any type instead of 
   assert.equal(captured.value.checkerDiagnostics.some(diagnostic => diagnostic.code.kind === "checker" && diagnostic.code.number === 7006), true);
 });
 
+test("wrong-arity overload capture retains all actual declarations and the original diagnostic with no selected candidate", async () => {
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const text = "declare function pick(value: boolean): boolean; declare function pick(value: number): boolean; "
+    + "export function run(): boolean { return pick(); }";
+  const source = checkedModuleOf(text);
+  const call = source.raw.calls[0];
+  const declarations = source.raw.tree.statements.nodes.slice(0, 2);
+  assert.equal(call.kind, "conditional-candidates");
+  assert.equal(call.declarationOrder.kind, "available");
+  assert.deepEqual(call.declarationOrder.value.map(id => source.raw.types.signatures[id].declaration),
+    declarations.map(node => ({ module: source.module, node: node.id })));
+  assert.deepEqual(source.raw.types.candidates[call.candidates].candidates, []);
+  assert.equal(call.diagnostics.length, 1);
+  const [original] = call.diagnostics;
+  assert.equal(source.raw.checkerDiagnostics[original.index].code.number, 2554);
+  const checked = source.checked.tree.statements.nodes[2].body.statements.nodes[0].expression;
+  assert.deepEqual(checked.tsonic.application.value.resolvedSignature, { kind: "unavailable", reason: "checker-error",
+    causes: [{ kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: original } }] });
+  const { deps, program, module } = openedModule(text);
+  const captureAt = maximum => front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture,
+    maximumCapturedEdgesPerModule: maximum } }, program, module);
+  const exact = 14;
+  const diagnostic = source.raw.checkerDiagnostics[original.index];
+  for (let maximum = 0; maximum < exact; maximum += 1) {
+    const stop = resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedEdgesPerModule", maximum,
+      site: { kind: "file", path: "/project/src/main.ts" },
+      unit: { request: { query: "captureModule", key: source.module }, position: { kind: "result" } } });
+    assert.deepEqual(captureAt(maximum), { kind: "refused", diagnostics: [diagnostic, stop] }, `edge allowance ${maximum}`);
+  }
+  const atExact = captureAt(exact);
+  assert.equal(atExact.kind, "ok");
+  assert.deepEqual(atExact.diagnostics, [diagnostic]);
+  assert.deepEqual(atExact.value.calls, source.raw.calls);
+});
+
 test("original checker roots render through the public SDK and survive raw and checked capture with original UTF-16 ranges", async () => {
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const source = '\uFEFF// 😀\r\nexport function wrong(value: string): number { return value; }\r\nexport function other(value: string): number { return value; }\r\n';
@@ -1102,9 +1292,11 @@ test("original checker roots render through the public SDK and survive raw and c
   assert.equal(first.site.origin.module, opened.module);
   assert.equal(first.site.origin.start, source.indexOf("return"));
   assert.equal(first.site.origin.length > 0, true);
-  assert.deepEqual(result.value.diagnosticCoverage, [
-    { kind: "unavailable", root: { module: opened.module, index: 0 } },
-    { kind: "unavailable", root: { module: opened.module, index: 1 } }]);
+  for (const [index, coverage] of result.value.diagnosticCoverage.entries()) {
+    assert.equal(coverage.kind, "complete");
+    assert.deepEqual(coverage.root, { module: opened.module, index });
+    assert.deepEqual(coverage.obligations.map(obligation => [obligation.kind, obligation.diagnostic]), [["write-fit", coverage.root]]);
+  }
   const definitions = front.lowerModuleDefinitions({ module: result.value, componentRoots: result.value.types.components.map(component => component.root).filter(root => root.module === result.value.module) });
   const interner = types.createTypeInterner();
   const lowered = lowerWithReadyExports(lowerDepsFor(definitions.value, interner, source), result.value);
@@ -1137,7 +1329,7 @@ test("the public isError receipt precedes any classification, with missing actua
   const reference = hir.indexSyntaxTree(result.value.tree).find(node => node.kind === "TypeReference");
   const rows = result.value.types.types.filter(row => {
     const component = result.value.types.components[row.component];
-    return component.root.node === reference.typeName.id && component.path.length === 0;
+    return component.root.node === reference.typeName.id && component.path === null;
   });
   assert.equal(rows.length > 0, true);
   for (const row of rows) assert.deepEqual(row.form, { kind: "unavailable", reason: "missing-original-component", causes: [] });
@@ -1278,6 +1470,7 @@ test("real intrinsic annotations preserve checked types and distinguish void fro
   const hir = await import("../../packages/host/dist/ir-hir/index.js");
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const decls = await import("../../packages/host/dist/decls/index.js");
+  const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
   const entries = [["bigint", "bigint", false], ["any", "any", false], ["unknown", "unknown", false], ["never", "never", false],
     ["object", "object", false], ["undefined", "absence", false], ["void", "void", true]];
   const source = entries.map(([keyword], index) => `export function identity${index}(value: ${keyword}): ${keyword} { return value; }`).join("\n") +
@@ -1289,12 +1482,13 @@ test("real intrinsic annotations preserve checked types and distinguish void fro
   const functions = nodes.filter(node => node.kind === "FunctionDeclaration");
   const inputs = { modules: [{ module: captured.checked, nodes }], types: captured.interner,
     typeExpansion: lowerDepsFor(captured.definitions, captured.interner, source).typeExpansion };
+  const { cuts } = checkedSourceViews(inputs.modules);
   for (const [index, node] of functions.entries()) {
     const intrinsic = entries[index]?.[1] ?? "void";
     assert.deepEqual(types.readType(captured.interner, node.type.tsonic.type.value), { kind: "intrinsic", intrinsic });
     assert.equal(node.tsonic.signatures.length, 1, "this authored function has one actual checked endpoint");
     const signature = decls.declaredSignatureOf(inputs, { definition: node.tsonic.definition, endpoint: node.tsonic.signatures[0].role, ordinal: 0,
-      bindings: { kind: "parametric" } });
+      bindings: { kind: "parametric" } }, cuts);
     assert.equal(signature.kind, "done", node.name.text);
     assert.equal(signature.value.kind, "ok", node.name.text);
     assert.deepEqual(signature.value.diagnostics, []);
@@ -1391,13 +1585,13 @@ test("the checker's boolean is scalar while a union retains its actual separate 
 
 test("the frontier check names the first unwritten form in preorder (R3 L-2)", async () => {
   const types = await import("../../packages/host/dist/ir-types/index.js");
-  const sourceText = "export function m(a: number, b: number): number { return (a) * b; }\n";
+  const sourceText = "export function m(a: number, b: number): number { return (a) ** b; }\n";
   const { deps, program, module } = openedModule(sourceText);
   const raw = front.captureModule(deps, program, module);
   assert.equal(raw.kind, "ok");
   const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
   assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
-    { name: "TypeError", message: "front: checked annotation not implemented: AsteriskToken" });
+    { name: "TypeError", message: "front: checked annotation not implemented: AsteriskAsteriskToken" });
 });
 
 // K-3313.1: one declaration-target law. Expectations written before the run.
@@ -1485,14 +1679,16 @@ test("binding-specific checker roots remain original identities while mixed depe
   const causes = capturedCauses(source.module, source.definitions.rows[0].definition, source.checked.bodies[0].body);
   const roots = causes.slice(0, 2);
   const deps = lowerDepsFor(source.definitions, source.interner, addSource);
+  const context = { deps, raw: source.raw, checkerNumberBits: null, query: "lowerModule" };
   const raw = { kind: "unavailable", reason: "checker-error", causes: roots };
-  const actual = lowerBindingFact(deps, raw);
-  assert.deepEqual(actual, { kind: "available", value: { kind: "unresolved", diagnostics: roots.map(cause => cause.diagnostic.diagnostic) } });
-  assert.equal(actual.value.diagnostics[0] === roots[0].diagnostic.diagnostic, true);
+  const actual = lowerBindingFact(context, raw);
+  assert.deepEqual(actual, { kind: "complete",
+    value: { kind: "available", value: { kind: "unresolved", diagnostics: roots.map(cause => cause.diagnostic.diagnostic) } } });
+  assert.equal(actual.value.value.diagnostics[0] === roots[0].diagnostic.diagnostic, true);
   const mixed = { ...raw, causes };
-  assert.equal(lowerBindingFact(deps, mixed) === mixed, true);
+  assert.equal(lowerBindingFact(context, mixed).value === mixed, true);
   const missing = { ...raw, causes: [] };
-  assert.deepEqual(lowerBindingFact(deps, missing), missing);
+  assert.deepEqual(lowerBindingFact(context, missing), { kind: "complete", value: missing });
 });
 
 test("syntax admission stops actual SDK child enumeration on the first refused node rather than visiting the remaining width", async () => {
@@ -1563,7 +1759,7 @@ test("syntax assembly consumes an admitted 20000-expression numbering iterativel
   const ast = { kindName: node => node.kind, as: { AsParenthesizedExpression: node => node },
     authoredRange: () => ({ kind: "authored", start: 0, end: 0 }), sourceRange: () => ({ kind: "source", start: 0, end: 0 }),
     pos: () => 0, end: () => 0 };
-  const context = { ast, file: null, module, displacement: 0, pragmas: [], checkJsDirective: null, numbering: { nodes, ids: numbers, parents } };
+  const context = { ast, file: null, module, sourceText: "", numericLiterals: new Map(), displacement: 0, pragmas: [], checkJsDirective: null, numbering: { nodes, ids: numbers, parents } };
   const result = captureNode(context, root, null);
   let count = 0;
   for (let node = result; node !== undefined; node = node.expression) {
@@ -1635,7 +1831,7 @@ test("K-3313.2 proven absence: with an empty closed inventory each captured node
   const absent = { kind: "available", value: null };
   assert.equal(raw.core.length, 18, "one row per captured node");
   for (const row of raw.core) assert.deepEqual({ ...row, node: null }, { node: null, provider: absent,
-    markers: { kind: "available", value: { struct: null, field: null, defaultValue: null, jsString: false } }, pointerType: absent, pointerOperation: absent,
+    markers: { kind: "available", value: { struct: null, field: null, defaultValue: null, jsString: false, application: absent } }, pointerType: absent, pointerOperation: absent,
     metadata: absent, layout: absent, field: absent, fieldBinding: absent, recordBinding: absent, layoutQuery: absent, attribute: absent, safety: absent,
     argumentPassing: absent, flowState: absent });
   const parameters = hir.indexSyntaxTree(checked.tree).filter(node => node.kind === "Parameter");
@@ -1753,30 +1949,150 @@ test("a real source analyzer's own facts cannot turn unavailable declaration mod
     error => error instanceof TypeError && error.message.includes("passing mode"));
 });
 
-// K-3268: the identity inputs through the real producer. Each case's files are opened as one snapshot (the project files in the
-// project package, the external declaration file in a package of its own, rooted), captured by captureModule and lowered by
-// lowerModuleDefinitions. Every file either gives exactly the authored rows, or is refused by name at a development frontier:
-// the keyword token of a module declaration (the SDK names kinds only for nodes) or a checker type whose captured form is not
-// written. The split is stated exactly so that each frontier closed moves files into agreement. Expectations written before the
-// run: the earlier measurement through the same operations (6 agree, 6 keyword, 30 type), with the change since that
-// measurement applied by reading the inputs: an authored annotation is now typed from its type node, so `new (a: number): I`
-// in unnamed-signatures is refused at the interface type `I`.
+test("tuple declaration reads keep the actual authored type, independently of a same-name value", () => {
+  const source = "type Pair = [number, string]; const Pair = 0; "
+    + "export const selected: Pair = [1, 'text']; export declare const direct: readonly [string, boolean];";
+  const { deps, program, module } = openedModule(source);
+  const result = front.captureModule(deps, program, module);
+  assert.equal(result.kind, "ok");
+  const raw = result.value;
+  for (const [ordinal, readonly, slots] of [[2, false, ["number", "string"]], [3, true, ["string", "boolean"]]]) {
+    const node = raw.tree.statements.nodes[ordinal].declarationList.declarations.nodes[0];
+    const view = raw.checkerViews.find(row => row.node.node === node.id);
+    assert.equal(view.read.kind, "available");
+    const row = raw.types.types[view.read.value];
+    assert.deepEqual(raw.types.components[row.component].root, { module, node: node.id });
+    assert.equal(row.form.kind, "available");
+    const tuple = row.form.value;
+    assert.equal(tuple.kind, "tuple");
+    assert.equal(tuple.readonly, readonly);
+    assert.deepEqual(tuple.elements.map(element => raw.types.types[element.type].form.value.scalar), slots);
+    assert.deepEqual(tuple.elements.map(element => raw.types.components[element.component].path),
+      [{ prefix: null, step: { kind: "tuple-element", index: 0 } }, { prefix: null, step: { kind: "tuple-element", index: 1 } }]);
+  }
+  const initializer = raw.tree.statements.nodes[2].declarationList.declarations.nodes[0].initializer;
+  const initializerView = raw.checkerViews.find(row => row.node.node === initializer.id);
+  for (const view of [initializerView.read, initializerView.contextual]) {
+    assert.equal(view.kind, "available");
+    const row = raw.types.types[view.value];
+    assert.deepEqual(raw.types.components[row.component].root, { module, node: initializer.id });
+    assert.equal(row.form.value.kind, "tuple");
+    assert.deepEqual(row.form.value.elements.map(element => raw.types.types[element.type].form.value.scalar),
+      ["number", "string"]);
+  }
+  const value = raw.tree.statements.nodes[1].declarationList.declarations.nodes[0];
+  const valueType = raw.types.types[raw.checkerViews.find(row => row.node.node === value.id).read.value];
+  assert.deepEqual(valueType.form, { kind: "available", value: { kind: "scalar", scalar: "number" } });
+});
+
+test("inferred array destructuring preserves independent native read and contextual tuple slots", () => {
+  const { deps, program, module } = openedModule(
+    "declare const a: number; declare const c: number; export const [e, f] = [a + 1, c];");
+  const result = front.captureModule(deps, program, module);
+  assert.equal(result.kind, "ok");
+  const raw = result.value;
+  const declaration = raw.tree.statements.nodes[2].declarationList.declarations.nodes[0];
+  assert.equal(declaration.type, null);
+  const initializer = declaration.initializer;
+  assert.equal(initializer.kind, "ArrayLiteralExpression");
+  const { read, contextual } = raw.checkerViews.find(row => row.node.node === initializer.id);
+  assert.notEqual(read.value, contextual.value);
+  for (const [view, scalar] of [[read, "number"], [contextual, "any"]]) {
+    assert.equal(view.kind, "available");
+    const row = raw.types.types[view.value];
+    const root = { module, node: initializer.id };
+    assert.deepEqual(raw.types.components[row.component].root, root);
+    assert.equal(row.form.kind, "available");
+    const tuple = row.form.value;
+    assert.equal(tuple.kind, "tuple");
+    assert.equal(tuple.readonly, false);
+    assert.equal(tuple.elements.length, 2);
+    for (const [index, element] of tuple.elements.entries()) {
+      assert.equal(element.kind, "required");
+      assert.equal(element.declaration, null);
+      const component = raw.types.components[element.component];
+      assert.deepEqual(component.root, root);
+      assert.deepEqual(component.path, { prefix: null, step: { kind: "tuple-element", index } });
+    }
+    assert.deepEqual(raw.types.types[tuple.elements[0].type].form,
+      { kind: "available", value: { kind: "scalar", scalar } });
+  }
+});
+
+test("a contextual binding member and an initializer property retain their different source origins", async () => {
+  const text = "declare const a: number; declare const c: number; export const [e, {f: selected}] = [a + 1, {f: c}];";
+  const { deps, program, module } = openedModule(text);
+  const captured = front.captureModule(deps, program, module);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const declaration = raw.tree.statements.nodes[2].declarationList.declarations.nodes[0];
+  const bindingElement = declaration.name.elements.nodes[1].name.elements.nodes[0];
+  const initializer = declaration.initializer;
+  const property = initializer.elements.nodes[1].properties.nodes[0];
+  const { read, contextual } = raw.checkerViews.find(row => row.node.node === initializer.id);
+  const origins = [];
+  for (const [view, node, scalar] of [[read, property, "number"], [contextual, bindingElement, "any"]]) {
+    assert.equal(view.kind, "available");
+    const tuple = raw.types.types[view.value].form.value;
+    const memberType = raw.types.types[tuple.elements[1].type].form.value;
+    assert.equal(memberType.kind, "structure");
+    const [member] = raw.types.members[memberType.inventory].members;
+    assert.deepEqual(member.key, { kind: "text", value: "f" });
+    assert.deepEqual(member.declarations, node === property ? [{ module, node: property.id }] : []);
+    const origin = { kind: "source-member", occurrence: { module, node: node.id }, access: "read" };
+    assert.deepEqual(member.origins[0], origin);
+    assert.deepEqual(raw.types.types[member.read.value].form, { kind: "available", value: { kind: "scalar", scalar } });
+    assert.deepEqual(rawComponentPath(raw.types.components, raw.types.components[raw.types.types[member.read.value].component]),
+      [{ kind: "tuple-element", index: 1 }, origin]);
+    origins.push(origin);
+  }
+  const roots = raw.types.components.map(component => component.root).concat(origins.map(origin => origin.occurrence));
+  const definitions = front.lowerModuleDefinitions({ module: raw, componentRoots: roots.filter(root => root.module === module) });
+  assert.equal(definitions.kind, "ok");
+  assert.equal(definitions.value.rows.some(row => row.node === declaration.id), false);
+  const selected = definitions.value.rows.find(row => row.node === bindingElement.id);
+  assert.equal(selected.segments.at(-1).name, "selected");
+  const lower = lowerDepsFor(definitions.value, (await import("../../packages/host/dist/ir-types/index.js")).createTypeInterner(), text);
+  const { lowerMemberOrigin } = await import("../../packages/host/dist/front/bindings.js");
+  for (const origin of origins) {
+    const actual = lower.sourceOccurrenceOf(origin.occurrence);
+    assert.equal(actual.occurrence.kind, "body");
+    assert.equal(ids.decodeBodyId(actual.occurrence.value.body).value.role, "module");
+    assert.deepEqual(lowerMemberOrigin(lower, origin), { kind: "source-member", occurrence: actual.occurrence.value });
+  }
+  assert.throws(() => lowerMemberOrigin({ ...lower, sourceOccurrenceOf: () => null }, origins[1]), /requires its actual body-qualified/u);
+});
+
+test("the actual raw receiver distinguishes two private names and the equally spelled public string", () => {
+  const { deps, program, module } = openedModule("class Base { #value: number = 1; } "
+    + 'export class Derived extends Base { #value: string = "text"; "#value": boolean = true; } '
+    + "export declare const derived: Derived;");
+  const captured = front.captureModule(deps, program, module);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const [base, derived, variable] = raw.tree.statements.nodes;
+  const declaration = variable.declarationList.declarations.nodes[0];
+  const view = raw.checkerViews.find(row => row.node.node === declaration.id);
+  assert.equal(view.read.kind, "available");
+  let receiver = raw.types.types[view.read.value].form.value;
+  if (receiver.kind === "declared") receiver = raw.types.types[receiver.definition].form.value;
+  assert.equal(receiver.kind, "structure");
+  const actual = raw.types.members[receiver.inventory].members.filter(member => member.name === "#value");
+  assert.deepEqual(actual.map(member => member.key), [
+    { kind: "private", owner: { module, node: derived.id }, name: "#value" },
+    { kind: "text", value: "#value" },
+    { kind: "private", owner: { module, node: base.id }, name: "#value" },
+  ]);
+  assert.deepEqual(actual.map(member => raw.types.types[member.read.value].form.value.scalar), ["string", "boolean", "number"]);
+});
+
 test("the identity inputs through the real producer: captureModule and lowerModuleDefinitions give exactly the authored rows, or a named frontier refusal, in a stated split", () => {
   const { cases } = JSON.parse(readFileSync(resolve(repository, "test/host-units/fixtures/front/identity-cases.json"), "utf8"));
   const libraries = bundled();
-  const agreeingFiles = ["augmentation-and-reexport /project/src/a.ts", "augmentation-and-reexport /project/src/b.ts", "default-expression /project/src/u.ts",
-    "augmentation-before-original /project/src/a.ts", "default-expression-order /project/src/main.ts", "renamed-reexports /project/src/s.ts",
-    "overloads /project/src/a.ts", "unnamed-signatures /project/src/a.ts", "augmentation-and-reexport /project/src/aug.ts",
-    "external-export-equals /library/eq.d.cts", "augmentation-before-original /project/src/0aug.ts",
-    "module-declaration-forms /project/src/g.ts", "module-declaration-forms /project/src/ambient.d.ts"];
-  const typeFrontier = /^front: the captured form of the checker type .+ is not implemented$/u;
-  const originFrontiers = new Set([
-    "front: a property without an actual source value declaration requires its original synthetic member association",
-    "front: property origin transport for the actual KindPropertyAssignment declaration is not implemented",
-    "front: mapped property origin transport requires its actual selected mapped component",
-    "front: a merged type parameter requires its actual selected declaration association",
+  const remainingFrontiers = new Map([
+    ["unnamed-class-members /project/src/a.ts", "front: the captured form of the checker type K is not implemented"],
   ]);
-  const outcomes = { agreed: [], type: [] };
+  let agreed = 0;
   for (const entry of cases) {
     const sourceFiles = {};
     const library = { root: "/library", name: "library", modules: {} };
@@ -1795,19 +2111,19 @@ test("the identity inputs through the real producer: captureModule and lowerModu
       let raw;
       try { raw = front.captureModule(deps, program, module); } catch (error) {
         assert.equal(error instanceof TypeError, true, label);
-        if (typeFrontier.test(error.message) || originFrontiers.has(error.message)) outcomes.type.push(label);
-        else assert.fail(`${label}: refused outside the named frontiers: ${error.message}`);
+        assert.equal(error.message, remainingFrontiers.get(label), label);
+        remainingFrontiers.delete(label);
         continue;
       }
       assert.equal(raw.kind, "ok", label);
       const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
       assert.equal(definitions.kind, "ok", label);
       assert.deepEqual(definitions.value.rows.map(row => ({ kind: row.kind, path: row.segments.map(segment => [segment.name, segment.ordinal]) })), expected, label);
-      outcomes.agreed.push(label);
+      agreed += 1;
     }
   }
-  assert.deepEqual(outcomes.agreed.sort(), [...agreeingFiles].sort());
-  assert.equal(outcomes.type.length, 29, "the remaining actual files stop only at their named missing type or origin producer");
+  assert.deepEqual([...remainingFrontiers], []);
+  assert.equal(agreed, 41);
 });
 
 // K-3297 item 3 and R2's V-1/V-2: capture limits before growth, one numbering of every file, cached on the opened program.
@@ -1993,7 +2309,7 @@ test("K-3340: views, storage places, memory and layout observations keep present
   assert.deepEqual(lower(withStorage(absent)).at(14).value.place, absent);
   assert.deepEqual(lower(withStorage(unavailable("checker-error"))).at(14).value.place, { kind: "unavailable", reason: "checker-error", causes: [] });
   assert.throws(() => lower(withStorage({ kind: "available", value: { expression: { module, node: 14 }, storageExpression: { module, node: 14 }, type: binary.read.value,
-    symbol: null, declaration: null, writable: false } })), { name: "TypeError", message: "front: a local storage capture must retain its actual expression, declaration and qualified local" });
+    symbol: null, declaration: null, writable: false } })), { name: "TypeError", message: "front: a storage capture must retain its actual expression and qualified local or static declaration" });
   // Core facts keep their reasons, markers included; memory comes from the node's metadata.
   assert.deepEqual(lower(withCore(4, "metadata", unavailable("parameter-dependent"))).at(4).memory, { kind: "unavailable", reason: "parameter-dependent", causes: [] });
   assert.deepEqual(lower(withCore(4, "markers", unavailable("checker-error"))).at(4).core.markers, { kind: "unavailable", reason: "checker-error", causes: [] });
@@ -2077,7 +2393,7 @@ async function captureSyntaxOf(sourceText, module) {
   const ranges = { ast: checked.ast, file, displacement: 0 };
   const pragmas = capturePragmas(ranges, () => true);
   assert.ok(pragmas);
-  return captureNode({ ...ranges, ...pragmas, module,
+  return captureNode({ ...ranges, ...pragmas, module, sourceText, numericLiterals: new Map(),
     numbering: { nodes, ids: numbers, parents } }, file, null);
 }
 

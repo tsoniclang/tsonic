@@ -12,9 +12,12 @@
 import { N } from "../names.mjs";
 import { EMPTY_BINDINGS, SELECTED_BINDINGS, T, bodyId, builders, callee, declareType, def, direct, native, selection, signature, typedBody, value, decided } from "../typed.mjs";
 
-const member = (key, type) => ({ key: { kind: "text", value: key }, origins: [], readOrigins: [], writeOrigins: [], kind: "property",
-  read: type, write: type, optional: false, readonly: false });
-const DERIVED = declareType("derived", { kind: "shape", members: [member("v", T.int32), member("seen", T.int32)], indexes: [], calls: [], constructs: [] });
+const member = (key, type) => {
+  const origin = { kind: "declared", declaration: def(`Derived.${key}`) };
+  return { key: { kind: "text", value: key }, origins: [origin], readOrigins: [origin], writeOrigins: [origin],
+    kind: "property", read: type, write: type, optional: false, readonly: false };
+};
+const DERIVED = declareType("derived", { kind: "shape", members: [member("seen", T.int32), member("v", T.int32)], indexes: [], calls: [], constructs: [] });
 const V_INIT = bodyId("Derived.v", "initializer");
 const SEEN_INIT = bodyId("Derived.seen", "initializer");
 const COUNT_INIT = bodyId("Derived.count", "initializer");

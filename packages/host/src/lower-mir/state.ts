@@ -1,29 +1,27 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { BlockId, BodyId, ConstId, LocalId, LocalRef, Origin, PlaceId, TyId } from "../ids/contract.js";
+import type { BlockId, BodyId, DefId, LocalId, LocalRef, Origin, PlaceId, TyId } from "../ids/contract.js";
 import { blockId, constId, localId, placeId } from "../ids/index.js";
 import type { ArtifactBindings } from "../ir-types/contract.js";
 import type {
-  MirBlock, MirBody, MirCallArgument, MirConstant, MirConstantValue, MirEntry, MirLocal, MirLocalRole, MirLocalStorageMode, MirOperand, MirPlace,
-  MirPlaceBase, MirRvalue, MirSite, MirStatement, MirTerminator,
+  MirBlock, MirBody, MirConstantValue, MirCopyOps, MirEntry, MirKeyedConstant, MirLocal, MirLocalRole, MirLocalStorageMode, MirOperand,
+  MirPlace, MirPlaceBase, MirSite, MirStatement, MirTerminator,
 } from "../ir-mir/contract.js";
-import { constantKeyOfMir } from "../ir-mir/index.js";
+import { constantKeyOfMir, projectMirConstantOrdinals, projectMirValues } from "../ir-mir/index.js";
 import type { LowerMirLimits } from "./contract.js";
 
 const invariant = (message: string): InvariantFailure => ({ owner: "lower-mir", query: null, origin: null, message });
 
+export interface ReadAnchor {
+  readonly kind: "read-anchor";
+  statements: MirStatement[] | null;
+}
+
 interface OpenBlock {
   readonly id: BlockId;
   readonly site: MirSite;
-  readonly statements: MirStatement[];
+  readonly statements: (MirStatement | ReadAnchor)[];
   terminator: MirTerminator | null;
-}
-
-interface PendingConstant {
-  readonly provisional: ConstId;
-  readonly key: string;
-  readonly type: TyId;
-  readonly value: MirConstantValue;
 }
 
 /** The output of one lowering while it grows. It lives for one call and is dropped when the body is assembled. */
@@ -35,7 +33,8 @@ export interface LowerState {
   readonly locals: MirLocal[];
   readonly places: MirPlace[];
   readonly localPlaces: Map<LocalId, PlaceId>;
-  readonly constants: Map<string, PendingConstant>;
+  readonly staticPlaces: Map<DefId, PlaceId>;
+  readonly constants: Map<string, MirKeyedConstant>;
   readonly blocks: OpenBlock[];
   readonly entries: MirEntry[];
   records: number;
@@ -48,7 +47,7 @@ export interface LowerState {
 }
 
 export function createState(body: BodyId, bindings: ArtifactBindings, result: TyId, limits: LowerMirLimits): LowerState {
-  return { body, bindings, result, limits, locals: [], places: [], localPlaces: new Map(), constants: new Map(), blocks: [],
+  return { body, bindings, result, limits, locals: [], places: [], localPlaces: new Map(), staticPlaces: new Map(), constants: new Map(), blocks: [],
     entries: [], records: 0, refused: false, current: null };
 }
 
@@ -92,6 +91,19 @@ export function placeOfLocal(state: LowerState, local: LocalId): PlaceId | null 
   return place;
 }
 
+export function placeOfStatic(state: LowerState, definition: DefId, storage: TyId, origin: Origin): PlaceId | null {
+  if (state.refused) return null;
+  const known = state.staticPlaces.get(definition);
+  if (known !== undefined) {
+    if (state.places[known]?.storage !== storage)
+      return throwInvariant(invariant("one static definition must retain one actual storage type"));
+    return known;
+  }
+  const place = newPlace(state, { kind: "static", definition }, storage, origin);
+  if (place !== null) state.staticPlaces.set(definition, place);
+  return place;
+}
+
 /**
  * A constant operand, or null when the lowering is refused. Equal constants are one record; the final identities are
  * assigned when the body is assembled.
@@ -101,11 +113,11 @@ export function constantOperand(state: LowerState, type: TyId, value: MirConstan
   const key = constantKeyOfMir(type, value);
   if (key === null) return throwInvariant(invariant("a constant's bindings are not complete"));
   const known = state.constants.get(key);
-  if (known !== undefined) return { kind: "constant", constant: known.provisional };
+  if (known !== undefined) return { kind: "constant", constant: known.id };
   if (!charge(state)) return null;
-  const provisional = constId(state.constants.size);
-  state.constants.set(key, { provisional, key, type, value });
-  return { kind: "constant", constant: provisional };
+  const id = constId(state.constants.size);
+  state.constants.set(key, { id, key, type, value });
+  return { kind: "constant", constant: id };
 }
 
 /** A new block that nothing has entered yet, or null when the lowering is refused. A block is one record with its terminator. */
@@ -136,6 +148,19 @@ export function emitStatement(state: LowerState, statement: MirStatement): boole
   return true;
 }
 
+export function markRead(state: LowerState): ReadAnchor {
+  if (state.current === null) return throwInvariant(invariant("a pending read has no open block"));
+  const anchor: ReadAnchor = { kind: "read-anchor", statements: null };
+  state.current.statements.push(anchor);
+  return anchor;
+}
+
+export function emitAtRead(state: LowerState, anchor: ReadAnchor, statement: MirStatement): boolean {
+  if (!charge(state)) return false;
+  (anchor.statements ??= []).push(statement);
+  return true;
+}
+
 export function emitBeforeTerminator(state: LowerState, block: BlockId, statement: MirStatement): boolean {
   if (state.refused) return false;
   const target = state.blocks[block];
@@ -158,68 +183,45 @@ export function addEntry(state: LowerState, entry: MirEntry): void {
   state.entries.push(entry);
 }
 
+function copied<Value>(value: Value): { readonly kind: "copied"; readonly value: Value } {
+  return { kind: "copied", value };
+}
+
+function orderEmitted<Value>(values: Value[], compare: (left: Value, right: Value) => { readonly value: number }) {
+  return copied(values.sort((left, right) => compare(left, right).value));
+}
+
+const ownedEmittedRows: MirCopyOps<never, never> = {
+  read: build => build(),
+  record: (_fields, build) => build(),
+  rows: (source, row) => copied(source.map((value, position) => row(() => value, position).value)),
+  orderedRows: (source, row, compare) => orderEmitted(source.map((value, position) => row(() => value, position).value), compare),
+  work: () => null,
+  type: type => type,
+  member: copied,
+  instance: copied,
+  operation: copied,
+  callee: copied,
+};
+
 /**
  * Assembles the body: constants take their canonical order and every reference to a constant follows. Null when the
  * lowering was refused: what was recorded until then is not a body.
  */
 export function finishBody(state: LowerState): MirBody | null {
   if (state.refused) return null;
-  // Keys are unique (one record per key), so no two constants compare equal.
-  const ordered = [...state.constants.values()].sort((left, right) => left.key < right.key ? -1 : 1);
-  const final = new Map<ConstId, ConstId>();
-  const constants: MirConstant[] = [];
-  for (const [position, pending] of ordered.entries()) {
-    final.set(pending.provisional, constId(position));
-    constants.push({ id: constId(position), type: pending.type, value: pending.value });
-  }
-  const constant = (provisional: ConstId): ConstId => {
-    const selected = final.get(provisional);
-    return selected === undefined ? throwInvariant(invariant("an operand names a constant that was never emitted")) : selected;
-  };
-  const operand = (value: MirOperand): MirOperand => value.kind === "place" ? value : { kind: "constant", constant: constant(value.constant) };
-  const rvalue = (value: MirRvalue): MirRvalue => {
-    switch (value.kind) {
-      case "use": return { ...value, operand: operand(value.operand) };
-      case "unary": case "convert": return { ...value, operand: operand(value.operand) };
-      case "binary": return { ...value, left: operand(value.left), right: operand(value.right) };
-      case "aggregate":
-        switch (value.aggregate.kind) {
-          case "array": case "tuple": case "fixed-array":
-            return { ...value, aggregate: { kind: value.aggregate.kind, elements: value.aggregate.elements.map(operand) } };
-          case "object": case "record":
-            return { ...value, aggregate: { kind: value.aggregate.kind,
-              fields: value.aggregate.fields.map(field => ({ member: field.member, value: operand(field.value) })) } };
-        }
-      case "address-of": case "closure": return value;
-    }
-  };
-  const argument = (value: MirCallArgument): MirCallArgument => value.kind === "value" ? { ...value, operand: operand(value.operand) } : value;
-  const terminator = (value: MirTerminator): MirTerminator => {
-    switch (value.kind) {
-      case "goto": case "check": case "unreachable": return value;
-      case "switch": return { ...value, operand: operand(value.operand),
-        targets: value.targets.map(target => ({ constant: constant(target.constant), target: target.target }))
-          .sort((left, right) => left.constant - right.constant) };
-      case "call": return { ...value, receiver: value.receiver === null ? null : operand(value.receiver),
-        callee: value.callee.kind === "indirect" ? { ...value.callee, operand: operand(value.callee.operand) } : value.callee,
-        arguments: value.arguments.map(argument) };
-      case "invoke": return { ...value, operands: value.operands.map(operand) };
-      case "await": return { ...value, operand: operand(value.operand) };
-      case "yield": return { ...value, operand: value.operand === null ? null : operand(value.operand) };
-      case "delegate": return { ...value, iterator: operand(value.iterator) };
-      case "throw": return { ...value, operand: operand(value.operand) };
-      case "return": return { ...value, value: value.value === null ? null : operand(value.value) };
-    }
-  };
-  const base = (value: MirPlaceBase): MirPlaceBase =>
-    (value.kind === "place" || value.kind === "checked") && value.projection.kind === "index"
-      ? { ...value, projection: { kind: "index", operand: operand(value.projection.operand) } } : value;
+  const image = projectMirConstantOrdinals(compare => orderEmitted([...state.constants.values()], compare), ownedEmittedRows,
+    () => invariant("an operand names a constant that was never emitted")).value;
+  const projection = projectMirValues(ownedEmittedRows, image.constantOf);
   const blocks: MirBlock[] = state.blocks.map(block => {
-    if (block.terminator === null) return throwInvariant(invariant("a block was left without a terminator"));
-    return { ...block.site, id: block.id,
-      statements: block.statements.map(statement => statement.kind === "assign" ? { ...statement, value: rvalue(statement.value) } : statement),
-      terminator: terminator(block.terminator) };
+    const terminator = block.terminator ?? throwInvariant(invariant("a block was left without a terminator"));
+    const statements: MirStatement[] = [];
+    for (const record of block.statements) {
+      if (record.kind !== "read-anchor") statements.push(projection.statement(() => record, "").value);
+      else if (record.statements !== null) for (const saved of record.statements) statements.push(projection.statement(() => saved, "").value);
+    }
+    return { ...block.site, id: block.id, statements, terminator: projection.terminator(() => terminator, "").value };
   });
-  return { body: state.body, bindings: state.bindings, entries: state.entries, locals: state.locals, constants,
-    places: state.places.map(place => ({ ...place, base: base(place.base) })), blocks, result: state.result };
+  return { body: state.body, bindings: state.bindings, entries: state.entries, locals: state.locals, constants: image.constants,
+    places: state.places.map(place => ({ ...place, base: projection.placeBase(() => place.base).value })), blocks, result: state.result };
 }

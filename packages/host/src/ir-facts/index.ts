@@ -5,7 +5,9 @@ import type {
 import { parseDependencyInventory as readInventory, parseFacts as readFacts, parseMetadata as readMetadata, parseObservations as readObservations, parseSummary as readSummary } from "./parse.js";
 import { printDependencyInventory as writeInventory, printFacts as writeFacts, printMetadata as writeMetadata, printObservations as writeObservations, printSummary as writeSummary } from "./print.js";
 import { verifyDependencyInventory as checkInventory } from "./verify-dependencies.js";
-import { verifyFacts as checkFacts } from "./verify-facts.js";
+import { argumentTransportKey as identifyTransport, compareBoundActivations as compareActivations,
+  compareConstructionAlternatives as compareConstruction, verifyFacts as checkFacts } from "./verify-facts.js";
+import { admitArtifactIdentity as admitArtifact, admitBindingIdentity as admitBindings } from "./verification.js";
 import { verifyLiveness as checkLiveness } from "./verify-liveness.js";
 import { verifyMetadata as checkMetadata } from "./verify-metadata.js";
 import { verifySummary as checkSummary } from "./verify-summary.js";
@@ -13,10 +15,12 @@ import { admitSummaryIdentity as admitIdentity, summaryKey as identifySummary, s
 import { verifyObservations as checkObservations } from "./verify-observations.js";
 import { conditionAnd as andConditions, conditionOr as orConditions, conditionEquals as equalConditions, conditionSubstitute as substituteConditions } from "./conditions.js";
 import type { ConditionAnd, ConditionOr, ConditionEquals, ConditionSubstitute } from "./contract.js";
-import type { ApplySummary, SummaryEquals } from "./contract.js";
-import type { AdmitSummaryIdentity, EscapeTargetKey, SummaryPositionKey } from "./contract.js";
+import type { ApplySummary, BindInitialization, StaticDeclarationKey, StaticInitializationCellOf, StaticInitializationOf, SummaryEquals } from "./contract.js";
+import type { AdmitArtifactIdentity, AdmitBindingIdentity, AdmitSummaryIdentity, ArgumentTransportKey, CompareBoundActivations,
+  CompareConstructionAlternatives, EscapeTargetKey, SummaryPositionKey } from "./contract.js";
 import { escapeTargetKey as identifyEscapeTarget } from "./escape-key.js";
 import { applySummary as apply } from "./apply-summary.js";
+import { applyInitialization as bind, staticDeclarationKey as keyStaticDeclaration, staticInitializationCellOf as readStaticCell, staticInitializationOf as applyStatics } from "./apply-initialization.js";
 import { summaryEquals as equalSummaries } from "./summary-equals.js";
 
 export const conditionAnd: ConditionAnd = andConditions;
@@ -38,7 +42,16 @@ export const summaryKey: SummaryIdentity = identifySummary;
 export const summaryPositionKey: SummaryPositionKey = identifyPosition;
 export const escapeTargetKey: EscapeTargetKey = identifyEscapeTarget;
 export const admitSummaryIdentity: AdmitSummaryIdentity = admitIdentity;
+export const admitArtifactIdentity: AdmitArtifactIdentity = admitArtifact;
+export const admitBindingIdentity: AdmitBindingIdentity = admitBindings;
+export const argumentTransportKey: ArgumentTransportKey = identifyTransport;
+export const compareBoundActivations: CompareBoundActivations = compareActivations;
+export const compareConstructionAlternatives: CompareConstructionAlternatives = compareConstruction;
 export const applySummary: ApplySummary = apply;
+export const bindInitialization: BindInitialization = bind;
+export const staticInitializationCellOf: StaticInitializationCellOf = readStaticCell;
+export const staticDeclarationKey: StaticDeclarationKey = keyStaticDeclaration;
+export const staticInitializationOf: StaticInitializationOf = applyStatics;
 export const summaryEquals: SummaryEquals = equalSummaries;
 export const printMetadata: PrintMetadata = writeMetadata;
 export const parseMetadata: ParseMetadata = readMetadata;

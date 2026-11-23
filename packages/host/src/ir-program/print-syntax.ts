@@ -564,7 +564,7 @@ export function createSyntaxText(module: ModuleBodies): {
   readonly nodes: readonly SyntaxNode<TypedPhase>[];
   readonly context: SyntaxTextContext;
 } {
-  const { nodes, wire } = inventorySyntax(moduleSyntaxRoots(module, "ModuleBodies"));
+  const { nodes, wireOf } = inventorySyntax(moduleSyntaxRoots(module, "ModuleBodies"));
   const missingWire: InvariantFailure = {
     owner: "ir-program",
     query: { name: "print.syntax-wire", encodedKey: encodeKey([module.module]) },
@@ -573,7 +573,7 @@ export function createSyntaxText(module: ModuleBodies): {
   };
   const context: SyntaxTextContext = {
     reference: value => {
-      const position = requirePresent(wire.get(value), missingWire);
+      const position = requirePresent(wireOf(value), missingWire);
       return token(`n:${position}`);
     },
   };

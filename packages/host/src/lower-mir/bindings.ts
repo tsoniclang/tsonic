@@ -1,18 +1,23 @@
 import { requirePresent } from "../diag/index.js";
 import type { BodyId, LocalId, LocalRef, PlaceId, TyId } from "../ids/contract.js";
-import type { Block, NodeHeader, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
+import type { Block, CaseBlock, NodeHeader, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import type { MirClosureCapture } from "../ir-mir/contract.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
 import type { InternalBodyInput } from "./contract.js";
 import type { LocalScope, Lowering, Work } from "./model.js";
 import { callerDefect, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
-import { exposeLocal, saveHandedOut } from "./operands.js";
-import { emitStatement, enterBlock, newBlock, newLocal, newPlace, placeOfLocal, terminate } from "./state.js";
+import { exposeLocal, saveBeforeControl } from "./operands.js";
+import { constantOperand, emitStatement, enterBlock, newBlock, newLocal, placeOfLocal, placeOfStatic, terminate } from "./state.js";
+
+export function beginLocalScope(lowering: Lowering): LocalScope {
+  const scope: LocalScope = { kind: "block", parent: lowering.scope, locals: [] };
+  lowering.scope = scope;
+  return scope;
+}
 
 export function enterLocalBlock(lowering: Lowering, node: Block<TypedPhase>): boolean {
-  const scope: LocalScope = { parent: lowering.scope, locals: [] };
-  lowering.scope = scope;
-  lowering.work.push({ kind: "block-end", node, scope });
+  const scope = beginLocalScope(lowering);
+  lowering.work.push({ kind: "scope-end", node, scope });
   for (let index = node.statements.nodes.length - 1; index >= 0; index -= 1)
     lowering.work.push({ kind: "statement", node: requirePresent(node.statements.nodes[index], failure("a statement list has a hole", node.origin)) });
   return true;
@@ -29,7 +34,7 @@ export function leaveLocalScopes(lowering: Lowering, target: LocalScope | null, 
   return true;
 }
 
-export function endLocalBlock(lowering: Lowering, node: Block<TypedPhase>, scope: LocalScope): boolean {
+export function endLocalScope(lowering: Lowering, node: NodeHeader, scope: LocalScope): boolean {
   if (lowering.state.current !== null && !leaveLocalScopes(lowering, scope.parent, node)) return false;
   lowering.scope = scope.parent;
   return true;
@@ -61,6 +66,33 @@ function localBinding(lowering: Lowering, node: VariableDeclaration<TypedPhase>)
   if (source.body !== lowering.body.body || actual === undefined || actual.id !== source.local || actual.role !== "binding" || actual.storage !== selected.storage)
     return callerDefect("a variable declaration differs from its selected local storage", node.origin);
   return source;
+}
+
+function startLexicalLocal(lowering: Lowering, scope: LocalScope, node: VariableDeclaration<TypedPhase>, source: LocalRef): LocalId | null {
+  if (lowering.localOf.has(source.local)) return callerDefect("a local storage slot is declared twice", node.origin);
+  const local = newLocal(lowering.state, node.tsonic.storage, { kind: "user" }, "local", source, node.origin);
+  if (local === null) return null;
+  if (!emitStatement(lowering.state, { ...siteOf(lowering.body, node), kind: "storage-live", local })) return null;
+  lowering.localOf.set(source.local, local);
+  scope.locals.push(local);
+  return local;
+}
+
+export function prepareCaseLocals(lowering: Lowering, block: CaseBlock<TypedPhase>): boolean {
+  let scope: LocalScope | null = null;
+  for (const clause of block.clauses.nodes) for (const statement of clause.statements.nodes) {
+    if (statement === undefined) return callerDefect("a switch clause statement list has a hole", clause.origin);
+    if (statement.kind !== "VariableStatement") continue;
+    const list = statement.declarationList;
+    if (list.tsonic.role !== "ordinary" || list.flags.includes("Using") || list.flags.includes("AwaitUsing"))
+      return notLoweredYet("a disposal declaration in the shared lexical scope of a switch", statement.origin);
+    if (!list.flags.includes("Let") && !list.flags.includes("Const")) continue;
+    scope ??= { kind: "case", parent: lowering.scope, locals: [] };
+    for (const declaration of list.declarations.nodes)
+      if (startLexicalLocal(lowering, scope, declaration, localBinding(lowering, declaration)) === null) return false;
+  }
+  if (scope !== null) lowering.scope = scope;
+  return true;
 }
 
 export function prepareFunctionLocals(lowering: Lowering): boolean {
@@ -128,26 +160,38 @@ export function declareLocal(lowering: Lowering, node: VariableDeclaration<Typed
     return notLoweredYet("a variable initializer without its placed execution", node.origin);
   if (selected.declaration.kind === "definition" && lowering.body.root.kind === "SourceFile") {
     if (node.name.kind !== "Identifier") return notLoweredYet("a destructuring variable declaration", node.origin);
-    if (selected.initializer === null) return true;
-    const destination = newPlace(lowering.state, { kind: "static", definition: selected.declaration.definition }, selected.storage, node.origin);
+    const destination = placeOfStatic(lowering.state, selected.declaration.definition, selected.storage, node.origin);
     if (destination === null) return false;
+    if (selected.initializer === null) {
+      const storage = lowering.typeOf(selected.storage);
+      return storage.kind === "optional" || storage.kind === "intrinsic" && storage.intrinsic === "absence"
+        ? initializeAbsence(lowering, node, destination, selected.storage)
+        : true;
+    }
     return initializePlace(lowering, node, destination, selected.storage, selected.initializer);
   }
   const source = localBinding(lowering, node);
-  const site = siteOf(lowering.body, node);
   let local = lowering.localOf.get(source.local);
   if (lexical) {
-    if (local !== undefined) return callerDefect("a local storage slot is declared twice", node.origin);
-    const allocated = newLocal(lowering.state, selected.storage, { kind: "user" }, "local", source, node.origin);
-    if (allocated === null) return false;
-    local = allocated;
-    lowering.localOf.set(source.local, local);
-    requirePresent(lowering.scope ?? undefined, failure("a lexical declaration has no enclosing scope", node.origin)).locals.push(local);
-    if (!emitStatement(lowering.state, { ...site, kind: "storage-live", local })) return false;
+    const scope = requirePresent(lowering.scope ?? undefined, failure("a lexical declaration has no enclosing scope", node.origin));
+    if (scope.kind === "case") {
+      if (local === undefined) return callerDefect("a case declaration has no live shared lexical slot", node.origin);
+    } else {
+      const allocated = startLexicalLocal(lowering, scope, node, source);
+      if (allocated === null) return false;
+      local = allocated;
+    }
   }
   const storage = requirePresent(local, failure("a function-scoped declaration has no entry storage", node.origin));
   if (selected.initializer === null) return true;
   return initializeLocal(lowering, node, storage, selected.storage, selected.initializer);
+}
+
+export function initializeAbsence(lowering: Lowering, node: NodeHeader, destination: PlaceId, storage: TyId): boolean {
+  const absence = constantOperand(lowering.state, storage, { kind: "literal", value: { kind: "absence" } });
+  if (absence === null) return false;
+  return emitStatement(lowering.state, { ...siteOf(lowering.body, node), kind: "assign",
+    place: destination, value: { kind: "use", operand: absence }, step: null });
 }
 
 export function initializeLocal(lowering: Lowering, node: NodeHeader, local: LocalId, storage: TyId, initializer: BodyId): boolean {
@@ -171,7 +215,7 @@ function initializePlace(lowering: Lowering, node: NodeHeader, destination: Plac
     captures.push({ local: capture.local, place, capture: capture.capture });
     if (capture.capture !== "captured-value") exposeLocal(lowering, sourceLocal);
   }
-  if (!saveHandedOut(lowering)) return false;
+  if (!saveBeforeControl(lowering, true, true)) return false;
   const next = newBlock(lowering.state, site);
   if (next === null) return false;
   terminate(lowering.state, { ...site, kind: "call", callee: { kind: "body", instance: input.instance, captures },

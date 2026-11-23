@@ -182,6 +182,7 @@ function importTargetData(value: Hir.ImportTarget): HirDataWork {
 function resolutionData(value: Hir.HirResolution): HirDataWork {
   switch (value.kind) {
     case "local": return recordData(value.kind, value, () => [fieldData("local", localRefData(value.local))], { kind: "HirResolution", value });
+    case "intrinsic-value": return recordData(value.kind, value, () => [fieldData("intrinsic", scalarData(value.intrinsic))], { kind: "HirResolution", value });
     case "unavailable": return recordData(value.kind, value, () => [fieldData("reason", scalarData(value.reason)), fieldData("causes", arrayData(value.causes, causeData))], { kind: "HirResolution", value });
     default: return bindingTargetData(value);
   }
@@ -329,6 +330,9 @@ function markersData(value: Hir.HirMarkersCapture): HirDataWork {
     fieldData("defaultValue", nullableData(value.defaultValue, record => recordData("Record", record, () => [
       fieldData("typeNode", sourceRefData(record.typeNode)), fieldData("type", capturedData(record.type, typeData)),
     ]))), fieldData("jsString", scalarData(value.jsString)),
+    fieldData("application", capturedData(value.application, application => nullableData(application, marker =>
+      recordData("HirMarkerApplication", marker, () => [fieldData("role", scalarData(marker.role)),
+        fieldData("occurrence", nodeRefData(marker.occurrence)), fieldData("declaration", definitionData(marker.declaration))])))),
   ]);
 }
 
@@ -645,7 +649,9 @@ function typeAliasData(value: Hir.CheckedTypeAlias): HirDataWork {
 
 function variableData(value: Hir.CheckedVariable): HirDataWork {
   return recordData("CheckedVariable", value, () => [...declarationFactsFields(value), fieldData("declaration", declarationTargetData(value.declaration)),
-    fieldData("declaredType", capturedData(value.declaredType, slot => nullableData(slot, typeData))), fieldData("initializer", nullableData(value.initializer, bodyData))]);
+    fieldData("declaredType", capturedData(value.declaredType, slot => nullableData(slot, typeData))),
+    fieldData("inferredTypeBound", nullableData(value.inferredTypeBound, bound => capturedData(bound, typeData))),
+    fieldData("initializer", nullableData(value.initializer, bodyData))]);
 }
 
 function enumData(value: Hir.CheckedEnum): HirDataWork { return recordData("CheckedEnum", value, () => [...declarationFields(value), fieldData("members", arrayData(value.members, definitionData))]); }
@@ -891,7 +897,8 @@ function bindingTargetData(value: Hir.HirBindingTarget): HirDataWork {
 }
 
 export function hirModuleExportData(value: Hir.HirModuleExport): HirDataWork {
-  return recordData("HirModuleExport", value, () => [fieldData("name", scalarData(value.name)), fieldData("target", hirExportTargetData(value.target))]);
+  return recordData("HirModuleExport", value, () => [fieldData("name", scalarData(value.name)), fieldData("target", hirExportTargetData(value.target)),
+    fieldData("typeOnlyStar", nullableData(value.typeOnlyStar, sourceRefData))]);
 }
 
 export function hirModuleBindingData(value: Hir.HirModuleBinding): HirDataWork {
@@ -906,6 +913,8 @@ export function hirModuleData(value: Hir.HirModule): HirRecordWork {
   return recordData("HirModule", value, () => [fieldData("module", identityData("mod", value.module)), fieldData("tree", hirNodeData(value.tree)),
     fieldData("items", hirItemsData(value.items)), fieldData("bodies", arrayData(value.bodies, hirBodyData)),
     fieldData("exports", arrayData(value.exports, hirModuleExportData)), fieldData("bindings", arrayData(value.bindings, hirModuleBindingData)),
+    fieldData("moduleLinks", arrayData(value.moduleLinks, link => recordData("HirModuleLink", link, () => [
+      fieldData("declaration", identityData("n", link.declaration)), fieldData("evaluation", scalarData(link.evaluation))]))),
     fieldData("checkerDiagnostics", hirDiagnosticsData(value.checkerDiagnostics)), fieldData("obligations", hirObligationsData(value.obligations))]);
 }
 

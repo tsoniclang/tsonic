@@ -3,6 +3,8 @@ import { test } from "node:test";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId } from "../../packages/host/dist/ids/index.js";
 import { createAccount, accountFailure, refuseAccount } from "../../packages/host/dist/dataflow/index.js";
 import { componentsOf, convergeComponent, dependenciesOf } from "../../packages/host/dist/summaries/index.js";
+import { summaryKey } from "../../packages/host/dist/ir-facts/index.js";
+import { executionKey } from "../../packages/host/dist/ir-types/index.js";
 
 const module = encodeModuleId({ package: encodePackageId("summaries-unit"), path: "main.ts" });
 const definition = encodeDefId({ module, segments: [{ name: "unit", ordinal: 0 }] });
@@ -126,6 +128,66 @@ test("constructed convergence unit borrows terminal original error result and ru
   assert.equal(rounds, 1);
   assert.equal(received.value[0].result, result);
   assert.equal(received.value[0].execution, execution);
+});
+
+test("private convergence cannot stabilize a propagated ground whose actual detector disappeared", () => {
+  const selected = executionKey(execution);
+  const unit = { query: "bodyFactsOf", key: selected };
+  const source = node => ({ request: unit, position: { kind: "execution-source-node", execution: selected,
+    node: { body: execution.instance.body, node } } });
+  const tentative = source(2);
+  const final = source(3);
+  const sibling = source(4);
+  function run(maximumIterations) {
+    const current = account();
+    const inventory = componentsOf({ account: current, maximumComponentSize: 1, componentRefusal: refusal },
+      { operations: [key], dependencies: [{ dependent: execution, at: tentative.position.node, reason: "call", target: key }] });
+    assert.equal(inventory.kind, "complete");
+    let liveness = 0;
+    const offered = [];
+    const observed = [];
+    const result = convergeComponent({ resources: { account: current, conditionRefusal: refusal }, environment: {}, verification: {},
+      analyzeStorageUse: () => {
+        liveness += 1;
+        return { kind: "ok", value: { execution }, diagnostics: [] };
+      }, analyzeBodyRound: deps => {
+        const seen = deps.summaryOf(key, summaryKey(key));
+        observed.push(seen);
+        const position = observed.length === 1 ? tentative : final;
+        const lost = observed.length === 2;
+        const detectors = lost ? [] : observed.length === 1 ? [position] : [position, sibling];
+        const emitted = detectors.map(unit => ({
+          identity: { kind: "host", unit, code: "TSONIC_READ_BEFORE_INITIALIZATION" },
+          diagnostic: { ...refusal.diagnostics[0], code: { kind: "host", name: "TSONIC_READ_BEFORE_INITIALIZATION",
+            rendered: "TSONIC_READ_BEFORE_INITIALIZATION" } },
+        }));
+        offered.push(emitted);
+        const causes = lost ? seen.grounds : observed.length === 4 ? [sibling, position] : detectors;
+        const value = { kind: "error", causes: causes.map(unit => ({ kind: "unit", unit })) };
+        const positions = emitted.map(row => ({ position: row.identity.unit.position,
+          error: { kind: "error", causes: [{ kind: "diagnostic", diagnostic: row.identity }] } }));
+        positions.push({ position: { kind: "execution-result", execution: selected }, error: value });
+        return { kind: "complete", value: { kind: "ok", value, positions,
+          diagnostics: emitted.map(row => row.diagnostic), emissions: emitted } };
+      } }, { inventory: inventory.value, component: 0,
+      members: [{ execution, mir: { body: execution.instance.body, bindings, entries: [{ provided: 0, block: 0 }] },
+        tir: { ...tir(root([])), signature: 0, asynchronous: false, generator: false }, unit }],
+      outside: [], maximumIterations, iterationRefusal: refusal });
+    assert.equal(liveness, 1);
+    return { result, observed, offered, stopped: accountFailure(current) };
+  }
+  const exact = run(4);
+  assert.deepEqual(exact.observed.map(row => row.kind), ["least", "prior-error", "least", "prior-error"]);
+  assert.equal(exact.result.kind, "complete");
+  const [published] = exact.result.value;
+  assert.deepEqual(published.result.value.causes, [{ kind: "unit", unit: final }, { kind: "unit", unit: sibling }]);
+  assert.strictEqual(published.result.emissions[0], exact.offered[3][0]);
+  assert.strictEqual(published.result.emissions[1], exact.offered[3][1]);
+  assert.deepEqual(published.result.positions.map(row => row.position.kind), ["execution-source-node", "execution-source-node", "execution-result"]);
+  const stopped = run(3);
+  assert.strictEqual(stopped.result, stopped.stopped);
+  assert.strictEqual(stopped.result, refusal);
+  assert.equal("value" in stopped.result, false);
 });
 
 test("constructed convergence unit refuses zero iterations and original enclosing stop without a round", () => {

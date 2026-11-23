@@ -1,12 +1,15 @@
-import type { BodyId, NodeId, RawTypeId, TyId } from "../ids/contract.js";
+import type { BodyId, NodeId, RawComponentId, RawTypeId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
-import type { Member, MemberOrigin } from "../ir-types/contract.js";
-import type { LowerDeps, RawFact, RawMember } from "./contract.js";
+import type { Member, MemberInventoryEntry, MemberOrigin, TypePublicationStop, TypePublicationWork } from "../ir-types/contract.js";
+import { admitTypePublicationStep, compareMemberKeys, encodeSelectorPath } from "../ir-types/index.js";
+import type { RawFact, RawMember, RawMemberHeader } from "./contract.js";
 import { lowerMemberKey, lowerMemberOrigin } from "./bindings.js";
+import type { MemberKeyLowering } from "./bindings.js";
+import type { LiteralStop } from "./literals.js";
 
-export function lowerMembers(deps: LowerDeps, members: readonly RawMember[],
-  converted: (type: RawTypeId) => TyId | undefined): readonly Member[] {
+export function lowerMembers(context: MemberKeyLowering, members: readonly RawMember[],
+  converted: (type: RawTypeId) => TyId | undefined, component: RawComponentId, work: TypePublicationWork): readonly Member[] | TypePublicationStop | LiteralStop {
   const typeOf = (fact: RawFact<RawTypeId | null>): TyId | null => {
     if (fact.kind !== "available")
       throw new TypeError("front: a member requires its actual captured read/write type association (" + fact.reason + ")");
@@ -15,28 +18,56 @@ export function lowerMembers(deps: LowerDeps, members: readonly RawMember[],
     if (result === undefined) throw new TypeError("front: a member type dependency must complete before its containing shape");
     return result;
   };
-  return members.map(member => {
-    if (member.readKind !== "property" && member.readKind !== "method" && member.readKind !== "accessor")
+  const lowered: Member[] = [];
+  for (const member of members) {
+    const header = lowerMemberHeader(context, member, component, work);
+    if (!("key" in header)) return header;
+    lowered.push({ ...header, read: typeOf(member.read), write: typeOf(member.write) });
+  }
+  return lowered;
+}
+
+export function lowerMemberHeader(context: MemberKeyLowering, member: RawMemberHeader,
+  component: RawComponentId, work: TypePublicationWork): MemberInventoryEntry | TypePublicationStop | LiteralStop {
+    const { deps } = context;
+    const kind = member.readKind === "mapped" ? "property" : member.readKind;
+    if (kind !== "property" && kind !== "method" && kind !== "accessor")
       throw new TypeError("front: checked member conversion requires its actual selected member kind");
+    const selected = lowerMemberKey(context, member.key);
+    if (selected.kind !== "complete") return selected;
+    const memberKey = selected.value;
     const origins = new Map<string, MemberOrigin>();
     const readOrigins = new Map<string, MemberOrigin>();
     const writeOrigins = new Map<string, MemberOrigin>();
     for (const origin of member.origins) {
-      if (origin.kind !== "declaration" && origin.kind !== "intrinsic" && origin.kind !== "source-member")
+      if (member.readKind === "mapped" && origin.kind !== "mapped")
+        throw new TypeError("front: checked member conversion requires its actual selected member kind");
+      if (origin.kind !== "declaration" && origin.kind !== "intrinsic" && origin.kind !== "source-member" &&
+        (origin.kind !== "mapped" || member.readKind !== "mapped"))
         throw new TypeError("front: checked member conversion requires its actual read/write origin association");
-      const key = origin.kind === "intrinsic" ? encodeKey([origin.kind, origin.symbol])
+      let mapped: MemberOrigin | null = null;
+      if (origin.kind === "mapped") {
+        const stop = admitTypePublicationStep(work);
+        if (stop !== null) return stop;
+        const rawKey = origin.key;
+        const originKey = rawKey === member.key ? selected : lowerMemberKey(context, rawKey);
+        if (originKey.kind !== "complete") return originKey;
+        mapped = lowerMemberOrigin(deps, origin, { component, key: originKey.value });
+      }
+      if (mapped?.kind === "mapped" && compareMemberKeys(mapped.key, memberKey) !== 0)
+        throw new TypeError("front: a mapped origin requires its actual selected member key");
+      const key = mapped !== null ? encodeKey(encodeSelectorPath([{ kind: "member", origin: mapped }]))
+        : origin.kind === "intrinsic" ? encodeKey([origin.kind, origin.symbol])
         : origin.kind === "source-member" ? encodeKey([origin.kind, origin.occurrence.module, origin.occurrence.node])
         : encodeKey([origin.kind, origin.declaration.module, origin.declaration.node]);
-      const value = origins.get(key) ?? lowerMemberOrigin(deps, origin);
+      const value = origins.get(key) ?? mapped ?? lowerMemberOrigin(deps, origin);
       origins.set(key, value);
       (origin.access === "read" ? readOrigins : writeOrigins).set(key, value);
     }
     if (origins.size === 0) throw new TypeError("front: a checked member requires its actual captured origins");
-    return { key: lowerMemberKey(deps, member.key), origins: [...origins.values()],
+    return { key: memberKey, origins: [...origins.values()],
       readOrigins: [...readOrigins.values()], writeOrigins: [...writeOrigins.values()],
-      kind: member.readKind, read: typeOf(member.read), write: typeOf(member.write),
-      optional: member.optional, readonly: member.readonly };
-  });
+      kind, optional: member.optional, readonly: member.readonly };
 }
 
 export function lowerObjectProperties(node: Hir.ObjectLiteralExpression<Hir.SyntaxPhase>, body: BodyId, members: readonly Member[],

@@ -55,12 +55,9 @@ export type QueryComputation<Inputs, Value, Witness, ErrorData> =
   | QueryDependency<Inputs, Value, Witness, ErrorData>
   | QueryAbandonment;
 
-export interface QueryAbandonment {
-  readonly kind: "abandoned";
-  readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]];
-  /** What the computation earned since its last request. */
-  readonly earned: readonly Diagnostic[];
-}
+export type QueryAbandonment =
+  | { readonly kind: "abandoned"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]]; readonly earned: readonly Diagnostic[] }
+  | { readonly kind: "abandoned-at-report"; readonly report: UnitRef; readonly earned: readonly Diagnostic[] };
 
 export interface QueryDependency<Inputs, Value, Witness, ErrorData> {
   readonly kind: "dependency";
@@ -124,13 +121,19 @@ export interface QueryLimits {
   readonly maximumRecords: number;
 }
 
+export interface QueryRefusal {
+  readonly kind: "refused";
+  readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]];
+}
+
 export type RunResult<Value> =
   | { readonly kind: "completed"; readonly value: Value; readonly diagnostics: readonly Diagnostic[] }
-  | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] };
+  | QueryRefusal;
 
 export interface Database<Inputs, Witness, ErrorData> {
   readonly inputs: Inputs;
   readonly run: <Key, Value>(query: Query<Inputs, Key, Value, Witness, ErrorData>, key: Key) => RunResult<Value>;
+  readonly isRecordLimitRefusal: (refusal: QueryRefusal) => boolean;
   readonly errorOf: (unit: UnitRef) => UnitErrorRead;
   readonly diagnostics: () => readonly Diagnostic[];
   readonly stats: () => readonly QueryStat[];

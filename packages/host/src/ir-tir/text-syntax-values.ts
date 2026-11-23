@@ -1,6 +1,7 @@
 import { constructKeywordExpression, constructToken } from "./text-syntax-construction.js";
 import { lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
 import type { TirRecordCodec } from "./text-layouts.js";
+import type { TypedCall, TypedValueOccurrence } from "./contract.js";
 import type {
   TypedApplication, TypedBigInt, TypedBinary, TypedConditional, TypedConstruction, TypedDecorator, TypedInstantiation, TypedKeyword, TypedMember, TypedModuleReference, TypedName, TypedNumber, TypedObjectSpread, TypedOmission, TypedPhase, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue, TypedShorthand, TypedSpread, TypedString, TypedTemplate, TypedType, TypedUnary, TypedUpdate, TypedValue
 } from "./contract.js";
@@ -19,6 +20,7 @@ export interface SyntaxValuesTextReads {
   readonly work_Origin: TirRecordCodec<Origin>;
   readonly work_TextRange: TirRecordCodec<TextRange>;
   readonly work_TypedApplication: TirRecordCodec<TypedApplication>;
+  readonly work_TypedCall: TirRecordCodec<TypedCall>;
   readonly work_TypedBigInt: TirRecordCodec<TypedBigInt>;
   readonly work_TypedBinary: TirRecordCodec<TypedBinary>;
   readonly work_TypedConditional: TirRecordCodec<TypedConditional>;
@@ -44,6 +46,7 @@ export interface SyntaxValuesTextReads {
   readonly work_TypedUnary: TirRecordCodec<TypedUnary>;
   readonly work_TypedUpdate: TirRecordCodec<TypedUpdate>;
   readonly work_TypedValue: TirRecordCodec<TypedValue>;
+  readonly work_TypedValueOccurrence: TirRecordCodec<TypedValueOccurrence>;
 }
 
 export interface SyntaxValuesTextModel {
@@ -328,7 +331,7 @@ export const createSyntaxValuesText = (kernel: TirTextKernel, read: SyntaxValues
     .field("questionDotToken", "?$QuestionDotToken", value => nullableWork(value.questionDotToken, actual => syntaxReference("$QuestionDotToken", actual)), nullableReader(syntaxReads.QuestionDotToken))
     .field("typeArguments", "?L<TypeNode>", value => nullableWork(value.typeArguments, actual => read.work_L_TypeNode_.write(actual)), nullableReader(lazyReader(() => read.work_L_TypeNode_.reader)))
     .field("arguments", "L<Expression>", value => work_L_Expression_.write(value.arguments), lazyReader(() => work_L_Expression_.reader))
-    .field("tsonic", "TypedApplication", value => read.work_TypedApplication.write(value.tsonic), lazyReader(() => read.work_TypedApplication.reader))
+    .field("tsonic", "TypedCall", value => read.work_TypedCall.write(value.tsonic), lazyReader(() => read.work_TypedCall.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_expression, field_questionDotToken, field_typeArguments, field_arguments, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, expression: field_expression, questionDotToken: field_questionDotToken,
       typeArguments: field_typeArguments, arguments: field_arguments, tsonic: field_tsonic }), (kind, make) => ({ kind,
@@ -359,7 +362,7 @@ export const createSyntaxValuesText = (kernel: TirTextKernel, read: SyntaxValues
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'NonNullExpression", literalReader<(NonNullExpression<TypedPhase>)["kind"]>("'NonNullExpression", ["NonNullExpression"]))
     .field("expression", "$Expression", value => syntaxReference("$Expression", value.expression), syntaxReads.Expression)
-    .field("tsonic", "TypedValue", value => read.work_TypedValue.write(value.tsonic), lazyReader(() => read.work_TypedValue.reader))
+    .field("tsonic", "TypedValueOccurrence", value => read.work_TypedValueOccurrence.write(value.tsonic), lazyReader(() => read.work_TypedValueOccurrence.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_expression, field_tsonic) => ({ id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, expression: field_expression, tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind) })));
   const work_SpreadElement: (value: SpreadElement<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<SpreadElement<TypedPhase>>("SpreadElement", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
@@ -403,7 +406,7 @@ export const createSyntaxValuesText = (kernel: TirTextKernel, read: SyntaxValues
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'ParenthesizedExpression", literalReader<(ParenthesizedExpression<TypedPhase>)["kind"]>("'ParenthesizedExpression", ["ParenthesizedExpression"]))
     .field("expression", "$Expression", value => syntaxReference("$Expression", value.expression), syntaxReads.Expression)
-    .field("tsonic", "TypedValue", value => read.work_TypedValue.write(value.tsonic), lazyReader(() => read.work_TypedValue.reader))
+    .field("tsonic", "TypedValueOccurrence", value => read.work_TypedValueOccurrence.write(value.tsonic), lazyReader(() => read.work_TypedValueOccurrence.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_expression, field_tsonic) => ({ id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, expression: field_expression, tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind) })));
   const work_ArrayLiteralExpression: (value: ArrayLiteralExpression<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<ArrayLiteralExpression<TypedPhase>>("ArrayLiteralExpression", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)

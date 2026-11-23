@@ -3,16 +3,12 @@ import type * as Hir from "../ir-hir/contract.js";
 import type { ComponentSelector, TypeBinding } from "../ir-types/contract.js";
 import { readSignature } from "../ir-types/index.js";
 import type { RawCallSelection, RawNodeRef } from "./contract.js";
-import { sourceOccurrence } from "./bindings.js";
+import { sameSource, sourceOccurrence } from "./bindings.js";
 import { convertRawType, rawSignatureParameter, signatureOf } from "./type-conversion.js";
 import type { ConversionResult, TypeConversion } from "./type-conversion.js";
 
 function fail(message: string): never {
   throw new TypeError("front: " + message);
-}
-
-function sameSource(actual: RawNodeRef | null | undefined, expected: RawNodeRef): boolean {
-  return actual?.module === expected.module && actual.node === expected.node;
 }
 
 function typeOf(conversion: TypeConversion, id: RawTypeId): ConversionResult<TyId> {
@@ -75,8 +71,8 @@ export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall)
     const explicit = syntax === undefined ? null : { module: raw.module, node: syntax.id };
     const row = raw.types.types[binding.argument.value];
     const component = row === undefined ? undefined : raw.types.components[row.component];
-    const selector = component?.path[0];
-    if (row?.id !== binding.argument.value || !sameSource(component?.root, invocation) || component?.path.length !== 1
+    const selector = component?.path?.step;
+    if (row?.id !== binding.argument.value || !sameSource(component?.root, invocation) || component?.path?.prefix !== null
       || selector?.kind !== "type-argument" || selector.index !== index || !sameSource(selector.declaration, binder)
       || (explicit === null ? row.authoredTypeNode !== null || binding.explicitTypeNode !== null
         : !sameSource(row.authoredTypeNode, explicit) || !sameSource(binding.explicitTypeNode, explicit)))
@@ -106,10 +102,10 @@ export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall)
       const formal = raw.types.types[contribution.formal];
       const sourceComponent = source === undefined ? undefined : raw.types.components[source.component];
       const formalComponent = formal === undefined ? undefined : raw.types.components[formal.component];
-      const rawSelector = formalComponent?.path[0];
+      const rawSelector = formalComponent?.path?.step;
       if (parameter === undefined || declaration === null || source?.id !== contribution.source || !sameSource(sourceComponent?.root, origin.subject)
-        || sourceComponent?.path.length !== 0 || formal?.id !== contribution.formal || !sameSource(formalComponent?.root, original)
-        || formalComponent?.path.length !== 1 || formal.form.kind !== "available" || formal.form.value.kind !== "parameter"
+        || sourceComponent?.path !== null || formal?.id !== contribution.formal || !sameSource(formalComponent?.root, original)
+        || formalComponent?.path?.prefix !== null || formal.form.kind !== "available" || formal.form.value.kind !== "parameter"
         || !sameSource(formal.form.value.parameter, declaration))
         return fail("an inference contribution must retain its genuine source and original formal components");
       let selector: ComponentSelector;

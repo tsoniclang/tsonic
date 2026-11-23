@@ -29,6 +29,10 @@ export interface LogicalCellRef {
   readonly cell: number;
 }
 
+export interface ModuleStaticCellRef extends LogicalCellRef {
+  readonly owner: { readonly kind: "summary"; readonly key: { readonly kind: "body"; readonly execution: Execution } };
+}
+
 export type LogicalCellOccurrence =
   | { readonly kind: "entry"; readonly execution: Execution; readonly local: LocalId }
   | { readonly kind: "statement"; readonly execution: Execution; readonly point: MirPoint }

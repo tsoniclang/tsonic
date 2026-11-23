@@ -1,5 +1,5 @@
 import type { Violation } from "../diag/contract.js";
-import type { BodyId, DefId, NodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, NodeRef, SigId, TyId } from "../ids/contract.js";
 import type { BindingVector, TypeEvidence } from "../ir-types/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type {
@@ -37,6 +37,18 @@ function actualEndpoint(input: InferVerificationInput, endpoint: HirCallableEndp
   return values.has(callableEndpointKey(endpoint));
 }
 
+function actualBodyEndpoint(input: InferVerificationInput, declaration: DefId, body: BodyId,
+  endpoints: readonly HirCallableEndpoint[]): boolean {
+  let found = false;
+  for (const endpoint of endpoints) {
+    if (endpoint.role !== "api-body" || endpoint.body !== body) continue;
+    if (found || endpoint.declaration !== declaration || !ordinal(endpoint.signature)
+      || input.types.signatures[endpoint.signature]?.declaration !== declaration) return false;
+    found = true;
+  }
+  return found;
+}
+
 function overloadedDeclaration(input: InferVerificationInput, owner: DefId, overloads: Map<DefId, boolean>): boolean {
   let overloaded = overloads.get(owner);
   if (overloaded === undefined) {
@@ -62,8 +74,8 @@ function memberReferences(input: InferVerificationInput, member: MemberDecision,
 function mappingReferences(input: InferVerificationInput, decision: ApplicationDecision, site: InferSite,
   arguments_: readonly ApplicationArgument[] | null, operandCount: number | null, endpoints: Map<DefId, ReadonlySet<string>>,
   overloads: Map<DefId, boolean>, bodies: ReadonlyMap<BodyId, BodyTyping>,
-  output: Violation<InferRule, InferSite>[]): void {
-  const signature = ordinal(decision.api.signature) ? input.types.signatures[decision.api.signature] : undefined;
+  output: Violation<InferRule, InferSite>[], applied: SigId): void {
+  const signature = ordinal(applied) ? input.types.signatures[applied] : undefined;
   if (!actualEndpoint(input, decision.advertised, endpoints) ||
     !actualEndpoint(input, decision.api, endpoints, decision.advertised.declaration))
     emit(output, "endpoint-agreement", site, "endpoints");
@@ -100,7 +112,7 @@ function mappingReferences(input: InferVerificationInput, decision: ApplicationD
     decision.advertised, decision.api);
   if ((roles & 1) !== 0) emit(output, "api-endpoint-role", site, "advertised");
   if ((roles & 2) !== 0) emit(output, "api-endpoint-role", site, "api");
-  if (decision.completion.signature !== decision.api.signature) emit(output, "endpoint-agreement", site, "completion");
+  if (decision.completion.signature !== applied) emit(output, "endpoint-agreement", site, "completion");
   if (decision.api.body !== null) {
     const body = bodies.get(decision.api.body);
     if (body !== undefined && (body.signature !== decision.completion.signature || body.completion !== decision.completion.completion ||
@@ -112,7 +124,7 @@ function mappingReferences(input: InferVerificationInput, decision: ApplicationD
 type DecisionWork =
   | { readonly kind: "embedding"; readonly value: EmbeddingDecision }
   | { readonly kind: "application"; readonly value: ApplicationDecision;
-      readonly arguments: readonly ApplicationArgument[] | null; readonly operandCount: number | null }
+      readonly arguments: readonly ApplicationArgument[] | null; readonly operandCount: number | null; readonly applied: SigId }
   | { readonly kind: "operation"; readonly value: OperationDecision }
   | { readonly kind: "proof"; readonly value: EmbeddingProof };
 
@@ -150,6 +162,8 @@ function deferredReferences(context: SolutionContext, record: DeferredDecision, 
       }); break;
     case "index": matches = value.kind === "index" && invocation.input.access === value.access; break;
     case "construct-literal": matches = value.kind === "construct-literal" && invocation.input.construction === value.construction &&
+      invocation.input.result.component.kind === "body" &&
+      sameNode(invocation.input.result.component.value, value.occurrence) &&
       (invocation.input.destination === null) === (value.destination === null) && invocation.input.parts.length === value.parts.length &&
       invocation.input.parts.every((part, index) => {
         const original = value.parts[index];
@@ -221,7 +235,7 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
       {
         const arguments_ = constraint?.value.kind === "call" || constraint?.value.kind === "construct"
           ? constraint.value.application.arguments : null;
-        pending.push({ kind: "application", value: decision.application, arguments: arguments_, operandCount: arguments_?.length ?? null });
+        let applied = decision.application.api.signature;
         if (constraint?.value.kind === "call" || constraint?.value.kind === "construct") {
           const list = inventory.candidates.get(candidateKey(constraint.set.body, constraint.value.application.candidates));
           const candidate = ordinal(decision.application.candidate) && list !== undefined
@@ -233,7 +247,9 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
             || callableEndpointKey(candidate.endpoints.value.advertised) !== callableEndpointKey(decision.application.advertised)
             || callableEndpointKey(candidate.endpoints.value.api) !== callableEndpointKey(decision.application.api))
             emit(output, "endpoint-agreement", site, "candidate");
+          else applied = candidate.endpoints.value.apiSignature;
         }
+        pending.push({ kind: "application", value: decision.application, arguments: arguments_, operandCount: arguments_?.length ?? null, applied });
       }
       if (decision.operation?.kind === "decided") pending.push({ kind: "operation", value: decision.operation.decision });
       else if (decision.operation?.kind === "deferred") deferredReferences(context, decision.operation.deferred, constraint, site, output);
@@ -271,7 +287,7 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
     if (task.kind === "proof") proofReferences(task.value, record.constraint, output);
     else if (task.kind === "embedding") {
       if (task.value.kind === "conversion") pending.push({ kind: "proof", value: task.value.proof });
-    } else if (task.kind === "application") mappingReferences(input, task.value, site, task.arguments, task.operandCount, endpoints, overloads, bodies, output);
+    } else if (task.kind === "application") mappingReferences(input, task.value, site, task.arguments, task.operandCount, endpoints, overloads, bodies, output, task.applied);
     else {
       const operation = task.value.operation;
       if (operation.kind === "conversion") pending.push({ kind: "embedding", value: operation.embedding });
@@ -295,7 +311,8 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
         for (const step of operation.steps) {
           if (step.operation.kind === "call") {
             if (step.result !== step.operation.application.result) emit(output, "protocol-channels", site, "result");
-            pending.push({ kind: "application", value: step.operation.application, arguments: null, operandCount: step.operands.length });
+            pending.push({ kind: "application", value: step.operation.application, arguments: null, operandCount: step.operands.length,
+              applied: step.operation.application.api.signature });
           }
           if (step.role === "completion" && step.result !== operation.completion)
             emit(output, "protocol-channels", site, "completion");
@@ -373,6 +390,18 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
     solved.add(key); previous = record;
     decisionRecords(context, record, target, output);
     if (target !== undefined && target.value.kind === "op" && record.decision.kind === "op") operationTypes(input, finals, target.value, record.decision.operation, site, output);
+    if (target?.value.kind === "default" && target.value.rule === "literal-native-default" && target.value.type === null
+      && record.decision.kind === "default" && record.decision.type !== finals.get(target.value.variable)?.type)
+      emit(output, "decision-kind", site, "decision");
+    if (target?.value.kind === "default" && target.value.rule === "signature-producers" && target.value.type !== null) {
+      const variable = inventory.variables.get(target.value.variable);
+      const term = input.types.terms[target.value.type];
+      if (variable?.kind !== "signature" || variable.signature.part.kind !== "return"
+        || nodeKey(variable.occurrence) !== nodeKey(target.value.occurrence)
+        || term?.kind !== "intrinsic" || term.intrinsic !== "void" || record.decision.kind !== "default"
+        || record.decision.type !== target.value.type || record.decision.type !== finals.get(variable.id)?.type)
+        emit(output, "decision-kind", site, "decision");
+    }
   }
   for (const [key, value] of inventory.constraints) if (!solved.has(key))
     emit(output, "solution-total", { kind: "constraint", constraint: value.reference }, "constraints");
@@ -426,11 +455,14 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
     }
     const signature = ordinal(body.signature) ? input.types.signatures[body.signature] : undefined;
     if (signature === undefined) emit(output, "body-completion-endpoints", site, "signature");
-    else if (signature.declaration !== null) {
-      const declaration = input.declarationOf(signature.declaration);
-      if (declaration === null || declaration.parameterCount !== null && !actualEndpoint(input,
-        { declaration: signature.declaration, role: "api-body", signature: body.signature, body: body.body }, endpoints))
-        emit(output, "body-completion-endpoints", site, "endpoint");
+    else {
+      if (input.placedSignatureOf(body.body) !== body.signature) emit(output, "body-completion-endpoints", site, "signature");
+      if (signature.declaration !== null) {
+        const declaration = input.declarationOf(signature.declaration);
+        if (declaration === null || declaration.parameterCount !== null
+          && !actualBodyEndpoint(input, signature.declaration, body.body, declaration.endpoints))
+          emit(output, "body-completion-endpoints", site, "endpoint");
+      }
     }
     bodyIds.add(body.body); previousBody = body.body;
   }
@@ -529,7 +561,7 @@ export function visitBindings(input: InferenceBindingInput,
         case "index": evidence(invocation.input.receiver); evidence(invocation.input.key); break;
         case "construct-literal":
           for (const part of invocation.input.parts) evidence(part.value);
-          evidence(invocation.input.destination); break;
+          evidence(invocation.input.destination); evidence(invocation.input.result); break;
         case "candidate":
           evidence(invocation.input.callee); evidence(invocation.input.receiver);
           for (const value of invocation.input.typeArguments) evidence(value);

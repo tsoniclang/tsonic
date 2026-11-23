@@ -93,7 +93,7 @@ test("actual declared structural members retain their genuine keys, origins and 
   }
   for (const [access, declaration] of [["read", accessor.getters[0]], ["write", accessor.setters[0]]]) {
     const row = raw.types.types[accessor[access].value];
-    assert.deepEqual(raw.types.components[row.component].path.at(-1), { kind: "member", declaration, access });
+    assert.deepEqual(raw.types.components[row.component].path?.step, { kind: "member", declaration, access });
   }
 });
 

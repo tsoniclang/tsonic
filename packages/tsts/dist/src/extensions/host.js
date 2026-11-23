@@ -1,4 +1,5 @@
 import { SourceFile_FileName } from "../internal/ast/ast.js";
+import { createCheckerDiagnosticPublication } from "../services/diagnostic-run-members.js";
 import { createSourceProgramQueries, } from "./source-program.js";
 import { isArgumentPassingMode } from "./argument-passing.js";
 import { isProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
@@ -2980,16 +2981,26 @@ export class ExtensionHost {
         return this.#semanticFinalizationState === "finalized";
     }
     getCompilerQueryContext(context) {
-        if (this.#compilerContext !== undefined) {
+        return this.#sourceQueries(context).queries;
+    }
+    publishCheckedSource(diagnostics, context) {
+        if (!this.finalized)
+            throw new Error("Checker diagnostics require finalized source semantics.");
+        const { queries, publication } = this.#sourceQueries(context);
+        return { source: queries, diagnostics: publication.publish(diagnostics) };
+    }
+    #sourceQueries(context) {
+        if (this.#compilerContext !== undefined)
             return this.#compilerContext;
-        }
         const program = this.#program;
-        this.#compilerContext = createSourceProgramQueries(program, {
+        const publication = createCheckerDiagnosticPublication();
+        const queries = createSourceProgramQueries(program, {
             ...(context === undefined ? {} : { context }),
+            admitsCheckerDiagnostic: publication.admits,
             includeSourceFile: (sourceFile) => getProviderVirtualArtifactForCompiler(this.providers, SourceFile_FileName(sourceFile))?.kind
                 !== "canonical-export-owner",
         });
-        return this.#compilerContext;
+        return this.#compilerContext = { queries, publication };
     }
     #getOwnerCapabilities(extensionId) {
         const diagnostics = this.diagnostics[diagnosticStoreForOwner](extensionId);

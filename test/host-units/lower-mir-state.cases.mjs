@@ -30,7 +30,7 @@ test("the private call finisher rejects a missing or projected place instead of 
     [{ kind: "place", place: 0 }, "a local place argument has a projected place"],
   ]) {
     const lowering = { state: { places: [{ base: { kind: "place" } }] }, exposed: new Set(), reads: new Map(),
-      operands: [{ operand, inPlace: null }] };
+      operands: [{ kind: "plain", operand, pendingRead: false, storage: 0, site }] };
     assert.throws(() => finishCall(lowering, pending), error => error instanceof Error
       && error.message === `caller defect: ${message}` && error.cause.owner === "lower-mir");
     assert.equal(lowering.operands.length, 0);
@@ -83,12 +83,12 @@ test("a necessary dominating snapshot is admitted before its existing terminator
 
 test("the private conditional finisher rejects a changed selection kind instead of choosing an arm", async () => {
   const { enterConditional } = await import("../../packages/host/dist/lower-mir/control.js");
-  const lowering = { operands: [{ operand: { kind: "constant", constant: 0 }, inPlace: null }],
+  const lowering = { operands: [{ kind: "plain", operand: { kind: "constant", constant: 0 }, pendingRead: false, storage: 0, site }],
     exposed: new Set(), reads: new Map() };
   assert.throws(() => enterConditional(lowering, { origin, tsonic: { selection: { kind: "and" } } }),
     error => error instanceof Error && error.message.includes("another selection kind"));
   lowering.state = fresh(10);
-  lowering.operands.push({ operand: { kind: "place", place: 0 }, inPlace: null, storage: 0 });
+  lowering.operands.push({ kind: "plain", operand: { kind: "place", place: 0 }, pendingRead: false, storage: 0, site });
   lowering.typeOf = () => ({ kind: "primitive", primitive: "bool" });
   assert.throws(() => enterConditional(lowering, { origin, condition: { origin },
     tsonic: { selection: { kind: "conditional", disposition: "dynamic" } } }),
@@ -99,19 +99,19 @@ test("the private short-circuit finisher preserves its actual selected kind and 
   const { enterShortCircuit } = await import("../../packages/host/dist/lower-mir/control.js");
   const selected = { kind: "and", disposition: "dynamic" };
   const node = { origin, left: { origin }, right: { origin }, tsonic: { role: "short-circuit", selection: selected } };
-  const freshLowering = () => ({ state: fresh(20), exposed: new Set(), reads: new Map(),
-    operands: [{ operand: { kind: "place", place: 0 }, inPlace: null, storage: 0 }],
+  const freshLowering = () => ({ state: fresh(20), work: [], exposed: new Set(), reads: new Map(),
+    operands: [{ kind: "plain", operand: { kind: "place", place: 0 }, pendingRead: false, storage: 0, site }],
     typeOf: () => ({ kind: "primitive", primitive: "bool" }) });
   for (const payload of [{ role: "arithmetic" }, { role: "short-circuit", selection: { kind: "conditional" } }])
-    assert.throws(() => enterShortCircuit(freshLowering(), { ...node, tsonic: payload }),
+    assert.throws(() => enterShortCircuit(freshLowering(), { ...node, tsonic: payload }, null),
       error => error instanceof Error && error.message.includes("another selection kind"));
-  assert.throws(() => enterShortCircuit(freshLowering(), node),
+  assert.throws(() => enterShortCircuit(freshLowering(), node, null),
     error => error instanceof Error && error.message.includes("no executing split"));
 });
 
 test("private declaration lifetimes reject unrelated scope anchors and a missing lexical owner", async () => {
   const { declareLocal, leaveLocalScopes } = await import("../../packages/host/dist/lower-mir/bindings.js");
-  assert.throws(() => leaveLocalScopes({ scope: null }, { parent: null, locals: [] }, { origin }),
+  assert.throws(() => leaveLocalScopes({ scope: null }, { kind: "block", parent: null, locals: [] }, { origin }),
     error => error instanceof Error && error.message === "caller defect: a storage transfer leaves an unrelated lexical scope");
   const declaration = { id: 0, origin, name: { kind: "Identifier" }, initializer: null,
     tsonic: { declaration: { kind: "local", local: { body: BODY, local: 0 } }, storage: 0, initializer: null } };
@@ -130,11 +130,11 @@ test("an initializer stops before call handoff when saving an actual pending exp
     const place = state.placeOfLocal(graph, source);
     state.enterBlock(graph, state.newBlock(graph, site));
     const lowering = { body: { body: BODY, locals: [{ id: 0, role: "parameter", storage: 0 }, { id: 1, role: "binding", storage: 0 }] },
-      state: graph, localOf: new Map([[0, source]]), scope: { parent: null, locals: [] },
+      state: graph, localOf: new Map([[0, source]]), scope: { kind: "block", parent: null, locals: [] },
       internal: [{ instance: { body: initializer, bindings: { kind: "parametric" } }, signature: 0, captures: [] }],
       internalOf: null, signatureOf: () => ({ receiver: null, parameters: [], result: 0 }),
-      operands: [], reads: new Map(), branches: [], preservedLocals: new Set([source]), exposed: new Set() };
-    pushOperand(lowering, { operand: { kind: "place", place }, inPlace: source, storage: 0, site });
+      operands: [], reads: new Map(), staticReads: new Set(), preservedLocals: new Set([source]), exposed: new Set() };
+    pushOperand(lowering, { kind: "local-read", operand: { kind: "place", place }, root: place, local: source, pendingRead: true, storage: 0, site });
     const declaration = { id: 1, origin, name: { kind: "Identifier" }, initializer: { kind: "NumericLiteral" },
       tsonic: { declaration: { kind: "local", local: { body: BODY, local: 1 } }, storage: 0, initializer } };
     assert.equal(declareLocal(lowering, declaration, true), false);
@@ -225,6 +225,31 @@ test("after a refusal a cached place and a cached constant are not answered (K-3
   assert.equal(state.constantOperand(lowering, 0, literal), null);
   assert.deepEqual(recorded(), atRefusal);
   assert.equal(state.finishBody(lowering), null);
+});
+
+test("static place identity refuses crossed storage and remains hidden after a sticky stop", () => {
+  const lowering = fresh(1);
+  const definition = "D[M[P[p];m];slot]";
+  const place = state.placeOfStatic(lowering, definition, 0, origin);
+  assert.equal(place, 0);
+  assert.equal(state.placeOfStatic(lowering, definition, 0, origin), place);
+  assert.throws(() => state.placeOfStatic(lowering, definition, 1, origin),
+    /one static definition must retain one actual storage type/u);
+  assert.deepEqual([lowering.records, lowering.refused, lowering.places.length], [1, false, 1]);
+  assert.equal(state.newBlock(lowering, site), null);
+  assert.equal(state.placeOfStatic(lowering, definition, 0, origin), null);
+  assert.deepEqual([lowering.records, lowering.refused, lowering.places.length], [1, true, 1]);
+  assert.equal(state.finishBody(lowering), null);
+});
+
+test("a read anchor requires its actual open block", () => {
+  const lowering = fresh(1);
+  assert.throws(() => state.markRead(lowering), /a pending read has no open block/u);
+  assert.equal(lowering.records, 0);
+  const block = state.newBlock(lowering, site);
+  state.enterBlock(lowering, block);
+  assert.equal(state.markRead(lowering).kind, "read-anchor");
+  assert.equal(lowering.records, 1);
 });
 
 test("assembly: constants take their canonical order and every reference to a constant follows, in every record that holds one", async () => {

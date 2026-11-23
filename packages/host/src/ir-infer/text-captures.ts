@@ -3,7 +3,7 @@ import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } fr
 import type { DataSchemas } from "./text-data.js";
 import type { PointersSchemas } from "./text-pointers.js";
 import type { DefId, SourceNodeRef } from "../ids/contract.js";
-import type { HirArgumentPassingCapture, HirAttributeCapture, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerOperationCapture, HirPointerTypeCapture, HirRecordBindingCapture, HirRecordFieldBindingCapture, HirSafetyCapture, HirSafetySelectionCapture } from "../ir-hir/contract.js";
+import type { HirArgumentPassingCapture, HirAttributeCapture, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkerApplication, HirMarkersCapture, HirPointerOperationCapture, HirPointerTypeCapture, HirRecordBindingCapture, HirRecordFieldBindingCapture, HirSafetyCapture, HirSafetySelectionCapture } from "../ir-hir/contract.js";
 import type { AvailableTypeRecord, UnavailableRecord } from "./text-capture-values.js";
 import type { RecordSchema } from "./text-data.js";
 import type { Schema } from "./text-data.js";
@@ -442,12 +442,27 @@ export function createCapturesSchemas(captureValues: CaptureValuesSchemas, data:
 
   const flowStateSchema = enumSchema("FlowState", ["moved","borrowed-shared","borrowed-mut"]);
 
+  type AvailableMarkerApplication = Extract<HirMarkersCapture["application"], { readonly kind: "available" }>;
+  const markerApplicationSchema = recordSchema<HirMarkerApplication>("HirMarkerApplication", "HirMarkerApplication", read => {
+    const role = read("role", () => enumSchema<HirMarkerApplication["role"]>("MarkerRole", ["struct", "field"]), value => value.role);
+    const occurrence = read("occurrence", () => nodeRefSchema, value => value.occurrence);
+    const declaration = read("declaration", () => defSchema, value => value.declaration);
+    return { fields: [role, occurrence, declaration], value: () => ({ role: role.value(), occurrence: occurrence.value(), declaration: declaration.value() }) };
+  });
+  const availableMarkerApplicationSchema = recordSchema<AvailableMarkerApplication>("AvailableMarkerApplication", "available", read => {
+    const value = read("value", () => nullableSchema(markerApplicationSchema), application => application.value);
+    return { fields: [value], value: () => ({ kind: "available", value: value.value() }) };
+  });
+  const capturedMarkerApplicationSchema = unionSchema<HirMarkersCapture["application"]>("CapturedMarkerApplication",
+    () => [availableMarkerApplicationSchema, unavailableSchema], value => value.kind === "available"
+      ? availableMarkerApplicationSchema.stage(value) : unavailableSchema.stage(value));
   const hirMarkersCaptureSchema = recordSchema<HirMarkersCapture>("HirMarkersCapture", "HirMarkersCapture", read => {
     const struct = read("struct", () => nullableSchema(structMarkersSchema), value => value.struct);
     const field = read("field", () => nullableSchema(hirFieldMarkerCaptureSchema), value => value.field);
     const defaultValue = read("defaultValue", () => nullableSchema(defaultMarkerSchema), value => value.defaultValue);
     const jsString = read("jsString", () => booleanSchema, value => value.jsString);
-    return { fields: [struct, field, defaultValue, jsString], value: () => ({ struct: struct.value(), field: field.value(), defaultValue: defaultValue.value(), jsString: jsString.value() }) };
+    const application = read("application", () => capturedMarkerApplicationSchema, value => value.application);
+    return { fields: [struct, field, defaultValue, jsString, application], value: () => ({ struct: struct.value(), field: field.value(), defaultValue: defaultValue.value(), jsString: jsString.value(), application: application.value() }) };
   });
 
   const structMarkersSchema = recordSchema<StructMarkersRecord>("StructMarkers", "Record", read => {

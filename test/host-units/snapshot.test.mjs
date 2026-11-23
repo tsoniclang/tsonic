@@ -117,7 +117,7 @@ function snapshot() {
     entryPoint: entry, roots: [entry],
     selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
     contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: [], installedDeclarations: "none" },
-      requiredProviderModules: [], compilerExtensions: [], declarationProviders: [], semanticModules: [], safetyProviders: [], dataLayouts: [] },
+      requiredProviderModules: [], compilerExtensions: [], declarationProviders: [], semanticModules: [], safetyProviders: [], dataLayouts: [], externalEntries: [] },
     nativeFacts: nativeFactsFixture(),
   };
 }
@@ -332,6 +332,24 @@ test("roots-unique never silently deduplicates the caller's authored root vector
   const value = snapshot();
   value.roots.push(moduleId());
   verify(value, [issue("roots-unique", moduleSite(), moduleId())]);
+});
+test("external entries retain the target session's ordered source selections", () => {
+  const selection = { kind: "selection", targetId: "native" };
+  const value = snapshot();
+  value.contributions.externalEntries = [{ module: value.entryPoint, name: "later" }, { module: value.entryPoint, name: "" }];
+  verify(value, []);
+  assert.deepEqual(value.contributions.externalEntries.map(entry => entry.name), ["later", ""]);
+  value.contributions.externalEntries.push({ module: value.entryPoint, name: "later" });
+  verify(value, [issue("external-entry-unique", selection, value.entryPoint, "later")]);
+  for (const externalEntries of [undefined, [{ module: moduleId(packageId(), "missing.ts"), name: "run" }],
+    [{ module: value.entryPoint, name: 0 }]]) {
+    value.contributions.externalEntries = externalEntries;
+    verify(value, [issue("external-entry-resolves", selection, "externalEntries")]);
+  }
+  value.contributions.externalEntries = new Array(1);
+  verify(value, [sparseIssue(selection, "externalEntries")]);
+  value.contributions.externalEntries = [null];
+  verify(value, [sparseIssue(selection, "externalEntries")]);
 });
 test("selection capabilities/surfaces are unique and surface correspondence preserves requested order", () => {
   const capabilities = snapshot();
@@ -960,7 +978,7 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
     + 'import type { Violation } from "./diag/contract.js";\n'
     + 'import type { SelectedNativeFacts } from "./ir-types/contract.js"; export declare const selectedNativeFacts: SelectedNativeFacts;\n'
     + 'export const root = encodePackageId("/project"); export const entry = encodeModuleId({ package: root, path: "src/main.ts" });\n'
-    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{kind:"record",fields:[]}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationModules:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},nativeFacts:selectedNativeFacts};\n'
+    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{kind:"record",fields:[]}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationModules:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[],externalEntries:[]},nativeFacts:selectedNativeFacts};\n'
     + 'export function consume(snapshot: ProjectSnapshot, references: readonly ExtensionReferenceEntry[]): readonly Violation<SnapshotRule,SnapshotSite>[] { const verify: VerifySnapshot = verifySnapshot; return verify(snapshot,references); }\n'
     + 'export function sparse(snapshot: ProjectSnapshot): readonly Violation<SnapshotRule,SnapshotSite>[] { return verifySnapshot({...snapshot,roots:new Array<ModuleId>(1)},[]); }\n';
   writeFileSync(resolve(stage, "consumer.ts"), source

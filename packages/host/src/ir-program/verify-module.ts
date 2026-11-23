@@ -5,7 +5,7 @@ import type { MemberSelection, ResolvedCallee, TirVerifierInput } from "../ir-ti
 import { verifyTir, verifyTirModule } from "../ir-tir/index.js";
 import { summaryKey, verifyFacts, verifyObservations } from "../ir-facts/index.js";
 import { verifyMir } from "../ir-mir/index.js";
-import { constantReferenceKey, executionKey, instanceKey, printTypes } from "../ir-types/index.js";
+import { constantReferenceKey, executionKey, instanceKey } from "../ir-types/index.js";
 import type { NodeId } from "../ids/contract.js";
 import type { SyntaxNode } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
@@ -15,9 +15,10 @@ import type { SyntaxInventory } from "./syntax-arena.js";
 import { inventorySyntax, moduleSyntaxRoots } from "./syntax-arena.js";
 import { syntaxEdges } from "./syntax-edges.js";
 import type { BodyInstance, Execution, TypeInterner } from "../ir-types/contract.js";
-import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { artifactEnvironmentKey, compareExecutions, compareInstances, numberDetail, programChildRule, programLookup, textDetail, uniqueRows } from "./program-values.js";
-import { refuseVerification, verificationTypes } from "./verification-work.js";
+import type { ProgramLookup } from "./work.js";
+import type { ProgramViolation } from "./work-data.js";
+import { artifactEnvironmentKey, compareExecutions, compareInstances, numberDetail, programChildRule, textDetail, uniqueRows } from "./program-values.js";
+import { lookupForModuleVerification, matchesProgramTypeTable, refuseVerification, tirReadyReadAdmission, verificationContext, verificationTypes } from "./verification-work.js";
 import { verifyMetadataOperands } from "./verify-metadata-operands.js";
 
 function isObservationExpansion(result: ObservationsVerification): result is Extract<ObservationsVerification,
@@ -218,22 +219,27 @@ export function verifyPublishedChildren(
   lookup: ProgramLookup,
 ): ProgramVerificationResult {
   const violations: ProgramViolation[] = [];
-  if (input !== null) input = { ...input, module: {
-    module: module.module, tree: module.tree, bodies: module.bodies.map(published => published.tir),
-  } };
+  const admit = tirReadyReadAdmission(ProgramWork.state(context.resources).account);
   if (input === null) {
     violations.push({ rule: "tir-valid", site: { kind: "module", module: module.module }, detail: [textDetail("missing-module-data")] });
   } else {
-    for (const child of verifyTirModule(input, input.module)) {
+    const checked = verifyTirModule(input, {
+      module: module.module, tree: module.tree, bodies: module.bodies.map(published => published.tir),
+    }, admit);
+    if (checked.kind === "resource-stop") return checked.stop;
+    for (const child of checked.violations) {
       const site: ProgramSite = { kind: "node", module: child.site.module, node: child.site.node };
       violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
   const sourceBodies = uniqueRows(input === null ? [] : input.source.bodies, body => body.body);
+  const verifyBody = input === null ? null : verifyTir(input, admit);
   for (const published of module.bodies) {
     const site: ProgramSite = { kind: "body", instance: published.instance };
-    if (input !== null) {
-      for (const child of verifyTir(input, published.tir)) {
+    if (verifyBody !== null) {
+      const checked = verifyBody(published.tir);
+      if (checked.kind === "resource-stop") return checked.stop;
+      for (const child of checked.violations) {
         violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
       }
     }
@@ -283,17 +289,20 @@ export function verifyPublishedChildren(
 
 export const verifyModuleBodies: VerifyModuleBodies = (index, module, context) => {
   const prepared = verificationTypes(index, context.resources);
+  if (prepared.kind === "invalid") return { kind: "complete", violations: prepared.violations };
   if (prepared.kind !== "complete") return prepared;
+  const supplied = index;
+  context = verificationContext(context, index.types, prepared.index.types);
+  index = prepared.index;
   const syntax = inventorySyntax(moduleSyntaxRoots(module, "ModuleBodies"));
-  const lookup = programLookup(index);
+  const lookup = lookupForModuleVerification(supplied, index, context.resources);
   const input = context.tirOf(module.module);
-  const violations: ProgramViolation[] = [...verifyModuleInventory(lookup, index, module)];
+  const violations: ProgramViolation[] = [...verifyModuleInventory(lookup, module)];
   for (const published of module.bodies) {
     for (const violation of verifyReferenceRoots(lookup, published, context)) violations.push(violation);
   }
   for (const violation of verifySyntaxIdentities(module, input, syntax)) violations.push(violation);
-  const expectedTypes = printTypes(index.types);
-  if (expectedTypes !== printTypes(context.facts.types) || (input !== null && expectedTypes !== printTypes(input.types))) {
+  if (!matchesProgramTypeTable(index.types, context.facts.types, input?.types)) {
     violations.push({ rule: "shared-type-table", site: { kind: "module", module: module.module }, detail: [] });
   }
   const children = verifyPublishedChildren(index, module, input, context, prepared.types, lookup);
@@ -302,9 +311,8 @@ export const verifyModuleBodies: VerifyModuleBodies = (index, module, context) =
   return { kind: "complete", violations };
 };
 
-export function verifyModuleInventory(
+function verifyModuleInventory(
   lookup: ProgramLookup,
-  index: ProgramIndex,
   module: ModuleBodies,
 ): readonly ProgramViolation[] {
   const violations: ProgramViolation[] = [];
@@ -394,8 +402,8 @@ export function verifyModuleInventory(
       }
     }
   }
-  for (const body of index.bodies) {
-    if (body.module === module.module && !instances.has(instanceKey(body.instance))) {
+  for (const body of lookup.bodiesByModule.get(module.module) ?? []) {
+    if (!instances.has(instanceKey(body.instance))) {
       violations.push({
         rule: "body-levels-total", site: { kind: "body", instance: body.instance }, detail: [textDetail(module.module)],
       });

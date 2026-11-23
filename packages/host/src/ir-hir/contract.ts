@@ -1,15 +1,31 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
+import type { Diagnostic, ErrorValue, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, SignatureEndpoint, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
-import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirExportViews, HirBindingResolution } from "./binding-data.js";
+import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirBindingResolution } from "./binding-data.js";
 export type * from "./binding-data.js";
 import type { CapturedFact } from "./capture-data.js";
 export type { CapturedFact } from "./capture-data.js";
 
 export type IsModuleBindingKind = (kind: string, hasName: boolean) => boolean;
+export type IsTypeOnlyExportStar = (node: HirNode | null | undefined) => boolean;
 export type ResolveModuleBinding = (views: HirBindingViews, occurrence: SourceNodeRef) => HirBindingResolution;
 export type CreateModuleBindingViews = (tables: readonly (readonly HirModuleBinding[])[]) => HirBindingViews;
-export type ProjectExportDeclarations = (views: HirExportViews, entry: HirModuleExport) => HirBindingResolution;
+export type ResolveModuleExport = (views: HirBindingViews, entry: HirModuleExport) => HirBindingResolution;
+
+export interface CheckedTypingCut {
+  readonly module: ModuleId;
+  readonly node: HirNode;
+  readonly report: UnitRef;
+  readonly error: ErrorValue;
+  readonly diagnostics: readonly [Diagnostic];
+}
+
+export interface CheckedTypingCuts {
+  readonly syntax: (node: HirNode) => CheckedTypingCut | null;
+  readonly body: (body: BodyId) => CheckedTypingCut | null;
+  readonly declaration: (definition: DefId) => CheckedTypingCut | null;
+  readonly parameterInitializer: (definition: DefId, index: number) => CheckedTypingCut | null;
+}
 
 export interface TextRange {
   readonly pos: number;
@@ -477,7 +493,7 @@ export interface Phase {
   readonly WithStatement: object | null;
   readonly SwitchStatement: object | null;
   readonly CaseBlock: object | null;
-  readonly CaseOrDefaultClause: object | null;
+  readonly CaseClause: object | null;
   readonly ThrowStatement: object | null;
   readonly TryStatement: object | null;
   readonly CatchClause: object | null;
@@ -671,7 +687,7 @@ export interface SyntaxPhase extends Phase {
   readonly WithStatement: null;
   readonly SwitchStatement: null;
   readonly CaseBlock: null;
-  readonly CaseOrDefaultClause: null;
+  readonly CaseClause: null;
   readonly ThrowStatement: null;
   readonly TryStatement: null;
   readonly CatchClause: null;
@@ -980,14 +996,14 @@ export interface CaseClause<P extends Phase> extends NodeHeader {
   readonly kind: "CaseClause";
   readonly expression: Expression<P>;
   readonly statements: NodeList<Statement<P>>;
-  readonly tsonic: P["CaseOrDefaultClause"];
+  readonly tsonic: P["CaseClause"];
 }
 
 export interface DefaultClause<P extends Phase> extends NodeHeader {
   readonly kind: "DefaultClause";
   readonly expression: null;
   readonly statements: NodeList<Statement<P>>;
-  readonly tsonic: P["CaseOrDefaultClause"];
+  readonly tsonic: null;
 }
 
 export type CaseOrDefaultClause<P extends Phase> = CaseClause<P> | DefaultClause<P>;
@@ -1430,9 +1446,11 @@ export interface BinaryExpression<P extends Phase> extends NodeHeader {
   readonly tsonic: P["BinaryExpression"];
 }
 
+export type PrefixUnaryOperatorToken = "PlusToken" | "MinusToken" | "TildeToken" | "ExclamationToken" | "PlusPlusToken" | "MinusMinusToken";
+
 export interface PrefixUnaryExpression<P extends Phase> extends NodeHeader {
   readonly kind: "PrefixUnaryExpression";
-  readonly operator: "PlusToken" | "MinusToken" | "TildeToken" | "ExclamationToken" | "PlusPlusToken" | "MinusMinusToken";
+  readonly operator: PrefixUnaryOperatorToken;
   readonly operand: Expression<P>;
   readonly tsonic: P["PrefixUnaryExpression"];
 }
@@ -3889,8 +3907,14 @@ export type ImportTarget =
   | { readonly target: "project"; readonly module: ModuleId }
   | { readonly target: "library"; readonly module: LibraryModuleIdentity };
 
+export interface IntrinsicValueResolution {
+  readonly kind: "intrinsic-value";
+  readonly intrinsic: "undefined";
+}
+
 export type HirResolution =
   | { readonly kind: "local"; readonly local: LocalRef }
+  | IntrinsicValueResolution
   | HirBindingTarget
   | Extract<CapturedFact<never>, { readonly kind: "unavailable" }>;
 
@@ -3989,6 +4013,10 @@ export interface HirStoragePlace {
   readonly write: CapturedFact<TyId | null>;
 }
 
+export type WritableRootStorageOf = (place: CapturedFact<HirStoragePlace>, resolution: HirResolution) => TyId | null;
+export type ReadWriteRootStorageOf = (place: CapturedFact<HirStoragePlace>, resolution: HirResolution) => TyId | null;
+export type CheckedVariableStorageOf = (declaration: VariableDeclaration<CheckedPhase>) => TyId | null;
+
 export interface HirMemoryGeometryCapture {
   readonly source: CapturedFact<TyId>;
   readonly dataLayoutExpression: SourceNodeRef | null;
@@ -4048,12 +4076,15 @@ export interface HirObservationCapture {
   readonly value: CapturedFact<bigint>;
 }
 
-export type HirUnaryOperator = "+" | "-" | "!" | "~" | "typeof" | "void" | "delete";
+export type HirUnaryOperator = "+" | "-" | "!" | "~" | "++" | "--" | "typeof" | "void" | "delete";
 export type HirBinaryOperator = "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^"
   | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";
 export type HirAssignmentOperator = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "**=" | "&="
   | "|=" | "^=" | "<<=" | ">>=" | ">>>=" | "&&=" | "||=" | "??=";
 export type BinaryOperatorOf = (token: BinaryOperator) => HirBinaryOperator | null;
+export type CompoundAssignmentOperatorOf = (token: BinaryOperator) => HirBinaryOperator | null;
+export type ShortCircuitOperatorOf = (token: BinaryOperator, role: "short-circuit" | "assignment") => "and" | "or" | "coalesce" | null;
+export type PrefixOperatorOf = (token: PrefixUnaryOperatorToken) => "+" | "-" | "!" | "~" | "++" | "--";
 
 export interface HirCapturedType {
   readonly type: CapturedFact<TyId>;
@@ -4067,11 +4098,18 @@ export interface HirFieldMarkerCapture {
   readonly readonly: boolean;
 }
 
+export interface HirMarkerApplication {
+  readonly role: "struct" | "field";
+  readonly occurrence: NodeRef;
+  readonly declaration: DefId;
+}
+
 export interface HirMarkersCapture {
   readonly struct: { readonly valueType: boolean; readonly fields: CapturedFact<readonly HirFieldMarkerCapture[]> } | null;
   readonly field: HirFieldMarkerCapture | null;
   readonly defaultValue: { readonly typeNode: SourceNodeRef; readonly type: CapturedFact<TyId> } | null;
   readonly jsString: boolean;
+  readonly application: CapturedFact<HirMarkerApplication | null>;
 }
 
 export type HirPointerTypeCapture =
@@ -4324,6 +4362,7 @@ export interface CheckedTypeAlias extends CheckedDeclaration {
 export interface CheckedVariable extends CheckedDeclarationFacts {
   readonly declaration: DeclarationTarget;
   readonly declaredType: CapturedFact<TyId | null>;
+  readonly inferredTypeBound: CapturedFact<TyId> | null;
   readonly initializer: BodyId | null;
 }
 
@@ -4401,7 +4440,7 @@ export interface CheckedPhase extends Phase {
   readonly WithStatement: null;
   readonly SwitchStatement: null;
   readonly CaseBlock: null;
-  readonly CaseOrDefaultClause: null;
+  readonly CaseClause: null;
   readonly ThrowStatement: null;
   readonly TryStatement: null;
   readonly CatchClause: null;
@@ -4578,6 +4617,8 @@ export interface CheckedPhase extends Phase {
 
 export type HirNode = SyntaxNode<CheckedPhase>;
 
+export type CheckedGroupingFrontierOf = (node: HirNode) => boolean;
+
 export interface HirLocal {
   readonly id: LocalId;
   readonly declaration: SourceNodeRef;
@@ -4621,6 +4662,9 @@ export interface HirDeclarationEntry {
   readonly node: NodeId;
 }
 
+export type CheckedParameterHeadersOf = (callable: HirNode, body: HirBody,
+  definitionAt: (node: NodeId) => DefId | undefined) => readonly ParameterDeclaration<CheckedPhase>[] | null;
+
 export type DeclarationKind = "VariableDeclaration" | "Parameter" | "BindingElement" | "MissingDeclaration" | "FunctionDeclaration" | "ClassDeclaration" | "ClassExpression" | "InterfaceDeclaration" | "TypeAliasDeclaration" | "JSTypeAliasDeclaration" | "EnumMember" | "EnumDeclaration" | "ImportDeclaration" | "JSImportDeclaration" | "NamespaceImport" | "ExportAssignment" | "NamespaceExportDeclaration" | "NamespaceExport" | "ExportSpecifier" | "CallSignature" | "ConstructSignature" | "Constructor" | "GetAccessor" | "SetAccessor" | "IndexSignature" | "MethodSignature" | "MethodDeclaration" | "PropertySignature" | "PropertyDeclaration" | "SemicolonClassElement" | "ClassStaticBlockDeclaration" | "NoSubstitutionTemplateLiteral" | "BinaryExpression" | "ArrowFunction" | "FunctionExpression" | "CallExpression" | "ObjectLiteralExpression" | "SpreadAssignment" | "PropertyAssignment" | "ShorthandPropertyAssignment" | "MappedType" | "TypeLiteral" | "NamedTupleMember" | "FunctionType" | "ConstructorType" | "JsxAttributes" | "JsxAttribute" | "JSDocSignature" | "SourceFile" | "ModuleDeclaration" | "ImportEqualsDeclaration" | "ExportDeclaration" | "ImportClause" | "ImportSpecifier" | "TypeParameter" | "JSDocTypeLiteral";
 
 export type ProofObligation =
@@ -4636,6 +4680,13 @@ export interface HirDiagnosticRoot {
   readonly obligations: readonly ProofObligation[];
 }
 
+export type ModuleEvaluation = "eager" | "erased" | "deferred";
+
+export interface HirModuleLink {
+  readonly declaration: NodeId;
+  readonly evaluation: ModuleEvaluation;
+}
+
 export interface HirModule {
   readonly module: ModuleId;
   readonly tree: SourceFile<CheckedPhase>;
@@ -4643,18 +4694,19 @@ export interface HirModule {
   readonly bodies: readonly HirBody[];
   readonly exports: readonly HirModuleExport[];
   readonly bindings: readonly HirModuleBinding[];
+  readonly moduleLinks: readonly HirModuleLink[];
   readonly checkerDiagnostics: readonly Diagnostic[];
   readonly obligations: readonly HirDiagnosticRoot[];
 }
 
-export type HirRule = "core-capture-reference" | "core-capture-kind" | "literal-type-child" | "node-in-body-range" | "module-owner" | "definition-unique" | "definition-parent" | "definition-reference" | "ordinal-domain"
+export type HirRule = "core-capture-reference" | "core-capture-kind" | "literal-type-child" | "inferred-type-bound" | "node-in-body-range" | "module-owner" | "definition-unique" | "definition-parent" | "definition-reference" | "ordinal-domain"
   | "body-owner" | "body-unique" | "identity-path-exact" | "node-dense-preorder" | "node-reference" | "lexical-parent"
   | "origin-range" | "local-dense" | "local-reference" | "capture-owner" | "parameter-order"
   | "scope-parent" | "literal-exact" | "type-reference" | "signature-reference" | "candidate-original-order"
   | "candidate-endpoints" | "binding-vector-complete" | "contribution-parameter" | "protocol-kind"
   | "diagnostic-reference" | "diagnostic-root-owner" | "obligation-complete" | "obligation-order" | "stable-order"
-  | "cross-owner-qualified" | "candidate-list-dense" | "candidate-list-reference"
-  | "place-base-acyclic" | "place-access-base-in-receiver"
+  | "cross-owner-qualified" | "candidate-list-dense" | "candidate-list-reference" | "export-type-only-star" | "module-link"
+  | "place-base-acyclic" | "place-access-base-in-receiver" | "intrinsic-value-use"
   | "memory-capture-owner" | "memory-capture-reference" | "memory-layout-acyclic" | "observation-capture-owner" | "binding-capture-owner";
 
 export type HirSite =
@@ -4665,6 +4717,12 @@ export type HirSite =
 
 export type PrintHir = (module: HirModule) => string;
 export type ParseHir = (text: string) => TextParseResult<HirModule>;
+export interface HirDeclarationScopes {
+  readonly module: HirModule;
+  readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
+  readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+}
+export type DeriveDeclarationScopes = (module: HirModule, nodes: readonly HirNode[]) => HirDeclarationScopes;
 export interface HirVerificationContext {
   readonly moduleOf: (module: ModuleId) => HirModule | null;
   readonly types: TypeTable;
@@ -4686,6 +4744,8 @@ export type IndexSyntaxTree = <P extends Phase>(
   root: SourceFile<P>,
 ) => readonly SyntaxNode<P>[];
 
+export type UnparenthesizedExpression = <P extends Phase>(node: Expression<P>) => Expression<P>;
+
 export type ChildrenOfSyntax = <P extends Phase>(
   node: SyntaxNode<P>,
 ) => readonly SyntaxNode<P>[];
@@ -4700,3 +4760,204 @@ export interface SyntaxChild<P extends Phase> {
 }
 
 export type IterateSyntaxChildEdges = <P extends Phase>(node: SyntaxNode<P>) => Generator<SyntaxChild<P>, void, undefined>;
+
+export interface SyntaxRootSlot<P extends Phase> {
+  readonly path: string;
+  readonly read: () => SyntaxNode<P>;
+}
+
+export interface SyntaxForest<P extends Phase> {
+  readonly nodes: readonly SyntaxNode<P>[];
+  readonly postorder: readonly SyntaxNode<P>[];
+  readonly wireOf: (node: SyntaxNode<P>) => number | undefined;
+  readonly firstRootSize: number;
+}
+
+
+export type SyntaxCopyResult<Value, Stop> =
+  | { readonly kind: "copied"; readonly value: Value }
+  | { readonly kind: "refused"; readonly stop: Stop };
+
+export type PreparedSyntaxSlot<Value, Image> = (image: Image) => Value;
+
+export interface SyntaxPhaseCopy<P extends Phase, Stop, Image> {
+  readonly ArrayLiteralExpression: (value: P["ArrayLiteralExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ArrayLiteralExpression"], Image>, Stop>;
+  readonly ArrayTypeNode: (value: P["ArrayTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ArrayTypeNode"], Image>, Stop>;
+  readonly ArrowFunction: (value: P["ArrowFunction"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ArrowFunction"], Image>, Stop>;
+  readonly AsExpression: (value: P["AsExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["AsExpression"], Image>, Stop>;
+  readonly AwaitExpression: (value: P["AwaitExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["AwaitExpression"], Image>, Stop>;
+  readonly BigIntLiteral: (value: P["BigIntLiteral"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["BigIntLiteral"], Image>, Stop>;
+  readonly BinaryExpression: (value: P["BinaryExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["BinaryExpression"], Image>, Stop>;
+  readonly BindingElement: (value: P["BindingElement"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["BindingElement"], Image>, Stop>;
+  readonly BindingPattern: (value: P["BindingPattern"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["BindingPattern"], Image>, Stop>;
+  readonly CallExpression: (value: P["CallExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["CallExpression"], Image>, Stop>;
+  readonly CallSignatureDeclaration: (value: P["CallSignatureDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["CallSignatureDeclaration"], Image>, Stop>;
+  readonly CaseClause: (value: P["CaseClause"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["CaseClause"], Image>, Stop>;
+  readonly ClassDeclaration: (value: P["ClassDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ClassDeclaration"], Image>, Stop>;
+  readonly ClassExpression: (value: P["ClassExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ClassExpression"], Image>, Stop>;
+  readonly ClassStaticBlockDeclaration: (value: P["ClassStaticBlockDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ClassStaticBlockDeclaration"], Image>, Stop>;
+  readonly ComputedPropertyName: (value: P["ComputedPropertyName"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ComputedPropertyName"], Image>, Stop>;
+  readonly ConditionalExpression: (value: P["ConditionalExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ConditionalExpression"], Image>, Stop>;
+  readonly ConditionalTypeNode: (value: P["ConditionalTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ConditionalTypeNode"], Image>, Stop>;
+  readonly ConstructSignatureDeclaration: (value: P["ConstructSignatureDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ConstructSignatureDeclaration"], Image>, Stop>;
+  readonly ConstructorDeclaration: (value: P["ConstructorDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ConstructorDeclaration"], Image>, Stop>;
+  readonly ConstructorTypeNode: (value: P["ConstructorTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ConstructorTypeNode"], Image>, Stop>;
+  readonly Decorator: (value: P["Decorator"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["Decorator"], Image>, Stop>;
+  readonly DeleteExpression: (value: P["DeleteExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["DeleteExpression"], Image>, Stop>;
+  readonly ElementAccessExpression: (value: P["ElementAccessExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ElementAccessExpression"], Image>, Stop>;
+  readonly EnumDeclaration: (value: P["EnumDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["EnumDeclaration"], Image>, Stop>;
+  readonly EnumMember: (value: P["EnumMember"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["EnumMember"], Image>, Stop>;
+  readonly ExportAssignment: (value: P["ExportAssignment"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ExportAssignment"], Image>, Stop>;
+  readonly ExportDeclaration: (value: P["ExportDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ExportDeclaration"], Image>, Stop>;
+  readonly ExportSpecifier: (value: P["ExportSpecifier"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ExportSpecifier"], Image>, Stop>;
+  readonly ExpressionWithTypeArguments: (value: P["ExpressionWithTypeArguments"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ExpressionWithTypeArguments"], Image>, Stop>;
+  readonly ForInOrOfStatement: (value: P["ForInOrOfStatement"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ForInOrOfStatement"], Image>, Stop>;
+  readonly FunctionDeclaration: (value: P["FunctionDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["FunctionDeclaration"], Image>, Stop>;
+  readonly FunctionExpression: (value: P["FunctionExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["FunctionExpression"], Image>, Stop>;
+  readonly FunctionTypeNode: (value: P["FunctionTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["FunctionTypeNode"], Image>, Stop>;
+  readonly GetAccessorDeclaration: (value: P["GetAccessorDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["GetAccessorDeclaration"], Image>, Stop>;
+  readonly HeritageClause: (value: P["HeritageClause"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["HeritageClause"], Image>, Stop>;
+  readonly Identifier: (value: P["Identifier"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["Identifier"], Image>, Stop>;
+  readonly ImportAttribute: (value: P["ImportAttribute"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ImportAttribute"], Image>, Stop>;
+  readonly ImportClause: (value: P["ImportClause"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ImportClause"], Image>, Stop>;
+  readonly ImportDeclaration: (value: P["ImportDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ImportDeclaration"], Image>, Stop>;
+  readonly ImportEqualsDeclaration: (value: P["ImportEqualsDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ImportEqualsDeclaration"], Image>, Stop>;
+  readonly ImportSpecifier: (value: P["ImportSpecifier"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ImportSpecifier"], Image>, Stop>;
+  readonly ImportTypeNode: (value: P["ImportTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ImportTypeNode"], Image>, Stop>;
+  readonly IndexSignatureDeclaration: (value: P["IndexSignatureDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["IndexSignatureDeclaration"], Image>, Stop>;
+  readonly IndexedAccessTypeNode: (value: P["IndexedAccessTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["IndexedAccessTypeNode"], Image>, Stop>;
+  readonly InferTypeNode: (value: P["InferTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["InferTypeNode"], Image>, Stop>;
+  readonly InterfaceDeclaration: (value: P["InterfaceDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["InterfaceDeclaration"], Image>, Stop>;
+  readonly IntersectionTypeNode: (value: P["IntersectionTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["IntersectionTypeNode"], Image>, Stop>;
+  readonly JSDocAllType: (value: P["JSDocAllType"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JSDocAllType"], Image>, Stop>;
+  readonly JSDocNameReference: (value: P["JSDocNameReference"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JSDocNameReference"], Image>, Stop>;
+  readonly JSDocNonNullableType: (value: P["JSDocNonNullableType"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JSDocNonNullableType"], Image>, Stop>;
+  readonly JSDocNullableType: (value: P["JSDocNullableType"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JSDocNullableType"], Image>, Stop>;
+  readonly JSDocOptionalType: (value: P["JSDocOptionalType"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JSDocOptionalType"], Image>, Stop>;
+  readonly JSDocSignature: (value: P["JSDocSignature"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JSDocSignature"], Image>, Stop>;
+  readonly JSDocTypeExpression: (value: P["JSDocTypeExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JSDocTypeExpression"], Image>, Stop>;
+  readonly JSDocTypeLiteral: (value: P["JSDocTypeLiteral"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JSDocTypeLiteral"], Image>, Stop>;
+  readonly JSDocVariadicType: (value: P["JSDocVariadicType"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JSDocVariadicType"], Image>, Stop>;
+  readonly JsxAttributes: (value: P["JsxAttributes"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxAttributes"], Image>, Stop>;
+  readonly JsxClosingFragment: (value: P["JsxClosingFragment"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxClosingFragment"], Image>, Stop>;
+  readonly JsxElement: (value: P["JsxElement"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxElement"], Image>, Stop>;
+  readonly JsxExpression: (value: P["JsxExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxExpression"], Image>, Stop>;
+  readonly JsxFragment: (value: P["JsxFragment"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxFragment"], Image>, Stop>;
+  readonly JsxNamespacedName: (value: P["JsxNamespacedName"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxNamespacedName"], Image>, Stop>;
+  readonly JsxOpeningElement: (value: P["JsxOpeningElement"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxOpeningElement"], Image>, Stop>;
+  readonly JsxOpeningFragment: (value: P["JsxOpeningFragment"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxOpeningFragment"], Image>, Stop>;
+  readonly JsxSelfClosingElement: (value: P["JsxSelfClosingElement"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxSelfClosingElement"], Image>, Stop>;
+  readonly JsxText: (value: P["JsxText"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["JsxText"], Image>, Stop>;
+  readonly KeywordExpression: (value: P["KeywordExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["KeywordExpression"], Image>, Stop>;
+  readonly KeywordTypeNode: (value: P["KeywordTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["KeywordTypeNode"], Image>, Stop>;
+  readonly LiteralTypeNode: (value: P["LiteralTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["LiteralTypeNode"], Image>, Stop>;
+  readonly MappedTypeNode: (value: P["MappedTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["MappedTypeNode"], Image>, Stop>;
+  readonly MetaProperty: (value: P["MetaProperty"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["MetaProperty"], Image>, Stop>;
+  readonly MethodDeclaration: (value: P["MethodDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["MethodDeclaration"], Image>, Stop>;
+  readonly MethodSignatureDeclaration: (value: P["MethodSignatureDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["MethodSignatureDeclaration"], Image>, Stop>;
+  readonly ModuleDeclaration: (value: P["ModuleDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ModuleDeclaration"], Image>, Stop>;
+  readonly NamedTupleMember: (value: P["NamedTupleMember"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["NamedTupleMember"], Image>, Stop>;
+  readonly NamespaceExport: (value: P["NamespaceExport"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["NamespaceExport"], Image>, Stop>;
+  readonly NamespaceExportDeclaration: (value: P["NamespaceExportDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["NamespaceExportDeclaration"], Image>, Stop>;
+  readonly NamespaceImport: (value: P["NamespaceImport"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["NamespaceImport"], Image>, Stop>;
+  readonly NewExpression: (value: P["NewExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["NewExpression"], Image>, Stop>;
+  readonly NoSubstitutionTemplateLiteral: (value: P["NoSubstitutionTemplateLiteral"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["NoSubstitutionTemplateLiteral"], Image>, Stop>;
+  readonly NonNullExpression: (value: P["NonNullExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["NonNullExpression"], Image>, Stop>;
+  readonly NumericLiteral: (value: P["NumericLiteral"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["NumericLiteral"], Image>, Stop>;
+  readonly ObjectLiteralExpression: (value: P["ObjectLiteralExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ObjectLiteralExpression"], Image>, Stop>;
+  readonly OmittedExpression: (value: P["OmittedExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["OmittedExpression"], Image>, Stop>;
+  readonly OptionalTypeNode: (value: P["OptionalTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["OptionalTypeNode"], Image>, Stop>;
+  readonly ParameterDeclaration: (value: P["ParameterDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ParameterDeclaration"], Image>, Stop>;
+  readonly ParenthesizedExpression: (value: P["ParenthesizedExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ParenthesizedExpression"], Image>, Stop>;
+  readonly ParenthesizedTypeNode: (value: P["ParenthesizedTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ParenthesizedTypeNode"], Image>, Stop>;
+  readonly PartiallyEmittedExpression: (value: P["PartiallyEmittedExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["PartiallyEmittedExpression"], Image>, Stop>;
+  readonly PostfixUnaryExpression: (value: P["PostfixUnaryExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["PostfixUnaryExpression"], Image>, Stop>;
+  readonly PrefixUnaryExpression: (value: P["PrefixUnaryExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["PrefixUnaryExpression"], Image>, Stop>;
+  readonly PrivateIdentifier: (value: P["PrivateIdentifier"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["PrivateIdentifier"], Image>, Stop>;
+  readonly PropertyAccessExpression: (value: P["PropertyAccessExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["PropertyAccessExpression"], Image>, Stop>;
+  readonly PropertyAssignment: (value: P["PropertyAssignment"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["PropertyAssignment"], Image>, Stop>;
+  readonly PropertyDeclaration: (value: P["PropertyDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["PropertyDeclaration"], Image>, Stop>;
+  readonly PropertySignatureDeclaration: (value: P["PropertySignatureDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["PropertySignatureDeclaration"], Image>, Stop>;
+  readonly QualifiedName: (value: P["QualifiedName"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["QualifiedName"], Image>, Stop>;
+  readonly RegularExpressionLiteral: (value: P["RegularExpressionLiteral"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["RegularExpressionLiteral"], Image>, Stop>;
+  readonly RestTypeNode: (value: P["RestTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["RestTypeNode"], Image>, Stop>;
+  readonly SatisfiesExpression: (value: P["SatisfiesExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["SatisfiesExpression"], Image>, Stop>;
+  readonly SetAccessorDeclaration: (value: P["SetAccessorDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["SetAccessorDeclaration"], Image>, Stop>;
+  readonly ShorthandPropertyAssignment: (value: P["ShorthandPropertyAssignment"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ShorthandPropertyAssignment"], Image>, Stop>;
+  readonly SourceFile: (value: P["SourceFile"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["SourceFile"], Image>, Stop>;
+  readonly SpreadAssignment: (value: P["SpreadAssignment"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["SpreadAssignment"], Image>, Stop>;
+  readonly SpreadElement: (value: P["SpreadElement"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["SpreadElement"], Image>, Stop>;
+  readonly StringLiteral: (value: P["StringLiteral"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["StringLiteral"], Image>, Stop>;
+  readonly SyntheticReferenceExpression: (value: P["SyntheticReferenceExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["SyntheticReferenceExpression"], Image>, Stop>;
+  readonly TaggedTemplateExpression: (value: P["TaggedTemplateExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TaggedTemplateExpression"], Image>, Stop>;
+  readonly TemplateExpression: (value: P["TemplateExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TemplateExpression"], Image>, Stop>;
+  readonly TemplateLiteralTypeNode: (value: P["TemplateLiteralTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TemplateLiteralTypeNode"], Image>, Stop>;
+  readonly TemplateLiteralTypeSpan: (value: P["TemplateLiteralTypeSpan"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TemplateLiteralTypeSpan"], Image>, Stop>;
+  readonly ThisTypeNode: (value: P["ThisTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["ThisTypeNode"], Image>, Stop>;
+  readonly TupleTypeNode: (value: P["TupleTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TupleTypeNode"], Image>, Stop>;
+  readonly TypeAliasDeclaration: (value: P["TypeAliasDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TypeAliasDeclaration"], Image>, Stop>;
+  readonly TypeAssertion: (value: P["TypeAssertion"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TypeAssertion"], Image>, Stop>;
+  readonly TypeLiteralNode: (value: P["TypeLiteralNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TypeLiteralNode"], Image>, Stop>;
+  readonly TypeOfExpression: (value: P["TypeOfExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TypeOfExpression"], Image>, Stop>;
+  readonly TypeOperatorNode: (value: P["TypeOperatorNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TypeOperatorNode"], Image>, Stop>;
+  readonly TypeParameterDeclaration: (value: P["TypeParameterDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TypeParameterDeclaration"], Image>, Stop>;
+  readonly TypePredicateNode: (value: P["TypePredicateNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TypePredicateNode"], Image>, Stop>;
+  readonly TypeQueryNode: (value: P["TypeQueryNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TypeQueryNode"], Image>, Stop>;
+  readonly TypeReferenceNode: (value: P["TypeReferenceNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["TypeReferenceNode"], Image>, Stop>;
+  readonly UnionTypeNode: (value: P["UnionTypeNode"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["UnionTypeNode"], Image>, Stop>;
+  readonly VariableDeclaration: (value: P["VariableDeclaration"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["VariableDeclaration"], Image>, Stop>;
+  readonly VariableDeclarationList: (value: P["VariableDeclarationList"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["VariableDeclarationList"], Image>, Stop>;
+  readonly VoidExpression: (value: P["VoidExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["VoidExpression"], Image>, Stop>;
+  readonly YieldExpression: (value: P["YieldExpression"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["YieldExpression"], Image>, Stop>;
+}
+
+export interface SyntaxImage<P extends Phase> {
+  readonly nodeOf: (node: SyntaxNode<P>) => SyntaxNode<P> | null;
+  readonly sourceFileOf: (node: SourceFile<P>) => SourceFile<P> | null;
+  readonly bodyRootOf: (node: BodyRoot<P>) => BodyRoot<P> | null;
+  readonly parameterOf: (node: ParameterDeclaration<P>) => ParameterDeclaration<P> | null;
+}
+
+export type CopySyntaxForest = <P extends Phase, Stop, Image>(
+  syntax: SyntaxForest<P>, phase: SyntaxPhaseCopy<P, Stop, Image>, beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image,
+) => SyntaxCopyResult<SyntaxImage<P>, Stop>;
+
+export interface SyntaxCopyCursor<P extends Phase, Stop, Image> {
+  readonly prepare: (node: SyntaxNode<P>) => Stop | null;
+  readonly materialize: (syntax: SyntaxForest<P>, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;
+}
+
+export type BeginSyntaxCopy = <P extends Phase, Stop, Image>(
+  phase: SyntaxPhaseCopy<P, Stop, Image>, beforeNode: (node: SyntaxNode<P>) => Stop | null,
+) => SyntaxCopyCursor<P, Stop, Image>;
+
+export interface CheckedProjection<Stop> {
+  readonly admit: (work: number, createdRecords: number) => Stop | null;
+  readonly syntaxNode: (node: HirNode) => Stop | null;
+  readonly type: (type: TyId) => SyntaxCopyResult<TyId, Stop>;
+  readonly signature: (signature: SigId) => SyntaxCopyResult<SigId, Stop>;
+  readonly bindings: (bindings: BindingVector) => SyntaxCopyResult<BindingVector, Stop>;
+  readonly parameter: (parameter: TypeParameter) => SyntaxCopyResult<TypeParameter, Stop>;
+  readonly component: (component: TypeComponent) => SyntaxCopyResult<TypeComponent, Stop>;
+  readonly core: (capture: HirCoreCapture) => SyntaxCopyResult<HirCoreCapture, Stop>;
+}
+
+export interface CheckedModuleImage {
+  readonly module: HirModule;
+  readonly syntax: SyntaxImage<CheckedPhase>;
+}
+
+export type CopyCheckedModule = <Stop>(
+  module: HirModule, forest: SyntaxForest<CheckedPhase>, project: CheckedProjection<Stop>,
+) => SyntaxCopyResult<CheckedModuleImage, Stop>;
+
+export interface SyntaxWalkAdmission<P extends Phase, Stop> {
+  readonly root: () => Stop | null;
+  readonly edge: () => Stop | null;
+  readonly node: (node: SyntaxNode<P>) => Stop | null;
+}
+
+export type WalkSyntaxForest = <P extends Phase, Stop>(
+  roots: Iterable<SyntaxRootSlot<P>>,
+  admission: SyntaxWalkAdmission<P, Stop>,
+) => { readonly kind: "complete"; readonly value: SyntaxForest<P> } | Stop;

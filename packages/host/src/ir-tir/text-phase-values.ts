@@ -2,7 +2,7 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type { CapturedFact } from "../ir-hir/contract.js";
-import type { DeclarationNameExpression } from "./contract.js";
+import type { DeclarationNameExpression, TypedCall, TypedCase, TypedValueOccurrence } from "./contract.js";
 import type {
   BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, TargetAccess, TirApplication, TirDemand, TirProtocol, TirResolution, TirSelection, TypedApplication, TypedBigInt, TypedBinary, TypedConditional, TypedConstruction, TypedControlTransfer, TypedDecorator, TypedInstantiation, TypedIteration, TypedKeyword, TypedMember, TypedName, TypedNumber, TypedObjectSpread, TypedOmission, TypedOperation, TypedOperationOf, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue, TypedShorthand, TypedSpread, TypedString, TypedTemplate, TypedUnary, TypedUpdate, TypedValue
 } from "./contract.js";
@@ -52,6 +52,7 @@ export interface PhaseValuesTextModel {
   readonly work_TypedOperation_conversion: TirRecordCodec<TypedOperationOf<ConversionIdentity>>;
   readonly work_TypedOperation_backed: TirRecordCodec<TypedOperationOf<BackedConversionIdentity>>;
   readonly work_TypedValue: TirRecordCodec<TypedValue>;
+  readonly work_TypedValueOccurrence: TirRecordCodec<TypedValueOccurrence>;
   readonly work_TypedName_value: TirRecordCodec<TypedName & { readonly role: "value" }>;
   readonly work_TypedName_shorthand_value: TirRecordCodec<TypedName & { readonly role: "shorthand-value" }>;
   readonly work_TypedName_assignment_target: TirRecordCodec<TypedName & { readonly role: "assignment-target" }>;
@@ -96,6 +97,7 @@ export interface PhaseValuesTextModel {
   readonly work_TypedMember_value: TirRecordCodec<TypedMember & { readonly role: "value" }>;
   readonly work_TypedMember_assignment_target: TirRecordCodec<TypedMember & { readonly role: "assignment-target" }>;
   readonly work_TypedApplication: TirRecordCodec<TypedApplication>;
+  readonly work_TypedCall: TirRecordCodec<TypedCall>;
   readonly work_TypedProtocolValue: TirRecordCodec<TypedProtocolValue>;
   readonly work_TypedSpread: TirRecordCodec<TypedSpread>;
   readonly work_TypedObjectSpread: TirRecordCodec<TypedObjectSpread>;
@@ -108,6 +110,7 @@ export interface PhaseValuesTextModel {
   readonly work_TypedShorthand: TirRecordCodec<TypedShorthand>;
   readonly work_TypedOmission: TirRecordCodec<TypedOmission>;
   readonly work_TypedIteration: TirRecordCodec<TypedIteration>;
+  readonly work_TypedCase: TirRecordCodec<TypedCase>;
   readonly work_TypedControlTransfer: TirRecordCodec<TypedControlTransfer>;
   readonly work_TypedDecorator: TirRecordCodec<TypedDecorator>;
   readonly work_TypedName: TirRecordCodec<TypedName>;
@@ -153,6 +156,9 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       .field("role", "'declaration-name-expression", value => scalarWork("'declaration-name-expression", value.role),
         literalReader<DeclarationNameExpression["role"]>("'declaration-name-expression", ["declaration-name-expression"]))
       .finish(role => ({ role })));
+  const work_TypedValueOccurrence = unionRecord<TypedValueOccurrence>("TypedValueOccurrence",
+    value => "role" in value ? declarationNameExpression.write(value) : work_TypedValue.write(value),
+    () => [work_TypedValue.reader, declarationNameExpression.reader]);
   const keyAvailable = defineRecord<Extract<CapturedFact<MemberKey>, { readonly kind: "available" }>>(
     "C<MemberKey>#available", "C<MemberKey>", { field: "kind", value: "available" }, "available", null, null, fields => fields
       .field("value", "MemberKey", value => read.work_MemberKey.write(value.value), lazyReader(() => read.work_MemberKey.reader))
@@ -523,6 +529,9 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       type: field_type, convertedType: field_convertedType, conversion: field_conversion, narrowing: field_narrowing,
       evidenceIndex: field_evidenceIndex, demand: field_demand, application: field_application, operation: field_operation,
     })));
+  const work_TypedCall = unionRecord<TypedCall>("TypedCall",
+    value => "role" in value ? declarationNameExpression.write(value) : work_TypedApplication.write(value),
+    () => [work_TypedApplication.reader, declarationNameExpression.reader]);
   const work_TypedProtocolValue: TirRecordCodec<TypedProtocolValue> = defineRecord<TypedProtocolValue>("TypedProtocolValue", "TypedProtocolValue", null, "TypedProtocolValue", null, null, fields => fields
     .field("type", "t", value => referenceWork("t", value.type), typeReader)
     .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)
@@ -615,6 +624,9 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
   const work_TypedIteration: TirRecordCodec<TypedIteration> = defineRecord<TypedIteration>("TypedIteration", "TypedIteration", null, "TypedIteration", null, null, fields => fields
     .field("protocol", "O<TirProtocol>", value => read.work_O_TirProtocol_.write(value.protocol), lazyReader(() => read.work_O_TirProtocol_.reader))
     .finish((field_protocol) => ({ protocol: field_protocol })));
+  const work_TypedCase: TirRecordCodec<TypedCase> = defineRecord<TypedCase>("TypedCase", "TypedCase", null, "TypedCase", null, null, fields => fields
+    .field("operation", "O<TypedOperation>", value => read.work_O_TypedOperation_.write(value.operation), lazyReader(() => read.work_O_TypedOperation_.reader))
+    .finish(operation => ({ operation })));
   const work_TypedControlTransfer: TirRecordCodec<TypedControlTransfer> = defineRecord<TypedControlTransfer>("TypedControlTransfer", "TypedControlTransfer", null, "TypedControlTransfer", null, null, fields => fields
     .field("target", "NodeRef", value => read.work_NodeRef.write(value.target), lazyReader(() => read.work_NodeRef.reader))
     .finish((field_target) => ({ target: field_target })));
@@ -714,5 +726,5 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       case "heritage": return work_TypedInstantiation_heritage.write(value);
     }
   }, () => [work_TypedInstantiation_value.reader, work_TypedInstantiation_heritage.reader]);
-  return { work_TypedOperation_conversion, work_TypedOperation_backed, work_TypedOperation, work_TypedValue, work_TypedName_value, work_TypedName_shorthand_value, work_TypedName_assignment_target, work_TypedName_binding_name, work_TypedName_declaration_name, work_TypedName_property_name, work_TypedName_type_name, work_TypedName_label, work_TypedName_private_name, work_TypedPropertyKey_constant, work_TypedPropertyKey_computed, work_TypedString_value, work_TypedString_property_name, work_TypedString_declaration_name, work_TypedString_type_literal, work_TypedString_module_specifier, work_TypedString_export_name, work_TypedString_attribute_value, work_TypedNumber_value, work_TypedNumber_property_name, work_TypedNumber_declaration_name, work_TypedNumber_type_literal, work_TypedBigInt_value, work_TypedBigInt_property_name, work_TypedBigInt_declaration_name, work_TypedBigInt_type_literal, work_TypedKeyword_value, work_TypedKeyword_receiver, work_TypedKeyword_super, work_TypedKeyword_type_literal, work_TypedBinary_arithmetic, work_TypedBinary_comparison, work_TypedBinary_short_circuit, work_TypedBinary_assignment, work_TypedBinary_sequence, work_TypedUnary, work_TypedPrefix_value, work_TypedPrefix_update, work_TypedPrefix_type_literal, work_TypedUpdate, work_TypedConditional, work_TypedMember_value, work_TypedMember_assignment_target, work_TypedApplication, work_TypedProtocolValue, work_TypedSpread, work_TypedObjectSpread, work_TypedConstruction_value, work_TypedConstruction_assignment_pattern, work_TypedTemplate, work_TypedInstantiation_value, work_TypedInstantiation_heritage, work_TypedProperty, work_TypedShorthand, work_TypedOmission, work_TypedIteration, work_TypedControlTransfer, work_TypedDecorator, work_TypedName, work_TypedPropertyKey, work_TypedString, work_TypedNumber, work_TypedBigInt, work_TypedKeyword, work_TypedBinary, work_TypedPrefix, work_TypedMember, work_TypedConstruction, work_TypedInstantiation };
+  return { work_TypedCase, work_TypedOperation_conversion, work_TypedOperation_backed, work_TypedOperation, work_TypedValue, work_TypedValueOccurrence, work_TypedName_value, work_TypedName_shorthand_value, work_TypedName_assignment_target, work_TypedName_binding_name, work_TypedName_declaration_name, work_TypedName_property_name, work_TypedName_type_name, work_TypedName_label, work_TypedName_private_name, work_TypedPropertyKey_constant, work_TypedPropertyKey_computed, work_TypedString_value, work_TypedString_property_name, work_TypedString_declaration_name, work_TypedString_type_literal, work_TypedString_module_specifier, work_TypedString_export_name, work_TypedString_attribute_value, work_TypedNumber_value, work_TypedNumber_property_name, work_TypedNumber_declaration_name, work_TypedNumber_type_literal, work_TypedBigInt_value, work_TypedBigInt_property_name, work_TypedBigInt_declaration_name, work_TypedBigInt_type_literal, work_TypedKeyword_value, work_TypedKeyword_receiver, work_TypedKeyword_super, work_TypedKeyword_type_literal, work_TypedBinary_arithmetic, work_TypedBinary_comparison, work_TypedBinary_short_circuit, work_TypedBinary_assignment, work_TypedBinary_sequence, work_TypedUnary, work_TypedPrefix_value, work_TypedPrefix_update, work_TypedPrefix_type_literal, work_TypedUpdate, work_TypedConditional, work_TypedMember_value, work_TypedMember_assignment_target, work_TypedApplication, work_TypedCall, work_TypedProtocolValue, work_TypedSpread, work_TypedObjectSpread, work_TypedConstruction_value, work_TypedConstruction_assignment_pattern, work_TypedTemplate, work_TypedInstantiation_value, work_TypedInstantiation_heritage, work_TypedProperty, work_TypedShorthand, work_TypedOmission, work_TypedIteration, work_TypedControlTransfer, work_TypedDecorator, work_TypedName, work_TypedPropertyKey, work_TypedString, work_TypedNumber, work_TypedBigInt, work_TypedKeyword, work_TypedBinary, work_TypedPrefix, work_TypedMember, work_TypedConstruction, work_TypedInstantiation };
 };

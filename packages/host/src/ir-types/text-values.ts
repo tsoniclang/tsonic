@@ -1,6 +1,6 @@
 import type { BodyId, DefId, GroupId, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeBodyId, decodeDefId, decodeGroupId, encodeBodyId, encodeDefId, encodeGroupId, localId, nodeId, sigId, tyId } from "../ids/index.js";
-import type { ConstructionDefinition, ExactRational, FixedExtent, IndexSignature, Intrinsic, IntrinsicMemberOrigin, LiteralTypeValue, Member, MemberKey, MemberOrigin, NativePrimitive, PassingMode, Signature, SignatureParameter, TupleElement, TypeParameter } from "./contract.js";
+import type { ConstructionDefinition, ExactRational, FixedExtent, IndexSignature, Intrinsic, IntrinsicMemberOrigin, LiteralTypeValue, Member, MemberInventoryEntry, MemberKey, MemberOrigin, NativePrimitive, PassingMode, Signature, SignatureParameter, TupleElement, TypeParameter } from "./contract.js";
 import type { RecordReader, TextReader } from "./text-readers.js";
 import { arrayReader, bigintReader, booleanReader, enumReader, lazyReader, nullableReader, numberReader, recordReader, stringReader, unionReader } from "./text-readers.js";
 
@@ -39,6 +39,7 @@ export interface TypeTextValues {
   readonly "tuple-element": RecordReader<TupleElement>;
   readonly "construction": RecordReader<ConstructionDefinition>;
   readonly "member": RecordReader<Member>;
+  readonly "member-header": RecordReader<MemberInventoryEntry>;
   readonly "index-signature": RecordReader<IndexSignature>;
   readonly "signature": RecordReader<Signature>;
   readonly "source": RecordReader<SourceNodeRef>;
@@ -143,6 +144,16 @@ export function createTypeTextValues(): TypeTextValues {
       const field_optional = read("optional", lazyReader(() => reader_boolean));
       const field_readonly = read("readonly", lazyReader(() => reader_boolean));
       return { fields: [field_key, field_origins, field_readOrigins, field_writeOrigins, field_kind, field_read, field_write, field_optional, field_readonly], value: () => ({ key: field_key.value(), origins: field_origins.value(), readOrigins: field_readOrigins.value(), writeOrigins: field_writeOrigins.value(), kind: field_kind.value(), read: field_read.value(), write: field_write.value(), optional: field_optional.value(), readonly: field_readonly.value() }) };
+    });
+  const reader_member_header = recordReader<MemberInventoryEntry>("MemberInventoryEntry", read => {
+      const field_key = read("key", lazyReader(() => reader_member_key));
+      const field_origins = read("origins", arrayReader(() => reader_origin));
+      const field_readOrigins = read("readOrigins", arrayReader(() => reader_origin));
+      const field_writeOrigins = read("writeOrigins", arrayReader(() => reader_origin));
+      const field_kind = read("kind", lazyReader(() => reader_member_kind));
+      const field_optional = read("optional", lazyReader(() => reader_boolean));
+      const field_readonly = read("readonly", lazyReader(() => reader_boolean));
+      return { fields: [field_key, field_origins, field_readOrigins, field_writeOrigins, field_kind, field_optional, field_readonly], value: () => ({ key: field_key.value(), origins: field_origins.value(), readOrigins: field_readOrigins.value(), writeOrigins: field_writeOrigins.value(), kind: field_kind.value(), optional: field_optional.value(), readonly: field_readonly.value() }) };
     });
   const reader_index_signature = recordReader<IndexSignature>("IndexSignature", read => {
       const field_origin = read("origin", lazyReader(() => reader_source));
@@ -261,5 +272,5 @@ export function createTypeTextValues(): TypeTextValues {
     default: return null;
     }
   });
-  return { "number": reader_number, "bigint": reader_bigint, "string": reader_string, "boolean": reader_boolean, "type-id": reader_type_id, "signature-id": reader_signature_id, "own-signature-id": reader_own_signature_id, "node-id": reader_node_id, "local-id": reader_local_id, "definition-id": reader_definition_id, "body-id": reader_body_id, "group-id": reader_group_id, "native": reader_native, "intrinsic": reader_intrinsic, "member-kind": reader_member_kind, "signature-kind": reader_signature_kind, "parameter-kind": reader_parameter_kind, "tuple-kind": reader_tuple_kind, "passing": reader_passing, "runtime-base": reader_runtime_base, "facet": reader_facet, "sum-origin": reader_sum_origin, "rational": reader_rational, "extent": reader_extent, "node": reader_node, "item-node": reader_item_node, "local": reader_local, "type-parameter": reader_type_parameter, "signature-parameter": reader_signature_parameter, "tuple-element": reader_tuple_element, "construction": reader_construction, "member": reader_member, "index-signature": reader_index_signature, "signature": reader_signature, "source": reader_source, "member-key": reader_member_key, "origin": reader_origin, "composition": reader_composition, "literal": reader_literal };
+  return { "number": reader_number, "bigint": reader_bigint, "string": reader_string, "boolean": reader_boolean, "type-id": reader_type_id, "signature-id": reader_signature_id, "own-signature-id": reader_own_signature_id, "node-id": reader_node_id, "local-id": reader_local_id, "definition-id": reader_definition_id, "body-id": reader_body_id, "group-id": reader_group_id, "native": reader_native, "intrinsic": reader_intrinsic, "member-kind": reader_member_kind, "signature-kind": reader_signature_kind, "parameter-kind": reader_parameter_kind, "tuple-kind": reader_tuple_kind, "passing": reader_passing, "runtime-base": reader_runtime_base, "facet": reader_facet, "sum-origin": reader_sum_origin, "rational": reader_rational, "extent": reader_extent, "node": reader_node, "item-node": reader_item_node, "local": reader_local, "type-parameter": reader_type_parameter, "signature-parameter": reader_signature_parameter, "tuple-element": reader_tuple_element, "construction": reader_construction, "member": reader_member, "member-header": reader_member_header, "index-signature": reader_index_signature, "signature": reader_signature, "source": reader_source, "member-key": reader_member_key, "origin": reader_origin, "composition": reader_composition, "literal": reader_literal };
 }

@@ -150,6 +150,25 @@ export function readUnitError(table: MemoTable, unit: UnitRef): UnitErrorRead {
   return position === undefined ? { kind: "invalid-position" } : { kind: "completed", error: position.error };
 }
 
+export function readDetectorDiagnostic(table: MemoTable, report: UnitRef, requester: FactKey): Diagnostic {
+  const answer = findUnit(table, report);
+  if (answer === undefined || answer.result.kind !== "ok")
+    return unitFailure(requester, "An abandonment report must name an actual completed detector unit.");
+  const positionKey = encodeKey(unitPositionData(report.position));
+  const position = answer.result.positions.get(positionKey);
+  const causes = position?.error?.causes;
+  const cause = causes?.length === 1 ? causes[0] : undefined;
+  if (cause?.kind !== "diagnostic" || cause.diagnostic.kind !== "host")
+    return unitFailure(requester, "An abandonment report must name a position with one direct host diagnostic cause.");
+  const identity = cause.diagnostic;
+  if (identity.unit.request.query !== answer.fact.query || encodeKey(identity.unit.request.key) !== answer.fact.encodedKey
+    || encodeKey(unitPositionData(identity.unit.position)) !== positionKey)
+    return unitFailure(requester, "An abandonment report must name the actual originating host detector position.");
+  const emission = answer.result.emissions.get(diagnosticIdentityKey(identity));
+  if (emission === undefined) return unitFailure(requester, "An abandonment report requires its actual completed diagnostic emission.");
+  return emission.diagnostic;
+}
+
 export function validateUnits(table: MemoTable, answers: readonly CompletedUnit<unknown>[]): void {
   const pending = new Map<string, Map<string, CompletedUnit<unknown>>>();
   for (const answer of answers) {

@@ -110,7 +110,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       if (argument.kind !== "omitted" || argument.value.kind !== "initializer") continue;
       const lookup = chargeWork(account, 1);
       if (lookup !== null) return lookup;
-      const target = deps.initializerAt(at, argument.value.instance);
+      const target = deps.initializerAt(at, { instance: argument.value.instance, parameter: argument.parameter, callee: value.callee });
       const stopped = accountFailure(account);
       if (stopped !== null) return stopped;
       if (target === null || target.kind !== "body" || !sameInstance(target.execution.instance, argument.value.instance))
@@ -155,7 +155,9 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
         return null;
       }
       case "CallExpression": case "TaggedTemplateExpression": case "NewExpression": {
-        const stop = application(at, selected(node.tsonic.application), node.kind === "NewExpression" ? "constructor" : "call");
+        const phase = node.tsonic;
+        if (!("application" in phase)) return null;
+        const stop = application(at, selected(phase.application), node.kind === "NewExpression" ? "constructor" : "call");
         if (stop !== null) return stop;
         if (node.kind === "NewExpression") {
           const lookup = chargeWork(account, 1);
@@ -228,7 +230,8 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     if (parameterIndex !== signature.parameters.length)
       throw new TypeError("Execution headers retain every actual selected ordinary formal.");
   }
-  const stack: { readonly children: Generator<TirNode, void, undefined>; readonly skip: TirNode | null; readonly callable: boolean }[] = [];
+  const stack: { readonly children: Generator<TirNode, void, undefined>; readonly callable: TirNode | null;
+    readonly placed: TirNode | null }[] = [];
   let currentNode: TirNode | null = input.tir.root;
   while (currentNode !== null || stack.length !== 0) {
     if (currentNode !== null) {
@@ -236,8 +239,11 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       if (admission !== null) return admission;
       const stop = visit(currentNode);
       if (stop !== null) return stop;
-      const skip = callableBody(currentNode);
-      stack.push({ children: iterateChildrenOfSyntax(currentNode), skip, callable: skip !== null });
+      const callable = callableBody(currentNode);
+      const placed = (currentNode.kind === "VariableDeclaration" || currentNode.kind === "Parameter"
+        || currentNode.kind === "PropertyDeclaration" || currentNode.kind === "EnumMember") && currentNode.tsonic.initializer !== null
+        ? currentNode.initializer : null;
+      stack.push({ children: iterateChildrenOfSyntax(currentNode), callable, placed });
       currentNode = null;
     }
     const frame = stack[stack.length - 1];
@@ -246,7 +252,8 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     if (read !== null) return read;
     const child = frame.children.next();
     if (child.done) stack.pop();
-    else if (child.value !== frame.skip && !(frame.callable && child.value.kind === "Parameter")) currentNode = child.value;
+    else if (child.value !== frame.callable && child.value !== frame.placed
+      && !(frame.callable !== null && child.value.kind === "Parameter")) currentNode = child.value;
   }
   return { kind: "complete", value: { operations, dependencies } };
 };

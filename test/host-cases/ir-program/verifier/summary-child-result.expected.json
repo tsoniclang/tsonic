@@ -14,7 +14,13 @@
             "provided": 0
           },
           "bindings": {
-            "kind": "parametric"
+            "kind": "instantiated",
+            "bindings": {
+              "classBindings": [],
+              "methodBindings": [],
+              "capturedBindings": [],
+              "selfBindings": []
+            }
           }
         },
         "detail": [

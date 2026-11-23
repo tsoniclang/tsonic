@@ -23,7 +23,7 @@ import { Checker_instantiateType, Checker_getTypeFromTypeNode, Checker_mapType, 
 import { Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_instantiateSymbol, Checker_instantiateTypeWithAlias, Checker_instantiateTypeAlias, Checker_getDeclaredTypeOfSymbol, Checker_getNameTypeFromMappedType, Checker_isMappedTypeGenericIndexedAccess, Checker_getIndexedAccessTypeOrUndefined, Checker_substituteIndexedMappedType, Checker_isGenericIndexType, Checker_getIndexTypeForMappedType, Checker_mapTypeWithAlias, Checker_getSymbolOfDeclaration, Checker_registerForUnusedIdentifiersCheck, Checker_getIndexInfosOfType, Checker_getLiteralTypeFromProperty, Checker_getNonMissingTypeOfSymbol, Checker_hasBindableName, Checker_getParentOfSymbol, Checker_getPropertyOfObjectType, Checker_getIndexTypeOfType, Checker_resolveStructuredTypeMembers, Checker_setStructuredTypeMembers, Checker_newSymbol } from "./symbols.js";
 import { Checker_areTypeParametersIdentical, Checker_getConstraintOfTypeParameter, Checker_getConstraintFromTypeParameter, Checker_fillMissingTypeArguments, Checker_getMinTypeArgumentCount, Checker_isTypeParameterPossiblyReferenced, Checker_getTypeParameterFromMappedType, Checker_getOuterTypeParameters, Checker_getDeclaredTypeOfTypeParameter, Checker_getRestrictiveTypeParameter, Checker_getContextualTypeForArgument, Checker_getApplicableIndexInfos, Checker_checkIndexConstraintForIndexSignature, Checker_hasCorrectTypeArgumentArity, Checker_checkTypeArguments, Checker_getSignatureInstantiation } from "./signatures.js";
 import { Checker_checkSourceElement, Checker_error } from "./support.js";
-import { Checker_grammarErrorOnNode } from "../grammarchecks.js";
+import { Checker_grammarErrorForTypeNode } from "../grammarchecks.js";
 import { Checker_isTypeAssignableTo } from "../relater.js";
 import { NewTextRange } from "../../core/text.js";
 import { SkipTrivia } from "../../scanner/scanner.js";
@@ -62,7 +62,7 @@ import { Checker_addDiagnostic } from "../checker.js";
  */
 export function Checker_checkInferType(receiver, node) {
     if (FindAncestor(node, (n) => (n.Parent !== undefined && n.Parent.Kind === KindConditionalType && AsConditionalTypeNode(n.Parent).ExtendsType === n)) === undefined) {
-        Checker_grammarErrorOnNode(receiver, node, X_infer_declarations_are_only_permitted_in_the_extends_clause_of_a_conditional_type);
+        Checker_grammarErrorForTypeNode(receiver, node, node, false, X_infer_declarations_are_only_permitted_in_the_extends_clause_of_a_conditional_type);
     }
     const typeParameterDeclarationNode = AsInferTypeNode(node).TypeParameter;
     Checker_checkSourceElement(receiver, typeParameterDeclarationNode);
@@ -1120,6 +1120,7 @@ export function Checker_getConstraintDeclarationForMappedType(receiver, t) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeAliasInstantiation","kind":"method","status":"implemented","sigHash":"f6bed79b5fe6c3b11a594664f7e6283bbce7162f58985fb7a9856433761a34d8","bodyHash":"29d45b8fb5ebd9d1a56aa7137cb0fa907b55b3599d7035eceee083124e579c9e"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retain only the already selected suffix on the actual alias descriptor; preserve the native written argument vector, cache key and one default evaluation."}
  *
  * Go source:
  * func (c *Checker) getTypeAliasInstantiation(symbol *ast.Symbol, typeArguments []*Type, alias *TypeAlias) *Type {
@@ -1162,8 +1163,12 @@ export function Checker_getTypeAliasInstantiation(receiver, symbol_, typeArgumen
     const key = getTypeAliasInstantiationKey(typeArguments, alias);
     let instantiation = links.instantiations.get(key);
     if (instantiation === undefined) {
-        const mapper = newTypeMapper(typeParameters, Checker_fillMissingTypeArguments(receiver, typeArguments, typeParameters, Checker_getMinTypeArgumentCount(receiver, typeParameters), IsInJSFile(symbol_.ValueDeclaration)));
-        instantiation = Checker_instantiateTypeWithAlias(receiver, t, mapper, alias);
+        const effectiveArguments = Checker_fillMissingTypeArguments(receiver, typeArguments, typeParameters, Checker_getMinTypeArgumentCount(receiver, typeParameters), IsInJSFile(symbol_.ValueDeclaration));
+        const selectedAlias = alias !== undefined && alias.symbol === symbol_ && typeArguments.length < effectiveArguments.length
+            && alias.typeArguments.length === typeArguments.length && alias.typeArguments.every((argument, index) => argument === typeArguments[index])
+            ? { ...alias, defaultTypeArguments: effectiveArguments.slice(typeArguments.length) } : alias;
+        const mapper = newTypeMapper(typeParameters, effectiveArguments);
+        instantiation = Checker_instantiateTypeWithAlias(receiver, t, mapper, selectedAlias);
         links.instantiations.set(key, instantiation);
     }
     return instantiation;

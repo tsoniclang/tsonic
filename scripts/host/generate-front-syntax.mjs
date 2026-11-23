@@ -96,6 +96,7 @@ const scalarByKind = {
   "SourceFile.pragmas": "context.pragmas",
   "SourceFile.checkJsDirective": "context.checkJsDirective",
   "SyntaxList.children": "view.Children.map(child => one(context, child, id, isSyntax))",
+  "NumericLiteral.text": "numericSyntaxText(context, node, header.origin)",
   "JSDocText.text": "jsDocText(view.text)",
   "JSDocLink.text": "jsDocText(view.text)",
   "JSDocLinkPlain.text": "jsDocText(view.text)",
@@ -152,6 +153,10 @@ for (const member of expanded) {
     lines.push(`      const ${field}_ = ${expression};`);
     assigned.push(`${field}: ${field}_`);
   }
+  if (name === "LiteralTypeNode") lines.push(
+    "      const numeric = authoredNumericType(context, node);",
+    "      if (numeric !== null) context.numericLiterals.set(node, numeric);",
+  );
   for (const kind of kinds) cases.push({ labels: [kind], body: [...lines, `      return { kind: "${kind}", ...header, ${assigned.join(", ")}, tsonic: null };`], kinds: [kind] });
 }
 
@@ -214,7 +219,7 @@ out.push(`// Written with the help of a one-off script from the HIR contract; ed
 out.push(`import type * as Hir from "../ir-hir/contract.js";`);
 out.push(`import type { NodeId } from "../ids/contract.js";`);
 out.push(`import type { SdkNodeList, SyntaxCaptureContext, SyntaxNodeOf } from "./syntax-support.js";`);
-out.push(`import { attributesToken, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, phaseModifier, postfixOperator, prefixOperator, rangeOf, scriptKind, tokenFlags, typeOperator } from "./syntax-support.js";`);
+out.push(`import { authoredNumericType, attributesToken, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, numericSyntaxText, phaseModifier, postfixOperator, prefixOperator, rangeOf, scriptKind, tokenFlags, typeOperator } from "./syntax-support.js";`);
 out.push(...helpers);
 out.push(``);
 for (const guard of guards.values()) {

@@ -28,6 +28,21 @@ export function verifyProjectSnapshot(snapshot: ProjectSnapshot,
     rootIds.add(root);
   }
   if (!rootIds.has(snapshot.entryPoint)) add("entry-point-root", snapshotSite, snapshot.entryPoint);
+  const external = snapshot.contributions.externalEntries;
+  if (!Array.isArray(external)) add("external-entry-resolves", selectionSite, "externalEntries");
+  else {
+    const names = new Map<ModuleId, Set<string>>();
+    for (const entry of snapshotRows(snapshot.contributions.externalEntries, selectionSite, "externalEntries", violations)) {
+      if (typeof entry.module !== "string" || typeof entry.name !== "string" || !packages.modulePackages.has(entry.module)) {
+        add("external-entry-resolves", selectionSite, "externalEntries");
+        continue;
+      }
+      const selected = names.get(entry.module);
+      if (selected === undefined) names.set(entry.module, new Set([entry.name]));
+      else if (selected.has(entry.name)) add("external-entry-unique", selectionSite, entry.module, entry.name);
+      else selected.add(entry.name);
+    }
+  }
   const capabilities = snapshotRows(snapshot.selection.capabilityIds, selectionSite, "capabilityIds", violations);
   const capabilityIds = new Set<string>();
   for (const id of capabilities) {

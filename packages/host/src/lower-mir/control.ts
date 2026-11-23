@@ -1,11 +1,13 @@
-import type { BlockId, ConstId, PlaceId } from "../ids/contract.js";
-import type { BinaryExpression, BreakStatement, ConditionalExpression, ContinueStatement, DoStatement, ForStatement, IfStatement, LabeledStatement, NodeHeader, WhileStatement } from "../ir-hir/contract.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
-import type { ControlScope, Evaluated, LoopContinuation, Lowering, Work } from "./model.js";
-import { callerDefect, failure, notLoweredYet, rawType, siteOf } from "./model.js";
-import { held, popOperand, pushOperand, temporary } from "./operands.js";
-import { leaveLocalScopes } from "./bindings.js";
-import { constantOperand, emitStatement, enterBlock, newBlock, terminate } from "./state.js";
+import type { BlockId, ConstId, PlaceId, TyId } from "../ids/contract.js";
+import type { CaseClause, DefaultClause } from "../ir-hir/contract.js";
+import type { BinaryExpression, BreakStatement, ConditionalExpression, ContinueStatement, DoStatement, ForStatement, IfStatement, LabeledStatement, NodeHeader, SwitchStatement, WhileStatement } from "../ir-hir/contract.js";
+import type { MirOperand, MirStatement } from "../ir-mir/contract.js";
+import type { TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { ConditionalDestination, ControlScope, Discard, Evaluated, LoopContinuation, Lowering, SwitchDispatch, SwitchTarget, Work } from "./model.js";
+import { callerDefect, executingValue, failure, notLoweredYet, rawType, siteOf } from "./model.js";
+import { held, observePendingRead, popOperand, pushOperand, readPlace, saveRead, temporary } from "./operands.js";
+import { leaveLocalScopes, prepareCaseLocals } from "./bindings.js";
+import { constantOperand, emitBeforeTerminator, emitStatement, enterBlock, newBlock, terminate } from "./state.js";
 
 export function enterConditional(lowering: Lowering, node: ConditionalExpression<TypedPhase>): boolean {
   const condition = popOperand(lowering, failure("a conditional completed without its control", node.origin));
@@ -13,36 +15,66 @@ export function enterConditional(lowering: Lowering, node: ConditionalExpression
   if (selected.kind !== "conditional") return callerDefect("a conditional has another selection kind", node.origin);
   const control = booleanControl(lowering, condition, node.condition);
   if (control === null) return false;
-  if (selected.disposition !== "dynamic") return selectArm(lowering, node, selected.disposition === "true");
-  if (control.kind === "known") return selectArm(lowering, node, control.value);
+  if (selected.disposition !== "dynamic") return selectArm(lowering, node, condition, selected.disposition === "true");
+  if (control.kind === "known") return selectArm(lowering, node, condition, control.value);
   const head = lowering.state.current;
   if (head === null) return callerDefect("a conditional has no executing split", node.origin);
   const site = siteOf(lowering.body, node);
-  const result = temporary(lowering, rawType(node.tsonic), site);
-  if (result === null) return false;
+  const discard = discardOf(lowering);
+  const storage = rawType(node.tsonic);
+  let destination: ConditionalDestination;
+  if (discard === null) {
+    const place = temporary(lowering, storage, site);
+    if (place === null) return false;
+    destination = { kind: "value", place };
+  } else {
+    destination = discard.read?.storage === storage ? discard
+      : { ...discard, read: { block: head.id, site, storage, place: null } };
+  }
   const first = newBlock(lowering.state, siteOf(lowering.body, node.whenTrue));
   if (first === null) return false;
   const otherwise = newBlock(lowering.state, siteOf(lowering.body, node.whenFalse));
   if (otherwise === null) return false;
   const exit = newBlock(lowering.state, site);
   if (exit === null) return false;
-  lowering.branches.push({ block: head.id, prefix: lowering.operands.length });
-  terminate(lowering.state, { ...site, kind: "switch", operand: condition.operand, targets: [{ constant: control.constant, target: first }], otherwise, step: null });
+  const switchSite = discard !== null && condition.pendingRead ? condition.site : site;
+  terminate(lowering.state, { ...switchSite, kind: "switch", operand: condition.operand, targets: [{ constant: control.constant, target: first }], otherwise, step: null });
   enterBlock(lowering.state, first);
-  lowering.selections.set(node.condition.id, "true");
-  lowering.work.push({ kind: "conditional-true", node, place: result, otherwise, exit }, { kind: "expression", node: node.whenTrue });
-  return true;
+  if (discard !== null) lowering.work.pop();
+  return scheduleConditional(lowering, { kind: "conditional-true", node, destination, otherwise, exit }, true,
+    destination.kind === "discard" ? destination : null);
 }
 
-function selectArm(lowering: Lowering, node: ConditionalExpression<TypedPhase>, taken: boolean): boolean {
+function discardOf(lowering: Lowering): Discard | null {
+  const consumer = lowering.work.at(-1);
+  return consumer?.kind === "discard" ? consumer : null;
+}
+
+function selectArm(lowering: Lowering, node: ConditionalExpression<TypedPhase>, condition: Evaluated, taken: boolean): boolean {
+  const discard = discardOf(lowering);
+  if (!observePendingRead(lowering, condition, discard?.read ?? null)) return false;
+  if (discard !== null) lowering.work.pop();
+  return scheduleConditional(lowering, { kind: "selected-end", node, discarded: discard !== null }, taken, discard);
+}
+
+type ConditionalWork = Extract<Work, { readonly kind: "conditional-true" | "conditional-false" }>
+  | { readonly kind: "selected-end"; readonly node: ConditionalExpression<TypedPhase>; readonly discarded: boolean };
+
+function scheduleConditional(lowering: Lowering, work: ConditionalWork, taken: boolean, discard: Discard | null): boolean {
+  const { node } = work;
   lowering.selections.set(node.condition.id, taken ? "true" : "false");
-  lowering.work.push({ kind: "selected-end", node }, { kind: "expression", node: taken ? node.whenTrue : node.whenFalse });
+  lowering.work.push(work);
+  if (discard !== null) lowering.work.push(discard);
+  lowering.work.push({ kind: "expression", node: taken ? node.whenTrue : node.whenFalse });
   return true;
 }
 
-function assignSelected(lowering: Lowering, node: ConditionalExpression<TypedPhase> | BinaryExpression<TypedPhase>, place: PlaceId, value: Evaluated): boolean {
+function assignSelected(lowering: Lowering, node: ConditionalExpression<TypedPhase> | BinaryExpression<TypedPhase>, place: PlaceId,
+  value: Evaluated, before: BlockId | null = null): boolean {
   if (value.storage !== rawType(node.tsonic)) return callerDefect("a selected arm differs from its actual result storage", node.origin);
-  return emitStatement(lowering.state, { ...siteOf(lowering.body, node), kind: "assign", place, value: { kind: "use", operand: value.operand }, step: null });
+  const site = value.pendingRead ? value.site : siteOf(lowering.body, node);
+  const statement: MirStatement = { ...site, kind: "assign", place, value: { kind: "use", operand: value.operand }, step: null };
+  return before === null ? emitStatement(lowering.state, statement) : emitBeforeTerminator(lowering.state, before, statement);
 }
 
 function selectedResult(lowering: Lowering, node: ConditionalExpression<TypedPhase> | BinaryExpression<TypedPhase>, place: PlaceId): boolean {
@@ -50,28 +82,36 @@ function selectedResult(lowering: Lowering, node: ConditionalExpression<TypedPha
   return assignSelected(lowering, node, place, value);
 }
 
-export function endSelected(lowering: Lowering, node: ConditionalExpression<TypedPhase> | BinaryExpression<TypedPhase>): boolean {
-  const value = popOperand(lowering, failure("a selected arm completed without its value", node.origin));
-  if (value.storage !== rawType(node.tsonic)) return callerDefect("a selected arm differs from its actual result storage", node.origin);
-  pushOperand(lowering, value);
+export function endSelected(lowering: Lowering, { node, discarded }: Extract<Work, { readonly kind: "selected-end" }>): boolean {
+  if (!discarded) {
+    const value = popOperand(lowering, failure("a selected arm completed without its value", node.origin));
+    if (value.storage !== rawType(node.tsonic)) return callerDefect("a selected arm differs from its actual result storage", node.origin);
+    pushOperand(lowering, value);
+  }
   lowering.selections.delete(node.kind === "ConditionalExpression" ? node.condition.id : node.left.id);
   return true;
 }
 
-export function enterShortCircuit(lowering: Lowering, node: BinaryExpression<TypedPhase>): boolean {
+type SelectedStore = Extract<Work, { readonly kind: "store" }>;
+
+export function enterShortCircuit(lowering: Lowering, node: BinaryExpression<TypedPhase>, store: SelectedStore | null): boolean {
   const left = popOperand(lowering, failure("a short-circuit expression completed without its control", node.origin));
   const payload = node.tsonic;
-  if (payload.role !== "short-circuit" || payload.selection.kind === "conditional")
+  const selected = payload.role === "short-circuit" || payload.role === "assignment" ? payload.selection : null;
+  if (selected === null || selected.kind === "conditional" || (payload.role === "assignment") !== (store !== null))
     return callerDefect("a short-circuit expression has another selection kind", node.origin);
-  const selected = payload.selection;
   const when = selected.kind === "and" ? "true" : selected.kind === "or" ? "false" : "absent";
-  if (selected.disposition === "right") return selectRight(lowering, node, when);
+  const discard = discardOf(lowering);
+  const takeRight = () => observePendingRead(lowering, left, discard?.read ?? null)
+    && scheduleRight(lowering, node, when, { kind: "selected-end", node, discarded: discard !== null }, store, discard);
+  if (selected.disposition === "right") return takeRight();
   if (selected.disposition === "left") return keepLeft(lowering, node, left);
   let constant: ConstId;
   let rightOnMatch: boolean;
   if (selected.kind === "coalesce") {
     const type = lowering.typeOf(left.storage);
-    if (type.kind === "intrinsic" && type.intrinsic === "absence") return selectRight(lowering, node, when);
+    if (type.kind === "intrinsic" && type.intrinsic === "absence")
+      return takeRight();
     if (type.kind !== "optional") return notLoweredYet("a coalescing selector without its selected absence carrier", node.origin);
     const absence = constantOperand(lowering.state, left.storage, { kind: "literal", value: { kind: "absence" } });
     if (absence === null) return false;
@@ -81,7 +121,7 @@ export function enterShortCircuit(lowering: Lowering, node: BinaryExpression<Typ
     const control = booleanControl(lowering, left, node.left);
     if (control === null) return false;
     if (control.kind === "known") return control.value === (selected.kind === "and")
-      ? selectRight(lowering, node, when) : keepLeft(lowering, node, left);
+      ? takeRight() : keepLeft(lowering, node, left);
     constant = control.constant;
     rightOnMatch = selected.kind === "and";
   }
@@ -89,29 +129,39 @@ export function enterShortCircuit(lowering: Lowering, node: BinaryExpression<Typ
   if (head === null) return callerDefect("a short-circuit expression has no executing split", node.origin);
   if (left.storage !== rawType(payload)) return notLoweredYet("a selected result storage embedding", node.origin);
   const site = siteOf(lowering.body, node);
-  const result = temporary(lowering, rawType(payload), site);
-  if (result === null) return false;
-  const retained = newBlock(lowering.state, siteOf(lowering.body, node.left));
-  if (retained === null) return false;
+  const place = discard === null ? temporary(lowering, rawType(payload), site) : null;
+  if (discard === null && place === null) return false;
+  const guard = place !== null && left.pendingRead ? { block: head.id, value: left } : null;
+  const separateForward = place !== null && guard === null;
+  const forward = separateForward ? newBlock(lowering.state, siteOf(lowering.body, node.left)) : null;
+  if (separateForward && forward === null) return false;
   const right = newBlock(lowering.state, siteOf(lowering.body, node.right));
   if (right === null) return false;
   const exit = newBlock(lowering.state, site);
   if (exit === null) return false;
-  lowering.branches.push({ block: head.id, prefix: lowering.operands.length });
-  terminate(lowering.state, { ...site, kind: "switch", operand: left.operand,
+  const retained = forward ?? exit;
+  const operand: MirOperand = place !== null && guard !== null ? { kind: "place", place } : left.operand;
+  const switchSite = discard !== null && left.pendingRead ? left.site : site;
+  terminate(lowering.state, { ...switchSite, kind: "switch", operand,
     targets: [{ constant, target: rightOnMatch ? right : retained }], otherwise: rightOnMatch ? retained : right, step: null });
-  enterBlock(lowering.state, retained);
-  if (!assignSelected(lowering, node, result, left)) return false;
-  terminate(lowering.state, { ...site, kind: "goto", target: exit });
+  if (forward !== null && place !== null) {
+    enterBlock(lowering.state, forward);
+    if (!assignSelected(lowering, node, place, left)) return false;
+    terminate(lowering.state, { ...site, kind: "goto", target: exit });
+  }
   enterBlock(lowering.state, right);
-  lowering.selections.set(node.left.id, when);
-  lowering.work.push({ kind: "short-circuit-end", node, place: result, exit }, { kind: "expression", node: node.right });
-  return true;
+  const result = place === null ? null : { place, guard };
+  return scheduleRight(lowering, node, when, { kind: "short-circuit-end", node, exit, result }, store, discard);
 }
 
-function selectRight(lowering: Lowering, node: BinaryExpression<TypedPhase>, when: "true" | "false" | "absent"): boolean {
+function scheduleRight(lowering: Lowering, node: BinaryExpression<TypedPhase>, when: "true" | "false" | "absent",
+  end: Extract<Work, { readonly kind: "selected-end" | "short-circuit-end" }>, store: SelectedStore | null, discard: Discard | null): boolean {
   lowering.selections.set(node.left.id, when);
-  lowering.work.push({ kind: "selected-end", node }, { kind: "expression", node: node.right });
+  if (discard !== null) lowering.work.pop();
+  lowering.work.push(end);
+  if (discard !== null) lowering.work.push(discard);
+  if (store !== null) lowering.work.push(store);
+  lowering.work.push({ kind: "expression", node: node.right });
   return true;
 }
 
@@ -122,32 +172,36 @@ function keepLeft(lowering: Lowering, node: BinaryExpression<TypedPhase>, left: 
 }
 
 export function endShortCircuit(lowering: Lowering, pending: Extract<Work, { readonly kind: "short-circuit-end" }>): boolean {
-  if (!selectedResult(lowering, pending.node, pending.place)) return false;
+  const { result } = pending;
+  if (result !== null) {
+    if (!selectedResult(lowering, pending.node, result.place)) return false;
+    if (result.guard !== null && !assignSelected(lowering, pending.node, result.place, result.guard.value, result.guard.block))
+      return false;
+  }
   terminate(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "goto", target: pending.exit });
-  lowering.branches.pop();
   lowering.selections.delete(pending.node.left.id);
   enterBlock(lowering.state, pending.exit);
-  pushOperand(lowering, held(pending.place, rawType(pending.node.tsonic), siteOf(lowering.body, pending.node)));
+  if (result !== null) pushOperand(lowering, held(result.place, rawType(pending.node.tsonic), siteOf(lowering.body, pending.node)));
   return true;
 }
 
 export function endConditionalTrue(lowering: Lowering, pending: Extract<Work, { readonly kind: "conditional-true" }>): boolean {
-  if (!selectedResult(lowering, pending.node, pending.place)) return false;
-  terminate(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "goto", target: pending.exit });
-  enterBlock(lowering.state, pending.otherwise);
-  lowering.selections.set(pending.node.condition.id, "false");
-  lowering.work.push({ kind: "conditional-false", node: pending.node, place: pending.place, exit: pending.exit },
-    { kind: "expression", node: pending.node.whenFalse });
-  return true;
+  const { node, destination, otherwise, exit } = pending;
+  if (destination.kind === "value" && !selectedResult(lowering, node, destination.place)) return false;
+  terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: exit });
+  enterBlock(lowering.state, otherwise);
+  return scheduleConditional(lowering, { kind: "conditional-false", node, destination, exit }, false,
+    destination.kind === "discard" ? destination : null);
 }
 
 export function endConditionalFalse(lowering: Lowering, pending: Extract<Work, { readonly kind: "conditional-false" }>): boolean {
-  if (!selectedResult(lowering, pending.node, pending.place)) return false;
+  const { destination } = pending;
+  if (destination.kind === "value" && !selectedResult(lowering, pending.node, destination.place)) return false;
   terminate(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "goto", target: pending.exit });
-  lowering.branches.pop();
   lowering.selections.delete(pending.node.condition.id);
   enterBlock(lowering.state, pending.exit);
-  pushOperand(lowering, held(pending.place, rawType(pending.node.tsonic), siteOf(lowering.body, pending.node)));
+  if (destination.kind === "value")
+    pushOperand(lowering, held(destination.place, rawType(pending.node.tsonic), siteOf(lowering.body, pending.node)));
   return true;
 }
 
@@ -167,6 +221,7 @@ export function enterIf(lowering: Lowering, node: IfStatement<TypedPhase>): bool
   const control = booleanControl(lowering, condition, node.expression);
   if (control === null) return false;
   if (control.kind === "known") {
+    if (!observePendingRead(lowering, condition)) return false;
     const selected = control.value ? node.thenStatement : node.elseStatement;
     if (selected !== null) lowering.work.push({ kind: "statement", node: selected });
     return true;
@@ -207,6 +262,179 @@ export function endElse(lowering: Lowering, pending: Extract<Work, { readonly ki
   return true;
 }
 
+export function enterSwitch(lowering: Lowering, node: SwitchStatement<TypedPhase>): boolean {
+  const subject = popOperand(lowering, failure("a switch completed without its subject", node.origin));
+  const clauses = node.caseBlock.clauses.nodes;
+  let first: SwitchTarget<CaseClause<TypedPhase>> | null = null;
+  let ordered: SwitchTarget<CaseClause<TypedPhase>> | null = null;
+  let whenTrue: SwitchTarget<CaseClause<TypedPhase>> | null = null;
+  let whenFalse: SwitchTarget<CaseClause<TypedPhase>> | null = null;
+  let fallback: SwitchTarget<DefaultClause<TypedPhase>> | null = null;
+  for (const [position, clause] of clauses.entries()) {
+    if (clause === undefined) return callerDefect("a switch clause list has a hole", node.origin);
+    if (clause.kind === "DefaultClause") {
+      if (fallback !== null) return callerDefect("a switch has more than one default clause", clause.origin);
+      fallback = { node: clause, position };
+      continue;
+    }
+    if (ordered !== null) continue;
+    const literal = fastBooleanLabel(lowering, clause, subject);
+    if (literal === null) ordered = first ?? { node: clause, position };
+    else {
+      const target = literal ? (whenTrue ??= { node: clause, position }) : (whenFalse ??= { node: clause, position });
+      first ??= target;
+    }
+  }
+  const hasTests = ordered === null && first !== null;
+  const control = hasTests ? booleanControl(lowering, subject, node.expression) : null;
+  if (hasTests && control === null) return false;
+  const saved = ordered === null ? subject : switchSubject(lowering, subject);
+  if (saved === null) return false;
+  const site = siteOf(lowering.body, node);
+  const enclosing = lowering.scope;
+  if (!prepareCaseLocals(lowering, node.caseBlock)) return false;
+  const scope: Extract<ControlScope, { readonly kind: "switch" }> = { kind: "switch", node, exit: null, continuation: null, locals: lowering.scope };
+  const dispatch: SwitchDispatch = { node, scope, enclosing, entries: new Map() };
+  lowering.labels.set(node.id, scope);
+  lowering.work.push({ kind: "switch-clause", ...dispatch, position: 0 });
+  if (ordered !== null)
+    return scheduleSwitchTest(lowering, { kind: "switch-test", ...ordered, dispatch, subject: saved, fallback });
+  const otherwise = switchTarget(lowering, dispatch, (control?.kind === "known" && control.value ? whenTrue : whenFalse) ?? fallback);
+  if (otherwise === null) return false;
+  const match = control?.kind === "dynamic" ? switchTarget(lowering, dispatch, whenTrue ?? fallback) : otherwise;
+  if (match === null) return false;
+  terminate(lowering.state, { ...site, kind: "switch", operand: subject.operand,
+    targets: control?.kind === "dynamic" && match !== otherwise ? [{ constant: control.constant, target: match }] : [], otherwise, step: null });
+  return true;
+}
+
+function switchTarget(lowering: Lowering, dispatch: SwitchDispatch, target: SwitchTarget | null): BlockId | null {
+  const { node, scope, entries } = dispatch;
+  if (target === null) {
+    scope.exit ??= newBlock(lowering.state, siteOf(lowering.body, node));
+    return scope.exit;
+  }
+  const block = newBlock(lowering.state, siteOf(lowering.body, target.node));
+  if (block !== null) entries.set(target.position, block);
+  return block;
+}
+
+function switchEquality(clause: CaseClause<TypedPhase>, subject: Evaluated): TypedOperation {
+  const outcome = clause.tsonic.operation;
+  if (outcome.kind !== "decided" || outcome.decision.decision.operands[0] !== subject.storage)
+    return callerDefect("a case has no selected equality of its actual subject", clause.origin);
+  return outcome.decision;
+}
+
+function fastBooleanLabel(lowering: Lowering, clause: CaseClause<TypedPhase>, subject: Evaluated): boolean | null {
+  const { decision } = switchEquality(clause, subject);
+  if (decision.operation.kind !== "boolean-operator" || decision.operation.operator !== "===" || decision.execution.kind !== "pure") return null;
+  let test = clause.expression;
+  let parentType: TyId | null = null;
+  while (test.kind === "ParenthesizedExpression" || test.kind === "AsExpression"
+    || test.kind === "TypeAssertionExpression" || test.kind === "SatisfiesExpression") {
+    const value = executingValue(test.tsonic, test.origin);
+    if (!transparentCaseValue(value)) return null;
+    if (parentType !== null && parentType !== value.type)
+      return callerDefect("a Boolean switch case without matching selected literal evidence", test.origin);
+    parentType = value.type;
+    test = test.expression;
+  }
+  if (test.kind !== "TrueKeyword" && test.kind !== "FalseKeyword") return null;
+  const selected = test.tsonic;
+  if (selected.role !== "value")
+    return callerDefect("a Boolean switch case without matching selected literal evidence", test.origin);
+  if (!transparentCaseValue(selected)) return null;
+  if (decision.operands[1] !== selected.type || parentType !== null && parentType !== selected.type)
+    return callerDefect("a Boolean switch case without matching selected literal evidence", test.origin);
+  const expected = test.kind === "TrueKeyword";
+  const type = lowering.typeOf(selected.type);
+  const carrier = type.kind === "literal" && type.value.kind === "boolean" && type.value.value === expected
+    ? lowering.typeOf(type.base) : type;
+  if (carrier.kind !== "primitive" || carrier.primitive !== "bool")
+    return callerDefect("a Boolean switch case without matching selected literal evidence", test.origin);
+  return expected;
+}
+
+function switchSubject(lowering: Lowering, value: Evaluated): Evaluated | null {
+  if (value.operand.kind === "constant") return value;
+  const place = lowering.state.places[value.operand.place];
+  if (value.kind === "plain" && !value.pendingRead && place?.base.kind === "local"
+    && lowering.state.locals[place.base.local]?.role.kind === "temporary") return value;
+  return value.anchor === undefined ? readPlace(lowering, value.operand.place, value.storage, value.site) : saveRead(lowering, value);
+}
+
+function nextSwitchTest(dispatch: SwitchDispatch, start: number): SwitchTarget<CaseClause<TypedPhase>> | null {
+  const clauses = dispatch.node.caseBlock.clauses.nodes;
+  for (let position = start; position < clauses.length; position += 1) {
+    const node = clauses[position];
+    if (node?.kind === "CaseClause") return { node, position };
+  }
+  return null;
+}
+
+function scheduleSwitchTest(lowering: Lowering, test: Extract<Work, { readonly kind: "switch-test" }>): boolean {
+  const { node, subject } = test;
+  const operation = switchEquality(node, subject);
+  pushOperand(lowering, subject);
+  lowering.work.push(test, { kind: "operation", node, operation, form: "binary" }, { kind: "expression", node: node.expression });
+  return true;
+}
+
+export function finishSwitchTest(lowering: Lowering, test: Extract<Work, { readonly kind: "switch-test" }>): boolean {
+  const { dispatch, fallback, node, position } = test;
+  const result = popOperand(lowering, failure("a switch test completed without its comparison", node.origin));
+  const truth = constantOperand(lowering.state, result.storage, { kind: "literal", value: { kind: "boolean", value: true } });
+  if (truth === null) return false;
+  const match = switchTarget(lowering, dispatch, test);
+  if (match === null) return false;
+  const next = nextSwitchTest(dispatch, position + 1);
+  const otherwise = next === null ? switchTarget(lowering, dispatch, fallback) : newBlock(lowering.state, siteOf(lowering.body, next.node.expression));
+  if (otherwise === null) return false;
+  terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "switch", operand: result.operand,
+    targets: [{ constant: truth.constant, target: match }], otherwise, step: null });
+  if (next === null) return true;
+  enterBlock(lowering.state, otherwise);
+  return scheduleSwitchTest(lowering, { ...test, ...next });
+}
+
+function transparentCaseValue(value: TypedValue): boolean {
+  return value.conversion.kind === "identity" && value.type === value.convertedType
+    && value.narrowing === null && value.demand.kind === "always";
+}
+
+export function nextSwitchClause(lowering: Lowering, pending: Extract<Work, { readonly kind: "switch-clause" }>): boolean {
+  const { node, scope, enclosing, entries, position } = pending;
+  const clauses = node.caseBlock.clauses.nodes;
+  if (position === clauses.length) {
+    if (scope.exit !== null) {
+      if (lowering.state.current !== null) terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: scope.exit });
+      enterBlock(lowering.state, scope.exit);
+    }
+    if (lowering.state.current !== null && !leaveLocalScopes(lowering, enclosing, node)) return false;
+    lowering.scope = enclosing;
+    lowering.labels.delete(node.id);
+    return true;
+  }
+  const clause = clauses[position];
+  if (clause === undefined) return callerDefect("a switch clause list has a hole", node.origin);
+  lowering.work.push({ ...pending, position: position + 1 });
+  const entry = entries.get(position);
+  if (entry === undefined && lowering.state.current === null) return true;
+  const site = siteOf(lowering.body, clause);
+  const block = entry ?? newBlock(lowering.state, site);
+  if (block === null) return false;
+  if (lowering.state.current !== null) terminate(lowering.state, { ...site, kind: "goto", target: block });
+  enterBlock(lowering.state, block);
+  const statements = clause.statements.nodes;
+  for (let index = statements.length - 1; index >= 0; index -= 1) {
+    const statement = statements[index];
+    if (statement === undefined) return callerDefect("a switch clause statement list has a hole", clause.origin);
+    lowering.work.push({ kind: "statement", node: statement });
+  }
+  return true;
+}
+
 export function breaks(lowering: Lowering, node: BreakStatement<TypedPhase>): boolean {
   const target = node.tsonic.target;
   if (target.body !== lowering.body.body) return callerDefect("a break targets another body", node.origin);
@@ -238,19 +466,21 @@ export function continues(lowering: Lowering, node: ContinueStatement<TypedPhase
   if (scope === undefined || scope.continuation === null) return callerDefect("a continue has no active loop target", node.origin);
   const next = continuationTarget(lowering, scope.continuation);
   if (next === null) return false;
-  if (!leaveLocalScopes(lowering, scope.locals, node)) return false;
+  if (!leaveLocalScopes(lowering, scope.continuation.locals, node)) return false;
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: next });
   return true;
 }
 
-export function enterFor(lowering: Lowering, node: ForStatement<TypedPhase>): boolean {
+export function enterFor(lowering: Lowering, { node, headerScope }: Extract<Work, { readonly kind: "for" }>): boolean {
   const { state, body } = lowering;
   const head = newBlock(state, siteOf(body, node.statement));
   if (head === null) return false;
   terminate(state, { ...siteOf(body, node), kind: "goto", target: head });
   enterBlock(state, head);
-  const continuation: LoopContinuation = { head, update: node.incrementor === null ? null : { expression: node.incrementor, block: null } };
+  const continuation: LoopContinuation = { head, locals: lowering.scope,
+    update: node.incrementor === null ? null : { expression: node.incrementor, block: null } };
   const { scope, previous } = placeLoop(lowering, node, continuation);
+  if (headerScope !== null) lowering.work.push({ kind: "scope-end", node, scope: headerScope });
   if (node.condition === null) lowering.work.push({ kind: "for-end", node, scope, previous }, { kind: "statement", node: node.statement });
   else lowering.work.push({ kind: "for-condition", node, scope, previous }, { kind: "expression", node: node.condition });
   return true;
@@ -266,7 +496,7 @@ function placeLoop(lowering: Lowering, node: ForStatement<TypedPhase> | WhileSta
     child = pending.node;
   }
   const previous = lowering.labels.get(node.id);
-  const scope: Extract<ControlScope, { readonly kind: "loop" }> = { kind: "loop", node, exit: null, continuation, locals: lowering.scope };
+  const scope: Extract<ControlScope, { readonly kind: "loop" }> = { kind: "loop", node, exit: null, continuation, locals: continuation.locals };
   lowering.labels.set(node.id, scope);
   return { scope, previous };
 }
@@ -282,7 +512,7 @@ export function endFor(lowering: Lowering, pending: Extract<Work, { readonly kin
   if (update === null || update.block === null) return closeLoop(lowering, pending);
   enterBlock(lowering.state, update.block);
   const incrementor = update.expression;
-  lowering.work.push({ ...pending, kind: "for-next" }, { kind: "discard", node: incrementor }, { kind: "expression", node: incrementor });
+  lowering.work.push({ ...pending, kind: "for-next" }, { kind: "discard", node: incrementor, read: null }, { kind: "expression", node: incrementor });
   return true;
 }
 
@@ -310,7 +540,7 @@ export function enterWhile(lowering: Lowering, node: WhileStatement<TypedPhase>)
   if (head === null) return false;
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: head });
   enterBlock(lowering.state, head);
-  const { scope, previous } = placeLoop(lowering, node, { head, update: null });
+  const { scope, previous } = placeLoop(lowering, node, { head, update: null, locals: lowering.scope });
   lowering.work.push({ kind: "while-condition", node, scope, previous }, { kind: "expression", node: node.expression });
   return true;
 }
@@ -319,6 +549,7 @@ export function loopCondition(lowering: Lowering, pending: Extract<Work, { reado
   const condition = popOperand(lowering, failure("a loop completed without its condition", pending.node.origin));
   const control = booleanControl(lowering, condition, pending.node);
   if (control === null) return false;
+  if (control.kind === "known" && !observePendingRead(lowering, condition)) return false;
   if (control.kind === "known" && !control.value) {
     if (pending.scope.exit !== null) terminate(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "goto", target: pending.scope.exit });
     return closeLoop(lowering, pending);
@@ -350,7 +581,7 @@ export function enterDo(lowering: Lowering, node: DoStatement<TypedPhase>): bool
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: head });
   enterBlock(lowering.state, head);
   const condition: NonNullable<LoopContinuation["update"]> = { expression: node.expression, block: null };
-  const { scope, previous } = placeLoop(lowering, node, { head, update: condition });
+  const { scope, previous } = placeLoop(lowering, node, { head, update: condition, locals: lowering.scope });
   lowering.work.push({ kind: "do-end", node, scope, previous, condition }, { kind: "statement", node: node.statement });
   return true;
 }

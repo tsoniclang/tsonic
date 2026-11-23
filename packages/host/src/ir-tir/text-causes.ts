@@ -1,12 +1,12 @@
 import type { Cause, DiagnosticIdentity, UnitPosition, UnitRef, UnitRequest } from "../diag/contract.js";
-import type { GroupId, KeyData, KeyRecord, SourceNodeRef } from "../ids/contract.js";
+import type { GroupId, KeyData, KeyRecord, NodeRef, SourceNodeRef } from "../ids/contract.js";
 import { decodeGroupId, encodeGroupId } from "../ids/index.js";
 import { lazyReader, scalarReader, sequenceReader } from "./text-construction.js";
 import type { TirReader } from "./text-construction.js";
 import type { TirRecordCodec, TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { referenceWork, scalarWork, sequenceWork, unionRecord } from "./text-layouts.js";
 
-export function createCausesText(kernel: TirTextKernel, source: TirRecordCodec<SourceNodeRef>): TirRecordCodec<Cause> {
+export function createCausesText(kernel: TirTextKernel, source: TirRecordCodec<SourceNodeRef>, bodyNode: TirRecordCodec<NodeRef>): TirRecordCodec<Cause> {
   const { defineRecord } = kernel;
   function scalar<Value extends string | number | bigint | boolean | null>(name: string, type: string, reader: TirReader<Value>): TirRecordCodec<{ readonly value: Value }> {
     return defineRecord<{ readonly value: Value }>(name, name, null, name, null, null, fields => fields
@@ -61,6 +61,15 @@ export function createCausesText(kernel: TirTextKernel, source: TirRecordCodec<S
     { field: "kind", value: "source-node" }, "source-node", null, null, fields => fields
       .field("node", "SourceNodeRef", value => source.write(value.node), source.reader)
       .finish(node => ({ kind: "source-node", node })));
+  const executionResult = defineRecord<Extract<UnitPosition, { readonly kind: "execution-result" }>>("ExecutionResultPosition", "UnitPosition",
+    { field: "kind", value: "execution-result" }, "execution-result", null, null, fields => fields
+      .field("execution", "string", value => scalarWork("string", value.execution), kernel.stringReader)
+      .finish(execution => ({ kind: "execution-result", execution })));
+  const executionNode = defineRecord<Extract<UnitPosition, { readonly kind: "execution-source-node" }>>("ExecutionSourcePosition", "UnitPosition",
+    { field: "kind", value: "execution-source-node" }, "execution-source-node", null, null, fields => fields
+      .field("execution", "string", value => scalarWork("string", value.execution), kernel.stringReader)
+      .field("node", "NodeRef", value => bodyNode.write(value.node), bodyNode.reader)
+      .finish((execution, node) => ({ kind: "execution-source-node", execution, node })));
   const component = defineRecord<Extract<UnitPosition, { readonly kind: "component" }>>("ComponentPosition", "UnitPosition",
     { field: "kind", value: "component" }, "component", null, null, fields => fields
       .field("path", "[KeyData]", value => sequenceWork("[KeyData]", value.path, keyWork), sequenceReader("[KeyData]", keyReader))
@@ -79,10 +88,12 @@ export function createCausesText(kernel: TirTextKernel, source: TirRecordCodec<S
       case "result": return result.write(value);
       case "module-node": return moduleNode.write(value);
       case "source-node": return sourceNode.write(value);
+      case "execution-result": return executionResult.write(value);
+      case "execution-source-node": return executionNode.write(value);
       case "component": return component.write(value);
       case "inference-variable": return variable.write(value);
     }
-  }, () => [result.reader, moduleNode.reader, sourceNode.reader, component.reader, variable.reader]);
+  }, () => [result.reader, moduleNode.reader, sourceNode.reader, executionResult.reader, executionNode.reader, component.reader, variable.reader]);
   const unit = defineRecord<UnitRef>("UnitRef", "UnitRef", null, "UnitRef", null, null, fields => fields
     .field("request", "UnitRequest", value => request.write(value.request), request.reader)
     .field("position", "UnitPosition", value => position.write(value.position), position.reader)

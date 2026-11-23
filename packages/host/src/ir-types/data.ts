@@ -226,6 +226,11 @@ export interface TypeProductionRequest {
 
 export type TypeProjection =
   | { readonly kind: "awaited" }
+  | { readonly kind: "keyof" }
+  | { readonly kind: "indexed"; readonly index: TyId }
+  | { readonly kind: "substitution"; readonly constraint: TyId }
+  | { readonly kind: "conditional"; readonly extends: TyId; readonly whenTrue: TyId; readonly whenFalse: TyId;
+      readonly distributive: boolean; readonly inferParameter: DefId | null }
   | { readonly kind: "component"; readonly component: TypeComponent };
 
 export interface FixedExtent {
@@ -247,6 +252,7 @@ export type TypeTerm =
   | { readonly kind: "shape"; readonly members: readonly Member[]; readonly indexes: readonly IndexSignature[];
       readonly calls: readonly SigId[]; readonly constructs: readonly SigId[] }
   | { readonly kind: "callable"; readonly calls: readonly SigId[]; readonly constructs: readonly SigId[] }
+  | { readonly kind: "source-environment"; readonly members: readonly MemberInventoryEntry[] }
   | { readonly kind: "declared"; readonly definition: DefId; readonly arguments: readonly TyId[];
       readonly facet: "instance" | "value"; readonly extent: FixedExtent | null }
   | { readonly kind: "construction-reference"; readonly definition: ConstructionDefinition; readonly arguments: readonly TyId[] }
@@ -331,6 +337,17 @@ export interface MemberInventory {
   readonly completeness:
     | { readonly kind: "complete" }
     | { readonly kind: "open"; readonly reasons: readonly [MemberUnavailableReason, ...MemberUnavailableReason[]] };
+}
+
+export interface MemberTypeRequest {
+  readonly receiver: TyId;
+  /** Position in this exact receiver's canonical member inventory, not a declaration or source position. */
+  readonly member: number;
+}
+
+export interface MemberTypes {
+  readonly read: TyId | null;
+  readonly write: TyId | null;
 }
 
 export type MemberUnavailableReason =

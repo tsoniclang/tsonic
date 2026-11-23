@@ -29,8 +29,11 @@ const signatures = [];
 export const T = {};
 export const SIG = {};
 const term = (name, value) => { T[name] = terms.length; terms.push(value); return T[name]; };
-const member = (key, type, optional = false) => ({ key: { kind: "text", value: key }, origins: [], readOrigins: [], writeOrigins: [],
-  kind: "property", read: type, write: type, optional, readonly: false });
+const member = (owner, key, type, optional = false) => {
+  const origin = { kind: "declared", declaration: def(`${owner}.${key}`) };
+  return { key: { kind: "text", value: key }, origins: [origin], readOrigins: [origin], writeOrigins: [origin],
+    kind: "property", read: type, write: type, optional, readonly: false };
+};
 term("void", { kind: "intrinsic", intrinsic: "void" });
 term("bool", { kind: "primitive", primitive: "bool" });
 term("string", { kind: "string" });
@@ -45,14 +48,14 @@ term("int32Fixed4Rows", { kind: "array", element: T.int32Fixed4, readonly: false
 term("int32Fixed4Grid", { kind: "fixed-array", element: T.int32Fixed4, extent: { length: 4n, runtimeBase: "number" } });
 term("int32Pair", { kind: "tuple", elements: [{ kind: "required", type: T.int32, declaration: null }, { kind: "required", type: T.int32, declaration: null }], readonly: false });
 term("optInt32", { kind: "optional", value: T.int32 });
-term("inner", { kind: "shape", members: [member("x", T.int32)], indexes: [], calls: [], constructs: [] });
-term("outer", { kind: "shape", members: [member("inner", T.inner)], indexes: [], calls: [], constructs: [] });
-term("counter", { kind: "shape", members: [member("count", T.int32)], indexes: [], calls: [], constructs: [] });
+term("inner", { kind: "shape", members: [member("Inner", "x", T.int32)], indexes: [], calls: [], constructs: [] });
+term("outer", { kind: "shape", members: [member("Outer", "inner", T.inner)], indexes: [], calls: [], constructs: [] });
+term("counter", { kind: "shape", members: [member("Counter", "count", T.int32)], indexes: [], calls: [], constructs: [] });
 term("optCounter", { kind: "optional", value: T.counter });
-term("boxV", { kind: "shape", members: [member("v", T.int32)], indexes: [], calls: [], constructs: [] });
+term("boxV", { kind: "shape", members: [member("Box", "v", T.int32)], indexes: [], calls: [], constructs: [] });
 term("optBoxV", { kind: "optional", value: T.boxV });
-term("holder", { kind: "shape", members: [member("x", T.optBoxV)], indexes: [], calls: [], constructs: [] });
-term("abRecord", { kind: "shape", members: [member("a", T.int32), member("b", T.int32, true)], indexes: [], calls: [], constructs: [] });
+term("holder", { kind: "shape", members: [member("Holder", "x", T.optBoxV)], indexes: [], calls: [], constructs: [] });
+term("abRecord", { kind: "shape", members: [member("AB", "a", T.int32), member("AB", "b", T.int32, true)], indexes: [], calls: [], constructs: [] });
 export const signature = (name, parameters, result, receiver = null, kind = "call") => {
   if (name in SIG) throw new Error(`Signature ${name} is declared twice; declare signatures at module level.`);
   SIG[name] = signatures.length;
@@ -194,7 +197,7 @@ export function builders(name, role = "function") {
     catchClause: (variableDeclaration, block) => ({ kind: "CatchClause", variableDeclaration, block, tsonic: null }),
     switchStatement: (expression, clauses) => ({ kind: "SwitchStatement", expression,
       caseBlock: { kind: "CaseBlock", clauses: list(...clauses), tsonic: null }, tsonic: null }),
-    caseClause: (expression, ...statements) => ({ kind: "CaseClause", expression, statements: list(...statements), tsonic: null }),
+    caseClause: (expression, equality, ...statements) => ({ kind: "CaseClause", expression, statements: list(...statements), tsonic: { operation: operation(equality) } }),
     defaultClause: (...statements) => ({ kind: "DefaultClause", expression: null, statements: list(...statements), tsonic: null }),
     breaks: (target, labelNode = null) => ({ kind: "BreakStatement", label: labelNode,
       tsonic: at => ({ target: nodeRef(at(target)), initializer: null }) }),

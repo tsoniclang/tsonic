@@ -1,14 +1,16 @@
-import type { TypeInterner, TypeTerm, Signature, CreateTypeInterner, SeedTypeInterner, InternType, InternSignature,
-  ReadType, ReadSignature, ViewTypes, ExportTypes } from "./contract.js";
+import type { TypeInterner, TypeTerm, Signature, CreateTypeInterner, AdmitTypeTable, InternType,
+  ReadType, ReadSignature, ViewTypes, ExportTypes, TypeRule, TypeTableAdmissionSite } from "./contract.js";
+import type { Violation } from "../diag/contract.js";
 import type { TyId, SigId } from "../ids/contract.js";
 import { createTypePublicationWork, usedPublicationWork, usedPublicationRecords } from "./work.js";
-import { readTypeData, readSignatureRow } from "./publication-read.js";
+import { admitForeignRow, admitGraphSignature, admitGraphType, readTypeData, readSignatureRow } from "./publication-read.js";
 import { TypeArena } from "./arena.js";
 import { typeIdentifier, signatureIdentifier } from "./value.js";
-import { canonicalTypes, partitionTypes, normalizeType, orderedSignature, remapSignature } from "./canonical.js";
+import { canonicalTypes, remapSignature } from "./canonical.js";
 import { copyType, copySignature } from "./copy.js";
-import { normalizePublication } from "./normalize.js";
 import { typeText, signatureText } from "./print.js";
+import { stageGraph } from "./graph-stage.js";
+import { verifyTypeRows } from "./verify.js";
 
 export function storedType(storage: TypeInterner, type: TyId): TypeTerm {
   if (!Number.isSafeInteger(type) || type < 0 || Object.is(type, -0))
@@ -37,46 +39,93 @@ function publish(storage: TypeInterner, term: TypeTerm): TyId {
   const selected = typeIdentifier(TypeArena.terms(storage).length);
   TypeArena.terms(storage).push(copyType(term));
   TypeArena.typeKeys(storage).set(key, selected);
+  TypeArena.addCandidate(storage, "type:" + key, { kind: "type", identity: selected });
   return selected;
 }
 
 export const createTypeInterner: CreateTypeInterner = () => TypeArena.create();
 
-export const seedTypeInterner: SeedTypeInterner = table => {
-  const interner = createTypeInterner();
-  const storage = interner;
-  for (const [position, term] of table.terms.entries()) {
-    const key = typeText(term);
-    TypeArena.terms(storage).push(copyType(term));
-    if (!TypeArena.typeKeys(storage).has(key)) TypeArena.typeKeys(storage).set(key, typeIdentifier(position));
+export const admitTypeTable: AdmitTypeTable = (table, admission) => {
+  const setup = admission.work(5) ?? admission.retain(5);
+  if (setup !== null) return setup;
+  const invalid = (site: TypeTableAdmissionSite, rule: TypeRule, field: string): {
+    readonly kind: "invalid"; readonly violations: readonly Violation<TypeRule, TypeTableAdmissionSite>[];
+  } => ({ kind: "invalid", violations: [{ rule, site, detail: [{ kind: "text", value: field }] }] });
+  const typeRows = table.terms;
+  if (!Array.isArray(typeRows)) return invalid({ kind: "table" }, "type-reference", "terms");
+  const signatureRows = table.signatures;
+  if (!Array.isArray(signatureRows)) return invalid({ kind: "table" }, "signature-reference", "signatures");
+  const storage = createTypeInterner();
+  const terms = new Map<number, TypeTerm>();
+  const signatures = new Map<number, Signature>();
+  const ownedTerms: TypeTerm[] = [];
+  const ownedSignatures: Signature[] = [];
+  for (let position = 0; position < typeRows.length; position++) {
+    const before = admission.work(1);
+    if (before !== null) return before;
+    const row = typeRows[position];
+    if (row === undefined) return invalid({ kind: "type", type: typeIdentifier(position) }, "type-reference", "terms");
+    const selected = admitForeignRow({ kind: "type", value: row }, admission.work, admission.retain);
+    if (selected?.kind === "malformed") return invalid({ kind: "type", type: typeIdentifier(position) }, "type-reference", selected.field);
+    if (selected !== null) return selected;
+    const owned = copyType(row);
+    terms.set(position, owned);
+    ownedTerms.push(owned);
   }
-  for (const [position, value] of table.signatures.entries()) {
-    const key = signatureText(remapSignature(value, type => type, signature => signature));
-    TypeArena.signatures(storage).push(copySignature(value));
-    if (!TypeArena.signatureKeys(storage).has(key)) TypeArena.signatureKeys(storage).set(key, signatureIdentifier(position));
+  for (let position = 0; position < signatureRows.length; position++) {
+    const before = admission.work(1);
+    if (before !== null) return before;
+    const row = signatureRows[position];
+    if (row === undefined || row === null || !Object.is(row.id, position))
+      return invalid({ kind: "signature", signature: signatureIdentifier(position) }, "signature-order", "id");
+    const selected = admitForeignRow({ kind: "signature", value: row }, admission.work, admission.retain);
+    if (selected?.kind === "malformed")
+      return invalid({ kind: "signature", signature: signatureIdentifier(position) }, "signature-reference", selected.field);
+    if (selected !== null) return selected;
+    const owned = copySignature(row);
+    signatures.set(position, owned);
+    ownedSignatures.push(owned);
   }
-  return interner;
+  for (const row of ownedTerms) {
+    const work = admitGraphType(row, admission.work, () => null);
+    if (work !== null) return work;
+  }
+  for (const row of ownedSignatures) {
+    const work = admitGraphSignature(row, admission.work, () => null);
+    if (work !== null) return work;
+  }
+  const violations = verifyTypeRows({ terms: ownedTerms, signatures: ownedSignatures }, null);
+  if (violations.length !== 0) return { kind: "invalid", violations };
+  const result = stageGraph(storage, terms, signatures, {
+    step: (count = 1) => admission.work(count),
+    growth: count => admission.work(count) ?? admission.retain(count),
+    type: value => admitGraphType(value, admission.work, admission.retain),
+    signature: value => admitGraphSignature(value, admission.work, admission.retain),
+    beforeMember: null,
+  });
+  if (result.kind !== "complete") return result;
+  for (const [position, row] of terms) {
+    const work = admission.work(1) ?? admitGraphType(row, admission.work, admission.retain);
+    if (work !== null) return work;
+    if (result.value.types.get(position) !== position || TypeArena.typeKeys(storage).get(typeText(row)) !== position)
+      return invalid({ kind: "type", type: typeIdentifier(position) }, "canonical-representative", "terms");
+  }
+  for (const [position, row] of signatures) {
+    const work = admission.work(1) ?? admitGraphSignature(row, admission.work, admission.retain);
+    if (work !== null) return work;
+    if (result.value.signatures.get(position) !== position
+      || TypeArena.signatureKeys(storage).get(signatureText(remapSignature(row, type => type, signature => signature))) !== position)
+      return invalid({ kind: "signature", signature: signatureIdentifier(position) }, "canonical-representative", "signatures");
+  }
+  return { kind: "complete", types: storage };
 };
 
 export const internType: InternType = (interner, term) => {
-  const storage = interner;
-  return normalizeType(term, type => storedType(storage, type), value => publish(storage, value), null);
-};
-
-export const internSignature: InternSignature = (interner, input) => {
-  const storage = interner;
-  const normalized = orderedSignature(remapSignature(input, type => type, signature => signature));
-  const key = signatureText(normalized);
-  const previous = TypeArena.signatureKeys(storage).get(key);
-  if (previous !== undefined) {
-    return previous;
+  switch (term.kind) {
+    case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
+      return publish(interner, term);
+    default: throw new TypeError("ir-types: a nonleaf type requires one paid closed graph admission.");
   }
-  const id = signatureIdentifier(TypeArena.signatures(storage).length);
-  const value: Signature = { id, declaration: normalized.declaration, owner: normalized.owner, composition: normalized.composition,
-    kind: normalized.kind, typeParameters: normalized.typeParameters, receiver: normalized.receiver, parameters: normalized.parameters, result: normalized.result };
-  TypeArena.signatures(storage).push(copySignature(value));
-  TypeArena.signatureKeys(storage).set(key, id);
-  return id;
 };
 
 export const readType: ReadType = (interner, type) => storedType(interner, type);
@@ -94,17 +143,14 @@ export const exportTypes: ExportTypes = (interner, limits) => {
     terms.push(selected.value);
   }
   for (const [position, row] of TypeArena.signatures(storage).entries()) {
-    const selected = readSignatureRow(row, work, "read");
+    const selected = readSignatureRow(row, work);
     if (selected.kind === "resource-limit") return selected;
     if (selected.value.id !== position) throw new Error(`ir-types: signature row ${position} is not a complete Signature with its own ID.`);
     signatures.push(selected.value);
   }
   const table = { terms, signatures };
-  const partition = partitionTypes(table, work);
-  if (partition.kind === "resource-limit") return partition;
-  const normalized = normalizePublication(table, partition.value, work);
-  if (normalized.kind === "resource-limit") return normalized;
-  const publication = canonicalTypes(normalized.value, work);
+  const publication = canonicalTypes({ table, types: terms.map((_, position) => typeIdentifier(position)),
+    signatures: signatures.map((_, position) => signatureIdentifier(position)) }, work);
   if (publication.kind === "resource-limit") return publication;
   return { ...publication, work: usedPublicationWork(work), createdRecords: usedPublicationRecords(work) };
 };

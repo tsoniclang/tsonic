@@ -5,7 +5,7 @@ import type { Result } from "../diag/contract.js";
 import type { InferDeps } from "./contract.js";
 import { callerDefect, notInferredYet } from "./frontier.js";
 
-export function bodyCaptureModes(deps: InferDeps, source: HirBody, take: (work: number) => boolean): Result<readonly CaptureRow[]> | null {
+export function bodyCaptureModes<State>(deps: InferDeps<State>, source: HirBody, take: (work: number) => boolean): Result<readonly CaptureRow[]> | null {
   if (!take(source.captures.length * 6)) return null;
   const input: CaptureModeEvidence[] = [];
   const parameters = new Map<BodyId, ReadonlyMap<LocalId, HirParam>>();

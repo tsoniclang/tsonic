@@ -28,10 +28,10 @@ const expectedImports = ([
   ["lower-mir", [...first.slice(0, 6), "ir-infer"]], ["evaluate", [...first.slice(0, 6), "libraries", "ir-infer", "step"]],
   ["metadata", [...first.slice(0, 4), "ir-facts", "step"]],
   ["analyses/body", [...first, "dataflow"]],
-  ...["liveness", "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking"].map(name => [`analyses/${name}`, [...first, "dataflow", ...(["refinements", "origins", "pointerBacking"].includes(name) ? ["ir-infer"] : [])]]),
+  ["analyses/liveness", [...first, "dataflow"]],
   ["summaries", [...first, "dataflow", "ir-infer", "libraries", "analyses/body", "analyses/liveness"]],
   ["pipeline", [...first.slice(0, 4), "ir-infer", ...first.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot", "step", "front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
-    "analyses/body", "analyses/liveness", "analyses/initialization", "analyses/refinements", "analyses/origins", "analyses/suspension", "analyses/errorStorage", "analyses/pointerBacking", "summaries"]],
+    "analyses/body", "analyses/liveness", "summaries"]],
   ...["project", "packages", "plugins", "artifacts"].map(name => [name, ["ids", "diag", "snapshot"]]),
   ["orchestration", ["ids", "diag", "ir-types", "snapshot", "ir-program", "pipeline", "project", "packages", "plugins", "artifacts"]],
   ["cli", ["orchestration", "diag", "snapshot"]], ["create-tsonic", ["orchestration", "diag", "snapshot"]],
@@ -62,14 +62,14 @@ function expect(entries, expected, authority = hostCatalogue) {
 const at = (code, path, line = 1, column = 1) => ({ code, path, line, column });
 
 test("the complete R6 catalogue and snapshot amendment have exactly one explicit row per owner", () => {
-  assert.equal(hostCatalogue.length, 40);
+  assert.equal(hostCatalogue.length, 34);
   assert.equal(JSON.stringify(hostCatalogue.map(module => [module.name, module.imports])), JSON.stringify(expectedImports));
   assert.equal(hostCatalogue.filter(module => ["library", "component"].includes(module.kind)).every(module => module.effects.length === 0), true);
   assert.equal(JSON.stringify(hostCatalogue.filter(module => module.effects.length > 0).map(module => [module.name, module.effects])),
     JSON.stringify(["project", "packages", "plugins", "artifacts", "orchestration"].map(name => [name,
       [{ path: `${host}/${name}/effects.ts`, role: name === "plugins" ? "plugin-loading" : "effects" }]])));
   assert.equal(hostCatalogue.filter(module => module.kind === "library").length, 14);
-  assert.equal(hostCatalogue.filter(module => module.kind === "component").length, 18);
+  assert.equal(hostCatalogue.filter(module => module.kind === "component").length, 12);
 });
 
 test("invariant owners are exactly the written catalogue module names above ids", () => {
@@ -114,7 +114,7 @@ test("step is the one pause carrier: only Query, the pausing operations, their r
   const importers = ["ir-infer", "query", "decls", "infer", "elaborate", "evaluate", "metadata", "pipeline"];
   assert.deepEqual(hostCatalogue.filter(module => module.imports.includes("step")).map(module => module.name).sort(), [...importers].sort());
   const requestFree = hostCatalogue.filter(module => module.name.startsWith("analyses/") || module.name === "summaries");
-  assert.equal(requestFree.length, 9);
+  assert.deepEqual(requestFree.map(module => module.name), ["analyses/body", "analyses/liveness", "summaries"]);
   assert.equal(requestFree.some(module => module.imports.includes("step")), false, "request-free analysis and convergence have no pause path");
   const step = hostCatalogue.find(module => module.name === "step");
   assert.deepEqual(step.imports, []);
@@ -128,9 +128,9 @@ test("step is the one pause carrier: only Query, the pausing operations, their r
 
 test("the decision vocabulary stays in ir-infer: the readers partition the catalogue, and a reader reaches no module outside its row", () => {
   const readers = ["ir-tir", "ir-mir", "ir-facts", "ir-program", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate",
-    "analyses/refinements", "analyses/origins", "analyses/pointerBacking", "summaries", "pipeline"];
+    "summaries", "pipeline"];
   const others = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "dataflow", "query", "libraries", "snapshot", "step", "front", "metadata",
-    "analyses/body", "analyses/liveness", "analyses/initialization", "analyses/suspension", "analyses/errorStorage",
+    "analyses/body", "analyses/liveness",
     "project", "packages", "plugins", "artifacts", "orchestration", "cli", "create-tsonic"];
   assert.deepEqual([...readers, ...others].sort(), hostCatalogue.map(module => module.name).sort());
   assert.deepEqual(hostCatalogue.filter(module => module.imports.includes("ir-infer")).map(module => module.name).sort(), [...readers].sort());
@@ -489,12 +489,13 @@ test("signed construction and projection ports require exact canonical owner-qua
     { owner: "front", name: "LowerModuleDefinitions", declarations: 'import type { Result } from "../diag/contract.js";\nexport interface RawModule { readonly value: number; }\nexport interface ModuleDefinitionsInput { readonly module: RawModule; readonly componentRoots: readonly number[]; }\nexport interface ModuleDefinitions { readonly value: number; }',
       signature: '(input: ModuleDefinitionsInput) => Result<ModuleDefinitions>', wrong: '(module: RawModule) => Result<ModuleDefinitions>',
       extra: [["diag", 'export interface Result<Value> { readonly value: Value; }']] },
-    { owner: "decls", name: "DescribeDefinitions", declarations: 'export interface DeclsModule { readonly value: number; }\nexport interface DefinitionExports { readonly value: number; }\nexport interface DefinitionTable { readonly value: number; }',
-      signature: '(module: DeclsModule, names: readonly DefinitionExports[]) => DefinitionTable',
-      wrong: '(names: readonly DefinitionExports[], module: DeclsModule) => DefinitionTable', extra: [] },
-    { owner: "rules", name: "CreateRuleTable", declarations: 'import type { RuleTable } from "../ir-infer/contract.js";\nexport interface RulesDeps { readonly value: number; }',
-      signature: '(deps: RulesDeps) => RuleTable', wrong: '(deps: { readonly value: number }) => RuleTable',
-      extra: [["ir-infer", 'export interface RuleTable { readonly value: number; }']] },
+    { owner: "decls", name: "DescribeDefinitions", declarations: 'import type { HirDeclarationScopes } from "../ir-hir/contract.js";\nexport interface DeclsModule { readonly value: number; }\nexport interface DefinitionExports { readonly value: number; }\nexport interface DefinitionTable { readonly value: number; }',
+      signature: '(module: DeclsModule, scopes: HirDeclarationScopes, names: readonly DefinitionExports[]) => DefinitionTable',
+      wrong: '(module: DeclsModule, names: readonly DefinitionExports[]) => DefinitionTable',
+      extra: [["ir-hir", 'export interface HirDeclarationScopes { readonly value: number; }']] },
+    { owner: "rules", name: "CreateRuleTable", declarations: 'import type { RuleTable } from "../ir-infer/contract.js";\nexport interface RulesDeps { readonly value: number; }\nexport interface MemberRuleContinuation { readonly value: number; }',
+      signature: '(deps: RulesDeps) => RuleTable<MemberRuleContinuation>', wrong: '(deps: RulesDeps) => RuleTable<RulesDeps>',
+      extra: [["ir-infer", 'export interface RuleTable<State> { readonly state: State; }']] },
   ];
   for (const suffix of ["ts", "d.ts"]) for (const sample of cases) {
     const contract = file(sample.owner, `contract.${suffix}`);
@@ -526,6 +527,33 @@ test("signed construction and projection ports require exact canonical owner-qua
       expect([...extras, [wrongOwner, `${sample.declarations}\nexport type ${sample.name} = ${sample.signature};`],
         [file("infer", `index.${suffix}`), body[1]]], [at("impure-component", wrongOwner, sample.declarations.split("\n").length + 1)]);
     }
+  }
+});
+
+test("the signed type matcher accepts exactly the public ready operand terms", () => {
+  for (const suffix of ["ts", "d.ts"]) {
+    const operands = file("ir-types", `data.${suffix}`);
+    const facade = file("ir-types", `contract.${suffix}`);
+    const outcomes = file("ir-infer", `contract.${suffix}`);
+    const contract = file("rules", `contract.${suffix}`);
+    const entry = file("rules", `index.${suffix}`);
+    const shared = [
+      [operands, 'export interface TypeTerm { readonly kind: "literal"; }'],
+      [facade, 'export type { TypeTerm } from "./data.js";'],
+      [outcomes, 'export type TypePatternMatchOutcome = "match" | "no-match";'],
+      [entry, 'import type { TypePatternMatch } from "./contract.js";\n' + (suffix === "ts"
+        ? 'export const match: TypePatternMatch = () => "match";' : "export declare const match: TypePatternMatch;")],
+    ];
+    const inputs = 'import type { TypeTerm } from "../ir-types/contract.js";\n'
+      + 'import type { TypePatternMatchOutcome } from "../ir-infer/contract.js";\n';
+    const signature = 'export type TypePatternMatch = (check: TypeTerm, pattern: TypeTerm) => TypePatternMatchOutcome;';
+    expect([...shared, [contract, inputs + signature]], []);
+    expect([...shared, [contract, inputs + signature.replace("pattern: TypeTerm", "pattern: TypePatternMatchOutcome")]],
+      [at("impure-component", contract, 3)]);
+    const privateData = shared.map(entry => entry[0] === facade ? [facade, "export interface Unrelated {}"] : entry);
+    const result = inspect([...privateData, [contract, inputs.replace("../ir-types/contract.js", "../ir-types/data.js") + signature]]);
+    assert.equal(result.some(finding => finding.path === contract && finding.code === "forbidden-import"), true);
+    assert.equal(result.some(finding => finding.path === contract && finding.code === "impure-component"), true);
   }
 });
 

@@ -268,6 +268,44 @@ test("storage work: the verifier returns the refusal for a body whose storage pa
   assert.deepEqual(verifyMir(body, contextOf(required)), { kind: "complete", violations: [finding(0, 0, 2)] });
 });
 
+test("a lowered static load and authored store use the actual declaration and selected storage type", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const { verifyValues, placeLocations } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
+  const { createWireTexts, sourceNodes } = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
+  const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
+  const result = await analyzeOptionalSource("export let spare: undefined; export let state: boolean = true; "
+    + "export function read(next: boolean): boolean { state = next; return state; }");
+  assert.equal(result.kind, "ok");
+  const bodies = result.value.modules.flatMap(module => module.bodies).filter(body => body.kind === "selected");
+  const reader = bodies.find(body => body.tir.root.kind === "Block");
+  const constant = bodies.flatMap(body => body.mir.constants).find(row => row.value.kind === "literal" && row.value.value.kind === "boolean");
+  const { mir, tir } = reader;
+  const selected = mir.places.find(place => place.base.kind === "static");
+  const load = mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign"
+    && statement.value.kind === "use" && statement.value.operand.kind === "place" && statement.value.operand.place === selected.id);
+  const store = mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign" && statement.place === selected.id);
+  assert.equal(store.value.operand.kind, "place");
+  const nodes = sourceNodes(tir, createWireTexts(createDecisionWires(createScalarWires())));
+  const context = { ...contextOf(1000000), source: tir, types: result.value.index.types };
+  const check = (body, syntax = nodes) => verifyValues(body, context, syntax, placeLocations(body), {
+    spent: 0, maximum: 1000000, exhausted: false,
+  }).violations;
+  const change = operand => ({ ...mir, blocks: mir.blocks.map(block => ({ ...block,
+    statements: block.statements.map(statement => statement === load ? { ...load, value: { kind: "use", operand } } : statement) })) });
+  assert.deepEqual(check(mir), []);
+  const wrongStore = { ...mir, blocks: mir.blocks.map(block => ({ ...block, statements: block.statements.map(statement =>
+    statement === store ? { ...store, place: store.value.operand.place } : statement) })) };
+  assert.equal(check(wrongStore).some(finding => finding.rule === "static-write-exact"), true);
+  for (const findings of [
+    check(change({ kind: "place", place: load.place })),
+    check({ ...change({ kind: "constant", constant: 0 }), constants: [{ ...constant, id: 0 }] }),
+    check(mir, new Map()),
+    check({ ...mir, places: mir.places.map(place => place === selected ? { ...place, storage: result.value.index.types.terms.findIndex(
+      type => type.kind === "intrinsic" && type.intrinsic === "unknown") } : place) }),
+  ]) assert.equal(findings.some(finding => finding.rule === "static-read-exact"), true);
+});
+
 // ---- the locals a place reaches (K-3293, K-3294) ----------------------------------------------------------------
 // Places on locals 0..N, then a chain c_1 = place 0[index place 1], c_i = c_{i-1}[index place i]: c_i reaches
 // locals 0..i. All locals are begun in block 0, so nothing is looked up and nothing is found.

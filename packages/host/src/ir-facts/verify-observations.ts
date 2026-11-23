@@ -6,8 +6,8 @@ import type { Violation } from "../diag/contract.js";
 import type { NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { HirNode, HirObservationCapture } from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
-import type { BindingValues, BindingVector } from "../ir-types/contract.js";
-import { bindingVectorKey, rigidBindings, substituteBindingValues } from "../ir-types/index.js";
+import type { ProjectedBindingValues, BindingVector } from "../ir-types/contract.js";
+import { bindingVectorKey, rigidBindings, projectBindingValues } from "../ir-types/index.js";
 import type { FactsRule, FactsSite, ObservationVerificationContext, MetadataKey, VerifyObservations } from "./contract.js";
 import { sameBindings, validIndex } from "./verify-relations.js";
 import { observationBindingInputs } from "./binding-inputs.js";
@@ -156,10 +156,12 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
     { const stop = chargeResultEntries(account, 2); if (stop !== null) return stop; }
     descriptorPositions.set(row.node, { layout: layoutPosition, field: fieldPosition });
   }
-  let selected: BindingValues = { types, bindings };
-  if (instance.bindings.kind === "instantiated") {
-    const transformed = substituteBindingValues(input.types, selected, instance.bindings.bindings, input.typeExpansion);
-    if (transformed.kind === "resource-limit") return transformed;
+  let selected: ProjectedBindingValues = { types, bindings };
+  if (instance.bindings.kind === "instantiated" && (types.length !== 0 || bindings.length !== 0)) {
+    const transformed = projectBindingValues(input.types, { types, bindings }, instance.bindings.bindings, input.typeExpansion, {
+      work: count => chargeWork(account, count), retain: count => chargeResultEntries(account, count),
+    });
+    if (transformed.kind !== "complete") return transformed;
     selected = transformed.value;
   }
   const seen = new Set<NodeId>();
@@ -177,8 +179,8 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
     const capture = captures.get(row.node);
     const descriptors = descriptorPositions.get(row.node);
     const position = positions.get(row.node);
-    const actualType = position === undefined || position.type === null ? undefined : selected.types[position.type];
-    const actualBindings = position === undefined || position.bindings === null ? undefined : selected.bindings[position.bindings];
+    const actualType = position === undefined || position.type === null ? undefined : selected.types[position.type] ?? undefined;
+    const actualBindings = position === undefined || position.bindings === null ? undefined : selected.bindings[position.bindings] ?? undefined;
     const occurrence: SourceNodeRef = { kind: "body", value: { body: instance.body, node: row.node } };
     const identities = admitBindingIdentity(row.bindings, account)
       ?? (actualBindings === undefined ? null : admitBindingIdentity(actualBindings, account));
@@ -202,7 +204,7 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
       ? { kind: "complete", value: false } : sameSource(capture.layout.value, layout.occurrence, account);
     if (layoutOccurrence.kind !== "complete") return layoutOccurrence;
     const layoutAgreement: DataflowResult<boolean> = descriptors === undefined || descriptors.layout === null
-      ? { kind: "complete", value: false } : descriptorAgrees(row.layout.metadata, selected.bindings[descriptors.layout], context, account);
+      ? { kind: "complete", value: false } : descriptorAgrees(row.layout.metadata, selected.bindings[descriptors.layout] ?? undefined, context, account);
     if (layoutAgreement.kind !== "complete") return layoutAgreement;
     if (layout !== undefined && (capture === undefined || capture.layout.kind !== "available"
       || !layoutOccurrence.value || input.nodeOf(layout.occurrence) === null
@@ -222,7 +224,7 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
       : sameSource(capture.field.value, field.occurrence, account);
     if (fieldOccurrence.kind !== "complete") return fieldOccurrence;
     const fieldAgreement: DataflowResult<boolean> = row.field === null || descriptors === undefined || descriptors.field === null
-      ? { kind: "complete", value: false } : descriptorAgrees(row.field.metadata, selected.bindings[descriptors.field], context, account);
+      ? { kind: "complete", value: false } : descriptorAgrees(row.field.metadata, selected.bindings[descriptors.field] ?? undefined, context, account);
     if (fieldAgreement.kind !== "complete") return fieldAgreement;
     if (row.operation === "field-offset") {
       if (row.field === null || field === undefined || fieldMetadata === null || fieldMetadata.kind === "data-layout"

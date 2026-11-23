@@ -1,8 +1,8 @@
 import { encodeKey } from "../ids/index.js";
 import type { KeyData } from "../ids/contract.js";
 import type { Violation } from "../diag/contract.js";
-import type { NativeIntegerGeometryOf } from "./contract.js";
-import type { NativePrimitive } from "./data.js";
+import type { IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, NativeIntegerGeometryOf } from "./contract.js";
+import type { NativeBinaryFloatPrimitive, NativeIntegerPrimitive, NativeSignedIntegerPrimitive, NativePrimitive } from "./data.js";
 import type { CheckFailure, NativeArithmeticCarrier, NativeConversionResult, NativeFactsRule, NativeFactsSite,
   NativeFloatingFormat, NativeRounding, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
 
@@ -42,7 +42,7 @@ export function nativeFactsKey(value: SelectedNativeFacts): string {
   ]);
 }
 
-function nativeCarrier(value: NativePrimitive): boolean {
+export function isNativePrimitive(value: unknown): value is NativePrimitive {
   switch (value) {
     case "bool": case "char": case "int8": case "uint8": case "int16": case "uint16": case "int32": case "uint32":
     case "int64": case "uint64": case "int128": case "uint128": case "native-int": case "native-uint":
@@ -51,14 +51,20 @@ function nativeCarrier(value: NativePrimitive): boolean {
   }
 }
 
-function integerCarrier(value: NativePrimitive): boolean {
+export const isNativeSignedIntegerPrimitive: IsNativeSignedIntegerPrimitive = (value): value is NativeSignedIntegerPrimitive => {
   switch (value) {
-    case "int8": case "uint8": case "int16": case "uint16": case "int32": case "uint32":
-    case "int64": case "uint64": case "int128": case "uint128": case "native-int": case "native-uint": return true;
+    case "int8": case "int16": case "int32": case "int64": case "int128": case "native-int": return true;
     default: return false;
   }
-}
-function floatingCarrier(value: NativePrimitive | "bigint"): boolean { return value === "float16" || value === "float32" || value === "float64"; }
+};
+export const isNativeIntegerPrimitive: IsNativeIntegerPrimitive = (value): value is NativeIntegerPrimitive => {
+  switch (value) {
+    case "uint8": case "uint16": case "uint32": case "uint64": case "uint128": case "native-uint": return true;
+    default: return isNativeSignedIntegerPrimitive(value);
+  }
+};
+export const isNativeBinaryFloatPrimitive: IsNativeBinaryFloatPrimitive = (value): value is NativeBinaryFloatPrimitive =>
+  value === "float16" || value === "float32" || value === "float64";
 
 export const nativeIntegerGeometryOf: NativeIntegerGeometryOf = (primitive, facts, admit) => {
   if (!admit(1, 0)) return { kind: "resource-stop" };
@@ -123,7 +129,7 @@ export function floatingBitsFit(bits: bigint, format: NativeFloatingFormat): boo
 }
 
 function arithmeticCarrier(value: NativeArithmeticCarrier): boolean {
-  return value === "bigint" || value === "decimal" || integerCarrier(value) || floatingCarrier(value);
+  return value === "bigint" || value === "decimal" || isNativeIntegerPrimitive(value) || isNativeBinaryFloatPrimitive(value);
 }
 function failure(value: CheckFailure): boolean { return value === "unwind" || value === "abort"; }
 function rounding(value: NativeRounding): boolean {
@@ -165,36 +171,35 @@ export function verifyNativeFacts(value: SelectedNativeFacts): readonly Violatio
     }
   };
   rows(value.carrierHolding, "carrierHolding", 18, row => row.carrier,
-    row => nativeCarrier(row.carrier) && (row.holding === "in-place" || row.holding === "by-reference"));
+    row => isNativePrimitive(row.carrier) && (row.holding === "in-place" || row.holding === "by-reference"));
   rows(value.nativeIntegerWidths, "nativeIntegerWidths", 2, row => row.carrier,
     row => (row.carrier === "native-int" || row.carrier === "native-uint") && Number.isSafeInteger(row.bits) && row.bits > 0);
   rows(value.floatingFormats, "floatingFormats", 3, row => row.carrier,
-    row => floatingCarrier(row.carrier)
+    row => isNativeBinaryFloatPrimitive(row.carrier)
       && (row.interchange === "ieee754-binary16" || row.interchange === "ieee754-binary32" || row.interchange === "ieee754-binary64")
       && typeof row.nanSignObservable === "boolean" && typeof row.nanPayloadObservable === "boolean"
       && typeof row.signalingNaNObservable === "boolean");
   rows(value.integerOverflow, "integerOverflow", 84, row => encodeKey([row.carrier, row.operation]), row => {
     const operation = row.operation;
-    return integerCarrier(row.carrier) && integerCarrier(row.result) && (row.law === "wrap" || failure(row.law))
+    return isNativeIntegerPrimitive(row.carrier) && isNativeIntegerPrimitive(row.result) && (row.law === "wrap" || failure(row.law))
       && (operation === "add" || operation === "subtract" || operation === "multiply" || operation === "negate"
         || operation === "increment" || operation === "decrement" || operation === "left-shift");
   });
   rows(value.divisionByZero, "divisionByZero", 17, row => row.carrier,
-    row => arithmeticCarrier(row.carrier) && (row.law === "ieee754" ? floatingCarrier(row.carrier) : failure(row.law)));
+    row => arithmeticCarrier(row.carrier) && (row.law === "ieee754" ? isNativeBinaryFloatPrimitive(row.carrier) : failure(row.law)));
   rows(value.remainderByZero, "remainderByZero", 17, row => row.carrier,
-    row => arithmeticCarrier(row.carrier) && (row.law === "ieee754" ? floatingCarrier(row.carrier) : failure(row.law)));
+    row => arithmeticCarrier(row.carrier) && (row.law === "ieee754" ? isNativeBinaryFloatPrimitive(row.carrier) : failure(row.law)));
   rows(value.signedQuotientOverflow, "signedQuotientOverflow", 6, row => row.carrier,
-    row => (row.carrier === "int8" || row.carrier === "int16" || row.carrier === "int32" || row.carrier === "int64"
-      || row.carrier === "int128" || row.carrier === "native-int") && (row.law === "wrap" || failure(row.law)));
+    row => isNativeSignedIntegerPrimitive(row.carrier) && (row.law === "wrap" || failure(row.law)));
   rows(value.divisionRounding, "divisionRounding", 17, row => row.carrier,
     row => arithmeticCarrier(row.carrier) && rounding(row.rounding));
   rows(value.remainderSign, "remainderSign", 17, row => row.carrier,
     row => arithmeticCarrier(row.carrier) && (row.sign === "dividend" || row.sign === "divisor" || row.sign === "nonnegative"));
   rows(value.invalidShiftCount, "invalidShiftCount", 12, row => row.carrier,
-    row => integerCarrier(row.carrier) && row.law !== null && row.law !== undefined
+    row => isNativeIntegerPrimitive(row.carrier) && row.law !== null && row.law !== undefined
       && (row.law.kind === "mask" ? typeof row.law.mask === "bigint" && row.law.mask >= 0n : row.law.kind === "fail" && failure(row.law.failure)));
   rows(value.conversions, "conversions", 221, row => encodeKey([row.from, row.to]),
-    row => arithmeticCarrier(row.from) && (row.to === "bigint" || integerCarrier(row.to)) && rounding(row.rounding) && conversion(row.outOfRange)
+    row => arithmeticCarrier(row.from) && (row.to === "bigint" || isNativeIntegerPrimitive(row.to)) && rounding(row.rounding) && conversion(row.outOfRange)
       && conversion(row.notANumber) && conversion(row.positiveInfinity) && conversion(row.negativeInfinity));
   scalar(failure(value.arrayIndexFailure), "arrayIndexFailure");
   scalar(failure(value.tupleIndexFailure), "tupleIndexFailure");

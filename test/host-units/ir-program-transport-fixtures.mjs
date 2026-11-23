@@ -1,4 +1,5 @@
 import { encodeDefId, encodeGroupId } from "../../packages/host/dist/ids/index.js";
+import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
 
 export const expectedSyntaxKinds = [
   "Unknown", "EndOfFile", "SingleLineCommentTrivia", "MultiLineCommentTrivia", "NewLineTrivia", "WhitespaceTrivia", "ConflictMarkerTrivia", "NonTextFileMarkerTrivia",
@@ -259,8 +260,10 @@ export function nullableSyntaxCases(node, definition, body) {
   };
   const typeParameter = parent => {
     const own = header(parent);
-    return { ...own, kind: "TypeParameter", modifiers: null, name: name(own.id), constraint: null, expression: null, defaultType: null,
-      tsonic: { parameter: { identity: { owner: definition, index: 0 }, declaration: definition, constraint: null, default: null } } };
+    const declaration = typeParameterDeclaration(definition, 0);
+    const identifier = { ...name(own.id), text: "T0", tsonic: { role: "declaration-name", declaration: { kind: "definition", definition: declaration }, storage: null } };
+    return { ...own, kind: "TypeParameter", modifiers: null, name: identifier, constraint: null, expression: null, defaultType: null,
+      tsonic: { parameter: { declaration, constraint: null, default: null } } };
   };
   const heritage = parent => {
     const own = header(parent);
@@ -341,7 +344,11 @@ export function nullableSyntaxCases(node, definition, body) {
 }
 
 export function relationalTransportArtifacts(fixture) {
-  const facts = structuredClone(fixture.module.bodies[0].facts[0]);
+  const published = fixture.selected;
+  const facts = structuredClone(published.facts[0]);
+  const entry = published.mir.blocks[published.mir.entries[0].block];
+  const point = { block: entry.id, statement: null };
+  const eventNode = entry.terminator.tir.node;
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const physical = fixture.index.metadata[0].fields[0];
   const member = { decision: { ...physical.member, read: physical.value, write: physical.value,
@@ -355,7 +362,7 @@ export function relationalTransportArtifacts(fixture) {
   const application = { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings,
     implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
   const resolution = { decision: application, activation: fixture.instance };
-  const argument = owner => ({ authoredIndex: 0, parameter: fixture.definition, parameterIndex: 0, repeated: false,
+  const argument = owner => ({ kind: "provided", authoredIndex: 0, parameter: fixture.definition, parameterIndex: 0, repeated: false,
     passing: "by-value", actual: 0, formal: { owner, producer: 0 }, projection: null });
   facts.arena = {
     cells: [],
@@ -365,17 +372,17 @@ export function relationalTransportArtifacts(fixture) {
       { id: 3, parent: null, projection: { kind: "index", constant: 0n } },
       { id: 4, parent: null, projection: { kind: "deref" } }],
     producers: [{ id: 0, path: null, kind: "shared", definition: fixture.definition }],
-    contexts: [{ id: 0, receiver: null, arguments: [0], captures: [] }],
+    contexts: [{ id: 0, receiver: null, arguments: [{ kind: "provided", origins: 0 }], captures: [] }],
     boundProducers: [{ id: 0, producer: 0, bindings, context: 0 }],
     origins: [{ id: 0, producers: [0], includesAbsence: false, kind: "complete" }],
     boundaries: [{ id: 0, kind: "external-input", at: { kind: "node", node: { kind: "body", value: at } }, subject: 0, owner: null,
       bindings, context: 0, detail: "external structural carrier" }],
   };
-  facts.origins.invocations = [{ node: 0, kind: "call", alternatives: [{ resolution, context: 0,
+  facts.origins.invocations = [{ node: eventNode, point, kind: "call", alternatives: [{ resolution, context: 0,
     arguments: [argument(bodyOwner), argument(summaryOwner)], result: 0, thrown: 0, summary }], boundaries: [] }];
   facts.origins.callbacks = [{ node: 0, argument: argument(bodyOwner), timing: "synchronous", rejection: null, inputs: [] }];
-  facts.origins.activations = [{ node: 0, activation: fixture.instance, context: 0, caller: null, entry: null },
-    { node: 0, activation: fixture.instance, context: 0, caller: 0, entry: argument(summaryOwner) }];
+  facts.origins.activations = [{ node: eventNode, point, activation: fixture.instance, context: 0, caller: null, entry: null },
+    { node: eventNode, point, activation: fixture.instance, context: 0, caller: 0, entry: argument(summaryOwner) }];
   facts.origins.constructions = [{ node: 0, root: at, allocation: at, implementation: fixture.definition, body: null, regions: [] },
     { node: 0, root: at, allocation: at, implementation: fixture.definition, body: fixture.instance, regions: [] }];
   facts.rawLocations = [{ node: 0, operation: "to-raw", pointee: 1,
@@ -447,7 +454,7 @@ export function mirTransportCases(fixture) {
 }
 
 export function genericCarrierCase(fixture, kind) {
-  const parameter = { owner: fixture.definition, index: 0 };
+  const parameter = typeParameterDeclaration(fixture.definition, 0);
   const reference = { kind: "body", value: { body: fixture.bodyId, node: 0 } };
   const construction = { occurrence: reference.value, captures: [] };
   const member = { key: { kind: "text", value: "value" }, origins: [{ kind: "declared", declaration: fixture.definition }],
@@ -473,18 +480,31 @@ export function genericCarrierCase(fixture, kind) {
       concrete = { ...generic, arguments: [1, 1] }; break;
     case "construction-reference": generic = { kind, definition: construction, arguments: [2, 3] }; concrete = { ...generic, arguments: [1, 1] }; break;
     case "projection-await": generic = { kind: "projection", source: 2, projection: { kind: "awaited" } }; concrete = { ...generic, source: 1 }; break;
-    case "projection-component": generic = { kind: "projection", source: 2, projection: { kind: "component", component: {
-      root: reference, path: transportTypeTable(fixture).terms.find(value => value.kind === "projection" && value.projection.kind === "component").projection.component.path,
-    } } }; concrete = { ...generic, source: 1 }; break;
+    case "projection-keyof": generic = { kind: "projection", source: 2, projection: { kind: "keyof" } };
+      concrete = { ...generic, source: 1 }; break;
+    case "projection-indexed": generic = { kind: "projection", source: 2, projection: { kind: "indexed", index: 3 } };
+      concrete = { ...generic, source: 1, projection: { kind: "indexed", index: 1 } }; break;
+    case "projection-substitution": generic = { kind: "projection", source: 2, projection: { kind: "substitution", constraint: 3 } };
+      concrete = { ...generic, source: 1, projection: { kind: "substitution", constraint: 1 } }; break;
+    case "projection-conditional": generic = { kind: "projection", source: 2,
+      projection: { kind: "conditional", extends: 3, whenTrue: 2, whenFalse: 0, distributive: true, inferParameter: null } };
+      concrete = { ...generic, source: 1, projection: { ...generic.projection, extends: 1, whenTrue: 1 } }; break;
+    case "projection-component": {
+      const path = transportTypeTable(fixture).terms.find(value => value.kind === "projection" && value.projection.kind === "component").projection.component.path;
+      generic = { kind: "projection", source: 2, projection: { kind: "component", component: { root: reference, path } } };
+      concrete = { ...generic, source: 1, projection: { kind: "component", component: { root: reference,
+        path: path.map(step => step.kind === "index-key" ? { ...step, key: 1 } : step) } } };
+      break;
+    }
     case "callable": case "owned-callable": generic = { kind: "callable", calls: [1], constructs: [] }; concrete = { kind: "callable", calls: [2], constructs: [] }; break;
-    case "composed-callable": generic = { kind: "callable", calls: [2], constructs: [] }; concrete = { kind: "callable", calls: [4], constructs: [] }; break;
+    case "composed-callable": generic = { kind: "callable", calls: [2], constructs: [] }; concrete = { kind: "callable", calls: [3], constructs: [] }; break;
     default: throw new Error(`Unlisted generic type carrier: ${kind}`);
   }
   const signature = fixture.index.types.signatures[0];
   const callable = ["callable", "owned-callable", "composed-callable"].includes(kind);
   const declaration = encodeDefId({ module: fixture.module.module, segments: [{ name: "inner", ordinal: 0 }] });
   const signatures = callable ? [signature, { ...signature, id: 1, receiver: kind === "owned-callable" ? null : 3, result: 2,
-    typeParameters: kind === "owned-callable" ? [{ identity: { owner: declaration, index: 0 }, declaration, constraint: 0, default: 0 }] : [],
+    typeParameters: kind === "owned-callable" ? [{ declaration: typeParameterDeclaration(declaration, 0), constraint: 0, default: 0 }] : [],
     declaration: kind === "owned-callable" ? declaration : signature.declaration, parameters: [
     { declaration: fixture.definition, kind: "required", type: 2, passing: "by-value", initializer: null, acceptsOmission: false },
   ] }] : [signature];
@@ -495,29 +515,33 @@ export function genericCarrierCase(fixture, kind) {
   const bindings = { classBindings: [{ kind: "bound", parameter, type: 1 }], methodBindings: [], capturedBindings: [],
     selfBindings: [{ kind: "bound", owner: fixture.definition, type: 1 }] };
   if (kind === "optional-absence") bindings.classBindings[0].type = 0;
-  const mir = { ...fixture.module.bodies[0].mir, locals: [{ id: 0, storage: 4, role: { kind: "temporary" }, mode: "local",
-    source: null, origin: fixture.module.tree.origin }] };
-  const index = { ...fixture.index, types };
-  const module = { ...fixture.module, bodies: [{ ...fixture.module.bodies[0], mir }] };
+  const [original] = fixture.module.bodies;
+  const tir = { ...original.tir, locals: [{ id: 0, storage: 4, role: "binding", declaration: reference,
+    name: "value", capturedFrom: null, mutable: false }] };
+  const index = { ...fixture.index, types, bodies: [{ kind: "template", instance: original.instance,
+    module: fixture.module.module, owner: tir.owner, root: tir.root.id }] };
+  const module = { ...fixture.module, bodies: [{ kind: "template", instance: original.instance, tir }] };
+  const concreteSignatures = kind === "composed-callable" ? [signatures[2], signatures[1]] : signatures.slice(1);
   const expectedTypes = { terms: [...types.terms, concrete], signatures: callable ? [...signatures,
-    ...signatures.slice(1).map((value, position) => ({ ...value, id: signatures.length + position, receiver: value.receiver === null ? null : 1,
+    ...concreteSignatures.map((value, position) => ({ ...value, id: signatures.length + position, receiver: value.receiver === null ? null : 1,
       result: 1, parameters: value.parameters.map(parameter => ({ ...parameter, type: 1 })), composition: value.composition === null ? null
-        : { ...value.composition, signatures: value.composition.signatures.map(identity => identity + signatures.length - 1) } })),
+        : { ...value.composition, signatures: [signatures.length + 1] } })),
   ] : signatures };
-  return { index, module, bindings, expected: { kind: "instantiated", artifact: { kind: "mir", body: {
-    ...mir, bindings: { kind: "instantiated", bindings }, locals: [{ ...mir.locals[0], storage: types.terms.length }],
+  return { index, module, bindings, expected: { kind: "instantiated", artifact: { kind: "tir", body: {
+    ...tir, bindings: { kind: "instantiated", bindings }, locals: [{ ...tir.locals[0], storage: types.terms.length }],
   } }, types: expectedTypes } };
 }
 
 export function transportTypeTable(fixture) {
   const definition = fixture.definition;
+  const parameter = typeParameterDeclaration(definition, 0);
   const source = { kind: "body", value: { body: fixture.bodyId, node: 0 } };
   const item = { kind: "item", value: { owner: definition, node: 0 } };
   const construction = { occurrence: source.value, captures: [{ body: fixture.bodyId, local: 0 }] };
   const rational = { numerator: 1n, denominator: 2n, negativeZero: false };
   const origins = [{ kind: "declared", declaration: definition }, { kind: "class-prototype", owner: definition },
     { kind: "mapped", owner: item, key: { kind: "symbol", declaration: definition } }];
-  const family = { origin: "authored", component: { root: source, path: [] }, parameters: [{ owner: definition, index: 0 }],
+  const family = { origin: "authored", component: { root: source, path: [] }, parameters: [parameter],
     roles: [{ authoredIndex: 0, component: source, member: 1 }] };
   const selectors = [
     { kind: "class-value" }, { kind: "construction-argument", definition: construction, index: 0 },
@@ -542,27 +566,27 @@ export function transportTypeTable(fixture) {
       { kind: "optional", type: 2, declaration: null }, { kind: "rest", type: 1, declaration: definition }], readonly: true },
     { kind: "fixed-array", element: 1, extent: { length: 9007199254740993n, runtimeBase: "bigint" } },
     { kind: "shape", members: [
-      { key: { kind: "text", value: "value" }, origins, readOrigins: [origins[0]], writeOrigins: [origins[1]],
-        kind: "property", read: 1, write: 2, optional: false, readonly: false },
-      { key: { kind: "number", value: rational }, origins: [], readOrigins: [], writeOrigins: [],
+      { key: { kind: "number", value: rational }, origins: [origins[0]], readOrigins: [], writeOrigins: [],
         kind: "method", read: null, write: null, optional: true, readonly: true },
       { key: { kind: "symbol", declaration: definition }, origins: [origins[2]], readOrigins: [origins[2]], writeOrigins: [],
         kind: "accessor", read: 1, write: null, optional: false, readonly: true },
+      { key: { kind: "text", value: "value" }, origins, readOrigins: [origins[0]], writeOrigins: [origins[1]],
+        kind: "property", read: 1, write: 2, optional: false, readonly: false },
     ], indexes: [{ origin: item, key: 1, read: 2, write: null, readonly: true },
       { origin: item, key: 2, read: 1, write: 2, readonly: false }], calls: [0], constructs: [1] },
     { kind: "callable", calls: [0], constructs: [1] },
     { kind: "declared", definition, arguments: [1, 2], facet: "instance", extent: null },
     { kind: "declared", definition, arguments: [], facet: "value", extent: { length: 0n, runtimeBase: "number" } },
     { kind: "construction-reference", definition: construction, arguments: [1, 2] }, { kind: "enum", definition },
-    { kind: "param", parameter: { owner: definition, index: 0 } }, { kind: "self", owner: definition },
+    { kind: "param", parameter }, { kind: "self", owner: definition },
     { kind: "projection", source: 1, projection: { kind: "awaited" } },
     { kind: "projection", source: 2, projection: { kind: "component", component: { root: item, path: selectors } } },
     { kind: "open", group: encodeGroupId([fixture.bodyId]), variable: 0 }, { kind: "error" }];
   const signature = fixture.index.types.signatures[0];
   return { terms, signatures: [signature, { ...signature, id: 1, kind: "construct", owner: item,
     composition: { kind: "intersection", signatures: [0] }, typeParameters: [
-      { identity: { owner: definition, index: 0 }, declaration: definition, constraint: 1, default: 2 },
-      { identity: { owner: definition, index: 1 }, declaration: definition, constraint: null, default: null },
+      { declaration: parameter, constraint: 1, default: 2 },
+      { declaration: typeParameterDeclaration(definition, 1), constraint: null, default: null },
     ], receiver: 1, parameters: [
       { declaration: definition, kind: "required", type: 1, passing: "by-value", initializer: null, acceptsOmission: false },
       { declaration: definition, kind: "optional", type: 2, passing: "borrow-shared", initializer: null, acceptsOmission: true },

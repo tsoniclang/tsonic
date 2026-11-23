@@ -264,6 +264,11 @@ export interface SourceSafetyProvider {
   readonly names: SourceSafetyNames;
 }
 
+export interface SourceExternalEntry {
+  readonly module: ModuleId;
+  readonly name: string;
+}
+
 export interface SourceContributions {
   readonly declarationModules: readonly ModuleId[];
   readonly declarationPolicy: SourceDeclarationPolicy;
@@ -273,6 +278,7 @@ export interface SourceContributions {
   readonly semanticModules: readonly ExtensionReference[];
   readonly safetyProviders: readonly SourceSafetyProvider[];
   readonly dataLayouts: readonly PlatformDeclaration[];
+  readonly externalEntries: readonly SourceExternalEntry[];
 }
 
 export interface ProjectSnapshot {
@@ -318,6 +324,8 @@ export type SnapshotRule =
   | "snapshot-fingerprint"
   | "entry-point-resolves"
   | "root-module-resolves"
+  | "external-entry-resolves"
+  | "external-entry-unique"
   | "roots-unique"
   | "entry-point-root"
   | "selection-capability-unique"

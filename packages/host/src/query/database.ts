@@ -1,9 +1,9 @@
 import type { Diagnostic, InvariantFailure, UnitRef, UnitResult } from "../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { encodeKey } from "../ids/index.js";
-import type { ClassifyCycle, CycleAnswerCapability, CycleMember, CycleOutcome, Database, FactKey, Query, QueryComputation, QueryContext, QueryDependency, QueryLimits, QueryRequest, QueryScheduler, RunResult, TraceEvent, TraceRecording } from "./contract.js";
+import type { ClassifyCycle, CycleAnswerCapability, CycleMember, CycleOutcome, Database, FactKey, Query, QueryComputation, QueryContext, QueryDependency, QueryLimits, QueryRefusal, QueryRequest, QueryScheduler, RunResult, TraceEvent, TraceRecording } from "./contract.js";
 import type { Chunks, CompletedUnit, Kept, MemoTable } from "./memo.js";
-import { completedUnit, composeResult, leastFact, queryMemo, readUnitError, retainDiagnostics, snapshotDiagnostics, snapshotStatistics, snapshotTrace, validateUnits } from "./memo.js";
+import { completedUnit, composeResult, leastFact, queryMemo, readDetectorDiagnostic, readUnitError, retainDiagnostics, snapshotDiagnostics, snapshotStatistics, snapshotTrace, validateUnits } from "./memo.js";
 
 interface Settlement {
   readonly units: number;
@@ -26,13 +26,8 @@ interface Frame<Witness, ErrorData> {
   steps: number;
 }
 
-interface Stop {
-  readonly kind: "refused";
-  readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]];
-}
-
 interface Boundary {
-  stop: Stop | null;
+  stop: QueryRefusal | null;
 }
 
 const completionFailure: InvariantFailure = ({ owner: "query", query: null, origin: null,
@@ -69,7 +64,7 @@ export function createQueryDatabase<Inputs, Witness, ErrorData>(
   const eventUnit = recorded ? 1 : 0;
   let records = 0;
   let running = false;
-  let exhaustion: Stop | undefined;
+  let exhaustion: QueryRefusal | undefined;
 
   function admit(units: number, at: FactKey, boundary: Boundary): boolean {
     if (units > maximumRecords - records) {
@@ -272,6 +267,10 @@ export function createQueryDatabase<Inputs, Witness, ErrorData>(
           frame.earned = step.earned;
           frame.refusing = step.diagnostics;
           boundary.stop = ({ kind: "refused", diagnostics: step.diagnostics });
+        } else if (step.kind === "abandoned-at-report") {
+          const original = readDetectorDiagnostic(memo, step.report, frame.fact);
+          frame.earned = step.earned;
+          boundary.stop = { kind: "refused", diagnostics: [original] };
         } else {
           frame.earned = step.diagnostics;
           const units = completionRecords(frame.chunks, step);
@@ -319,6 +318,7 @@ export function createQueryDatabase<Inputs, Witness, ErrorData>(
     }
   }
 
-  return ({ inputs, run, errorOf, diagnostics: () => snapshotDiagnostics(published, abandoned), stats: () => snapshotStatistics(memo),
+  return ({ inputs, run, errorOf, isRecordLimitRefusal: refusal => refusal === exhaustion,
+    diagnostics: () => snapshotDiagnostics(published, abandoned), stats: () => snapshotStatistics(memo),
     trace: () => snapshotTrace(trace) });
 }

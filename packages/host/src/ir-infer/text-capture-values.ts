@@ -159,8 +159,11 @@ export function createCaptureValuesSchemas(data: DataSchemas, evidence: Evidence
 
   const candidateEndpointsSchema = recordSchema<CandidateEndpoints>("CandidateEndpoints", "CandidateEndpoints", read => {
     const advertised = read("advertised", () => hirCallableEndpointSchema, value => value.advertised);
+    const advertisedSignature = read("advertisedSignature", () => sigSchema, value => value.advertisedSignature);
     const api = read("api", () => hirCallableEndpointSchema, value => value.api);
-    return { fields: [advertised, api], value: () => ({ advertised: advertised.value(), api: api.value() }) };
+    const apiSignature = read("apiSignature", () => sigSchema, value => value.apiSignature);
+    return { fields: [advertised, advertisedSignature, api, apiSignature], value: () => ({ advertised: advertised.value(),
+      advertisedSignature: advertisedSignature.value(), api: api.value(), apiSignature: apiSignature.value() }) };
   });
   const availableCandidateEndpointsSchema = recordSchema<{ readonly kind: "available"; readonly value: CandidateEndpoints }>("AvailableCandidateEndpoints", "available", read => {
     const value = read("value", () => candidateEndpointsSchema, input => input.value);

@@ -1,35 +1,28 @@
-import type { SyntaxNode } from "../ir-hir/contract.js";
-import type { TirBody, TypedPhase } from "../ir-tir/contract.js";
+import type { SyntaxCopyResult, SyntaxImage, SyntaxNode, SyntaxPhaseCopy, SyntaxRootSlot } from "../ir-hir/contract.js";
+import type { TypeReferenceRewrite } from "./canonical-types.js";
+import { beginSyntaxCopy, walkSyntaxForest } from "../ir-hir/index.js";
+import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ProjectionInventory } from "./program-values.js";
 import type { InstantiationStop } from "./work.js";
 import { drainProjectionInventory, inventoryFields, inventoryRecord } from "./program-values.js";
 import { chargeInstantiationWork } from "./work.js";
 import type { SyntaxInventory } from "./syntax-arena.js";
-import { walkSyntax } from "./syntax-arena.js";
-import { inventoryExportAssignment } from "./instantiate-phase.js";
-import {
-  inventoryAlias, inventoryBinary, inventoryBinding, inventoryBindingElement, inventoryCallable, inventoryClass, inventoryClassValue, inventoryClosure, inventoryConditional, inventoryConstruction, inventoryDecorator, inventoryEnum, inventoryHeritage, inventoryIndexDeclaration, inventoryInstantiation, inventoryInterface, inventoryIteration, inventoryKeyword, inventoryName, inventoryNamespace, inventoryNumber, inventoryObjectSpread, inventoryOmission, inventoryPredicate, inventoryPrefix, inventoryProperty, inventoryPropertyKey, inventoryProtocolValue, inventorySourcePhase, inventoryStaticBlock, inventoryStorage, inventoryString, inventoryTypeParameter, inventoryTypedApplication, inventoryTypedMember, inventoryTypedParameter, inventoryTypedType, inventoryUnary, inventoryUpdate, inventoryValue, inventoryVariableList
-} from "./instantiate-phase.js";
+import type { AdmittedTirSyntax } from "./instantiate-tir.js";
 
-function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>): InstantiationStop | null {
+function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>): InstantiationStop | null {
   switch (node.kind) {
     case "Unknown":     case "EndOfFile":     case "SingleLineCommentTrivia":     case "MultiLineCommentTrivia":     case "NewLineTrivia":     case "WhitespaceTrivia":     case "ConflictMarkerTrivia":     case "NonTextFileMarkerTrivia":     case "JsxTextAllWhiteSpaces":     case "OpenBraceToken":     case "CloseBraceToken":     case "OpenParenToken":     case "CloseParenToken":     case "OpenBracketToken":     case "CloseBracketToken":     case "DotToken":     case "DotDotDotToken":     case "SemicolonToken":     case "CommaToken":     case "QuestionDotToken":     case "LessThanToken":     case "LessThanSlashToken":     case "GreaterThanToken":     case "LessThanEqualsToken":     case "GreaterThanEqualsToken":     case "EqualsEqualsToken":     case "ExclamationEqualsToken":     case "EqualsEqualsEqualsToken":     case "ExclamationEqualsEqualsToken":     case "EqualsGreaterThanToken":     case "PlusToken":     case "MinusToken":     case "AsteriskToken":     case "AsteriskAsteriskToken":     case "SlashToken":     case "PercentToken":     case "PlusPlusToken":     case "MinusMinusToken":     case "LessThanLessThanToken":     case "GreaterThanGreaterThanToken":     case "GreaterThanGreaterThanGreaterThanToken":     case "AmpersandToken":     case "BarToken":     case "CaretToken":     case "ExclamationToken":     case "TildeToken":     case "AmpersandAmpersandToken":     case "BarBarToken":     case "QuestionToken":     case "ColonToken":     case "AtToken":     case "QuestionQuestionToken":     case "BacktickToken":     case "HashToken":     case "EqualsToken":     case "PlusEqualsToken":     case "MinusEqualsToken":     case "AsteriskEqualsToken":     case "AsteriskAsteriskEqualsToken":     case "SlashEqualsToken":     case "PercentEqualsToken":     case "LessThanLessThanEqualsToken":     case "GreaterThanGreaterThanEqualsToken":     case "GreaterThanGreaterThanGreaterThanEqualsToken":     case "AmpersandEqualsToken":     case "BarEqualsToken":     case "BarBarEqualsToken":     case "AmpersandAmpersandEqualsToken":     case "QuestionQuestionEqualsToken":     case "CaretEqualsToken":     case "JSDocCommentTextToken":     case "BreakKeyword":     case "CaseKeyword":     case "CatchKeyword":     case "ClassKeyword":     case "ConstKeyword":     case "ContinueKeyword":     case "DebuggerKeyword":     case "DefaultKeyword":     case "DeleteKeyword":     case "DoKeyword":     case "ElseKeyword":     case "EnumKeyword":     case "ExportKeyword":     case "ExtendsKeyword":     case "FinallyKeyword":     case "ForKeyword":     case "FunctionKeyword":     case "IfKeyword":     case "InKeyword":     case "InstanceOfKeyword":     case "NewKeyword":     case "ReturnKeyword":     case "SwitchKeyword":     case "ThrowKeyword":     case "TryKeyword":     case "TypeOfKeyword":     case "VarKeyword":     case "WhileKeyword":     case "WithKeyword":     case "ImplementsKeyword":     case "InterfaceKeyword":     case "LetKeyword":     case "PackageKeyword":     case "PrivateKeyword":     case "ProtectedKeyword":     case "PublicKeyword":     case "StaticKeyword":     case "YieldKeyword":     case "AbstractKeyword":     case "AccessorKeyword":     case "AsKeyword":     case "AssertsKeyword":     case "AssertKeyword":     case "AsyncKeyword":     case "AwaitKeyword":     case "ConstructorKeyword":     case "DeclareKeyword":     case "GetKeyword":     case "ImmediateKeyword":     case "InferKeyword":     case "IsKeyword":     case "KeyOfKeyword":     case "ModuleKeyword":     case "NamespaceKeyword":     case "OutKeyword":     case "ReadonlyKeyword":     case "RequireKeyword":     case "SatisfiesKeyword":     case "SetKeyword":     case "TypeKeyword":     case "UniqueKeyword":     case "UsingKeyword":     case "FromKeyword":     case "GlobalKeyword":     case "OverrideKeyword":     case "OfKeyword":     case "DeferKeyword":
       return inventoryFields(scan, 1);
     case "Identifier":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryName(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "PrivateIdentifier":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryName(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "QualifiedName":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryName(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "ComputedPropertyName":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryPropertyKey(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "Decorator":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryDecorator(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "EmptyStatement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "IfStatement":
@@ -41,11 +34,9 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
     case "ForStatement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "ForInStatement":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? inventoryIteration(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "ForOfStatement":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? inventoryIteration(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "BreakStatement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ContinueStatement":
@@ -84,23 +75,18 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "VariableDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? inventoryBinding(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "VariableDeclarationList":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryVariableList(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "ObjectBindingPattern":     case "ArrayBindingPattern":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryOmission(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "Parameter":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryTypedParameter(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "BindingElement":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? inventoryBindingElement(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "MissingDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
@@ -108,47 +94,39 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryCallable(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "ClassDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
         ?? (node.heritageClauses === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryClass(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "ClassExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
         ?? (node.heritageClauses === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryClassValue(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "HeritageClause":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryHeritage(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "InterfaceDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
         ?? (node.heritageClauses === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryInterface(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "TypeAliasDeclaration":     case "JSTypeAliasDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryAlias(scan, node.tsonic);
+        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2));
     case "EnumMember":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryStorage(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "EnumDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryEnum(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "ModuleBlock":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
         ?? inventoryRecord(scan, 2);
@@ -168,8 +146,7 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
         ?? inventoryRecord(scan, 2);
     case "ExportAssignment":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryExportAssignment(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "NamespaceExportDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
@@ -183,233 +160,171 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
     case "CallSignature":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryCallable(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "ConstructSignature":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryCallable(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "Constructor":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 14)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryCallable(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "GetAccessor":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 16)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryCallable(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "SetAccessor":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 16)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryCallable(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "IndexSignature":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryIndexDeclaration(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "MethodSignature":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 14)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryCallable(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "MethodDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 16)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryCallable(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "PropertySignature":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryStorage(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "PropertyDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryStorage(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "SemicolonClassElement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "ClassStaticBlockDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryStaticBlock(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "OmittedExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7)
-        ?? inventoryOmission(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "NullKeyword":     case "TrueKeyword":     case "FalseKeyword":     case "ThisKeyword":     case "SuperKeyword":     case "ImportKeyword":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7)
-        ?? inventoryKeyword(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "StringLiteral":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryString(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "NumericLiteral":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryNumber(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "BigIntLiteral":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryNumber(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "RegularExpressionLiteral":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryValue(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "NoSubstitutionTemplateLiteral":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? inventoryString(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "BinaryExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryBinary(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "PrefixUnaryExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryPrefix(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "PostfixUnaryExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryUpdate(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "YieldExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryProtocolValue(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "ArrowFunction":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryClosure(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "FunctionExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryClosure(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "AsExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryValue(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "SatisfiesExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryValue(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "ConditionalExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? inventoryConditional(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "PropertyAccessExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? inventoryTypedMember(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "ElementAccessExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? inventoryTypedMember(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "CallExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
         ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryTypedApplication(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "NewExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
         ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2))
-        ?? (node.arguments === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryTypedApplication(scan, node.tsonic);
+        ?? (node.arguments === null ? null : inventoryRecord(scan, 2));
     case "MetaProperty":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryValue(scan, node.tsonic);
-    case "NonNullExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryValue(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "SpreadElement":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryProtocolValue(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "TemplateExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryUnary(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "TemplateSpan":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TaggedTemplateExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryTypedApplication(scan, node.tsonic);
-    case "ParenthesizedExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryValue(scan, node.tsonic);
+        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
+    case "ParenthesizedExpression": case "NonNullExpression":
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ArrayLiteralExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryConstruction(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "ObjectLiteralExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryConstruction(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "SpreadAssignment":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryObjectSpread(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "PropertyAssignment":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryProperty(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "ShorthandPropertyAssignment":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryProperty(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "DeleteExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryUnary(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "TypeOfExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryUnary(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "VoidExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryUnary(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "AwaitExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryProtocolValue(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "TypeAssertionExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryValue(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "AnyKeyword":     case "BigIntKeyword":     case "BooleanKeyword":     case "IntrinsicKeyword":     case "NeverKeyword":     case "NumberKeyword":     case "ObjectKeyword":     case "StringKeyword":     case "SymbolKeyword":     case "UndefinedKeyword":     case "UnknownKeyword":     case "VoidKeyword":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "UnionType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "IntersectionType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "ConditionalType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "TypeOperator":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "InferType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ArrayType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "IndexedAccessType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TypeReference":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
     case "ExpressionWithTypeArguments":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryInstantiation(scan, node.tsonic);
+        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
     case "LiteralType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ThisType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "TypePredicate":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? inventoryPredicate(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "ImportAttribute":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "ImportAttributes":
@@ -417,44 +332,34 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
         ?? inventoryRecord(scan, 2);
     case "TypeQuery":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
     case "MappedType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13)
-        ?? (node.members === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? (node.members === null ? null : inventoryRecord(scan, 2));
     case "TypeLiteral":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "TupleType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "NamedTupleMember":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "OptionalType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "RestType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ParenthesizedType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "FunctionType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "ConstructorType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "TemplateHead":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "TemplateMiddle":
@@ -463,11 +368,9 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "TemplateLiteralType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2)
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "TemplateLiteralTypeSpan":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryTypedType(scan, node.tsonic);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "PartiallyEmittedExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "JsxElement":
@@ -588,12 +491,10 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "SourceFile":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 14)
-        ?? inventoryRecord(scan, 2)
-        ?? inventorySourcePhase(scan, node.tsonic);
+        ?? inventoryRecord(scan, 2);
     case "ModuleDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryNamespace(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "ImportEqualsDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
@@ -602,8 +503,7 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "ImportType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryTypedType(scan, node.tsonic);
+        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
     case "ImportClause":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "ImportSpecifier":
@@ -618,8 +518,7 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TypeParameter":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryTypeParameter(scan, node.tsonic);
+        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "SyntheticReferenceExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocTypeLiteral":
@@ -630,20 +529,34 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
   }
 }
 
+export interface PreparedTypedSyntax {
+  readonly syntax: SyntaxInventory;
+  readonly materialize: (image: TypeReferenceRewrite) => SyntaxCopyResult<SyntaxImage<TypedPhase>, InstantiationStop>;
+}
+
 export function inventoryBodySyntax(
-  scan: ProjectionInventory, body: TirBody,
-): { readonly kind: "complete"; readonly syntax: SyntaxInventory } | InstantiationStop {
-  const traversal = walkSyntax((function* () {
-    yield { node: body.root, path: "Instantiation.root" };
-    for (const [index, parameter] of body.params.entries()) yield { node: parameter, path: `Instantiation.params[${index}]` };
-  })());
-  let step = traversal.next();
-  while (!step.done) {
-    const stop = step.value.kind === "edge" ? chargeInstantiationWork(scan.meter) : inventoryNode(scan, step.value.node);
-    if (stop !== null) return stop;
-    const payload = drainProjectionInventory(scan);
-    if (payload !== null) return payload;
-    step = traversal.next();
+  scan: ProjectionInventory, roots: AdmittedTirSyntax, phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>,
+): { readonly kind: "complete"; readonly value: PreparedTypedSyntax } | InstantiationStop {
+  function* slots(): Generator<SyntaxRootSlot<TypedPhase>> {
+    yield { read: () => roots.root, path: "Instantiation.root" };
+    for (const [index, parameter] of roots.params.entries())
+      yield { read: () => parameter, path: "Instantiation.params[" + index + "]" };
   }
-  return { kind: "complete", syntax: step.value };
+  return prepareTypedForest(scan, slots(), phase);
+}
+
+export function prepareTypedForest(
+  scan: ProjectionInventory, slots: Iterable<SyntaxRootSlot<TypedPhase>>,
+  phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>,
+): { readonly kind: "complete"; readonly value: PreparedTypedSyntax } | InstantiationStop {
+  const cursor = beginSyntaxCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>(phase, node => admitSyntaxHeader(scan, node));
+  const traversal = walkSyntaxForest<TypedPhase, InstantiationStop>(slots, {
+    root: () => null,
+    edge: () => chargeInstantiationWork(scan.meter),
+    node: node => cursor.prepare(node) ?? drainProjectionInventory(scan),
+  });
+  return traversal.kind === "complete" ? { kind: "complete", value: {
+    syntax: traversal.value,
+    materialize: image => cursor.materialize(traversal.value, image),
+  } } : traversal;
 }

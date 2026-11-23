@@ -1,8 +1,9 @@
 import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
 import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
-import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NativePrimitive, NominalDefinition, PassingMode, SignatureRequest, TypeComponent, TypeEvidence, TypeTable } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
+import type { Step } from "../step/contract.js";
 
 export type InferredPart =
   | { readonly kind: "return" | "yield" | "variable" | "field" }
@@ -32,6 +33,11 @@ export type SignaturePlacement =
   | { readonly kind: "endpoint"; readonly request: SignatureRequest; readonly parts: readonly InferredPartType[] }
   | { readonly kind: "callable-body"; readonly instance: BodyInstance; readonly parts: readonly InferredPartType[] }
   | { readonly kind: "execution-body"; readonly instance: BodyInstance; readonly completion: TyId; readonly error: ErrorValue | null };
+
+export interface PlacedSignature {
+  readonly request: SignatureRequest | null;
+  readonly signature: Signature;
+}
 
 export type InferenceVariable = { readonly id: number; readonly occurrence: NodeRef } & (
   | { readonly kind: "signature"; readonly signature: InferredSignaturePart }
@@ -214,7 +220,9 @@ export type Constraint = EqualityConstraint | FlowConstraint | LiteralConstraint
 
 export interface CandidateEndpoints {
   readonly advertised: HirCallableEndpoint;
+  readonly advertisedSignature: SigId;
   readonly api: HirCallableEndpoint;
+  readonly apiSignature: SigId;
 }
 
 export interface InferenceCandidate extends HirCandidate {
@@ -321,6 +329,7 @@ export interface LiteralConstructionInput {
   readonly construction: "object" | "array";
   readonly parts: readonly LiteralConstructionPart[];
   readonly destination: TypeEvidence | null;
+  readonly result: TypeEvidence;
 }
 
 export interface CandidateArgument {
@@ -330,11 +339,9 @@ export interface CandidateArgument {
   readonly tuple: readonly TypeEvidence[] | null;
 }
 
-export interface CandidateEndpoint {
+export interface CandidateEndpoint extends CandidateEndpoints {
   readonly ordinal: number;
   readonly declaration: DefId;
-  readonly advertised: HirCallableEndpoint;
-  readonly api: HirCallableEndpoint;
   readonly bindings: BindingVector;
   readonly conditionalFailure: Diagnostic | null;
 }
@@ -503,6 +510,16 @@ export interface ApplicationDecision {
   readonly activation: HandleActivation | null;
 }
 
+export interface ThrowOperandUseInput {
+  readonly instance: BodyInstance;
+  readonly statement: NodeRef;
+  readonly operand: NodeRef;
+  readonly origin: Origin;
+  readonly selected:
+    | { readonly kind: "value"; readonly producer: NodeRef; readonly type: TyId }
+    | { readonly kind: "application"; readonly producer: NodeRef; readonly decision: ApplicationDecision };
+}
+
 export interface ConstructionPartDecision {
   readonly part: number;
   readonly source: NodeRef;
@@ -594,6 +611,7 @@ export interface FinalizationInput {
   readonly variable: InferenceVariable;
   readonly producers: readonly VariableBound[];
   readonly demands: readonly VariableBound[];
+  readonly inferredTypeBound: CapturedFact<TyId> | null;
   readonly default: DefaultConstraint | null;
   readonly declaredConstraint: InferenceValue | null;
   readonly declaredDefault: InferenceValue | null;
@@ -664,19 +682,62 @@ export interface ContributionOutcome {
   readonly selectedCandidate: number | null;
 }
 
+export type TypePatternMatchOutcome = "match" | "no-match";
+
+export interface TypeProductionNeed {
+  readonly kind: "produceType";
+  readonly request: TypeProductionRequest;
+}
+
+export interface TypeProductionAnswer {
+  readonly kind: "produceType";
+  readonly value: TypeEvidence;
+  readonly origin: UnitRef;
+  readonly error: ErrorValue | null;
+}
+
+export type MemberRuleNeed =
+  | { readonly kind: "membersOf"; readonly receiver: TyId }
+  | { readonly kind: "memberTypeOf"; readonly request: MemberTypeRequest };
+
+export type MemberRuleAnswer =
+  | { readonly kind: "membersOf"; readonly value: MemberInventory }
+  | { readonly kind: "memberTypeOf"; readonly request: MemberTypeRequest; readonly value: MemberTypes;
+      readonly origin: UnitRef; readonly error: ErrorValue | null };
+
+export type MemberRuleStep<Value, State> = Step<Result<Value>, MemberRuleNeed, State, Diagnostic>;
+
+export type MemberRuleResult =
+  | { readonly kind: "decided"; readonly decision: MemberDecision }
+  | { readonly kind: "error"; readonly error: ErrorValue };
+
+export type MemberRuleCompletion =
+  | { readonly kind: "member"; readonly value: MemberRuleResult }
+  | { readonly kind: "contribution"; readonly value: ContributionOutcome };
+
+export interface MemberContributionScheme<State> {
+  readonly enumerate: (input: EnumerationInput<MemberConstraint>) => Result<readonly AtomicContribution[]>;
+  readonly evaluate: (input: ContributionEvaluation<MemberConstraint> & { readonly origin: Origin }) => MemberRuleStep<MemberRuleCompletion, State>;
+}
+
 export interface ConstraintScheme<ConstraintKind extends Constraint> {
   readonly enumerate: (input: EnumerationInput<ConstraintKind>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<ConstraintKind>) => Result<ContributionOutcome>;
 }
 
-export interface ConstraintSchemes {
+export interface CallContributionScheme {
+  readonly enumerate: (input: EnumerationInput<CallConstraint>) => Result<readonly AtomicContribution[]>;
+  readonly evaluate: (input: ContributionEvaluation<CallConstraint> & { readonly origin: Origin }) => Result<ContributionOutcome>;
+}
+
+export interface ConstraintSchemes<State> {
   readonly eq: ConstraintScheme<EqualityConstraint>;
   readonly flow: ConstraintScheme<FlowConstraint>;
   readonly literal: ConstraintScheme<LiteralConstraint>;
   readonly op: ConstraintScheme<OperatorConstraint>;
-  readonly member: ConstraintScheme<MemberConstraint>;
+  readonly member: MemberContributionScheme<State>;
   readonly index: ConstraintScheme<IndexConstraint>;
-  readonly call: ConstraintScheme<CallConstraint>;
+  readonly call: CallContributionScheme;
   readonly construct: ConstraintScheme<ConstructConstraint>;
   readonly constructLiteral: ConstraintScheme<LiteralConstructionConstraint>;
   readonly protocol: ConstraintScheme<ProtocolConstraint>;
@@ -692,12 +753,14 @@ export interface VariableRules {
   readonly literal: VariableRule;
 }
 
-export interface RuleTable {
+export interface RuleTable<State> {
   readonly decideCaptureModes: (input: readonly CaptureModeEvidence[]) => Result<readonly CaptureRow[]>;
+  readonly checkThrowOperandUse: (input: ThrowOperandUseInput) => Result<null>;
   readonly embed: (input: EmbedInput) => Result<RuleOutcome<EmbeddingDecision>>;
   readonly domainFit: (input: DomainFitInput) => Result<RuleOutcome<boolean>>;
   readonly memoryEquivalent: (input: MemoryEquivalentInput) => Result<RuleOutcome<boolean>>;
-  readonly member: (input: MemberInput) => Result<RuleOutcome<MemberDecision>>;
+  readonly member: (input: MemberInput) => MemberRuleStep<MemberRuleCompletion, State>;
+  readonly resumeMember: (state: State, answers: readonly MemberRuleAnswer[]) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly index: (input: IndexInput) => Result<RuleOutcome<MemberDecision>>;
   readonly constructLiteral: (input: LiteralConstructionInput) => Result<RuleOutcome<OperationDecision>>;
   readonly candidate: (input: CandidateInput) => Result<RuleOutcome<ApplicationDecision>>;
@@ -709,7 +772,7 @@ export interface RuleTable {
   readonly core: (input: CoreInput) => Result<RuleOutcome<OperationDecision>>;
   readonly closure: (input: ClosureInput) => Result<RuleOutcome<ClosureDecision>>;
   readonly variables: VariableRules;
-  readonly constraints: ConstraintSchemes;
+  readonly constraints: ConstraintSchemes<State>;
 }
 
 export interface SolvedConstraint {
@@ -778,6 +841,7 @@ export interface InferVerificationInput extends InferenceBindingInput {
   readonly types: TypeTable;
   readonly bindingScopes: readonly BindingScope[];
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
+  readonly placedSignatureOf: (body: BodyId) => SigId | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeExists: (node: SourceNodeRef) => boolean;
   readonly localExists: (local: LocalRef) => boolean;

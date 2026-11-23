@@ -4,9 +4,11 @@ import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Diagnostic } from "../internal/ast/diagnostic.js";
 import type { ResolvedCheckerBackingConstraint } from "../internal/checker/types.js";
 import { type Program } from "../internal/compiler/program.js";
+import { type PackageId } from "../internal/module/types.js";
 import { type AstReader } from "../services/ast-reader.js";
 import { type TypeCheckerQueries } from "../services/type-checker.js";
 import { type TypeShapeQueries } from "../services/type-shape.js";
+import type { CheckerDiagnosticMembership } from "../internal/checker/checker/source-type-answers.js";
 import type { ExtensionDiagnostic } from "./host.js";
 import type { ReadonlySourceFactResolver } from "./consumer.js";
 export interface SourceFileQueries {
@@ -23,6 +25,7 @@ export interface SourceProgramQueries {
     readonly getSourceFile: (fileName: string) => GoPtr<SourceFile>;
     readonly getSourceFileQueries: (sourceFile: GoPtr<SourceFile>) => SourceFileQueries;
     readonly getBackingConstraints: () => readonly ResolvedCheckerBackingConstraint[];
+    readonly getCheckedModulePackage: (moduleSpecifier: GoPtr<Node>) => Readonly<PackageId> | undefined;
     readonly resolveModuleSourceFile: (moduleSpecifier: GoPtr<Node>) => GoPtr<SourceFile>;
 }
 export interface CheckedSourceProgram extends SourceProgramQueries {
@@ -36,6 +39,7 @@ export interface CreateSourceProgramQueriesOptions {
     readonly context?: Context;
     readonly includeSourceFile?: (sourceFile: SourceFile) => boolean;
     readonly ast?: AstReader;
+    readonly admitsCheckerDiagnostic?: CheckerDiagnosticMembership;
 }
 export declare function createSourceProgramQueries(program: GoPtr<Program>, options?: CreateSourceProgramQueriesOptions): SourceProgramQueries;
 //# sourceMappingURL=source-program.d.ts.map

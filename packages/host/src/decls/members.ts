@@ -1,6 +1,6 @@
 import type { UnitRequest } from "../diag/contract.js";
 import type { DefId, SigId } from "../ids/contract.js";
-import { readSignature, readType } from "../ir-types/index.js";
+import { internType, readSignature, readType } from "../ir-types/index.js";
 import type { AccessorCorrespondence, ConstructorCorrespondence, MemberInventory, MemberUnavailableReason } from "../ir-types/contract.js";
 import type { HirNode } from "../ir-hir/contract.js";
 import type { DeclsDeps, MembersOf, MemberTypeOf } from "./contract.js";
@@ -37,6 +37,8 @@ export const membersOf: MembersOf = (deps, receiver) => {
   if (term.kind === "param") inventory = open({ kind: "parameter", parameter: term.parameter });
   else if (term.kind === "intrinsic" && (term.intrinsic === "any" || term.intrinsic === "unknown"))
     inventory = open({ kind: "dynamic" });
+  else if (term.kind === "source-environment") inventory = { receiver, members: term.members, indexes: [], calls: [],
+    constructs: [], accessors: [], constructors: [], completeness: { kind: "complete" } };
   else if (term.kind === "shape" || term.kind === "callable") {
     const unit: UnitRequest = { query: "membersOf", key: receiver };
     const members = term.kind === "shape" ? term.members.map(member => ({ key: member.key, origins: member.origins,
@@ -66,7 +68,7 @@ export const membersOf: MembersOf = (deps, receiver) => {
 
 export const memberTypeOf: MemberTypeOf = (deps, request) => {
   const receiver = readType(deps.types, request.receiver);
-  if (receiver.kind !== "shape")
+  if (receiver.kind !== "shape" && receiver.kind !== "source-environment")
     throw new TypeError("decls: memberTypeOf requires an actual retained typed member inventory");
   const ordinal = request.member;
   if (!Number.isSafeInteger(ordinal) || ordinal < 0 || Object.is(ordinal, -0) || ordinal >= receiver.members.length)
@@ -76,6 +78,21 @@ export const memberTypeOf: MemberTypeOf = (deps, request) => {
   if (member.kind !== "property" || member.origins.length === 0)
     throw new TypeError("decls: memberTypeOf requires the retained type producer for this member kind");
   const unit: UnitRequest = { query: "memberTypeOf", key: [request.receiver, ordinal] };
+  if (receiver.kind === "source-environment") {
+    const origin = member.readOrigins.length === 1 ? member.readOrigins[0] : undefined;
+    let read;
+    if (origin?.kind === "intrinsic") read = origin.symbol === "global-this" ? request.receiver
+      : internType(deps.types, { kind: "intrinsic", intrinsic: "absence" });
+    else if (origin?.kind === "declared") {
+      const node = declarationNode(deps, origin.declaration, unit);
+      if (node.kind === "VariableDeclaration" && node.tsonic.declaredType.kind === "available")
+        read = node.tsonic.declaredType.value ?? undefined;
+    }
+    if (read === undefined || readType(deps.types, read).kind === "error")
+      throw new TypeError("decls: a global member requires its exact checked selected value");
+    return { kind: "done", value: { kind: "ok", value: { read, write: member.readonly ? null : read },
+      positions: [{ position: { kind: "result" }, error: null }], diagnostics: [], emissions: [] } };
+  }
   for (const origin of member.origins) {
     if (origin.kind !== "declared")
       throw new TypeError("decls: memberTypeOf requires the retained type producer for this member origin");
@@ -83,6 +100,7 @@ export const memberTypeOf: MemberTypeOf = (deps, request) => {
     if (node.kind !== "PropertySignature" || node.type === null)
       throw new TypeError("decls: memberTypeOf requires the actual type of this property's declaration or inferred part");
   }
+  if (!("read" in member)) throw new TypeError("decls: a structural field requires its checked read and write types");
   const { read, write } = member;
   if (read === null) throw new TypeError("decls: a declared structural field requires its actual read type");
   if (readType(deps.types, read).kind === "error"

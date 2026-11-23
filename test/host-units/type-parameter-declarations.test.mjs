@@ -1,3 +1,4 @@
+import { insertFixtureType, insertFixtureSignature } from "./fixtures/types-construction.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { encodeDefId, encodeModuleId, encodePackageId } from "../../packages/host/dist/ids/index.js";
@@ -19,12 +20,12 @@ const publication = { maximumWork: 100000, maximumCreatedRecords: 100000 };
 
 function fixture() {
   const interner = types.createTypeInterner();
-  const bool = types.internType(interner, { kind: "primitive", primitive: "bool" });
-  const string = types.internType(interner, { kind: "string" });
-  const parameters = [outer, firstMapped, nestedMapped].map(parameter => types.internType(interner, { kind: "param", parameter }));
-  const result = types.internType(interner, { kind: "tuple", readonly: false,
+  const bool = insertFixtureType(types, interner, { kind: "primitive", primitive: "bool" });
+  const string = insertFixtureType(types, interner, { kind: "string" });
+  const parameters = [outer, firstMapped, nestedMapped].map(parameter => insertFixtureType(types, interner, { kind: "param", parameter }));
+  const result = insertFixtureType(types, interner, { kind: "tuple", readonly: false,
     elements: parameters.map(type => ({ kind: "required", type, declaration: null })) });
-  const signature = types.internSignature(interner, { kind: "call", declaration: alias, owner: null, composition: null,
+  const signature = insertFixtureSignature(types, interner, { kind: "call", declaration: alias, owner: null, composition: null,
     typeParameters: [{ declaration: nestedMapped, constraint: parameters[0], default: parameters[0] }],
     receiver: null, parameters: [], result });
   return { interner, bool, string, parameters, result, signature };
@@ -49,16 +50,16 @@ test("substitution uses actual declaration membership and shields only the actua
   const bindings = { classBindings: [{ kind: "bound", parameter: outer, type: current.bool }],
     methodBindings: [{ kind: "bound", parameter: firstMapped, type: current.string }],
     capturedBindings: [{ kind: "bound", parameter: nestedMapped, type: current.bool }], selfBindings: [] };
-  const result = types.substituteSignature(current.interner, [current.signature], bindings, capacity);
+  const result = types.substituteSignature(current.interner, [current.signature], bindings, capacity, "lexical", types.createTypePublicationWork({ maximumWork: 100000, maximumCreatedRecords: 100000 }));
   assert.equal(result.kind, "complete");
   const selected = types.readSignature(current.interner, result.value[0]);
   assert.deepEqual(selected.typeParameters, [{ declaration: nestedMapped, constraint: current.bool, default: current.bool }]);
   assert.deepEqual(types.readType(current.interner, selected.result).elements.map(element => element.type),
     [current.bool, current.string, current.parameters[2]]);
-  const roots = types.substitute(current.interner, current.parameters, bindings, capacity);
+  const roots = types.substitute(current.interner, current.parameters, bindings, capacity, types.createTypePublicationWork({ maximumWork: 100000, maximumCreatedRecords: 100000 }));
   assert.deepEqual(roots, { kind: "complete", value: [current.bool, current.string, current.bool] });
   const unrelated = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter: declaration("Other", 0), type: current.bool }] };
-  assert.deepEqual(types.substitute(current.interner, current.parameters, unrelated, capacity), { kind: "complete", value: current.parameters });
+  assert.deepEqual(types.substitute(current.interner, current.parameters, unrelated, capacity, types.createTypePublicationWork({ maximumWork: 100000, maximumCreatedRecords: 100000 })), { kind: "complete", value: current.parameters });
 });
 
 test("canonical scope order and family authority do not follow declaration spelling or vector position as identity", () => {
@@ -104,7 +105,7 @@ test("publication and transport preserve sole declarations through type permutat
   const build = reverse => {
     const interner = types.createTypeInterner();
     const parameters = reverse ? [nestedMapped, firstMapped, outer] : [outer, firstMapped, nestedMapped];
-    for (const parameter of parameters) types.internType(interner, { kind: "param", parameter });
+    for (const parameter of parameters) insertFixtureType(types, interner, { kind: "param", parameter });
     return interner;
   };
   const original = types.exportTypes(build(false), publication);

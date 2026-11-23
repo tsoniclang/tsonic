@@ -78,7 +78,7 @@ test("a decision reader compiles against fresh ir-infer declarations; a module w
   ];
   const input = (root, name) => ({ root, sourceFiles: [path(name), path(name, "index.ts")], interfaceSources: [decisionContract, decisionEntry],
     declarationSources: [decisionContract, decisionEntry], outputDirectory: ".temp/isolation" });
-  for (const [name, up] of [["lower-mir", "../"], ["evaluate", "../"], ["summaries", "../"], ["analyses/origins", "../../"], ["analyses/refinements", "../../"], ["analyses/pointerBacking", "../../"]]) {
+  for (const [name, up] of [["lower-mir", "../"], ["evaluate", "../"], ["summaries", "../"]]) {
     await fixture([...decisionSources, ...readerSources(name, up)], async ({ root, deps }) => {
       const report = await compileIsolated(deps, module(name), input(root, name));
       assert.equal(report.status, "passed", `${name}: ${label(report)}`);
@@ -88,7 +88,7 @@ test("a decision reader compiles against fresh ir-infer declarations; a module w
       assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true, name);
     });
   }
-  for (const [name, up] of [["analyses/body", "../../"], ["analyses/liveness", "../../"], ["analyses/initialization", "../../"], ["analyses/suspension", "../../"], ["analyses/errorStorage", "../../"], ["metadata", "../"], ["front", "../"]]) {
+  for (const [name, up] of [["analyses/body", "../../"], ["analyses/liveness", "../../"], ["metadata", "../"], ["front", "../"]]) {
     await fixture([...decisionSources, ...readerSources(name, up)], async ({ root, deps }) => {
       const report = await compileIsolated(deps, module(name), input(root, name));
       assert.equal(report.status, "failed", `${name}: ${label(report)}`);
@@ -213,6 +213,64 @@ test("canonical generic phase-slot records retain real strict isolated compilati
   });
 });
 
+test("HIR admits only the exact named phase copy slot with typed refusal", async () => {
+  const declarations = [
+    'export interface Phase { readonly Identifier: { readonly label: string } | null; readonly Other: null; }',
+    'export type SyntaxCopyResult<Value, Stop> = { readonly kind: "copied"; readonly value: Value } | { readonly kind: "refused"; readonly stop: Stop };',
+    'export type PreparedSyntaxSlot<Value, Image> = (image: Image) => Value;',
+  ];
+  const callback = 'export interface SyntaxPhaseCopy<P extends Phase, Stop, Image> { readonly Identifier: (value: P["Identifier"]) => SyntaxCopyResult<PreparedSyntaxSlot<P["Identifier"], Image>, Stop>; }';
+  const shape = [...declarations, callback,
+    'export type Copy = <P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>) => SyntaxPhaseCopy<P, Stop, Image>;'].join("\n");
+  const contract = path("ir-hir");
+  const entry = path("ir-hir", "index.ts");
+  const implementation = 'import type { Copy } from "./contract.js"; export const copy: Copy = phase => ({ Identifier: value => phase.Identifier(value) });';
+  await fixture([[contract, shape], [entry, implementation]], async ({ root, deps }) => {
+    const report = await compileIsolated(deps, module("ir-hir"),
+      { root, sourceFiles: [contract, entry], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
+    assert.equal(report.status, "passed", label(report));
+  });
+
+  const opposites = [
+    ["wrong slot", "ir-hir", callback.replace('PreparedSyntaxSlot<P["Identifier"]', 'PreparedSyntaxSlot<P["Other"]')],
+    ["wrong name", "ir-hir", callback.replace("readonly Identifier:", "readonly Other:")],
+    ["optional argument", "ir-hir", callback.replace("(value:", "(value?:")],
+    ["rest argument", "ir-hir", callback.replace('(value: P["Identifier"])', '(...value: P["Identifier"][])')],
+    ["mutable port", "ir-hir", callback.replace("readonly Identifier:", "Identifier:")],
+    ["crossed phase", "ir-hir", callback.replace("Stop, Image>", "Stop extends Phase, Image>")
+      .replace('PreparedSyntaxSlot<P["Identifier"]', 'PreparedSyntaxSlot<Stop["Identifier"]')],
+    ["crossed image", "ir-hir", callback.replace('P["Identifier"], Image>', 'P["Identifier"], Stop>')],
+    ["crossed stop", "ir-hir", callback.replace('Image>, Stop>', 'Image>, Image>')],
+    ["runtime-selected slot", "ir-hir", callback.replace("(value: P", "<Slot extends keyof Phase>(value: P").replaceAll('["Identifier"]', "[Slot]")],
+    ["unchecked port", "ir-hir", callback.replace('SyntaxCopyResult<PreparedSyntaxSlot<P["Identifier"], Image>, Stop>', 'P["Identifier"]')],
+    ["retired direct result", "ir-hir", callback.replace('PreparedSyntaxSlot<P["Identifier"], Image>', 'P["Identifier"]')],
+    ["mapped slot inventory", "ir-hir", 'export type SyntaxPhaseCopy<P extends Phase, Stop, Image> = { readonly [Slot in keyof Phase]: (value: P[Slot]) => SyntaxCopyResult<PreparedSyntaxSlot<P[Slot], Image>, Stop> };'],
+    ["outside HIR", "ir-types", callback],
+  ];
+  for (const [description, owner, text] of opposites) {
+    const invalid = path(owner);
+    await fixture([[invalid, [...declarations, text].join("\n")]], async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module(owner),
+        { root, sourceFiles: [invalid], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
+      assert.equal(report.status, "failed", description);
+      assert.equal(report.findings.some(finding => finding.code === "contract-shape" && finding.path === invalid && finding.line === 4),
+        true, `${description}: ${label(report)}`);
+    });
+  }
+  for (const invalid of [
+    [declarations[1].replace("readonly value: Value", "readonly value: Value | null"), declarations[2]],
+    [declarations[1], declarations[2].replace("(image: Image)", "(image?: Image)")],
+    [declarations[1], declarations[2].replace("=> Value", "=> Value | null")],
+    [declarations[1], declarations[2].replace("(image: Image)", "(image: Value)")],
+  ]) await fixture([[contract, [declarations[0], ...invalid, callback].join("\n")]], async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module("ir-hir"),
+        { root, sourceFiles: [contract], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
+      assert.equal(report.status, "failed", label(report));
+      assert.equal(report.findings.some(finding => finding.code === "contract-shape" && finding.path === contract && finding.line === 4),
+        true, label(report));
+    });
+});
+
 const sdkRoles = 'export interface LibraryRoleEntry { readonly role: string; }';
 const sdkContract = 'import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";\nimport type { LibraryRoleEntry } from "../snapshot/contract.js";\nexport type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };\nexport type CheckerExtensionValue = { readonly kind: "compiler-extension"; readonly value: CompilerExtension } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider; readonly roles: readonly LibraryRoleEntry[] } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };\nexport type ExtensionOf = (table: CheckerExtensions, reference: number) => CheckerExtensionValue;';
 
@@ -310,7 +368,7 @@ test("whole-source inventories, admission, paths and repeated fresh declarations
 
 test("all actual Host modules pass S1 inspection and fresh whole-module declaration isolation", async context => {
   const modules = hostCatalogue.filter(module => module.directory.startsWith(`${host}/`));
-  assert.equal(modules.length, 38, "complete current contract owners");
+  assert.equal(modules.length, 32, "complete current contract owners");
   const deps = isolationDeps(tooling, quarantineRoots);
   const inventory = deps.enumerate(resolve(repository, host)).map(path => relative(repository, path)).sort();
   const files = new Map(inventory.map(path => [path, readFileSync(resolve(repository, path), "utf8")]));
@@ -321,11 +379,12 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   const expectedInventory = [...modules.map(module => module.contract),
     ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`),
     ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`),
-    ...["index.ts", "arena.ts", "data.ts", "publication-fields.ts", "publication-read.ts", "work.ts", "value.ts", "interner.ts", "canonical.ts", "copy.ts", "text-readers.ts", "text-values.ts", "text-components.ts", "text-records.ts", "normalize.ts",
-      "substitute.ts", "graph-stage.ts", "intern-graph.ts", "print.ts", "parse.ts", "verify.ts", "verify-bindings.ts", "selector-path.ts", "native-facts.ts", "native-facts-data.ts", "native-carrier.ts", "literal-compatibility.ts"].map(name => `${host}/ir-types/${name}`),
-    ...["index.ts", "pragmas.ts", "endpoints.ts", "children.ts", "walk.ts", "print.ts", "parse.ts", "verify.ts", "verify-syntax.ts",
+    ...["index.ts", "arena.ts", "data.ts", "publication-fields.ts", "publication-read.ts", "work.ts", "value.ts", "interner.ts", "canonical.ts", "copy.ts", "text-readers.ts", "text-values.ts", "text-components.ts", "text-records.ts",
+      "substitute.ts", "graph-stage.ts", "intern-graph.ts", "print.ts", "parse.ts", "verify.ts", "verify-bindings.ts", "selector-path.ts", "native-facts.ts", "native-facts-data.ts", "native-carrier.ts", "literal-compatibility.ts", "source-choice.ts"].map(name => `${host}/ir-types/${name}`),
+    ...["index.ts", "pragmas.ts", "endpoints.ts", "children.ts", "walk.ts", "declaration-scopes.ts", "grouping-frontier.ts", "print.ts", "parse.ts", "verify.ts", "verify-syntax.ts",
+      "copy-auxiliary.ts", "copy-expressions.ts", "copy-node.ts", "copy-statements.ts", "copy-syntax.ts", "copy-types.ts", "checked-phase-copy.ts",
       "binding-data.ts", "bindings.ts", "capture-data.ts", "verify-export-bindings.ts", "text-read-bindings.ts", "text-causes.ts",
-      "verify-bindings.ts", "verify-captures.ts", "text-data.ts", "text-syntax.ts", "text-construction.ts", "text-read-model.ts",
+      "verify-bindings.ts", "verify-captures.ts", "storage.ts", "text-data.ts", "text-syntax.ts", "text-construction.ts", "text-read-model.ts",
       "text-readers.ts", "text-read-scalars.ts", ...Array.from({ length: 10 }, (unusedValue, position) => `text-read-${position}.ts`),
       ...Array.from({ length: 14 }, (unusedValue, position) => `text-read-syntax-${position}.ts`)].map(name => `${host}/ir-hir/${name}`),
     ...["index.ts", "print.ts", "parse.ts", "text-layouts.ts", "text-construction.ts", "text-syntax-construction.ts",
@@ -338,22 +397,21 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "text-constraints.ts", "text-contributions.ts", "text-data.ts", "text-decision-values.ts",
       "text-decisions.ts", "text-evidence.ts", "text-invocations.ts", "text-operations.ts", "text-pointers.ts",
       "text-rule-inputs.ts", "verify-contributions.ts", "verify-solution.ts", "verify.ts"].map(name => `${host}/ir-infer/${name}`),
-    ...["index.ts", "local-ownership.ts", "parse.ts", "print.ts", "text-decisions.ts", "text.ts", "verify-control.ts",
+    ...["constant-projection.ts", "index.ts", "local-ownership.ts", "parse.ts", "print.ts", "project-values.ts", "text-decisions.ts", "text.ts", "verify-control.ts",
       "verify-storage.ts", "verify-laws.ts", "verify-types.ts", "verify.ts"].map(name => `${host}/ir-mir/${name}`),
-    ...["canonical-facts.ts", "canonical-inference.ts", "canonical-phase.ts", "canonical-syntax.ts",
-      "canonical-tir.ts", "canonical-types.ts", "canonical.ts", "index.ts", "instantiate-facts.ts",
-      "instantiate-phase.ts", "instantiate-syntax.ts", "instantiate-tir.ts", "instantiate-types.ts",
-      "instantiate.ts", "parse-core.ts", "parse-diagnostics.ts", "parse-inference.ts",
+    ...["canonical-facts.ts", "canonical-phase.ts", "canonical-syntax.ts",
+      "canonical-tir.ts", "canonical-types.ts", "canonical.ts", "data.ts", "index.ts", "instantiate-facts.ts",
+      "instantiate-phase.ts", "instantiate-syntax.ts", "instantiate-tir.ts",
+      "instantiate.ts", "initialization-text.ts", "parse-core.ts", "parse-diagnostics.ts", "parse-inference.ts",
       "parse-phase-declarations.ts", "parse-phase.ts", "parse-syntax-auxiliary.ts",
       "parse-syntax-expressions.ts", "parse-syntax-jsdoc.ts", "parse-syntax-references.ts",
       "parse-syntax-statements.ts", "parse-syntax-types.ts", "parse-syntax-values.ts", "parse-syntax.ts",
       "parse-tir.ts", "parse-types.ts", "parse-values.ts", "parse.ts", "print-syntax-auxiliary.ts",
       "print-syntax-expressions.ts", "print-syntax-statements.ts", "print-syntax-types.ts", "print-syntax.ts",
-      "print.ts", "program-values.ts", "syntax-arena.ts", "syntax-auxiliary.ts", "syntax-edges.ts",
-      "syntax-expressions.ts", "syntax-statements.ts", "syntax-types.ts", "text-core.ts", "text-causes.ts", "text-inference.ts",
+      "print.ts", "program-values.ts", "syntax-arena.ts", "syntax-edges.ts", "text-core.ts", "text-causes.ts", "text-inference.ts",
       "text-module-bindings.ts", "verify-module-bindings.ts",
       "text-phase-declarations.ts", "text-phase.ts", "text-tir.ts", "text-types.ts", "text-values.ts",
-      "verify-index.ts", "verify-module.ts", "verify-structure.ts", "verification-work.ts", "verify-metadata-operands.ts", "work.ts", "work-data.ts"].map(name => `${host}/ir-program/${name}`),
+      "verify-index.ts", "verify-initialization.ts", "verify-module.ts", "verify-structure.ts", "verification-work.ts", "verify-metadata-operands.ts", "work.ts", "work-data.ts"].map(name => `${host}/ir-program/${name}`),
     ...["account.ts", "components.ts", "dominators.ts", "graph.ts", "index.ts", "loops.ts", "ordering.ts", "solve.ts"].map(name => `${host}/dataflow/${name}`),
     ...["index.ts", "conditions.ts", "conditions-data.ts", "parse.ts", "print.ts", "dependency-data.ts", "execution-entry.ts", "verify-dependencies.ts", "verify-facts.ts", "verify-metadata.ts",
       "verify-relations.ts", "verify-summary.ts", "summary-key.ts", "escape-key.ts", "verify-observations.ts", "application-data.ts", "apply-initialization.ts",
@@ -364,25 +422,25 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "verify-bound.ts"].map(name => `${host}/libraries/${name}`),
     ...["index.ts", "bind-declared.ts", "translate-native.ts", "unknown-declared.ts", "components.ts", "dependencies.ts", "converge.ts"].map(name => `${host}/summaries/${name}`),
     ...["index.ts", "round.ts", "storage.ts", "source.ts", "proof.ts", "calls.ts", "captures.ts", "exits.ts",
-      "initialization.ts", "places.ts", "value-flow.ts", "values.ts", "writes.ts"].map(name => `${host}/analyses/body/${name}`),
+      "initialization.ts", "places.ts", "static-calls.ts", "value-flow.ts", "values.ts", "writes.ts"].map(name => `${host}/analyses/body/${name}`),
     ...["index.ts", "model.ts", "storage-use.ts"].map(name => `${host}/analyses/liveness/${name}`),
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
     ...["index.ts"].map(name => `${host}/step/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),
     ...["bindings.ts", "capture.ts", "checker.ts", "diagnostics.ts", "handles.ts", "identities.ts", "index.ts",
-      "lower.ts", "lower-calls.ts", "lower-exports.ts", "lower-imports.ts", "lower-members.ts", "checked-declarations.ts", "source-bodies.ts",
+      "literals.ts", "lower.ts", "lower-calls.ts", "lower-exports.ts", "lower-imports.ts", "lower-members.ts", "checked-declarations.ts", "source-bodies.ts",
       "type-conversion.ts", "options.ts", "program-data.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
-    ...["definitions.ts", "index.ts", "placement.ts", "signatures.ts", "cycles.ts", "members.ts"].map(name => `${host}/decls/${name}`),
-    ...["embed.ts", "errors.ts", "frontier.ts", "index.ts", "operators.ts", "schemes.ts", "variables.ts",
-      "candidates.ts", "captures.ts"].map(name => `${host}/rules/${name}`),
-    ...["constraints.ts", "frontier.ts", "groups.ts", "index.ts", "own-signature.ts", "solve.ts",
+    ...["definitions.ts", "index.ts", "placement.ts", "signatures.ts", "cycles.ts", "members.ts", "type-production.ts"].map(name => `${host}/decls/${name}`),
+    ...["embed.ts", "errors.ts", "frontier.ts", "index.ts", "literal-default.ts", "literal-fit.ts", "member-pause.ts", "operators.ts", "schemes.ts", "variables.ts",
+      "candidates.ts", "captures.ts", "type-pattern.ts"].map(name => `${host}/rules/${name}`),
+    ...["constraints.ts", "frontier.ts", "groups.ts", "index.ts", "member-pause.ts", "own-signature.ts", "solve.ts",
       "candidates.ts", "captures.ts"].map(name => `${host}/infer/${name}`),
     ...["elaborate.ts", "index.ts", "module.ts", "declarations.ts", "imports.ts"].map(name => `${host}/elaborate/${name}`),
-    ...["checked-inputs.ts", "driver.ts", "infer-deps-step.ts", "inference-step.ts", "lower-mir-step.ts", "semantic-queries.ts", "wiring.ts",
-      "analysis-barrier.ts", "index.ts", "publication.ts", "source-barrier.ts", "typed-barrier.ts"].map(name => `${host}/pipeline/${name}`),
+    ...["checked-inputs.ts", "driver.ts", "external-entries.ts", "infer-deps-step.ts", "inference-step.ts", "lower-mir-step.ts", "module-initialization.ts", "semantic-queries.ts", "wiring.ts",
+      "analysis-barrier.ts", "analysis-stop.ts", "index.ts", "publication.ts", "source-barrier.ts", "typed-barrier.ts"].map(name => `${host}/pipeline/${name}`),
     ...["index.ts", "production.ts"].map(name => `${host}/validate/${name}`),
     ...["index.ts", "lower.ts", "state.ts", "model.ts", "operands.ts", "control.ts", "calls.ts", "bindings.ts"].map(name => `${host}/lower-mir/${name}`),
-    ...["budget.ts", "data.ts", "index.ts", "integer.ts", "machine.ts", "pause.ts"].map(name => `${host}/evaluate/${name}`)].sort();
+    ...["budget.ts", "comparison.ts", "conversions.ts", "data.ts", "index.ts", "integer.ts", "machine.ts", "pause.ts"].map(name => `${host}/evaluate/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {
@@ -440,12 +498,24 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
         "export function read(context: ProgramVerificationContext) { const { modulePathOf, ...legacy } = context; void modulePathOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
       ["old-program-definition-path-context", [["ir-program", "ProgramVerificationContext"]],
         "export function read(context: ProgramVerificationContext) { const { definitionPathOf, ...legacy } = context; void definitionPathOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
-      ["seed-without-table", [["ir-types", "SeedTypeInterner"]],
-        "export function read(seed: SeedTypeInterner) { return seed(); }", 2554],
+      ["removed-unpaid-seed", [["ir-types", "SeedTypeInterner"]],
+        "export type Removed = SeedTypeInterner;", 2724],
+      ["admit-table-without-work", [["ir-types", "AdmitTypeTable, TypeTable"]],
+        "export function read(admit: AdmitTypeTable, table: TypeTable) { return admit(table); }", 2554],
       ["publication-without-usage", [["ir-types", "TypePublication, TypePublicationResult"]],
         "export function read(value: TypePublication) { const result: TypePublicationResult = { kind: 'complete', value }; return result; }", 2322],
       ["tir-module-without-module", [["ir-tir", "VerifyTirModule, TirVerifierInput"]],
         "export function read(verify: VerifyTirModule, input: TirVerifierInput) { return verify(input); }", 2554],
+      ["tir-without-admission", [["ir-tir", "VerifyTir, TirVerifierInput"]],
+        "export function read(verify: VerifyTir, input: TirVerifierInput) { return verify(input); }", 2554],
+      ["tir-without-bound-invocation", [["ir-tir", "VerifyTir, TirBody, TirReadyReadAdmission, TirVerifierInput"]],
+        "export function read<Stop extends object>(verify: VerifyTir, input: TirVerifierInput, body: TirBody, admit: TirReadyReadAdmission<Stop>) { return verify(input, body, admit); }", 2554],
+      ["tir-module-without-admission", [["ir-tir", "VerifyTirModule, TirVerifierInput"]],
+        "export function read(verify: VerifyTirModule, input: TirVerifierInput) { return verify(input, input.module); }", 2554],
+      ["tir-scope-without-subject-and-visitor", [["ir-tir", "TirBindingTarget, TirVerifierInput"]],
+        "export function read(input: TirVerifierInput, target: TirBindingTarget) { return input.bindingScopesOf(target); }", 2554],
+      ["tir-removed-binding-owner-projection", [["ir-tir", "TirBindingOwners"]],
+        "export type Removed = TirBindingOwners;", 2724],
       ["tir-closed-source-file-phase", [["ir-tir", "TypedSourceFile"]],
         "export function read(phase: TypedSourceFile) { const invalid: TypedSourceFile = { ...phase, checker: phase }; return invalid; }", 2353],
       ["tir-closed-nested-phase", [["ir-types", "BindingVector"]],
@@ -457,13 +527,19 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
       ["tir-site-with-body-node", [["ir-tir", "TirSite"], ["ids", "NodeRef"]],
         "export function read(node: NodeRef) { const site: TirSite = { kind: 'node', node }; return site; }", 2322],
       ["tir-module-with-body-site", [["ir-tir", "VerifyTirModule"], ["ids", "BodyId"]],
-        "export function read(body: BodyId): VerifyTirModule { return () => [{ rule: 'body-owner', site: { kind: 'body', body }, detail: [] }]; }", 2322],
-      ["signature-with-type-root", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"], ["ids", "TyId"]],
-        "export function read(substitute: SubstituteSignature, interner: TypeInterner, type: TyId, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, [type], bindings, limits); }", 2322],
-      ["removed-scalar-substitute", [["ir-types", "Substitute, TypeInterner, BindingVector, TypeExpansionLimits"], ["ids", "TyId"]],
-        "export function read(substitute: Substitute, interner: TypeInterner, type: TyId, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, type, bindings, limits); }", 2345],
-      ["removed-scalar-signature-substitute", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"], ["ids", "SigId"]],
-        "export function read(substitute: SubstituteSignature, interner: TypeInterner, signature: SigId, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, signature, bindings, limits); }", 2345],
+        "export function read(body: BodyId): VerifyTirModule { return () => ({ kind: 'complete', violations: [{ rule: 'body-owner', site: { kind: 'body', body }, detail: [] }] }); }", 2322],
+      ["signature-with-type-root", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits, TypePublicationWork"], ["ids", "TyId"]],
+        "export function read(substitute: SubstituteSignature, interner: TypeInterner, type: TyId, bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork) { return substitute(interner, [type], bindings, limits, 'lexical', work); }", 2322],
+      ["removed-scalar-substitute", [["ir-types", "Substitute, TypeInterner, BindingVector, TypeExpansionLimits, TypePublicationWork"], ["ids", "TyId"]],
+        "export function read(substitute: Substitute, interner: TypeInterner, type: TyId, bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork) { return substitute(interner, type, bindings, limits, work); }", 2345],
+      ["removed-scalar-signature-substitute", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits, TypePublicationWork"], ["ids", "SigId"]],
+        "export function read(substitute: SubstituteSignature, interner: TypeInterner, signature: SigId, bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork) { return substitute(interner, signature, bindings, limits, 'selected', work); }", 2345],
+      ["signature-without-substitution-mode", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"], ["ids", "SigId"]],
+        "export function read(substitute: SubstituteSignature, interner: TypeInterner, signature: SigId, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, [signature], bindings, limits); }", 2554],
+      ["signature-with-mode-without-commitment", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"], ["ids", "SigId"]],
+        "export function read(substitute: SubstituteSignature, interner: TypeInterner, signature: SigId, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, [signature], bindings, limits, 'lexical'); }", 2554],
+      ["signature-with-unknown-substitution-mode", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits, TypePublicationWork"], ["ids", "SigId"]],
+        "export function read(substitute: SubstituteSignature, interner: TypeInterner, signature: SigId, bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork) { return substitute(interner, [signature], bindings, limits, 'implicit', work); }", 2345],
       ["deleted-program-id-history-rule", [["ir-program", "ProgramRule"]],
         "export function read() { const rule: ProgramRule = 'instantiation-preserves-existing-ids'; return rule; }", 2322],
       ["old-binding-element", [["ir-tir", "TypedBinding, TypedBindingElement"]],
@@ -486,17 +562,17 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
     const positive = imports([
       ["ir-mir", "VerifyMir, MirBody, MirVerificationContext, MirTerminator"],
       ["dataflow", "BackwardProblem, BlockState, DataflowAccount"], ["ir-program", "ProgramVerificationContext, SupportedProgramSchema, SignatureRecord, PublishedBody"],
-      ["ir-types", "SeedTypeInterner, TypeTable, TypePublicationResult, SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"],
-      ["ir-tir", "TypedBinding, TypedBindingElement, VerifyTir, VerifyTirModule, TirVerifierInput, TirModule, TirBody, TirSite"], ["libraries", "LibraryVerificationContext, NativeExportAssociation"],
-      ["ids", "LibraryExportIdentity, ModuleId, NodeId, BlockId"],
-    ]) + '\nexport function current(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, account: DataflowAccount, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity, seed: SeedTypeInterner, table: TypeTable, record: SignatureRecord, block: BlockId) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: readonly NativeExportAssociation[] = libraries.associations;\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null, account, block), resources: program.resources, mirVerification: program.mirVerification, element, hole, schema, projection, identity, interner: seed(table), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
-    write("positive.mts", positive + '\nexport function currentPublication(result: TypePublicationResult) { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\nexport function currentTir(verifyBody: VerifyTir, verifyModule: VerifyTirModule, input: TirVerifierInput, body: TirBody, module: TirModule) { return { body: verifyBody(input, body), outside: verifyModule(input, module).map(violation => [violation.site.module, violation.site.node]) }; }\nexport function currentTirSite(module: ModuleId, node: NodeId): TirSite { return { kind: "node", module, node }; }\nexport function currentProgramSignature(substitute: SubstituteSignature, interner: TypeInterner, artifact: PublishedBody, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, [artifact.tir.signature], bindings, limits); }\n');
+      ["ir-types", "AdmitTypeTable, TypeTableAdmissionStop, TypeTableAdmissionWork, TypePublicationWork, TypeTable, TypePublicationResult, SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"],
+      ["ir-tir", "TypedBinding, TypedBindingElement, VerifyTir, VerifyTirModule, TirVerifierInput, TirModule, TirBody, TirSite, TirReadyReadAdmission"], ["libraries", "LibraryVerificationContext, NativeExportAssociation"],
+      ["ids", "LibraryExportIdentity, ModuleId, NodeId, BlockId, SigId"],
+    ]) + '\nexport function current<Stop extends TypeTableAdmissionStop>(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, account: DataflowAccount, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity, admitTable: AdmitTypeTable, table: TypeTable, typeWork: TypeTableAdmissionWork<Stop>, record: SignatureRecord, block: BlockId) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: readonly NativeExportAssociation[] = libraries.associations;\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null, account, block), resources: program.resources, mirVerification: program.mirVerification, element, hole, schema, projection, identity, interner: admitTable(table, typeWork), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
+    write("positive.mts", positive + '\nexport function currentPublication(result: TypePublicationResult) { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\nexport function currentTir<Stop extends object>(verifyBody: VerifyTir, verifyModule: VerifyTirModule, input: TirVerifierInput, body: TirBody, module: TirModule, admit: TirReadyReadAdmission<Stop>) { const outside = verifyModule(input, module, admit); return { body: verifyBody(input, admit)(body), outside: outside.kind === "complete" ? outside.violations.map(violation => [violation.site.module, violation.site.node]) : outside.stop }; }\nexport function currentTirSite(module: ModuleId, node: NodeId): TirSite { return { kind: "node", module, node }; }\nexport function currentProgramSignature(substitute: SubstituteSignature, interner: TypeInterner, artifact: PublishedBody, bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork) { return substitute(interner, [artifact.tir.signature], bindings, limits, "lexical", work); }\nexport function currentSelectedSignature(substitute: SubstituteSignature, interner: TypeInterner, signature: SigId, bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork) { return substitute(interner, [signature], bindings, limits, "selected", work); }\n');
     write("positive-hir-paths.mts", imports([["ir-hir", "HirVerificationContext, HirRule"], ["ids", "BodyId, DefId"]]) +
       '\nexport function current(context: HirVerificationContext, body: BodyId, definition: DefId) { const rule: HirRule = "identity-path-exact"; return { body: context.bodyPathOf(body), definition: context.definitionPathOf(definition), rule }; }\n');
     write("positive-program-paths.mts", imports([["ir-program", "ProgramVerificationContext, ProgramRule"], ["ids", "ModuleId, DefId"]]) +
       '\nexport function current(context: ProgramVerificationContext, module: ModuleId, definition: DefId) { const rule: ProgramRule = "identity-path-exact"; return { module: context.modulePathOf(module), definition: context.definitionPathOf(definition), rule }; }\n');
-    write("positive-tir-scopes.mts", imports([["ir-tir", "TirVerifierInput, TirBindingTarget"], ["ir-types", "BodyInstance"], ["ids", "ModuleId"]]) +
-      '\nexport function current(input: TirVerifierInput, instance: BodyInstance, module: ModuleId) { const body: TirBindingTarget = { kind: "body", instance }; const outside: TirBindingTarget = { kind: "module", module }; return { body: input.bindingScopesOf(body), outside: input.bindingScopesOf(outside) }; }\n');
+    write("positive-tir-scopes.mts", imports([["ir-tir", "TirVerifierInput, TirBindingTarget, TirBindingOwnerVisit, TirReadyReadAdmission, TirBody, VerifyTir, VerifyTirModule"], ["ir-types", "BodyInstance"]]) +
+      '\nexport function current<Stop extends object>(input: TirVerifierInput, subject: TirBody, instance: BodyInstance, visit: TirBindingOwnerVisit<Stop>, admit: TirReadyReadAdmission<Stop>, verify: VerifyTir, verifyModule: VerifyTirModule): Stop | null { const body: TirBindingTarget = { kind: "body", instance }; const scope = input.bindingScopesOf(body, subject, visit); if (scope.kind === "resource-stop") return scope.stop; const checked = verify(input, admit)(subject); if (checked.kind === "resource-stop") return checked.stop; const chapter = verifyModule(input, input.module, admit); return chapter.kind === "resource-stop" ? chapter.stop : null; }\n');
     write("positive-decls-deps.mts", imports([["decls", "DeclsDeps"]]) +
       '\nexport function current(deps: DeclsDeps) { return deps.modules; }\n');
     for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");

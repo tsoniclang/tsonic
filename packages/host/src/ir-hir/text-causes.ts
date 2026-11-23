@@ -2,7 +2,7 @@ import type { Cause, DiagnosticIdentity, UnitPosition, UnitRef, UnitRequest } fr
 import type { GroupId, KeyData, KeyRecord, SourceNodeRef } from "../ids/contract.js";
 import { decodeGroupId, encodeGroupId } from "../ids/index.js";
 import type { HirDataWork } from "./walk.js";
-import { hirArrayData, hirFieldData, hirIdentityData, hirRecordData, hirScalarData, hirSourceRefData } from "./walk.js";
+import { hirArrayData, hirFieldData, hirIdentityData, hirNodeRefData, hirRecordData, hirScalarData, hirSourceRefData } from "./walk.js";
 import type { HirReader } from "./text-construction.js";
 import { constructionValue, recordReader, sequenceReader, unionReader } from "./text-construction.js";
 import type { HirTextReaders } from "./text-read-model.js";
@@ -24,6 +24,8 @@ function positionData(value: UnitPosition): HirDataWork {
       case "result": return [];
       case "module-node": return [hirFieldData("module", hirIdentityData("mod", value.module)), hirFieldData("node", hirIdentityData("n", value.node))];
       case "source-node": return [hirFieldData("node", hirSourceRefData(value.node))];
+      case "execution-result": return [hirFieldData("execution", hirScalarData(value.execution))];
+      case "execution-source-node": return [hirFieldData("execution", hirScalarData(value.execution)), hirFieldData("node", hirNodeRefData(value.node))];
       case "component": return [hirFieldData("path", hirArrayData(value.path, keyData))];
       case "inference-variable": return [hirFieldData("group", hirScalarData(value.group)), hirFieldData("variable", hirScalarData(value.variable))];
     }
@@ -35,9 +37,10 @@ function unitData(value: UnitRef): HirDataWork {
 }
 
 function identityData(value: DiagnosticIdentity): HirDataWork {
-  return hirRecordData(value.kind, value, () => value.kind === "checker"
-    ? [hirFieldData("module", hirIdentityData("mod", value.diagnostic.module)), hirFieldData("index", hirScalarData(value.diagnostic.index))]
-    : [hirFieldData("unit", unitData(value.unit)), hirFieldData("code", hirScalarData(value.code))]);
+  if (value.kind === "checker") return hirRecordData(value.kind, value, () => [
+    hirFieldData("module", hirIdentityData("mod", value.diagnostic.module)), hirFieldData("index", hirScalarData(value.diagnostic.index)),
+  ], { kind: "CheckerDiagnosticRef", value: value.diagnostic });
+  return hirRecordData(value.kind, value, () => [hirFieldData("unit", unitData(value.unit)), hirFieldData("code", hirScalarData(value.code))]);
 }
 
 export function causeData(value: Cause): HirDataWork {
@@ -71,6 +74,15 @@ export function createCauseReader(readers: () => HirTextReaders): HirReader<Caus
     const node = read("node", unionReader<SourceNodeRef>(() => [readers().record_5, readers().record_7]));
     return { fields: [node], value: () => ({ kind: "source-node", node: node.value() }) };
   });
+  const executionResult = recordReader<Extract<UnitPosition, { readonly kind: "execution-result" }>>("execution-result", read => {
+    const execution = read("execution", readers().scalar_string);
+    return { fields: [execution], value: () => ({ kind: "execution-result", execution: execution.value() }) };
+  });
+  const executionNode = recordReader<Extract<UnitPosition, { readonly kind: "execution-source-node" }>>("execution-source-node", read => {
+    const execution = read("execution", readers().scalar_string);
+    const node = read("node", readers().record_6);
+    return { fields: [execution, node], value: () => ({ kind: "execution-source-node", execution: execution.value(), node: node.value() }) };
+  });
   const component = recordReader<Extract<UnitPosition, { readonly kind: "component" }>>("component", read => {
     const path = read("path", sequenceReader(key));
     return { fields: [path], value: () => ({ kind: "component", path: path.value() }) };
@@ -84,7 +96,7 @@ export function createCauseReader(readers: () => HirTextReaders): HirReader<Caus
     const variable = read("variable", readers().scalar_number);
     return { fields: [group, variable], value: () => ({ kind: "inference-variable", group: group.value(), variable: variable.value() }) };
   });
-  const position = unionReader<UnitPosition>(() => [result, moduleNode, sourceNode, component, variable]);
+  const position = unionReader<UnitPosition>(() => [result, moduleNode, sourceNode, executionResult, executionNode, component, variable]);
   const unit = recordReader<UnitRef>("UnitRef", read => {
     const actual = read("request", request); const at = read("position", position);
     return { fields: [actual, at], value: () => ({ request: actual.value(), position: at.value() }) };

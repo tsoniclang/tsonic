@@ -23,16 +23,18 @@ test("the emitted Infer contract takes the rule table through InferDeps and refu
   cpSync(emittedRoot, stage, { recursive: true, filter: source => !source.endsWith(".js") && !source.endsWith(".map") });
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
   const imports = 'import type { Result, UnitRequest } from "./diag/contract.js";\n' +
-    'import type { AtomicContribution, ConstraintSet, InferenceGroup, RuleTable, Solution } from "./ir-infer/contract.js";\n' +
-    'import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep, SolveGroup, SolveRequest } from "./infer/contract.js";\n' +
+    'import type { AtomicContribution, ConstraintSet, InferenceGroup, RuleTable as BoundRuleTable, Solution } from "./ir-infer/contract.js";\n' +
+    'import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, GroupSolution, InferDeps as BoundInferDeps, InferPaused as BoundInferPaused, InferStep, SolveGroup, SolveRequest } from "./infer/contract.js";\n' +
+    'import type { MemberRuleContinuation } from "./rules/contract.js";\n' +
+    'type RuleTable = BoundRuleTable<MemberRuleContinuation>; type InferDeps = BoundInferDeps<MemberRuleContinuation>; type InferPaused = BoundInferPaused<MemberRuleContinuation>;\n' +
     'export type CurrentPorts = Result<null> | UnitRequest | AtomicContribution | ConstraintSet | InferenceGroup | RuleTable | Solution | ConstraintsOf | ConstraintsPaused | ConstraintsRequest | GroupConstraints | GroupSolution | InferDeps | InferPaused | InferStep<GroupSolution, SolveRequest, InferPaused> | SolveGroup | SolveRequest;\n';
   const same = 'type Same<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;\n';
   const positive = imports + same +
     'export const rules: Same<InferDeps["rules"], RuleTable> = true;\n' +
-    'export const constraintsParameters: Same<Parameters<ConstraintsOf>, [deps: InferDeps, group: InferenceGroup]> = true;\n' +
-    'export const solveParameters: Same<Parameters<SolveGroup>, [deps: InferDeps, group: InferenceGroup, constraints: GroupConstraints, unit: UnitRequest]> = true;\n' +
+    'export const constraintsParameters: Same<Parameters<ConstraintsOf>, [deps: BoundInferDeps<unknown>, group: InferenceGroup]> = true;\n' +
+    'export const solveParameters: Same<Parameters<SolveGroup>, [deps: BoundInferDeps<unknown>, group: InferenceGroup, constraints: GroupConstraints, unit: UnitRequest]> = true;\n' +
     'export const constraintsResult: Same<ReturnType<ConstraintsOf>, InferStep<GroupConstraints, ConstraintsRequest, ConstraintsPaused>> = true;\n' +
-    'export const solveResult: Same<ReturnType<SolveGroup>, InferStep<GroupSolution, SolveRequest, InferPaused>> = true;\n' +
+    'export const solveResult: Same<ReturnType<SolveGroup>, InferStep<GroupSolution, SolveRequest, BoundInferPaused<unknown>>> = true;\n' +
     'export const contributionResult: Same<GroupSolution["contributions"], readonly AtomicContribution[]> = true;\n' +
     'export const solutionResult: Same<GroupSolution["solution"], Solution> = true;\n' +
     'export const constraintRows: Same<GroupConstraints["constraints"], readonly ConstraintSet[]> = true;\n' +
@@ -62,17 +64,20 @@ test("the emitted Infer contract takes the rule table through InferDeps and refu
   assert.equal(accepted.status, 0, accepted.text);
   const loaded = accepted.text.split(/\r?\n/u).filter(path => path.startsWith(stage))
     .map(path => relative(stage, path).split(sep).join("/"));
-  for (const required of ["consumer.ts", "infer/contract.d.ts", "ir-infer/contract.d.ts", "diag/contract.d.ts"])
+  for (const required of ["consumer.ts", "infer/contract.d.ts", "ir-infer/contract.d.ts", "diag/contract.d.ts", "rules/contract.d.ts"])
     assert.equal(loaded.includes(required), true, `${required} is loaded`);
   // 2322: an implementation that still takes the table as its second parameter is not the operation.
   // 2554: a call that still passes the table beside deps has one argument too many.
-  // 2741: a dependency record without the table is not InferDeps.
+  // 2322: a dependency record without the table is not InferDeps.
   const negatives = [
     ["removed-enumerate.ts", 'import type { EnumerateContributions } from "./infer/contract.js"; export type Old = EnumerateContributions;', 2305],
     ["old-solve-implementation.ts", `${imports}declare const old: (deps: InferDeps, rules: RuleTable, constraints: readonly ConstraintSet[]) => Result<Solution>;\nexport const solve: SolveGroup = old;\n`, 2322],
     ["old-constraints-call.ts", `${imports}export function call(operation: ConstraintsOf, deps: InferDeps, rules: RuleTable, group: InferenceGroup) { return operation(deps, rules, group); }\n`, 2554],
     ["old-solve-call.ts", `${imports}export function call(operation: SolveGroup, deps: InferDeps, rules: RuleTable, constraints: readonly ConstraintSet[]) { return operation(deps, rules, constraints); }\n`, 2554],
-    ["deps-without-rules.ts", `${imports}export function build(deps: Omit<InferDeps, "rules">): InferDeps { return deps; }\n`, 2741],
+    ["deps-without-rules.ts", `${imports}export function build(deps: Omit<InferDeps, "rules">): InferDeps { return deps; }\n`, 2322],
+    ["callable-rule-state.ts", `${imports}export function run(state: MemberRuleContinuation) { return state([]); }\n`, 2349],
+    ["private-rule-state.ts", `${imports}export function read(state: MemberRuleContinuation) { return state.state; }\n`, 2339],
+    ["callable-solve-state.ts", `${imports}export function run(state: Extract<InferPaused, { kind: "member" }>) { return state.resume; }\n`, 2339],
   ];
   for (const [name, text] of negatives) writeFileSync(resolve(stage, name), text);
   const refused = run("negative.json", negatives.map(([name]) => name));

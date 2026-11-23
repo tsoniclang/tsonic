@@ -104,8 +104,8 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
     assert.equal(binding.typeParameter === signature.typeParameters[0], true);
     assert.equal(binding.checkedArgument !== undefined && binding.checkedArgument !== binding.typeParameter, true);
     assert.equal(binding.defaultTypeNode === undefined, true);
-    assert.equal(checker.getReturnTypeOfSignature(signature) === binding.typeParameter, true);
-    assert.equal(checker.getReturnTypeOfSignature(instantiatedSignature) === binding.checkedArgument, true);
+    assert.equal(checker.getReturnTypeOfSignature(signature)?.type === binding.typeParameter, true);
+    assert.equal(checker.getReturnTypeOfSignature(instantiatedSignature)?.type === binding.checkedArgument, true);
     assert.equal(inferenceContributions.kind, "available");
     return { binding, contributions: inferenceContributions.contributions, selection: info.selection };
   };
@@ -190,18 +190,21 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
   const fieldMarkers = rawObject.properties.nodes.map((property, index) => ({ name: property.name.text,
     typeNode: { module, node: rawFields[index].typeArguments.nodes[0].id }, readonly: false }));
   const markersAt = node => consumer.core.find(row => row.node.module === module && row.node.node === node.id).markers;
+  const originalDeclaration = index => ({ module: provider, node: raw.value.tree.statements.nodes[index].id });
+  const application = (role, index) => ({ kind: "available", value: { role, declaration: originalDeclaration(index) } });
+  const absent = { kind: "available", value: null };
   const selectedStruct = { struct: { valueType: true, fields: { kind: "available", value: fieldMarkers } },
-    field: null, defaultValue: null, jsString: false };
+    field: null, defaultValue: null, jsString: false, application: application("struct", 0) };
   assert.deepEqual(markersAt(rawStruct), { kind: "available", value: selectedStruct });
-  assert.deepEqual(markersAt(variable), { kind: "available", value: selectedStruct });
+  assert.deepEqual(markersAt(variable), { kind: "available", value: { ...selectedStruct, application: absent } });
   assert.equal(markersAt(rawObject).kind, "unavailable", "ordinary shape is not extension evidence");
   for (const [index, field] of rawFields.entries()) {
-    const expected = { kind: "available", value: { struct: null, field: fieldMarkers[index], defaultValue: null, jsString: false } };
+    const expected = { kind: "available", value: { struct: null, field: fieldMarkers[index], defaultValue: null, jsString: false,
+      application: application("field", 1) } };
     assert.deepEqual(markersAt(field), expected);
-    assert.deepEqual(markersAt(rawObject.properties.nodes[index]), expected);
+    assert.deepEqual(markersAt(rawObject.properties.nodes[index]), { ...expected, value: { ...expected.value, application: absent } });
   }
   const originalParameter = index => ({ module: provider, node: parameterRows[index].node });
-  const originalDeclaration = index => ({ module: provider, node: raw.value.tree.statements.nodes[index].id });
 
   const capturedCall = (call, index) => {
     const selection = consumer.calls.find(row => row.invocation.node === call.id);
@@ -243,7 +246,7 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
     assert.deepEqual(formal.root, originalDeclaration(0));
     const descriptor = contribution.origin.kind === "argument" ? { kind: "parameter", signature: inferredCapture.declaredId, index: 0 }
       : { kind: "result", signature: inferredCapture.declaredId };
-    assert.deepEqual(formal.path, [descriptor]);
+    assert.deepEqual(formal.path, { prefix: null, step: descriptor });
     assert.deepEqual(source.root, contribution.origin.subject);
     assert.equal(source.root.node, contribution.origin.kind === "argument" ? rawObject.id : rawStruct.id);
     assert.equal(sourceType.form.value.kind, "structure");

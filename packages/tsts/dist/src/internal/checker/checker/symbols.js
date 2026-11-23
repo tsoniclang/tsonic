@@ -41,6 +41,8 @@ import { NodeFlagsPossiblyContainsImportMeta, NodeFlagsBlockScoped } from "../..
 import { InternalSymbolNameComputed, InternalSymbolNameAssignmentDeclaration, InternalSymbolNameExportEquals, InternalSymbolNameImportAttributes, InternalSymbolNameExportStar, InternalSymbolNameIndex, InternalSymbolNameMissing, InternalSymbolNameDefault, InternalSymbolNameType, InternalSymbolNameCall, InternalSymbolNameNew, InternalSymbolNameModuleExports, InternalSymbolNamePrefix, InternalSymbolNameThis, InternalSymbolNameConstructor, SymbolName } from "../../ast/symbol.js";
 import { Memoize, IfElse, Find, Filter, Map, Some, Every, GetSpellingSuggestion, ConcatenateSeq, FindLast, LastOrNil, OrElse, CountWhere, AppendIfUnique, FirstOrNil } from "../../core/core.js";
 import { LinkStore_Get, LinkStore_TryGet } from "../../core/linkstore.js";
+import { completedRequiredPropertySource, directTypeSource, retainErrorOperandSource } from "./source-type-answers.js";
+import { Node_TypeArgumentList } from "../../ast/ast.js";
 import { IsNonLocalAlias, GetSourceFileOfNode, GetFirstIdentifier, GetNodeId, NodeKindIs, FindAncestor, FindAncestorOrQuit, FindAncestorFalse, FindAncestorTrue, FindAncestorQuit, ToFindAncestorResult, GetNameOfDeclaration, GetContainingClass, GetContainingFunction, IsAmbientModule, IsGlobalScopeAugmentation, IsExternalModuleAugmentation, IsStatic, IsClassLike, IsClassOrInterfaceLike, IsParameterPropertyDeclaration, IsFunctionLike, GetImmediatelyInvokedFunctionExpression, IsExternalOrCommonJSModule, IsBlockOrCatchScoped, HasStaticModifier, IsAliasSymbolDeclaration, HasAccessorModifier, IsQuestionToken, IsPrivateIdentifierClassElementDeclaration, IsFunctionLikeDeclaration, NodeIsMissing, NodeIsSynthesized, GetRootDeclaration, IsValidTypeOnlyAliasUseSite, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, GetEnclosingBlockScopeContainer, IsAccessor, FindAncestorKind, IsEntityName, IsEntityNameExpression, GetHostSignatureFromJSDoc, HasSyntacticModifier, HasModifier, NodeIsPresent, GetDeclarationOfKind, IsBindingPattern, IsVariableDeclarationInitializedToRequire, IsVariableLike, IsTypeDeclaration, GetExternalModuleName, GetImportAttributes, IsExclusivelyTypeOnlyImportOrExport, IsGlobalSourceFile, GetDeclarationContainer, GetAssignmentDeclarationKind, JSDeclarationKindModuleExports, JSDeclarationKindExportsProperty, FindConstructorDeclaration, GetFirstConstructorWithBody, HasAbstractModifier, IsThisInTypeQuery, SkipParentheses, GetSymbolId, GetModuleInstanceState, ModuleInstanceStateNonInstantiated, ModuleInstanceStateInstantiated, NewHasFileName, IsEnumConst, IsComputedNonLiteralName, GetTextOfPropertyName, IsInfinityOrNaNString, HasDynamicName, HasContextSensitiveParameters, IsAssignmentTarget, IsStringLiteralLike, GetReparsedNodeForNode, GetPropertyNameForPropertyNameNode, IsThisIdentifier, IsPartOfTypeQuery, IsPartOfTypeNode, IsPropertyName, CanHaveSymbol, IsExpression, IsExpressionNode, IsAssertionExpression, IsThisParameter, IsInJSFile, IsOptionalChain, IsNodeDescendantOf, GetSourceFileOfModule, IsJsonSourceFile, ModuleExportNameIsDefault, IsRightSideOfQualifiedNameOrPropertyAccess, GetExternalModuleImportEqualsDeclarationExpression, IsExternalModuleImportEqualsDeclaration, IsDeclarationNameOrImportPropertyName, IsLiteralComputedPropertyDeclarationName, IsLiteralImportTypeNode, IsBindableObjectDefinePropertyCall, IsJsxTagName, IsInExpressionContext, IsExpressionWithTypeArgumentsInClassExtendsClause, IsJSDocNameReferenceContext, GetNodeAtPosition, IsForInOrOfStatement, IsLeftHandSideExpression, IsTypeReferenceType, IsDeclarationName, IsAccessExpression, HasAmbientModifier, IsClassElement, IsCatchClauseVariableDeclarationOrBindingElement, IsObjectLiteralOrClassExpressionMethodOrAccessor, IsPlainJSFile, IsImportOrImportEqualsDeclaration, IsInternalModuleImportEqualsDeclaration, IsJsxOpeningLikeElement, GetCombinedNodeFlags, IsCallOrNewExpression } from "../../ast/utilities.js";
 import { GetNewTargetContainer } from "../../ast/utilities.js";
 import { GetExtendsHeritageClauseElement, GetExtendsHeritageClauseElements, GetImplementsHeritageClauseElements, IsPartOfParameterDeclaration } from "../../ast/utilities.js";
@@ -6380,36 +6382,7 @@ export function Checker_checkIdentifier(receiver, node, checkMode) {
     let t = Checker_getNarrowedTypeOfSymbol(receiver, localOrExportSymbol, node);
     const assignmentKind = getAssignmentTargetKind(node);
     if (assignmentKind !== AssignmentKindNone) {
-        let assignmentError;
-        if ((localOrExportSymbol.Flags & SymbolFlagsVariable) === 0 &&
-            !(IsInJSFile(node) && (localOrExportSymbol.Flags & SymbolFlagsValueModule) !== 0)) {
-            if ((localOrExportSymbol.Flags & SymbolFlagsEnum) !== 0) {
-                assignmentError = Cannot_assign_to_0_because_it_is_an_enum;
-            }
-            else if ((localOrExportSymbol.Flags & SymbolFlagsClass) !== 0) {
-                assignmentError = Cannot_assign_to_0_because_it_is_a_class;
-            }
-            else if ((localOrExportSymbol.Flags & SymbolFlagsModule) !== 0) {
-                assignmentError = Cannot_assign_to_0_because_it_is_a_namespace;
-            }
-            else if ((localOrExportSymbol.Flags & SymbolFlagsFunction) !== 0) {
-                assignmentError = Cannot_assign_to_0_because_it_is_a_function;
-            }
-            else if ((localOrExportSymbol.Flags & SymbolFlagsAlias) !== 0) {
-                assignmentError = Cannot_assign_to_0_because_it_is_an_import;
-            }
-            else {
-                assignmentError = Cannot_assign_to_0_because_it_is_not_a_variable;
-            }
-        }
-        else if (Checker_isReadonlySymbol(receiver, localOrExportSymbol)) {
-            if ((localOrExportSymbol.Flags & SymbolFlagsVariable) !== 0) {
-                assignmentError = Cannot_assign_to_0_because_it_is_a_constant;
-            }
-            else {
-                assignmentError = Cannot_assign_to_0_because_it_is_a_read_only_property;
-            }
-        }
+        const assignmentError = Checker_getIdentifierAssignmentError(receiver, node, localOrExportSymbol);
         if (assignmentError !== undefined) {
             const retained = LinkStore_TryGet(receiver.typeNodeLinks, node);
             if (retained !== undefined && retained.resolvedType === receiver.errorType && retained.resolutionFailure !== undefined) {
@@ -6547,6 +6520,27 @@ export function Checker_isSameScopedBindingElement(receiver, node, declaration) 
         return bindingElement !== undefined && GetRootDeclaration(bindingElement) === GetRootDeclaration(declaration);
     }
     return false;
+}
+export function Checker_getIdentifierAssignmentError(receiver, node, symbol) {
+    const flags = symbol.Flags;
+    if ((flags & SymbolFlagsVariable) === 0 && !(IsInJSFile(node) && (flags & SymbolFlagsValueModule) !== 0)) {
+        if ((flags & SymbolFlagsEnum) !== 0)
+            return Cannot_assign_to_0_because_it_is_an_enum;
+        if ((flags & SymbolFlagsClass) !== 0)
+            return Cannot_assign_to_0_because_it_is_a_class;
+        if ((flags & SymbolFlagsModule) !== 0)
+            return Cannot_assign_to_0_because_it_is_a_namespace;
+        if ((flags & SymbolFlagsFunction) !== 0)
+            return Cannot_assign_to_0_because_it_is_a_function;
+        if ((flags & SymbolFlagsAlias) !== 0)
+            return Cannot_assign_to_0_because_it_is_an_import;
+        return Cannot_assign_to_0_because_it_is_not_a_variable;
+    }
+    if (Checker_isReadonlySymbol(receiver, symbol)) {
+        return (flags & SymbolFlagsVariable) !== 0
+            ? Cannot_assign_to_0_because_it_is_a_constant : Cannot_assign_to_0_because_it_is_a_read_only_property;
+    }
+    return undefined;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpression","kind":"method","status":"implemented","sigHash":"febcba979df4bee97ff9b0d6a44f3b1d8f0f4d8f43952819b5bcda4e8c2e880e","bodyHash":"82b3a1ac1890b83ce90db47cb21a1598249772e581ef1fe94cf9180ba2495e26"}
@@ -6969,6 +6963,8 @@ function checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node
                 Checker_markLinkedReferences(receiver, node, ReferenceHintProperty, undefined, leftType);
             }
             if (Checker_isErrorType(receiver, apparentType)) {
+                if (node.Kind === KindPropertyAccessExpression && leftType === receiver.errorType)
+                    retainErrorOperandSource(receiver, node, checkMode, left);
                 return receiver.errorType;
             }
             retainAnyLikePropertyAccessSelection(selected, node, apparentType, parentSymbol, undefined, writeOnly);
@@ -7004,7 +7000,13 @@ function checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node
                 return receiver.anyType;
             }
             if (Node_Text(right) !== "" && !Checker_checkAndReportErrorForExtendingInterface(receiver, node)) {
-                Checker_reportNonexistentProperty(receiver, right, IfElse(isThisTypeParameter(leftType), apparentType, leftType), isUncheckedJS);
+                const failure = Checker_reportNonexistentProperty(receiver, right, IfElse(isThisTypeParameter(leftType), apparentType, leftType), isUncheckedJS);
+                if (failure !== undefined && node.Kind === KindPropertyAccessExpression && checkMode === CheckModeNormal
+                    && receiver.flowLoopStack.length === 0) {
+                    const links = LinkStore_Get(receiver.typeNodeLinks, node);
+                    links.resolvedType = receiver.errorType;
+                    links.resolutionFailure = failure;
+                }
             }
             return receiver.errorType;
         }
@@ -7253,6 +7255,7 @@ export function Checker_checkPrivateIdentifierPropertyAccess(receiver, leftType,
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportNonexistentProperty","kind":"method","status":"implemented","sigHash":"9aec8730ebf63baf20d6c599892368db404e7f9b2ef28b13b82272c1d806a0d7","bodyHash":"5677ccfb03e627239cd2122c19fe0bc5c9587664844674c608306761b1bad64b"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the exact originally emitted missing-property error to the native expression owner. Suggestions and suppressed or unreported errors return no cause.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>,packages/tsts/src/go/scalars.ts::bool)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>,packages/tsts/src/go/scalars.ts::bool)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) reportNonexistentProperty(propNode *ast.Node, containingType *Type, isUncheckedJS bool) {
@@ -7380,7 +7383,7 @@ export function Checker_reportNonexistentProperty(receiver, propNode, containing
             }
         }
     }
-    Checker_addErrorOrSuggestion(receiver, (!isUncheckedJS || Diagnostic_Code(diagnostic) !== Property_0_may_not_exist_on_type_1_Did_you_mean_2.code), diagnostic);
+    return Checker_addErrorOrSuggestion(receiver, (!isUncheckedJS || Diagnostic_Code(diagnostic) !== Property_0_may_not_exist_on_type_1_Did_you_mean_2.code), diagnostic);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getSuggestedLibForNonExistentProperty","kind":"method","status":"implemented","sigHash":"ae2390239ec144b258e7cfd6cf608a5bcf2a8f7673fa1f62590f93388802f3da","bodyHash":"3e1951d2e561bb688cb6a57ac806ec45c31c54ff49d4b92550a27c12cd3c41fd"}
@@ -9581,6 +9584,29 @@ export function Checker_getModuleSpecifierForImportOrExport(receiver, node) {
     }
     throw new globalThis.Error("Unhandled case in getModuleSpecifierForImportOrExport");
 }
+export function isSourceModuleBinding(node) {
+    switch (node.Kind) {
+        case KindImportClause:
+        case KindImportEqualsDeclaration:
+        case KindNamespaceImport:
+        case KindImportSpecifier:
+        case KindNamespaceExport:
+        case KindExportSpecifier: return true;
+        default: return false;
+    }
+}
+export function retainedAliasFailure(receiver, declaration, symbol, allowExternal) {
+    const immediate = LinkStore_TryGet(receiver.aliasSymbolLinks, symbol)?.immediateFailure;
+    if (immediate !== undefined || !isSourceModuleBinding(declaration))
+        return immediate;
+    const specifier = Checker_getModuleSpecifierForImportOrExport(receiver, declaration);
+    if (specifier !== undefined)
+        return allowExternal ? LinkStore_TryGet(receiver.nodeLinks, specifier)?.externalModuleFailure : undefined;
+    if (!IsExportSpecifier(declaration) || Node_Symbol(declaration) !== symbol)
+        return undefined;
+    const local = Node_PropertyNameOrName(declaration);
+    return local !== undefined && IsIdentifier(local) ? LinkStore_TryGet(receiver.symbolNodeLinks, local)?.resolutionFailure : undefined;
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.markSymbolOfAliasDeclarationIfTypeOnly","kind":"method","status":"implemented","sigHash":"4974f8dfc0fb2138a3c8ce4a32b30f8236aa7ebb6cbb137dd095847d2a987522","bodyHash":"b6fad9cce2d3d6d21fba638ea70fd72e6adbfc53a6ab456c7968aa728776bfc9"}
  *
@@ -11028,6 +11054,19 @@ export function Checker_resolveAlias(receiver, symbol_) {
         if (!Checker_popTypeResolution(receiver)) {
             Checker_error(receiver, node, Circular_definition_of_import_alias_0, Checker_symbolToString(receiver, symbol_));
             links.aliasTarget = receiver.unknownSymbol;
+        }
+        else if (links.aliasTarget === receiver.unknownSymbol) {
+            const immediate = links.immediateTarget;
+            if (immediate === undefined || immediate === receiver.unknownSymbol) {
+                if (symbol_ !== undefined && Node_Symbol(node) === symbol_ && isSourceModuleBinding(node)
+                    && retainedAliasFailure(receiver, node, symbol_, true) !== undefined)
+                    links.failedBindingSource = node;
+            }
+            else {
+                const source = LinkStore_TryGet(receiver.aliasSymbolLinks, immediate)?.failedBindingSource;
+                if (source !== undefined)
+                    links.failedBindingSource = source;
+            }
         }
     }
     return links.aliasTarget;
@@ -15036,6 +15075,7 @@ export function Checker_getNameTypeFromMappedType(receiver, t) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.instantiateTypeAlias","kind":"method","status":"implemented","sigHash":"0d06087c71cf487e09a5703708feeb33f7b4dd10b939396667464cfe5470b85b","bodyHash":"3b40929087aed4e4046336a7e9ee005165d70688c368ccf6f78d774f0ac75e49"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Carry the completed suffix through the same native alias descriptor instantiation and its actual mapper, without evaluating defaults again."}
  *
  * Go source:
  * func (c *Checker) instantiateTypeAlias(alias *TypeAlias, m *TypeMapper) *TypeAlias {
@@ -15049,7 +15089,10 @@ export function Checker_instantiateTypeAlias(receiver, alias, m) {
     if (alias === undefined) {
         return undefined;
     }
-    return { symbol: alias.symbol, typeArguments: Checker_instantiateTypes(receiver, alias.typeArguments, m) };
+    return { symbol: alias.symbol, typeArguments: Checker_instantiateTypes(receiver, alias.typeArguments, m),
+        ...(alias.defaultTypeArguments === undefined ? {} : {
+            defaultTypeArguments: Checker_instantiateTypes(receiver, alias.defaultTypeArguments, m),
+        }) };
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.instantiateSymbols","kind":"method","status":"implemented","sigHash":"ac8d17801d1e783e90eb971cff053eb6864dda73787cd75c471c4ce075f49cdd","bodyHash":"3a671709c24932efa7bbaf4bbedc4bee3be64158deb30b3a653e8ef3dbd39a5c"}
@@ -15075,6 +15118,7 @@ export function Checker_instantiateIndexInfos(receiver, indexInfos, m) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeFromIndexedAccessTypeNode","kind":"method","status":"implemented","sigHash":"4d0e11a45cb2fac391f8159acb3d3192a41f4cf3be84efeab493f6944c0191e7","bodyHash":"714822fadd7243ebf38c010a6b47bcdb8e2b8a55b79ac0018abfbcd08a49b400"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The same indexed annotation lookup supplies its actual unchanged property annotation for completed source-answer provenance."}
  *
  * Go source:
  * func (c *Checker) getTypeFromIndexedAccessTypeNode(node *ast.Node) *Type {
@@ -15094,7 +15138,10 @@ export function Checker_getTypeFromIndexedAccessTypeNode(receiver, node) {
         const objectType = Checker_getTypeFromTypeNode(receiver, AsIndexedAccessTypeNode(node).ObjectType);
         const indexType = Checker_getTypeFromTypeNode(receiver, AsIndexedAccessTypeNode(node).IndexType);
         const potentialAlias = Checker_getAliasForTypeNode(receiver, node);
-        links.resolvedType = Checker_getIndexedAccessTypeEx(receiver, objectType, indexType, AccessFlagsNone, node, potentialAlias);
+        const source = { value: undefined };
+        links.resolvedType = indexedAccessTypeEx(receiver, objectType, indexType, AccessFlagsNone, node, potentialAlias, source);
+        if (source.value !== undefined)
+            links.resolvedTypeSource = source.value;
     }
     return links.resolvedType;
 }
@@ -15450,7 +15497,8 @@ export function Checker_getTypeFromTypeAliasReference(receiver, node, symbol_) {
         return errorType;
     }
     const t = Checker_getDeclaredTypeOfSymbol(receiver, symbol_);
-    const typeParameters = LinkStore_Get(receiver.typeAliasLinks, symbol_).typeParameters ?? [];
+    const declared = LinkStore_Get(receiver.typeAliasLinks, symbol_);
+    const typeParameters = declared.typeParameters ?? [];
     if (typeParameters.length !== 0) {
         const numTypeArguments = typeArguments.length;
         const minTypeArgumentCount = Checker_getMinTypeArgumentCount(receiver, typeParameters);
@@ -15490,6 +15538,15 @@ export function Checker_getTypeFromTypeAliasReference(receiver, node, symbol_) {
         return Checker_getTypeAliasInstantiation(receiver, symbol_, Checker_getTypeArgumentsFromNode(receiver, node), newAlias);
     }
     if (Checker_checkNoTypeArguments(receiver, node, symbol_)) {
+        if (node?.Kind === KindTypeReference && Node_TypeArgumentList(node) === undefined) {
+            const source = declared.declaredType === t ? declared.declaredSource
+                : declared.declaredType === undefined && t === receiver.errorType ? declared : undefined;
+            if (source !== undefined) {
+                const occurrence = LinkStore_Get(receiver.typeNodeLinks, node);
+                if (occurrence.declarationFailure === undefined)
+                    occurrence.resolvedTypeSource = source;
+            }
+        }
         return t;
     }
     return receiver.errorType;
@@ -15651,6 +15708,8 @@ export function Checker_getDeclaredTypeOfTypeAlias(receiver, symbol_) {
         const declaration = Find(symbol_.Declarations ?? [], IsTypeOrJSTypeAliasDeclaration);
         const typeNode = Node_Type(declaration);
         let t = Checker_getTypeFromTypeNode(receiver, typeNode);
+        let source;
+        let failure;
         if (Checker_popTypeResolution(receiver)) {
             const typeParameters = Checker_getLocalTypeParametersOfClassOrInterfaceOrTypeAlias(receiver, symbol_);
             if (typeParameters.length !== 0) {
@@ -15661,17 +15720,29 @@ export function Checker_getDeclaredTypeOfTypeAlias(receiver, symbol_) {
             if (t === receiver.intrinsicMarkerType && symbol_.Name === "BuiltinIteratorReturn") {
                 t = Checker_getBuiltinIteratorReturnType(receiver);
             }
+            else if (typeParameters.length === 0 && t !== undefined) {
+                source = directTypeSource(receiver, typeNode, t);
+            }
         }
         else {
             let errorNode = Node_Name(declaration);
             if (errorNode === undefined) {
                 errorNode = declaration;
             }
-            Checker_error(receiver, errorNode, Type_alias_0_circularly_references_itself, Checker_symbolToString(receiver, symbol_));
+            failure = Checker_addDiagnostic(receiver, NewDiagnosticForNode(errorNode, Type_alias_0_circularly_references_itself, Checker_symbolToString(receiver, symbol_)));
             t = receiver.errorType;
         }
         if (links.declaredType === undefined) {
             links.declaredType = t;
+            if (failure !== undefined && typeNode !== undefined) {
+                const occurrence = LinkStore_Get(receiver.typeNodeLinks, typeNode);
+                occurrence.declarationFailure = failure;
+                delete occurrence.resolvedTypeSource;
+                if (declaration?.Kind === KindTypeAliasDeclaration && (Node_TypeParameters(declaration)?.length ?? 0) === 0)
+                    source = typeNode;
+            }
+            if (source !== undefined)
+                links.declaredSource = source;
         }
     }
     return links.declaredType;
@@ -16845,6 +16916,7 @@ export function Checker_getIndexedAccessType(receiver, objectType, indexType) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIndexedAccessTypeEx","kind":"method","status":"implemented","sigHash":"32894fcb9a096bfc5849f0873f8355423ac6b3f55c00fff04ba665ea565493a6","bodyHash":"8db2a59c3289f53029aa74c5bec1a50bbc57e1bdf16fc35732164148b0f6b55d"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Shares the unchanged indexed-access result projection with the owning type-node publisher's optional source output."}
  *
  * Go source:
  * func (c *Checker) getIndexedAccessTypeEx(objectType *Type, indexType *Type, accessFlags AccessFlags, accessNode *ast.Node, alias *TypeAlias) *Type {
@@ -16856,7 +16928,10 @@ export function Checker_getIndexedAccessType(receiver, objectType, indexType) {
  * }
  */
 export function Checker_getIndexedAccessTypeEx(receiver, objectType, indexType, accessFlags, accessNode, alias) {
-    const result = Checker_getIndexedAccessTypeOrUndefined(receiver, objectType, indexType, accessFlags, accessNode, alias);
+    return indexedAccessTypeEx(receiver, objectType, indexType, accessFlags, accessNode, alias);
+}
+function indexedAccessTypeEx(receiver, objectType, indexType, accessFlags, accessNode, alias, source) {
+    const result = getIndexedAccessTypeOrUndefinedWithEvidence(receiver, objectType, indexType, accessFlags, accessNode, alias, undefined, source);
     if (result === undefined) {
         return IfElse(accessNode !== undefined, receiver.errorType, receiver.unknownType);
     }
@@ -16936,7 +17011,7 @@ export function Checker_getIndexedAccessTypeEx(receiver, objectType, indexType, 
 export function Checker_getIndexedAccessTypeOrUndefined(receiver, objectType, indexType, accessFlags, accessNode, alias) {
     return getIndexedAccessTypeOrUndefinedWithEvidence(receiver, objectType, indexType, accessFlags, accessNode, alias);
 }
-function getIndexedAccessTypeOrUndefinedWithEvidence(receiver, objectType, indexType, accessFlags, accessNode, alias, selected) {
+function getIndexedAccessTypeOrUndefinedWithEvidence(receiver, objectType, indexType, accessFlags, accessNode, alias, selected, source) {
     if (objectType === receiver.wildcardType || indexType === receiver.wildcardType) {
         return receiver.wildcardType;
     }
@@ -16957,6 +17032,7 @@ function getIndexedAccessTypeOrUndefinedWithEvidence(receiver, objectType, index
         if (t === undefined) {
             t = Checker_newIndexedAccessType(receiver, objectType, indexType, persistentAccessFlags);
             t.alias = alias;
+            Type_AsIndexedAccessType(t).cacheKey = key;
             receiver.indexedAccessTypes.set(key, t);
         }
         return t;
@@ -16964,9 +17040,24 @@ function getIndexedAccessTypeOrUndefinedWithEvidence(receiver, objectType, index
     const apparentObjectType = Checker_getReducedApparentType(receiver, objectType);
     if ((indexType.flags & TypeFlagsUnion) !== 0 && (indexType.flags & TypeFlagsBoolean) === 0) {
         const propTypes = [];
+        let propertySource = source;
+        let firstSource;
+        let properties;
         let wasMissingProp = false;
         for (const ty of Type_Types(indexType)) {
-            const propType = getPropertyTypeForIndexTypeWithEvidence(receiver, objectType, apparentObjectType, ty, indexType, accessNode, (accessFlags | IfElse(wasMissingProp, AccessFlagsSuppressNoImplicitAnyError, 0)), selected);
+            const propType = getPropertyTypeForIndexTypeWithEvidence(receiver, objectType, apparentObjectType, ty, indexType, accessNode, (accessFlags | IfElse(wasMissingProp, AccessFlagsSuppressNoImplicitAnyError, 0)), selected, propertySource);
+            if (propertySource !== undefined) {
+                const original = propertySource.value;
+                propertySource.value = undefined;
+                if (original === undefined || !("Kind" in original))
+                    propertySource = undefined;
+                else if (properties !== undefined)
+                    properties.push(original);
+                else if (firstSource === undefined)
+                    firstSource = original;
+                else
+                    properties = [firstSource, original];
+            }
             if (propType !== undefined) {
                 propTypes.push(propType);
             }
@@ -16983,9 +17074,14 @@ function getIndexedAccessTypeOrUndefinedWithEvidence(receiver, objectType, index
         if ((accessFlags & AccessFlagsWriting) !== 0) {
             return Checker_getIntersectionTypeEx(receiver, propTypes, IntersectionFlagsNone, alias);
         }
-        return Checker_getUnionTypeEx(receiver, propTypes, UnionReductionLiteral, alias, undefined);
+        const result = Checker_getUnionTypeEx(receiver, propTypes, UnionReductionLiteral, alias, undefined);
+        if (propertySource !== undefined && accessNode !== undefined && properties !== undefined
+            && result !== undefined && result !== receiver.errorType) {
+            propertySource.value = { kind: "indexed-read", annotation: accessNode, properties };
+        }
+        return result;
     }
-    return getPropertyTypeForIndexTypeWithEvidence(receiver, objectType, apparentObjectType, indexType, indexType, accessNode, (accessFlags | AccessFlagsCacheSymbol | AccessFlagsReportDeprecated), selected);
+    return getPropertyTypeForIndexTypeWithEvidence(receiver, objectType, apparentObjectType, indexType, indexType, accessNode, (accessFlags | AccessFlagsCacheSymbol | AccessFlagsReportDeprecated), selected, source);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getPropertyTypeForIndexType","kind":"method","status":"implemented","sigHash":"b165e26df1bd4167798c456fec8881582ad4a6c35f9d23dd470b4c9da80f6f58","bodyHash":"78ac5563270df952a0013017c2c289f27c217028281aef86cf17062c9ee47126"}
@@ -17209,8 +17305,8 @@ function getIndexedAccessTypeOrUndefinedWithEvidence(receiver, objectType, index
 export function Checker_getPropertyTypeForIndexType(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags) {
     return getPropertyTypeForIndexTypeWithEvidence(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags);
 }
-function getPropertyTypeForIndexTypeWithEvidence(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags, selected) {
-    const operation = () => getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags, selected);
+function getPropertyTypeForIndexTypeWithEvidence(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags, selected, source) {
+    const operation = () => getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags, selected, source);
     if (accessNode === undefined || !IsElementAccessExpression(accessNode) || originalObjectType === undefined || indexType === undefined) {
         return operation();
     }
@@ -17222,7 +17318,15 @@ function getPropertyTypeForIndexTypeWithEvidence(receiver, originalObjectType, o
         application: activeBackingCandidate(receiver), receiver: checkedComponent(expression, originalObjectType),
         index: checkedComponent(argument, indexType) }, operation);
 }
-function getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags, selected) {
+function reportIndexLookupFailure(receiver, occurrence, index, fullIndex, diagnostic) {
+    const original = Checker_addDiagnostic(receiver, diagnostic);
+    if (original !== undefined && fullIndex === index && !IsTypeAny(index) && IsIndexedAccessTypeNode(occurrence)) {
+        const links = LinkStore_Get(receiver.typeNodeLinks, occurrence);
+        if (links.resolvedType === undefined)
+            links.resolutionFailure = original;
+    }
+}
+function getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags, selected, source) {
     let accessExpression = undefined;
     if (accessNode !== undefined && accessNode.Kind === KindElementAccessExpression) {
         accessExpression = accessNode;
@@ -17279,6 +17383,8 @@ function getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objec
             if (accessNode !== undefined && IsIndexedAccessTypeNode(accessNode) && receiver.containsMissingType(propType)) {
                 return Checker_getUnionType(receiver, [propType, receiver.undefinedType]);
             }
+            if (source !== undefined && propType !== undefined)
+                source.value = completedRequiredPropertySource(receiver, prop, propType);
             return propType;
         }
         if (everyType(objectType, isTupleType) && isNumericLiteralName(propName)) {
@@ -17289,13 +17395,13 @@ function getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objec
                 const indexNode = getIndexNodeForAccessExpression(accessNode);
                 if (isTupleType(objectType)) {
                     if (index < 0) {
-                        Checker_error(receiver, indexNode, A_tuple_type_cannot_be_indexed_with_a_negative_value);
+                        reportIndexLookupFailure(receiver, accessNode, indexType, fullIndexType, NewDiagnosticForNode(indexNode, A_tuple_type_cannot_be_indexed_with_a_negative_value));
                         return receiver.undefinedType;
                     }
-                    Checker_error(receiver, indexNode, Tuple_type_0_of_length_1_has_no_element_at_index_2, Checker_TypeToString(receiver, objectType), Checker_getTypeReferenceArity(receiver, objectType), propName);
+                    reportIndexLookupFailure(receiver, accessNode, indexType, fullIndexType, NewDiagnosticForNode(indexNode, Tuple_type_0_of_length_1_has_no_element_at_index_2, Checker_TypeToString(receiver, objectType), Checker_getTypeReferenceArity(receiver, objectType), propName));
                 }
                 else {
-                    Checker_error(receiver, indexNode, Property_0_does_not_exist_on_type_1, propName, Checker_TypeToString(receiver, objectType));
+                    reportIndexLookupFailure(receiver, accessNode, indexType, fullIndexType, NewDiagnosticForNode(indexNode, Property_0_does_not_exist_on_type_1, propName, Checker_TypeToString(receiver, objectType)));
                 }
             }
             if (index >= 0) {
@@ -17327,7 +17433,7 @@ function getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objec
             }
             if (accessNode !== undefined && indexInfo.keyType === receiver.stringType && !Checker_isTypeAssignableToKind(receiver, indexType, (TypeFlagsString | TypeFlagsNumber))) {
                 const indexNode = getIndexNodeForAccessExpression(accessNode);
-                Checker_error(receiver, indexNode, Type_0_cannot_be_used_as_an_index_type, Checker_TypeToString(receiver, indexType));
+                reportIndexLookupFailure(receiver, accessNode, indexType, fullIndexType, NewDiagnosticForNode(indexNode, Type_0_cannot_be_used_as_an_index_type, Checker_TypeToString(receiver, indexType)));
                 if ((accessFlags & AccessFlagsIncludeUndefined) !== 0) {
                     return Checker_getUnionType(receiver, [indexInfo.valueType, receiver.missingType]);
                 }
@@ -17420,16 +17526,18 @@ function getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objec
     }
     if (accessNode !== undefined) {
         const indexNode = getIndexNodeForAccessExpression(accessNode);
+        let diagnostic;
         if (indexNode.Kind !== KindBigIntLiteral && (indexType.flags & (TypeFlagsStringLiteral | TypeFlagsNumberLiteral)) !== 0) {
-            Checker_error(receiver, indexNode, Property_0_does_not_exist_on_type_1, Type_AsLiteralType(indexType).value, Checker_TypeToString(receiver, objectType));
+            diagnostic = NewDiagnosticForNode(indexNode, Property_0_does_not_exist_on_type_1, Type_AsLiteralType(indexType).value, Checker_TypeToString(receiver, objectType));
         }
         else if ((indexType.flags & (TypeFlagsString | TypeFlagsNumber)) !== 0) {
-            Checker_error(receiver, indexNode, Type_0_has_no_matching_index_signature_for_type_1, Checker_TypeToString(receiver, objectType), Checker_TypeToString(receiver, indexType));
+            diagnostic = NewDiagnosticForNode(indexNode, Type_0_has_no_matching_index_signature_for_type_1, Checker_TypeToString(receiver, objectType), Checker_TypeToString(receiver, indexType));
         }
         else {
             const typeString = indexNode.Kind === KindBigIntLiteral ? "bigint" : Checker_TypeToString(receiver, indexType);
-            Checker_error(receiver, indexNode, Type_0_cannot_be_used_as_an_index_type, typeString);
+            diagnostic = NewDiagnosticForNode(indexNode, Type_0_cannot_be_used_as_an_index_type, typeString);
         }
+        reportIndexLookupFailure(receiver, accessNode, indexType, fullIndexType, diagnostic);
     }
     if (IsTypeAny(indexType)) {
         return indexType;

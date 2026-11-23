@@ -15,6 +15,13 @@
             "value": "P[%002Fmissing]"
           }
         ]
+      },
+      {
+        "rule": "initialization-entry-exact",
+        "site": {
+          "kind": "index"
+        },
+        "detail": []
       }
     ]
   },

@@ -57,6 +57,8 @@ export function createHirSchema(): HirSchema {
     UnitRequest: hirRecord("UnitRequest", [["query", "string"], ["key", "KeyData"]]),
     UnitPosition: hirChoice(hirVariant("result", []), hirVariant("module-node", [["module", "ModuleId"], ["node", "NodeId"]]),
       hirVariant("source-node", [["node", "SourceNodeRef"]]), hirVariant("component", [["path", hirArray("KeyData")]]),
+      hirVariant("execution-result", [["execution", "string"]]),
+      hirVariant("execution-source-node", [["execution", "string"], ["node", "NodeRef"]]),
       hirVariant("inference-variable", [["group", "string"], ["variable", "number"]])),
     UnitRef: hirRecord("UnitRef", [["request", "UnitRequest"], ["position", "UnitPosition"]]),
     DiagnosticIdentity: hirChoice(hirVariant("checker", [["module", "ModuleId"], ["index", "number"]]),
@@ -67,7 +69,7 @@ export function createHirSchema(): HirSchema {
     HirBindingTarget: hirChoice("HirExportTarget", hirVariant("module", [["module", "ModuleId"]]),
       hirVariant("member", [["through", "HirExportTarget"], ["key", captured("MemberKey")], ["origins", captured(hirArray("MemberOrigin"))]]),
       hirVariant("unresolved", [["diagnostics", hirArray("CheckerDiagnosticRef")]])),
-    HirModuleExport: hirRecord("HirModuleExport", [["name", "string"], ["target", "HirExportTarget"]]),
+    HirModuleExport: hirRecord("HirModuleExport", [["name", "string"], ["target", "HirExportTarget"], ["typeOnlyStar", hirNullable(sourceReference)]]),
     HirModuleBinding: hirRecord("HirModuleBinding", [["occurrence", sourceReference], ["target", captured("HirBindingTarget")]]),
     CheckerDiagnosticRef: hirRecord("CheckerDiagnosticRef", [["module", "ModuleId"], ["index", "number"]]),
     ModuleId: hirStringIdentity("mod"),
@@ -146,6 +148,7 @@ export function createHirSchema(): HirSchema {
     HirCheckerViews: hirRecord("HirCheckerViews", [["read", captured("TyId")], ["declared", captured(hirNullable("TyId"))], ["contextual", captured(hirNullable("TyId"))]]),
     ImportTarget: variants("ImportTarget", "target", [["project", [["module", "ModuleId"]]], ["library", [["module", "LibraryModuleIdentity"]]]]),
     HirResolution: hirChoice(hirVariant("local", [["local", "LocalRef"]]), "HirBindingTarget",
+      hirVariant("intrinsic-value", [["intrinsic", hirLiteral("undefined")]]),
       hirVariant("unavailable", [["reason", hirLiteral("checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure")], ["causes", hirArray("Cause")]])),
     HirAttribute: hirRecord("HirAttribute", [["declaration", "DefId"], ["occurrence", sourceReference], ["arguments", hirArray(sourceReference)]]),
     HirArgument: hirChoice(hirVariant("value", [["expression", "NodeId"]]), hirVariant("spread", [["expression", "NodeId"], ["tuple", captured(hirNullable(hirArray("TyId")))]])),
@@ -197,7 +200,8 @@ export function createHirSchema(): HirSchema {
     HirCapturedType: hirRecord("HirCapturedType", [["type", captured("TyId")], ["component", "TypeComponent"]]),
     HirFieldMarkerCapture: hirRecord("HirFieldMarkerCapture", [["name", "string"], ["typeNode", sourceReference], ["type", captured("TyId")], ["readonly", "boolean"]]),
     HirMarkersCapture: hirRecord("HirMarkersCapture", [["struct", hirNullable(hirRecord("Record", [["valueType", "boolean"], ["fields", captured(hirArray("HirFieldMarkerCapture"))]]))],
-      ["field", hirNullable("HirFieldMarkerCapture")], ["defaultValue", hirNullable(hirRecord("Record", [["typeNode", sourceReference], ["type", captured("TyId")]]))], ["jsString", "boolean"]]),
+      ["field", hirNullable("HirFieldMarkerCapture")], ["defaultValue", hirNullable(hirRecord("Record", [["typeNode", sourceReference], ["type", captured("TyId")]]))], ["jsString", "boolean"],
+      ["application", captured(hirNullable(hirRecord("HirMarkerApplication", [["role", hirLiteral("struct", "field")], ["occurrence", "NodeRef"], ["declaration", "DefId"]])))]]),
     HirPointerTypeCapture: hirChoice(hirVariant("raw-address", []), hirVariant("typed-location", [["pointee", "HirCapturedType"],
       ["mutability", hirLiteral("readonly", "readwrite", "unspecified")]]), hirVariant("native-pointer", [["declaration", "DefId"]]),
       hirVariant("function-pointer", [["declaration", "DefId"], ["parameters", hirArray("HirCapturedType")], ["result", "HirCapturedType"], ["abi", hirArray("string")]])),
@@ -301,7 +305,8 @@ export function createHirSchema(): HirSchema {
       ["definition", "DefId"], ["parameters", hirArray("TypeParameterData")], ["heritage", hirArray("HirHeritage")], ["members", hirArray("DefId")]]),
     HirHeritage: hirRecord("HirHeritage", [["role", hirLiteral("extends", "implements")], ["type", "TyId"]]),
     CheckedTypeAlias: hirRecord("CheckedTypeAlias", [...declaration, ["parameters", hirArray("TypeParameterData")], ["type", captured("TyId")]]),
-    CheckedVariable: hirRecord("CheckedVariable", [...declarationFacts, ["declaration", "DeclarationTarget"], ["declaredType", captured(hirNullable("TyId"))], ["initializer", hirNullable("BodyId")]]),
+    CheckedVariable: hirRecord("CheckedVariable", [...declarationFacts, ["declaration", "DeclarationTarget"], ["declaredType", captured(hirNullable("TyId"))],
+      ["inferredTypeBound", hirNullable(captured("TyId"))], ["initializer", hirNullable("BodyId")]]),
     CheckedEnum: hirRecord("CheckedEnum", [...declaration, ["members", hirArray("DefId")]]),
     CheckedNamespace: hirRecord("CheckedNamespace", [...declaration, ["members", hirArray("DefId")]]),
     CheckedImport: hirRecord("CheckedImport", [...core, ["target", captured("ImportTarget")], ["bindings", hirArray(sourceReference)]]),
@@ -325,15 +330,16 @@ export function createHirSchema(): HirSchema {
       ["root", "BodyRoot"], ["captures", hirArray("LocalRef")], ["scopes", hirArray("HirLexicalScope")], ["asynchronous", "boolean"],
       ["generator", "boolean"], ["candidateLists", hirArray("HirCandidateList")], ["nestedBodies", hirArray("BodyId")]]),
     HirDeclarationEntry: hirRecord("HirDeclarationEntry", [["definition", "DefId"], ["node", "NodeId"]]),
-    HirUnaryOperator: hirLiteral("+", "-", "!", "~", "typeof", "void", "delete"),
+    HirUnaryOperator: hirLiteral("+", "-", "!", "~", "++", "--", "typeof", "void", "delete"),
     HirBinaryOperator: hirLiteral("+", "-", "*", "/", "%", "**", "&", "|", "^", "<<", ">>", ">>>", "<", "<=", ">", ">=", "==", "!=", "===", "!==", "in", "instanceof"),
     ProofObligation: hirChoice(hirVariant("write-fit", [["ordinal", "number"], ["occurrence", "NodeRef"], ["value", "NodeRef"], ["destination", sourceReference], ["destinationType", "TyId"]]),
       hirVariant("operator", [["ordinal", "number"], ["occurrence", "NodeRef"], ["operator", hirChoice("HirUnaryOperator", "HirBinaryOperator")], ["operands", hirArray("NodeRef")]]),
       hirVariant("index", [["ordinal", "number"], ["occurrence", "NodeRef"], ["receiver", "NodeRef"], ["key", "NodeRef"]])),
     HirDiagnosticRoot: hirRecord("HirDiagnosticRoot", [["diagnostic", "number"], ["owner", sourceReference], ["obligations", hirArray("ProofObligation")]]),
+    HirModuleLink: hirRecord("HirModuleLink", [["declaration", "NodeId"], ["evaluation", hirLiteral("eager", "erased", "deferred")]]),
     HirModule: hirRecord("HirModule", [["module", "ModuleId"], ["tree", "SourceFile"], ["items", hirArray("HirDeclarationEntry")],
       ["bodies", hirArray("HirBody")], ["exports", hirArray("HirModuleExport")], ["bindings", hirArray("HirModuleBinding")],
-      ["checkerDiagnostics", hirArray("Diagnostic")], ["obligations", hirArray("HirDiagnosticRoot")]]),
+      ["moduleLinks", hirArray("HirModuleLink")], ["checkerDiagnostics", hirArray("Diagnostic")], ["obligations", hirArray("HirDiagnosticRoot")]]),
   });
 }
 
@@ -400,6 +406,8 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
     const node = entry.owner.entry.node;
     const site: HirSite = { kind: "node", node: entry.owner.entry.source };
     if (entry.place.base.kind === "root") {
+      if (entry.place.base.resolution.kind === "intrinsic-value")
+        report("intrinsic-value-use", site, "an intrinsic value is not a storage root");
       if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression")
         report("place-access-base-in-receiver", site, "access base place must lie inside its actual receiver subtree");
       continue;
@@ -627,6 +635,9 @@ export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCa
     const metadata = node.tsonic;
     if (metadata === null) continue;
     const site: HirSite = { kind: "node", node: entry.source };
+    if ("resolution" in metadata && metadata.resolution.kind === "intrinsic-value" &&
+      (node.kind !== "Identifier" || node.tsonic.role !== "value" || node.tsonic.value.views.read.kind !== "available"))
+      report("intrinsic-value-use", site, "an intrinsic value resolution belongs to an identifier read with its actual checked type");
     const value = "value" in metadata ? metadata.value : metadata;
     const memory = "memory" in value ? value.memory : null;
     if (memory !== null && memory.kind === "available" && memory.value !== null) {

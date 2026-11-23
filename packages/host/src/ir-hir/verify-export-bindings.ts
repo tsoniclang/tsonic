@@ -1,6 +1,6 @@
 import type { DefId, ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
-import type { HirBindingViews, HirModule, HirNode, HirVerificationContext } from "./contract.js";
-import { createModuleBindingViews, isModuleBindingKind } from "./bindings.js";
+import type { HirBindingViews, HirModule, HirNode, HirSite, HirVerificationContext } from "./contract.js";
+import { createModuleBindingViews, isModuleBindingKind, isTypeOnlyExportStar } from "./bindings.js";
 import type { HirIdentityPaths } from "./verify-bindings.js";
 import { sourceNodeExists, validHirIndex } from "./verify-bindings.js";
 import type { HirDataRoot, HirInventory, HirReport } from "./verify-syntax.js";
@@ -10,8 +10,31 @@ function bindingSyntax(node: HirNode): boolean {
   return isModuleBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null);
 }
 
+function verifyModuleLinks(module: HirModule, report: HirReport): void {
+  const site: HirSite = { kind: "module", module: module.module };
+  let position = 0;
+  for (const node of module.tree.statements.nodes) {
+    if ((node.kind !== "ImportDeclaration" && node.kind !== "JSImportDeclaration" && node.kind !== "ExportDeclaration")
+      || node.moduleSpecifier === null) continue;
+    const link = module.moduleLinks[position++];
+    if (link?.declaration !== node.id) {
+      report("module-link", site, "module links must cover the actual authored static occurrences in order");
+      continue;
+    }
+    const phase = node.kind === "ExportDeclaration" ? null : node.importClause?.phaseModifier;
+    const explicit = node.kind === "ExportDeclaration"
+      ? node.isTypeOnly ? "erased" : node.exportClause === null || node.exportClause.kind === "NamespaceExport" ? "eager" : null
+      : node.importClause === null ? "eager" : phase === "TypeKeyword" ? "erased" : phase === "DeferKeyword" ? "deferred" : null;
+    if (explicit === null ? link.evaluation !== "eager" && link.evaluation !== "erased" : link.evaluation !== explicit)
+      report("module-link", site, "a checked module link must retain its actual evaluation phase");
+  }
+  if (module.moduleLinks.length !== position)
+    report("module-link", site, "module links cannot add or omit authored static occurrences");
+}
+
 export function verifyExportBindings(roots: readonly HirDataRoot[], module: HirModule, inventory: HirInventory,
   context: HirVerificationContext, paths: HirIdentityPaths, report: HirReport): void {
+  verifyModuleLinks(module, report);
   const modules = new Map<ModuleId, HirModule | null>([[module.module, module]]);
   const views = new Map<ModuleId, HirBindingViews | null>();
   const declarations = new Map<ModuleId, ReadonlyMap<DefId, NodeId>>();
@@ -81,13 +104,18 @@ export function verifyExportBindings(roots: readonly HirDataRoot[], module: HirM
     if (previousName !== null && previousName >= entry.name)
       report("stable-order", { kind: "module", module: module.module }, "export names require one row per name in canonical order");
     previousName = entry.name;
+    if (entry.typeOnlyStar !== null) {
+      const original = context.nodeOf(entry.typeOnlyStar);
+      if (!isTypeOnlyExportStar(original))
+        report("export-type-only-star", { kind: "module", module: module.module }, "a type-only star must name its actual authored export declaration");
+    }
   }
   for (const root of roots) walkHirData(root, data => {
     const reference = data.reference;
     if (reference.kind === "CheckerDiagnosticRef") {
       const diagnostic = reference.value;
       if (!validHirIndex(diagnostic.index) || ready(diagnostic.module)?.checkerDiagnostics[diagnostic.index] === undefined)
-        report("diagnostic-reference", data.site, "an unresolved target requires its actual qualified checker diagnostic root");
+        report("diagnostic-reference", data.site, "a checker diagnostic reference must name its actual qualified published root");
     } else if (reference.kind === "HirBindingTarget") {
       const target = reference.value;
       if (target.kind === "binding") {

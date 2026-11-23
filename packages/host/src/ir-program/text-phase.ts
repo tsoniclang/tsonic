@@ -1,15 +1,19 @@
 import type { TypedName, TypedPropertyKey, TypedDecorator, TypedIteration, TypedControlTransfer, TypedVariableList, TypedClassValue, TypedOmission, TypedKeyword, TypedString, TypedNumber, TypedBigInt, TypedBinary, TypedPrefix, TypedUpdate, TypedProtocolValue, TypedClosure, TypedConditional, TypedMember, TypedApplication, TypedSpread, TypedTemplate, TypedConstruction, TypedObjectSpread, TypedProperty, TypedShorthand, TypedUnary, TypedInstantiation } from "../ir-tir/contract.js";
 import type { TextWork } from "./text-values.js";
 import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textNodeRef, textSourceNodeRef } from "./text-values.js";
-import { textConversionDecision, textTirDemand, textTirResolution, textTargetAccess, textTirApplication, textTirProtocol, textTypedOperation, textTirSelection, textMemberSelection } from "./text-tir.js";
+import { textConversionDecision, textTirDemand, textTirResolution, textTargetAccess, textTirApplication, textTirProtocol, textTypedOperation, textTirSelection, textMemberSelection, textTypedValue } from "./text-tir.js";
 import { textRefinementDecision, textRuleOutcome, textConstructionPartDecision, textApplicationDecision, textClosureDecision } from "./text-inference.js";
 import { textMemberKey, textExactRational, textBindingVector } from "./text-types.js";
 import { textCapturedFact, textDeclarationTarget, textImportTarget } from "./text-core.js";
-import type { DeclarationNameExpression } from "../ir-tir/contract.js";
+import type { DeclarationNameExpression, TypedCase, TypedValueOccurrence } from "../ir-tir/contract.js";
 import { textTypedClass, textTypedCallable } from "./text-phase-declarations.js";
 
-function textNameExpression(value: DeclarationNameExpression): TextWork {
+export function textNameExpression(value: DeclarationNameExpression): TextWork {
   return record("DeclarationNameExpression", [field("role", text(value.role))]);
+}
+
+export function textTypedValueOccurrence(value: TypedValueOccurrence): TextWork {
+  return "role" in value ? textNameExpression(value) : textTypedValue(value);
 }
 
 export function textTypedName(value: TypedName): TextWork {
@@ -108,6 +112,10 @@ export function textTypedIteration(value: TypedIteration): TextWork {
       field("protocol", textRuleOutcome(value.protocol, entry0 => textTirProtocol(entry0))),
     ]);
   });
+}
+
+export function textTypedCase(value: TypedCase): TextWork {
+  return deferred(value, () => record("TypedCase", [field("operation", textRuleOutcome(value.operation, textTypedOperation))]));
 }
 
 export function textTypedControlTransfer(value: TypedControlTransfer): TextWork {

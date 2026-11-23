@@ -1,9 +1,11 @@
-import type { DefId, LocalRef, NodeId, SourceNodeRef } from "../ids/contract.js";
+import type { DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { HirNode } from "../ir-hir/contract.js";
+import type { HirNode, SwitchStatement } from "../ir-hir/contract.js";
+import { compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
-import type { MemberSelection, ResolvedCallee, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirRule, TypedBodyTemplate, TypedOperation, TypedValue } from "./contract.js";
+import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeCarrierOf } from "../ir-types/index.js";
+import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirRule, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
 import { enterTirInline, tirPathText } from "./text-layouts.js";
 
@@ -156,6 +158,12 @@ export const inspectTirStructure = (
 export const typedValueOf = (node: TirNode): TypedValue | null =>
   node.tsonic !== null && "convertedType" in node.tsonic ? node.tsonic : null;
 
+export const applicationOf = (node: TirNode): RuleOutcome<TirApplication> | null => {
+  if (node.kind === "CallExpression") return "application" in node.tsonic ? node.tsonic.application : null;
+  if (node.kind === "NewExpression" || node.kind === "TaggedTemplateExpression" || node.kind === "Decorator") return node.tsonic.application;
+  return null;
+};
+
 export const deferredEvidence = (deferred: DeferredDecision): readonly TypeEvidence[] => {
   const invocation = deferred.invocation;
   switch (invocation.rule) {
@@ -165,7 +173,7 @@ export const deferredEvidence = (deferred: DeferredDecision): readonly TypeEvide
     case "member": return [invocation.input.receiver];
     case "index": return [invocation.input.receiver, invocation.input.key];
     case "construct-literal": return [...invocation.input.parts.map(part => part.value),
-      ...(invocation.input.destination === null ? [] : [invocation.input.destination])];
+      ...(invocation.input.destination === null ? [] : [invocation.input.destination]), invocation.input.result];
     case "candidate": return [invocation.input.callee, ...(invocation.input.receiver === null ? [] : [invocation.input.receiver]),
       ...invocation.input.typeArguments, ...invocation.input.arguments.flatMap(argument => [argument.value, ...(argument.tuple ?? [])])];
     case "operator": return invocation.input.operands;
@@ -180,17 +188,18 @@ export const deferredEvidence = (deferred: DeferredDecision): readonly TypeEvide
   }
 };
 
-type TirSemanticWork =
+type TirApplicationUse =
   | { readonly kind: "application"; readonly value: ApplicationDecision; readonly node: TirNode }
-  | { readonly kind: "callee"; readonly value: ResolvedCallee; readonly node: TirNode }
+  | { readonly kind: "callee"; readonly value: ResolvedCallee; readonly node: TirNode };
+
+type TirSemanticWork = TirApplicationUse
   | { readonly kind: "member"; readonly value: MemberSelection; readonly node: TirNode }
   | { readonly kind: "operation"; readonly value: TypedOperation; readonly node: TirNode }
   | { readonly kind: "protocol"; readonly value: TirProtocol; readonly node: TirNode; readonly ordinal: number | null }
   | { readonly kind: "deferred"; readonly value: DeferredDecision; readonly node: TirNode };
 
 export interface TirSemanticInventory {
-  readonly applications: readonly { readonly value: ApplicationDecision; readonly node: TirNode }[];
-  readonly callees: readonly { readonly value: ResolvedCallee; readonly node: TirNode }[];
+  readonly applications: readonly TirApplicationUse[];
   readonly operations: readonly { readonly value: TypedOperation; readonly node: TirNode }[];
   readonly protocols: readonly { readonly value: TirProtocol; readonly node: TirNode; readonly ordinal: number | null }[];
   readonly deferred: readonly { readonly value: DeferredDecision; readonly node: TirNode }[];
@@ -199,8 +208,7 @@ export interface TirSemanticInventory {
 }
 
 export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInventory => {
-  const applications: { value: ApplicationDecision; node: TirNode }[] = [];
-  const callees: { value: ResolvedCallee; node: TirNode }[] = [];
+  const applications: TirApplicationUse[] = [];
   const operations: { value: TypedOperation; node: TirNode }[] = [];
   const protocols: { value: TirProtocol; node: TirNode; ordinal: number | null }[] = [];
   const deferred: { value: DeferredDecision; node: TirNode }[] = [];
@@ -242,8 +250,8 @@ export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInven
     if ("callable" in phase) template(phase.callable.template, node);
     if ("closure" in phase && phase.closure.kind === "deferred") pending.push({ kind: "deferred", value: phase.closure.deferred, node });
     if (node.kind === "BinaryExpression" && node.tsonic.role === "assignment") operation(node.tsonic.calculation, node);
-    if (node.kind === "CallExpression" || node.kind === "NewExpression" || node.kind === "TaggedTemplateExpression" || node.kind === "Decorator") {
-      const application = node.tsonic.application;
+    const application = applicationOf(node);
+    if (application !== null) {
       if (application.kind === "deferred") pending.push({ kind: "deferred", value: application.deferred, node });
       else {
         pending.push({ kind: "callee", value: application.decision.callee, node });
@@ -260,12 +268,8 @@ export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInven
   for (let work = pending.pop(); work !== undefined; work = pending.pop()) {
     const node = work.node;
     switch (work.kind) {
-      case "application":
+      case "application": case "callee":
         applications.push(work);
-        break;
-      case "callee":
-        callees.push(work);
-        pending.push({ kind: "application", value: work.value.decision, node });
         break;
       case "member":
         if (work.value.getter !== null) pending.push({ kind: "callee", value: work.value.getter, node });
@@ -291,7 +295,7 @@ export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInven
         break;
     }
   }
-  return { applications, callees, operations, protocols, deferred, initializers, templates };
+  return { applications, operations, protocols, deferred, initializers, templates };
 };
 
 export const verifyValueEndpoints = (body: TirBody, node: TirNode, emit: TirOccurrenceEmit): void => {
@@ -408,14 +412,143 @@ export const verifyOperationShape = (operation: TypedOperation, node: TirNode, e
   }
 };
 
-export const verifyOccurrenceOperation = (node: TirNode, emit: TirOccurrenceEmit): void => {
+function caseCarrier(table: TypeTable, type: TyId) {
+  const valid = (id: TyId): boolean => Number.isSafeInteger(id) && !Object.is(id, -0) && id >= 0 && id < table.terms.length;
+  if (!valid(type)) return null;
+  let seen: Set<TyId> | undefined;
+  return nativeCarrierOf(table, type, current => {
+    const term = table.terms[current];
+    if (term?.kind === "literal") {
+      seen ??= new Set();
+      seen.add(current);
+      if (!valid(term.base) || seen.has(term.base)) return null;
+    }
+    return term ?? null;
+  });
+}
+
+export function verifySwitchOperations(node: SwitchStatement<TypedPhase>, table: TypeTable, emit: TirOccurrenceEmit): void {
+  const subject = typedValueOf(node.expression);
+  const parent = node.caseBlock;
+  const subjectCarrier = subject === null ? null : caseCarrier(table, subject.convertedType);
+  for (const clause of parent.clauses.nodes) {
+    if (clause.kind !== "CaseClause") continue;
+    if (parent.parent !== node.id || clause.parent !== parent.id) {
+      emit("operation-type", clause, "a case comparison must belong to its actual switch and case block");
+      continue;
+    }
+    const selected = clause.tsonic.operation;
+    if (selected.kind !== "decided") continue;
+    const { decision, permissionScope } = selected.decision;
+    const label = typedValueOf(clause.expression);
+    const { operation } = decision;
+    const result = table.terms[decision.result];
+    if (subject === null || label === null || permissionScope !== null || decision.operands.length !== 2
+      || decision.operands[0] !== subject.convertedType || decision.operands[1] !== label.convertedType
+      || result?.kind !== "primitive" || result.primitive !== "bool" || decision.execution.kind !== "pure") {
+      emit("operation-type", clause, "a case comparison must retain its actual endpoints and pure Boolean result");
+      continue;
+    }
+    const labelCarrier = caseCarrier(table, label.convertedType);
+    const native = operation.kind === "native-operator" && operation.operator === "==="
+      && (isNativeIntegerPrimitive(operation.carrier) || isNativeBinaryFloatPrimitive(operation.carrier))
+      && subjectCarrier?.kind === "primitive" && labelCarrier?.kind === "primitive"
+      && subjectCarrier.type === labelCarrier.type && subjectCarrier.primitive === operation.carrier;
+    const boolean = operation.kind === "boolean-operator" && operation.operator === "==="
+      && subjectCarrier?.kind === "primitive" && subjectCarrier.primitive === "bool" && labelCarrier?.kind === "primitive" && labelCarrier.primitive === "bool";
+    const string = operation.kind === "string-operator" && operation.operator === "==="
+      && subjectCarrier?.kind === "needs-selected-association" && table.terms[subjectCarrier.type]?.kind === "string"
+      && labelCarrier?.kind === "needs-selected-association" && table.terms[labelCarrier.type]?.kind === "string";
+    if (!native && !boolean && !string) emit("operation-type", clause, "a case comparison must use the selected strict equality of its exact carriers");
+  }
+}
+
+export const verifyOccurrenceOperation = (node: TirNode, table: TypeTable, emit: TirOccurrenceEmit): void => {
+  if (node.kind === "ThrowStatement") {
+    let producer = node.expression;
+    while (producer.kind === "ParenthesizedExpression") {
+      const child = producer.expression;
+      const wrapper = typedValueOf(producer);
+      const value = typedValueOf(child);
+      if (wrapper === null || value === null || wrapper.type !== value.convertedType) {
+        emit("operation-type", node, "a throw parenthesis does not retain its actual child value endpoint");
+        return;
+      }
+      producer = child;
+    }
+    const value = typedValueOf(producer);
+    const application = applicationOf(producer);
+    if (value === null || application?.kind === "decided" && application.decision.callee.decision.result !== value.type) {
+      emit("operation-type", node, "a throw must retain its actual selected operand endpoint");
+      return;
+    }
+    const type = table.terms[value.type];
+    if (type?.kind === "intrinsic" && type.intrinsic === "void")
+      emit("operation-type", node, "a throw operand cannot be an effect-only completion");
+    return;
+  }
   const phase = node.tsonic;
   if (phase === null) return;
+  if (node.kind === "NonNullExpression" && !("role" in node.tsonic) && node.tsonic.narrowing?.kind !== "narrowed") {
+    const { type } = node.tsonic;
+    const term = table.terms[type];
+    if (typedValueOf(node.expression)?.convertedType !== type
+      || term?.kind !== "primitive" && term?.kind !== "string" && !(term?.kind === "literal" && term.value.kind !== "absence"))
+      emit("operation-type", node, "a non-null assertion without a check must preserve an already-present operand");
+  }
+  if (node.kind === "BinaryExpression" && node.tsonic.role === "sequence" && typedValueOf(node.right)?.convertedType !== node.tsonic.type)
+    emit("operation-type", node, "a sequence must retain the actual right value endpoint");
+  const compound = node.kind === "BinaryExpression" ? compoundAssignmentOperatorOf(node.operatorToken.kind) : null;
+  const logical = node.kind === "BinaryExpression" ? shortCircuitOperatorOf(node.operatorToken.kind, "assignment") : null;
+  if (node.kind === "BinaryExpression" && (compound !== null || logical !== null) && node.tsonic.role === "assignment") {
+    const target = unparenthesizedExpression<TypedPhase>(node.left);
+    if (target.kind === "Identifier" && target.tsonic.role === "assignment-target"
+      && (target.tsonic.resolution.kind === "local" || compound !== null && target.tsonic.resolution.kind === "static")) {
+      const { calculation, storage } = node.tsonic;
+      const access = target.tsonic.access;
+      if (logical !== null) {
+        if (calculation !== null || access.kind !== "read-write" || access.storage !== storage
+          || typedValueOf(node.right)?.convertedType !== storage)
+          emit("operation-type", node, "conditional assignment requires its read-write storage and only its selected RHS embedding");
+      } else if (calculation === null || access.kind !== "read-write" || access.storage !== storage)
+        emit("operation-type", node, "compound assignment requires its checked read-write access and calculation");
+      else if (calculation.kind === "decided") {
+        const { operation, operands, result } = calculation.decision.decision;
+        const right = typedValueOf(node.right);
+        const matches = (operation.kind === "native-operator" || operation.kind === "bigint-operator" || operation.kind === "string-operator")
+          && operation.operator === compound;
+        if (!matches || operands.length !== 2
+          || operands[0] !== access.read || right === null || operands[1] !== right.convertedType || result !== storage)
+          emit("operation-type", node, "compound assignment calculation differs from its authored operator, operands or storage");
+      }
+    }
+  }
   const outcome = "operation" in phase ? phase.operation : "construction" in phase ? phase.construction : null;
   if (outcome?.kind !== "decided") return;
   const decision = outcome.decision.decision;
+  if (node.kind === "VoidExpression") {
+    const result = table.terms[decision.result];
+    if (decision.operation.kind !== "discard" || decision.execution.kind !== "pure"
+      || result?.kind !== "intrinsic" || result.intrinsic !== "absence")
+      emit("operation-type", node, "void must discard its actual operand and produce native absence");
+  }
   const value = typedValueOf(node);
   if (value !== null && decision.result !== value.type) emit("operation-type", node, "selected occurrence operation does not retain its value result endpoint");
+  if (node.kind === "PostfixUnaryExpression" || node.kind === "PrefixUnaryExpression") {
+    const storage = node.kind === "PostfixUnaryExpression" ? node.tsonic.storage
+      : node.tsonic.role === "update" ? node.tsonic.storage : null;
+    const target = storage === null ? node.operand : unparenthesizedExpression<TypedPhase>(node.operand);
+    if (storage !== null && target.kind === "Identifier" && target.tsonic.role === "assignment-target"
+      && (target.tsonic.resolution.kind === "local" || target.tsonic.resolution.kind === "static")) {
+      const { access } = target.tsonic;
+      const { operation, operands, result } = decision;
+      const operator = prefixOperatorOf(node.operator);
+      if (access.kind !== "read-write" || access.storage !== storage || access.read !== storage
+        || result !== access.storage || operands.length !== 1 || operands[0] !== access.read
+        || (operator !== "++" && operator !== "--") || operation.kind !== "native-operator" || operation.operator !== operator)
+        emit("operation-type", node, "update calculation differs from its authored operator, read or storage endpoint");
+    }
+  }
   const operands: TirNode[] = [];
   if (node.kind === "BinaryExpression" && (node.tsonic.role === "arithmetic" || node.tsonic.role === "comparison")) operands.push(node.left, node.right);
   else if (node.kind === "PrefixUnaryExpression" || node.kind === "PostfixUnaryExpression") operands.push(node.operand);

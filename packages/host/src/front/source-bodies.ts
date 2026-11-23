@@ -30,10 +30,10 @@ export function enterSourceBody(node: SyntaxNode<SyntaxPhase>, scope: SourceBody
     return { ...scope, boundary: { kind: "function", root: node.body,
       body: encodeBodyId({ owner: definition, role: "function", ordinal: 0 }), parent: scope.body } };
   }
-  if ((node.kind === "Parameter" || node.kind === "VariableDeclaration") && node.initializer !== null) {
+  if ((node.kind === "Parameter" || node.kind === "VariableDeclaration" && node.name.kind === "Identifier") && node.initializer !== null) {
     const definition = definitions.get(node.id);
     if (definition === undefined) return throwInvariant({ owner: "front", query: null, origin: null,
-      message: "A default parameter has no checked definition identity." });
+      message: "An owned initializer has no checked definition identity." });
     let parent = scope.body;
     if (node.kind === "Parameter") {
       if (scope.callableBody === null) return throwInvariant({ owner: "front", query: null, origin: null,

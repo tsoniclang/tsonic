@@ -2,7 +2,15 @@
   "kind": "accepted",
   "value": {
     "kind": "complete",
-    "violations": []
+    "violations": [
+      {
+        "rule": "initialization-entry-exact",
+        "site": {
+          "kind": "index"
+        },
+        "detail": []
+      }
+    ]
   },
   "diagnostics": []
 }

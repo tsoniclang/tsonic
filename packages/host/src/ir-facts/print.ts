@@ -313,7 +313,9 @@ const captureLocation = (writer: Writer, value: CaptureLocation): void => record
 ]);
 const valueContext = (writer: Writer, value: ValueContext): void => record(writer, "ValueContext", [
   ["id", () => identity(writer, "context", value.id)], ["receiver", () => nullable(writer, value.receiver, item => identity(writer, "origins", item))],
-  ["arguments", () => sequence(writer, value.arguments, item => identity(writer, "origins", item))], ["captures", () => sequence(writer, value.captures, item => captureLocation(writer, item))],
+  ["arguments", () => sequence(writer, value.arguments, item => record(writer, item.kind, item.kind === "omitted"
+    ? [] : [["origins", () => identity(writer, "origins", item.origins)]]))],
+  ["captures", () => sequence(writer, value.captures, item => captureLocation(writer, item))],
 ]);
 const boundProducer = (writer: Writer, value: BoundProducer): void => record(writer, "BoundProducer", [
   ["id", () => identity(writer, "bound", value.id)], ["producer", () => identity(writer, "producer", value.producer)],
@@ -465,13 +467,15 @@ const escapeFact = (writer: Writer, value: EscapeFact): void => record(writer, "
   ["point", () => mirPoint(writer, value.point)], ["node", () => identity(writer, "n", value.node)], ["producer", () => identity(writer, "producer", value.producer)],
   ["target", () => escapeTarget(writer, value.target)],
 ]);
-const argumentTransport = (writer: Writer, value: ArgumentTransport): void => record(writer, "ArgumentTransport", [
-  ["authoredIndex", () => scalar(writer, value.authoredIndex)], ["parameter", () => identity(writer, "def", value.parameter)],
-  ["parameterIndex", () => scalar(writer, value.parameterIndex)],
-  ["repeated", () => scalar(writer, value.repeated)], ["passing", () => scalar(writer, value.passing)],
-  ["actual", () => identity(writer, "origins", value.actual)], ["formal", () => producerRef(writer, value.formal)],
-  ["projection", () => nullable(writer, value.projection, item => identity(writer, "path", item))],
-]);
+const argumentTransport = (writer: Writer, value: ArgumentTransport): void => {
+  const common: readonly Field[] = [["parameter", () => identity(writer, "def", value.parameter)],
+    ["parameterIndex", () => scalar(writer, value.parameterIndex)], ["formal", () => producerRef(writer, value.formal)]];
+  record(writer, value.kind, value.kind === "omitted" ? common : [...common,
+    ["authoredIndex", () => scalar(writer, value.authoredIndex)], ["repeated", () => scalar(writer, value.repeated)],
+    ["passing", () => scalar(writer, value.passing)], ["actual", () => identity(writer, "origins", value.actual)],
+    ["projection", () => nullable(writer, value.projection, item => identity(writer, "path", item))],
+  ]);
+};
 const summaryKey = (writer: Writer, value: SummaryKey): void => record(writer, value.kind, [
   ["execution", () => value.kind === "body" ? execution(writer, value.execution) : declaredExecution(writer, value.execution)],
 ]);

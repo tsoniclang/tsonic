@@ -1,17 +1,30 @@
-import type { DataflowAccount, DataflowResult, ForwardProblem, Lattice } from "../../dataflow/contract.js";
+import type { DataflowAccount, DataflowResult, DataflowStop, ForwardProblem, Lattice } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../dataflow/index.js";
 import { requirePresent } from "../../diag/index.js";
-import type { BlockId, LocalId } from "../../ids/contract.js";
+import type { BlockId, LocalId, PlaceId } from "../../ids/contract.js";
 import type { MirBody, MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
-import type { LogicalCellLifetime } from "../../ir-facts/contract.js";
+import type { LogicalCellLifetime, Summary } from "../../ir-facts/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
-import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
-import type { CallError } from "./calls.js";
-import { callSummary, isCallError } from "./calls.js";
+import type { BodyRoundDeps, BodyRoundInput, RoundCallRead } from "./contract.js";
+import type { CallError, SelectedCall } from "./calls.js";
+import { callSummary, isCallError, isLeastCall } from "./calls.js";
 import { callExitAssigned } from "./initialization.js";
-import { bodyFrontier } from "./places.js";
+import type { StaticCalleeCells } from "./static-calls.js";
+import { bodyFrontier, rootSlot } from "./places.js";
+import type { StaticSlots } from "./places.js";
+import { valueKind } from "./values.js";
 
-export type Assigned = ReadonlySet<LocalId> | CallError | null;
+interface CellTaint {
+  readonly defaultCause: CallError;
+  readonly exceptions: ReadonlyMap<number, CallError | null>;
+}
+
+export interface AssignedState {
+  readonly written: ReadonlySet<number>;
+  readonly taint: CellTaint | null;
+}
+
+export type Assigned = AssignedState | null;
 
 export function localSlotLifetimes(input: BodyRoundInput, entries: readonly Assigned[],
   account: DataflowAccount): DataflowResult<ReadonlyMap<LocalId, readonly LogicalCellLifetime[]>> {
@@ -106,7 +119,7 @@ export function solveStorageLive(input: Pick<BodyRoundInput, "execution" | "mir"
         return true;
       };
       if (terminator.kind === "goto") edge(terminator.target);
-      else if (terminator.kind === "call") edge(terminator.next);
+      else if (terminator.kind === "call" || terminator.kind === "invoke") edge(terminator.next);
       else if (terminator.kind === "switch") {
         for (let position = 0; position < terminator.targets.length; position += 1) {
           if (chargeWork(borrowed, 1) !== null) return outgoing;
@@ -123,11 +136,16 @@ export function solveStorageLive(input: Pick<BodyRoundInput, "execution" | "mir"
   return solution.kind === "complete" ? { kind: "complete", value: solution.value.exit } : solution;
 }
 
-export function assignedEntry(entries: readonly Assigned[], block: BlockId): ReadonlySet<LocalId> {
+export function assignedEntry(entries: readonly Assigned[], block: BlockId): AssignedState {
   const entry = entries[block];
-  if (entry === undefined || entry === null || isCallError(entry))
+  if (entry === undefined || entry === null)
     return bodyFrontier("A reached block has its actual solved initialization entry.");
   return entry;
+}
+
+export function selectedCallAt(calls: ReadonlyMap<BlockId, SelectedCall> | null, block: BlockId): SelectedCall {
+  return requirePresent(calls?.get(block), { owner: "analyses/body", query: null, origin: null,
+    message: "A reached call retains its exact selected answer from initialization." });
 }
 
 export function statementOperands(statement: MirStatement): readonly MirOperand[] {
@@ -148,32 +166,149 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
         return bodyFrontier("BodyAnalysis requires the actual selected handler or process-ending throw transport.");
       return [terminator.operand];
     case "switch": return [terminator.operand];
+    case "invoke": return terminator.operands;
     case "goto": case "unreachable": return [];
     default: return bodyFrontier("BodyAnalysis needs the selected call, failure or suspension transport for this terminator.");
   }
 }
 
-export function transferAssigned(body: MirBody, statement: MirStatement, state: ReadonlySet<LocalId>,
-  account: DataflowAccount): ReadonlySet<LocalId>;
+export function transferAssigned(body: MirBody, statement: MirStatement, state: AssignedState,
+  account: DataflowAccount, statics?: StaticSlots): AssignedState;
 export function transferAssigned(body: MirBody, statement: MirStatement, state: Assigned,
-  account: DataflowAccount): Assigned;
+  account: DataflowAccount, statics?: StaticSlots): Assigned;
 export function transferAssigned(body: MirBody, statement: MirStatement, state: Assigned,
-  account: DataflowAccount): Assigned {
-  if (state === null || isCallError(state) || accountFailure(account) !== null) return state;
-  if (chargeWork(account, 1 + state.size) !== null || chargeResultEntries(account, state.size + 1) !== null) return state;
-  const next = new Set(state);
-  if (statement.kind === "assign") {
-    const place = body.places[statement.place];
-    if (place?.base.kind !== "local") return bodyFrontier("A selected assignment requires its actual logical-cell binding.");
-    next.add(place.base.local);
-  } else next.delete(statement.local);
-  return next;
+  account: DataflowAccount, statics: StaticSlots = null): Assigned {
+  if (state === null || accountFailure(account) !== null) return state;
+  if (statement.kind === "assign") return assignDestination(body, statement.place, state, account, statics, true);
+  if (chargeWork(account, 1 + state.written.size) !== null || chargeResultEntries(account, state.written.size + 2) !== null) return state;
+  const written = new Set(state.written);
+  written.delete(statement.local);
+  return { written, taint: state.taint };
+}
+
+function assignDestination(body: MirBody, place: PlaceId, state: AssignedState, account: DataflowAccount,
+  statics: StaticSlots, clearsTaint: boolean): AssignedState {
+  if (chargeWork(account, 1 + state.written.size) !== null || chargeResultEntries(account, state.written.size + 2) !== null) return state;
+  const local = rootSlot(body, place, statics);
+  const written = new Set(state.written);
+  written.add(local);
+  let taint = state.taint;
+  if (clearsTaint && taint !== null && taintCauseOf(taint, local) !== null) {
+    if (chargeWork(account, taint.exceptions.size) !== null || chargeResultEntries(account, taint.exceptions.size + 3) !== null) return state;
+    const exceptions = new Map(taint.exceptions);
+    exceptions.set(local, null);
+    taint = { defaultCause: taint.defaultCause, exceptions };
+  }
+  return { written, taint };
+}
+
+function abortingPrimitiveDestination(deps: BodyRoundDeps, body: MirBody,
+  invoke: Extract<MirTerminator, { readonly kind: "invoke" }>): DataflowResult<PlaceId> {
+  const { account } = deps;
+  const admitted = chargeWork(account, 1);
+  if (admitted !== null) return admitted;
+  const { operation, execution, result } = invoke.operation.decision;
+  const destination = invoke.destination;
+  if (operation.kind !== "native-operator" || execution.kind !== "invocation" || execution.failure !== "abort"
+    || execution.writesStorage || invoke.unwind.kind !== "abort" || invoke.step !== null || destination === null)
+    return bodyFrontier("BodyAnalysis needs the selected call, failure or suspension transport for this terminator.");
+  const place = body.places[destination];
+  if (place?.base.kind !== "local" || place.storage !== result)
+    return bodyFrontier("A process-ending native value operation needs its exact local result place.");
+  const localWork = chargeWork(account, 1);
+  if (localWork !== null) return localWork;
+  const local = body.locals[place.base.local];
+  if (local?.role.kind !== "temporary" || local.mode !== "local" || local.storage !== result)
+    return bodyFrontier("A process-ending native value operation needs its own temporary result.");
+  const kind = valueKind(deps, result);
+  const stop = accountFailure(account);
+  if (stop !== null) return stop;
+  if (kind !== "primitive") return bodyFrontier("A process-ending native value operation needs its selected primitive result.");
+  return { kind: "complete", value: destination };
 }
 
 function selectError(left: CallError | null, right: CallError, account: DataflowAccount): CallError {
   if (left === null) return right;
+  if (left === right) return left;
   if (chargeWork(account, left.key.length + right.key.length) !== null) return left;
   return left.key <= right.key ? left : right;
+}
+
+function taintCauseOf(taint: CellTaint | null, local: number): CallError | null {
+  if (taint === null) return null;
+  const cause = taint.exceptions.get(local);
+  return cause === undefined ? taint.defaultCause : cause;
+}
+
+export function unwrittenCause(state: AssignedState, local: number): CallError | null {
+  return state.written.has(local) ? null : taintCauseOf(state.taint, local);
+}
+
+function sameCause(left: CallError | null, right: CallError | null, account: DataflowAccount): boolean {
+  if (left === right) return true;
+  if (left === null || right === null) return false;
+  if (chargeWork(account, left.key.length + right.key.length) !== null) return false;
+  return left.key === right.key;
+}
+
+function unionCause(left: CallError | null, right: CallError | null, account: DataflowAccount): CallError | null {
+  return right === null ? left : selectError(left, right, account);
+}
+
+function retainException(exceptions: Map<number, CallError | null>, local: number, cause: CallError | null,
+  defaultCause: CallError, account: DataflowAccount): boolean {
+  const same = sameCause(cause, defaultCause, account);
+  if (accountFailure(account) !== null) return false;
+  if (same) return true;
+  if (chargeResultEntries(account, 1) !== null) return false;
+  exceptions.set(local, cause);
+  return true;
+}
+
+function joinTaint(left: CellTaint | null, right: CellTaint | null, account: DataflowAccount): CellTaint | null {
+  if (left === null || left === right) return right;
+  if (right === null) return left;
+  const defaultCause = selectError(left.defaultCause, right.defaultCause, account);
+  if (chargeResultEntries(account, 2) !== null) return left;
+  const exceptions = new Map<number, CallError | null>();
+  for (const [local, cause] of left.exceptions) {
+    if (chargeWork(account, 1) !== null
+      || !retainException(exceptions, local, unionCause(cause, taintCauseOf(right, local), account), defaultCause, account)) return left;
+  }
+  for (const [local, cause] of right.exceptions) {
+    if (chargeWork(account, 1) !== null) return left;
+    if (!left.exceptions.has(local)
+      && !retainException(exceptions, local, unionCause(left.defaultCause, cause, account), defaultCause, account)) return left;
+  }
+  return { defaultCause, exceptions };
+}
+
+export function taintUnwritten(state: AssignedState, failure: CallError, account: DataflowAccount): AssignedState {
+  const previous = state.taint;
+  const defaultCause = selectError(previous?.defaultCause ?? null, failure, account);
+  if (chargeResultEntries(account, 3) !== null) return state;
+  const exceptions = new Map<number, CallError | null>();
+  if (previous !== null) for (const [local, cause] of previous.exceptions) {
+    if (chargeWork(account, 1) !== null) return state;
+    const result = state.written.has(local) ? cause : selectError(cause, failure, account);
+    if (!retainException(exceptions, local, result, defaultCause, account)) return state;
+  }
+  for (const local of state.written) {
+    if (chargeWork(account, 1) !== null) return state;
+    if (previous?.exceptions.has(local) !== true
+      && !retainException(exceptions, local, previous?.defaultCause ?? null, defaultCause, account)) return state;
+  }
+  return { written: state.written, taint: { defaultCause, exceptions } };
+}
+
+function equalTaint(left: CellTaint | null, right: CellTaint | null, account: DataflowAccount): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || left.exceptions.size !== right.exceptions.size
+    || !sameCause(left.defaultCause, right.defaultCause, account)) return false;
+  for (const [local, cause] of left.exceptions) {
+    if (chargeWork(account, 1) !== null || !sameCause(cause, taintCauseOf(right, local), account)) return false;
+  }
+  return true;
 }
 
 export function assignedLattice(stateBound: number): Lattice<Assigned> {
@@ -183,39 +318,39 @@ export function assignedLattice(stateBound: number): Lattice<Assigned> {
     equals: (left, right, borrowed) => {
       if (left === right) return true;
       if (left === null || right === null) return false;
-      if (isCallError(left) || isCallError(right)) {
-        if (!isCallError(left) || !isCallError(right)) return false;
-        if (chargeWork(borrowed, left.key.length + right.key.length) !== null) return true;
-        return left.key === right.key;
+      if (left.written !== right.written) {
+        if (left.written.size !== right.written.size) return false;
+        if (chargeWork(borrowed, left.written.size) !== null) return true;
+        for (const local of left.written) if (!right.written.has(local)) return false;
       }
-      if (left.size !== right.size) return false;
-      if (chargeWork(borrowed, left.size) !== null) return true;
-      for (const local of left) if (!right.has(local)) return false;
-      return true;
+      return equalTaint(left.taint, right.taint, borrowed);
     },
     join: (left, right, borrowed) => {
       if (left === null) return right;
       if (right === null || left === right) return left;
-      if (isCallError(left)) {
-        if (!isCallError(right)) return left;
-        return selectError(left, right, borrowed);
+      let written = left.written;
+      if (written !== right.written) {
+        if (chargeWork(borrowed, written.size) !== null || chargeResultEntries(borrowed, written.size + 1) !== null) return left;
+        const common = new Set<number>();
+        for (const local of written) if (right.written.has(local)) common.add(local);
+        written = common;
       }
-      if (isCallError(right)) return right;
-      if (chargeWork(borrowed, left.size) !== null || chargeResultEntries(borrowed, left.size) !== null) return left;
-      const common = new Set<LocalId>();
-      for (const local of left) if (right.has(local)) common.add(local);
-      return common;
+      const taint = joinTaint(left.taint, right.taint, borrowed);
+      if (chargeResultEntries(borrowed, 1) !== null) return left;
+      return { written, taint };
     },
   };
 }
 
-export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "execution" | "mir">):
-  DataflowResult<{ readonly entry: readonly Assigned[]; readonly reachable: readonly boolean[]; readonly error: CallError | null }> {
+export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "execution" | "mir">, statics: StaticSlots = null,
+  observeCall: ((summary: Summary) => DataflowStop | null) | null = null, staticSlot: StaticCalleeCells | null = null):
+  DataflowResult<{ readonly entry: readonly Assigned[]; readonly reachable: readonly boolean[]; readonly error: CallError | null;
+    readonly calls: ReadonlyMap<BlockId, SelectedCall> | null }> {
   const { account } = deps;
   const entry = chargeWork(account, 1);
   if (entry !== null) return entry;
   const { mir: body, execution: { provided } } = input;
-  const setup = chargeWork(account, body.locals.length) ?? chargeResultEntries(account, body.locals.length + 1);
+  const setup = chargeWork(account, body.locals.length) ?? chargeResultEntries(account, body.locals.length + 2);
   if (setup !== null) return setup;
   const boundary = new Set<LocalId>();
   for (const local of body.locals) {
@@ -223,34 +358,51 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
       || local.role.kind === "receiver"
       || local.role.kind === "capture" && localOwnershipOfMir(local.mode) === "body") boundary.add(local.id);
   }
+  let error: CallError | null = null;
+  let calls: Map<BlockId, SelectedCall> | null = null;
+  let answers: Map<string, RoundCallRead> | null = null;
   const problem: ForwardProblem<Assigned> = {
-    direction: "forward", boundary,
-    lattice: assignedLattice(body.locals.length + 1),
-    statement: (statement, state, borrowed) => transferAssigned(body, statement, state, borrowed),
-    terminator: (terminator, state, borrowed) => {
-      if (terminator.kind === "call") {
+    direction: "forward", boundary: { written: boundary, taint: null },
+    lattice: assignedLattice(body.locals.length + (statics?.size ?? 0) + 1),
+    statement: (statement, state, borrowed) => transferAssigned(body, statement, state, borrowed, statics),
+    terminator: (terminator, state, borrowed, block) => {
+      if (terminator.kind === "call" || terminator.kind === "invoke") {
         if (state === null) return [];
         let next = state;
-        if (!isCallError(state)) {
-          const selected = callSummary(deps, body, terminator);
-          if (selected.kind !== "complete") return [];
-          if (isCallError(selected.value)) next = selected.value;
-          else {
-            if (!selected.value.returns) return [];
-            const initialized = callExitAssigned(deps, body, terminator, selected.value, state, "return");
+        if (terminator.kind === "invoke") {
+          const destination = abortingPrimitiveDestination(deps, body, terminator);
+          if (destination.kind !== "complete") return [];
+          next = assignDestination(body, destination.value, state, borrowed, statics, false);
+        } else {
+          if (chargeWork(borrowed, 1) !== null) return [];
+          if (calls === null || answers === null) {
+            if (chargeResultEntries(borrowed, 2) !== null) return [];
+            calls = new Map();
+            answers = new Map();
+          }
+          let selected = calls.get(block);
+          if (selected === undefined) {
+            if (chargeResultEntries(borrowed, 1) !== null) return [];
+            const answer = callSummary(deps, body, terminator, answers);
+            if (answer.kind !== "complete") return [];
+            selected = answer.value;
+            calls.set(block, selected);
+            if (isCallError(selected)) error = selectError(error, selected, borrowed);
+            else if (!isLeastCall(selected) && observeCall !== null && observeCall(selected) !== null) return [];
+          }
+          if (isLeastCall(selected)) return [];
+          if (isCallError(selected)) {
+            next = taintUnwritten(state, selected, borrowed);
+          } else {
+            if (!selected.returns) return [];
+            const initialized = callExitAssigned(deps, body, terminator, selected, state.written, "return", staticSlot);
             if (initialized.kind !== "complete") return [];
-            next = initialized.value;
-            if (terminator.destination !== null) {
-              const growth = chargeWork(borrowed, 1 + initialized.value.size) ?? chargeResultEntries(borrowed, initialized.value.size + 1);
-              if (growth !== null) return [];
-              const place = body.places[terminator.destination];
-              if (place?.base.kind !== "local")
-                return bodyFrontier("A call destination requires its actual selected logical-cell binding.");
-              const written = new Set(initialized.value);
-              written.add(place.base.local);
-              next = written;
+            if (initialized.value !== state.written) {
+              if (chargeResultEntries(borrowed, 1) !== null) return [];
+              next = { written: initialized.value, taint: state.taint };
             }
           }
+          if (terminator.destination !== null) next = assignDestination(body, terminator.destination, next, borrowed, statics, false);
         }
         if (chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 1) !== null) return [];
         return [{ target: terminator.next, state: next }];
@@ -266,16 +418,7 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
   };
   const solved = solve(body, provided, problem, account);
   if (solved.kind !== "complete") return solved;
-  const collect = chargeWork(account, solved.value.entry.length) ?? chargeResultEntries(account, 1);
+  const collect = chargeResultEntries(account, 1);
   if (collect !== null) return collect;
-  let error: CallError | null = null;
-  for (const state of solved.value.entry) {
-    if (isCallError(state)) {
-      const next = selectError(error, state, account);
-      const stop = accountFailure(account);
-      if (stop !== null) return stop;
-      error = next;
-    }
-  }
-  return { kind: "complete", value: { entry: solved.value.entry, reachable: solved.value.reachable, error } };
+  return { kind: "complete", value: { entry: solved.value.entry, reachable: solved.value.reachable, error, calls } };
 }

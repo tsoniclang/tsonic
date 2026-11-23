@@ -1,6 +1,7 @@
 import { constructBindingPattern, constructImportDeclaration } from "./text-syntax-construction.js";
 import { lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
 import type { TirRecordCodec } from "./text-layouts.js";
+import type { TypedCase } from "./contract.js";
 import type {
   TypedBinding, TypedBindingElement, TypedBindingPattern, TypedControlTransfer, TypedExport, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedImport, TypedImportBinding, TypedIteration, TypedNamespace, TypedParameter, TypedPhase, TypedStorageDeclaration, TypedVariableList
 } from "./contract.js";
@@ -23,6 +24,7 @@ export interface SyntaxStatementsTextReads {
   readonly work_TypedBinding: TirRecordCodec<TypedBinding>;
   readonly work_TypedBindingElement: TirRecordCodec<TypedBindingElement>;
   readonly work_TypedBindingPattern: TirRecordCodec<TypedBindingPattern>;
+  readonly work_TypedCase: TirRecordCodec<TypedCase>;
   readonly work_TypedControlTransfer: TirRecordCodec<TypedControlTransfer>;
   readonly work_TypedExport: TirRecordCodec<TypedExport>;
   readonly work_TypedExportAssignment: TirRecordCodec<TypedExportAssignment>;
@@ -217,7 +219,7 @@ export const createSyntaxStatementsText = (kernel: TirTextKernel, read: SyntaxSt
     .syntaxKind("kind", "'CaseClause", literalReader<(CaseClause<TypedPhase>)["kind"]>("'CaseClause", ["CaseClause"]))
     .field("expression", "$Expression", value => syntaxReference("$Expression", value.expression), syntaxReads.Expression)
     .field("statements", "L<Statement>", value => work_L_Statement_.write(value.statements), lazyReader(() => work_L_Statement_.reader))
-    .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
+    .field("tsonic", "TypedCase", value => read.work_TypedCase.write(value.tsonic), lazyReader(() => read.work_TypedCase.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_expression, field_statements, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, expression: field_expression, statements: field_statements, tsonic: field_tsonic }), (kind,
       make) => ({ kind, value: make(kind),

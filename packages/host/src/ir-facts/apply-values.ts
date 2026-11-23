@@ -65,6 +65,9 @@ export function applyValueOrigins(input: ValueApplicationInput, limits: ValueApp
     const producer = input.summary.arena.producers[bound.producer];
     if (!validIndex(bound.producer, input.summary.arena.producers.length) || producer === undefined || producer.id !== bound.producer)
       throw new TypeError("The summary's bound producer retains its actual producer");
+    if (producer.kind === "parameter" && (context.arguments[producer.index]?.kind === "omitted"
+      || input.summary.arena.contexts[bound.context]?.arguments[producer.index]?.kind === "omitted"))
+      throw new TypeError("An omitted formal has no incoming caller value to bind");
     const entry = producer.kind === "receiver" || producer.kind === "parameter" || producer.kind === "capture"
       || producer.kind === "shared" || producer.kind === "cell-content";
     if (entry !== bindings.has(bound.id)) throw new TypeError("Summary application binds every actual entry producer and no created producer");

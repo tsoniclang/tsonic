@@ -18,6 +18,7 @@ import { createSyntaxDocsText } from "./text-syntax-docs.js";
 export const createTirLayouts = (): TirLayouts => {
   const kernel = createTirTextKernel();
   const body = createBodyText(kernel, {
+    work_ItemNodeRef: lazyRecord(() => type_values.work_ItemNodeRef),
     work_ApplicationDecision: lazyRecord(() => rule_decisions.work_ApplicationDecision),
     work_BodyCaptureRow: lazyRecord(() => rule_decisions.work_BodyCaptureRow),
     work_ArtifactBindings: lazyRecord(() => type_values.work_ArtifactBindings),
@@ -133,7 +134,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypeComponent: lazyRecord(() => type_values.work_TypeComponent),
     work_TypeEvidence: lazyRecord(() => type_values.work_TypeEvidence)
   });
-  const causes = createCausesText(kernel, lazyRecord(() => type_values.work_SourceNodeRef));
+  const causes = createCausesText(kernel, lazyRecord(() => type_values.work_SourceNodeRef), lazyRecord(() => type_values.work_NodeRef));
   const captures = createCapturesText(kernel, {
     work_Cause: causes,
     work_BindingVector: lazyRecord(() => type_values.work_BindingVector),
@@ -154,6 +155,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_Origin: lazyRecord(() => type_values.work_Origin),
     work_TextRange: lazyRecord(() => type_values.work_TextRange),
     work_TypedApplication: lazyRecord(() => phase_values.work_TypedApplication),
+    work_TypedCall: lazyRecord(() => phase_values.work_TypedCall),
     work_TypedBigInt: lazyRecord(() => phase_values.work_TypedBigInt),
     work_TypedBinary: lazyRecord(() => phase_values.work_TypedBinary),
     work_TypedConditional: lazyRecord(() => phase_values.work_TypedConditional),
@@ -167,6 +169,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypedNumber: lazyRecord(() => phase_values.work_TypedNumber),
     work_TypedObjectSpread: lazyRecord(() => phase_values.work_TypedObjectSpread),
     work_TypedOmission: lazyRecord(() => phase_values.work_TypedOmission),
+    work_TypedValueOccurrence: lazyRecord(() => phase_values.work_TypedValueOccurrence),
     work_TypedPrefix: lazyRecord(() => phase_values.work_TypedPrefix),
     work_TypedProperty: lazyRecord(() => phase_values.work_TypedProperty),
     work_TypedPropertyKey: lazyRecord(() => phase_values.work_TypedPropertyKey),
@@ -190,6 +193,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypedBinding: lazyRecord(() => phase_declarations.work_TypedBinding),
     work_TypedBindingElement: lazyRecord(() => phase_declarations.work_TypedBindingElement),
     work_TypedBindingPattern: lazyRecord(() => phase_declarations.work_TypedBindingPattern),
+    work_TypedCase: lazyRecord(() => phase_values.work_TypedCase),
     work_TypedControlTransfer: lazyRecord(() => phase_values.work_TypedControlTransfer),
     work_TypedExport: lazyRecord(() => phase_declarations.work_TypedExport),
     work_TypedExportAssignment: lazyRecord(() => phase_declarations.work_TypedExportAssignment),

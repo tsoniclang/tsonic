@@ -2,9 +2,10 @@ import type { NodeId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirApplication, HirCallableEndpoint, HirCandidate, HirNode, HirProtocolFact } from "../ir-hir/contract.js";
 import { callableEndpointKey, selectedEndpointRoleFaults } from "../ir-hir/index.js";
-import type { ApplicationDecision, InferenceDeclaration, MemberDecision, ParameterMapping, RuleOutcome } from "../ir-infer/contract.js";
+import type { ApplicationDecision, InferenceDeclaration, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberInventory, MemberInventoryEntry, MemberKey, MemberOrigin, Signature, SignatureParameter, TypeTable } from "../ir-types/contract.js";
-import type { MemberSelection, ResolvedCallee, TirApplication, TirArgument, TirNode, TirProtocol, TypedOperation } from "./contract.js";
+import { bindingVectorKey } from "../ir-types/index.js";
+import type { MemberSelection, ResolvedCallee, TirApplication, TirArgument, TirBody, TirNode, TirProtocol, TirReadyReadAdmission, TypedOperation } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 
 export interface TirDeclarationInventory {
@@ -17,6 +18,7 @@ export interface TirCallDeclarations {
   readonly advertised: TirDeclarationInventory | null;
   readonly api: TirDeclarationInventory | null;
   readonly candidates: readonly HirCandidate[] | null;
+  readonly activated: TirBody | null | undefined;
 }
 
 export const declarationEndpoints = (declaration: InferenceDeclaration): ReadonlySet<string> => {
@@ -25,21 +27,20 @@ export const declarationEndpoints = (declaration: InferenceDeclaration): Readonl
   return endpoints;
 };
 
-export const applicationOf = (node: TirNode): RuleOutcome<TirApplication> | null => {
-  if (node.kind === "CallExpression" || node.kind === "NewExpression" || node.kind === "TaggedTemplateExpression" || node.kind === "Decorator") {
-    return node.tsonic.application;
-  }
-  return null;
-};
-
 const validOrdinal = (value: number): boolean => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 
 export const verifyCallEndpoints = (
   decision: ApplicationDecision, node: TirNode, types: TypeTable, declarations: TirCallDeclarations, emit: TirOccurrenceEmit,
-): Signature | undefined => {
+): void => {
   const candidate = declarations.candidates?.[decision.candidate];
   const advertisedSignature = types.signatures[decision.advertised.signature];
   const apiSignature = types.signatures[decision.api.signature];
+  const activated = declarations.activated;
+  const applied = activated !== undefined ? activated?.signature
+    : decision.api.body === null && callableEndpointKey(decision.advertised) === callableEndpointKey(decision.api)
+    && candidate?.appliedSignature.kind === "available"
+    ? candidate.appliedSignature.value : decision.api.signature;
+  const appliedSignature = applied === undefined ? undefined : types.signatures[applied];
   let valid = declarations.advertised !== null && declarations.api !== null &&
     declarations.advertised.endpoints.has(callableEndpointKey(decision.advertised)) &&
     declarations.api.endpoints.has(callableEndpointKey(decision.api)) &&
@@ -53,11 +54,17 @@ export const verifyCallEndpoints = (
   if (advertisedSignature?.declaration !== null && advertisedSignature?.declaration !== decision.advertised.declaration) valid = false;
   if (apiSignature?.declaration !== null && apiSignature?.declaration !== decision.api.declaration) valid = false;
   if (!valid) emit("call-endpoints", node, "selected callable endpoints do not belong to their actual declarations and candidate");
-  if (decision.completion.signature !== decision.api.signature) {
+  const completion = decision.completion;
+  if (activated !== undefined && activated !== null) {
+    if (completion.signature !== activated.signature || completion.completion !== activated.completion
+      || completion.yielded !== activated.yielded || completion.sent !== activated.sent
+      || appliedSignature === undefined || appliedSignature.declaration !== decision.api.declaration)
+      emit("completion-endpoint", node, "selected completion does not retain the actual activated body's signature and channels");
+  } else if (activated === undefined && (completion.signature !== applied || applied !== decision.api.signature && (appliedSignature === undefined
+    || appliedSignature.declaration !== decision.api.declaration))) {
     emit("completion-endpoint", node, "selected completion does not retain its actual API signature");
   }
-  if (apiSignature !== undefined) verifyDecisionFormals(decision, node, apiSignature, emit);
-  return apiSignature;
+  if (appliedSignature !== undefined) verifyDecisionFormals(decision, node, appliedSignature, emit);
 };
 
 const verifyDecisionFormals = (decision: ApplicationDecision, node: TirNode, signature: Signature, emit: TirOccurrenceEmit): void => {
@@ -318,7 +325,7 @@ export const verifyProtocolRecord = (
   for (const step of protocol.steps) {
     const operation = step.operation.decision;
     if (step.callee !== null) {
-      const signature = types.signatures[step.callee.decision.api.signature];
+      const signature = types.signatures[step.callee.decision.completion.signature];
       if (signature === undefined || operation.result !== step.callee.decision.result ||
         (operation.operation.kind === "library" || operation.operation.kind === "core") &&
         operation.operation.declaration !== step.callee.decision.api.declaration) {
@@ -342,10 +349,34 @@ export const verifyProtocolOperation = (operation: TypedOperation, node: TirNode
   }
 };
 
-export const verifyActivation = (
-  callee: ResolvedCallee, node: TirNode, emit: TirOccurrenceEmit,
-): void => {
-  if (callee.activation !== null && callee.activation.body !== callee.decision.api.body) {
+export const verifyActivation = <Stop extends object>(
+  callee: ResolvedCallee, node: TirNode, emit: TirOccurrenceEmit, admit: TirReadyReadAdmission<Stop>,
+): { readonly kind: "complete"; readonly valid: boolean } | { readonly kind: "resource-stop"; readonly stop: Stop } => {
+  const activation = callee.activation;
+  if (activation === null) return { kind: "complete", valid: true };
+  if (activation.body !== callee.decision.api.body) {
     emit("call-endpoints", node, "callee activation does not retain its actual API body");
+    return { kind: "complete", valid: false };
   }
+  const activationRead = admit({ kind: "row" });
+  if (activationRead !== null) return { kind: "resource-stop", stop: activationRead };
+  const bindings = activation.bindings;
+  if (bindings.kind === "instantiated") {
+    const selectedRead = admit({ kind: "row" });
+    if (selectedRead !== null) return { kind: "resource-stop", stop: selectedRead };
+    const selected = bindings.bindings;
+    const selectedIdentity = admit({ kind: "bindings", bindings: selected });
+    if (selectedIdentity !== null) return { kind: "resource-stop", stop: selectedIdentity };
+    const selectedKey = bindingVectorKey(selected);
+    const implementationRead = admit({ kind: "row" });
+    if (implementationRead !== null) return { kind: "resource-stop", stop: implementationRead };
+    const implementation = callee.decision.implementationBindings;
+    const implementationIdentity = admit({ kind: "bindings", bindings: implementation });
+    if (implementationIdentity !== null) return { kind: "resource-stop", stop: implementationIdentity };
+    if (selectedKey !== bindingVectorKey(implementation)) {
+      emit("call-endpoints", node, "callee activation does not retain its actual implementation bindings");
+      return { kind: "complete", valid: false };
+    }
+  }
+  return { kind: "complete", valid: true };
 };

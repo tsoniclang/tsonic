@@ -1,6 +1,31 @@
 import type { BodyId, DefId, ModuleId, NodeId, PackageId, SigId } from "../ids/contract.js";
 import type { ArtifactBindings, BodyInstance, SignatureEndpoint, TypeExpansionLimits } from "../ir-types/contract.js";
 import type { DataflowStop } from "../dataflow/contract.js";
+import type { Violation } from "../diag/contract.js";
+
+export type ProgramRule =
+  | "schema-supported" | "root-package-resolves" | "packages-order" | "package-dependencies-order"
+  | "package-dependency-resolves" | "package-exports-order" | "package-export-resolves"
+  | "modules-order" | "module-package-resolves" | "identity-path-exact" | "items-order" | "item-definition-resolves"
+  | "definition-node-resolves" | "definition-node-owner-exact" | "module-node-id-dense"
+  | "exports-order" | "export-target-resolves" | "binding-capture-owner" | "binding-target-resolves" | "binding-diagnostic-resolves"
+  | "signatures-order" | "signature-reference-resolves"
+  | "signature-endpoints-exact" | "body-index-order" | "body-owner-resolves" | "body-module-resolves"
+  | "body-root-resolves" | "node-body-ownership" | "mir-counts-integral"
+  | "metadata-order" | "metadata-key-unique" | "summaries-order"
+  | "summary-key-unique" | "constants-order" | "constant-key-unique" | "constant-type-resolves" | "constant-floating-value"
+  | "diagnostics-order" | "bindings-complete" | "binding-artifact-present" | "binding-vectors-bounded"
+  | "shared-type-table" | "native-facts-identity" | "types-valid" | "metadata-valid" | "summary-valid"
+  | "chunk-module-resolves" | "chunk-tree-module-exact" | "chunk-bodies-order" | "body-levels-total"
+  | "body-instance-exact" | "mir-index-counts-exact" | "tir-valid" | "mir-valid"
+  | "facts-valid" | "cross-owner-qualified" | "cross-owner-reference-resolves"
+  | "metadata-constant-not-materialised"
+  | "template-body-shared" | "nested-body-boundary" | "instance-node-ids-exact"
+  | "dependency-inventory-valid" | "execution-body-resolves" | "execution-entry-resolves"
+  | "facts-execution-total" | "facts-execution-order"
+  | "initialization-entry-exact" | "initialization-exposure-exact" | "initialization-executions-exact" | "plan-initialized";
+
+export type ProgramViolation = Violation<ProgramRule, ProgramSite>;
 
 export interface ProgramVerificationLimits {
   readonly maximumCreatedRecords: number;

@@ -1,6 +1,8 @@
 export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
+import type { GoPtr } from "../go/compat.js";
 import type { Context } from "../go/context.js";
+import type { Diagnostic } from "../internal/ast/diagnostic.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import { type SourceProgramQueries } from "./source-program.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
@@ -662,6 +664,10 @@ export declare class ExtensionHost {
     finalizeSemantics(): void;
     get finalized(): boolean;
     getCompilerQueryContext(context?: Context): SourceProgramQueries;
+    publishCheckedSource(diagnostics: readonly GoPtr<Diagnostic>[], context?: Context): {
+        source: SourceProgramQueries;
+        diagnostics: readonly (Diagnostic | undefined)[];
+    };
 }
 export declare function attachExtensionHost<TProgram extends object>(program: TProgram, options?: ExtensionHostOptions): ExtendedProgram<TProgram>;
 export declare function snapshotExtensionHostOptionsForCompilerSession(options: ExtensionHostOptions): ExtensionHostOptions;

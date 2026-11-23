@@ -2,7 +2,8 @@ import { sourceOwner } from "./catalogue.mjs";
 import { publicDeclarations, quarantineReference, sourceSymbol } from "./import-graph.mjs";
 const producerMembers = (["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
 const scopedOwners = (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
-const nativeOpaqueOwners = ({ TypeInterner: "ir-types", TypePublicationWork: "ir-types", ProgramVerificationWork: "ir-program", EvaluationContinuation: "evaluate", DataflowAccount: "dataflow" });
+const runtimePrivateOpaqueOwners = ({ MemberRuleContinuation: "rules", MemberSolveContinuation: "infer" });
+const nativeOpaqueOwners = ({ TypeInterner: "ir-types", TypePublicationWork: "ir-types", ProgramVerificationWork: "ir-program", EvaluationContinuation: "evaluate", DataflowAccount: "dataflow", ...runtimePrivateOpaqueOwners });
 const opaqueOwners = ({ ...nativeOpaqueOwners, CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
 const rawCaptureTypes = (["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral"]);
 const sdkPayloads = ({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
@@ -12,8 +13,11 @@ const readyPortSignatures = ({
     ExtensionReferencesOf: ["front.CheckerExtensions", "readonly snapshot.ExtensionReferenceEntry[]"],
     LowerModuleDefinitions: ["front.ModuleDefinitionsInput", "diag.Result<front.ModuleDefinitions>"],
   },
-  decls: { DescribeDefinitions: ["decls.DeclsModule", "readonly decls.DefinitionExports[]", "decls.DefinitionTable"] },
-  rules: { CreateRuleTable: ["rules.RulesDeps", "ir-infer.RuleTable"] },
+  decls: { DescribeDefinitions: ["decls.DeclsModule", "ir-hir.HirDeclarationScopes", "readonly decls.DefinitionExports[]", "decls.DefinitionTable"] },
+  rules: {
+    CreateRuleTable: ["rules.RulesDeps", "ir-infer.RuleTable<rules.MemberRuleContinuation>"],
+    TypePatternMatch: ["ir-types.TypeTerm", "ir-types.TypeTerm", "ir-infer.TypePatternMatchOutcome"],
+  },
 });
 export function sourceFindings(source, files, catalogue, graph, quarantineRoots) {
   const { ast } = source;
@@ -58,13 +62,17 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       const selectedFile = ast.getFileName(ast.getSourceFile(selected)).slice("/host-gate/".length);
       const members = ast.members(selected);
       const constructors = members.filter(member => ast.is.IsConstructorDeclaration(member));
+      const runtimePrivate = runtimePrivateOpaqueOwners[ast.text(ast.name(declaration))] === module.name;
+      const privateState = member => ast.is.IsPropertyDeclaration(member) && !ast.hasModifierKind(member, "static") &&
+        (runtimePrivate
+          ? ast.kindName(ast.name(member)) === "KindPrivateIdentifier" &&
+            (ast.isDeclarationFile(ast.getSourceFile(selected)) || ast.hasModifierKind(member, "readonly"))
+          : ast.hasModifierKind(member, "private") && ast.hasModifierKind(member, "readonly"));
       if (owner(selectedFile) !== module || [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(selectedFile) || publicValues.has(selected) ||
         constructors.length !== 1 || !ast.hasModifierKind(constructors[0], "private") ||
         ast.children(selected).some(child => ast.kindName(child) === "KindHeritageClause") ||
-        !members.some(member => ast.is.IsPropertyDeclaration(member) && !ast.hasModifierKind(member, "static")) ||
-        !members.every(member => ast.is.IsConstructorDeclaration(member) ||
-          ast.is.IsPropertyDeclaration(member) && ast.hasModifierKind(member, "private") &&
-            ast.hasModifierKind(member, "readonly") && !ast.hasModifierKind(member, "static") ||
+        !members.some(privateState) ||
+        !members.every(member => ast.is.IsConstructorDeclaration(member) || privateState(member) ||
           ast.is.IsMethodDeclaration(member) && ast.hasModifierKind(member, "static"))) continue;
       opaqueClasses.add(selected);
       opaqueFiles.add(selectedFile);
@@ -150,6 +158,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
   const objectModelMember = (namespace, name) => namespace === "Reflect" ||
     namespace === "Object" && (name === undefined || objectModelMethods.has(name));
   const contractFunctions = new Map();
+  const contractExports = new Map();
   for (const [path, file] of sourceFiles) {
     const module = owner(path);
     if (module === undefined || ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path)) continue;
@@ -157,13 +166,17 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     const identity = symbol(file);
     if (identity === undefined) continue;
     const functions = new Set();
+    const exports = new Set();
     for (const exported of queries.getExportsOfModule(identity)) {
-      const selected = sourceSymbol(source, file, exported);
+      const selected = sourceSymbol(source, file, exported.symbol);
+      if (selected === undefined) continue;
+      exports.add(selected);
       const declarations = queries.getSymbolDeclarations(selected);
       if (declarations.length > 0 && declarations.every(declaration => ast.getSourceFile(declaration) === file &&
         ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsFunctionTypeNode(ast.typeNode(declaration)))) functions.add(selected);
     }
     contractFunctions.set(module, functions);
+    contractExports.set(module, exports);
   }
   const stageTypes = new Set();
   const readyPortType = node => {
@@ -177,12 +190,14 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       return element === undefined ? undefined : `${element}[]`;
     }
     if (!ast.is.IsTypeReferenceNode(node)) return undefined;
-    const declarations = checker(node).getSymbolDeclarations(symbol(ast.as.AsTypeReferenceNode(node).TypeName));
+    const selected = symbol(ast.as.AsTypeReferenceNode(node).TypeName);
+    if (selected === undefined) return undefined;
+    const declarations = checker(node).getSymbolDeclarations(selected);
     if (declarations.length !== 1) return undefined;
     const declaration = declarations[0];
     const path = ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length);
     const module = owner(path);
-    if (module === undefined || ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path)) return undefined;
+    if (module === undefined || !contractExports.get(module)?.has(selected)) return undefined;
     const argumentsOfType = ast.typeArguments(node).map(readyPortType);
     if (argumentsOfType.includes(undefined)) return undefined;
     return `${module.name}.${ast.text(ast.name(declaration))}${argumentsOfType.length === 0 ? "" : `<${argumentsOfType.join(",")}>`}`;
@@ -261,25 +276,110 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     return arms.length === 2 && arms.includes(node) && arms.some(arm => ast.is.IsLiteralTypeNode(arm) &&
       ast.kindName(ast.as.AsLiteralTypeNode(arm).Literal) === "KindNullKeyword");
   };
-  const phaseSlotSelectionData = node => {
-    const slot = ast.parent(node);
-    const record = ast.parent(slot);
-    if (!canonicalSyntax(node) || !ast.is.IsPropertySignatureDeclaration(slot) || !ast.hasModifierKind(slot, "readonly") ||
-      ast.questionToken(slot) !== undefined || memberName(ast.name(slot)) !== "tsonic" ||
-      ast.typeNode(slot) !== node || !ast.is.IsInterfaceDeclaration(record)) return false;
+  const phaseAccessData = (node, record) => {
+    if (!canonicalSyntax(node) || !ast.is.IsIndexedAccessTypeNode(node)) return false;
     const access = ast.as.AsIndexedAccessTypeNode(node);
     if (!ast.is.IsTypeReferenceNode(access.ObjectType) || ast.typeArguments(access.ObjectType).length !== 0 || !ast.is.IsLiteralTypeNode(access.IndexType)) return false;
     const key = ast.as.AsLiteralTypeNode(access.IndexType).Literal;
     if (!ast.is.IsStringLiteral(key)) return false;
-    const parameter = ast.typeParameters(record).find(candidate => symbol(ast.name(candidate)) === symbol(ast.as.AsTypeReferenceNode(access.ObjectType).TypeName));
+    const selected = symbol(ast.as.AsTypeReferenceNode(access.ObjectType).TypeName);
+    if (selected === undefined) return false;
+    const parameter = ast.typeParameters(record).find(candidate => symbol(ast.name(candidate)) === selected);
     const constraint = parameter === undefined ? undefined : ast.as.AsTypeParameterDeclaration(parameter).Constraint;
     if (constraint === undefined || !ast.is.IsTypeReferenceNode(constraint)) return false;
     const declarations = checker(node).getSymbolDeclarations(symbol(ast.as.AsTypeReferenceNode(constraint).TypeName));
     if (declarations.length !== 1 || !phaseDeclaration(declarations[0]) ||
       !ast.members(declarations[0]).some(member => ast.is.IsPropertySignatureDeclaration(member) &&
         ast.hasModifierKind(member, "readonly") && memberName(ast.name(member)) === ast.text(key))) return false;
-    if (!ast.members(record).some(member => memberName(ast.name(member)) === "kind")) return false;
     return { record, parameter, phase: declarations[0], key: ast.text(key) };
+  };
+  const phaseSlotSelectionData = node => {
+    const slot = ast.parent(node);
+    const record = ast.parent(slot);
+    if (!ast.is.IsPropertySignatureDeclaration(slot) || !ast.hasModifierKind(slot, "readonly") ||
+      ast.questionToken(slot) !== undefined || memberName(ast.name(slot)) !== "tsonic" ||
+      ast.typeNode(slot) !== node || !ast.is.IsInterfaceDeclaration(record) ||
+      !ast.members(record).some(member => memberName(ast.name(member)) === "kind")) return false;
+    return phaseAccessData(node, record);
+  };
+  const selectsParameter = (node, parameter) => {
+    const target = symbol(ast.name(parameter));
+    return target !== undefined && node !== undefined && ast.is.IsTypeReferenceNode(node) &&
+      ast.typeArguments(node).length === 0 && symbol(ast.as.AsTypeReferenceNode(node).TypeName) === target;
+  };
+  const ordinaryUnaryParameter = signature => {
+    const parameters = ast.parameters(signature);
+    if (ast.typeParameters(signature).length !== 0 || parameters.length !== 1) return undefined;
+    const formal = parameters[0];
+    const parameter = ast.as.AsParameterDeclaration(formal);
+    return parameter.QuestionToken !== undefined || parameter.DotDotDotToken !== undefined ||
+      parameter.Initializer !== undefined || !ast.is.IsIdentifier(ast.name(formal)) ? undefined : formal;
+  };
+  const preparedSyntaxSlot = slot => {
+    if (slot === undefined || !ast.is.IsTypeReferenceNode(slot) || ast.typeArguments(slot).length !== 2) return false;
+    const target = symbol(ast.as.AsTypeReferenceNode(slot).TypeName);
+    if (target === undefined) return false;
+    const declarations = checker(slot).getSymbolDeclarations(target);
+    const declaration = declarations.length === 1 ? declarations[0] : undefined;
+    if (declaration === undefined || !canonicalSyntax(declaration) || !ast.is.IsTypeAliasDeclaration(declaration) ||
+      ast.text(ast.name(declaration)) !== "PreparedSyntaxSlot") return false;
+    const formal = ast.typeParameters(declaration);
+    const signature = ast.typeNode(declaration);
+    if (formal.length !== 2 || signature === undefined || !ast.is.IsFunctionTypeNode(signature)) return false;
+    const image = ordinaryUnaryParameter(signature);
+    return image !== undefined && selectsParameter(ast.typeNode(image), formal[1]) &&
+      selectsParameter(ast.typeNode(signature), formal[0]);
+  };
+  const phaseCopyResult = result => {
+    if (result === undefined || !ast.is.IsTypeReferenceNode(result) || ast.typeArguments(result).length !== 2) return false;
+    const name = symbol(ast.as.AsTypeReferenceNode(result).TypeName);
+    if (name === undefined) return false;
+    const declarations = checker(result).getSymbolDeclarations(name);
+    const declaration = declarations.length === 1 ? declarations[0] : undefined;
+    if (declaration === undefined || !canonicalSyntax(declaration) || !ast.is.IsTypeAliasDeclaration(declaration) ||
+      ast.text(ast.name(declaration)) !== "SyntaxCopyResult") return false;
+    const parameters = ast.typeParameters(declaration);
+    const union = ast.typeNode(declaration);
+    if (parameters.length !== 2 || union === undefined || !ast.is.IsUnionTypeNode(union)) return false;
+    const arms = ast.children(union);
+    return arms.length === 2 && [["copied", "value"], ["refused", "stop"]].every(([expected, field], position) => {
+      const arm = arms[position];
+      if (!ast.is.IsTypeLiteralNode(arm)) return false;
+      const members = ast.members(arm);
+      if (members.length !== 2 || !members.every(member => ast.is.IsPropertySignatureDeclaration(member) &&
+        ast.hasModifierKind(member, "readonly") && ast.questionToken(member) === undefined)) return false;
+      const kind = members.find(member => memberName(ast.name(member)) === "kind");
+      const payload = members.find(member => memberName(ast.name(member)) === field);
+      const type = kind === undefined ? undefined : ast.typeNode(kind);
+      const literal = type !== undefined && ast.is.IsLiteralTypeNode(type) ? ast.as.AsLiteralTypeNode(type).Literal : undefined;
+      return literal !== undefined && ast.is.IsStringLiteral(literal) && ast.text(literal) === expected &&
+        payload !== undefined && selectsParameter(ast.typeNode(payload), parameters[position]);
+    });
+  };
+  const phaseCopySelection = node => {
+    const directParent = ast.parent(node);
+    const signature = ast.is.IsTypeReferenceNode(directParent) ? ast.parent(ast.parent(directParent)) : ast.parent(directParent);
+    const property = ast.parent(signature);
+    const record = ast.parent(property);
+    if (!canonicalSyntax(node) || !ast.is.IsFunctionTypeNode(signature) || ast.typeParameters(signature).length !== 0 ||
+      !ast.is.IsPropertySignatureDeclaration(property) || !ast.hasModifierKind(property, "readonly") ||
+      ast.questionToken(property) !== undefined || ast.typeNode(property) !== signature ||
+      !ast.is.IsInterfaceDeclaration(record) || ast.text(ast.name(record)) !== "SyntaxPhaseCopy") return false;
+    const parameter = ordinaryUnaryParameter(signature);
+    const formals = ast.typeParameters(record);
+    if (parameter === undefined || formals.length !== 3) return false;
+    const incoming = ast.typeNode(parameter);
+    const result = ast.typeNode(signature);
+    if (!phaseCopyResult(result)) return false;
+    const [prepared, failure] = ast.typeArguments(result);
+    if (!preparedSyntaxSlot(prepared)) return false;
+    const [success, image] = ast.typeArguments(prepared);
+    if (!selectsParameter(image, formals[2])) return false;
+    if ((node !== incoming && node !== success) || !selectsParameter(failure, formals[1])) return false;
+    const read = phaseAccessData(incoming, record);
+    const write = phaseAccessData(success, record);
+    return read !== false && write !== false && read.parameter === formals[0] && write.parameter === read.parameter &&
+      write.phase === read.phase && read.key === write.key && memberName(ast.name(property)) === read.key;
   };
   const phaseSlotSelection = node => {
     const selected = phaseSlotSelectionData(node);
@@ -706,7 +806,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         }
       }
       if (isContract && (ast.is.IsMappedTypeNode(current) || ast.is.IsConditionalTypeNode(current) ||
-        ast.is.IsIndexedAccessTypeNode(current) && !phaseSlotSelection(current)))
+        ast.is.IsIndexedAccessTypeNode(current) && !phaseSlotSelection(current) && !phaseCopySelection(current)))
         add("contract-shape", file, current);
       if (isContract && ["KindUnknownKeyword", "KindObjectKeyword"].includes(kind)) {
         const parent = ast.parent(current);

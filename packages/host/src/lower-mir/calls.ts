@@ -2,18 +2,17 @@ import { requirePresent } from "../diag/index.js";
 import type { LocalId } from "../ids/contract.js";
 import type { CallExpression, Expression, NewExpression } from "../ir-hir/contract.js";
 import type { MirCallArgument } from "../ir-mir/contract.js";
-import type { TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { TypedApplication, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { Lowering, Work } from "./model.js";
-import { callerDefect, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
-import { exposeLocal, held, popOperand, pushOperand, saveHandedOut, temporary } from "./operands.js";
-import { constantOperand, enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
+import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
+import { exposeLocal, held, popOperand, pushOperand, saveBeforeControl, temporary } from "./operands.js";
+import { enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
 
-export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> | NewExpression<TypedPhase>): boolean {
-  const selected = node.tsonic;
+export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> | NewExpression<TypedPhase>, selected: TypedApplication): boolean {
   if (selected.operation !== null) return notLoweredYet("a call with a selected operation", node.origin);
   if (selected.application.kind !== "decided") return callerDefect("a deferred call application", node.origin);
   const application = selected.application.decision;
-  const signature = lowering.signatureOf(application.callee.decision.api.signature);
+  const signature = lowering.signatureOf(application.callee.decision.completion.signature);
   if (signature.kind !== (node.kind === "NewExpression" ? "construct" : "call"))
     return callerDefect("an application has another selected invocation kind", node.origin);
   if (application.receiver !== null) return notLoweredYet("a call with a receiver", node.origin);
@@ -37,7 +36,8 @@ export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> |
 export function argumentPlace(lowering: Lowering, node: Expression<TypedPhase>): boolean {
   let target = node;
   while (target.kind === "ParenthesizedExpression") {
-    if (target.tsonic.conversion.kind !== "identity" || target.tsonic.narrowing !== null)
+    const wrapper = executingValue(target.tsonic, target.origin);
+    if (wrapper.conversion.kind !== "identity" || wrapper.narrowing !== null)
       return callerDefect("a place argument has a value conversion or narrowing", target.origin);
     target = target.expression;
   }
@@ -84,7 +84,7 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
         if (mapping.initializer !== selected.value.instance.body) return callerDefect("an omitted call argument names another initializer", node.origin);
       } else if (!(mapping.kind === "omitted" && selected.value.kind === "absence"))
         return callerDefect("an omitted call argument differs from its selected default", node.origin);
-      const parameter = lowering.signatureOf(decision.api.signature).parameters[position];
+      const parameter = lowering.signatureOf(decision.completion.signature).parameters[position];
       if (parameter === undefined || !parameter.acceptsOmission)
         return callerDefect("an omitted call argument lacks its selected omission capability", node.origin);
       arguments_.push({ kind: "omitted" });
@@ -111,12 +111,17 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
   if (argument !== -1) return callerDefect("a call has source arguments absent from its selection", node.origin);
   arguments_.reverse();
   const target = pending.direct ? null : popOperand(lowering, failure("an indirect call completed without its evaluated target", node.origin));
-  if (!saveHandedOut(lowering)) return false;
+  if (!saveBeforeControl(lowering, true, true)) return false;
   const site = siteOf(lowering.body, node);
   const type = lowering.typeOf(decision.result);
-  const result = type.kind === "intrinsic" && type.intrinsic === "void" ? null : temporary(lowering, decision.result, site);
-  if (result === null && !(type.kind === "intrinsic" && type.intrinsic === "void")) return false;
+  const returnsVoid = type.kind === "intrinsic" && type.intrinsic === "void";
   const nextWork = requirePresent(lowering.work.at(-1), failure("a call was evaluated with nothing to consume it", node.origin));
+  if (returnsVoid && nextWork.kind !== "discard"
+    && (nextWork.kind !== "complete" || nextWork.node.kind === "ThrowStatement" || lowering.body.completion !== decision.result))
+    return notLoweredYet("a void call with a value consumer", node.origin);
+  const needsDestination = !returnsVoid && nextWork.kind !== "discard";
+  const result = needsDestination ? temporary(lowering, decision.result, site) : null;
+  if (needsDestination && result === null) return false;
   const next = newBlock(lowering.state, siteOf(lowering.body, nextWork.node));
   if (next === null) return false;
   terminate(lowering.state, { ...site, kind: "call", callee: target === null ? { kind: "direct", resolution: application.callee }
@@ -125,9 +130,8 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
   enterBlock(lowering.state, next);
   if (result !== null) pushOperand(lowering, held(result, decision.result, site));
   else {
-    const absent = constantOperand(lowering.state, decision.result, { kind: "literal", value: { kind: "absence" } });
-    if (absent === null) return false;
-    pushOperand(lowering, { operand: absent, inPlace: null, storage: decision.result, site });
+    lowering.work.pop();
+    if (nextWork.kind === "complete") lowering.work.push({ ...nextWork, result: "void" });
   }
   return true;
 }

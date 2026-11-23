@@ -49,7 +49,8 @@ export function createBindingTextReaders(readers: () => HirTextReaders): HirBind
   const moduleExport = recordReader<HirModuleExport>("HirModuleExport", read => {
     const name = read("name", readers().scalar_string);
     const target = read("target", exportTarget);
-    return { fields: [name, target], value: () => ({ name: name.value(), target: target.value() }) };
+    const star = read("typeOnlyStar", unionReader<SourceNodeRef | null>(() => [readers().scalar_null, readers().record_5, readers().record_7]));
+    return { fields: [name, target, star], value: () => ({ name: name.value(), target: target.value(), typeOnlyStar: star.value() }) };
   });
   const namespaceExport = recordReader<CheckedNamespaceExport>("CheckedNamespaceExport", read => {
     const core = read("core", readers().record_84);
@@ -75,7 +76,11 @@ export function createBindingTextReaders(readers: () => HirTextReaders): HirBind
     const binding = read("binding", bindingSource);
     return { fields: [core, binding], value: () => ({ core: core.value(), binding: binding.value() }) };
   });
-  const resolution = unionReader<HirResolution>(() => [bindingTarget, readers().record_146, readers().record_10]);
+  const intrinsicValue = recordReader<Extract<HirResolution, { readonly kind: "intrinsic-value" }>>("intrinsic-value", read => {
+    const intrinsic = read("intrinsic", literalReader<"undefined">(["undefined"]));
+    return { fields: [intrinsic], value: () => ({ kind: "intrinsic-value", intrinsic: intrinsic.value() }) };
+  });
+  const resolution = unionReader<HirResolution>(() => [bindingTarget, readers().record_146, readers().record_10, intrinsicValue]);
   const bindingName = recordReader<Extract<CheckedName, { readonly role: "binding-name" }>>("CheckedName", read => {
     const core = read("core", readers().record_84);
     const role = read("role", literalReader<"binding-name">(["binding-name"]));

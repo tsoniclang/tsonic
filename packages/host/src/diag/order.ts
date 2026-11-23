@@ -38,6 +38,8 @@ export const positionData: UnitPositionData = position => {
   switch (position.kind) {
     case "result": return [position.kind];
     case "module-node": return [position.kind, position.module, position.node];
+    case "execution-result": return [position.kind, position.execution];
+    case "execution-source-node": return [position.kind, position.execution, position.node.body, position.node.node];
     case "inference-variable": return [position.kind, position.group, position.variable];
     case "component": return [position.kind, position.path];
     case "source-node": return position.node.kind === "body"

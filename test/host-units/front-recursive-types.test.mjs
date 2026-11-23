@@ -129,7 +129,8 @@ test("finite raw graph capture does not merge repeated nonancestor native-type s
   for (const [index, child] of [left, right].entries()) {
     const component = raw.types.components[child.component];
     assert.deepEqual(component.root, { module, node: pair.type.id });
-    assert.deepEqual(component.path, [{ kind: "member", declaration: { module, node: pair.type.members.nodes[index].id }, access: "read" }]);
+    assert.deepEqual(component.path, { prefix: null,
+      step: { kind: "member", declaration: { module, node: pair.type.members.nodes[index].id }, access: "read" } });
   }
 });
 
@@ -212,12 +213,11 @@ test("recursive lowering returns the original publication dimensions without cha
     const string = fixture.types.internType(interner, { kind: "string" });
     const table = fixture.types.viewTypes(interner);
     const previous = [...table.terms];
-    const deps = fixture.lowerDepsFor(definitions, interner, source);
+    const deps = fixture.lowerDepsFor(definitions, interner, source, { [dimension]: 0 });
     const exported = fixture.front.lowerModuleExports(deps, raw);
     assert.equal(exported.kind, "ok");
     const result = fixture.front.lowerModule({ ...deps,
-      exportsOf: owner => owner === module ? exported.value : null,
-      typePublication: { ...deps.typePublication, [dimension]: 0 } }, raw);
+      exportsOf: owner => owner === module ? exported.value : null }, raw);
     assert.deepEqual(result, { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
       limit: `front.typePublication.${dimension}`, maximum: 0, site: { kind: "source", origin: raw.tree.origin },
       unit: { request: { query: "lowerModule", key: module }, position: { kind: "result" } } })] });
@@ -234,18 +234,17 @@ test("all lazy type insertions in one actual module share the same publication a
   const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
   const run = (actual, dimension, maximum) => {
     const interner = actual.fixture.types.createTypeInterner();
-    const deps = actual.fixture.lowerDepsFor(actual.definitions, interner, actual.source);
+    const deps = actual.fixture.lowerDepsFor(actual.definitions, interner, actual.source, { [dimension]: maximum });
     const exported = actual.fixture.front.lowerModuleExports(deps, actual.raw);
     assert.equal(exported.kind, "ok");
     return actual.fixture.front.lowerModule({ ...deps,
-      exportsOf: owner => owner === actual.module ? exported.value : null,
-      typePublication: { ...deps.typePublication, [dimension]: maximum } }, actual.raw);
+      exportsOf: owner => owner === actual.module ? exported.value : null }, actual.raw);
   };
   for (const dimension of ["maximumWork", "maximumCreatedRecords"]) {
     const exact = [];
     for (const actual of [single, pair]) {
       let maximum = 0;
-      for (; maximum <= actual.fixture.lowerDepsFor(actual.definitions, actual.fixture.types.createTypeInterner(), actual.source).typePublication[dimension]; maximum += 1) {
+      for (; maximum <= 100000; maximum += 1) {
         const result = run(actual, dimension, maximum);
         if (result.kind === "ok") break;
         assert.deepEqual(result, { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",

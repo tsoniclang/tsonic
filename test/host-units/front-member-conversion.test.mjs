@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from "node:util";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { insertFixtureType, insertFixtureSignature } from "./fixtures/types-construction.mjs";
 
 const runtime = fileURLToPath(new URL("../../packages/host/dist/front/lower-members.js", import.meta.url));
 const session = new Session();
@@ -56,9 +57,9 @@ function fixture() {
   const origin = access => ({ kind: "declaration", declaration: reference, access });
   const interner = types.createTypeInterner();
   const boolean = types.internType(interner, { kind: "primitive", primitive: "bool" });
-  const signature = types.internSignature(interner, { declaration, owner: { kind: "item", value: { owner: declaration, node: 1 } },
+  const signature = insertFixtureSignature(types, interner, { declaration, owner: { kind: "item", value: { owner: declaration, node: 1 } },
     composition: null, kind: "call", typeParameters: [], receiver: null, parameters: [], result: boolean });
-  const callable = types.internType(interner, { kind: "callable", calls: [signature], constructs: [] });
+  const callable = insertFixtureType(types, interner, { kind: "callable", calls: [signature], constructs: [] });
   const converted = new Map([boolean, callable].map(type => [type, { type, evidence: { type,
     component: { kind: "item", value: { owner: declaration, node: 1 } }, category: { kind: "dynamic" },
     numeric: null, sum: null, nominal: null, pointer: null } }]));
@@ -68,28 +69,29 @@ function fixture() {
     return declaration;
   }, exportsOf: () => null,
     sourceOccurrenceOf: () => assert.fail("declared member conversion does not select a binding occurrence"),
-    definitionOfExport: () => assert.fail("declared member conversion does not select a library export"),
     sourceTextOf: () => assert.fail("declared member conversion does not reparse authored source"),
-    libraries: { sources: [] }, types: interner,
+    types: interner,
     typeExpansion: { maximumDepth: 64, maximumVisits: 4096, maximumUnionMembers: 64, maximumIntersectionMembers: 64 },
-    typePublication: { maximumWork: 100000, maximumCreatedRecords: 100000 },
+    typeWork: types.createTypePublicationWork({ maximumWork: 100000, maximumCreatedRecords: 100000 }),
     literalCapture: { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 } };
   const member = { key: { kind: "text", value: "member" }, name: "member", origins: [origin("read"), origin("write")],
     declarations: [reference], getters: [], setters: [], optional: false, readonly: false,
     read: { kind: "available", value: boolean }, write: { kind: "available", value: boolean }, readKind: "property" };
-  return { deps, converted, member, reference, declaration, boolean, callable, interner, origin };
+  return { deps, context: { deps, raw: { module }, checkerNumberBits: null, query: "lowerModule" },
+    converted, member, reference, declaration, boolean, callable, interner, origin };
 }
 
 test("constructed declared member conversion retains type absence and unique origin access subsets without changing identities", () => {
   const actual = fixture();
-  assert.deepEqual(lowerMembers(actual.deps, [], type => actual.converted.get(type)?.type), []);
-  const members = lowerMembers(actual.deps, [actual.member,
+  const { typeWork: work } = actual.deps;
+  assert.deepEqual(lowerMembers(actual.context, [], type => actual.converted.get(type)?.type, 0, work), []);
+  const members = lowerMembers(actual.context, [actual.member,
     { ...actual.member, key: { kind: "text", value: "readonly" }, readKind: "accessor", readonly: true,
       origins: [actual.origin("read")], write: { kind: "available", value: null } },
     { ...actual.member, key: { kind: "text", value: "writeonly" }, readKind: "accessor",
       origins: [actual.origin("write")], read: { kind: "available", value: null } },
     { ...actual.member, key: { kind: "symbol", declaration: actual.reference, wellKnown: null }, readKind: "method", optional: true,
-      read: { kind: "available", value: actual.callable }, write: { kind: "available", value: actual.callable } }], type => actual.converted.get(type)?.type);
+      read: { kind: "available", value: actual.callable }, write: { kind: "available", value: actual.callable } }], type => actual.converted.get(type)?.type, 0, work);
   assert.deepEqual(members[0].origins, [{ kind: "declared", declaration: actual.declaration }]);
   assert.deepEqual(members[0].readOrigins, members[0].origins);
   assert.deepEqual(members[0].writeOrigins, members[0].origins);
@@ -100,7 +102,7 @@ test("constructed declared member conversion retains type absence and unique ori
   assert.deepEqual(members[3].key, { kind: "symbol", declaration: actual.declaration });
   assert.equal(members[3].optional, true);
   assert.equal(members[3].read, actual.callable);
-  types.internType(actual.interner, { kind: "shape", members, indexes: [], calls: [], constructs: [] });
+  insertFixtureType(types, actual.interner, { kind: "shape", members, indexes: [], calls: [], constructs: [] });
   const findings = types.verifyTypes({ table: types.viewTypes(actual.interner), bindings: [], evidence: [],
     nominalOf: () => null, nodeExists: node => node.kind === "item"
       && node.value.owner === actual.declaration && node.value.node === actual.reference.node, localExists: () => false });
@@ -109,17 +111,56 @@ test("constructed declared member conversion retains type absence and unique ori
 
 test("constructed member conversion refuses missing type, kind and origin evidence rather than filling absent answers", () => {
   const actual = fixture();
-  const lower = changed => lowerMembers(actual.deps, [{ ...actual.member, ...changed }], type => actual.converted.get(type)?.type);
+  const { typeWork: work } = actual.deps;
+  const lower = changed => lowerMembers(actual.context, [{ ...actual.member, ...changed }], type => actual.converted.get(type)?.type, 0, work);
   for (const access of ["read", "write"]) assert.throws(() => lower({ [access]:
     { kind: "unavailable", reason: "incomplete-association", causes: [] } }), /actual captured read\/write type association/u);
-  assert.throws(() => lowerMembers(actual.deps, [actual.member], () => undefined), /must complete/u);
+  assert.throws(() => lowerMembers(actual.context, [actual.member], () => undefined, 0, work), /must complete/u);
   assert.throws(() => lower({ origins: [] }), /actual captured origins/u);
   for (const readKind of ["class-prototype", "mapped", "unavailable"])
     assert.throws(() => lower({ readKind }), /actual selected member kind/u);
   assert.throws(() => lower({ origins: [{ kind: "class-prototype", declaration: actual.reference, facet: "value" }] }),
     /actual read\/write origin association/u);
-  assert.throws(() => lower({ key: { kind: "numeric", value: { kind: "checker-value", value: 1 } } }),
-    /exact numeric binding-member key conversion/u);
+  assert.throws(() => lower({ key: { kind: "numeric", value: 1 } }), /actual authored source name/u);
+});
+
+test("a captured numeric member retains its original site at every exact decoder cut", async () => {
+  const fixture = await loadFrontFixture();
+  const source = "export type Shape = { 0x20: boolean };\n";
+  const duplicate = "export type Duplicated = { 9007199254740992: boolean; 9007199254740993: boolean };";
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source, "duplicate.ts": duplicate },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const { captured, deps } = fixture.captureModulesOf(snapshot);
+  const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const { raw } = captured.find(entry => entry.module === module);
+  const otherModule = fixture.moduleOf(fixture.packageOf("/project"), "src/duplicate.ts");
+  const { raw: other } = captured.find(entry => entry.module === otherModule);
+  assert.deepEqual(other.checkerDiagnostics.map(diagnostic => [diagnostic.code.number,
+    duplicate.slice(diagnostic.site.origin.start, diagnostic.site.origin.start + diagnostic.site.origin.length)]),
+  [[2300, "9007199254740992"], [2300, "9007199254740993"]]);
+  const member = raw.types.members.flatMap(inventory => inventory.members).find(row => row.name === "32");
+  const origin = { module, start: source.indexOf("0x20"), length: 4, derived: [] };
+  assert.deepEqual(member.key, { kind: "numeric", value: 32, origin });
+  const limit = (dimension, maximum) => {
+    const context = { deps: { ...deps, literalCapture: { ...deps.literalCapture, [dimension]: maximum } },
+      raw, checkerNumberBits: null, query: "lowerModule" };
+    return lowerMembers(context, [member], () => assert.fail("a stopped key must not read the member type"),
+      0, deps.typeWork);
+  };
+  for (const [dimension, minimum] of [
+    ["maximumArithmeticWork", 72], ["maximumIntermediateBits", 6], ["maximumResultBits", 7],
+  ]) {
+    for (let maximum = 0; maximum < minimum; maximum += 1) {
+      const stopped = limit(dimension, maximum);
+      assert.equal(stopped.kind, "literal-limit");
+      assert.equal(stopped.diagnostic.code.rendered, "TSONIC_COMPILER_RESOURCE_LIMIT");
+      assert.deepEqual(stopped.diagnostic.site, { kind: "source", origin });
+    }
+  }
+  const exact = { maximumArithmeticWork: 72, maximumIntermediateBits: 6, maximumResultBits: 7 };
+  const context = { deps: { ...deps, literalCapture: exact }, raw, checkerNumberBits: null, query: "lowerModule" };
+  const [converted] = lowerMembers(context, [member], () => fixture.ids.tyId(0), 0, deps.typeWork);
+  assert.deepEqual(converted.key, { kind: "number", value: { numerator: 32n, denominator: 1n, negativeZero: false } });
 });
 
 test("actual intrinsic environment members keep their native origins and the library keeps its own definitions", async () => {
@@ -131,21 +172,19 @@ test("actual intrinsic environment members keep their native origins and the lib
   const library = fixture.moduleOf(fixture.packageOf("/checker"), "lib.es5.d.ts");
   const { raw, definitions } = captured.find(entry => entry.module === source);
   const libraryDefinitions = captured.find(entry => entry.module === library).definitions;
-  const environment = raw.types.members.find(table => table.members.some(member =>
-    member.origins.some(origin => origin.kind === "intrinsic" && origin.symbol === "global-this")));
-  assert.ok(environment);
+  const row = raw.types.types.find(type => type.form.kind === "available" && type.form.value.kind === "source-environment");
+  assert.ok(row);
+  const environment = row.form.value;
   const expected = new Map([["globalThis", "global-this"], ["undefined", "undefined"]]);
   for (const [name, symbol] of expected) {
     const member = environment.members.find(row => row.name === name);
     assert.deepEqual(member.declarations, []);
-    assert.equal(member.read.kind, "available");
+    assert.equal("read" in member || "write" in member, false);
     assert.deepEqual(member.origins, member.readonly ? [{ kind: "intrinsic", symbol, access: "read" }]
       : [{ kind: "intrinsic", symbol, access: "read" }, { kind: "intrinsic", symbol, access: "write" }]);
     assert.equal([definitions, libraryDefinitions].some(rows => rows.rows.some(row =>
       fixture.ids.decodeDefId(row.definition).value.segments.at(-1)?.name === name)), false);
   }
-  const row = raw.types.types.find(type => type.form.kind === "available" && type.form.value.kind === "structure"
-    && type.form.value.inventory === environment.id);
   const { createTypeConversion, convertRawType } = await import("../../packages/host/dist/front/type-conversion.js");
   const converted = convertRawType(createTypeConversion(deps, raw), row.id);
   assert.equal(converted.kind, "complete");
@@ -157,22 +196,213 @@ test("actual intrinsic environment members keep their native origins and the lib
     declared.has(definition) ? { kind: "declared", facets: ["instance"] } : null,
     nodeExists: occurrence => occurrences.some(row => isDeepStrictEqual(row, occurrence)), localExists: () => false }), []);
   const shape = table.terms[converted.value.type];
-  assert.equal(shape.kind, "shape");
+  assert.equal(shape.kind, "source-environment");
   for (const [name, symbol] of expected) {
     const member = shape.members.find(row => row.key.kind === "text" && row.key.value === name);
     assert.deepEqual(member.origins, [{ kind: "intrinsic", symbol }]);
     assert.deepEqual(member.readOrigins, member.origins);
     assert.deepEqual(member.writeOrigins, member.readonly ? [] : member.origins);
-    assert.equal(member.write === null, member.readonly);
+    assert.equal("write" in member, false);
   }
   const foreign = environment.members.find(member => member.name === "Symbol").declarations;
   assert.equal(foreign.length, 1);
   assert.equal(foreign[0].module, library);
   assert.deepEqual(shape.members.find(row => row.key.kind === "text" && row.key.value === "Symbol").origins,
     [{ kind: "declared", declaration: libraryDefinitions.rows.find(row => row.node === foreign[0].node).definition }]);
-  const read = shape.members.find(row => row.key.kind === "text" && row.key.value === "globalThis").read;
-  assert.equal(table.terms[read] === shape, true, "the actual global environment member refers back to the same published shape");
+  const { memberTypeOf, membersOf } = await import("../../packages/host/dist/decls/index.js");
+  const receiver = converted.value.type;
+  const inventory = membersOf({ types: interner }, receiver);
+  assert.equal(inventory.value.value.completeness.kind, "complete");
+  assert.deepEqual(inventory.value.value.members, shape.members);
+  const member = inventory.value.value.members.findIndex(item => item.key.kind === "text" && item.key.value === "globalThis");
+  const read = memberTypeOf({ types: interner }, { receiver, member }).value.value.read;
+  assert.equal(read, receiver, "the actual intrinsic global member refers back to the identical environment");
+  const absent = inventory.value.value.members.findIndex(item => item.key.kind === "text" && item.key.value === "undefined");
+  const absence = memberTypeOf({ types: interner }, { receiver, member: absent }).value.value.read;
+  assert.deepEqual(fixture.types.readType(interner, absence), { kind: "intrinsic", intrinsic: "absence" });
   assert.equal(isDeepStrictEqual(fixture.types.parseTypes(fixture.types.printTypes(table)), { kind: "parsed", value: table }), true);
+});
+
+test("mapped properties retain the native key and the actual foreign mapping owner", async () => {
+  const fixture = await loadFrontFixture();
+  const source = `
+    export declare const token: unique symbol;
+    export interface Input { readonly length: number; [token](): boolean; 1: boolean; 0x20: boolean; }
+    export type Flags = { [K in keyof Input]?: boolean };
+  `;
+  const snapshot = fixture.projectSnapshot({ sourceFiles: {
+    "main.ts": 'import type { Flags } from "./origin.js"; export type Used = Flags; export type Other = Flags;',
+    "origin.ts": source, "twin.ts": source,
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const { captured, deps, interner, opened } = fixture.captureModulesOf(snapshot);
+  const module = path => fixture.moduleOf(fixture.packageOf("/project"), "src/" + path);
+  const sourceModule = module("origin.ts");
+  const { raw } = captured.find(entry => entry.module === module("main.ts"));
+  const actual = captured.find(entry => entry.module === sourceModule);
+  const twin = captured.find(entry => entry.module === module("twin.ts"));
+  const mapped = actual.definitions.sourceOccurrences.find(row => row.kind === "MappedType");
+  const opposite = twin.definitions.sourceOccurrences.find(row => row.kind === "MappedType");
+  assert.equal(mapped.node, opposite.node);
+  const [token, input, flags] = actual.raw.tree.statements.nodes;
+  assert.equal(flags.type.kind, "MappedType");
+  assert.equal(mapped.node, flags.type.id);
+  assert.equal(mapped.occurrence.value.owner, actual.definitions.rows.find(row => row.node === flags.id).definition);
+  assert.equal(actual.definitions.rows.some(row => row.node === flags.type.id), false);
+  assert.equal(actual.definitions.rows.some(row => row.node === flags.type.typeParameter.id && row.kind === "TypeParameter"), true);
+
+  const use = raw.tree.statements.nodes[1].type;
+  const row = raw.types.types.find(type => type.authoredTypeNode?.node === use.id);
+  const inventory = raw.types.members[row.form.value.inventory];
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const checked = OpenedProgram.checked(opened.program);
+  const entry = OpenedProgram.file(opened.program, raw.module);
+  const { checker, typeShape } = checked.getSourceFileQueries(entry.file);
+  const own = OpenedProgram.syntax(opened.program).get("/project/src/main.ts").outcome.numbering;
+  const sourceNodes = OpenedProgram.syntax(opened.program).get("/project/src/origin.ts").outcome.numbering.nodes;
+  const native = checker.getTypeFromTypeNode(own.nodes[use.id]).type;
+  const selected = typeShape.getPropertyInfos(native);
+  const nativeOrigin = sourceNodes[flags.type.id];
+  const original = checker.getTypeFromTypeNode(nativeOrigin).type;
+  assert.equal(native === original || typeShape.getTypeReferenceTarget(native) === original, true);
+  const tokenNode = token.declarationList.declarations.nodes[0];
+  const keyDef = actual.definitions.rows.find(row => row.node === tokenNode.id).definition;
+  for (const [index, member] of input.members.nodes.entries()) {
+    const rawMember = inventory.members.find(property => property.declarations.some(declaration => declaration.node === member.id));
+    const property = selected.find(value => value.name === rawMember.name);
+    assert.equal(property.mapped.declaration === nativeOrigin, true);
+    assert.equal(checker.getSymbolValueDeclaration(property.mapped.syntheticOrigin) === sourceNodes[member.id], true);
+    if (index === 0) assert.equal(typeShape.getStringLiteralTypeValue(property.mapped.keyType), "length");
+    else if (index === 1) assert.equal(checker.getSymbolValueDeclaration(checker.getTypeSymbol(property.mapped.keyType)) === sourceNodes[tokenNode.id], true);
+    else assert.equal(typeShape.getNumericLiteralTypeValue(property.mapped.keyType), index === 2 ? 1 : 32);
+    assert.equal(rawMember.readKind, "mapped");
+    assert.equal(rawMember.optional, true);
+    assert.equal(rawMember.readonly, index === 0);
+    assert.deepEqual(rawMember.declarations, [{ module: sourceModule, node: member.id }]);
+    for (const origin of rawMember.origins) {
+      assert.deepEqual(origin, { kind: "mapped", declaration: { module: sourceModule, node: mapped.node },
+        key: rawMember.key, source: inventory.component, access: origin.access });
+      const position = raw.types.types[rawMember[origin.access].value].component;
+      assert.deepEqual(raw.types.components[position].path?.step, { ...origin, kind: "mapped-member" });
+    }
+  }
+  const { createTypeConversion, convertRawType } = await import("../../packages/host/dist/front/type-conversion.js");
+  const crossed = { ...deps, sourceOccurrenceOf: reference => reference.module === sourceModule && reference.node === mapped.node
+    ? opposite : deps.sourceOccurrenceOf(reference) };
+  assert.throws(() => convertRawType(createTypeConversion(crossed, raw), row.id), /actual captured module/u);
+  const rawMember = inventory.members[0];
+  const { typeWork: work } = deps;
+  const context = { deps, raw, checkerNumberBits: null, query: "lowerModule" };
+  assert.throws(() => lowerMembers(context, [{ ...rawMember, readKind: "property" }], () => undefined, inventory.component, work),
+    error => error.message.includes("actual read/write origin association"));
+  assert.throws(() => lowerMembers(context, [rawMember], () => undefined, inventory.component + 1, work),
+    /actual captured containing component/u);
+  const sibling = inventory.members[1];
+  const wrongKey = { ...rawMember, origins: rawMember.origins.map(origin => ({ ...origin, key: sibling.key })) };
+  const small = inventory.members.find(member => member.key.kind === "numeric" && member.key.value === 1);
+  const large = inventory.members.find(member => member.key.kind === "numeric" && member.key.value === 32);
+  const crossedKey = { ...small, origins: [{ ...small.origins[0], key: large.key }] };
+  const limited = { ...context, deps: { ...deps, literalCapture: { ...deps.literalCapture, maximumArithmeticWork: 66 } } };
+  const stopped = lowerMembers(limited, [crossedKey], () => assert.fail("a stopped origin must not read the member type"),
+    inventory.component, deps.typeWork);
+  assert.equal(stopped.kind, "literal-limit");
+  assert.deepEqual(stopped.diagnostic.site, { kind: "source", origin: large.key.origin });
+  assert.equal(large.key.origin.module, sourceModule);
+  const other = raw.types.types.find(type => type.authoredTypeNode?.node === raw.tree.statements.nodes[2].type.id);
+  const foreign = raw.types.members[other.form.value.inventory];
+  assert.notEqual(foreign.component, row.component);
+  assert.equal(foreign.members.every(member => member.origins.every(origin => origin.source === foreign.component)), true);
+  const arenaSizes = () => {
+    const { terms, signatures } = fixture.types.viewTypes(interner);
+    return [terms.length, signatures.length];
+  };
+  const untouched = arenaSizes();
+  for (const [value, message] of [
+    [{ ...inventory, members: [wrongKey, ...inventory.members.slice(1)] }, /actual selected member key/u],
+    [foreign, /actual structure component/u],
+  ]) {
+    const members = [...raw.types.members];
+    members[inventory.id] = value;
+    const conversion = createTypeConversion(deps, { ...raw, types: { ...raw.types, members } });
+    assert.throws(() => convertRawType(conversion, row.id), message);
+    assert.deepEqual(arenaSizes(), untouched);
+    assert.equal(conversion.convertedTypes.size, 0);
+    assert.equal(conversion.convertedSignatures.size, 0);
+  }
+
+  let reads = 0;
+  const observed = inventory.members.map(member => ({ ...member, origins: member.origins.map(origin => ({
+    ...origin, get key() { reads += 1; return origin.key; },
+  })) }));
+  const originCount = observed.reduce((count, member) => count + member.origins.length, 0);
+  const inventories = [...raw.types.members];
+  inventories[inventory.id] = { ...inventory, members: observed };
+  const watched = { ...raw, types: { ...raw.types, members: inventories } };
+  for (let maximumWork = 0; maximumWork < originCount; maximumWork += 1) {
+    reads = 0;
+    const limited = { ...deps, typeWork: types.createTypePublicationWork({ maximumWork, maximumCreatedRecords: 100000 }) };
+    const conversion = createTypeConversion(limited, watched);
+    const stop = convertRawType(conversion, row.id);
+    assert.deepEqual(stop, { kind: "resource-limit", dimension: "work", maximum: maximumWork });
+    assert.equal(reads, maximumWork, "each comparison pays before reading its mapped origin key");
+    assert.equal(convertRawType(conversion, row.id), stop, "the original refusal is sticky");
+    assert.equal(convertRawType(createTypeConversion(limited, watched), row.id), stop, "another converter must borrow the same run's stop");
+    assert.equal(reads, maximumWork);
+    assert.deepEqual(arenaSizes(), untouched);
+    assert.equal(conversion.convertedTypes.size + conversion.convertedSignatures.size, 0);
+  }
+  reads = 0;
+  const exact = types.createTypePublicationWork({ maximumWork: originCount, maximumCreatedRecords: 100000 });
+  assert.equal(lowerMembers({ deps, raw, checkerNumberBits: null, query: "lowerModule" }, observed, () => fixture.ids.tyId(0), inventory.component, exact).length, observed.length);
+  assert.equal(reads, originCount);
+  assert.deepEqual(types.admitTypePublicationStep(exact), { kind: "resource-limit", dimension: "work", maximum: originCount });
+
+  reads = 0;
+  const created = createTypeConversion({ ...deps, typeWork: types.createTypePublicationWork({ maximumWork: 100000, maximumCreatedRecords: 0 }) }, watched);
+  const [typeBase, signatureBase] = untouched;
+  const createdStop = types.internTypeGraph({ types: interner, work: created.typeWork }, { typeBase, signatureBase, terms: [], signatures: [] });
+  assert.deepEqual(createdStop, { kind: "resource-limit", dimension: "created-records", maximum: 0 });
+  assert.equal(convertRawType(created, row.id), createdStop);
+  assert.equal(reads, 0);
+  assert.deepEqual(arenaSizes(), untouched);
+
+  const converted = convertRawType(createTypeConversion(deps, raw), row.id);
+  assert.equal(converted.kind, "complete");
+  const table = fixture.types.viewTypes(interner);
+  const shape = table.terms[converted.value.type];
+  assert.equal(shape.kind, "shape");
+  for (const [index, property] of shape.members.entries()) {
+    const key = property.key.kind === "text" ? { kind: "text", value: "length" }
+      : property.key.kind === "symbol" ? { kind: "symbol", declaration: keyDef }
+        : { kind: "number", value: { numerator: index === 0 ? 1n : 32n, denominator: 1n, negativeZero: false } };
+    assert.deepEqual(property.key, key);
+    assert.equal(property.kind, "property");
+    assert.deepEqual(property.origins, [{ kind: "mapped", owner: mapped.occurrence, key }]);
+    assert.deepEqual(property.readOrigins, property.origins);
+    assert.deepEqual(property.writeOrigins, property.readonly ? [] : property.origins, index);
+  }
+  const occurrences = captured.flatMap(entry => entry.definitions.sourceOccurrences.map(value => value.occurrence));
+  assert.deepEqual(fixture.types.verifyTypes({ table, bindings: [], evidence: [], nominalOf: () => null,
+    nodeExists: value => occurrences.some(occurrence => isDeepStrictEqual(value, occurrence)), localExists: () => false }), []);
+});
+
+test("a remapped property cannot use its input key as the selected output key", async () => {
+  const fixture = await loadFrontFixture();
+  const snapshot = fixture.projectSnapshot({ sourceFiles: {
+    "main.ts": 'interface Input { length: number; } export type Flags = { [K in keyof Input as "renamed"]?: boolean };',
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const { deps, program } = fixture.openAndCapture(snapshot);
+  const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const file = OpenedProgram.file(program, module).file;
+  const { ast, getSourceFileQueries } = OpenedProgram.checked(program);
+  const { checker, typeShape } = getSourceFileQueries(file);
+  const alias = ast.children(file).find(node => ast.kindName(node) === "KindTypeAliasDeclaration");
+  const syntax = ast.typeNode(alias);
+  const [selected] = typeShape.getPropertyInfos(checker.getTypeFromTypeNode(syntax).type);
+  assert.equal(selected.name, "renamed");
+  assert.equal(selected.mapped.declaration === syntax, true);
+  assert.equal(typeShape.getStringLiteralTypeValue(selected.mapped.keyType), "length");
+  assert.throws(() => fixture.front.captureModule(deps, program, module), /mapped property origin transport requires its actual selected mapped component/u);
 });
 
 test("captured data-property origins demand their genuine body occurrence without assigning a definition", async () => {
@@ -326,7 +556,8 @@ test("an imported data property's source occurrence stays in its own module even
   assert.equal(fixture.types.viewTypes(deps.types).terms.length, 0);
   for (const invalid of [null, { ...ready, kind: "PropertyDeclaration" }]) {
     const wrong = { ...deps, sourceOccurrenceOf: reference => reference.module === origin.module ? invalid : deps.sourceOccurrenceOf(reference) };
-    assert.throws(() => convertRawType(createTypeConversion(wrong, main), row.id), /body-qualified PropertyAssignment/u);
+    assert.throws(() => convertRawType(createTypeConversion(wrong, main), row.id),
+      /requires its actual body-qualified property assignment or binding element/u);
     assert.equal(fixture.types.viewTypes(deps.types).terms.length, 0);
   }
   const converted = convertRawType(createTypeConversion(deps, main), row.id);

@@ -1586,6 +1586,7 @@ export function Checker_invocationErrorDetails(receiver, errorTarget, apparentTy
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.invocationError","kind":"method","status":"implemented","sigHash":"a45a023459755f491899dc36253bce0dc97596689e0f617740fcbd053cc81577","bodyHash":"a187caddba84169f93050068f31d8ddd6240d7f9521d99e9259436acdb17ebfc"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Expose the original only when actually emitted; the existing invocation reporter and recovery are unchanged.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>,packages/tsts/src/internal/checker/types.ts::SignatureKind,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>,packages/tsts/src/internal/checker/types.ts::SignatureKind,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) invocationError(errorTarget *ast.Node, apparentType *Type, kind SignatureKind, relatedInformation *ast.Diagnostic) {
@@ -1602,8 +1603,9 @@ export function Checker_invocationError(receiver, errorTarget, apparentType, kin
     if (relatedInformation !== undefined) {
         Diagnostic_AddRelatedInfo(diagnostic, relatedInformation);
     }
-    Checker_addDiagnostic(receiver, diagnostic);
+    const emitted = Checker_addDiagnostic(receiver, diagnostic);
     Checker_invocationErrorRecovery(receiver, apparentType, kind, diagnostic);
+    return emitted;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.invocationErrorRecovery","kind":"method","status":"implemented","sigHash":"8b4159b53e315d99bd66e2967c6a36346d8a6de37e36fc6a3614f0aba6849d3c","bodyHash":"89c4bf6b0a2ae158c0f40ded94924ef45901d4222a7179b682e0d95dc052ddc3"}

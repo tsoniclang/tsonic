@@ -10,6 +10,7 @@ export async function cellCases(suite) {
   const facts = await import("../../../packages/host/dist/ir-facts/index.js");
   const { relationalUsage } = await import("../../../packages/host/dist/ir-facts/verify-relations.js");
   const { summaryBindingInputs } = await import("../../../packages/host/dist/ir-facts/binding-inputs.js");
+  const { chargeWork } = await import("../../../packages/host/dist/dataflow/index.js");
   const ids = await import("../../../packages/host/dist/ids/index.js");
   const module = ids.encodeModuleId({ package: ids.encodePackageId("cells"), path: "main.ts" });
   const definition = ids.encodeDefId({ module, segments: [{ name: "run", ordinal: 0 }] });
@@ -121,6 +122,42 @@ export async function cellCases(suite) {
       request: { definition, endpoint: "api-signature", ordinal: 1, bindings: execution.instance.bindings }, provided: 0 } } };
     assert.deepEqual(completeVerification(verifyCells(arena([row(0, { kind: "parameter", index: 0 }, { kind: "declared", at: { kind: "node", node: source } })]), declared, context(), verificationAccount())), []);
     assert.equal(completeVerification(verifyCells(arena([row(0, { kind: "detached" })]), declared, context(), verificationAccount())).length > 0, true);
+  });
+
+  await suite.test("a source static keeps its own declaration occurrence across executions", () => {
+    const dependency = ids.encodeModuleId({ package: ids.encodePackageId("cells"), path: "dependency.ts" });
+    const staticDefinition = ids.encodeDefId({ module: dependency, segments: [{ name: "stored", ordinal: 0 }] });
+    const declaration = { kind: "item", value: { owner: staticDefinition, node: 7 } };
+    const ready = { ...context(),
+      definitionExists: selected => selected === definition || selected === staticDefinition,
+      nodeExists: at => at.value.node === 7 && (at.kind === "item" ? at.value.owner === staticDefinition : at.value.body === body),
+      declarationSourceOf: selected => selected === staticDefinition ? declaration : null,
+    };
+    const role = { kind: "static", declaration: { definition: staticDefinition, bindings: execution.instance.bindings } };
+    const occurrence = node => ({ kind: "declared", at: { kind: "node", node } });
+    for (const selected of [owner, { kind: "summary", key: { kind: "body", execution } }]) {
+      const verify = at => completeVerification(verifyCells(arena([row(0, role, at)]), selected, ready, verificationAccount()))
+        .map(finding => finding.rule);
+      assert.deepEqual(verify(occurrence(structuredClone(declaration))), []);
+      assert.deepEqual(verify(occurrence(source)), ["cell-occurrence-resolves"]);
+      assert.deepEqual(verify(statement(1)), ["cell-occurrence-resolves"]);
+    }
+    const current = arena([row(0, role, occurrence(declaration))]);
+    for (const boundary of ["declaration", "node"]) {
+      const account = verificationAccount();
+      let original;
+      const stop = () => { original = chargeWork(account, 1000000000); };
+      const stopped = { ...ready, declarationSourceOf: () => {
+        if (boundary === "declaration") stop();
+        return declaration;
+      }, nodeExists: () => {
+        assert.equal(boundary, "node", "the source-node reader stays unread after the original stop");
+        stop();
+        return true;
+      }, definitionExists: () => assert.fail("the role reader stays unread after the original stop") };
+      assert.equal(actualVerifyCells(current, owner, stopped, account), original);
+      assert.equal(original.kind, "resource-limit");
+    }
   });
 
   await suite.test("logical cell lifetime references preserve canonical zero without accepting negative zero", () => {

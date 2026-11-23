@@ -1,4 +1,4 @@
-import type { DefId, BodyId, NodeId, LocalId, TyId, SigId, SourceNodeRef, LocalRef } from "../ids/contract.js";
+import type { DefId, BodyId, ItemNodeRef, NodeId, LocalId, TyId, SigId, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { BindingVector, ArtifactBindings, BodyInstance, TypeEvidence } from "../ir-types/contract.js";
 import type { BodyRoot, ImportTarget, HirLexicalScope, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { BodyCaptureRow, FlowRole, EmbeddingDecision, MemberDecision, ApplicationDecision, OperationDecision, OperationIdentity, DeferredDecision, RefinementDecision } from "../ir-infer/contract.js";
@@ -7,7 +7,7 @@ import type { Cursor, RecordFields, TextReader, TextStep } from "./parse-values.
 import type { SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
 import { delimiter, readString, readNumber, choice, readBoolean, readStringChoice, readSignatureId, openRecord, closeRecord, readDefinitionId, readBodyId, readTypeId, readNodeId, readLocalId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeEvidenceText, readBindings, readArtifactBindings, readInstance } from "./parse-types.js";
-import { readSourceNodeRef, readLocalRef } from "./parse-diagnostics.js";
+import { readItemNodeRef, readSourceNodeRef, readLocalRef } from "./parse-diagnostics.js";
 import { readHirLexicalScopeText, readImportTargetText } from "./parse-core.js";
 import { readBodyCaptureRowText, readDeferredDecisionText, readEmbeddingDecisionText, readMemberDecisionText, readApplicationDecisionText, readBackedIdentityText, readConversionIdentityText, readOperationDecisionWith, readOperationIdentityText, readRefinementDecisionText } from "./parse-inference.js";
 import { resolveSyntaxValue, finishSyntaxRecord, readSyntaxReference } from "./parse-syntax-values.js";
@@ -63,10 +63,14 @@ export function readTirDemandText<Root>(cursor: Cursor, finish: (value: TirDeman
 }
 
 export function readTirResolutionText<Root>(cursor: Cursor, finish: (value: TirResolution) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["local","definition","module","error"]), label =>
+  return atomicText(cursor, next => choice(next, ["local","definition","static","module","error","intrinsic-value"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
+        case "intrinsic-value":
+          return fieldText<"undefined", Root>(cursor, fields, "intrinsic",
+            (next, done) => atomicText(next, value => readStringChoice(value, ["undefined"]), done), intrinsic =>
+              atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, intrinsic }, finish)));
         case "local":
           return fieldText<LocalRef, Root>(cursor, fields, "local", (next, done) => atomicText(next, readLocalRef, done), localValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
@@ -76,6 +80,11 @@ export function readTirResolutionText<Root>(cursor: Cursor, finish: (value: TirR
     fieldText<readonly SourceNodeRef[], Root>(cursor, fields, "aliases", (next, done) => arrayText(next, (next, done) => atomicText(next, readSourceNodeRef, done), done), aliasesValue =>
       atomicText(cursor, next => closeRecord(next, fields), () =>
           acceptText({ kind: label, definition: definitionValue, aliases: aliasesValue }, finish))));
+        case "static":
+          return fieldText<ItemNodeRef, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readItemNodeRef, done), declaration =>
+            fieldText<readonly SourceNodeRef[], Root>(cursor, fields, "aliases",
+              (next, done) => arrayText(next, (entry, accept) => atomicText(entry, readSourceNodeRef, accept), done), aliases =>
+                atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, declaration, aliases }, finish))));
         case "module":
           return fieldText<ImportTarget, Root>(cursor, fields, "target", readImportTargetText, targetValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
@@ -249,15 +258,18 @@ export function readTirRestPartText<Root>(cursor: Cursor, finish: (value: TirRes
 }
 
 export function readTypedValueText<Root>(cursor: Cursor, finish: (value: TypedValue) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => openRecord(next, "TypedValue"), fields =>
-    fieldText<TyId, Root>(cursor, fields, "type", (next, done) => atomicText(next, readTypeId, done), typeValue =>
+  return atomicText(cursor, next => openRecord(next, "TypedValue"), fields => readTypedValueFields(cursor, fields, finish));
+}
+
+export function readTypedValueFields<Root>(cursor: Cursor, fields: RecordFields, finish: (value: TypedValue) => TextStep<Root>): TextStep<Root> {
+  return fieldText<TyId, Root>(cursor, fields, "type", (next, done) => atomicText(next, readTypeId, done), typeValue =>
     fieldText<TyId, Root>(cursor, fields, "convertedType", (next, done) => atomicText(next, readTypeId, done), convertedTypeValue =>
       fieldText<ConversionDecision, Root>(cursor, fields, "conversion", readConversionDecisionText, conversionValue =>
         fieldText<RefinementDecision | null, Root>(cursor, fields, "narrowing", (next, done) => nullableText(next, readRefinementDecisionText, done), narrowingValue =>
           fieldText<number | null, Root>(cursor, fields, "evidenceIndex", (next, done) => nullableText(next, (next, done) => atomicText(next, readNumber, done), done), evidenceIndexValue =>
             fieldText<TirDemand, Root>(cursor, fields, "demand", readTirDemandText, demandValue =>
               atomicText(cursor, next => closeRecord(next, fields), () =>
-                  acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue }, finish)))))))));
+                  acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue }, finish))))))));
 }
 
 export function readTirLocalText<Root>(cursor: Cursor, finish: (value: TirLocal) => TextStep<Root>): TextStep<Root> {

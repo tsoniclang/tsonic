@@ -1,8 +1,8 @@
-import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
-import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, IndexSignature, LiteralTypeValue, MemberStorageSelection, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeEvidence } from "./data.js";
+import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef, Origin } from "../ids/contract.js";
+import type { Result, TextParseResult, UnitRequest, Violation } from "../diag/contract.js";
+import type { ArtifactBindings, BodyInstance, CategoryEvidence, ConstantReference, ExactRational, Execution, IndexInventoryEntry, LiteralTypeValue, MemberKey, MemberStorageSelection, NativeBinaryFloatPrimitive, NativeIntegerPrimitive, NativeSignedIntegerPrimitive, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeEvidence, TypeProductionRequest } from "./data.js";
 import type { TypeArena } from "./arena.js";
-import type { PublicationAccount, TypePublicationLimits, TypePublicationStop } from "./work.js";
+import type { LimitStop, PublicationAccount, TypePublicationLimits, TypePublicationStop } from "./work.js";
 export type { TypePublicationLimits, TypePublicationStop } from "./work.js";
 import type { NativeFactsRule, NativeFactsSite, NativeFloatingFormat, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
 export type * from "./data.js";
@@ -10,9 +10,14 @@ export type * from "./native-facts-data.js";
 
 export type TypeInterner = TypeArena;
 export type TypePublicationWork = PublicationAccount;
-export type CompareIndexSignatures = (left: IndexSignature, right: IndexSignature) => number;
+export type CompareIndexSignatures = (left: IndexInventoryEntry, right: IndexInventoryEntry) => number;
+export type CompareMemberKeys = (left: MemberKey, right: MemberKey) => number;
 export type NativeFactsKey = (facts: SelectedNativeFacts) => string;
+export type IsNativeIntegerPrimitive = (primitive: NativePrimitive) => primitive is NativeIntegerPrimitive;
+export type IsNativeSignedIntegerPrimitive = (primitive: NativePrimitive) => primitive is NativeSignedIntegerPrimitive;
+export type IsNativeBinaryFloatPrimitive = (primitive: NativePrimitive | "bigint") => primitive is NativeBinaryFloatPrimitive;
 export type FloatingBitsFit = (bits: bigint, format: NativeFloatingFormat) => boolean;
+export type ExactFloat64LiteralFit = (value: ExactRational, format: NativeFloatingFormat) => boolean;
 export type FloatingFormatWidth = (format: NativeFloatingFormat) => 16 | 32 | 64 | null;
 export type NativeCarrierResult =
   | { readonly kind: "primitive"; readonly type: TyId; readonly primitive: NativePrimitive }
@@ -20,7 +25,13 @@ export type NativeCarrierResult =
   | { readonly kind: "resource-stop" };
 export type NativeCarrierOf = (table: TypeTable, type: TyId,
   typeOf: (type: TyId) => TypeTerm | null | undefined) => NativeCarrierResult;
+export type OptionalValueDomain =
+  | { readonly kind: "optional-value"; readonly payload: "boolean" | "float64" | "string"; readonly present: TyId; readonly category: CategoryEvidence }
+  | { readonly kind: "not-optional-value" }
+  | { readonly kind: "resource-stop" };
+export type OptionalValueDomainOf = (term: TypeTerm, typeOf: (type: TyId) => TypeTerm | null) => OptionalValueDomain;
 export interface LiteralCompatibilityReader {
+  readonly numericRepresentation: "literal-operand" | "preserve-payload";
   readonly typeOf: (type: TyId) => TypeTerm | null | undefined;
   readonly admit: (work: number, entries: number) => boolean;
 }
@@ -32,6 +43,7 @@ export type LiteralCompatibilityResult =
       readonly requirement: "representation" | "literal-conversion" | "checked-association" };
 export type LiteralCompatibilityOf = (table: TypeTable, type: TyId, value: LiteralTypeValue,
   facts: SelectedNativeFacts, reader: LiteralCompatibilityReader) => LiteralCompatibilityResult;
+export type LiteralTypeValuesEqual = (left: LiteralTypeValue, right: LiteralTypeValue) => boolean;
 export type NativeIntegerGeometryResult =
   | { readonly kind: "integer"; readonly bits: number; readonly signed: boolean; readonly minimum: bigint; readonly maximum: bigint }
   | { readonly kind: "not-integer" }
@@ -79,6 +91,7 @@ export interface DeclaredExecution {
 export type BindingVectorData = (vector: BindingVector) => KeyData;
 export type ArtifactBindingsData = (bindings: ArtifactBindings) => KeyData;
 export type SignatureRequestData = (request: SignatureRequest) => KeyData;
+export type TypeProductionRequestData = (request: TypeProductionRequest) => KeyData;
 export type SignatureRequestKey = (request: SignatureRequest) => string;
 export type BindingVectorKey = (vector: BindingVector) => string;
 /** The canonical key text of artifact bindings: parametric, or instantiated with its binding vector's projection. */
@@ -99,9 +112,20 @@ export type TypeTransform<Value> =
       readonly maximum: number };
 
 export type CreateTypeInterner = () => TypeInterner;
-export type SeedTypeInterner = (table: TypeTable) => TypeInterner;
-export type InternType = (interner: TypeInterner, term: TypeTerm) => TyId;
-export type InternSignature = (interner: TypeInterner, signature: SignatureInput) => SigId;
+export type TypeTableAdmissionStop = LimitStop;
+export type TypeTableAdmissionSite = TypeSite | { readonly kind: "table" };
+export interface TypeTableAdmissionWork<Stop extends TypeTableAdmissionStop> {
+  readonly work: (count: number) => Stop | null;
+  readonly retain: (count: number) => Stop | null;
+}
+export type AdmitTypeTable = <Stop extends TypeTableAdmissionStop>(
+  table: TypeTable, admission: TypeTableAdmissionWork<Stop>,
+) => { readonly kind: "complete"; readonly types: TypeInterner }
+  | { readonly kind: "invalid"; readonly violations: readonly Violation<TypeRule, TypeTableAdmissionSite>[] }
+  | Stop;
+export type FixedTypeTerm = Extract<TypeTerm, { readonly kind:
+  "primitive" | "string" | "intrinsic" | "enum" | "param" | "self" | "open" | "error" }>;
+export type InternType = (interner: TypeInterner, term: FixedTypeTerm) => TyId;
 export type ReadType = (interner: TypeInterner, type: TyId) => TypeTerm;
 export type ReadSignature = (interner: TypeInterner, signature: SigId) => Signature;
 export type ViewTypes = (interner: TypeInterner) => TypeTable;
@@ -113,6 +137,11 @@ export interface TypePublication {
   readonly signatures: readonly SigId[];
 }
 export type CreateTypePublicationWork = (limits: TypePublicationLimits) => TypePublicationWork;
+export type AdmitTypePublicationStep = (work: TypePublicationWork, count?: number) => TypePublicationStop | null;
+export type RefuseTypeConstruction = (work: TypePublicationWork, stop: TypePublicationStop, origin: Origin, request: UnitRequest) =>
+  Extract<Result<never>, { readonly kind: "refused" }>;
+export type TypePublicationRefusalOf = (work: TypePublicationWork) =>
+  Extract<Result<never>, { readonly kind: "refused" }> | TypePublicationStop | null;
 export interface TypeGraphInput {
   readonly typeBase: number;
   readonly signatureBase: number;
@@ -129,23 +158,37 @@ export interface TypeGraphDeps {
 }
 export type TypeGraphResult = { readonly kind: "complete"; readonly value: TypeGraphMapping } | TypePublicationStop;
 export type InternTypeGraph = (deps: TypeGraphDeps, input: TypeGraphInput) => TypeGraphResult;
+export type SourceChoice = { readonly type: TyId; readonly category: CategoryEvidence };
+export type JoinSourceChoice = (deps: TypeGraphDeps, selected: readonly TyId[], limits: TypeExpansionLimits) =>
+  TypeTransform<SourceChoice> | TypePublicationStop | { readonly kind: "unavailable"; readonly reason: "non-scalar" | "numeric-inclusion" };
 export type TypePublicationResult =
   | { readonly kind: "complete"; readonly value: TypePublication; readonly work: number; readonly createdRecords: number }
   | TypePublicationStop;
 export type ExportTypes = (interner: TypeInterner, limits: TypePublicationLimits) => TypePublicationResult;
-export type Substitute = (interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits) => TypeTransform<readonly TyId[]>;
+export type Substitute = <Stop extends TypeTableAdmissionStop = never>(
+  interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits,
+  commitment: TypePublicationWork | TypeTableAdmissionWork<Stop>,
+) => TypeTransform<readonly TyId[]> | TypePublicationStop | NoInfer<Stop>;
 export interface BindingValues {
   readonly types: readonly TyId[];
   readonly bindings: readonly BindingVector[];
 }
-export type SubstituteBindingValues = (interner: TypeInterner, values: BindingValues,
-  bindings: BindingVector, limits: TypeExpansionLimits) => TypeTransform<BindingValues>;
-export type SubstituteSignature = (
+export interface ProjectedBindingValues {
+  readonly types: readonly (TyId | null)[];
+  readonly bindings: readonly (BindingVector | null)[];
+}
+export type ProjectBindingValues = <Stop extends TypeTableAdmissionStop>(interner: TypeInterner, values: BindingValues,
+  bindings: BindingVector, limits: TypeExpansionLimits, account: TypeTableAdmissionWork<Stop>) =>
+  TypeTransform<ProjectedBindingValues> | Stop;
+export type SignatureSubstitution = "lexical" | "selected";
+export type SubstituteSignature = <Stop extends TypeTableAdmissionStop = never>(
   interner: TypeInterner,
   signatures: readonly SigId[],
   bindings: BindingVector,
   limits: TypeExpansionLimits,
-) => TypeTransform<readonly SigId[]>;
+  mode: SignatureSubstitution,
+  commitment: TypePublicationWork | TypeTableAdmissionWork<Stop>,
+) => TypeTransform<readonly SigId[]> | TypePublicationStop | NoInfer<Stop>;
 export type PrintTypes = (table: TypeTable) => string;
 export type ParseTypes = (text: string) => TextParseResult<TypeTable>;
 
@@ -154,7 +197,8 @@ export type TypeRule = "type-reference" | "signature-reference" | "nominal-defin
   | "parameter-order" | "parameter-identity" | "binding-vector-complete" | "tuple-rest-order"
   | "rational-normalized" | "literal-value-exact" | "extent-exact" | "construction-captures-qualified"
   | "self-owner" | "self-binding-order"
-  | "projection-owner" | "sum-arm-order" | "evidence-type" | "cross-owner-qualified";
+  | "projection-owner" | "sum-arm-order" | "evidence-type" | "cross-owner-qualified"
+  | "canonical-representative";
 export type TypeSite =
   | { readonly kind: "type"; readonly type: TyId }
   | { readonly kind: "signature"; readonly signature: SigId }

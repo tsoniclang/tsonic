@@ -1,4 +1,4 @@
-import type { PrintTypes, TypeTerm, Signature, SignatureInput, Member, MemberKey, MemberOrigin,
+import type { PrintTypes, TypeTerm, Signature, SignatureInput, Member, MemberInventoryEntry, MemberKey, MemberOrigin,
   IndexSignature, TypeParameter, ExactRational, LiteralTypeValue, ConstructionDefinition,
   TypeComponent, ComponentSelector, SumFamily } from "./contract.js";
 import type { SourceNodeRef, NodeRef, LocalRef } from "../ids/contract.js";
@@ -104,11 +104,14 @@ function component(value: TypeComponent): TextRecord {
   return record("TypeComponent", value, ["root", source(value.root)], ["path", value.path.map(selected => selector(selected))]);
 }
 
-function member(value: Member): TextRecord {
-  return record("Member", value, ["key", memberKey(value.key)], ["origins", value.origins.map(selected => origin(selected))],
+function member(value: Member | MemberInventoryEntry): TextRecord {
+  const typed = "read" in value;
+  return record(typed ? "Member" : "MemberInventoryEntry", value, ["key", memberKey(value.key)], ["origins", value.origins.map(selected => origin(selected))],
     ["readOrigins", value.readOrigins.map(selected => origin(selected))], ["writeOrigins", value.writeOrigins.map(selected => origin(selected))],
-    ["kind", value.kind], ["read", value.read === null ? null : reference("t", value.read)],
-    ["write", value.write === null ? null : reference("t", value.write)], ["optional", value.optional], ["readonly", value.readonly]);
+    ["kind", value.kind], ...(typed ? [
+      ["read", value.read === null ? null : reference("t", value.read)],
+      ["write", value.write === null ? null : reference("t", value.write)],
+    ] satisfies readonly (readonly [string, TextValue])[] : []), ["optional", value.optional], ["readonly", value.readonly]);
 }
 
 function index(value: IndexSignature): TextRecord {
@@ -157,6 +160,7 @@ function term(value: TypeTerm): TextRecord {
       ["calls", value.calls.map(selected => reference("sig", selected))], ["constructs", value.constructs.map(selected => reference("sig", selected))]);
     case "callable": return record(value.kind, value, ["calls", value.calls.map(selected => reference("sig", selected))],
       ["constructs", value.constructs.map(selected => reference("sig", selected))]);
+    case "source-environment": return record(value.kind, value, ["members", value.members.map(member)]);
     case "declared": return record(value.kind, value, ["definition", reference("def", value.definition)],
       ["arguments", value.arguments.map(selected => reference("t", selected))], ["facet", value.facet],
       ["extent", value.extent === null ? null : record("FixedExtent", value.extent, ["length", value.extent.length], ["runtimeBase", value.extent.runtimeBase])]);
@@ -168,7 +172,13 @@ function term(value: TypeTerm): TextRecord {
     case "projection": {
       const projection = value.projection;
       return record(value.kind, value, ["source", reference("t", value.source)],
-        ["projection", projection.kind === "awaited" ? record("awaited", projection)
+        ["projection", projection.kind === "awaited" || projection.kind === "keyof" ? record(projection.kind, projection)
+          : projection.kind === "indexed" ? record("indexed", projection, ["index", reference("t", projection.index)])
+          : projection.kind === "substitution" ? record("substitution", projection, ["constraint", reference("t", projection.constraint)])
+          : projection.kind === "conditional" ? record("conditional", projection, ["extends", reference("t", projection.extends)],
+            ["whenTrue", reference("t", projection.whenTrue)], ["whenFalse", reference("t", projection.whenFalse)],
+            ["distributive", projection.distributive],
+            ["inferParameter", projection.inferParameter === null ? null : reference("def", projection.inferParameter)])
           : record("component", projection, ["component", deferred(() => component(projection.component))])]);
     }
     case "open": return record(value.kind, value, ["group", reference("group", value.group)], ["variable", value.variable]);

@@ -22,7 +22,7 @@ function keyScalar<Value extends number | string | bigint | boolean>(label: stri
 
 export function createErrorSchemas(data: DataSchemas, evidence: EvidenceSchemas): ErrorSchemas {
   const { numberSchema, stringSchema, bigintSchema, booleanSchema, groupSchema, modSchema, nSchema,
-    sourceNodeRefSchema, hostCodeNameSchema } = data;
+    nodeRefSchema, sourceNodeRefSchema, hostCodeNameSchema } = data;
   const keyNumber = keyScalar("KeyNumber", numberSchema);
   const keyString = keyScalar("KeyString", stringSchema);
   const keyBigint = keyScalar("KeyBigint", bigintSchema);
@@ -71,6 +71,15 @@ export function createErrorSchemas(data: DataSchemas, evidence: EvidenceSchemas)
     const node = read("node", () => sourceNodeRefSchema, entry => entry.node);
     return { fields: [node], value: () => ({ kind: "source-node", node: node.value() }) };
   });
+  const executionResult = recordSchema<Extract<UnitPosition, { readonly kind: "execution-result" }>>("ExecutionResultPosition", "execution-result", read => {
+    const execution = read("execution", () => stringSchema, entry => entry.execution);
+    return { fields: [execution], value: () => ({ kind: "execution-result", execution: execution.value() }) };
+  });
+  const executionNode = recordSchema<Extract<UnitPosition, { readonly kind: "execution-source-node" }>>("ExecutionSourcePosition", "execution-source-node", read => {
+    const execution = read("execution", () => stringSchema, entry => entry.execution);
+    const node = read("node", () => nodeRefSchema, entry => entry.node);
+    return { fields: [execution, node], value: () => ({ kind: "execution-source-node", execution: execution.value(), node: node.value() }) };
+  });
   const variable = recordSchema<Extract<UnitPosition, { readonly kind: "inference-variable" }>>("VariablePosition", "inference-variable", read => {
     const group = read("group", () => groupSchema, entry => entry.group);
     const variable = read("variable", () => numberSchema, entry => entry.variable);
@@ -80,11 +89,13 @@ export function createErrorSchemas(data: DataSchemas, evidence: EvidenceSchemas)
     const path = read("path", () => arraySchema(keySchema), entry => entry.path);
     return { fields: [path], value: () => ({ kind: "component", path: path.value() }) };
   });
-  const position: RecordSchema<UnitPosition> = unionSchema<UnitPosition>("UnitPosition", () => [result, moduleNode, sourceNode, variable, component], value => {
+  const position: RecordSchema<UnitPosition> = unionSchema<UnitPosition>("UnitPosition", () => [result, moduleNode, sourceNode, executionResult, executionNode, variable, component], value => {
     switch (value.kind) {
       case "result": return result.stage(value);
       case "module-node": return moduleNode.stage(value);
       case "source-node": return sourceNode.stage(value);
+      case "execution-result": return executionResult.stage(value);
+      case "execution-source-node": return executionNode.stage(value);
       case "inference-variable": return variable.stage(value);
       case "component": return component.stage(value);
     }

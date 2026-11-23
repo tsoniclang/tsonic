@@ -9,13 +9,18 @@ const module = encodeModuleId({ package: encodePackageId("body-domain"), path: "
 const definition = encodeDefId({ module, segments: [{ name: "inner", ordinal: 0 }] });
 const nested = encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
 const account = (maximumWork = 10000, maximumResultEntries = 10000) => createAccount({ maximumWork, maximumResultEntries });
+const declarationName = id => ({ kind: "Identifier", id, text: "inner",
+  tsonic: { role: "declaration-name", declaration: { kind: "definition", definition }, storage: null } });
+const parameterName = (id, node) => ({ kind: "Identifier", id, text: "value",
+  tsonic: { role: "binding-name", binding: { kind: "body", value: { body: nested, node } } } });
 
 function body(kind) {
   const parameter = { kind: "Parameter", id: 3 };
   Object.defineProperty(parameter, "tsonic", { get() { assert.fail("Nested parameter/default payload is not this execution's occurrence."); } });
   const block = { kind: "Block", id: 4 };
   Object.defineProperty(block, "tsonic", { get() { assert.fail("The nested callable's body is not the creator execution."); } });
-  const declaration = { kind, id: 2, modifiers: null, asteriskToken: null, name: null, postfixToken: null, typeParameters: null,
+  const name = kind === "MethodDeclaration" || kind === "GetAccessor" || kind === "SetAccessor" ? declarationName(8) : null;
+  const declaration = { kind, id: 2, modifiers: null, asteriskToken: null, name, postfixToken: null, typeParameters: null,
     parameters: { nodes: [parameter] }, type: null, fullSignature: null, body: block,
     equalsGreaterThanToken: { kind: "EqualsGreaterThanToken", id: 5, tsonic: null },
     tsonic: kind === "FunctionExpression" || kind === "ArrowFunction"
@@ -41,10 +46,10 @@ await suite.test("Facts source domain excludes each nested callable's parameters
 
 await suite.test("a signature without an implementation body does not hide its source parameter", () => {
   const input = body("FunctionDeclaration");
-  input.root.statements.nodes[0] = { kind: "MethodSignature", id: 2, tsonic: null, modifiers: null, name: null,
+  input.root.statements.nodes[0] = { kind: "MethodSignature", id: 2, tsonic: null, modifiers: null, name: declarationName(8),
     postfixToken: null, typeParameters: null, type: null, fullSignature: null,
     parameters: { nodes: [{ kind: "Parameter", id: 3, tsonic: null, modifiers: null,
-      dotDotDotToken: null, name: null, questionToken: null, type: null, initializer: null }] } };
+      dotDotDotToken: null, name: parameterName(9, 3), questionToken: null, type: null, initializer: null }] } };
   const result = bodyNodes(input, account());
   assert.equal(result.kind, "complete");
   assert.equal(result.value.nodes.has(3), true);
@@ -55,7 +60,7 @@ await suite.test("a semantic initializer is separately owned even when it is not
     const initializer = { kind: "TrueKeyword", id: 1 };
     Object.defineProperty(initializer, "tsonic", { get() { assert.fail("The placed initializer is not the caller's value occurrence."); } });
     const root = { kind: "Parameter", id: 0, tsonic: { initializer: nested }, modifiers: null,
-      dotDotDotToken: null, name: null, questionToken: null, type: null, initializer };
+      dotDotDotToken: null, name: parameterName(2, 0), questionToken: null, type: null, initializer };
     const result = bodyNodes({ root, params: [], nestedBodies: listed ? [nested] : [] }, account());
     assert.equal(result.kind, "complete");
     assert.equal(result.value.nodes.has(0), true);
@@ -63,7 +68,7 @@ await suite.test("a semantic initializer is separately owned even when it is not
   }
   const initializer = { kind: "TrueKeyword", id: 1, tsonic: { convertedType: 0 } };
   const root = { kind: "Parameter", id: 0, tsonic: { initializer: null }, modifiers: null,
-    dotDotDotToken: null, name: null, questionToken: null, type: null, initializer };
+    dotDotDotToken: null, name: parameterName(2, 0), questionToken: null, type: null, initializer };
   const result = bodyNodes({ root, params: [], nestedBodies: [] }, account());
   assert.equal(result.kind, "complete");
   assert.deepEqual([...result.value.valueNodes], [1]);

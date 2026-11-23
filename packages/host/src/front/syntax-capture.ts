@@ -4,7 +4,7 @@
 import type * as Hir from "../ir-hir/contract.js";
 import type { NodeId } from "../ids/contract.js";
 import type { SdkNodeList, SyntaxCaptureContext, SyntaxNodeOf } from "./syntax-support.js";
-import { attributesToken, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, phaseModifier, postfixOperator, prefixOperator, rangeOf, scriptKind, tokenFlags, typeOperator } from "./syntax-support.js";
+import { authoredNumericType, attributesToken, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, numericSyntaxText, phaseModifier, postfixOperator, prefixOperator, rangeOf, scriptKind, tokenFlags, typeOperator } from "./syntax-support.js";
 
 type Guard<T extends Hir.SyntaxNode<Hir.SyntaxPhase>> = (node: Hir.SyntaxNode<Hir.SyntaxPhase>) => node is T;
 
@@ -1282,7 +1282,7 @@ function buildNode(context: SyntaxBuildContext, node: SyntaxNodeOf, parent: Node
       if (view === undefined) return defect("the checker gave no NumericLiteral view of a NumericLiteral node");
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
-      const text_ = view.Text;
+      const text_ = numericSyntaxText(context, node, header.origin);
       const tokenFlags_ = tokenFlags(view.TokenFlags);
       return { kind: "NumericLiteral", ...header, text: text_, tokenFlags: tokenFlags_, tsonic: null };
     }
@@ -1761,6 +1761,8 @@ function buildNode(context: SyntaxBuildContext, node: SyntaxNodeOf, parent: Node
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const literal_ = one(context, view.Literal, id, isGroup48);
+      const numeric = authoredNumericType(context, node);
+      if (numeric !== null) context.numericLiterals.set(node, numeric);
       return { kind: "LiteralType", ...header, literal: literal_, tsonic: null };
     }
     case "KindThisType":

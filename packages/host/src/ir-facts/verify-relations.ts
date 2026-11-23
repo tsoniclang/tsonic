@@ -394,7 +394,11 @@ export const verifyRelationalArena = (
     for (const argument of value.arguments) {
     const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
     if (step !== null) return step;
-      if (!validIndex(argument, arena.origins.length) || !Object.is(arena.origins[argument]?.id, argument)) {
+      if (argument?.kind === "omitted" && "origins" in argument || argument?.kind !== "omitted" && argument?.kind !== "provided") {
+        const stop = report("context-arguments-total", site, "A parameter slot is either explicitly omitted or provided with actual origins.");
+        if (stop !== null) return stop;
+      } else if (argument.kind === "provided" &&
+        (!validIndex(argument.origins, arena.origins.length) || !Object.is(arena.origins[argument.origins]?.id, argument.origins))) {
         { const stop = report("origins-resolves", site, "Every parameter-ordered argument must reference origins in its own arena."); if (stop !== null) return stop; }
       }
     }
@@ -414,7 +418,12 @@ export const verifyRelationalArena = (
       if (!argumentMismatch) for (let position = 0; position < expected.arguments.length; position += 1) {
         const work = chargeWork(account, 1);
         if (work !== null) return work;
-        if (expected.arguments[position] !== value.arguments[position]) { argumentMismatch = true; break; }
+        const left = expected.arguments[position];
+        const right = value.arguments[position];
+        if (left?.kind !== right?.kind || left?.kind === "provided" && right?.kind === "provided" && left.origins !== right.origins) {
+          argumentMismatch = true;
+          break;
+        }
       }
     }
     if (argumentMismatch) {
@@ -459,6 +468,11 @@ export const verifyRelationalArena = (
     }
     if (!validIndex(bound.context, arena.contexts.length) || !Object.is(arena.contexts[bound.context]?.id, bound.context)) {
       { const stop = report("context-resolves", site, "A bound alternative must retain its actual value context in the same arena."); if (stop !== null) return stop; }
+    }
+    const boundSource = arena.producers[bound.producer];
+    if (boundSource?.kind === "parameter" && arena.contexts[bound.context]?.arguments[boundSource.index]?.kind === "omitted") {
+      const stop = report("context-arguments-total", site, "An omitted formal has no incoming caller value to bind.");
+      if (stop !== null) return stop;
     }
     const identityStop = admitBindingIdentity(bound.bindings, account);
     if (identityStop !== null) return identityStop;

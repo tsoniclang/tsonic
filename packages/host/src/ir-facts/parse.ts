@@ -467,10 +467,15 @@ const captureLocation: Decode<CaptureLocation> = (state, input) => then(fields(s
     then(readField(state, values, "location", bound), locationValue =>
     then(readField(state, values, "cell", (state, input) => numeric(state, input, "cell", value => value)), cell =>
       finishRecord<CaptureLocation>(state, values, { index: indexValue, location: locationValue, cell })))));
+const valueArgument: Decode<ValueContext["arguments"][number]> = (state, input) => then(label(input, ["provided", "omitted"]), kind =>
+  then(fields(state, input, kind), values => kind === "omitted"
+    ? finishRecord<ValueContext["arguments"][number]>(state, values, { kind })
+    : then(readField(state, values, "origins", originsIdentity), origins =>
+      finishRecord(state, values, { kind, origins }))));
 const valueContext: Decode<ValueContext> = (state, input) => then(fields(state, input, "ValueContext"), values =>
     then(readField(state, values, "id", contextIdentity), idValue =>
     then(readField(state, values, "receiver", (state, input) => nullable(state, input, originsIdentity)), receiverValue =>
-    then(readField(state, values, "arguments", (state, input) => sequence(state, input, originsIdentity)), argumentsValue =>
+    then(readField(state, values, "arguments", (state, input) => sequence(state, input, valueArgument)), argumentsValue =>
     then(readField(state, values, "captures", (state, input) => sequence(state, input, captureLocation)), capturesValue =>
       finishRecord<ValueContext>(state, values, { id: idValue, receiver: receiverValue, arguments: argumentsValue, captures: capturesValue }))))));
 const boundProducer: Decode<BoundProducer> = (state, input) => then(fields(state, input, "BoundProducer"), values =>
@@ -674,16 +679,21 @@ const escapeFact: Decode<EscapeFact> = (state, input) => then(fields(state, inpu
     then(readField(state, values, "producer", producerIdentity), producerValue =>
     then(readField(state, values, "target", escapeTarget), targetValue =>
       finishRecord<EscapeFact>(state, values, { point: pointValue, node: nodeValue, producer: producerValue, target: targetValue }))))));
-const argumentTransport: Decode<ArgumentTransport> = (state, input) => then(fields(state, input, "ArgumentTransport"), values =>
-    then(readField(state, values, "authoredIndex", (state, input) => nullable(state, input, scalarNumber)), authoredIndexValue =>
+const argumentTransport: Decode<ArgumentTransport> = (state, input) => then(label(input, ["provided", "omitted"]), kind =>
+  then(fields(state, input, kind), values =>
     then(readField(state, values, "parameter", definition), parameterValue =>
     then(readField(state, values, "parameterIndex", scalarNumber), parameterIndexValue =>
+    then(readField(state, values, "formal", producerRef), formalValue => {
+      const common = { parameter: parameterValue, parameterIndex: parameterIndexValue, formal: formalValue };
+      if (kind === "omitted") return finishRecord<ArgumentTransport>(state, values, { kind, ...common });
+      return then(readField(state, values, "authoredIndex", scalarNumber), authoredIndexValue =>
     then(readField(state, values, "repeated", scalarBoolean), repeatedValue =>
     then(readField(state, values, "passing", (state, input) => literal(state, input, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"])), passingValue =>
     then(readField(state, values, "actual", originsIdentity), actualValue =>
-    then(readField(state, values, "formal", producerRef), formalValue =>
     then(readField(state, values, "projection", (state, input) => nullable(state, input, path)), projectionValue =>
-      finishRecord<ArgumentTransport>(state, values, { authoredIndex: authoredIndexValue, parameter: parameterValue, parameterIndex: parameterIndexValue, repeated: repeatedValue, passing: passingValue, actual: actualValue, formal: formalValue, projection: projectionValue }))))))))));
+      finishRecord<ArgumentTransport>(state, values, { kind, ...common, authoredIndex: authoredIndexValue,
+        repeated: repeatedValue, passing: passingValue, actual: actualValue, projection: projectionValue }))))));
+    })))));
 const summaryKey: Decode<SummaryKey> = (state, input) => then(label(input, ["body", "declared"]), kind =>
   then(fields(state, input, kind), values => kind === "body"
     ? then(readField(state, values, "execution", execution), selected =>
@@ -705,9 +715,11 @@ const invocationFact: Decode<InvocationFact> = (state, input) => then(label(inpu
     then(readField(state, values, "alternatives", (state, input) => sequence(state, input, invocationAlternative)), alternativesValue =>
     then(readField(state, values, "boundaries", (state, input) => sequence(state, input, boundary)), boundariesValue =>
       finishRecord<InvocationFact>(state, values, { kind: kind, node: nodeValue, point: pointValue, alternatives: alternativesValue, boundaries: boundariesValue })))))));
+const providedTransport: Decode<ArgumentTransport> = (state, input) =>
+  then(label(input, ["provided"]), () => argumentTransport(state, input));
 const callbackEntry: Decode<CallbackEntry> = (state, input) => then(fields(state, input, "CallbackEntry"), values =>
     then(readField(state, values, "node", node), nodeValue =>
-    then(readField(state, values, "argument", argumentTransport), argumentValue =>
+    then(readField(state, values, "argument", providedTransport), argumentValue =>
     then(readField(state, values, "timing", (state, input) => literal(state, input, ["synchronous","deferred","unknown"])), timingValue =>
     then(readField(state, values, "rejection", (state, input) => nullable(state, input, scalarNumber)), rejectionValue =>
     then(readField(state, values, "inputs", (state, input) => sequence(state, input, callbackInput)), inputsValue =>
@@ -718,7 +730,7 @@ const activation: Decode<BoundActivation> = (state, input) => then(fields(state,
     then(readField(state, values, "activation", bodyInstance), activationValue =>
     then(readField(state, values, "context", contextIdentity), contextValue =>
     then(readField(state, values, "caller", (state, input) => nullable(state, input, contextIdentity)), callerValue =>
-    then(readField(state, values, "entry", (state, input) => nullable(state, input, argumentTransport)), entryValue =>
+    then(readField(state, values, "entry", (state, input) => nullable(state, input, providedTransport)), entryValue =>
       finishRecord<BoundActivation>(state, values, { node: nodeValue, point: pointValue, activation: activationValue, context: contextValue, caller: callerValue, entry: entryValue }))))))));
 const frontier: Decode<ValueFrontier> = (state, input) => then(label(input, ["boundary","origin"]), kind =>
   then(fields(state, input, kind), values =>

@@ -4,7 +4,7 @@ import { requirePresent } from "../../diag/index.js";
 import type { BoundProducerId, OriginsId, TyId } from "../../ids/contract.js";
 import { originsId } from "../../ids/index.js";
 import type { AppliedOriginsValue, Origins } from "../../ir-facts/contract.js";
-import { nativeCarrierOf } from "../../ir-types/index.js";
+import { nativeCarrierOf, optionalValueDomainOf } from "../../ir-types/index.js";
 import type { BodyRoundDeps } from "./contract.js";
 import { orderedRows } from "./source.js";
 import { bodyFrontier } from "./places.js";
@@ -62,17 +62,21 @@ function internValue(deps: BodyRoundDeps, values: ValueOrigins, producers: reado
   return row.id;
 }
 
-export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absence" | "reference" | null {
-  const selected = nativeCarrierOf(deps.types, type, current => {
+export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absence" | "reference" | "primitive-optional" | "reference-optional" | null {
+  const read = (current: TyId) => {
     if (chargeWork(deps.account, 1) !== null) return null;
     const term = deps.typeOf(current);
     return accountFailure(deps.account) === null ? term : null;
-  });
+  };
+  const selected = nativeCarrierOf(deps.types, type, read);
   if (selected.kind === "resource-stop") return null;
   if (selected.kind === "primitive") return "primitive";
-  if (chargeWork(deps.account, 1) !== null) return null;
-  const term = deps.typeOf(selected.type);
-  if (accountFailure(deps.account) !== null) return null;
+  const term = read(selected.type);
+  if (term === null) return null;
+  if (term.kind === "optional") {
+    const domain = optionalValueDomainOf(term, read);
+    if (domain.kind === "optional-value") return domain.payload === "string" ? "reference-optional" : "primitive-optional";
+  }
   return term.kind === "string" ? "reference" : term.kind === "intrinsic" && term.intrinsic === "absence" ? "absence" : null;
 }
 

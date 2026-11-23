@@ -47,7 +47,8 @@ export interface DependencyDeps {
   readonly signatureOf: SignatureOf;
   readonly callableEntriesAt: (at: NodeRef, definition: DefId) => readonly SummaryKey[] | null;
   readonly calleeAt: (at: NodeRef, callee: ResolvedCallee) => SummaryKey | null;
-  readonly initializerAt: (at: NodeRef, initializer: BodyId | BodyInstance) => SummaryKey | null;
+  readonly initializerAt: (at: NodeRef, initializer: BodyId | { readonly instance: BodyInstance; readonly parameter: number;
+    readonly callee: ResolvedCallee }) => SummaryKey | null;
   readonly operationEntriesAt: (at: NodeRef, operation: TypedOperation) => readonly SummaryKey[] | null;
   readonly dispatchEntriesAt: (at: NodeRef) => readonly SummaryKey[] | null;
 }
@@ -90,6 +91,8 @@ export interface ConvergenceInput {
 
 export interface StableBody {
   readonly execution: Execution;
+  readonly key: string;
+  readonly identity: string;
   readonly result: UnitResult<BodyRoundValue | ErrorValue>;
 }
 

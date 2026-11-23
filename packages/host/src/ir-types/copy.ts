@@ -60,11 +60,14 @@ export function copyType(value: TypeTerm): TypeTerm {
       writeOrigins: member.writeOrigins.map(copyOrigin) })), indexes: value.indexes.map(index => ({ ...index, origin: copySource(index.origin) })),
       calls: [...value.calls], constructs: [...value.constructs] };
     case "callable": return { ...value, calls: [...value.calls], constructs: [...value.constructs] };
+    case "source-environment": return { ...value, members: value.members.map(member => ({ ...member, key: copyKey(member.key),
+      origins: member.origins.map(copyOrigin), readOrigins: member.readOrigins.map(copyOrigin),
+      writeOrigins: member.writeOrigins.map(copyOrigin) })) };
     case "declared": return { ...value, arguments: [...value.arguments], extent: value.extent === null ? null : { ...value.extent } };
     case "construction-reference": return { ...value, definition: copyConstruction(value.definition), arguments: [...value.arguments] };
     case "param": return { ...value };
-    case "projection": return { ...value, projection: value.projection.kind === "awaited"
-      ? { ...value.projection } : { ...value.projection, component: copyComponent(value.projection.component) } };
+    case "projection": return { ...value, projection: value.projection.kind === "component"
+      ? { ...value.projection, component: copyComponent(value.projection.component) } : { ...value.projection } };
   }
 }
 

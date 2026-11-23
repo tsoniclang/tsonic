@@ -62,6 +62,10 @@ export function createTypeTextReaders() {
       const field_constructs = read("constructs", arrayReader(() => values["signature-id"]));
       return { fields: [field_members, field_indexes, field_calls, field_constructs], value: () => ({ kind: "shape", members: field_members.value(), indexes: field_indexes.value(), calls: field_calls.value(), constructs: field_constructs.value() }) };
     });
+    case "source-environment": return recordReader<TypeTerm>("source-environment", read => {
+      const field_members = read("members", arrayReader(() => values["member-header"]));
+      return { fields: [field_members], value: () => ({ kind: "source-environment", members: field_members.value() }) };
+    });
     case "callable": return recordReader<TypeTerm>("callable", read => {
       const field_calls = read("calls", arrayReader(() => values["signature-id"]));
       const field_constructs = read("constructs", arrayReader(() => values["signature-id"]));

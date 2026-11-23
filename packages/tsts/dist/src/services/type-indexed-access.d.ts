@@ -1,6 +1,6 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Checker } from "../internal/checker/checker/state.js";
-import type { Type } from "../internal/checker/types.js";
+import type { IndexedAccessType, Type } from "../internal/checker/types.js";
 import type { TypeIndexInfo, TypePropertyInfo } from "./type-shape.js";
 export interface TypeIndexedAccessComponents {
     readonly objectType: Type;
@@ -27,5 +27,6 @@ export type TypeIndexedAccessSelection = TypeIndexedAccessComponents & {
     readonly members: readonly TypeIndexedAccessMember[];
 });
 export declare function readTypeIndexedAccessComponents(query: GoPtr<Checker>, type: GoPtr<Type>): TypeIndexedAccessComponents | undefined;
+export declare function readOwnedIndexedAccess(query: GoPtr<Checker>, type: GoPtr<Type>): (IndexedAccessType & TypeIndexedAccessComponents) | undefined;
 export declare function selectTypeIndexedAccess(query: GoPtr<Checker>, objectType: GoPtr<Type>, indexType: GoPtr<Type>): TypeIndexedAccessSelection | undefined;
 //# sourceMappingURL=type-indexed-access.d.ts.map

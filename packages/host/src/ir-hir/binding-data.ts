@@ -10,6 +10,7 @@ export type HirExportTarget =
 export interface HirModuleExport {
   readonly name: string;
   readonly target: HirExportTarget;
+  readonly typeOnlyStar: SourceNodeRef | null;
 }
 
 export type HirBindingSemanticTarget =
@@ -35,8 +36,4 @@ export interface HirBindingResolution {
 
 export interface HirBindingViews {
   readonly bindingOf: (occurrence: SourceNodeRef) => HirModuleBinding | null;
-}
-
-export interface HirExportViews extends HirBindingViews {
-  readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
 }

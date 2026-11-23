@@ -557,7 +557,7 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
     "int64", "uint64", "int128", "uint128", "native-int", "native-uint", "float16", "float32", "float64", "decimal"]);
 
   const operatorWire: Wire<HirUnaryOperator | HirBinaryOperator> = literals([
-    "+", "-", "!", "~", "typeof", "void", "delete", "*", "/", "%", "**", "&", "|", "^", "<<", ">>", ">>>",
+    "+", "-", "!", "~", "++", "--", "typeof", "void", "delete", "*", "/", "%", "**", "&", "|", "^", "<<", ">>", ">>>",
     "<", "<=", ">", ">=", "==", "!=", "===", "!==", "in", "instanceof",
   ]);
 

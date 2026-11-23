@@ -4,6 +4,7 @@ import type { Cursor, TextStep } from "./parse-values.js";
 import type { SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
 import { readString, readBoolean, readNull, readStringChoice, atomicText, fieldText, arrayText } from "./parse-values.js";
 import { readTypedValueText } from "./parse-tir.js";
+import { readTypedCallText, readTypedValueOccurrenceText } from "./parse-phase.js";
 import { readTypedNameText, readTypedPropertyKeyText, readTypedDecoratorText, readTypedOmissionText, readTypedKeywordText, readTypedStringText, readTypedNumberText, readTypedBigIntText, readTypedBinaryText, readTypedPrefixText, readTypedUpdateText, readTypedProtocolValueText, readTypedClosureText, readTypedConditionalText, readTypedMemberText, readTypedApplicationText, readTypedSpreadText, readTypedTemplateText, readTypedConstructionText, readTypedObjectSpreadText, readTypedPropertyText, readTypedShorthandText, readTypedUnaryText, readTypedInstantiationText } from "./parse-phase.js";
 import { resolveSyntaxValue, syntaxAlternatives, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readNullableSyntax, readSyntaxList } from "./parse-syntax-values.js";
 
@@ -257,7 +258,7 @@ export function readCallExpressionSyntax<Root>(cursor: Cursor, ports: SyntaxRead
     fieldText<SyntaxValue<QuestionDotToken<TypedPhase> | null>, Root>(cursor, fields, "questionDotToken", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.QuestionDotToken, done), done), questionDotTokenValue =>
     fieldText<SyntaxValue<NodeList<TypeNode<TypedPhase>> | null>, Root>(cursor, fields, "typeArguments", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.TypeNode, done), "NodeList", done), done), typeArgumentsValue =>
     fieldText<SyntaxValue<NodeList<Expression<TypedPhase>>>, Root>(cursor, fields, "arguments", (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.Expression, done), "NodeList", done), argumentsValue =>
-    fieldText<TypedApplication, Root>(cursor, fields, "tsonic", readTypedApplicationText, tsonicValue =>
+    fieldText<TypedPhase["CallExpression"], Root>(cursor, fields, "tsonic", readTypedCallText, tsonicValue =>
     finishSyntaxRecord<CallExpression<TypedPhase>, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(expressionValue, expressionResolved => resolveSyntaxValue(questionDotTokenValue, questionDotTokenResolved => resolveSyntaxValue(typeArgumentsValue, typeArgumentsResolved => resolveSyntaxValue(argumentsValue, argumentsResolved => ({ ...header, kind, expression: expressionResolved, questionDotToken: questionDotTokenResolved, typeArguments: typeArgumentsResolved, arguments: argumentsResolved, tsonic: tsonicValue }))))),
     }, finish)))))));
@@ -287,7 +288,7 @@ export function readMetaPropertySyntax<Root>(cursor: Cursor, ports: SyntaxReadPo
 export function readNonNullExpressionSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "NonNullExpression", finish: (value: SyntaxValue<NonNullExpression<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
     fieldText<SyntaxValue<Expression<TypedPhase>>, Root>(cursor, fields, "expression", (next, done) => readSyntaxReference(next, ports.Expression, done), expressionValue =>
-    fieldText<TypedValue, Root>(cursor, fields, "tsonic", readTypedValueText, tsonicValue =>
+    fieldText<TypedPhase["NonNullExpression"], Root>(cursor, fields, "tsonic", readTypedValueOccurrenceText, tsonicValue =>
     finishSyntaxRecord<NonNullExpression<TypedPhase>, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(expressionValue, expressionResolved => ({ ...header, kind, expression: expressionResolved, tsonic: tsonicValue })),
     }, finish))));
@@ -337,7 +338,7 @@ export function readTaggedTemplateExpressionSyntax<Root>(cursor: Cursor, ports: 
 export function readParenthesizedExpressionSyntax<Root>(cursor: Cursor, ports: SyntaxReadPorts, kind: "ParenthesizedExpression", finish: (value: SyntaxValue<ParenthesizedExpression<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
     fieldText<SyntaxValue<Expression<TypedPhase>>, Root>(cursor, fields, "expression", (next, done) => readSyntaxReference(next, ports.Expression, done), expressionValue =>
-    fieldText<TypedValue, Root>(cursor, fields, "tsonic", readTypedValueText, tsonicValue =>
+    fieldText<TypedPhase["ParenthesizedExpression"], Root>(cursor, fields, "tsonic", readTypedValueOccurrenceText, tsonicValue =>
     finishSyntaxRecord<ParenthesizedExpression<TypedPhase>, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(expressionValue, expressionResolved => ({ ...header, kind, expression: expressionResolved, tsonic: tsonicValue })),
     }, finish))));

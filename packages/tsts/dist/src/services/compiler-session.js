@@ -1,6 +1,6 @@
 import { Background } from "../go/context.js";
 import { SourceFile_FileName } from "../internal/ast/ast.js";
-import { NewProgram, Program_BindSourceFiles, Program_GetBindDiagnostics, Program_GetConfigFileParsingDiagnostics, Program_GetDeclarationDiagnostics, Program_GetGlobalDiagnostics, Program_GetProgramDiagnostics, Program_GetSemanticDiagnostics, Program_GetSourceFile, Program_GetSuggestionDiagnostics, Program_GetSyntacticDiagnostics, Program_getSourceFilesToEmit, } from "../internal/compiler/program.js";
+import { NewProgram, Program_BindSourceFiles, Program_GetBindDiagnostics, Program_GetConfigFileParsingDiagnostics, Program_GetDeclarationDiagnostics, Program_GetGlobalDiagnostics, Program_GetProgramDiagnostics, Program_GetSemanticDiagnostics, Program_GetSourceFile, Program_GetSuggestionDiagnostics, Program_GetSyntacticDiagnostics, Program_getSourceFilesToEmit, SortAndDeduplicateDiagnostics, } from "../internal/compiler/program.js";
 import { GetParsedCommandLineOfConfigFile, GetSupportedExtensions, convertCompilerOptionsFromJsonWorker } from "../internal/tsoptions/tsconfigparsing.js";
 import { NewParsedCommandLine } from "../internal/tsoptions/parsedcommandline.js";
 import { GetNormalizedAbsolutePath } from "../internal/tspath/path.js";
@@ -63,13 +63,13 @@ function createCompilerSessionForProgramOwner(owner, host, config, context) {
             if (finalizedHost === undefined) {
                 throw new Error("Checked source requires an attached source-extension host.");
             }
-            const source = finalizedHost.getCompilerQueryContext(context);
+            const { source, diagnostics } = finalizedHost.publishCheckedSource(prepared.diagnostics, context);
             const checked = Object.freeze({
                 ...source,
                 program: prepared.program,
                 sourceFiles: Object.freeze([...source.getSourceFiles()]),
                 sourceFacts: createSourceFactQueries(finalizedHost),
-                diagnostics: prepared.diagnostics,
+                diagnostics,
                 extensionDiagnostics: finalizedHost.diagnostics.all(),
             });
             checkedSourceProgram = checked;
@@ -252,14 +252,14 @@ function getDiagnostics(program, context, kind, sourceFile) {
         case "declaration":
             return diagnosticsOrEmpty(Program_GetDeclarationDiagnostics(program, context, sourceFile));
         case "all":
-            return [
+            return SortAndDeduplicateDiagnostics([
                 ...diagnosticsOrEmpty(Program_GetConfigFileParsingDiagnostics(program)),
                 ...diagnosticsOrEmpty(Program_GetProgramDiagnostics(program)),
                 ...diagnosticsOrEmpty(Program_GetGlobalDiagnostics(program, context)),
                 ...diagnosticsOrEmpty(Program_GetSyntacticDiagnostics(program, context, sourceFile)),
                 ...diagnosticsOrEmpty(Program_GetBindDiagnostics(program, context, sourceFile)),
                 ...diagnosticsOrEmpty(Program_GetSemanticDiagnostics(program, context, sourceFile)),
-            ];
+            ]);
     }
 }
 // A plain value as the compiler's configuration reader takes a parsed configuration: an object becomes an ordered map

@@ -1,9 +1,13 @@
 import type { DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import { encodeKey } from "../ids/index.js";
+import { artifactBindingsData } from "../ir-types/index.js";
 import type { Condition, ConditionLimits } from "./conditions-data.js";
 import { andConditions, checkConditionLimits, conditionEquals, orConditions, substituteCondition, validateCondition } from "./conditions.js";
-import type { BoundInitializationRow, InitializationApplication, InitializationEvent } from "./initialization-data.js";
-import type { RelationalArena } from "./arena-data.js";
+import type { StaticDeclarationKey, StaticInitializationCellOf, StaticInitializationOf } from "./contract.js";
+import type { BoundInitializationCell, BoundInitializationRow, InitializationApplication, InitializationApplicationInput,
+  StaticInitializationCell, StaticInitializationEffect, UnmetStaticNeed } from "./initialization-data.js";
+import { admitArtifactIdentity } from "./verification.js";
 
 interface PointRows {
   readonly cells: Map<number, number>;
@@ -20,12 +24,6 @@ interface PreparedApplication {
   readonly referenced: Set<number>;
   readonly values: Map<number | null, ReadonlyMap<number, Condition>>;
   readonly points: Map<number, Map<number | null, Condition>>;
-}
-
-export interface InitializationApplicationInput {
-  readonly application: InitializationApplication;
-  readonly caller: RelationalArena;
-  readonly events: readonly InitializationEvent[];
 }
 
 const validIndex = (index: number, length: number): boolean =>
@@ -305,3 +303,93 @@ export function applyInitialization(input: InitializationApplicationInput, limit
   }
   return { kind: "complete", value: result };
 }
+
+export const staticDeclarationKey: StaticDeclarationKey = (declaration, account) => {
+  const identity = chargeWork(account, 1) ?? chargeWork(account, declaration.definition.length) ?? admitArtifactIdentity(declaration.bindings, account)
+    ?? chargeResultEntries(account, 1);
+  return identity ?? { kind: "complete", value: encodeKey([declaration.definition, artifactBindingsData(declaration.bindings)]) };
+};
+
+export const staticInitializationCellOf: StaticInitializationCellOf = (summary, position, account) => {
+  const read = chargeWork(account, 1);
+  if (read !== null) return read;
+  const row = summary.arena.cells[position];
+  if (row === undefined || !Object.is(row.id, position) || row.role.kind !== "static" || row.occurrence.kind !== "declared"
+    || row.occurrence.at.kind !== "node")
+    return { kind: "complete", value: null };
+  const declaration = row.role.declaration;
+  const key = staticDeclarationKey(declaration, account);
+  if (key.kind !== "complete") return key;
+  const identity = chargeResultEntries(account, 3);
+  return identity ?? { kind: "complete", value: { declaration, key: key.value, source: row.occurrence.at.node } };
+};
+
+export const staticInitializationOf: StaticInitializationOf = (summary, writtenOnEntry, limits) => {
+  const { account } = limits;
+  const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
+  if (initial !== null) return initial;
+  const table = summary.initialization;
+  const unbound: DataflowResult<StaticInitializationEffect> = { kind: "complete", value: { kind: "unbound" } };
+  if (table.events.length !== 0 || summary.callbacks.length !== 0 || limits.eventCount !== 0) return unbound;
+  if (table.cells.length === 0) {
+    for (let index = 0; index < table.points.length; index += 1) {
+      const read = chargeWork(account, 1);
+      if (read !== null) return read;
+      const point = table.points[index];
+      if (point?.kind !== "return" && point?.kind !== "unwind") return unbound;
+    }
+    return { kind: "complete", value: { kind: "bound", writes: [], unmet: [] } };
+  }
+  const cells: BoundInitializationCell[] = [];
+  const sources = new Map<number, StaticInitializationCell>();
+  for (let index = 0; index < table.cells.length; index += 1) {
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    const position = table.cells[index];
+    if (position === undefined || sources.has(position)) return unbound;
+    const selected = staticInitializationCellOf(summary, position, account);
+    if (selected.kind !== "complete") return selected;
+    if (selected.value === null) return unbound;
+    const growth = chargeResultEntries(account, 2);
+    if (growth !== null) return growth;
+    cells.push({ kind: "cell", index: position });
+    sources.set(position, selected.value);
+  }
+  const bound = applyInitialization({ caller: summary.arena, events: [],
+    application: { owner: { kind: "summary", key: summary.key }, arena: summary.arena, table, binding: { cells, events: [] } } }, limits);
+  if (bound.kind !== "complete") return bound;
+  const writes: string[] = [];
+  const unmet: UnmetStaticNeed[] = [];
+  const unmetKeys = new Set<string>();
+  for (let index = 0; index < bound.value.length; index += 1) {
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    const row = required(bound.value[index]);
+    if (row.point.kind === "before" || row.point.kind === "completed") return unbound;
+    if (row.point.kind === "unwind") continue;
+    const proved = row.condition.alternatives.length !== 0;
+    if (row.cell?.kind !== "cell") {
+      if (proved) return unbound;
+      continue;
+    }
+    const source = required(sources.get(row.cell.index));
+    if (row.point.kind === "need" && !proved) {
+      const lookup = chargeWork(account, source.key.length);
+      if (lookup !== null) return lookup;
+      const alreadyWritten = writtenOnEntry(source.key);
+      const lookupStop = accountFailure(account);
+      if (lookupStop !== null) return lookupStop;
+      if (alreadyWritten || unmetKeys.has(source.key)) continue;
+      const emit = chargeResultEntries(account, 3);
+      if (emit !== null) return emit;
+      unmetKeys.add(source.key);
+      unmet.push({ declaration: source.declaration, at: row.point.at, witness: row.point.witness });
+    } else if (row.point.kind === "return" && proved) {
+      if (!summary.returns) return unbound;
+      const emit = chargeResultEntries(account, 1);
+      if (emit !== null) return emit;
+      writes.push(source.key);
+    }
+  }
+  return { kind: "complete", value: { kind: "bound", writes, unmet } };
+};

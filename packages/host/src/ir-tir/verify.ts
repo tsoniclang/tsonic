@@ -1,16 +1,16 @@
-import type { BodyId, CandidateListId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
+import type { BodyId, CandidateListId, DefId, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
-import { childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, walkSyntaxTree } from "../ir-hir/index.js";
+import { checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
-import { verifyTypes } from "../ir-types/index.js";
-import type { TirBindingOwners, TirBindingTarget, TirBody, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirRule, TirSite, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
+import { sameInstance, verifyTypes } from "../ir-types/index.js";
+import type { TirBindingTarget, TirBody, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { TirOccurrenceEmit, TirStructure, TirTypeGraph } from "./verify-occurrences.js";
-import { collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyValueEndpoints } from "./verify-occurrences.js";
+import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
-import { applicationOf, declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
-import { sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublicationInventory, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
+import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
+import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
 import { sameSyntaxFields } from "./syntax-compare.js";
 import { createTirLayouts } from "./text-model.js";
 
@@ -111,12 +111,14 @@ export const verifySourcePreservation = (
     body.bindings.kind === "parametric" && typedNodes.get(body.root.id) !== body.root) {
     emit("module-node-identity", body.root, "body does not retain its module identity and canonical parametric subtree");
   }
-  const paired: { node: TirNode; original: HirNode }[] = original === undefined ? [] : [{ node: body.root, original: original.root }];
+  interface TransferScope { readonly breakTo: NodeId | null; readonly continueTo: NodeId | null }
+  const paired: { node: TirNode; original: HirNode; transfers: TransferScope | undefined }[] = original === undefined
+    ? [] : [{ node: body.root, original: original.root, transfers: { breakTo: null, continueTo: null } }];
   for (const [index, parameter] of body.params.entries()) {
     const checked = headers[index];
     if (checked === undefined || checked === null)
       emit("parameter-order", parameter, "selected header has no actual checked parameter item and owning callable association");
-    else paired.push({ node: parameter, original: checked });
+    else paired.push({ node: parameter, original: checked, transfers: undefined });
     if (body.bindings.kind === "parametric" && typedNodes.get(parameter.id) !== parameter)
       emit("module-node-identity", parameter, "selected parameter is not the canonical header occurrence of its callable");
   }
@@ -139,6 +141,27 @@ export const verifySourcePreservation = (
     if (!sameSyntaxFields(node, checked)) {
       emit("kind-children-shape", node, "typed syntax does not retain the authored kind, fields and child presence");
     }
+    if (pair.transfers !== undefined && (node.kind === "BreakStatement" || node.kind === "ContinueStatement")
+      && checked.kind === node.kind && checked.label === null && node.label === null) {
+      const target = node.tsonic.target;
+      const expected = node.kind === "BreakStatement" ? pair.transfers.breakTo : pair.transfers.continueTo;
+      if (target.body !== body.body || target.node !== expected)
+        emit("node-reference", node, "unlabelled transfer does not target its actual enclosing control in this execution");
+    }
+    if (pair.transfers !== undefined && (node.kind === "LabeledStatement" || node.kind === "BreakStatement" || node.kind === "ContinueStatement")
+      && (checked.kind === "LabeledStatement" || checked.kind === "BreakStatement" || checked.kind === "ContinueStatement")
+      && node.kind === checked.kind && checked.label !== null && node.label !== null) {
+      const sourceName = checked.label.tsonic;
+      const typedName = node.label.tsonic;
+      const expected = sourceName.role === "label" ? sourceName.target : null;
+      const declaration = expected === null ? undefined : sourceNodes.get(expected.node);
+      const target = node.tsonic.target;
+      if (expected === null || expected.body !== body.body || declaration?.kind !== "LabeledStatement"
+        || declaration.label.text !== checked.label.text || node.kind === "LabeledStatement" && expected.node !== checked.id
+        || target.body !== expected.body || target.node !== expected.node
+        || typedName.role !== "label" || typedName.target.body !== expected.body || typedName.target.node !== expected.node)
+        emit("node-reference", node, "labelled control does not retain the actual qualified checked label binding");
+    }
     if (!Object.is(node.parent, checked.parent)) emit("parent-reference", node, "typed node parent differs from the real authored parent");
     let sameDerivation = node.origin.derived.length === checked.origin.derived.length;
     for (let position = 0; position < node.origin.derived.length; position++) {
@@ -158,7 +181,17 @@ export const verifySourcePreservation = (
     for (let position = children.length - 1; position >= 0; position--) {
       const child = children[position];
       const sourceChild = originals[position];
-      if (child !== undefined && sourceChild !== undefined) paired.push({ node: child, original: sourceChild });
+      if (child !== undefined && sourceChild !== undefined) {
+        let transfers = nestedRoots.has(sourceChild.id) ? undefined : pair.transfers;
+        if (transfers !== undefined) {
+          if ((checked.kind === "WhileStatement" || checked.kind === "DoStatement" || checked.kind === "ForStatement"
+            || checked.kind === "ForInStatement" || checked.kind === "ForOfStatement") && sourceChild === checked.statement)
+            transfers = { breakTo: checked.id, continueTo: checked.id };
+          else if (checked.kind === "SwitchStatement" && sourceChild === checked.caseBlock)
+            transfers = { breakTo: checked.id, continueTo: transfers.continueTo };
+        }
+        paired.push({ node: child, original: sourceChild, transfers });
+      }
       else if (child !== undefined) emit("no-inserted-nodes", child, "typed syntax adds an authored child position");
     }
   }
@@ -365,12 +398,27 @@ const verifyScalarReferences = (
   }
 };
 
-const verifyTypePayload = (
-  input: TirVerifierInput, target: TirBindingTarget, structure: TirStructure,
+const verifyTypePayload = <Stop extends object>(
+  input: TirVerifierInput, target: TirBindingTarget, subject: TirBody | TirModule, structure: TirStructure,
   declarationOf: (definition: DefId) => TirDeclarationInventory | null,
-  emit: TirOccurrenceEmit, appendViolation: TirOccurrenceEmit,
-): void => {
-  const scopes = input.bindingScopesOf(target);
+  emit: TirOccurrenceEmit, appendViolation: TirOccurrenceEmit, admit: TirReadyReadAdmission<Stop>,
+): Stop | null => {
+  const stop = target.kind === "body" ? admit({ kind: "artifact", instance: target.instance })
+    : admit({ kind: "module-scope", module: target.module });
+  if (stop !== null) return stop;
+  const supplied = input.bindingScopesOf<Stop>(target, subject, consume => {
+    for (let position = 0; position < structure.records.length; position += 1) {
+      const stop = admit({ kind: "row" });
+      if (stop !== null) return stop;
+      const record = structure.records[position];
+      if (record?.association?.kind !== "binding") continue;
+      const consumed = consume(record.bindingOwner);
+      if (consumed !== null) return consumed;
+    }
+    return null;
+  });
+  if (supplied.kind === "resource-stop") return supplied.stop;
+  const scopes = supplied.scopes;
   if (scopes === null) emit("binding-vector-complete", null, "binding target has no actual supplied scope inventory");
   const bindingInputs: BindingVerificationInput[] = [];
   const bindingSites: (TirNode | null)[] = [];
@@ -429,25 +477,7 @@ const verifyTypePayload = (
   for (const violation of mappedViolations) {
     appendViolation(violation.target, violation.node, `type verifier: ${violation.rule}`);
   }
-};
-
-export const tirBindingOwners: TirBindingOwners = (input, target) => {
-  let subject: TirBody | TirModule;
-  let stops: ReadonlySet<NodeId>;
-  if (target.kind === "body") {
-    const body = input.bodyOf(target.instance);
-    if (body === null) throw new TypeError("The binding inventory requires its actual selected or template body.");
-    subject = body;
-    stops = readSourceBoundary(body.body, input.source, input.nodeOf).nestedRoots;
-  } else {
-    if (target.module !== input.module.module) throw new TypeError("The binding inventory requires its actual module.");
-    subject = input.module;
-    stops = new Set(input.module.bodies.map(body => body.root.id));
-  }
-  const output: (DefId | null)[] = [];
-  for (const record of inspectTirStructure(subject, createTirLayouts(), stops).records)
-    if (record.association?.kind === "binding") output.push(record.bindingOwner);
-  return output;
+  return null;
 };
 
 export const tirOperationsOf: TirOperationsOf = (input, instance) => {
@@ -459,7 +489,11 @@ export const tirOperationsOf: TirOperationsOf = (input, instance) => {
     ({ operation: value, node: { body: body.body, node: node.id }, origin: node.origin }));
 };
 
-export const verifyTypedBody: VerifyTir = (input, body) => {
+function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody, admit: TirReadyReadAdmission<Stop>,
+  membership: (selected: TirBody, emit: TirOccurrenceEmit) => Stop | null,
+): TirVerificationResult<TirSite, Stop> {
+  const previous = admit({ kind: "prior" });
+  if (previous !== null) return { kind: "resource-stop", stop: previous };
   const violations: Violation<TirRule, TirSite>[] = [];
   const emitted = new Set<string>();
   const appendViolation: TirOccurrenceEmit = (rule, node, message) => {
@@ -483,23 +517,73 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
   verifyBodyRecords(body, inventory.original, emit);
   const typeGraph = verifyClosedReferences(body.root, structure, input.types, input.diagnostics, emit);
   verifyQualifiedReferences(input, body, structure, emit);
-  verifyPublicationInventory(input.module, body, emit);
+  const publication = membership(body, emit);
+  if (publication !== null) return { kind: "resource-stop", stop: publication };
   const ownNodeIds = verifyNestedPublication(input, body, semantics, inventory.original, inventory.typedNodes, inventory.ownNodes, boundary.headers, emit);
   verifyControlledContexts(body, inventory.original, structure, semantics, emit);
-  verifyBindingSlots(body, structure.nodes, inventory.sourceNodes, boundary.bodies, input.module.bodies, input.bodyOf, input.nodeOf, emit);
+  const bindingSlots = verifyBindingSlots(body, structure.nodes, inventory.sourceNodes, boundary.bodies, input.module.bodies, input.bodyOf, input.nodeOf, emit, admit);
+  if (bindingSlots !== null) return { kind: "resource-stop", stop: bindingSlots };
   const declarationOf = declarationInventory(input);
   verifyScalarReferences(structure, inventory.sourceNodes, declarationOf, emit);
+  const instanceRead = admit({ kind: "row" });
+  if (instanceRead !== null) return { kind: "resource-stop", stop: instanceRead };
   const instance: BodyInstance = { body: body.body, bindings: body.bindings };
-  verifyTypePayload(input, { kind: "body", instance }, structure, declarationOf, emit, appendViolation);
+  const types = verifyTypePayload(input, { kind: "body", instance }, body, structure, declarationOf, emit, appendViolation, admit);
+  if (types !== null) return { kind: "resource-stop", stop: types };
   const candidates = new Map<CandidateListId, readonly HirCandidate[]>();
   if (inventory.original !== undefined) for (const list of inventory.original.candidateLists) {
     if (list !== undefined) candidates.set(list.id, list.candidates);
   }
   for (const node of structure.nodes) {
-    verifyOccurrenceRole(node, inventory.sourceNodes.get(node.id), emit);
+    const original = inventory.sourceNodes.get(node.id);
+    verifyOccurrenceRole(node, original, emit);
     verifyValueEndpoints(body, node, emit);
-    verifyOccurrenceOperation(node, emit);
+    verifyOccurrenceOperation(node, input.types, emit);
+    if (node.kind === "SwitchStatement") verifySwitchOperations(node, input.types, emit);
     const phase = node.tsonic;
+    const checked = original?.tsonic;
+    const checkedIntrinsic = checked !== undefined && checked !== null && "resolution" in checked
+      && checked.resolution.kind === "intrinsic-value";
+    const typedIntrinsic = phase !== null && "resolution" in phase && phase.resolution.kind === "intrinsic-value";
+    if (checkedIntrinsic || typedIntrinsic) {
+      const type = node.kind === "Identifier" && node.tsonic.role === "value" ? input.types.terms[node.tsonic.type] : undefined;
+      if (!checkedIntrinsic || !typedIntrinsic || type?.kind !== "intrinsic" || type.intrinsic !== "absence")
+        emit("intrinsic-value-use", node, "a typed intrinsic value must retain its actual checked identifier read and native absence type");
+    }
+    if (phase !== null && "resolution" in phase && phase.resolution.kind === "static") {
+      const reference = phase.resolution;
+      const original = checked !== undefined && checked !== null && "resolution" in checked ? checked.resolution : null;
+      const binding = original?.kind === "binding" ? resolveModuleBinding(input, original.occurrence) : null;
+      const selected = binding === null ? original : binding.target.kind === "available" ? binding.target.value : null;
+      const aliases = binding?.aliases ?? [];
+      const declaration = input.nodeOf({ kind: "item", value: reference.declaration });
+      const checkedStorage = declaration?.kind === "VariableDeclaration" ? checkedVariableStorageOf(declaration) : null;
+      let storage: TyId | null = null;
+      if (node.kind === "Identifier" && node.tsonic.role === "value") storage = node.tsonic.type;
+      else if (node.kind === "Identifier" && node.tsonic.role === "assignment-target" && original?.kind === "declarations"
+        && checked !== null && checked !== undefined && "role" in checked && checked.role === "assignment-target" && checkedStorage !== null) {
+        const access = node.tsonic.access;
+        if (checked.access === "write" && access.kind === "write" && writableRootStorageOf(checked.place, original) === checkedStorage
+          || checked.access === "read-write" && access.kind === "read-write" && access.read === access.storage
+            && access.narrowing === null && access.evidenceIndex === null && readWriteRootStorageOf(checked.place, original) === checkedStorage)
+          storage = access.storage;
+      }
+      const ownsStorage = storage !== null && selected?.kind === "declarations"
+        && selected.definitions.length === 1 && selected.definitions[0] === reference.declaration.owner
+        && declaration?.kind === "VariableDeclaration" && declaration.id === reference.declaration.node
+        && declaration.tsonic.declaration.kind === "definition" && declaration.tsonic.declaration.definition === reference.declaration.owner;
+      if (ownsStorage) {
+        const paid = admit({ kind: "static-item", declaration: reference.declaration });
+        if (paid !== null) return { kind: "resource-stop", stop: paid };
+      }
+      if (!ownsStorage
+        || input.staticStorageOf(reference.declaration) !== storage
+        || reference.aliases.length !== aliases.length || reference.aliases.some((alias, index) => {
+          const actual = aliases[index];
+          return actual === undefined || !sameSourceReference(alias, actual);
+        }))
+        emit("static-reference-exact", node, "a static access must retain its actual checked declaration, binding hops and storage type");
+    }
     if (phase !== null && "resolution" in phase && phase.resolution.kind === "error") {
       const index = phase.resolution.diagnostic;
       const diagnostic = input.diagnostics[index];
@@ -511,7 +595,7 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
     }
     const application = applicationOf(node);
     if (application?.kind === "decided") {
-      const signature = input.types.signatures[application.decision.callee.decision.api.signature];
+      const signature = input.types.signatures[application.decision.callee.decision.completion.signature];
       if (signature !== undefined) verifyArgumentTransport(application.decision, node, signature,
         originalApplication(inventory.sourceNodes.get(node.id)), inventory.sourceNodes, emit);
     }
@@ -531,6 +615,7 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
     }
   }
   for (const application of semantics.applications) {
+    const decision = application.kind === "callee" ? application.value.decision : application.value;
     const original = originalApplication(inventory.sourceNodes.get(application.node.id));
     let actualCandidates: readonly HirCandidate[] | null = null;
     if (original?.candidates.kind === "available") {
@@ -538,23 +623,38 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
       if (actual === undefined) emit("call-endpoints", application.node, "selected application names a missing actual candidate inventory");
       else actualCandidates = actual;
     }
-    verifyCallEndpoints(application.value, application.node, input.types,
-      { advertised: declarationOf(application.value.advertised.declaration), api: declarationOf(application.value.api.declaration),
-        candidates: actualCandidates }, emit);
-  }
-  for (const callee of semantics.callees) {
-    verifyActivation(callee.value, callee.node, emit);
-    if (callee.value.activation !== null) {
-      const published = input.bodyOf(callee.value.activation);
-      const completion = callee.value.decision.completion;
-      if (published !== null && (completion.signature !== published.signature || completion.completion !== published.completion ||
-        completion.yielded !== published.yielded || completion.sent !== published.sent)) {
-        emit("completion-endpoint", callee.node, "selected completion does not retain the actual activated body's signature and channels");
+    let activated: TirBody | null | undefined;
+    if (application.kind === "callee" && application.value.activation !== null) {
+      const activation = application.value.activation;
+      activated = null;
+      const admissible = verifyActivation(application.value, application.node, emit, admit);
+      if (admissible.kind === "resource-stop") return admissible;
+      if (admissible.valid) {
+        const lookup = admit({ kind: "artifact", instance: activation });
+        if (lookup !== null) return { kind: "resource-stop", stop: lookup };
+        const published = input.bodyOf(activation);
+        if (published !== null && published.owner === decision.api.declaration) {
+          const original = admit({ kind: "artifact", instance: activation });
+          if (original !== null) return { kind: "resource-stop", stop: original };
+          const row = admit({ kind: "row" });
+          if (row !== null) return { kind: "resource-stop", stop: row };
+          const actual = { body: published.body, bindings: published.bindings };
+          const comparison = admit({ kind: "artifact", instance: actual });
+          if (comparison !== null) return { kind: "resource-stop", stop: comparison };
+          if (sameInstance(activation, actual)) activated = published;
+        }
+        verifyPublishedInstance(activated, application.node, emit);
       }
-      verifyPublishedInstance(published, callee.node, emit);
     }
+    verifyCallEndpoints(decision, application.node, input.types,
+      { advertised: declarationOf(decision.advertised.declaration), api: declarationOf(decision.api.declaration),
+        candidates: actualCandidates, activated }, emit);
   }
-  for (const instance of semantics.initializers) verifyPublishedInstance(input.bodyOf(instance.value), instance.node, emit);
+  for (const instance of semantics.initializers) {
+    const paid = admit({ kind: "artifact", instance: instance.value });
+    if (paid !== null) return { kind: "resource-stop", stop: paid };
+    verifyPublishedInstance(input.bodyOf(instance.value), instance.node, emit);
+  }
   const supportMemo = new Map<string, boolean>();
   for (const deferred of semantics.deferred) {
     verifyDeferredParameters(deferred.value, deferred.node, body, input.types, typeGraph, supportMemo, emit);
@@ -571,6 +671,8 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
     verifyProtocolRecord(protocol.value, protocol.node, captured?.kind === "available" ? captured.value : null, input.types, emit);
   }
   for (const member of structure.selectedMembers) {
+    const paid = admit({ kind: "member", instance, occurrence: member.occurrence });
+    if (paid !== null) return { kind: "resource-stop", stop: paid };
     const table = input.memberTableOf(instance, member.occurrence);
     let members: TirMemberInventory | null = null;
     if (table !== null) {
@@ -585,10 +687,17 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
     if (member.selection === null) verifyMemberDecision(member.decision, member.node, members, emit);
     else verifyMemberSelection(member.selection, member.node, members, emit);
   }
-  return violations;
+  return { kind: "complete", violations };
+}
+
+export const verifyTypedBody: VerifyTir = (input, admit) => {
+  const membership = publicationMembership(input, admit);
+  return body => verifyBody(input, body, admit, membership);
 };
 
-export const verifyTypedModule: VerifyTirModule = (input, module) => {
+export const verifyTypedModule: VerifyTirModule = (input, module, admit) => {
+  const previous = admit({ kind: "prior" });
+  if (previous !== null) return { kind: "resource-stop", stop: previous };
   const violations: Violation<TirRule, TirNodeSite>[] = [];
   const emitted = new Set<string>();
   const appendViolation: TirOccurrenceEmit = (rule, node, message) => {
@@ -621,6 +730,6 @@ export const verifyTypedModule: VerifyTirModule = (input, module) => {
   for (const node of structure.nodes) verifyOccurrenceRole(node, sourceNodes.get(node.id), emit);
   verifyBodylessParameters(input, structure.nodes, sourceNodes, emit);
   verifyDeclarationNames(structure.nodes, sourceNodes, emit);
-  verifyTypePayload(input, { kind: "module", module: module.module }, structure, declarationOf, emit, appendViolation);
-  return violations;
+  const types = verifyTypePayload(input, { kind: "module", module: module.module }, module, structure, declarationOf, emit, appendViolation, admit);
+  return types === null ? { kind: "complete", violations } : { kind: "resource-stop", stop: types };
 };

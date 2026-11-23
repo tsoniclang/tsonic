@@ -88,8 +88,8 @@ test("callable graph refusal retains each original publication dimension without
   assert.equal(signature !== undefined, true);
   for (const [dimension, field] of [["work", "maximumWork"], ["created-records", "maximumCreatedRecords"]]) {
     const types = fixture.types.createTypeInterner();
-    const deps = fixture.lowerDepsFor(actual.definitions, types, "export function value(input:boolean):boolean{return input;}");
-    const conversion = operations.createTypeConversion({ ...deps, typePublication: { ...deps.typePublication, [field]: 0 } }, actual.raw);
+    const deps = fixture.lowerDepsFor(actual.definitions, types, "export function value(input:boolean):boolean{return input;}", { [field]: 0 });
+    const conversion = operations.createTypeConversion(deps, actual.raw);
     const result = operations.signatureOf(conversion, signature.id);
     assert.deepEqual(result, { kind: "resource-limit", dimension, maximum: 0 });
     assert.equal(conversion.convertedTypes.size, 0);

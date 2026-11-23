@@ -8,7 +8,7 @@ import type {
   ArtifactBindings, BindingVector, BodyInstance, TypeEvidence
 } from "../ir-types/contract.js";
 import type {
-  LocalRef, Origin, SourceNodeRef
+  ItemNodeRef, LocalRef, Origin, SourceNodeRef
 } from "../ids/contract.js";
 import type {
   ArrowFunction, Block, CheckJsDirective, ClassStaticBlockDeclaration, CommentDirective, ConstructorDeclaration, FunctionDeclaration, FunctionExpression, GetAccessorDeclaration, HirLexicalScope, ImportTarget, MethodDeclaration, ModifierList, NodeList, ParameterDeclaration, Pragma, SetAccessorDeclaration, SourceFile, Statement, TextRange, TypeParameterDeclaration
@@ -31,6 +31,7 @@ export interface BodyTextReads {
   readonly work_EmbeddingDecision: TirRecordCodec<EmbeddingDecision>;
   readonly work_HirLexicalScope: TirRecordCodec<HirLexicalScope>;
   readonly work_ImportTarget: TirRecordCodec<ImportTarget>;
+  readonly work_ItemNodeRef: TirRecordCodec<ItemNodeRef>;
   readonly work_L_ParameterDeclaration_: TirRecordCodec<NodeList<ParameterDeclaration<TypedPhase>>>;
   readonly work_L_Statement_: TirRecordCodec<NodeList<Statement<TypedPhase>>>;
   readonly work_L_TypeParameterDeclaration_: TirRecordCodec<NodeList<TypeParameterDeclaration<TypedPhase>>>;
@@ -161,10 +162,20 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
   const work_TirResolution_local: TirRecordCodec<TirResolution & { readonly kind: "local" }> = defineRecord<TirResolution & { readonly kind: "local" }>("TirResolution#local", "TirResolution", { field: "kind", value: "local" }, "local", null, null, fields => fields
     .field("local", "LocalRef", value => read.work_LocalRef.write(value.local), lazyReader(() => read.work_LocalRef.reader))
     .finish((field_local) => ({ kind: "local", local: field_local })));
+  const intrinsicValue: TirRecordCodec<Extract<TirResolution, { readonly kind: "intrinsic-value" }>> =
+    defineRecord<Extract<TirResolution, { readonly kind: "intrinsic-value" }>>("TirResolution#intrinsic-value", "TirResolution",
+      { field: "kind", value: "intrinsic-value" }, "intrinsic-value", null, null, fields => fields
+        .field("intrinsic", "'undefined", value => scalarWork("'undefined", value.intrinsic), literalReader<"undefined">("'undefined", ["undefined"]))
+        .finish(intrinsic => ({ kind: "intrinsic-value", intrinsic })));
   const work_TirResolution_definition: TirRecordCodec<TirResolution & { readonly kind: "definition" }> = defineRecord<TirResolution & { readonly kind: "definition" }>("TirResolution#definition", "TirResolution", { field: "kind", value: "definition" }, "definition", null, null, fields => fields
     .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)
     .field("aliases", "[SourceNodeRef]", value => sequenceWork("[SourceNodeRef]", value.aliases, actual => read.work_SourceNodeRef.write(actual)), sequenceReader("[SourceNodeRef]", lazyReader(() => read.work_SourceNodeRef.reader)))
     .finish((field_definition, field_aliases) => ({ kind: "definition", definition: field_definition, aliases: field_aliases })));
+  const staticResolution = defineRecord<Extract<TirResolution, { readonly kind: "static" }>>("TirResolution#static", "TirResolution",
+    { field: "kind", value: "static" }, "static", null, null, fields => fields
+      .field("declaration", "ItemNodeRef", value => read.work_ItemNodeRef.write(value.declaration), lazyReader(() => read.work_ItemNodeRef.reader))
+      .field("aliases", "[SourceNodeRef]", value => sequenceWork("[SourceNodeRef]", value.aliases, actual => read.work_SourceNodeRef.write(actual)), sequenceReader("[SourceNodeRef]", lazyReader(() => read.work_SourceNodeRef.reader)))
+      .finish((declaration, aliases) => ({ kind: "static", declaration, aliases })));
   const work_TirResolution_module: TirRecordCodec<TirResolution & { readonly kind: "module" }> = defineRecord<TirResolution & { readonly kind: "module" }>("TirResolution#module", "TirResolution", { field: "kind", value: "module" }, "module", null, null, fields => fields
     .field("target", "ImportTarget", value => read.work_ImportTarget.write(value.target), lazyReader(() => read.work_ImportTarget.reader))
     .finish((field_target) => ({ kind: "module", target: field_target })));
@@ -441,12 +452,15 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     })));
   const work_TirResolution: TirRecordCodec<TirResolution> = unionRecord<TirResolution>("TirResolution", (value: TirResolution): TirTypedRecordWork => {
     switch (value.kind) {
+      case "intrinsic-value": return intrinsicValue.write(value);
       case "local": return work_TirResolution_local.write(value);
       case "definition": return work_TirResolution_definition.write(value);
+      case "static": return staticResolution.write(value);
       case "module": return work_TirResolution_module.write(value);
       case "error": return work_TirResolution_error.write(value);
     }
-  }, () => [work_TirResolution_local.reader, work_TirResolution_definition.reader, work_TirResolution_module.reader, work_TirResolution_error.reader]);
+  }, () => [work_TirResolution_local.reader, work_TirResolution_definition.reader, staticResolution.reader,
+    work_TirResolution_module.reader, work_TirResolution_error.reader, intrinsicValue.reader]);
   const work_TirArgument: TirRecordCodec<TirArgument> = unionRecord<TirArgument>("TirArgument", (value: TirArgument): TirTypedRecordWork => {
     switch (value.kind) {
       case "provided": return work_TirArgument_provided.write(value);

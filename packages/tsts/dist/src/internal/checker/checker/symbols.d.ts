@@ -3562,6 +3562,7 @@ export declare function Checker_checkIdentifier(receiver: GoPtr<Checker>, node: 
  * }
  */
 export declare function Checker_isSameScopedBindingElement(receiver: GoPtr<Checker>, node: GoPtr<Node>, declaration: GoPtr<Node>): bool;
+export declare function Checker_getIdentifierAssignmentError(receiver: GoPtr<Checker>, node: GoPtr<Node>, symbol: Symbol): GoPtr<Message>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpression","kind":"method","status":"implemented","sigHash":"febcba979df4bee97ff9b0d6a44f3b1d8f0f4d8f43952819b5bcda4e8c2e880e","bodyHash":"82b3a1ac1890b83ce90db47cb21a1598249772e581ef1fe94cf9180ba2495e26"}
  * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"After exact TS-Go property checking, source-evidence queries retain the selected receiver, member declaration, and final result without changing source semantics. R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode,packages/tsts/src/go/scalars.ts::bool)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode,packages/tsts/src/go/scalars.ts::bool,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
@@ -3832,6 +3833,7 @@ export declare function Checker_getPrivateIdentifierPropertyOfType(receiver: GoP
 export declare function Checker_checkPrivateIdentifierPropertyAccess(receiver: GoPtr<Checker>, leftType: GoPtr<Type>, right: GoPtr<Node>, lexicallyScopedIdentifier: GoPtr<Symbol>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportNonexistentProperty","kind":"method","status":"implemented","sigHash":"9aec8730ebf63baf20d6c599892368db404e7f9b2ef28b13b82272c1d806a0d7","bodyHash":"5677ccfb03e627239cd2122c19fe0bc5c9587664844674c608306761b1bad64b"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the exact originally emitted missing-property error to the native expression owner. Suggestions and suppressed or unreported errors return no cause.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>,packages/tsts/src/go/scalars.ts::bool)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>,packages/tsts/src/go/scalars.ts::bool)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) reportNonexistentProperty(propNode *ast.Node, containingType *Type, isUncheckedJS bool) {
@@ -3897,7 +3899,7 @@ export declare function Checker_checkPrivateIdentifierPropertyAccess(receiver: G
  * 	c.addErrorOrSuggestion(!isUncheckedJS || diagnostic.Code() != diagnostics.Property_0_may_not_exist_on_type_1_Did_you_mean_2.Code(), diagnostic)
  * }
  */
-export declare function Checker_reportNonexistentProperty(receiver: GoPtr<Checker>, propNode: GoPtr<Node>, containingType: GoPtr<Type>, isUncheckedJS: bool): void;
+export declare function Checker_reportNonexistentProperty(receiver: GoPtr<Checker>, propNode: GoPtr<Node>, containingType: GoPtr<Type>, isUncheckedJS: bool): GoPtr<Diagnostic>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getSuggestedLibForNonExistentProperty","kind":"method","status":"implemented","sigHash":"ae2390239ec144b258e7cfd6cf608a5bcf2a8f7673fa1f62590f93388802f3da","bodyHash":"3e1951d2e561bb688cb6a57ac806ec45c31c54ff49d4b92550a27c12cd3c41fd"}
  *
@@ -5245,6 +5247,8 @@ export declare function Checker_getTargetOfNamespaceExportDeclaration(receiver: 
  * }
  */
 export declare function Checker_getModuleSpecifierForImportOrExport(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Node>;
+export declare function isSourceModuleBinding(node: Node): boolean;
+export declare function retainedAliasFailure(receiver: Checker, declaration: Node, symbol: Symbol, allowExternal: boolean): Diagnostic | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.markSymbolOfAliasDeclarationIfTypeOnly","kind":"method","status":"implemented","sigHash":"4974f8dfc0fb2138a3c8ce4a32b30f8236aa7ebb6cbb137dd095847d2a987522","bodyHash":"b6fad9cce2d3d6d21fba638ea70fd72e6adbfc53a6ab456c7968aa728776bfc9"}
  *
@@ -8328,6 +8332,7 @@ export declare function Checker_instantiateTypeWithAliasAndCapture(receiver: GoP
 export declare function Checker_getNameTypeFromMappedType(receiver: GoPtr<Checker>, t: GoPtr<Type>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.instantiateTypeAlias","kind":"method","status":"implemented","sigHash":"0d06087c71cf487e09a5703708feeb33f7b4dd10b939396667464cfe5470b85b","bodyHash":"3b40929087aed4e4046336a7e9ee005165d70688c368ccf6f78d774f0ac75e49"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Carry the completed suffix through the same native alias descriptor instantiation and its actual mapper, without evaluating defaults again."}
  *
  * Go source:
  * func (c *Checker) instantiateTypeAlias(alias *TypeAlias, m *TypeMapper) *TypeAlias {
@@ -8358,6 +8363,7 @@ export declare function Checker_instantiateSymbols(receiver: GoPtr<Checker>, sym
 export declare function Checker_instantiateIndexInfos(receiver: GoPtr<Checker>, indexInfos: GoSlice<GoPtr<IndexInfo>>, m: GoPtr<TypeMapper>): GoSlice<GoPtr<IndexInfo>>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeFromIndexedAccessTypeNode","kind":"method","status":"implemented","sigHash":"4d0e11a45cb2fac391f8159acb3d3192a41f4cf3be84efeab493f6944c0191e7","bodyHash":"714822fadd7243ebf38c010a6b47bcdb8e2b8a55b79ac0018abfbcd08a49b400"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The same indexed annotation lookup supplies its actual unchanged property annotation for completed source-answer provenance."}
  *
  * Go source:
  * func (c *Checker) getTypeFromIndexedAccessTypeNode(node *ast.Node) *Type {
@@ -9398,6 +9404,7 @@ export declare function Checker_getIndexTypeForMappedType(receiver: GoPtr<Checke
 export declare function Checker_getIndexedAccessType(receiver: GoPtr<Checker>, objectType: GoPtr<Type>, indexType: GoPtr<Type>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIndexedAccessTypeEx","kind":"method","status":"implemented","sigHash":"32894fcb9a096bfc5849f0873f8355423ac6b3f55c00fff04ba665ea565493a6","bodyHash":"8db2a59c3289f53029aa74c5bec1a50bbc57e1bdf16fc35732164148b0f6b55d"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Shares the unchanged indexed-access result projection with the owning type-node publisher's optional source output."}
  *
  * Go source:
  * func (c *Checker) getIndexedAccessTypeEx(objectType *Type, indexType *Type, accessFlags AccessFlags, accessNode *ast.Node, alias *TypeAlias) *Type {

@@ -1,12 +1,13 @@
 import type { Violation } from "../diag/contract.js";
 import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
-import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Execution } from "../ir-types/contract.js";
 import { executionKey } from "../ir-types/index.js";
 import type { MirBody, MirStatement } from "../ir-mir/contract.js";
 import type { FactsRule, FactsSite, FactsVerification, FactsVerificationContext, MirPoint, RelationalArena, RelationalOwner,
   RelationalSite, StableReference } from "./contract.js";
 import { collectStorageChecks, nodeOwnedBy, validIndex } from "./verify-relations.js";
+import { sameSource } from "./verify-position.js";
 import { admitExecutionIdentity, recordFinding, selectedMirBody } from "./verification.js";
 
 export function verifyCells(arena: RelationalArena, owner: RelationalOwner,
@@ -65,7 +66,32 @@ export function verifyCells(arena: RelationalArena, owner: RelationalOwner,
         ? report("cell-occurrence-resolves", "A declared cell retains an actual admitted native logical site.") : null;
     };
     const occurrence = cell.occurrence;
-    if (occurrence.kind === "declared") {
+    const role = cell.role;
+    if (role.kind === "static") {
+      let matches = false;
+      if (occurrence.kind === "declared" && occurrence.at.kind === "node") {
+        const admission = chargeWork(account, 1 + role.declaration.definition.length);
+        if (admission !== null) return admission;
+        const declaration = context.declarationSourceOf(role.declaration.definition);
+        const lookupStop = accountFailure(account);
+        if (lookupStop !== null) return lookupStop;
+        if (declaration !== null) {
+          const equal = sameSource(occurrence.at.node, declaration, account);
+          if (equal.kind !== "complete") return equal;
+          if (equal.value) {
+            const read = chargeWork(account, 1);
+            if (read !== null) return read;
+            matches = context.nodeExists(declaration);
+            const nodeStop = accountFailure(account);
+            if (nodeStop !== null) return nodeStop;
+          }
+        }
+      }
+      if (!matches) {
+        const stop = report("cell-occurrence-resolves", "A static cell retains the exact source occurrence of its qualified declaration.");
+        if (stop !== null) return stop;
+      }
+    } else if (occurrence.kind === "declared") {
       const stop = checkSite(occurrence.at);
       if (stop !== null) return stop;
     } else if (occurrence.kind === "entry") {
@@ -121,7 +147,6 @@ export function verifyCells(arena: RelationalArena, owner: RelationalOwner,
           : !validIndex(reference.index, owner.kind === "body" ? context.tirBody(owner.execution.instance).captures.length : context.captureCount(owner.key) ?? 0)
             ? report("cell-role-resolves", "A formal cell retains the actual receiver, parameter or capture inventory.") : null;
     };
-    const role = cell.role;
     if (role.kind === "created") {
       if (role.anchor.kind !== "result") {
         const stop = stable(role.anchor);

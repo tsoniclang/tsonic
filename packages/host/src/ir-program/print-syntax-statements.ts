@@ -3,7 +3,7 @@ import type { TypedPhase } from "../ir-tir/contract.js";
 import { textTypedBindingElement } from "./text-phase-declarations.js";
 import type { SyntaxTextContext, TextWork } from "./text-values.js";
 import { textSyntaxHeader, field, record, token, text, boolean, textNodeList } from "./text-values.js";
-import { textTypedIteration, textTypedControlTransfer, textTypedVariableList, textTypedClassValue } from "./text-phase.js";
+import { textTypedCase, textTypedIteration, textTypedControlTransfer, textTypedVariableList, textTypedClassValue } from "./text-phase.js";
 import { textTypedBinding, textTypedBindingPattern, textTypedParameter, textTypedCallable, textTypedClass, textTypedHeritage, textTypedInterface, textTypedAlias, textTypedStorageDeclaration, textTypedEnum, textTypedIndexDeclaration, textTypedStaticBlock } from "./text-phase-declarations.js";
 
 export function printEmptyStatement(node: EmptyStatement<TypedPhase>, _context: SyntaxTextContext): TextWork {
@@ -129,7 +129,7 @@ export function printCaseClause(node: CaseClause<TypedPhase>, context: SyntaxTex
     ...textSyntaxHeader(node),
     field("expression", context.reference(node.expression)),
     field("statements", textNodeList(node.statements, context)),
-    field("tsonic", token("null")),
+    field("tsonic", textTypedCase(node.tsonic)),
   ]);
 }
 

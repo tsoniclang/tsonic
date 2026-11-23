@@ -2,7 +2,7 @@ import { GetSourceFileOfNode, HasSyntacticModifier, HasDecorators, IsDynamicName
 import { Node_EagerJSDoc, Node_ModifierNodes, Node_PostfixToken, Node_Attributes, Node_TagName, Node_TypeArgumentList, Node_Parameters, Node_Label, Node_Statement, Node_ClassName, Node_Statements, Node_StatementList, Node_Properties } from "../ast/ast.js";
 import { Node_Name, Node_FunctionLikeData, Node_ClassLikeData, Node_BodyData, Node_End, Node_Pos, NodeList_Pos, NodeList_End, NodeList_HasTrailingComma, Node_Modifiers, Node_ForEachChild } from "../ast/spine.js";
 import { PropertyAccessExpression_Name } from "../ast/generated/data.js";
-import { KindSourceFile, KindModuleBlock, KindModuleDeclaration, KindBlock, KindImportDeclaration, KindImportEqualsDeclaration, KindExportAssignment, KindExportDeclaration, KindMethodDeclaration, KindFunctionDeclaration, KindFunctionExpression, KindArrowFunction, KindClassDeclaration, KindClassExpression, KindInterfaceDeclaration, KindTypeAliasDeclaration, KindEnumDeclaration, KindVariableStatement, KindGetAccessor, KindSetAccessor, KindConstructor, KindParameter, KindTypeParameter, KindPropertyDeclaration, KindPropertySignature, KindMethodSignature, KindIndexSignature, KindClassStaticBlockDeclaration, KindPropertyAssignment, KindShorthandPropertyAssignment, KindNamespaceExportDeclaration, KindMissingDeclaration, KindNumericLiteral, KindBigIntLiteral, KindSymbolKeyword, KindArrayType, KindTupleType, KindNewKeyword, KindImportKeyword, KindInKeyword, KindOutKeyword, KindConstKeyword, KindReadonlyKeyword, KindStaticKeyword, KindAccessorKeyword, KindAsyncKeyword, KindAbstractKeyword, KindDeclareKeyword, KindDefaultKeyword, KindExportKeyword, KindPublicKeyword, KindProtectedKeyword, KindPrivateKeyword, KindOverrideKeyword, KindCommaToken, KindExclamationToken, KindQuestionToken, KindComputedPropertyName, KindSwitchStatement, KindLabeledStatement, KindBreakStatement, KindContinueStatement, KindVariableDeclaration as KindVariableDeclarationNode, KindVariableDeclarationList, KindRegularExpressionLiteral, KindJSTypeAliasDeclaration, KindJSImportDeclaration, KindNamespaceImport, KindNamedImports, KindNamedExports, KindImportSpecifier, KindExportSpecifier, KindJsxSpreadAttribute, KindJSDocAugmentsTag, KindMetaProperty, KindTypeLiteral, KindIdentifier, KindPropertyAccessExpression, KindExpressionWithTypeArguments, KindPrivateIdentifier, KindConstructorType, KindAwaitKeyword, KindExtendsKeyword, KindImplementsKeyword, KindObjectLiteralExpression, KindPrefixUnaryExpression, KindForInStatement, KindForOfStatement, KindUniqueKeyword, KindTrueKeyword, KindFalseKeyword, KindMinusToken, KindDeferKeyword, KindTypeKeyword, KindSpreadAssignment, KindJsxExpression, KindBinaryExpression, } from "../ast/generated/kinds.js";
+import { KindSourceFile, KindModuleBlock, KindModuleDeclaration, KindBlock, KindImportDeclaration, KindImportEqualsDeclaration, KindExportAssignment, KindExportDeclaration, KindMethodDeclaration, KindFunctionDeclaration, KindFunctionExpression, KindArrowFunction, KindClassDeclaration, KindClassExpression, KindInterfaceDeclaration, KindTypeAliasDeclaration, KindEnumDeclaration, KindVariableStatement, KindGetAccessor, KindSetAccessor, KindConstructor, KindParameter, KindTypeParameter, KindPropertyDeclaration, KindPropertySignature, KindMethodSignature, KindIndexSignature, KindClassStaticBlockDeclaration, KindPropertyAssignment, KindShorthandPropertyAssignment, KindNamespaceExportDeclaration, KindMissingDeclaration, KindNumericLiteral, KindBigIntLiteral, KindSymbolKeyword, KindArrayType, KindTupleType, KindNewKeyword, KindImportKeyword, KindInKeyword, KindOutKeyword, KindConstKeyword, KindReadonlyKeyword, KindStaticKeyword, KindAccessorKeyword, KindAsyncKeyword, KindAbstractKeyword, KindDeclareKeyword, KindDefaultKeyword, KindExportKeyword, KindPublicKeyword, KindProtectedKeyword, KindPrivateKeyword, KindOverrideKeyword, KindCommaToken, KindExclamationToken, KindQuestionToken, KindComputedPropertyName, KindSwitchStatement, KindLabeledStatement, KindBreakStatement, KindContinueStatement, KindVariableDeclaration as KindVariableDeclarationNode, KindVariableDeclarationList, KindRegularExpressionLiteral, KindJSTypeAliasDeclaration, KindJSImportDeclaration, KindNamespaceImport, KindNamedImports, KindNamedExports, KindImportSpecifier, KindExportSpecifier, KindJsxSpreadAttribute, KindJSDocAugmentsTag, KindMetaProperty, KindTypeLiteral, KindIdentifier, KindPropertyAccessExpression, KindExpressionWithTypeArguments, KindPrivateIdentifier, KindConstructorType, KindAwaitKeyword, KindExtendsKeyword, KindImplementsKeyword, KindObjectLiteralExpression, KindPrefixUnaryExpression, KindTypeReference, KindForInStatement, KindForOfStatement, KindUniqueKeyword, KindTrueKeyword, KindFalseKeyword, KindMinusToken, KindDeferKeyword, KindTypeKeyword, KindSpreadAssignment, KindJsxExpression, KindBinaryExpression, } from "../ast/generated/kinds.js";
 import { AsArrowFunction, AsCallExpression, AsBinaryExpression, AsPropertyAccessExpression, AsVariableDeclarationList, AsParameterDeclaration, AsHeritageClause, AsExpressionWithTypeArguments, AsVariableStatement, AsMetaProperty, AsComputedPropertyName, AsMethodDeclaration, AsPropertyDeclaration, AsPropertyAssignment, AsShorthandPropertyAssignment, AsSpreadAssignment, AsJsxAttribute, AsJSDoc, AsVariableDeclaration, AsTypeOperatorNode, AsMappedTypeNode, AsConstructorDeclaration, AsImportClause, AsGetAccessorDeclaration, AsSetAccessorDeclaration, AsIndexSignatureDeclaration, AsJsxNamespacedName, AsBindingElement, AsElementAccessExpression, } from "../ast/generated/casts.js";
 import { IsIdentifier, IsForInStatement, IsForOfStatement, IsBinaryExpression, IsPropertyAccessExpression, IsCallExpression, IsParenthesizedExpression, IsExpressionWithTypeArguments, IsNonNullExpression, IsArrowFunction as IsArrowFunctionPred, IsClassStaticBlockDeclaration, IsAwaitExpression, IsPrefixUnaryExpression, IsLiteralTypeNode, IsTypeLiteralNode, IsPropertySignatureDeclaration, IsJSTypeAliasDeclaration, IsSpreadElement, IsJsxNamespacedName, IsMethodDeclaration, IsElementAccessExpression, IsForStatement, IsBlock, IsVariableStatement, IsPropertyDeclaration, IsCaseClause, IsDefaultClause, IsStringLiteral, IsArrayLiteralExpression, IsObjectLiteralExpression, IsComputedPropertyName, IsDecorator, IsInterfaceDeclaration, IsCallSignatureDeclaration, IsConstructSignatureDeclaration, IsMethodSignatureDeclaration, IsFunctionTypeNode, IsConstructorTypeNode, } from "../ast/generated/predicates.js";
 import { ModifierFlagsNone, ModifierFlagsExport, ModifierFlagsAbstract, ModifierFlagsAmbient, ModifierFlagsStatic, ModifierFlagsAccessor, ModifierFlagsAsync, ModifierFlagsDefault, ModifierFlagsConst, ModifierFlagsIn, ModifierFlagsOut, ModifierFlagsDecorator, ModifierFlagsOverride, ModifierFlagsReadonly, ModifierFlagsPrivate, ModifierFlagsPublic, ModifierFlagsProtected, ModifierFlagsAccessibilityModifier, ModifierFlagsParameterPropertyModifier, ModifierFlagsExportDefault, ModifierFlagsModifier, ModifierToFlag, } from "../ast/modifierflags.js";
@@ -33,7 +33,7 @@ import { Checker_getSymbolForPrivateIdentifierExpression, Checker_getSymbolOfDec
 import { Checker_getTypeFromTypeNode, Checker_isGenericType } from "./checker/types.js";
 import { Checker_getCombinedNodeFlagsCached, Checker_checkExpressionCached } from "./checker/syntax-checking.js";
 import { Checker_isInParameterInitializerBeforeContainingFunction, Checker_getAccessorThisParameter } from "./checker/signatures.js";
-import { getContainingFunctionOrClassStaticBlock, isOptionalDeclaration, isDeclarationReadonly, isVariableDeclarationInVariableStatement, GetSetAccessorValueParameter } from "./utilities.js";
+import { getContainingFunctionOrClassStaticBlock, isOptionalDeclaration, isDeclarationReadonly, isVariableDeclarationInVariableStatement, GetSetAccessorValueParameter, NewDiagnosticForNode } from "./utilities.js";
 import { isRestParameter, getVerbatimModuleSyntaxErrorMessage } from "./checker/state.js";
 import { Checker_isVarConstLike } from "./checker/support-queries.js";
 import { visibilityToString } from "./relater.js";
@@ -72,13 +72,16 @@ import { Only_a_single_variable_declaration_is_allowed_in_a_for_in_statement, On
  * }
  */
 export function Checker_grammarErrorOnFirstToken(receiver, node, message, ...args) {
+    return grammarNodeDiagnostic(receiver, node, true, message, args) !== null;
+}
+function grammarNodeDiagnostic(receiver, node, firstToken, message, args) {
     const sourceFile = GetSourceFileOfNode(node);
-    if (!Checker_hasParseDiagnostics(receiver, sourceFile)) {
-        const span = GetRangeOfTokenAtPosition(sourceFile, Node_Pos(node));
-        Checker_addDiagnostic(receiver, NewDiagnostic(sourceFile, span, message, ...args));
-        return true;
-    }
-    return false;
+    if (Checker_hasParseDiagnostics(receiver, sourceFile))
+        return null;
+    const diagnostic = firstToken
+        ? NewDiagnostic(sourceFile, GetRangeOfTokenAtPosition(sourceFile, Node_Pos(node)), message, ...args)
+        : NewDiagnosticForNode(node, message, ...args);
+    return Checker_addDiagnostic(receiver, diagnostic);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/grammarchecks.go::method::Checker.grammarErrorAtPos","kind":"method","status":"implemented","sigHash":"8b49203060ee9b54ed6bbb3f858296d437cd8203a72d494dfc10f2d805cb959d","bodyHash":"59cc0362e260ec4f12e2dca742d871b7351d3bd98c1fbbe8ee4e013d1149027c"}
@@ -94,12 +97,12 @@ export function Checker_grammarErrorOnFirstToken(receiver, node, message, ...arg
  * }
  */
 export function Checker_grammarErrorAtPos(receiver, nodeForSourceFile, start, length, message, ...args) {
-    const sourceFile = GetSourceFileOfNode(nodeForSourceFile);
-    if (!Checker_hasParseDiagnostics(receiver, sourceFile)) {
-        Checker_addDiagnostic(receiver, NewDiagnostic(sourceFile, NewTextRange(start, start + length), message, ...args));
-        return true;
-    }
-    return false;
+    return grammarRangeDiagnostic(receiver, GetSourceFileOfNode(nodeForSourceFile), start, length, message, args) !== null;
+}
+function grammarRangeDiagnostic(receiver, sourceFile, start, length, message, args) {
+    if (Checker_hasParseDiagnostics(receiver, sourceFile))
+        return null;
+    return Checker_addDiagnostic(receiver, NewDiagnostic(sourceFile, NewTextRange(start, start + length), message, ...args));
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/grammarchecks.go::method::Checker.grammarErrorOnNode","kind":"method","status":"implemented","sigHash":"ee108f85250864c3b912ab817057387d981bc8ae5e9065d4b53bd0a6da485184","bodyHash":"db87fbbdbc3b4ade27dd599f8ceebe4b7a640774be6ff6354c4a30698431930b"}
@@ -115,12 +118,7 @@ export function Checker_grammarErrorAtPos(receiver, nodeForSourceFile, start, le
  * }
  */
 export function Checker_grammarErrorOnNode(receiver, node, message, ...args) {
-    const sourceFile = GetSourceFileOfNode(node);
-    if (!Checker_hasParseDiagnostics(receiver, sourceFile)) {
-        Checker_error(receiver, node, message, ...args);
-        return true;
-    }
-    return false;
+    return grammarNodeDiagnostic(receiver, node, false, message, args) !== null;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/grammarchecks.go::method::Checker.grammarErrorOnNodeSkippedOnNoEmit","kind":"method","status":"implemented","sigHash":"d85ab3e5c9bf0b30f14ca2a447d4ad20abc51d82e5d5e16bfee84687488e39a1","bodyHash":"cfdfa06c00fbe02656001b8f1b84371e007b1efe70a2cca83f55b6b74d7c98c6"}
@@ -1449,10 +1447,12 @@ export function Checker_checkGrammarAsyncModifier(receiver, node, asyncModifier)
  * }
  */
 export function Checker_checkGrammarForDisallowedTrailingComma(receiver, list, diag) {
-    if (list !== undefined && NodeList_HasTrailingComma(list)) {
-        return Checker_grammarErrorAtPos(receiver, list.Nodes[0], NodeList_End(list) - ",".length, ",".length, diag);
-    }
-    return false;
+    return trailingCommaDiagnostic(receiver, list, diag) !== null;
+}
+function trailingCommaDiagnostic(receiver, list, diag) {
+    if (list === undefined || !NodeList_HasTrailingComma(list))
+        return null;
+    return grammarRangeDiagnostic(receiver, GetSourceFileOfNode(list.Nodes[0]), NodeList_End(list) - ",".length, ",".length, diag, []);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/grammarchecks.go::method::Checker.checkGrammarTypeParameterList","kind":"method","status":"implemented","sigHash":"e0d95c60e6b16c268fa288bbf965cfc1abc6155aa0f2d02fe3b33014bde5e0da","bodyHash":"729efaa2cb75faa37ac3cd5abf90c73c0f3abb10a35454c4c9d49bd40b397afa"}
@@ -1816,13 +1816,16 @@ export function Checker_checkGrammarIndexSignature(receiver, node) {
  * }
  */
 export function Checker_checkGrammarForAtLeastOneTypeArgument(receiver, node, typeArguments) {
+    return emptyTypeArgumentDiagnostic(receiver, node, typeArguments) !== null;
+}
+function emptyTypeArgumentDiagnostic(receiver, node, typeArguments) {
     if (typeArguments !== undefined && typeArguments.Nodes.length === 0) {
         const sourceFile = GetSourceFileOfNode(node);
         const start = NodeList_Pos(typeArguments) - "<".length;
         const end = SkipTrivia(SourceFile_Text(sourceFile), NodeList_End(typeArguments)) + ">".length;
-        return Checker_grammarErrorAtPos(receiver, sourceFile, start, end - start, Type_argument_list_cannot_be_empty);
+        return grammarRangeDiagnostic(receiver, sourceFile, start, end - start, Type_argument_list_cannot_be_empty, []);
     }
-    return false;
+    return null;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/grammarchecks.go::method::Checker.checkGrammarTypeArguments","kind":"method","status":"implemented","sigHash":"8a90235755408d44657bac57e6cc9800285dd139d038c27d5324bee1f13124ca","bodyHash":"bfef6639595660c25f27c8c9c1b62f6269602de33d16079d61d19aba5a7abf65"}
@@ -1833,7 +1836,9 @@ export function Checker_checkGrammarForAtLeastOneTypeArgument(receiver, node, ty
  * }
  */
 export function Checker_checkGrammarTypeArguments(receiver, node, typeArguments) {
-    return Checker_checkGrammarForDisallowedTrailingComma(receiver, typeArguments, Trailing_comma_not_allowed) || Checker_checkGrammarForAtLeastOneTypeArgument(receiver, node, typeArguments);
+    const trailing = trailingCommaDiagnostic(receiver, typeArguments, Trailing_comma_not_allowed);
+    const cause = trailing === null ? emptyTypeArgumentDiagnostic(receiver, node, typeArguments) : trailing;
+    return node?.Kind === KindTypeReference ? retainTypeGrammarDiagnostic(receiver, node, cause) : cause !== null;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/grammarchecks.go::method::Checker.checkGrammarTaggedTemplateChain","kind":"method","status":"implemented","sigHash":"188b01ce1fdfda0d94d79eda4aec280e7fd9bdb72684b789a504fe8526796c78","bodyHash":"8168c582adce34621bc3ea08ef6c319403716d63737ca013bac0959889a483ad"}
@@ -2882,44 +2887,52 @@ export function Checker_checkGrammarTypeOperatorNode(receiver, node) {
     if (node.Operator === KindUniqueKeyword) {
         const innerType = node.Type;
         if (innerType.Kind !== KindSymbolKeyword) {
-            return Checker_grammarErrorOnNode(receiver, innerType, X_0_expected, TokenToString(KindSymbolKeyword));
+            return Checker_grammarErrorForTypeNode(receiver, asNode, innerType, false, X_0_expected, TokenToString(KindSymbolKeyword));
         }
         const parent = WalkUpParenthesizedTypes(asNode.Parent);
         switch (parent.Kind) {
             case KindVariableDeclarationNode: {
                 const decl = AsVariableDeclaration(parent);
                 if (Node_Name(parent).Kind !== KindIdentifier) {
-                    return Checker_grammarErrorOnNode(receiver, asNode, X_unique_symbol_types_may_not_be_used_on_a_variable_declaration_with_a_binding_name);
+                    return Checker_grammarErrorForTypeNode(receiver, asNode, asNode, false, X_unique_symbol_types_may_not_be_used_on_a_variable_declaration_with_a_binding_name);
                 }
                 if (!isVariableDeclarationInVariableStatement(parent)) {
-                    return Checker_grammarErrorOnNode(receiver, asNode, X_unique_symbol_types_are_only_allowed_on_variables_in_a_variable_statement);
+                    return Checker_grammarErrorForTypeNode(receiver, asNode, asNode, false, X_unique_symbol_types_are_only_allowed_on_variables_in_a_variable_statement);
                 }
                 if ((decl.Parent.Flags & NodeFlagsConst) === 0) {
-                    return Checker_grammarErrorOnNode(receiver, Node_Name(parent), A_variable_whose_type_is_a_unique_symbol_type_must_be_const);
+                    return Checker_grammarErrorForTypeNode(receiver, asNode, Node_Name(parent), false, A_variable_whose_type_is_a_unique_symbol_type_must_be_const);
                 }
                 break;
             }
             case KindPropertyDeclaration:
                 if (!IsStatic(parent) || !hasReadonlyModifier(parent)) {
-                    return Checker_grammarErrorOnNode(receiver, Node_Name(parent), A_property_of_a_class_whose_type_is_a_unique_symbol_type_must_be_both_static_and_readonly);
+                    return Checker_grammarErrorForTypeNode(receiver, asNode, Node_Name(parent), false, A_property_of_a_class_whose_type_is_a_unique_symbol_type_must_be_both_static_and_readonly);
                 }
                 break;
             case KindPropertySignature:
                 if (!HasSyntacticModifier(parent, ModifierFlagsReadonly)) {
-                    return Checker_grammarErrorOnNode(receiver, Node_Name(parent), A_property_of_an_interface_or_type_literal_whose_type_is_a_unique_symbol_type_must_be_readonly);
+                    return Checker_grammarErrorForTypeNode(receiver, asNode, Node_Name(parent), false, A_property_of_an_interface_or_type_literal_whose_type_is_a_unique_symbol_type_must_be_readonly);
                 }
                 break;
             default:
-                return Checker_grammarErrorOnNode(receiver, asNode, X_unique_symbol_types_are_not_allowed_here);
+                return Checker_grammarErrorForTypeNode(receiver, asNode, asNode, false, X_unique_symbol_types_are_not_allowed_here);
         }
     }
     else if (node.Operator === KindReadonlyKeyword) {
         const innerType = node.Type;
         if (innerType.Kind !== KindArrayType && innerType.Kind !== KindTupleType) {
-            return Checker_grammarErrorOnFirstToken(receiver, asNode, X_readonly_type_modifier_is_only_permitted_on_array_and_tuple_literal_types, TokenToString(KindSymbolKeyword));
+            return Checker_grammarErrorForTypeNode(receiver, asNode, asNode, true, X_readonly_type_modifier_is_only_permitted_on_array_and_tuple_literal_types, TokenToString(KindSymbolKeyword));
         }
     }
     return false;
+}
+export function Checker_grammarErrorForTypeNode(receiver, typeNode, location, firstToken, message, ...args) {
+    return retainTypeGrammarDiagnostic(receiver, typeNode, grammarNodeDiagnostic(receiver, location, firstToken, message, args));
+}
+function retainTypeGrammarDiagnostic(receiver, typeNode, cause) {
+    if (cause !== null && cause !== undefined)
+        LinkStore_Get(receiver.typeNodeLinks, typeNode).grammarFailure = cause;
+    return cause !== null;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/grammarchecks.go::method::Checker.checkGrammarForInvalidDynamicName","kind":"method","status":"implemented","sigHash":"1b94d484de7b4593d45ea103742133b2b7368240f1f16c848607f82da5475454","bodyHash":"aa939e4f1ad719cf21c1786256f9deab2fb7810a6a88be68e77d5d510b28a082"}

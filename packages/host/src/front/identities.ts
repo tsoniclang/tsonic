@@ -17,10 +17,7 @@ function nameText(name: Hir.SyntaxNode<Hir.SyntaxPhase>, module: ModuleId,
       if (selected.kind === "unavailable" || selected.value === null) return "";
       const key = selected.value;
       if (key.kind === "text") return key.value;
-      if (key.kind === "numeric") {
-        if (key.value.kind !== "checker-value") throw new TypeError("front: authored numeric computed-key identity requires its exact numeric capture");
-        return String(key.value.value);
-      }
+      if (key.kind === "numeric") return String(key.value);
       const definition = key.declaration.module === module ? definitions.get(key.declaration.node) : undefined;
       if (definition === undefined) throw new TypeError("front: a computed unique-symbol identity requires its actual ready declaration identity");
       return definition;
@@ -73,6 +70,15 @@ export function sourcePropertyNames(module: ModuleId, names: readonly RawPropert
   return properties;
 }
 
+function typeSyntax(node: Hir.SyntaxNode<Hir.SyntaxPhase>): Pick<ModuleDefinitions["sourceOccurrences"][number], "typeSyntax"> {
+  if (node.kind === "TypeOperator" && node.operator === "KeyOfKeyword") return { typeSyntax: { kind: "keyof", target: node.type.id } };
+  if (node.kind === "ConditionalType") return { typeSyntax: {
+    kind: "conditional", check: node.checkType.id, extends: node.extendsType.id, whenTrue: node.trueType.id } };
+  if (node.kind === "IndexedAccessType") return { typeSyntax: { kind: "indexed", index: node.indexType.id } };
+  if (node.kind === "UnionType") return { typeSyntax: { kind: "union", members: node.types.nodes.map(member => member.id) } };
+  return {};
+}
+
 /**
  * The definition identities of one module, in the syntax tree's preorder: each declaration's owner is the nearest
  * enclosing declaration that has an identity, and its ordinal counts the declarations of that name in that owner
@@ -115,10 +121,11 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
     if (isModuleBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null)
       || node.kind === "IndexSignature" || node.kind === "MappedType") {
       if (inner === null) throw new TypeError("front: a binding has no genuine enclosing declaration identity");
-      sourceOccurrences.push({ node: node.id, kind: node.kind, occurrence: { kind: "item", value: {
+      sourceOccurrences.push({ node: node.id, parent: node.parent, kind: node.kind, origin: node.origin, occurrence: { kind: "item", value: {
         owner: encodeDefId({ module, segments: inner.segments }), node: node.id } } });
     } else if (context !== null && requested.has(node.id)) {
-      sourceOccurrences.push({ node: node.id, kind: node.kind, occurrence: { kind: "body", value: { body: context.body, node: node.id } } });
+      sourceOccurrences.push({ node: node.id, parent: node.parent, kind: node.kind, origin: node.origin, ...typeSyntax(node),
+        occurrence: { kind: "body", value: { body: context.body, node: node.id } } });
     }
     requested.delete(node.id);
     const children = childrenOfSyntax(node);

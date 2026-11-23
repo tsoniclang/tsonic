@@ -1,19 +1,20 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
-import type { BodyId, LocalId, LocalRef, PlaceId } from "../ids/contract.js";
-import type { BinaryExpression, Expression, NodeHeader, ParameterDeclaration, ReturnStatement, Statement, ThrowStatement } from "../ir-hir/contract.js";
-import type { MirBody, MirLocalRole, MirUnwind } from "../ir-mir/contract.js";
+import type { BodyId, LocalId, LocalRef, PlaceId, TyId } from "../ids/contract.js";
+import type { BinaryExpression, Expression, NodeHeader, ParameterDeclaration, Statement } from "../ir-hir/contract.js";
+import { shortCircuitOperatorOf } from "../ir-hir/index.js";
+import type { MirBody, MirLocalRole, MirOperand, MirUnwind } from "../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { TirBody, TirLocal, TypedBinary, TypedPhase, TypedUnary, TypedValue } from "../ir-tir/contract.js";
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
-import type { ControlScope, Lowering, Work } from "./model.js";
-import { callerDefect, failure, localFromSource, notLoweredYet, rawType, siteOf } from "./model.js";
-import { held, popOperand, pushOperand, saveHandedOut, saveReads, temporary } from "./operands.js";
-import { breaks, continues, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endLabel, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterShortCircuit, enterWhile, loopCondition, nextFor } from "./control.js";
+import type { ControlScope, Discard, Lowering, Work } from "./model.js";
+import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, rawType, siteOf } from "./model.js";
+import { held, observePendingRead, popOperand, pushOperand, readPlace, saveBeforeControl, saveBeforeStore, saveRead, temporary } from "./operands.js";
+import { breaks, continues, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endLabel, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterShortCircuit, enterSwitch, enterWhile, finishSwitchTest, loopCondition, nextFor, nextSwitchClause } from "./control.js";
 import { argumentPlace, enterCall, finishCall } from "./calls.js";
-import { declareLocal, declarations, endLocalBlock, enterLocalBlock, initializeLocal, nextDeclaration, prepareFunctionLocals } from "./bindings.js";
-import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, terminate } from "./state.js";
+import { beginLocalScope, declareLocal, declarations, endLocalScope, enterLocalBlock, initializeAbsence, initializeLocal, nextDeclaration, prepareFunctionLocals } from "./bindings.js";
+import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, placeOfStatic, terminate } from "./state.js";
 
 // The lowering of one typed body into its MIR graph.
 //
@@ -50,7 +51,7 @@ export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly 
   if (body.asynchronous || body.generator) return notLoweredYet("an asynchronous body or a generator", root.origin);
   const lowering: Lowering = { state: createState(body.body, body.bindings, body.completion, deps.limits), typeOf: deps.typeOf,
     signatureOf: deps.signatureOf, internal, internalOf: null, body, work: [], operands: [],
-    exposed: new Set(), reads: new Map(), branches: [], selections: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null,
+    exposed: new Set(), reads: new Map(), staticReads: new Set(), selections: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null,
     outerLocals: new Map(), scope: null };
   const mir = enter(lowering, root) && walk(lowering) ? finish(deps, lowering) : null;
   return mir === null ? { kind: "refused", diagnostics: [sizeLimit(deps, body)] } : { kind: "ok", value: mir, diagnostics: [] };
@@ -116,7 +117,7 @@ function enter(lowering: Lowering, root: TirBody["root"]): boolean {
   addEntry(state, { provided: parameters, block: first });
   if (root.kind === "SourceFile") lowering.work.push({ kind: "module", node: root, position: 0 });
   else if (root.kind === "Block") lowering.work.push({ kind: "statement", node: root });
-  else lowering.work.push({ kind: "complete", node: root }, { kind: "expression", node: root });
+  else lowering.work.push({ kind: "complete", node: root, result: "value" }, { kind: "expression", node: root });
   return true;
 }
 
@@ -152,31 +153,35 @@ function walk(lowering: Lowering): boolean {
       : next.kind === "statement" ? statement(lowering, next.node)
       : next.kind === "expression" ? expression(lowering, next.node)
         : next.kind === "conditional" ? enterConditional(lowering, next.node)
-          : next.kind === "short-circuit" ? enterShortCircuit(lowering, next.node)
+          : next.kind === "short-circuit" ? enterShortCircuit(lowering, next.node, null)
             : next.kind === "short-circuit-end" ? endShortCircuit(lowering, next)
           : next.kind === "conditional-true" ? endConditionalTrue(lowering, next)
             : next.kind === "conditional-false" ? endConditionalFalse(lowering, next)
-              : next.kind === "selected-end" ? endSelected(lowering, next.node)
+              : next.kind === "selected-end" ? endSelected(lowering, next)
         : next.kind === "declaration" ? declareLocal(lowering, next.node, next.lexical)
           : next.kind === "declarations" ? nextDeclaration(lowering, next)
-          : next.kind === "block-end" ? endLocalBlock(lowering, next.node, next.scope)
+          : next.kind === "scope-end" ? endLocalScope(lowering, next.node, next.scope)
         : next.kind === "argument-place" ? argumentPlace(lowering, next.node)
         : next.kind === "call" ? finishCall(lowering, next)
         : next.kind === "field-read" ? fieldRead(lowering, next)
+        : next.kind === "void-result" ? pushLiteral(lowering, next.node, next.storage, { kind: "absence" })
         : next.kind === "operation" ? operation(lowering, next)
           : next.kind === "narrow" ? narrow(lowering, next.node, next.narrowing)
             : next.kind === "label-end" ? endLabel(lowering, next.node, next.scope)
-              : next.kind === "for" ? enterFor(lowering, next.node)
+              : next.kind === "for" ? enterFor(lowering, next)
                 : next.kind === "for-end" ? endFor(lowering, next)
                   : next.kind === "for-next" ? nextFor(lowering, next)
-                    : next.kind === "discard" ? discard(lowering, next.node)
+                    : next.kind === "discard" ? discard(lowering, next)
                       : next.kind === "store" ? store(lowering, next)
                         : next.kind === "if" ? enterIf(lowering, next.node)
+                          : next.kind === "switch" ? enterSwitch(lowering, next.node)
+                            : next.kind === "switch-test" ? finishSwitchTest(lowering, next)
+                            : next.kind === "switch-clause" ? nextSwitchClause(lowering, next)
                           : next.kind === "if-then-end" ? endThen(lowering, next)
                             : next.kind === "if-else-end" ? endElse(lowering, next)
                               : next.kind === "while-condition" || next.kind === "for-condition" || next.kind === "do-condition" ? loopCondition(lowering, next)
                                 : next.kind === "while-end" ? endWhile(lowering, next)
-                                  : next.kind === "do-end" ? endDo(lowering, next) : complete(lowering, next.node);
+                                  : next.kind === "do-end" ? endDo(lowering, next) : complete(lowering, next);
     if (!done) return false;
   }
   return true;
@@ -227,9 +232,7 @@ function omittedEntries(lowering: Lowering): boolean {
     } else {
       const destination = placeOfLocal(state, local);
       if (destination === null) return false;
-      const absence = constantOperand(state, row.storage, { kind: "literal", value: { kind: "absence" } });
-      if (absence === null) return false;
-      if (!emitStatement(state, { ...site, kind: "assign", place: destination, value: { kind: "use", operand: absence }, step: null })) return false;
+      if (!initializeAbsence(lowering, header, destination, row.storage)) return false;
     }
     terminate(state, { ...site, kind: "goto", target: next });
     addEntry(state, { provided, block: entry });
@@ -257,22 +260,26 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
     case "BreakStatement": return breaks(lowering, node);
     case "ContinueStatement": return continues(lowering, node);
     case "DoStatement": return enterDo(lowering, node);
-    case "ForStatement":
-      if (node.initializer !== null && node.initializer.kind === "MissingDeclaration") return callerDefect("a missing declaration in for initialization", node.origin);
-      if (node.initializer?.kind === "VariableDeclarationList"
-        && (node.initializer.flags.includes("Let") || node.initializer.flags.includes("Const")))
-        return notLoweredYet("for initialization by declarations", node.origin);
-      lowering.work.push({ kind: "for", node });
-      if (node.initializer?.kind === "VariableDeclarationList") return declarations(lowering, node.initializer);
-      if (node.initializer !== null) lowering.work.push({ kind: "discard", node }, { kind: "expression", node: node.initializer });
+    case "ForStatement": {
+      const initializer = node.initializer;
+      if (initializer?.kind === "MissingDeclaration") return callerDefect("a missing declaration in for initialization", node.origin);
+      const headerScope = initializer?.kind === "VariableDeclarationList" && (initializer.flags.includes("Let") || initializer.flags.includes("Const"))
+        ? beginLocalScope(lowering) : null;
+      lowering.work.push({ kind: "for", node, headerScope });
+      if (initializer?.kind === "VariableDeclarationList") return declarations(lowering, initializer);
+      if (initializer !== null) lowering.work.push({ kind: "discard", node, read: null }, { kind: "expression", node: initializer });
       return true;
+    }
     case "IfStatement":
       lowering.work.push({ kind: "if", node }, { kind: "expression", node: node.expression });
+      return true;
+    case "SwitchStatement":
+      lowering.work.push({ kind: "switch", node }, { kind: "expression", node: node.expression });
       return true;
     case "WhileStatement": return enterWhile(lowering, node);
     case "EmptyStatement": case "TypeAliasDeclaration": case "InterfaceDeclaration": return true;
     case "ExpressionStatement":
-      lowering.work.push({ kind: "discard", node }, { kind: "expression", node: node.expression });
+      lowering.work.push({ kind: "discard", node, read: null }, { kind: "expression", node: node.expression });
       return true;
     case "VariableStatement": return declarations(lowering, node.declarationList);
     case "Block": return enterLocalBlock(lowering, node);
@@ -281,10 +288,10 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
         terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "return", value: null });
         return true;
       }
-      lowering.work.push({ kind: "complete", node }, { kind: "expression", node: node.expression });
+      lowering.work.push({ kind: "complete", node, result: "value" }, { kind: "expression", node: node.expression });
       return true;
     case "ThrowStatement":
-      lowering.work.push({ kind: "complete", node }, { kind: "expression", node: node.expression });
+      lowering.work.push({ kind: "complete", node, result: "value" }, { kind: "expression", node: node.expression });
       return true;
     default:
       return notLoweredYet(`the statement ${node.kind}`, node.origin);
@@ -309,10 +316,17 @@ function value(lowering: Lowering, payload: TypedValue, node: NodeHeader): void 
 
 function literal(lowering: Lowering, node: NodeHeader, payload: TypedValue, selected: LiteralValue): boolean {
   value(lowering, payload, node);
-  const storage = rawType(payload);
+  if (lowering.work.at(-1)?.kind === "discard") {
+    lowering.work.pop();
+    return true;
+  }
+  return pushLiteral(lowering, node, rawType(payload), selected);
+}
+
+function pushLiteral(lowering: Lowering, node: NodeHeader, storage: TyId, selected: LiteralValue): boolean {
   const operand = constantOperand(lowering.state, storage, { kind: "literal", value: selected });
   if (operand === null) return false;
-  pushOperand(lowering, { operand, inPlace: null, storage, site: siteOf(lowering.body, node) });
+  pushOperand(lowering, { kind: "plain", operand, pendingRead: false, storage, site: siteOf(lowering.body, node) });
   return true;
 }
 
@@ -336,7 +350,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       if (local === null) return notLoweredYet("a receiver without its selected receiver row", node.origin);
       const place = placeOfLocal(state, local);
       if (place === null) return false;
-      pushOperand(lowering, { operand: { kind: "place", place }, inPlace: local, storage: rawType(payload), site: siteOf(body, node) });
+      pushOperand(lowering, { kind: "local-read", operand: { kind: "place", place }, root: place, local, pendingRead: true, storage: rawType(payload), site: siteOf(body, node) });
       return true;
     }
     case "TrueKeyword":
@@ -366,15 +380,32 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     case "Identifier": {
       const payload = node.tsonic;
       if (payload.role !== "value") return notLoweredYet(`an identifier of role ${payload.role}`, node.origin);
-      value(lowering, payload, node);
       const resolution = payload.resolution;
+      if (resolution.kind === "intrinsic-value") {
+        const type = lowering.typeOf(rawType(payload));
+        if (type.kind !== "intrinsic" || type.intrinsic !== "absence")
+          return callerDefect("an intrinsic undefined read must retain its native absence type", node.origin);
+        return literal(lowering, node, payload, { kind: "absence" });
+      }
+      value(lowering, payload, node);
+      if (resolution.kind === "static") {
+        const site = siteOf(body, node);
+        const storage = rawType(payload);
+        const place = placeOfStatic(state, resolution.declaration.owner, storage, node.origin);
+        if (place === null) return false;
+        const saved = temporary(lowering, storage, site);
+        if (saved === null || !emitStatement(state, { ...site, kind: "assign", place: saved,
+          value: { kind: "use", operand: { kind: "place", place } }, step: null })) return false;
+        pushOperand(lowering, held(saved, storage, site));
+        return true;
+      }
       if (resolution.kind === "error") return callerDefect("an error resolution", node.origin);
       if (resolution.kind !== "local") return notLoweredYet(`a name resolved to a ${resolution.kind}`, node.origin);
       const local = localFromSource(lowering, resolution.local);
       if (local === undefined) return notLoweredYet("a local that is not a parameter of the body", node.origin);
       const place = placeOfLocal(state, local);
       if (place === null) return false;
-      pushOperand(lowering, { operand: { kind: "place", place }, inPlace: local, storage: rawType(payload), site: siteOf(body, node) });
+      pushOperand(lowering, { kind: "local-read", operand: { kind: "place", place }, root: place, local, pendingRead: true, storage: rawType(payload), site: siteOf(body, node) });
       return true;
     }
     case "PropertyAccessExpression": {
@@ -390,7 +421,17 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       const storage = rawType(payload);
       if (member.decision.read !== storage) return callerDefect("a field read inconsistent with its selected storage", node.origin);
       value(lowering, payload, node);
-      lowering.work.push({ kind: "field-read", node, member, storage }, { kind: "expression", node: node.expression });
+      const receiver = node.expression;
+      if (receiver.kind === "Identifier" && receiver.tsonic.role === "value") {
+        const selected = receiver.tsonic;
+        const resolution = selected.resolution;
+        if (resolution.kind === "static" && resolution.aliases.length === 0 && selected.demand.kind === "always"
+          && selected.conversion.kind === "identity" && selected.type === selected.convertedType && selected.narrowing === null) {
+          const staticRoot = placeOfStatic(state, resolution.declaration.owner, selected.type, receiver.origin);
+          return staticRoot !== null && fieldRead(lowering, { kind: "field-read", node, member, storage, staticRoot });
+        }
+      }
+      lowering.work.push({ kind: "field-read", node, member, storage, staticRoot: null }, { kind: "expression", node: receiver });
       return true;
     }
     case "ParenthesizedExpression":
@@ -398,7 +439,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     case "AsExpression":
     case "SatisfiesExpression":
     case "TypeAssertionExpression":
-      value(lowering, node.tsonic, node);
+      value(lowering, executingValue(node.tsonic, node.origin), node);
       lowering.work.push({ kind: "expression", node: node.expression });
       return true;
     case "BinaryExpression": {
@@ -406,8 +447,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       if (payload.role === "assignment") return assignment(lowering, node, payload);
       if (payload.role === "short-circuit") {
         const selected = payload.selection;
-        const expected = node.operatorToken.kind === "AmpersandAmpersandToken" ? "and"
-          : node.operatorToken.kind === "BarBarToken" ? "or" : node.operatorToken.kind === "QuestionQuestionToken" ? "coalesce" : null;
+        const expected = shortCircuitOperatorOf(node.operatorToken.kind, "short-circuit");
         if (selected.kind === "conditional" || selected.kind !== expected || selected.control !== node.left.id || selected.right !== node.right.id)
           return callerDefect("a short-circuit selection differs from its actual operands", node.origin);
         value(lowering, payload, node);
@@ -416,7 +456,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       }
       if (payload.role === "sequence") {
         value(lowering, payload, node);
-        lowering.work.push({ kind: "expression", node: node.right }, { kind: "discard", node: node.left }, { kind: "expression", node: node.left });
+        lowering.work.push({ kind: "expression", node: node.right }, { kind: "discard", node: node.left, read: null }, { kind: "expression", node: node.left });
         return true;
       }
       value(lowering, payload, node);
@@ -428,53 +468,121 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     }
     case "PrefixUnaryExpression": {
       const payload = node.tsonic;
+      if (payload.role === "update") return update(lowering, node, node.operand, payload, false);
       if (payload.role !== "value") return notLoweredYet(`a prefix expression of role ${payload.role}`, node.origin);
       return unary(lowering, node, node.operand, payload);
     }
+    case "PostfixUnaryExpression": return update(lowering, node, node.operand, node.tsonic, true);
     case "TypeOfExpression":
     case "VoidExpression": return unary(lowering, node, node.expression, node.tsonic);
-    case "CallExpression": case "NewExpression":
-      value(lowering, node.tsonic, node);
-      return enterCall(lowering, node);
+    case "CallExpression": case "NewExpression": {
+      const selected = node.tsonic;
+      if (!("application" in selected)) return callerDefect("a nonexecuting declaration name in an executable call", node.origin);
+      value(lowering, selected, node);
+      return enterCall(lowering, node, selected);
+    }
     default:
       return notLoweredYet(`the expression ${node.kind}`, node.origin);
   }
 }
 
-function unary(lowering: Lowering, node: NodeHeader, operand: Expression<TypedPhase>, payload: TypedUnary): boolean {
+function unary(lowering: Lowering, node: NodeHeader & { readonly kind: "PrefixUnaryExpression" | "TypeOfExpression" | "VoidExpression" },
+  operand: Expression<TypedPhase>, payload: TypedUnary): boolean {
   value(lowering, payload, node);
   if (payload.operation.kind !== "decided") return callerDefect("a deferred operation", node.origin);
-  lowering.work.push({ kind: "operation", node, operation: payload.operation.decision, form: "unary" }, { kind: "expression", node: operand });
+  const operation = payload.operation.decision;
+  if (node.kind === "VoidExpression") {
+    const { decision } = operation;
+    if (decision.operation.kind !== "discard" || decision.execution.kind !== "pure")
+      return callerDefect("void without its selected discard operation", node.origin);
+    if (lowering.work.at(-1)?.kind !== "discard")
+      lowering.work.push({ kind: "void-result", node, storage: decision.result }, { kind: "discard", node, read: null });
+  } else lowering.work.push({ kind: "operation", node, operation, form: "unary" });
+  lowering.work.push({ kind: "expression", node: operand });
+  return true;
+}
+
+function assignmentTarget(expression: Expression<TypedPhase>): Expression<TypedPhase> {
+  while (expression.kind === "ParenthesizedExpression") {
+    const selected = executingValue(expression.tsonic, expression.origin);
+    if (selected.conversion.kind !== "identity" || selected.narrowing !== null)
+      return callerDefect("an assignment target has a value conversion or narrowing", expression.origin);
+    expression = expression.expression;
+  }
+  return expression;
+}
+
+function update(lowering: Lowering, node: NodeHeader, operand: Expression<TypedPhase>,
+  payload: TypedUnary & { readonly storage: TyId }, postfix: boolean): boolean {
+  const leaf = assignmentTarget(operand);
+  const target = leaf.kind === "Identifier" ? leaf.tsonic : null;
+  if (target?.role !== "assignment-target" || target.access.kind !== "read-write"
+    || target.access.narrowing !== null || target.access.storage !== payload.storage || target.access.read !== payload.storage
+    || payload.operation.kind !== "decided") return callerDefect("an update without a selected direct read-write root", node.origin);
+  let local: LocalId | null = null;
+  let place: PlaceId | null;
+  if (target.resolution.kind === "static" && target.resolution.aliases.length === 0) {
+    place = placeOfStatic(lowering.state, target.resolution.declaration.owner, payload.storage, leaf.origin);
+  } else if (target.resolution.kind === "local") {
+    const placed = localFromSource(lowering, target.resolution.local);
+    if (placed === undefined) return callerDefect("an update local not placed in the body", node.origin);
+    local = placed;
+    place = placeOfLocal(lowering.state, local);
+  } else return notLoweredYet("an update without its direct local or static storage", leaf.origin);
+  if (place === null) return false;
+  value(lowering, payload, node);
+  const site = siteOf(lowering.body, leaf);
+  if (postfix || local === null) {
+    const old = readPlace(lowering, place, payload.storage, site);
+    if (old === null) return false;
+    if (postfix) pushOperand(lowering, { ...old, site: siteOf(lowering.body, node) });
+    pushOperand(lowering, old);
+  } else pushOperand(lowering, { kind: "local-read", operand: { kind: "place", place }, root: place, local, storage: payload.storage, pendingRead: true, site });
+  lowering.work.push({ kind: "store", node, local, place, result: postfix ? "old" : "new" },
+    { kind: "operation", node, operation: payload.operation.decision, form: "unary" });
   return true;
 }
 
 function assignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, payload: Extract<TypedBinary, { readonly role: "assignment" }>): boolean {
-  if (payload.selection !== null) return notLoweredYet("a conditional assignment", node.origin);
-  let target = node.left;
-  while (target.kind === "ParenthesizedExpression") {
-    if (target.tsonic.conversion.kind !== "identity" || target.tsonic.narrowing !== null)
-      return callerDefect("an assignment target has a value conversion or narrowing", target.origin);
-    target = target.expression;
-  }
+  const logical = shortCircuitOperatorOf(node.operatorToken.kind, "assignment");
+  const selection = payload.selection;
+  if (selection === null ? logical !== null : selection.kind === "conditional" || selection.kind !== logical
+    || selection.control !== node.left.id || selection.right !== node.right.id || payload.calculation !== null)
+    return callerDefect("a conditional assignment differs from its actual selected control", node.origin);
+  const target = assignmentTarget(node.left);
   if (target.kind !== "Identifier") return notLoweredYet(`an assignment target of kind ${target.kind}`, target.origin);
   const selected = target.tsonic;
   if (selected.role !== "assignment-target") return callerDefect("an assignment without a selected target", target.origin);
   if (selected.resolution.kind === "error") return callerDefect("an error resolution", target.origin);
-  if (selected.resolution.kind !== "local") return notLoweredYet(`an assignment resolved to a ${selected.resolution.kind}`, target.origin);
-  const local = localFromSource(lowering, selected.resolution.local);
-  if (local === undefined) return notLoweredYet("an assignment to a local not placed in the body", target.origin);
   if (selected.access.storage !== payload.storage) return callerDefect("an assignment with inconsistent selected storage", target.origin);
   if (payload.calculation !== null && payload.calculation.kind !== "decided") return callerDefect("a deferred assignment operation", node.origin);
-  if (payload.calculation !== null && selected.access.kind !== "read-write") return callerDefect("a calculated assignment without a selected read", target.origin);
+  if ((payload.calculation !== null || selection !== null) && selected.access.kind !== "read-write")
+    return callerDefect(selection === null ? "a calculated assignment without a selected read" : "a conditional assignment without a selected read", target.origin);
   if (selected.access.kind === "read-write" && selected.access.narrowing !== null) return notLoweredYet("a narrowed assignment read", target.origin);
   const read = selected.access.kind === "read-write" ? selected.access.read : selected.access.storage;
-  value(lowering, payload, node);
-  const place = placeOfLocal(lowering.state, local);
+  let local: LocalId | null = null;
+  let place: PlaceId | null;
+  if (selected.resolution.kind === "static") {
+    if (selection !== null || selected.resolution.aliases.length !== 0 || (selected.access.kind === "write") !== (payload.calculation === null))
+      return notLoweredYet("a static assignment without its direct selected access", target.origin);
+    place = placeOfStatic(lowering.state, selected.resolution.declaration.owner, selected.access.storage, target.origin);
+  } else if (selected.resolution.kind === "local") {
+    const placed = localFromSource(lowering, selected.resolution.local);
+    if (placed === undefined) return notLoweredYet("an assignment to a local not placed in the body", target.origin);
+    local = placed;
+    place = placeOfLocal(lowering.state, placed);
+  } else return notLoweredYet(`an assignment resolved to a ${selected.resolution.kind}`, target.origin);
   if (place === null) return false;
-  lowering.work.push({ kind: "store", node, local, place });
+  value(lowering, payload, node);
+  const write: Extract<Work, { readonly kind: "store" }> = { kind: "store", node, local, place, result: "new" };
+  if (payload.calculation !== null || selection !== null) {
+    const actual = readPlace(lowering, place, read, siteOf(lowering.body, target));
+    if (actual === null) return false;
+    pushOperand(lowering, actual);
+    if (selection !== null) return enterShortCircuit(lowering, node, write);
+  }
+  lowering.work.push(write);
   if (payload.calculation !== null) {
-    pushOperand(lowering, { operand: { kind: "place", place }, inPlace: local,
-      storage: read, site: siteOf(lowering.body, target) });
     lowering.work.push({ kind: "operation", node, operation: payload.calculation.decision, form: "binary" });
   }
   lowering.work.push({ kind: "expression", node: node.right });
@@ -482,12 +590,28 @@ function assignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, payl
 }
 
 function store(lowering: Lowering, pending: Extract<Work, { readonly kind: "store" }>): boolean {
-  const right = popOperand(lowering, failure("an assignment completed without its value", pending.node.origin));
-  const reads = lowering.preservedLocals.has(pending.local) ? lowering.exposed : lowering.reads.get(pending.local);
-  if (reads !== undefined && !saveReads(lowering, reads)) return false;
+  let right = popOperand(lowering, failure("an assignment completed without its value", pending.node.origin));
+  let discard = false;
+  if (pending.result === "new" && right.kind === "static-field") {
+    discard = lowering.work.at(-1)?.kind === "discard";
+    if (!discard) {
+      const saved = saveRead(lowering, right);
+      if (saved === null) return false;
+      right = saved;
+    }
+  }
+  if (!saveBeforeStore(lowering, pending.place, pending.local)) return false;
   if (!emitStatement(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "assign", place: pending.place,
     value: { kind: "use", operand: right.operand }, step: null })) return false;
-  pushOperand(lowering, { ...right, site: siteOf(lowering.body, pending.node) });
+  if (discard) lowering.work.pop();
+  else if (pending.result === "new") {
+    const result: {
+      readonly storage: TyId; readonly pendingRead: false; readonly site: ReturnType<typeof siteOf>;
+    } = { storage: right.storage, pendingRead: false, site: siteOf(lowering.body, pending.node) };
+    pushOperand(lowering, right.kind === "local-read"
+      ? { ...result, kind: "local-read", operand: right.operand, root: right.root, local: right.local }
+      : { ...result, kind: "plain", operand: right.operand });
+  }
   return true;
 }
 
@@ -509,9 +633,7 @@ function operation(lowering: Lowering, pendingOperation: Extract<Work, { readonl
     pushOperand(lowering, held(result, selected.decision.result, site));
     return true;
   }
-  // A control point. Operands evaluated earlier and still waiting are saved first where it could write them; its
-  // own operands are read by the control point itself, before its effect.
-  if (execution.writesStorage && !saveHandedOut(lowering)) return false;
+  if (!saveBeforeControl(lowering, execution.writesStorage, execution.failure !== "none")) return false;
   const result = temporary(lowering, selected.decision.result, site);
   if (result === null) return false;
   // The block the control point continues to starts the evaluation of whatever is pending next.
@@ -529,9 +651,16 @@ function operation(lowering: Lowering, pendingOperation: Extract<Work, { readonl
 }
 
 function narrow(lowering: Lowering, node: NodeHeader, decision: Extract<NonNullable<TypedValue["narrowing"]>, { readonly kind: "narrowed" }>): boolean {
-  const raw = popOperand(lowering, failure("a narrowing was reached without its value", node.origin));
+  let raw = popOperand(lowering, failure("a narrowing was reached without its value", node.origin));
   const { state, body } = lowering;
   const site = siteOf(body, node);
+  const consumer = lowering.work.at(-1);
+  if (raw.kind === "static-field" && consumer?.kind !== "discard") {
+    const saved = saveRead(lowering, raw);
+    if (saved === null) return false;
+    raw = saved;
+  }
+  if (!saveBeforeControl(lowering, false, true)) return false;
   let parent: PlaceId;
   if (raw.operand.kind === "place") parent = raw.operand.place;
   else {
@@ -542,32 +671,46 @@ function narrow(lowering: Lowering, node: NodeHeader, decision: Extract<NonNulla
   }
   const checked = newPlace(state, { kind: "checked", place: parent, projection: { kind: "refined" }, tir: site.tir }, decision.result, node.origin);
   if (checked === null) return false;
-  const pending = requirePresent(lowering.work.at(-1), failure("a narrowed value was evaluated with nothing to consume it", node.origin));
+  const pending = requirePresent(consumer, failure("a narrowed value was evaluated with nothing to consume it", node.origin));
   const next = newBlock(state, siteOf(body, pending.node));
   if (next === null) return false;
   terminate(state, { ...site, kind: "check", place: checked, next, unwind: { kind: decision.failure === "abort" ? "abort" : "escape" } });
   enterBlock(state, next);
-  pushOperand(lowering, { operand: { kind: "place", place: checked }, inPlace: raw.inPlace, storage: decision.result, site });
+  const refined = { operand: { kind: "place", place: checked } satisfies MirOperand, pendingRead: false, storage: decision.result, site };
+  pushOperand(lowering, raw.kind === "local-read"
+    ? { ...refined, kind: "local-read", root: raw.root, local: raw.local }
+    : { ...refined, kind: "plain" });
   return true;
 }
 
-function fieldRead(lowering: Lowering, { node, member, storage }: Extract<Work, { readonly kind: "field-read" }>): boolean {
-  const receiver = popOperand(lowering, failure("a field read was reached without its receiver", node.origin));
-  if (receiver.operand.kind !== "place") return callerDefect("an in-place field read requires an evaluated storage place", node.origin);
+function fieldRead(lowering: Lowering, { node, member, storage, staticRoot }: Extract<Work, { readonly kind: "field-read" }>): boolean {
+  let receiver = staticRoot === null ? popOperand(lowering, failure("a field read was reached without its receiver", node.origin)) : null;
+  if (receiver?.kind === "static-field") {
+    receiver = saveRead(lowering, receiver);
+    if (receiver === null) return false;
+  }
+  const base = staticRoot ?? (receiver?.operand.kind === "place" ? receiver.operand.place : undefined);
+  if (base === undefined) return callerDefect("an in-place field read requires an evaluated storage place", node.origin);
   const site = siteOf(lowering.body, node);
   const place = newPlace(lowering.state,
-    { kind: "place", place: receiver.operand.place, projection: { kind: "field", member }, tir: site.tir }, storage, node.origin);
+    { kind: "place", place: base, projection: { kind: "field", member }, tir: site.tir }, storage, node.origin);
   if (place === null) return false;
-  pushOperand(lowering, { operand: { kind: "place", place }, inPlace: receiver.inPlace, storage, site });
+  const result = { operand: { kind: "place", place } satisfies MirOperand, pendingRead: true, storage, site };
+  pushOperand(lowering, staticRoot !== null ? { ...result, kind: "static-field", root: staticRoot }
+    : receiver?.kind === "local-read" ? { ...result, kind: "local-read", root: receiver.root, local: receiver.local }
+      : { ...result, kind: "plain" });
   return true;
 }
 
-function discard(lowering: Lowering, node: NodeHeader): boolean {
-  popOperand(lowering, failure("an expression completed without its value", node.origin));
-  return true;
+function discard(lowering: Lowering, pending: Discard): boolean {
+  return observePendingRead(lowering, popOperand(lowering, failure("an expression completed without its value", pending.node.origin)), pending.read);
 }
 
-function complete(lowering: Lowering, node: ReturnStatement<TypedPhase> | ThrowStatement<TypedPhase> | Expression<TypedPhase>): boolean {
+function complete(lowering: Lowering, { node, result: transport }: Extract<Work, { readonly kind: "complete" }>): boolean {
+  if (transport === "void") {
+    terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "return", value: null });
+    return true;
+  }
   const result = popOperand(lowering, failure("a completion was reached without its value", node.origin));
   terminate(lowering.state, node.kind === "ThrowStatement" ? { ...siteOf(lowering.body, node), kind: "throw", operand: result.operand, unwind: { kind: "escape" } }
     : { ...siteOf(lowering.body, node), kind: "return", value: result.operand });

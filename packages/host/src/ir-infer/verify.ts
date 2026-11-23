@@ -95,6 +95,9 @@ export function verifyGroup(input: InferVerificationInput, output: Violation<Inf
             || !declaration.endpoints.has(callableEndpointKey(selected.advertised)) || !declaration.endpoints.has(callableEndpointKey(selected.api))
             || selectedEndpointRoleFaults(declaration.overloaded, selected.advertised, selected.api) !== 0)
             emit(output, "endpoint-agreement", bodySite, "candidate");
+          if (!signatureOwnerMatches(input.types, selected.advertised, selected.advertisedSignature)
+            || !signatureOwnerMatches(input.types, selected.api, selected.apiSignature))
+            emit(output, "endpoint-agreement", bodySite, "candidate-signatures");
         }
       }
     }
@@ -119,6 +122,12 @@ export function verifyGroup(input: InferVerificationInput, output: Violation<Inf
     if (!variableIds.has(id)) emit(output, "variable-id-dense", { kind: "variable", group: input.group.id, variable: id }, "id");
   }
   return inventory;
+}
+
+function signatureOwnerMatches(table: TypeTable, endpoint: { readonly signature: SigId; readonly declaration: DefId }, applied: SigId): boolean {
+  if (Object.is(applied, endpoint.signature) || !ordinal(applied)) return true;
+  const signature = table.signatures[applied];
+  return signature === undefined || signature.declaration === endpoint.declaration;
 }
 
 interface ClosureNode {

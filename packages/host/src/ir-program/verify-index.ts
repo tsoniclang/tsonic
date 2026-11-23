@@ -1,13 +1,15 @@
 import { ProgramWork } from "./work.js";
+import type { DataflowAccount, DataflowResult } from "../dataflow/contract.js";
+import { chargeWork } from "../dataflow/index.js";
 import { orderDiagnostics } from "../diag/index.js";
-import type { DefId, ModuleId } from "../ids/contract.js";
+import type { DefId, ModuleId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import { summaryKey, verifyDependencyInventory, verifyMetadata, verifySummary } from "../ir-facts/index.js";
+import { admitArtifactIdentity, summaryKey, verifyDependencyInventory, verifyMetadata, verifySummary } from "../ir-facts/index.js";
 import { indexSyntaxTree } from "../ir-hir/index.js";
-import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, floatingBitsFit, instanceKey, nativeCarrierOf, nativeFactsKey, printTypes, verifyNativeFacts, verifyTypes } from "../ir-types/index.js";
+import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, floatingBitsFit, instanceKey, nativeCarrierOf, nativeFactsKey, optionalValueDomainOf, verifyNativeFacts, verifyTypes } from "../ir-types/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { BindingVerificationInput, TypeRule, TypeSite } from "../ir-types/contract.js";
+import type { BindingVerificationInput, NativeFloatingFormat, TypeRule, TypeSite, TypeTerm } from "../ir-types/contract.js";
 import type { Violation } from "../diag/contract.js";
 import type {
   ProgramIndex,
@@ -19,13 +21,15 @@ import type {
   VerifyProgramIndex,
 } from "./contract.js";
 
-import type { ProgramLookup, ProgramViolation } from "./program-values.js";
+import type { ProgramLookup } from "./work.js";
+import type { ProgramViolation } from "./work-data.js";
 import { artifactEnvironmentKey, compareText, numberDetail, programChildRule, programLookup, summaryBindingsOf, summaryReferenceOf, textDetail, uniqueRows } from "./program-values.js";
 import { chargeInstantiationWork, requireInstantiationMaximum } from "./work.js";
 import type { InstantiationAllocationStop } from "./work.js";
-import { refuseVerification, verificationFailure } from "./verification-work.js";
+import { matchesProgramTypeTable, refuseVerification, verificationContext, verificationFailure, verificationTypes } from "./verification-work.js";
 import { verifyBindingBounds, verifyBodyInventory, verifyModules, verifyPackages } from "./verify-structure.js";
 import { verifyModuleBindings } from "./verify-module-bindings.js";
+import { verifyInitialization, verifyInitializationEffects } from "./verify-initialization.js";
 import { textModuleBinding, textModuleExport } from "./text-module-bindings.js";
 import { emitText, sequence, textDiagnostic } from "./text-values.js";
 
@@ -37,10 +41,6 @@ function signatureKey(record: SignatureRecord): string {
   return encodeKey([artifactBindingsData(record.bindings), record.kind, record.ordinal]);
 }
 
-function compareSignature(left: SignatureRecord, right: SignatureRecord): number {
-  return compareText(left.definition, right.definition) || compareText(signatureKey(left), signatureKey(right));
-}
-
 function verifySignatures(
   lookup: ProgramLookup,
   index: ProgramIndex,
@@ -48,7 +48,8 @@ function verifySignatures(
   modules: ReadonlyMap<ModuleId, TirVerifierInput | null>,
   bindings: BindingVerificationInput[],
   bindingSites: ProgramSite[],
-): readonly ProgramViolation[] {
+  account: DataflowAccount,
+): DataflowResult<readonly ProgramViolation[]> {
   const violations: ProgramViolation[] = [];
   interface EndpointRoles {
     readonly advertised: HirCallableEndpoint[];
@@ -57,12 +58,36 @@ function verifySignatures(
   }
   const endpoints = new Map<DefId, EndpointRoles | null>();
   let previous: SignatureRecord | null = null;
-  for (const record of index.signatures) {
+  let previousKey: string | null = null;
+  for (let position = 0; position < index.signatures.length; position += 1) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    const record = index.signatures[position];
+    if (record === undefined) throw new TypeError("The Program signature inventory must be dense.");
+    let key: string | null = null;
     const site: ProgramSite = { kind: "signature", signature: record.signature };
-    if (previous !== null && compareSignature(previous, record) >= 0) {
-      violations.push({ rule: "signatures-order", site, detail: [textDetail(previous.definition), textDetail(signatureKey(previous)), textDetail(record.definition), textDetail(signatureKey(record))] });
+    if (previous !== null) {
+      const definitions = chargeWork(account, previous.definition.length + record.definition.length);
+      if (definitions !== null) return definitions;
+      const definitionOrder = compareText(previous.definition, record.definition);
+      if (definitionOrder >= 0) {
+        if (previousKey === null) {
+          const encoding = admitArtifactIdentity(previous.bindings, account);
+          if (encoding !== null) return encoding;
+          previousKey = signatureKey(previous);
+        }
+        const encoding = admitArtifactIdentity(record.bindings, account);
+        if (encoding !== null) return encoding;
+        key = signatureKey(record);
+        const comparison = definitionOrder === 0 ? chargeWork(account, previousKey.length + key.length) : null;
+        if (comparison !== null) return comparison;
+        if (definitionOrder > 0 || compareText(previousKey, key) >= 0) {
+          violations.push({ rule: "signatures-order", site, detail: [textDetail(previous.definition), textDetail(previousKey), textDetail(record.definition), textDetail(key)] });
+        }
+      }
     }
     previous = record;
+    previousKey = key;
     if (!numericPosition(record.signature, index.types.signatures.length)) {
       violations.push({ rule: "signature-reference-resolves", site, detail: [numberDetail(record.signature)] });
     }
@@ -79,6 +104,10 @@ function verifySignatures(
       endpoints.set(record.definition, roles);
     }
     const ordinalValid = Number.isSafeInteger(record.ordinal) && record.ordinal >= 0 && !Object.is(record.ordinal, -0);
+    if (ordinalValid) {
+      const identity = chargeWork(account, record.definition.length) ?? admitArtifactIdentity(record.bindings, account);
+      if (identity !== null) return identity;
+    }
     const answer = ordinalValid ? context.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) : null;
     const endpoint = roles === null ? undefined : roles[record.kind][record.ordinal];
     if (endpoint === undefined || endpoint.declaration !== record.definition || !ordinalValid
@@ -100,13 +129,14 @@ function verifySignatures(
       }
     }
   }
-  return violations;
+  return { kind: "complete", value: violations };
 }
 
 function verifySourceInventory(
   index: ProgramIndex,
   modules: ReadonlyMap<ModuleId, TirVerifierInput | null>,
-): readonly ProgramViolation[] {
+  account: DataflowAccount,
+): DataflowResult<readonly ProgramViolation[]> {
   const violations: ProgramViolation[] = [];
   const nodeCounts = new Map<ModuleId, number>();
   for (const record of index.modules) {
@@ -147,9 +177,17 @@ function verifySourceInventory(
       }
     }
   }
-  for (const record of index.bodies) {
+  for (let position = 0; position < index.bodies.length; position += 1) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    const record = index.bodies[position];
+    if (record === undefined) throw new TypeError("The Program body inventory must be dense.");
     const input = modules.get(record.module);
     const site: ProgramSite = { kind: "body", instance: record.instance };
+    if (input !== undefined && input !== null) {
+      const identity = chargeWork(account, record.instance.body.length) ?? admitArtifactIdentity(record.instance.bindings, account);
+      if (identity !== null) return identity;
+    }
     const body = input === undefined || input === null ? null : input.bodyOf(record.instance);
     const count = nodeCounts.get(record.module);
     if (count === undefined || !numericPosition(record.root, count) || body === null || !Object.is(body.root.id, record.root)) {
@@ -158,7 +196,7 @@ function verifySourceInventory(
       violations.push({ rule: "node-body-ownership", site, detail: [textDetail(body.owner), textDetail(body.body), numberDetail(body.root.id)] });
     }
   }
-  return violations;
+  return { kind: "complete", value: violations };
 }
 
 function verifyBodyBindings(
@@ -252,16 +290,48 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
     } else {
       if (constant.value.kind !== "floating" && constant.value.kind !== "number") continue;
       let carrierStop: InstantiationAllocationStop | null = null;
-      const selected = nativeCarrierOf(index.types, constant.value.type, type => {
+      const readType = (type: TyId): TypeTerm | null | undefined => {
         carrierStop ??= chargeInstantiationWork(ProgramWork.state(context.resources));
         if (carrierStop !== null) return null;
         return index.types.terms[type];
+      };
+      let enclosingOptional: Extract<TypeTerm, { readonly kind: "optional" }> | undefined;
+      const selected = nativeCarrierOf(index.types, constant.value.type, type => {
+        const term = readType(type);
+        if (term?.kind === "optional") enclosingOptional = term;
+        return term;
       });
       if (carrierStop !== null) return refuseVerification(index, context.resources, carrierStop);
-      const carrier = selected.kind === "primitive" ? selected.primitive : null;
+      let carrier = selected.kind === "primitive" ? selected.primitive : null;
+      if (enclosingOptional !== undefined) {
+        const optional = optionalValueDomainOf(enclosingOptional, type => {
+          const term = readType(type);
+          if (term === undefined) throw new TypeError("An optional constant requires its actual ready payload type");
+          return term;
+        });
+        if (carrierStop !== null) return refuseVerification(index, context.resources, carrierStop);
+        if (optional.kind === "optional-value" && optional.payload === "float64") carrier = "float64";
+      }
       if (constant.value.kind === "floating") {
         if (carrier === null) throw new TypeError("Program floating constants require their actual selected native carrier");
-        const format = context.selectedNativeFacts.floatingFormats.find(row => row.carrier === carrier);
+        const formats = context.selectedNativeFacts.floatingFormats;
+        let format: NativeFloatingFormat | undefined;
+        let remainingFormats = formats.length;
+        if (remainingFormats !== 0) {
+          const read = chargeWork(account, 1);
+          if (read !== null) return refuseVerification(index, context.resources, read);
+          for (const candidate of formats) {
+            if (candidate.carrier === carrier) {
+              format = candidate;
+              break;
+            }
+            remainingFormats -= 1;
+            if (remainingFormats !== 0) {
+              const next = chargeWork(account, 1);
+              if (next !== null) return refuseVerification(index, context.resources, next);
+            }
+          }
+        }
         if (format === undefined && (carrier === "float16" || carrier === "float32" || carrier === "float64")) {
           throw new TypeError("Program floating constants require the selected carrier format");
         }
@@ -301,14 +371,22 @@ function verifyExecutions(lookup: ProgramLookup, index: ProgramIndex): readonly 
 export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
   const prior = verificationFailure(index, context.resources);
   if (prior !== null) return prior;
+  const state = ProgramWork.state(context.resources);
+  state.verifiedIndex = null;
   if (typeof context.nativeFactsKey !== "string" || context.nativeFactsKey.length === 0) {
     throw new TypeError("Program verification requires the selected native facts identity");
   }
   if (verifyNativeFacts(context.selectedNativeFacts).length !== 0 || nativeFactsKey(context.selectedNativeFacts) !== context.nativeFactsKey) {
     throw new TypeError("Program verification requires the matching selected native facts record");
   }
-  requireInstantiationMaximum(ProgramWork.state(context.resources).limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
-  const inventory = verifyDependencyInventory(index.dependencyInventory, context.facts, ProgramWork.state(context.resources).account);
+  const admitted = verificationTypes(index, context.resources);
+  if (admitted.kind === "invalid") return { kind: "complete", violations: admitted.violations };
+  if (admitted.kind !== "complete") return admitted;
+  const input = index;
+  context = verificationContext(context, index.types, admitted.index.types);
+  index = admitted.index;
+  requireInstantiationMaximum(state.limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
+  const inventory = verifyDependencyInventory(index.dependencyInventory, context.facts, state.account);
   if (inventory.kind !== "complete") return refuseVerification(index, context.resources, inventory);
   const lookup = programLookup(index);
   const violations: ProgramViolation[] = [];
@@ -320,20 +398,38 @@ export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
   for (const group of [verifyPackages(lookup, index), verifyModules(lookup, index, context), verifyBodyInventory(lookup, index, context), verifyExecutions(lookup, index)]) {
     for (const violation of group) violations.push(violation);
   }
-  if (printTypes(index.types) !== printTypes(context.facts.types)) {
+  if (!matchesProgramTypeTable(index.types, context.facts.types)) {
     violations.push({ rule: "shared-type-table", site: { kind: "index" }, detail: [] });
   }
   const modules = new Map<ModuleId, TirVerifierInput | null>();
   for (const record of index.modules) modules.set(record.module, context.tirOf(record.module));
   const bindings: BindingVerificationInput[] = [];
   const bindingSites: ProgramSite[] = [];
-  for (const group of [verifySourceInventory(index, modules), verifyModuleBindings(lookup, index, context, modules), verifySignatures(lookup, index, context, modules, bindings, bindingSites), verifyBodyBindings(index, context, bindings, bindingSites)]) {
-    for (const violation of group) violations.push(violation);
-  }
+  const sourceInventory = verifySourceInventory(index, modules, state.account);
+  if (sourceInventory.kind !== "complete") return refuseVerification(index, context.resources, sourceInventory);
+  for (const violation of sourceInventory.value) violations.push(violation);
+  for (const violation of verifyModuleBindings(lookup, index, context, modules)) violations.push(violation);
+  const signatures = verifySignatures(lookup, index, context, modules, bindings, bindingSites, state.account);
+  if (signatures.kind !== "complete") return refuseVerification(index, context.resources, signatures);
+  for (const violation of signatures.value) violations.push(violation);
+  for (const violation of verifyBodyBindings(index, context, bindings, bindingSites)) violations.push(violation);
   const records = verifyPublishedRecords(index, context);
   if (records.kind !== "complete") return refuseVerification(index, context.resources, records);
   for (const violation of records.violations) violations.push(violation);
-  for (const violation of verifyBindingBounds(index, context)) violations.push(violation);
+  const initialization = verifyInitialization(index, lookup, context.initialization, state.account);
+  if (initialization.kind !== "complete") return refuseVerification(index, context.resources, initialization);
+  for (const violation of initialization.value) violations.push(violation);
+  if (initialization.value.length === 0 && records.violations.length === 0) {
+    const effects = verifyInitializationEffects(index.initialization, lookup, {
+      account: state.account, eventCount: 0,
+      maximumConditionAlternatives: context.facts.limits.maximumConditionAlternatives, refusal: context.conditionRefusal,
+    });
+    if (effects.kind !== "complete") return refuseVerification(index, context.resources, effects);
+    if (effects.value !== null) violations.push(effects.value);
+  }
+  const bounds = verifyBindingBounds(index, context);
+  if (bounds.kind !== "complete") return refuseVerification(index, context.resources, bounds);
+  for (const violation of bounds.value) violations.push(violation);
   const bindingViolations = new Map<number, Violation<TypeRule, TypeSite>[]>();
   for (const child of verifyTypes({
     table: index.types, bindings, evidence: [], nominalOf: context.facts.nominalOf,
@@ -351,5 +447,6 @@ export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
       violations.push({ rule, site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
+  if (violations.length === 0) state.verifiedIndex = { index: input, lookup };
   return { kind: "complete", violations };
 };

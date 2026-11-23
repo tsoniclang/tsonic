@@ -89,7 +89,7 @@ test("plain assignment storage rejects crossed, foreign, duplicate and unused ca
     { ...row.fact.value, declaration: { ...row.fact.value.declaration, module: foreign } },
     { ...row.fact.value, symbol: null },
   ]) assert.throws(() => lower({ ...raw, storage: [{ ...row, fact: { kind: "available", value: selected } }] }),
-    /actual expression, declaration and qualified local/u);
+    /actual expression and qualified local or static declaration/u);
   assert.throws(() => lower({ ...raw, storage: [{ ...row, node: { ...row.node, module: foreign } }] }), /actual module and unique syntax order/u);
   assert.throws(() => lower({ ...raw, storage: [row, row] }), /actual module and unique syntax order/u);
   assert.throws(() => lower({ ...raw, storage: [{ node: { module: raw.module, node: raw.tree.id }, fact: { kind: "available", value: null } }, row] }),

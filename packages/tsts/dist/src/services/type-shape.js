@@ -1,14 +1,20 @@
-import { readTypeIndexInfo, readTypePropertyInfo } from "./type-members.js";
+import { readObjectPropertyInfo, readTypeIndexInfo, readTypePropertyInfo, walkObjectPropertyHeaders } from "./type-members.js";
 import { readTypeIndexedAccessComponents, selectTypeIndexedAccess } from "./type-indexed-access.js";
-import { readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
-import { SourceFile_FileName } from "../internal/ast/ast.js";
+import { readTypeKeyOfComponents, readTypeSubstitutionComponents } from "./type-dependent-operands.js";
+import { readConditionalApplication, readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
+import { Node_Symbol, Node_Type, SourceFile_FileName } from "../internal/ast/ast.js";
+import { AsConditionalTypeNode } from "../internal/ast/generated/casts.js";
+import { IsLiteralTypeNode } from "../internal/ast/generated/predicates.js";
+import { Node_AsNode } from "../internal/ast/spine.js";
 import { GetSourceFileOfNode, IsFunctionLike } from "../internal/ast/utilities.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
 import { Program_GetSourceFile, Program_GetTypeCheckerForFile, Program_SourceFiles } from "../internal/compiler/program.js";
 import { CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
+import { LinkStore_TryGet } from "../internal/core/linkstore.js";
 import { withOwnedChecker, withCheckerById } from "./checker-ownership.js";
 import { createTypeNormalization } from "./type-normalization.js";
-import { sourceTypeAnswer } from "../internal/checker/checker/source-type-answers.js";
+import { completedAnnotationSource, originalSignatureDeclaration, signatureReturnAnswer, sourceTypeAnswer } from "../internal/checker/checker/source-type-answers.js";
+import { resolveSourceTypeAnswer } from "./source-type-answer.js";
 import { Background } from "../go/context.js";
 import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
 import { Checker_getTypeOfSymbol, Checker_getInstantiatedBaseTypes, } from "../internal/checker/checker/symbols.js";
@@ -20,17 +26,24 @@ import { PseudoBigInt_String } from "../internal/jsnum/pseudobigint.js";
 import { Checker_getMinArgumentCount, Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
 import { Checker_GetConstantValue, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
-import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNonPrimitive, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsSubstitution, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsSubstitutionType, Type_AsInterfaceType, Type_AsLiteralType, LiteralType_Value, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
+import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsConditional, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNonPrimitive, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsStructuredOrInstantiable, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsConditionalType, Type_AsInterfaceType, Type_AsLiteralType, LiteralType_Value, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
 export function createTypeShapeQueries(program, defaultOptions) {
     if (program === undefined || defaultOptions.sourceFile === undefined) {
         throw new Error("Type-shape queries require one source file from the compiler program.");
     }
+    const withObject = (type, read) => {
+        if (type === undefined || !hasFlags(type, TypeFlagsObject) || type.data.AsType() !== type)
+            return undefined;
+        return withCheckerForType(program, type, defaultOptions, checker => checker === undefined || checker.program.SourceFiles() !== Program_SourceFiles(program)
+            ? undefined : read(checker, type));
+    };
     const queries = {
         typeToString: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_TypeToString(checker, type)) ?? "",
-        getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, checker => sourceTypeAnswer(checker, node, Checker_GetTypeFromTypeNode(checker, node))),
+        getTypeFromTypeNode: (node) => resolveSourceTypeAnswer(program, defaultOptions, withCheckerForNode(program, node, defaultOptions, checker => sourceTypeAnswer(checker, node, Checker_GetTypeFromTypeNode(checker, node), defaultOptions.admitsCheckerDiagnostic))),
         instantiateTypeAlias: (declaration, arguments_) => withCheckerForNode(program, declaration, defaultOptions, checker => resolveTypeAliasApplication(checker, declaration, arguments_)),
         getTypeAliasApplication: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeAliasApplication(checker, type)),
         getIndexedAccessComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeIndexedAccessComponents(checker, type)),
+        getConditionalComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeConditionalComponents(checker, type)),
         selectIndexedAccess: (objectType, indexType) => withOwnedChecker(program, defaultOptions.sourceFile, objectType?.checker, defaultOptions.context ?? Background(), checker => checker.program.SourceFiles() === Program_SourceFiles(program)
             ? selectTypeIndexedAccess(checker, objectType, indexType) : undefined),
         getConstantValue: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetConstantValue(checker, node)),
@@ -53,6 +66,13 @@ export function createTypeShapeQueries(program, defaultOptions) {
         isUnknown: (type) => hasFlags(type, TypeFlagsUnknown),
         isNever: (type) => hasFlags(type, TypeFlagsNever),
         isNonPrimitive: (type) => hasFlags(type, TypeFlagsNonPrimitive),
+        isGlobalScopeObject: (type) => type !== undefined && withCheckerForType(program, type, defaultOptions, checker => {
+            if (checker === undefined)
+                return false;
+            const symbol = checker.globalThisSymbol;
+            return symbol !== undefined && type.symbol === symbol
+                && LinkStore_TryGet(checker.valueSymbolLinks, symbol)?.resolvedType === type;
+        }) === true,
         isVoidLike: (type) => hasFlags(type, TypeFlagsVoidLike) || hasFlags(type, TypeFlagsVoid),
         isNullish: (type) => hasFlags(type, TypeFlagsNull) || hasFlags(type, TypeFlagsUndefined),
         intrinsicNullishFlags: (type) => Object.freeze({
@@ -82,7 +102,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
             return checker.couldContainTypeVariables(type);
         }) === true,
         getUnionOrIntersectionTypes: (type) => Type_Types(type) ?? [],
-        getTypeReferenceTarget: (type) => Type_Target(type),
+        getTypeReferenceTarget: (type) => withCheckerForType(program, type, defaultOptions, () => hasFlags(type, TypeFlagsObject) ? Type_Target(type) : undefined),
         getTypeArguments: (type) => withCheckerForType(program, type, defaultOptions, (checker) => hasFlags(type, TypeFlagsObject) && type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0
             ? Checker_GetTypeArguments(checker, type)
             : []) ?? [],
@@ -131,36 +151,39 @@ export function createTypeShapeQueries(program, defaultOptions) {
             }
             return Object.freeze(result);
         }),
-        getSubstitutionBaseType: (type) => hasFlags(type, TypeFlagsSubstitution)
-            ? Type_AsSubstitutionType(type)?.baseType
-            : undefined,
-        getTupleElementTypes: (type) => withCheckerForType(program, type, defaultOptions, (checker) => {
-            if (!isTupleType(type)) {
-                return [];
-            }
-            return Checker_GetTypeArguments(checker, type);
-        }) ?? [],
-        getTupleElementInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypeTupleElementInfos(checker, type)) ?? [],
+        getKeyOfComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeKeyOfComponents(checker, type)),
+        getSubstitutionComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeSubstitutionComponents(checker, type)),
+        getTupleInfo: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypeTupleInfo(checker, type)),
+        getObjectPropertyInfo: (type, name) => withObject(type, (checker, object) => readObjectPropertyInfo(checker, object, name)),
+        forEachObjectPropertyHeader: (type, admit, visit) => withObject(type, (checker, object) => walkObjectPropertyHeaders(checker, object, admit, visit)),
         getPropertyInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypePropertyInfos(checker, type)) ?? [],
         getCallSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindCall)) ?? [],
         getConstructSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindConstruct)) ?? [],
         getSignatureInfos: (type, kind) => {
             if (kind !== "call" && kind !== "construct")
                 throw new Error("Unknown signature kind.");
-            return withCheckerForType(program, type, defaultOptions, checker => Object.freeze((Checker_GetSignaturesOfType(checker, type, kind === "call" ? SignatureKindCall : SignatureKindConstruct) ?? [])
+            const owned = withCheckerForType(program, type, defaultOptions, checker => (Checker_GetSignaturesOfType(checker, type, kind === "call" ? SignatureKindCall : SignatureKindConstruct) ?? [])
                 .map(signature => {
                 if (signature === undefined)
                     throw new Error("The checker returned an absent type signature.");
-                return getTypeSignatureInfo(checker, signature);
-            }))) ?? Object.freeze([]);
+                return getTypeSignatureInfo(checker, signature, defaultOptions.admitsCheckerDiagnostic);
+            })) ?? [];
+            for (const info of owned)
+                publishSignatureInfo(program, defaultOptions, info);
+            return Object.freeze(owned);
         },
-        getDeclarationSignatureInfo: declaration => !IsFunctionLike(declaration) ? undefined : withCheckerForNode(program, declaration, defaultOptions, checker => {
-            const signature = Checker_getSignatureFromDeclaration(checker, declaration);
-            return signature === undefined ? undefined : getTypeSignatureInfo(checker, signature);
-        }),
+        getDeclarationSignatureInfo: declaration => {
+            if (!IsFunctionLike(declaration))
+                return undefined;
+            const owned = withCheckerForNode(program, declaration, defaultOptions, checker => {
+                const signature = Checker_getSignatureFromDeclaration(checker, declaration);
+                return signature === undefined ? undefined : getTypeSignatureInfo(checker, signature, defaultOptions.admitsCheckerDiagnostic);
+            });
+            return owned === undefined ? undefined : publishSignatureInfo(program, defaultOptions, owned);
+        },
         getSignatureParameterInfos: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => getTypeSignatureParameterInfos(checker, signature)) ?? [],
         getSignatureThisParameterInfo: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => getTypeSignatureThisParameterInfo(checker, signature)),
-        getReturnTypeOfSignature: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => Checker_GetReturnTypeOfSignature(checker, signature)),
+        getReturnTypeOfSignature: (signature) => resolveSourceTypeAnswer(program, defaultOptions, withCheckerForSignature(program, signature, defaultOptions, checker => signatureReturnAnswer(checker, signature, Checker_GetReturnTypeOfSignature(checker, signature), defaultOptions.admitsCheckerDiagnostic))),
         getIndexInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => (Checker_GetIndexInfosOfType(checker, type) ?? []).map((info) => readTypeIndexInfo(checker, type, info))) ?? [],
         getApparentType: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetApparentType(checker, type)),
         getWidenedType: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetWidenedType(checker, type)),
@@ -173,6 +196,48 @@ export function createTypeShapeQueries(program, defaultOptions) {
 function hasFlags(type, flags) {
     return type !== undefined && (type.flags & flags) !== 0;
 }
+function readConditionalBranch(checker, node, completed) {
+    if (completed !== undefined)
+        return Object.freeze({ kind: "completed", type: completed });
+    if (node === undefined || !IsLiteralTypeNode(node))
+        return undefined;
+    const links = LinkStore_TryGet(checker.typeNodeLinks, node);
+    const atom = links?.resolvedType;
+    if (atom?.checker !== checker || links?.resolutionFailure !== undefined || links?.grammarFailure !== undefined ||
+        links?.declarationFailure !== undefined || atom.alias !== undefined ||
+        (atom.flags & TypeFlagsStringLiteral) === 0 || (atom.flags & TypeFlagsStructuredOrInstantiable) !== 0)
+        return undefined;
+    return Object.freeze({ kind: "invariant-atom", type: atom });
+}
+function readTypeConditionalComponents(checker, type) {
+    if (checker === undefined || type === undefined || type.checker !== checker ||
+        (type.flags & TypeFlagsConditional) === 0 || type.data.AsType() !== type)
+        return undefined;
+    const conditional = Type_AsConditionalType(type);
+    const root = conditional?.root;
+    const declaration = root?.node === undefined ? undefined : Node_AsNode(root.node);
+    const checkType = conditional?.checkType;
+    const extendsType = conditional?.extendsType;
+    const syntax = AsConditionalTypeNode(declaration);
+    if (conditional === undefined || root === undefined || declaration === undefined || syntax === undefined || checkType === undefined || extendsType === undefined
+        || checkType.checker !== checker || extendsType.checker !== checker)
+        return undefined;
+    const inferParameters = [];
+    for (const parameter of root.inferTypeParameters ?? []) {
+        if (parameter === undefined || parameter.checker !== checker)
+            return undefined;
+        inferParameters.push(parameter);
+    }
+    const trueType = conditional?.resolvedTrueType;
+    const falseType = conditional?.resolvedFalseType;
+    if (trueType !== undefined && trueType.checker !== checker || falseType !== undefined && falseType.checker !== checker)
+        return undefined;
+    return Object.freeze({ declaration, checkType, extendsType, distributive: root.isDistributive,
+        inferParameters: Object.freeze(inferParameters),
+        application: readConditionalApplication(checker, type, conditional),
+        trueBranch: readConditionalBranch(checker, syntax.TrueType, trueType),
+        falseBranch: readConditionalBranch(checker, syntax.FalseType, falseType) });
+}
 function getTypePropertyInfos(checker, type) {
     if (checker === undefined) {
         throw new Error("The source type has no owning checker for property analysis.");
@@ -180,17 +245,19 @@ function getTypePropertyInfos(checker, type) {
     const properties = Checker_GetPropertiesOfType(checker, type) ?? [];
     return properties.map((symbol) => readTypePropertyInfo(checker, type, symbol));
 }
-function getTypeTupleElementInfos(checker, type) {
-    if (checker === undefined || type === undefined || !isTupleType(type)) {
-        return [];
-    }
+function getTypeTupleInfo(checker, type) {
+    if (checker === undefined || type === undefined || !isTupleType(type))
+        return undefined;
+    const target = Type_TargetTupleType(type);
+    if (target === undefined)
+        return undefined;
     const elementTypes = Checker_GetTypeArguments(checker, type);
-    const elementInfos = Type_TargetTupleType(type)?.elementInfos ?? [];
+    const elementInfos = target.elementInfos ?? [];
     if (elementTypes.length !== elementInfos.length ||
         elementTypes.some((element) => element === undefined)) {
         throw new Error("The checker returned tuple element types without matching tuple element evidence.");
     }
-    return Object.freeze(elementTypes.map((element, index) => {
+    const elements = Object.freeze(elementTypes.map((element, index) => {
         const info = elementInfos[index];
         const elementKind = (info.flags & ElementFlagsVariadic) !== 0
             ? "variadic"
@@ -207,12 +274,17 @@ function getTypeTupleElementInfos(checker, type) {
                 : { declaration: info.labeledDeclaration }),
         });
     }));
+    return { readonly: target.readonly, elements };
 }
-function getTypeSignatureInfo(checker, signature) {
+function getTypeSignatureInfo(checker, signature, admits) {
     const thisParameter = getTypeSignatureThisParameterInfo(checker, signature);
-    return Object.freeze({ signature, parameters: getTypeSignatureParameterInfos(checker, signature),
+    return { signature, parameters: getTypeSignatureParameterInfos(checker, signature),
         ...(thisParameter === undefined ? {} : { thisParameter }),
-        returnType: Checker_GetReturnTypeOfSignature(checker, signature) });
+        returnType: signatureReturnAnswer(checker, signature, Checker_GetReturnTypeOfSignature(checker, signature), admits) };
+}
+function publishSignatureInfo(program, options, info) {
+    info.returnType = resolveSourceTypeAnswer(program, options, info.returnType);
+    return Object.freeze(info);
 }
 function getTypeSignatureParameterInfos(checker, signature) {
     if (checker === undefined || signature === undefined) {
@@ -231,12 +303,11 @@ function getTypeSignatureParameterInfos(checker, signature) {
     const restType = restSymbol === undefined
         ? undefined
         : Checker_getTypeOfSymbol(checker, restSymbol);
-    const tupleElements = restType === undefined
-        ? []
-        : getTypeTupleElementInfos(checker, restType);
+    const tupleElements = getTypeTupleInfo(checker, restType)?.elements ?? [];
     const tupleExpanded = restIndex >= 0 && tupleElements.length > 0 &&
         effectiveParameters.length === restIndex + tupleElements.length;
     const minimumArgumentCount = Checker_getMinArgumentCount(checker, signature);
+    const owner = originalSignatureDeclaration(checker, signature);
     return Object.freeze(effectiveParameters.map((parameter, index) => {
         if (parameter === undefined) {
             throw new Error("The checker returned an absent effective signature parameter.");
@@ -269,12 +340,16 @@ function getTypeSignatureParameterInfos(checker, signature) {
                 (parameter.CheckFlags & CheckFlagsRestParameter) !== 0
                 ? "rest"
                 : "required";
+        const typeSource = owner !== undefined && declaration?.Parent === owner && parameterKind === "required"
+            && !tupleExpanded && !unexpandedRest && signature.parameters[index] === parameter && Node_Symbol(declaration) === parameter
+            ? completedAnnotationSource(checker, Node_Type(declaration), type) : undefined;
         return Object.freeze({
             sourceSymbol,
             type,
             parameterKind,
             acceptsOmission: index >= minimumArgumentCount,
             ...(declaration === undefined ? {} : { declaration }),
+            ...(typeSource === undefined ? {} : { typeSource }),
         });
     }));
 }

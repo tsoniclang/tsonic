@@ -179,7 +179,7 @@ function qualifiedLocalEntry(reference: SourceNodeRef, inventory: HirInventory):
   if (entry === undefined) return null;
   if (reference.kind === "body") {
     const owner = inventory.bodies.get(reference.value.body);
-    return owner !== undefined && entry.body === owner ? entry : null;
+    return owner !== undefined && entry.sourceBody === owner ? entry : null;
   }
   return entry.item === reference.value.owner ? entry : null;
 }

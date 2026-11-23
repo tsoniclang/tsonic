@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { parseObservations, printObservations, verifyObservations } from "../../../packages/host/dist/ir-facts/index.js";
 import { encodeDefId } from "../../../packages/host/dist/ids/index.js";
-import { bindingVectorKey, seedTypeInterner } from "../../../packages/host/dist/ir-types/index.js";
+import * as typesProduct from "../../../packages/host/dist/ir-types/index.js";
+import { bindingVectorKey } from "../../../packages/host/dist/ir-types/index.js";
+import { admitFixtureTable } from "./types-construction.mjs";
 import { encodeContextKey, moduleFixture } from "../ir-program-fixtures.mjs";
 
 const available = value => ({ kind: "available", value });
@@ -49,11 +51,11 @@ function observationFixture(selected = null) {
   };
   const nodes = ref => same(ref, at) ? node : same(ref, descriptor) ? descriptorNode : null;
   return { fixture, source, node, descriptorNode, descriptor, capture, metadata, observations, bindings, parameter,
-    input: { account: verificationAccount(), source, bodyOf: () => null, nodeOf: nodes, facts, types: seedTypeInterner(fixture.index.types), typeExpansion: expansion() } };
+    input: { account: verificationAccount(), source, bodyOf: () => null, nodeOf: nodes, facts, types: admitFixtureTable(typesProduct, fixture.index.types), typeExpansion: expansion() } };
 }
 
 function rules(value) {
-  verificationStops(account => verifyObservations(value.observations, { ...value.input, account, types: seedTypeInterner(value.fixture.index.types) }));
+  verificationStops(account => verifyObservations(value.observations, { ...value.input, account, types: admitFixtureTable(typesProduct, value.fixture.index.types) }));
   const result = verifyObservations(value.observations, value.input);
   assert.equal(result.kind, "complete", "constructed static observation verification completed");
   return result.violations.map(row => row.rule);
@@ -99,7 +101,7 @@ function fieldObservationFixture(selected = null) {
   value.input.nodeOf = source => isDeepStrictEqual(source, field) ? fieldNode : previousNodeOf(source);
   value.input.facts.nodeExists = source => isDeepStrictEqual(source, field) || previousNodeExists(source);
   value.input.facts.nominalOf = definition => definition === value.fixture.definition ? { kind: "declared", facets: ["instance", "value"] } : null;
-  value.input.types = seedTypeInterner(value.fixture.index.types);
+  value.input.types = admitFixtureTable(typesProduct, value.fixture.index.types);
   return { ...value, fieldNode };
 }
 
@@ -170,18 +172,81 @@ await suite.test("generic observation substitution refuses before processing lat
   assert.equal(rowsRead, 0, "no output comparison after refused canonical substitution");
 });
 
-await suite.test("newly interned expected generic types do not extend the published observation type domain", () => {
-  for (const result of [4, 5]) {
+await suite.test("generic observation projection cannot extend the same owned type domain it verifies", () => {
+  for (const [admitted, result] of [[false, 4], [false, 5], [true, 5]]) {
     const value = observationFixture(1);
-    value.fixture.index.types.terms.push({ kind: "array", element: 3, readonly: false });
+    const { types } = value.fixture.index;
+    types.terms.push({ kind: "array", element: 3, readonly: false });
+    if (admitted) types.terms.push({ kind: "array", element: 1, readonly: false });
     value.capture.result = available(4);
     value.observations.rows[0].result = result;
-    value.input.types = seedTypeInterner(value.fixture.index.types);
+    value.input.types = admitFixtureTable(typesProduct, types);
+    value.input.facts.types = typesProduct.viewTypes(value.input.types);
+    const original = [...value.input.facts.types.terms];
     const actual = rules(value);
-    assert.equal(actual.includes("observation-field-exact"), true, "an absent-table expected result is not a published type");
-    assert.equal(actual.includes("type-resolves"), result === 5);
-    assert.equal(value.fixture.index.types.terms.length, 5, "verification never appends its expected type to the published table");
+    assert.deepEqual(actual, admitted ? [] : result === 5 ? ["observation-field-exact", "type-resolves"] : ["observation-field-exact"]);
+    assert.equal(value.input.facts.types.terms.length, original.length, "verification never appends its expected type to the published table");
+    assert.equal(original.every((row, index) => row === value.input.facts.types.terms[index]), true);
   }
+});
+
+await suite.test("unavailable or unadmitted projected occurrence bindings retain the exact observation refusal", () => {
+  const present = observationFixture(1);
+  assert.deepEqual(verifyObservations(present.observations, present.input), { kind: "complete", violations: [] });
+  for (const availableCapture of [false, true]) {
+    const value = observationFixture(1);
+    if (availableCapture) {
+      const { types } = value.fixture.index;
+      const open = types.terms.length;
+      types.terms.push({ kind: "array", element: 3, readonly: false });
+      value.capture.bindings = available({ ...empty(),
+        classBindings: [{ kind: "bound", parameter: value.parameter, type: open }] });
+      value.input.types = admitFixtureTable(typesProduct, types);
+    } else value.capture.bindings = { kind: "unavailable", reason: "not-provided" };
+    const table = typesProduct.viewTypes(value.input.types);
+    value.input.facts.types = table;
+    const terms = [...table.terms];
+    const signatures = [...table.signatures];
+    verificationStops(account => verifyObservations(value.observations, { ...value.input, account }));
+    const result = verifyObservations(value.observations, value.input);
+    assert.deepEqual(result, { kind: "complete", violations: [{ rule: "observation-field-exact",
+      site: { kind: "node", at: { kind: "body", value: value.capture.occurrence } },
+      detail: [{ kind: "text", value: "An observation retains the actual operation, operand, result and complete checked occurrence bindings." }],
+    }] });
+    assert.deepEqual(table.terms.map((term, index) => term === terms[index]), terms.map(() => true));
+    assert.deepEqual(table.signatures.map((signature, index) => signature === signatures[index]), signatures.map(() => true));
+  }
+});
+
+await suite.test("the exact field descriptor cannot project a binding vector whose closed type is unadmitted", () => {
+  const present = fieldObservationFixture(1);
+  assert.deepEqual(verifyObservations(present.observations, present.input), { kind: "complete", violations: [] });
+  const value = fieldObservationFixture(1);
+  const { types } = value.fixture.index;
+  const open = types.terms.length;
+  types.terms.push({ kind: "array", element: 3, readonly: false });
+  value.fieldNode.tsonic.value.memory.value.bindings = available({ ...empty(),
+    classBindings: [{ kind: "bound", parameter: value.parameter, type: open }] });
+  value.input.types = admitFixtureTable(typesProduct, types);
+  const table = typesProduct.viewTypes(value.input.types);
+  value.input.facts.types = table;
+  const terms = [...table.terms];
+  const signatures = [...table.signatures];
+  const row = value.observations.rows[0];
+  let resultReads = 0;
+  const expected = row.result;
+  Object.defineProperty(row, "result", { get() { resultReads += 1; return expected; } });
+  const originalStop = verifyObservations(value.observations, { ...value.input, account: verificationAccount(),
+    typeExpansion: { ...value.input.typeExpansion, maximumVisits: 0 } });
+  assert.deepEqual(originalStop, { kind: "resource-limit", dimension: "visits", maximum: 0 });
+  assert.equal(resultReads, 0);
+  verificationStops(account => verifyObservations(value.observations, { ...value.input, account }));
+  assert.deepEqual(verifyObservations(value.observations, value.input), { kind: "complete", violations: [{ rule: "observation-field-exact",
+    site: { kind: "node", at: { kind: "body", value: value.capture.occurrence } },
+    detail: [{ kind: "text", value: "A field-offset observation retains its exact checked field selection and owner layout." }],
+  }] });
+  assert.deepEqual(table.terms.map((term, index) => term === terms[index]), terms.map(() => true));
+  assert.deepEqual(table.signatures.map((signature, index) => signature === signatures[index]), signatures.map(() => true));
 });
 
 await suite.test("parametric descriptors preserve exact rigid owner and slot identity rather than merely lacking bound rows", () => {
@@ -288,7 +353,7 @@ await suite.test("unavailable or mismatched captured results and descriptors nev
   }
   const value = observationFixture();
   value.descriptorNode.tsonic = { core: value.node.tsonic.core, parent: null, attributes: [],
-    declaration: { kind: "definition", definition: value.fixture.definition }, declaredType: available(1),
+    declaration: { kind: "definition", definition: value.fixture.definition }, declaredType: available(1), inferredTypeBound: null,
     initializer: null, memory: value.descriptorNode.tsonic.value.memory };
   value.descriptorNode.kind = "VariableDeclaration";
   value.descriptorNode.name = { ...value.node, id: 5, kind: "Identifier", text: "descriptor", tsonic: null };

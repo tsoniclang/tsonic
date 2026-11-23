@@ -321,12 +321,12 @@ export function readOperationIdentityText<Root>(cursor: Cursor, finish: (value: 
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
         case "native-operator":
-          return fieldText<HirUnaryOperator | HirBinaryOperator, Root>(cursor, fields, "operator", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["+","-","!","~","typeof","void","delete","+","-","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]), done), operatorValue =>
+          return fieldText<HirUnaryOperator | HirBinaryOperator, Root>(cursor, fields, "operator", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["+","-","!","~","++","--","typeof","void","delete","+","-","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]), done), operatorValue =>
     fieldText<NativePrimitive, Root>(cursor, fields, "carrier", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["bool","char","int8","uint8","int16","uint16","int32","uint32","int64","uint64","int128","uint128","native-int","native-uint","float16","float32","float64","decimal"]), done), carrierValue =>
       atomicText(cursor, next => closeRecord(next, fields), () =>
           acceptText({ kind: label, operator: operatorValue, carrier: carrierValue }, finish))));
         case "bigint-operator":
-          return fieldText<HirUnaryOperator | HirBinaryOperator, Root>(cursor, fields, "operator", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["+","-","!","~","typeof","void","delete","+","-","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]), done), operatorValue =>
+          return fieldText<HirUnaryOperator | HirBinaryOperator, Root>(cursor, fields, "operator", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["+","-","!","~","++","--","typeof","void","delete","+","-","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]), done), operatorValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
         acceptText({ kind: label, operator: operatorValue }, finish)));
         case "string-operator":
@@ -444,8 +444,9 @@ export function readLiteralConstructionInputText<Root>(cursor: Cursor, finish: (
     fieldText<"object" | "array", Root>(cursor, fields, "construction", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["object","array"]), done), constructionValue =>
       fieldText<readonly (LiteralConstructionPart)[], Root>(cursor, fields, "parts", (next, done) => arrayText(next, readLiteralConstructionPartText, done), partsValue =>
         fieldText<TypeEvidence | null, Root>(cursor, fields, "destination", (next, done) => nullableText(next, readTypeEvidenceText, done), destinationValue =>
-          atomicText(cursor, next => closeRecord(next, fields), () =>
-              acceptText({ context: contextValue, construction: constructionValue, parts: partsValue, destination: destinationValue }, finish)))))));
+          fieldText<TypeEvidence, Root>(cursor, fields, "result", readTypeEvidenceText, resultValue =>
+            atomicText(cursor, next => closeRecord(next, fields), () =>
+              acceptText({ context: contextValue, construction: constructionValue, parts: partsValue, destination: destinationValue, result: resultValue }, finish))))))));
 }
 
 export function readCandidateInputText<Root>(cursor: Cursor, finish: (value: CandidateInput) => TextStep<Root>): TextStep<Root> {
@@ -466,7 +467,7 @@ export function readCandidateInputText<Root>(cursor: Cursor, finish: (value: Can
 export function readOperatorInputText<Root>(cursor: Cursor, finish: (value: OperatorInput) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "OperatorInput"), fields =>
     fieldText<RuleContext, Root>(cursor, fields, "context", readRuleContextText, contextValue =>
-    fieldText<HirUnaryOperator | HirBinaryOperator, Root>(cursor, fields, "operator", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["+","-","!","~","typeof","void","delete","+","-","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]), done), operatorValue =>
+    fieldText<HirUnaryOperator | HirBinaryOperator, Root>(cursor, fields, "operator", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["+","-","!","~","++","--","typeof","void","delete","+","-","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]), done), operatorValue =>
       fieldText<readonly (TypeEvidence)[], Root>(cursor, fields, "operands", (next, done) => arrayText(next, readTypeEvidenceText, done), operandsValue =>
         fieldText<NodeRef | null, Root>(cursor, fields, "permissionScope", (next, done) => nullableText(next, (next, done) => atomicText(next, readNodeRef, done), done), permissionScopeValue =>
           atomicText(cursor, next => closeRecord(next, fields), () =>
@@ -662,11 +663,14 @@ export function readCandidateEndpointText<Root>(cursor: Cursor, finish: (value: 
     fieldText<number, Root>(cursor, fields, "ordinal", (next, done) => atomicText(next, readNumber, done), ordinalValue =>
     fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declarationValue =>
       fieldText<HirCallableEndpoint, Root>(cursor, fields, "advertised", readHirCallableEndpointText, advertisedValue =>
+        fieldText<SigId, Root>(cursor, fields, "advertisedSignature", (next, done) => atomicText(next, readSignatureId, done), advertisedSignature =>
         fieldText<HirCallableEndpoint, Root>(cursor, fields, "api", readHirCallableEndpointText, apiValue =>
+          fieldText<SigId, Root>(cursor, fields, "apiSignature", (next, done) => atomicText(next, readSignatureId, done), apiSignature =>
           fieldText<BindingVector, Root>(cursor, fields, "bindings", (next, done) => atomicText(next, readBindings, done), bindingsValue =>
             fieldText<Diagnostic | null, Root>(cursor, fields, "conditionalFailure", (next, done) => nullableText(next, (next, done) => atomicText(next, readDiagnostic, done), done), conditionalFailureValue =>
               atomicText(cursor, next => closeRecord(next, fields), () =>
-                  acceptText({ ordinal: ordinalValue, declaration: declarationValue, advertised: advertisedValue, api: apiValue, bindings: bindingsValue, conditionalFailure: conditionalFailureValue }, finish)))))))));
+                  acceptText({ ordinal: ordinalValue, declaration: declarationValue, advertised: advertisedValue, advertisedSignature,
+                    api: apiValue, apiSignature, bindings: bindingsValue, conditionalFailure: conditionalFailureValue }, finish)))))))))));
 }
 
 export function readProtocolStepOperationText<Root>(cursor: Cursor, finish: (value: ProtocolStepOperation) => TextStep<Root>): TextStep<Root> {

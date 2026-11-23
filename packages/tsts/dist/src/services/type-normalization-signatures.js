@@ -1,8 +1,7 @@
-import { goReceiverKey } from "../internal/ast/spine.js";
 import { CheckModeNormal, SignatureKeyBase, SignatureKeyCanonical, SignatureKeyErased, SignatureKeyInner, SignatureKeyOuter, getTypeListKey } from "../internal/checker/checker/state.js";
 import { Checker_getBaseSignature, Checker_getCanonicalSignature, Checker_getErasedSignature, Checker_getOptionalCallSignature, Checker_getOrCreateTypeFromSignature, Checker_getResolvedSignature, Checker_getSignaturesOfType, Checker_getSignatureInstantiationWithoutFillingInTypeArguments } from "../internal/checker/checker/signatures.js";
 import { LinkStore_TryGet } from "../internal/core/linkstore.js";
-import { TypeMapper_Kind, TypeMapperKindArray, TypeMapperKindSimple } from "../internal/checker/mapper.js";
+import { flatTypeMapperInputs } from "./type-mapper-inputs.js";
 import { ObjectFlagsSingleSignatureType, SignatureFlagsIsInnerCallChain, SignatureFlagsIsOuterCallChain, SignatureKindCall, SignatureKindConstruct, TypeFlagsObject, Type_AsStructuredType } from "../internal/checker/types.js";
 export function reacquireHigherOrderSignature(source, producer, signature, normalize) {
     if (signature.checkerId !== source.id)
@@ -146,24 +145,9 @@ export function cachedSignatureArguments(source, signature) {
     const mapper = signature.mapper;
     if (target === undefined || mapper === undefined)
         return undefined;
-    let arguments_;
-    switch (TypeMapper_Kind(mapper)) {
-        case TypeMapperKindSimple: {
-            const data = mapper.data[goReceiverKey];
-            if (data === undefined)
-                throw new TypeError("A native simple mapper requires its actual construction data");
-            arguments_ = [data.target];
-            break;
-        }
-        case TypeMapperKindArray: {
-            const data = mapper.data[goReceiverKey];
-            if (data === undefined)
-                throw new TypeError("A native array mapper requires its actual construction data");
-            arguments_ = data.targets;
-            break;
-        }
-        default: return undefined;
-    }
+    const arguments_ = flatTypeMapperInputs(mapper)?.targets;
+    if (arguments_ === undefined)
+        return undefined;
     if (arguments_.some(type => type === undefined))
         throw new TypeError("A native cached instantiation requires its actual arguments");
     return source.cachedSignatures.get({ sig: target, key: getTypeListKey(arguments_) }) === signature ? arguments_ : undefined;

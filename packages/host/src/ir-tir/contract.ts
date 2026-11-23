@@ -1,7 +1,7 @@
-import type { BodyId, DefId, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, ItemNodeRef, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
-import type { BodyRoot, CapturedFact, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, ParameterDeclaration, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
+import type { BodyRoot, CapturedFact, DeclarationTarget, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, ParameterDeclaration, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
 export interface TypedOperation {
@@ -9,9 +9,15 @@ export interface TypedOperation {
   readonly permissionScope: NodeId | null;
 }
 
+export interface TypedCase {
+  readonly operation: RuleOutcome<TypedOperation>;
+}
+
 export type TirResolution =
   | { readonly kind: "local"; readonly local: LocalRef }
+  | IntrinsicValueResolution
   | { readonly kind: "definition"; readonly definition: DefId; readonly aliases: readonly SourceNodeRef[] }
+  | { readonly kind: "static"; readonly declaration: ItemNodeRef; readonly aliases: readonly SourceNodeRef[] }
   | { readonly kind: "module"; readonly target: ImportTarget }
   | { readonly kind: "error"; readonly diagnostic: number };
 
@@ -100,6 +106,8 @@ export interface DeclarationNameExpression {
   readonly role: "declaration-name-expression";
 }
 
+export type TypedValueOccurrence = TypedValue | DeclarationNameExpression;
+
 export type TypedName =
   | DeclarationNameExpression
   | (TypedValue & { readonly role: "value"; readonly resolution: TirResolution })
@@ -186,6 +194,8 @@ export interface TypedApplication extends TypedValue {
   readonly application: RuleOutcome<TirApplication>;
   readonly operation: RuleOutcome<TypedOperation> | null;
 }
+
+export type TypedCall = TypedApplication | DeclarationNameExpression;
 
 export interface TypedProtocolValue extends TypedValue {
   readonly protocol: RuleOutcome<TirProtocol>;
@@ -413,7 +423,7 @@ export interface TypedPhase extends Phase {
   readonly WithStatement: null;
   readonly SwitchStatement: null;
   readonly CaseBlock: null;
-  readonly CaseOrDefaultClause: null;
+  readonly CaseClause: TypedCase;
   readonly ThrowStatement: null;
   readonly TryStatement: null;
   readonly CatchClause: null;
@@ -478,15 +488,15 @@ export interface TypedPhase extends Phase {
   readonly ConditionalExpression: TypedConditional;
   readonly PropertyAccessExpression: TypedMember;
   readonly ElementAccessExpression: TypedMember;
-  readonly CallExpression: TypedApplication;
+  readonly CallExpression: TypedCall;
   readonly NewExpression: TypedApplication;
   readonly MetaProperty: TypedValue;
-  readonly NonNullExpression: TypedValue;
+  readonly NonNullExpression: TypedValueOccurrence;
   readonly SpreadElement: TypedSpread;
   readonly TemplateExpression: TypedTemplate;
   readonly TemplateSpan: null;
   readonly TaggedTemplateExpression: TypedApplication;
-  readonly ParenthesizedExpression: TypedValue;
+  readonly ParenthesizedExpression: TypedValueOccurrence;
   readonly ArrayLiteralExpression: TypedConstruction;
   readonly ObjectLiteralExpression: TypedConstruction;
   readonly SpreadAssignment: TypedObjectSpread;
@@ -636,16 +646,25 @@ export type TirBindingTarget =
   | { readonly kind: "body"; readonly instance: BodyInstance }
   | { readonly kind: "module"; readonly module: ModuleId };
 
-export interface TirVerifierInput {
+export type StaticStorageOf = (declaration: ItemNodeRef) => TyId | null;
+
+export type TirBindingOwnerVisit<Stop extends object> = (consume: (owner: DefId | null) => Stop | null) => Stop | null;
+export type TirBindingScopesOf = <Stop extends object>(
+  target: TirBindingTarget, subject: TirBody | TirModule, visitOwners: TirBindingOwnerVisit<Stop> | null,
+) => { readonly kind: "complete"; readonly scopes: readonly BindingScope[] | null }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+
+export interface TirVerifierInput extends HirBindingViews {
   readonly source: HirModule;
   readonly module: TirModule;
   readonly types: TypeTable;
-  readonly bindingScopesOf: (target: TirBindingTarget) => readonly BindingScope[] | null;
+  readonly bindingScopesOf: TirBindingScopesOf;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
   readonly memberTableOf: (instance: BodyInstance, occurrence: TirMemberOccurrence) => MemberInventory | null;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
+  readonly staticStorageOf: StaticStorageOf;
   readonly localExists: (local: LocalRef) => boolean;
   readonly diagnostics: readonly Diagnostic[];
 }
@@ -653,7 +672,7 @@ export interface TirVerifierInput {
 export type TirRule = "binding-element-role-exact" | "binding-capture-owner" | "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
   | "parent-reference" | "local-dense" | "local-storage" | "binding-storage" | "type-closed"
   | "capture-qualified" | "capture-rows-agree" | "cross-owner-qualified" | "parameter-order"
-  | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence"
+  | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence" | "intrinsic-value-use" | "static-reference-exact"
   | "argument-total" | "argument-parameter-order" | "argument-passing" | "omission-valid"
   | "authored-order-preserved" | "empty-spread-preserved" | "call-endpoints" | "completion-endpoint"
   | "binding-vector-complete" | "member-origin" | "accessor-activation" | "access-location" | "closure-capture-total" | "closure-capture-binding" | "operation-type"
@@ -679,11 +698,25 @@ export type TirSite =
 export type MemberSelectionKey = (member: MemberSelection) => KeyData;
 export type PrintTir = (body: TirBody) => string;
 export type ParseTir = (text: string) => TextParseResult<TirBody>;
-export type VerifyTir = (input: TirVerifierInput, body: TirBody) => readonly Violation<TirRule, TirSite>[];
-export type TirBindingOwners = (input: TirVerifierInput, target: TirBindingTarget) => readonly (DefId | null)[];
+export type TirReadyRead =
+  | { readonly kind: "prior" | "row" }
+  | { readonly kind: "retain-publication-entry" }
+  | { readonly kind: "artifact"; readonly instance: BodyInstance }
+  | { readonly kind: "bindings"; readonly bindings: BindingVector }
+  | { readonly kind: "static-item"; readonly declaration: ItemNodeRef }
+  | { readonly kind: "member"; readonly instance: BodyInstance; readonly occurrence: TirMemberOccurrence }
+  | { readonly kind: "module-scope"; readonly module: ModuleId };
+export type TirReadyReadAdmission<Stop extends object> = (request: TirReadyRead) => Stop | null;
+export type TirVerificationResult<Site, Stop extends object> =
+  | { readonly kind: "complete"; readonly violations: readonly Violation<TirRule, Site>[] }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+export type VerifyTirBody<Stop extends object> = (body: TirBody) => TirVerificationResult<TirSite, Stop>;
+export type VerifyTir = <Stop extends object>(input: TirVerifierInput, admit: TirReadyReadAdmission<Stop>) =>
+  VerifyTirBody<Stop>;
 export type TirOperationsOf = (input: TirVerifierInput, instance: BodyInstance) =>
   readonly { readonly operation: TypedOperation; readonly node: NodeRef; readonly origin: Origin }[];
-export type VerifyTirModule = (
+export type VerifyTirModule = <Stop extends object>(
   input: TirVerifierInput,
   module: TirModule,
-) => readonly Violation<TirRule, TirNodeSite>[];
+  admit: TirReadyReadAdmission<Stop>,
+) => TirVerificationResult<TirNodeSite, Stop>;

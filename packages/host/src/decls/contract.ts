@@ -1,8 +1,9 @@
 import type { Cause, Diagnostic, UnitDiagnostic, UnitRequest, UnitResult, UnitValue } from "../diag/contract.js";
-import type { BodyId, DefId, DefinitionPath, ModuleId, TyId } from "../ids/contract.js";
-import type { BindingScope, MemberInventory, Signature, SignatureRequest, TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
-import type { HirModule, HirNode, SyntaxKind } from "../ir-hir/contract.js";
-import type { InferenceGroup, InferredPartRequest, InferredPartType, SignaturePlacement } from "../ir-infer/contract.js";
+import type { BodyId, DefId, DefinitionPath, ModuleId, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BindingScope, MemberInventory, MemberKey, MemberTypeRequest, MemberTypes, Signature, SignatureRequest, TypeEvidence, TypeExpansionLimits, TypeInterner, TypeProductionRequest, TypePublicationWork, TypeTerm } from "../ir-types/contract.js";
+import type { CheckedTypingCuts, HirDeclarationScopes, HirModule, HirNode, SyntaxKind } from "../ir-hir/contract.js";
+import type { InferenceGroup, InferredPartRequest, InferredPartType, MemberRuleAnswer, MemberRuleNeed, PlacedSignature, SignaturePlacement, TypePatternMatchOutcome,
+  TypeProductionAnswer, TypeProductionNeed } from "../ir-infer/contract.js";
 import type { Step } from "../step/contract.js";
 
 // Decls (COMPONENTS section 2; amendment S2-7). This file states the two operations of checkpoint 2,
@@ -78,12 +79,14 @@ export interface DeclsDeps {
   readonly modules: readonly DeclsModule[];
   /** The interner of the program's type table: a signature under bindings is interned here. */
   readonly types: TypeInterner;
+  readonly typeWork: TypePublicationWork;
   readonly typeExpansion: TypeExpansionLimits;
 }
 
-/** Part 1, `describeDefinitions`: one checked module and the inverse export names of its definitions. */
+/** Part 1, `describeDefinitions`: one verified checked module and its ready scope and export projections. */
 export type DescribeDefinitions = (
   module: DeclsModule,
+  scopes: HirDeclarationScopes,
   /** At most one entry per definition; a definition without one has no export name. */
   exportNames: readonly DefinitionExports[],
 ) => DefinitionTable;
@@ -103,6 +106,7 @@ export interface DeclaredSignatureErrorData {
   readonly state: DeclaredSignaturePause;
   readonly ready: readonly { readonly index: number; readonly answer: InferredPartType }[];
   readonly unavailable: readonly [number, ...number[]];
+  readonly signature: Signature;
 }
 
 export type DeclarationCycleTarget =
@@ -129,28 +133,36 @@ export type ClassifyCycle = (deps: DeclsDeps,
 export type ErrorSignature = (deps: DeclsDeps, request: SignatureRequest, cause: Cause,
   data: DeclaredSignatureErrorData) => UnitValue<Signature>;
 
-export type PlaceSignature = (deps: DeclsDeps, placement: SignaturePlacement, unit: UnitRequest) => DeclsStep<Signature, never>;
+export type PlaceSignature = (deps: DeclsDeps, placement: SignaturePlacement, unit: UnitRequest, cuts: CheckedTypingCuts) => DeclsStep<PlacedSignature, never>;
 
 export type MembersOf = (deps: DeclsDeps, type: TyId) => Step<UnitResult<MemberInventory>, never, never, Diagnostic>;
 
-export interface MemberTypeRequest {
-  readonly receiver: TyId;
-  /** Position in this exact receiver's canonical member inventory, not a declaration or a source position. */
-  readonly member: number;
-}
-
-export interface MemberTypes {
-  readonly read: TyId | null;
-  readonly write: TyId | null;
-}
-
 export type MemberTypeOf = (deps: DeclsDeps, request: MemberTypeRequest) => DeclsStep<MemberTypes, never>;
+
+export interface SelectedIndexedRead {
+  readonly type: TyId;
+  readonly previous: SelectedIndexedRead | null;
+}
+
+export type TypeProductionPause = { readonly root: SourceNodeRef; readonly origin: Origin; readonly unit: UnitRequest } & (
+  | { readonly kind: "index"; readonly receiver: TyId; readonly projection: TyId; readonly request: TypeProductionRequest }
+  | { readonly kind: "inventory"; readonly receiver: TyId; readonly keys: readonly MemberKey[] }
+  | { readonly kind: "keys"; readonly receiver: TyId }
+  | { readonly kind: "member"; readonly requests: readonly MemberTypeRequest[]; readonly next: number;
+      readonly completed: SelectedIndexedRead | null }
+);
+
+export type TypeProductionStep = Step<UnitResult<TypeEvidence>, MemberRuleNeed | TypeProductionNeed, TypeProductionPause, Diagnostic>;
+export type ProduceType = (deps: DeclsDeps, request: TypeProductionRequest, checkedOperator: HirNode, unit: UnitRequest,
+  match: (check: TypeTerm, pattern: TypeTerm) => TypePatternMatchOutcome) => TypeProductionStep;
+export type ResumeProduceType = (deps: DeclsDeps, paused: TypeProductionPause,
+  answers: readonly (MemberRuleAnswer | TypeProductionAnswer)[]) => TypeProductionStep;
 
 /**
  * Part 1, `declaredSignatureOf`: the declared signature of the endpoint the request names, under its bindings.
  * A signature whose parts are all declared is answered at once; an inferred part pauses with a request for it.
  */
-export type DeclaredSignatureOf = (deps: DeclsDeps, request: SignatureRequest) => DeclsStep<Signature, DeclaredSignaturePause>;
+export type DeclaredSignatureOf = (deps: DeclsDeps, request: SignatureRequest, cuts: CheckedTypingCuts) => DeclsStep<Signature, DeclaredSignaturePause>;
 
 /** Resumes a paused `declaredSignatureOf` once, with one answer per request of the pause, in their order. */
 export type ResumeDeclaredSignatureOf = (

@@ -2,10 +2,10 @@ import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import { requirePresent, throwInvariant } from "../../diag/index.js";
 import type { LocalId, OriginsId } from "../../ids/contract.js";
-import type { AppliedWrite, Summary, SummaryWrite } from "../../ir-facts/contract.js";
+import type { AppliedWrite, Summary, SummaryApplicationInput, SummaryWrite } from "../../ir-facts/contract.js";
 import type { MirSite, MirTerminator } from "../../ir-mir/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
-import { captureLocalAtCall } from "./initialization.js";
+import { callSlotAt } from "./initialization.js";
 import { bodyFrontier } from "./places.js";
 import { joinOrigins, valueKind } from "./values.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
@@ -15,8 +15,8 @@ function frontier(operation: MirSite, message: string): never {
 }
 
 function primitiveLocal(deps: BodyRoundDeps, input: BodyRoundInput,
-  operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary, cell: number): DataflowResult<LocalId | null> {
-  const local = captureLocalAtCall(deps, input.mir, operation, summary, cell);
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary, cell: number): DataflowResult<number | null> {
+  const local = callSlotAt(deps, input.mir, operation, summary, cell, null);
   if (local.kind !== "complete") return local;
   const read = chargeWork(deps.account, 1);
   if (read !== null) return read;
@@ -29,38 +29,39 @@ function primitiveLocal(deps: BodyRoundDeps, input: BodyRoundInput,
   return { kind: "complete", value: kind === "primitive" ? local.value : null };
 }
 
-export function callWrites(deps: BodyRoundDeps, input: BodyRoundInput,
-  operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary,
+export function callWrites(deps: BodyRoundDeps,
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, cells: SummaryApplicationInput["cells"],
   source: readonly SummaryWrite[], applied: readonly AppliedWrite[]): DataflowStop | null {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
   for (let index = 0; index < applied.length; index += 1) {
-    const read = chargeWork(deps.account, 3);
+    const read = chargeWork(deps.account, 4);
     if (read !== null) return read;
     const write = requirePresent(applied[index], { owner: "analyses/body", query: null, origin: operation.origin,
       message: "Canonical application retains every actual write." });
     const selected = requirePresent(source[index], { owner: "analyses/body", query: null, origin: operation.origin,
       message: "An applied write retains its actual source row." });
-    if (write.target.same === null || write.target.targets.length !== 1 || write.value.callee.length !== 0 || write.value.boundaries.length !== 0)
+    const binding = cells[selected.target];
+    if (binding?.kind !== "cell" || write.target.same?.cell !== binding.index || write.target.targets.length !== 1
+      || write.target.targets[0].cell !== binding.index || write.value.callee.length !== 0 || write.value.boundaries.length !== 0)
       return frontier(operation, "BodyAnalysis requires the actual created, open or unresolved caller-cell write transport.");
-    const local = captureLocalAtCall(deps, input.mir, operation, summary, selected.target);
-    if (local.kind !== "complete") return local;
   }
   return null;
 }
 
 export function primitiveExitLocals(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary,
-  kind: "return" | "unwind"): DataflowResult<readonly LocalId[] | null> {
+  kind: "return" | "unwind"): DataflowResult<readonly number[] | null> {
   const start = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
   if (start !== null) return start;
-  const locals: LocalId[] = [];
+  const locals: number[] = [];
   const contents = kind === "return" ? summary.contentsOnReturn : summary.contentsOnUnwind;
   for (let index = 0; index < contents.length; index += 1) {
-    const read = chargeWork(deps.account, 2);
+    const read = chargeWork(deps.account, 3);
     if (read !== null) return read;
     const row = requirePresent(contents[index], { owner: "analyses/body", query: null, origin: operation.origin,
       message: "A finite content vector retains each actual source row." });
+    if (summary.arena.cells[row.target]?.role.kind === "static") return { kind: "complete", value: null };
     const value = requirePresent(summary.arena.origins[row.value], { owner: "analyses/body", query: null, origin: operation.origin,
       message: "A finite content row retains its actual source Origins." });
     if (value.kind !== "complete" || value.producers.length !== 0 || value.includesAbsence)
@@ -86,6 +87,11 @@ export function recordCaptureWrite(deps: BodyRoundDeps, input: BodyRoundInput, l
   if (stopped !== null) return stopped;
   if (kind === null)
     return bodyFrontier("BodyAnalysis requires the actual selected captured content representation.");
+  return recordCellWrite(deps, cell, value, writes, values, admit);
+}
+
+export function recordCellWrite(deps: BodyRoundDeps, cell: number, value: OriginsId, writes: Map<number, OriginsId>,
+  values: ValueOrigins, admit: AdmitOrigins): DataflowStop | null {
   const lookup = chargeWork(deps.account, 1);
   if (lookup !== null) return lookup;
   const retained = chargeResultEntries(deps.account, writes.has(cell) ? 1 : 2);

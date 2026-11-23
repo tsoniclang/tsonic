@@ -1,22 +1,63 @@
+import type { InvariantFailure } from "../diag/contract.js";
+import { requirePresent } from "../diag/index.js";
 import type { ChildrenOfSyntax, IterateChildrenOfSyntax, IterateSyntaxChildEdges, Phase, SyntaxNode, NodeList, SyntaxChild } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
+const missingChild: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
+  message: "A syntax list must retain its actual dense child vector." };
 
-type ChildProjection<PhaseType extends Phase, Value> = (
-  node: SyntaxNode<PhaseType>, field: string, index: number | null, list: boolean,
-) => Value;
+export interface SyntaxChildSlot<PhaseType extends Phase> {
+  readonly fields: readonly (string | number)[];
+  readonly read: () => SyntaxNode<PhaseType>;
+}
 
-function* children<PhaseType extends Phase, Value>(
-  project: ChildProjection<PhaseType, Value>,
-  ...parts: readonly (readonly [string, SyntaxNode<PhaseType> | NodeList<SyntaxNode<PhaseType>> | readonly SyntaxNode<PhaseType>[] | null])[]
-): Generator<Value, void, undefined> {
-  for (const [field, part] of parts) {
-    if (part === null) continue;
-    if ("kind" in part) yield project(part, field, null, false);
-    else if ("nodes" in part) {
-      for (const [index, node] of part.nodes.entries()) yield project(node, field, index, true);
-    } else {
-      for (const [index, node] of part.entries()) yield project(node, field, index, false);
+type ChildPart<PhaseType extends Phase> =
+  | readonly [field: string, kind: "required", read: () => SyntaxNode<PhaseType>]
+  | readonly [field: string, kind: "nullable", read: () => SyntaxNode<PhaseType> | null]
+  | readonly [field: string, kind: "list", read: () => NodeList<SyntaxNode<PhaseType>> | null]
+  | readonly [field: string, kind: "array", read: () => readonly SyntaxNode<PhaseType>[] | null];
+
+type SlotKind = ChildPart<Phase>[1];
+
+type FieldKind<Value> = [Value] extends [never] ? "not-child"
+  : undefined extends Value ? "not-child"
+  : [Value] extends [null] ? "nullable"
+  : NonNullable<Value> extends NodeList<unknown> ? "list"
+  : NonNullable<Value> extends readonly unknown[] ? "array"
+  : NonNullable<Value> extends { readonly kind: string } ? null extends Value ? "nullable" : "required"
+  : "not-child";
+
+type FieldKinds<Node, Field extends keyof Node> = Node extends object ? FieldKind<Node[Field]> : never;
+
+type ExactPart<Node> = {
+  [Field in keyof Node & string]: {
+    [Kind in SlotKind]: [FieldKinds<Node, Field>] extends [Kind] ? readonly [Field, Kind, () => Node[Field]] : never
+  }[SlotKind]
+}[keyof Node & string];
+
+function* children<PhaseType extends Phase, Node>(
+  ...parts: readonly (ChildPart<PhaseType> & ExactPart<Node>)[]
+): Generator<SyntaxChildSlot<PhaseType>, void, undefined> {
+  for (const [field, kind, read] of parts) {
+    switch (kind) {
+      case "required": yield { fields: [field], read }; break;
+      case "nullable": {
+        const child = read();
+        if (child !== null) yield { fields: [field], read: () => child };
+        break;
+      }
+      case "list":
+      case "array": {
+        const list = kind === "list" ? read()?.nodes : read();
+        if (list === null || list === undefined) break;
+        const length = list.length;
+        for (let index = 0; index < length; index += 1) {
+          const position = index;
+          yield { fields: kind === "list" ? [field, "nodes", position] : [field, position],
+            read: () => requirePresent(list[position], missingChild) };
+        }
+        break;
+      }
     }
   }
 }
@@ -24,7 +65,7 @@ function* children<PhaseType extends Phase, Value>(
 export const iterateChildrenOfSyntax: IterateChildrenOfSyntax = function* <PhaseType extends Phase>(
   node: SyntaxNode<PhaseType>,
 ): Generator<SyntaxNode<PhaseType>, void, undefined> {
-  yield* projectSyntax(node, child => child);
+  for (const slot of iterateSyntaxChildSlots(node)) yield slot.read();
 };
 
 export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
@@ -40,19 +81,17 @@ export function syntaxChildEdges<PhaseType extends Phase>(
 export const iterateSyntaxChildEdges: IterateSyntaxChildEdges = function* <PhaseType extends Phase>(
   node: SyntaxNode<PhaseType>,
 ): Generator<SyntaxChild<PhaseType>, void, undefined> {
-  yield* projectSyntax(node, (child, field, index, list) => ({ node: child,
-    fields: index === null ? [field] : list ? [field, "nodes", index] : [field, index] }));
+  for (const slot of iterateSyntaxChildSlots(node)) yield { node: slot.read(), fields: slot.fields };
 };
 
-function projectSyntax<PhaseType extends Phase, Value>(
-  node: SyntaxNode<PhaseType>, project: ChildProjection<PhaseType, Value>,
-): Iterable<Value> {
+export function iterateSyntaxChildSlots<PhaseType extends Phase>(
+  node: SyntaxNode<PhaseType>,
+): Iterable<SyntaxChildSlot<PhaseType>> {
   switch (node.kind) {
     case "QualifiedName":
-      return children<PhaseType, Value>(project, ["left", node.left], ["right", node.right]);
+      return children<PhaseType, typeof node>(["left", "required", () => node.left], ["right", "required", () => node.right]);
     case "ComputedPropertyName":
     case "Decorator":
-    case "ReturnStatement":
     case "ThrowStatement":
     case "ExpressionStatement":
     case "ExternalModuleReference":
@@ -66,165 +105,172 @@ function projectSyntax<PhaseType extends Phase, Value>(
     case "AwaitExpression":
     case "PartiallyEmittedExpression":
     case "JsxSpreadAttribute":
-      return children<PhaseType, Value>(project, ["expression", node.expression]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression]);
+    case "ReturnStatement":
+      return children<PhaseType, typeof node>(["expression", "nullable", () => node.expression]);
     case "IfStatement":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["thenStatement", node.thenStatement], ["elseStatement", node.elseStatement]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["thenStatement", "required", () => node.thenStatement], ["elseStatement", "nullable", () => node.elseStatement]);
     case "DoStatement":
-      return children<PhaseType, Value>(project, ["statement", node.statement], ["expression", node.expression]);
+      return children<PhaseType, typeof node>(["statement", "required", () => node.statement], ["expression", "required", () => node.expression]);
     case "WhileStatement":
     case "WithStatement":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["statement", node.statement]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["statement", "required", () => node.statement]);
     case "ForStatement":
-      return children<PhaseType, Value>(project, ["initializer", node.initializer], ["condition", node.condition], ["incrementor", node.incrementor], ["statement", node.statement]);
+      return children<PhaseType, typeof node>(["initializer", "nullable", () => node.initializer], ["condition", "nullable", () => node.condition], ["incrementor", "nullable", () => node.incrementor], ["statement", "required", () => node.statement]);
     case "ForInStatement":
     case "ForOfStatement":
-      return children<PhaseType, Value>(project, ["awaitModifier", node.awaitModifier], ["initializer", node.initializer], ["expression", node.expression], ["statement", node.statement]);
+      return children<PhaseType, typeof node>(["awaitModifier", "nullable", () => node.awaitModifier], ["initializer", "required", () => node.initializer], ["expression", "required", () => node.expression], ["statement", "required", () => node.statement]);
     case "BreakStatement":
     case "ContinueStatement":
-      return children<PhaseType, Value>(project, ["label", node.label]);
+      return children<PhaseType, typeof node>(["label", "nullable", () => node.label]);
     case "SwitchStatement":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["caseBlock", node.caseBlock]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["caseBlock", "required", () => node.caseBlock]);
     case "CaseBlock":
-      return children<PhaseType, Value>(project, ["clauses", node.clauses]);
+      return children<PhaseType, typeof node>(["clauses", "list", () => node.clauses]);
     case "CaseClause":
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["statements", "list", () => node.statements]);
     case "DefaultClause":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["statements", node.statements]);
+      return children<PhaseType, typeof node>(["expression", "nullable", () => node.expression], ["statements", "list", () => node.statements]);
     case "TryStatement":
-      return children<PhaseType, Value>(project, ["tryBlock", node.tryBlock], ["catchClause", node.catchClause], ["finallyBlock", node.finallyBlock]);
+      return children<PhaseType, typeof node>(["tryBlock", "required", () => node.tryBlock], ["catchClause", "nullable", () => node.catchClause], ["finallyBlock", "nullable", () => node.finallyBlock]);
     case "CatchClause":
-      return children<PhaseType, Value>(project, ["variableDeclaration", node.variableDeclaration], ["block", node.block]);
+      return children<PhaseType, typeof node>(["variableDeclaration", "nullable", () => node.variableDeclaration], ["block", "required", () => node.block]);
     case "LabeledStatement":
-      return children<PhaseType, Value>(project, ["label", node.label], ["statement", node.statement]);
+      return children<PhaseType, typeof node>(["label", "required", () => node.label], ["statement", "required", () => node.statement]);
     case "Block":
     case "ModuleBlock":
-      return children<PhaseType, Value>(project, ["statements", node.statements]);
+      return children<PhaseType, typeof node>(["statements", "list", () => node.statements]);
     case "VariableStatement":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["declarationList", node.declarationList]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["declarationList", "required", () => node.declarationList]);
     case "VariableDeclaration":
-      return children<PhaseType, Value>(project, ["name", node.name], ["exclamationToken", node.exclamationToken], ["type", node.type], ["initializer", node.initializer]);
+      return children<PhaseType, typeof node>(["name", "required", () => node.name], ["exclamationToken", "nullable", () => node.exclamationToken], ["type", "nullable", () => node.type], ["initializer", "nullable", () => node.initializer]);
     case "VariableDeclarationList":
-      return children<PhaseType, Value>(project, ["declarations", node.declarations]);
+      return children<PhaseType, typeof node>(["declarations", "list", () => node.declarations]);
     case "ObjectBindingPattern":
     case "ArrayBindingPattern":
-      return children<PhaseType, Value>(project, ["elements", node.elements]);
+      return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
     case "Parameter":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["dotDotDotToken", node.dotDotDotToken], ["name", node.name],
-        ["questionToken", node.questionToken], ["type", node.type], ["initializer", node.initializer]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["dotDotDotToken", "nullable", () => node.dotDotDotToken], ["name", "required", () => node.name],
+        ["questionToken", "nullable", () => node.questionToken], ["type", "nullable", () => node.type], ["initializer", "nullable", () => node.initializer]);
     case "BindingElement":
-      return children<PhaseType, Value>(project, ["dotDotDotToken", node.dotDotDotToken], ["propertyName", node.propertyName], ["name", node.name], ["initializer", node.initializer]);
+      return children<PhaseType, typeof node>(["dotDotDotToken", "nullable", () => node.dotDotDotToken], ["propertyName", "nullable", () => node.propertyName], ["name", "nullable", () => node.name], ["initializer", "nullable", () => node.initializer]);
     case "MissingDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]);
     case "FunctionDeclaration":
     case "FunctionExpression":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["asteriskToken", node.asteriskToken], ["name", node.name],
-        ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature], ["body", node.body]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["asteriskToken", "nullable", () => node.asteriskToken], ["name", "nullable", () => node.name],
+        ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["body", "nullable", () => node.body]);
     case "ClassDeclaration":
     case "ClassExpression":
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "nullable", () => node.name], ["typeParameters", "list", () => node.typeParameters],
+        ["heritageClauses", "list", () => node.heritageClauses], ["members", "list", () => node.members]);
     case "InterfaceDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name], ["typeParameters", node.typeParameters],
-        ["heritageClauses", node.heritageClauses], ["members", node.members]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["typeParameters", "list", () => node.typeParameters],
+        ["heritageClauses", "list", () => node.heritageClauses], ["members", "list", () => node.members]);
     case "HeritageClause":
-      return children<PhaseType, Value>(project, ["types", node.types]);
+      return children<PhaseType, typeof node>(["types", "list", () => node.types]);
     case "TypeAliasDeclaration":
     case "JSTypeAliasDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name], ["typeParameters", node.typeParameters], ["type", node.type]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["typeParameters", "list", () => node.typeParameters], ["type", "required", () => node.type]);
     case "EnumMember":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name], ["postfixToken", node.postfixToken], ["initializer", node.initializer]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["initializer", "nullable", () => node.initializer]);
     case "EnumDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name], ["members", node.members]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["members", "list", () => node.members]);
     case "ImportDeclaration":
     case "JSImportDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["importClause", node.importClause], ["moduleSpecifier", node.moduleSpecifier], ["attributes", node.attributes]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["importClause", "nullable", () => node.importClause], ["moduleSpecifier", "required", () => node.moduleSpecifier], ["attributes", "nullable", () => node.attributes]);
     case "NamespaceImport":
     case "NamespaceExport":
     case "JSDocNameReference":
+      return children<PhaseType, typeof node>(["name", "required", () => node.name]);
     case "JSDocLink":
     case "JSDocLinkPlain":
     case "JSDocLinkCode":
-      return children<PhaseType, Value>(project, ["name", node.name]);
+      return children<PhaseType, typeof node>(["name", "nullable", () => node.name]);
     case "NamedImports":
     case "NamedExports":
-      return children<PhaseType, Value>(project, ["elements", node.elements]);
+      return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
     case "ExportAssignment":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["type", node.type], ["expression", node.expression]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["type", "nullable", () => node.type], ["expression", "required", () => node.expression]);
     case "NamespaceExportDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name]);
     case "ExportSpecifier":
     case "ImportSpecifier":
-      return children<PhaseType, Value>(project, ["propertyName", node.propertyName], ["name", node.name]);
+      return children<PhaseType, typeof node>(["propertyName", "nullable", () => node.propertyName], ["name", "required", () => node.name]);
     case "CallSignature":
     case "ConstructSignature":
     case "JSDocSignature":
-      return children<PhaseType, Value>(project, ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
+      return children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
     case "FunctionType":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
     case "Constructor":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters],
-        ["type", node.type], ["fullSignature", node.fullSignature], ["asteriskToken", node.asteriskToken], ["body", node.body]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters],
+        ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["asteriskToken", "nullable", () => node.asteriskToken], ["body", "nullable", () => node.body]);
     case "GetAccessor":
     case "SetAccessor":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["asteriskToken", node.asteriskToken], ["name", node.name], ["postfixToken", node.postfixToken],
-        ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature], ["body", node.body]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["asteriskToken", "nullable", () => node.asteriskToken], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken],
+        ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["body", "nullable", () => node.body]);
     case "IndexSignature":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
     case "MethodSignature":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name], ["postfixToken", node.postfixToken],
-        ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken],
+        ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
     case "MethodDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["asteriskToken", node.asteriskToken], ["name", node.name], ["postfixToken", node.postfixToken],
-        ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature], ["body", node.body]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["asteriskToken", "nullable", () => node.asteriskToken], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken],
+        ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["body", "nullable", () => node.body]);
     case "PropertySignature":
     case "PropertyDeclaration":
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["type", "nullable", () => node.type], ["initializer", "nullable", () => node.initializer]);
     case "PropertyAssignment":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name], ["postfixToken", node.postfixToken], ["type", node.type], ["initializer", node.initializer]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["type", "nullable", () => node.type], ["initializer", "required", () => node.initializer]);
     case "ClassStaticBlockDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["body", node.body]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["body", "required", () => node.body]);
     case "BinaryExpression":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["left", node.left], ["type", node.type], ["operatorToken", node.operatorToken], ["right", node.right]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["left", "required", () => node.left], ["type", "nullable", () => node.type], ["operatorToken", "required", () => node.operatorToken], ["right", "required", () => node.right]);
     case "PrefixUnaryExpression":
     case "PostfixUnaryExpression":
-      return children<PhaseType, Value>(project, ["operand", node.operand]);
+      return children<PhaseType, typeof node>(["operand", "required", () => node.operand]);
     case "YieldExpression":
-      return children<PhaseType, Value>(project, ["asteriskToken", node.asteriskToken], ["expression", node.expression]);
+      return children<PhaseType, typeof node>(["asteriskToken", "nullable", () => node.asteriskToken], ["expression", "nullable", () => node.expression]);
     case "ArrowFunction":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters],
-        ["type", node.type], ["fullSignature", node.fullSignature], ["asteriskToken", node.asteriskToken], ["equalsGreaterThanToken", node.equalsGreaterThanToken], ["body", node.body]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters],
+        ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["asteriskToken", "nullable", () => node.asteriskToken], ["equalsGreaterThanToken", "required", () => node.equalsGreaterThanToken], ["body", "nullable", () => node.body]);
     case "AsExpression":
     case "SatisfiesExpression":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["type", node.type]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["type", "required", () => node.type]);
     case "ConditionalExpression":
-      return children<PhaseType, Value>(project, ["condition", node.condition], ["questionToken", node.questionToken], ["whenTrue", node.whenTrue], ["colonToken", node.colonToken], ["whenFalse", node.whenFalse]);
+      return children<PhaseType, typeof node>(["condition", "required", () => node.condition], ["questionToken", "required", () => node.questionToken], ["whenTrue", "required", () => node.whenTrue], ["colonToken", "required", () => node.colonToken], ["whenFalse", "required", () => node.whenFalse]);
     case "PropertyAccessExpression":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["questionDotToken", node.questionDotToken], ["name", node.name]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["questionDotToken", "nullable", () => node.questionDotToken], ["name", "required", () => node.name]);
     case "ElementAccessExpression":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["questionDotToken", node.questionDotToken], ["argumentExpression", node.argumentExpression]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["questionDotToken", "nullable", () => node.questionDotToken], ["argumentExpression", "required", () => node.argumentExpression]);
     case "CallExpression":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["questionDotToken", node.questionDotToken], ["typeArguments", node.typeArguments], ["arguments", node.arguments]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["questionDotToken", "nullable", () => node.questionDotToken], ["typeArguments", "list", () => node.typeArguments], ["arguments", "list", () => node.arguments]);
     case "NewExpression":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["typeArguments", node.typeArguments], ["arguments", node.arguments]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["typeArguments", "list", () => node.typeArguments], ["arguments", "list", () => node.arguments]);
     case "MetaProperty":
-      return children<PhaseType, Value>(project, ["name", node.name]);
+      return children<PhaseType, typeof node>(["name", "required", () => node.name]);
     case "TemplateExpression":
     case "TemplateLiteralType":
-      return children<PhaseType, Value>(project, ["head", node.head], ["templateSpans", node.templateSpans]);
+      return children<PhaseType, typeof node>(["head", "required", () => node.head], ["templateSpans", "list", () => node.templateSpans]);
     case "TemplateSpan":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["literal", node.literal]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["literal", "required", () => node.literal]);
     case "TaggedTemplateExpression":
-      return children<PhaseType, Value>(project, ["tag", node.tag], ["questionDotToken", node.questionDotToken], ["typeArguments", node.typeArguments], ["template", node.template]);
+      return children<PhaseType, typeof node>(["tag", "required", () => node.tag], ["questionDotToken", "nullable", () => node.questionDotToken], ["typeArguments", "list", () => node.typeArguments], ["template", "required", () => node.template]);
     case "ArrayLiteralExpression":
-      return children<PhaseType, Value>(project, ["elements", node.elements]);
+      return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
     case "ObjectLiteralExpression":
-      return children<PhaseType, Value>(project, ["properties", node.properties]);
+      return children<PhaseType, typeof node>(["properties", "list", () => node.properties]);
     case "ShorthandPropertyAssignment":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name], ["postfixToken", node.postfixToken], ["type", node.type],
-        ["equalsToken", node.equalsToken], ["objectAssignmentInitializer", node.objectAssignmentInitializer]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["type", "nullable", () => node.type],
+        ["equalsToken", "nullable", () => node.equalsToken], ["objectAssignmentInitializer", "nullable", () => node.objectAssignmentInitializer]);
     case "TypeAssertionExpression":
-      return children<PhaseType, Value>(project, ["type", node.type], ["expression", node.expression]);
+      return children<PhaseType, typeof node>(["type", "required", () => node.type], ["expression", "required", () => node.expression]);
     case "UnionType":
     case "IntersectionType":
-      return children<PhaseType, Value>(project, ["types", node.types]);
+      return children<PhaseType, typeof node>(["types", "list", () => node.types]);
     case "ConditionalType":
-      return children<PhaseType, Value>(project, ["checkType", node.checkType], ["extendsType", node.extendsType], ["trueType", node.trueType], ["falseType", node.falseType]);
+      return children<PhaseType, typeof node>(["checkType", "required", () => node.checkType], ["extendsType", "required", () => node.extendsType], ["trueType", "required", () => node.trueType], ["falseType", "required", () => node.falseType]);
     case "TypeOperator":
     case "JSDocTypeExpression":
     case "JSDocNonNullableType":
@@ -234,68 +280,69 @@ function projectSyntax<PhaseType extends Phase, Value>(
     case "OptionalType":
     case "RestType":
     case "ParenthesizedType":
-      return children<PhaseType, Value>(project, ["type", node.type]);
+      return children<PhaseType, typeof node>(["type", "required", () => node.type]);
     case "InferType":
-      return children<PhaseType, Value>(project, ["typeParameter", node.typeParameter]);
+      return children<PhaseType, typeof node>(["typeParameter", "required", () => node.typeParameter]);
     case "ArrayType":
-      return children<PhaseType, Value>(project, ["elementType", node.elementType]);
+      return children<PhaseType, typeof node>(["elementType", "required", () => node.elementType]);
     case "IndexedAccessType":
-      return children<PhaseType, Value>(project, ["objectType", node.objectType], ["indexType", node.indexType]);
+      return children<PhaseType, typeof node>(["objectType", "required", () => node.objectType], ["indexType", "required", () => node.indexType]);
     case "TypeReference":
-      return children<PhaseType, Value>(project, ["typeName", node.typeName], ["typeArguments", node.typeArguments]);
+      return children<PhaseType, typeof node>(["typeName", "required", () => node.typeName], ["typeArguments", "list", () => node.typeArguments]);
     case "ExpressionWithTypeArguments":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["typeArguments", node.typeArguments]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["typeArguments", "list", () => node.typeArguments]);
     case "LiteralType":
-      return children<PhaseType, Value>(project, ["literal", node.literal]);
+      return children<PhaseType, typeof node>(["literal", "required", () => node.literal]);
     case "TypePredicate":
-      return children<PhaseType, Value>(project, ["assertsModifier", node.assertsModifier], ["parameterName", node.parameterName], ["type", node.type]);
+      return children<PhaseType, typeof node>(["assertsModifier", "nullable", () => node.assertsModifier], ["parameterName", "required", () => node.parameterName], ["type", "nullable", () => node.type]);
     case "ImportAttribute":
-      return children<PhaseType, Value>(project, ["name", node.name], ["value", node.value]);
+      return children<PhaseType, typeof node>(["name", "required", () => node.name], ["value", "required", () => node.value]);
     case "ImportAttributes":
-      return children<PhaseType, Value>(project, ["attributes", node.attributes]);
+      return children<PhaseType, typeof node>(["attributes", "list", () => node.attributes]);
     case "TypeQuery":
-      return children<PhaseType, Value>(project, ["exprName", node.exprName], ["typeArguments", node.typeArguments]);
+      return children<PhaseType, typeof node>(["exprName", "required", () => node.exprName], ["typeArguments", "list", () => node.typeArguments]);
     case "MappedType":
-      return children<PhaseType, Value>(project, ["readonlyToken", node.readonlyToken], ["typeParameter", node.typeParameter], ["nameType", node.nameType],
-        ["questionToken", node.questionToken], ["type", node.type], ["members", node.members]);
+      return children<PhaseType, typeof node>(["readonlyToken", "nullable", () => node.readonlyToken], ["typeParameter", "required", () => node.typeParameter], ["nameType", "nullable", () => node.nameType],
+        ["questionToken", "nullable", () => node.questionToken], ["type", "nullable", () => node.type], ["members", "list", () => node.members]);
     case "TypeLiteral":
-      return children<PhaseType, Value>(project, ["members", node.members]);
+      return children<PhaseType, typeof node>(["members", "list", () => node.members]);
     case "TupleType":
-      return children<PhaseType, Value>(project, ["elements", node.elements]);
+      return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
     case "NamedTupleMember":
-      return children<PhaseType, Value>(project, ["dotDotDotToken", node.dotDotDotToken], ["name", node.name], ["questionToken", node.questionToken], ["type", node.type]);
+      return children<PhaseType, typeof node>(["dotDotDotToken", "nullable", () => node.dotDotDotToken], ["name", "required", () => node.name], ["questionToken", "nullable", () => node.questionToken], ["type", "required", () => node.type]);
     case "ConstructorType":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
     case "TemplateLiteralTypeSpan":
-      return children<PhaseType, Value>(project, ["type", node.type], ["literal", node.literal]);
+      return children<PhaseType, typeof node>(["type", "required", () => node.type], ["literal", "required", () => node.literal]);
     case "JsxElement":
-      return children<PhaseType, Value>(project, ["openingElement", node.openingElement], ["children", node.children], ["closingElement", node.closingElement]);
+      return children<PhaseType, typeof node>(["openingElement", "required", () => node.openingElement], ["children", "list", () => node.children], ["closingElement", "required", () => node.closingElement]);
     case "JsxAttributes":
-      return children<PhaseType, Value>(project, ["properties", node.properties]);
+      return children<PhaseType, typeof node>(["properties", "list", () => node.properties]);
     case "JsxNamespacedName":
-      return children<PhaseType, Value>(project, ["namespace", node.namespace], ["name", node.name]);
+      return children<PhaseType, typeof node>(["namespace", "required", () => node.namespace], ["name", "required", () => node.name]);
     case "JsxOpeningElement":
     case "JsxSelfClosingElement":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName], ["typeArguments", node.typeArguments], ["attributes", node.attributes]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeArguments", "list", () => node.typeArguments], ["attributes", "required", () => node.attributes]);
     case "JsxFragment":
-      return children<PhaseType, Value>(project, ["openingFragment", node.openingFragment], ["children", node.children], ["closingFragment", node.closingFragment]);
+      return children<PhaseType, typeof node>(["openingFragment", "required", () => node.openingFragment], ["children", "list", () => node.children], ["closingFragment", "required", () => node.closingFragment]);
     case "JsxAttribute":
-      return children<PhaseType, Value>(project, ["name", node.name], ["initializer", node.initializer]);
+      return children<PhaseType, typeof node>(["name", "required", () => node.name], ["initializer", "nullable", () => node.initializer]);
     case "JsxClosingElement":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName]);
     case "JsxExpression":
-      return children<PhaseType, Value>(project, ["dotDotDotToken", node.dotDotDotToken], ["expression", node.expression]);
+      return children<PhaseType, typeof node>(["dotDotDotToken", "nullable", () => node.dotDotDotToken], ["expression", "nullable", () => node.expression]);
     case "SyntaxList":
-      return children<PhaseType, Value>(project, ["children", node.children]);
+      return children<PhaseType, typeof node>(["children", "array", () => node.children]);
     case "JSDoc":
-      return children<PhaseType, Value>(project, ["comment", node.comment], ["tags", node.tags]);
+      return children<PhaseType, typeof node>(["comment", "list", () => node.comment], ["tags", "list", () => node.tags]);
     case "JSDocTypeTag":
-    case "JSDocReturnTag":
     case "JSDocSatisfiesTag":
-    case "JSDocThrowsTag":
     case "JSDocThisTag":
     case "JSDocOverloadTag":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName], ["typeExpression", node.typeExpression], ["comment", node.comment]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeExpression", "required", () => node.typeExpression], ["comment", "list", () => node.comment]);
+    case "JSDocReturnTag":
+    case "JSDocThrowsTag":
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeExpression", "nullable", () => node.typeExpression], ["comment", "list", () => node.comment]);
     case "JSDocUnknownTag":
     case "JSDocPublicTag":
     case "JSDocPrivateTag":
@@ -303,41 +350,42 @@ function projectSyntax<PhaseType extends Phase, Value>(
     case "JSDocReadonlyTag":
     case "JSDocOverrideTag":
     case "JSDocDeprecatedTag":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName], ["comment", node.comment]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["comment", "list", () => node.comment]);
     case "JSDocSeeTag":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName], ["nameExpression", node.nameExpression], ["comment", node.comment]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["nameExpression", "required", () => node.nameExpression], ["comment", "list", () => node.comment]);
     case "JSDocTemplateTag":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName], ["constraint", node.constraint], ["typeParameters", node.typeParameters], ["comment", node.comment]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["constraint", "required", () => node.constraint], ["typeParameters", "list", () => node.typeParameters], ["comment", "list", () => node.comment]);
     case "JSDocImplementsTag":
     case "JSDocAugmentsTag":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName], ["className", node.className], ["comment", node.comment]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["className", "required", () => node.className], ["comment", "list", () => node.comment]);
     case "JSDocImportTag":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName], ["importClause", node.importClause], ["moduleSpecifier", node.moduleSpecifier],
-        ["attributes", node.attributes], ["comment", node.comment]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["importClause", "nullable", () => node.importClause], ["moduleSpecifier", "required", () => node.moduleSpecifier],
+        ["attributes", "nullable", () => node.attributes], ["comment", "list", () => node.comment]);
     case "JSDocCallbackTag":
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeExpression", "required", () => node.typeExpression], ["name", "nullable", () => node.name], ["comment", "list", () => node.comment]);
     case "JSDocTypedefTag":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName], ["typeExpression", node.typeExpression], ["name", node.name], ["comment", node.comment]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["typeExpression", "nullable", () => node.typeExpression], ["name", "nullable", () => node.name], ["comment", "list", () => node.comment]);
     case "SourceFile":
-      return children<PhaseType, Value>(project, ["statements", node.statements], ["endOfFileToken", node.endOfFileToken]);
+      return children<PhaseType, typeof node>(["statements", "list", () => node.statements], ["endOfFileToken", "required", () => node.endOfFileToken]);
     case "ModuleDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["asteriskToken", node.asteriskToken], ["name", node.name], ["body", node.body]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["asteriskToken", "nullable", () => node.asteriskToken], ["name", "required", () => node.name], ["body", "nullable", () => node.body]);
     case "ImportEqualsDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name], ["moduleReference", node.moduleReference]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["moduleReference", "required", () => node.moduleReference]);
     case "ExportDeclaration":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["exportClause", node.exportClause], ["moduleSpecifier", node.moduleSpecifier], ["attributes", node.attributes]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["exportClause", "nullable", () => node.exportClause], ["moduleSpecifier", "nullable", () => node.moduleSpecifier], ["attributes", "nullable", () => node.attributes]);
     case "ImportType":
-      return children<PhaseType, Value>(project, ["argument", node.argument], ["attributes", node.attributes], ["qualifier", node.qualifier], ["typeArguments", node.typeArguments]);
+      return children<PhaseType, typeof node>(["argument", "required", () => node.argument], ["attributes", "nullable", () => node.attributes], ["qualifier", "nullable", () => node.qualifier], ["typeArguments", "list", () => node.typeArguments]);
     case "ImportClause":
-      return children<PhaseType, Value>(project, ["name", node.name], ["namedBindings", node.namedBindings]);
+      return children<PhaseType, typeof node>(["name", "nullable", () => node.name], ["namedBindings", "nullable", () => node.namedBindings]);
     case "TypeParameter":
-      return children<PhaseType, Value>(project, ["modifiers", node.modifiers], ["name", node.name], ["constraint", node.constraint], ["expression", node.expression], ["defaultType", node.defaultType]);
+      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["constraint", "nullable", () => node.constraint], ["expression", "nullable", () => node.expression], ["defaultType", "nullable", () => node.defaultType]);
     case "SyntheticReferenceExpression":
-      return children<PhaseType, Value>(project, ["expression", node.expression], ["thisArg", node.thisArg]);
+      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["thisArg", "required", () => node.thisArg]);
     case "JSDocTypeLiteral":
-      return children<PhaseType, Value>(project, ["jsDocPropertyTags", node.jsDocPropertyTags]);
+      return children<PhaseType, typeof node>(["jsDocPropertyTags", "array", () => node.jsDocPropertyTags]);
     case "JSDocParameterTag":
     case "JSDocPropertyTag":
-      return children<PhaseType, Value>(project, ["tagName", node.tagName], ["name", node.name], ["typeExpression", node.typeExpression], ["comment", node.comment]);
+      return children<PhaseType, typeof node>(["tagName", "required", () => node.tagName], ["name", "required", () => node.name], ["typeExpression", "nullable", () => node.typeExpression], ["comment", "list", () => node.comment]);
     case "AnyKeyword":
     case "BigIntKeyword":
     case "BooleanKeyword":

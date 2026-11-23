@@ -346,6 +346,26 @@ test("an untouched database exposes its exact inputs and empty immutable snapsho
   assert.deepEqual(database.diagnostics(), []);
 });
 
+test("only the exact database-owned record limit is classified as shared exhaustion", () => {
+  const database = product.createDatabase(null, { maximumRecords: 0 }, noCycle, "recorded");
+  const foreign = product.createDatabase(null, { maximumRecords: 0 }, noCycle, "recorded");
+  const query = { name: "unopened", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: () => assert.fail("shared exhaustion must not enter the producer") };
+  const refused = database.run(query, null);
+  assert.equal(refused.kind, "refused");
+  assert.equal(database.isRecordLimitRefusal(refused), true);
+  assert.equal(database.isRecordLimitRefusal({ ...refused }), false);
+  assert.equal(database.isRecordLimitRefusal(foreign.run(query, null)), false);
+  assert.equal(database.isRecordLimitRefusal(database.run(query, false)), true);
+  const local = product.createDatabase(null, unbounded, noCycle, "off");
+  const source = diagnostic(1, "a.ts", "producer refusal");
+  const failed = { name: "producer", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: () => ({ kind: "refused", diagnostics: [source] }) };
+  const original = local.run(failed, null);
+  assert.equal(local.isRecordLimitRefusal(original), false);
+  assert.strictEqual(original.diagnostics[0], source);
+});
+
 
 test("construction retains arbitrary actual Inputs rather than encoding, copying or defaulting them", () => {
   const callable = () => "input";
@@ -463,6 +483,74 @@ test("completed ok and refused diagnostic vectors retain exact snapshots without
   assert.deepEqual(before, [first, second]);
   assert.deepEqual(database.diagnostics(), [first, first, second, second]);
   assert.deepEqual(database.stats(), [{ name: "ok", computed: 1, hits: 1 }, { name: "refused", computed: 1, hits: 1 }]);
+});
+
+test("cold and warm report abandonment borrows one completed detector and keeps each independent earned prefix", () => {
+  const position = { kind: "module-node", module: "authored", node: 7 };
+  const report = unitAt("forms", "detector", position);
+  const detected = hostError();
+  const original = hostCause(report);
+  const forms = { name: "forms", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok",
+    value: report, diagnostics: [detected], positions: [errorPositions(position, [original])],
+    emissions: [{ identity: original.diagnostic, diagnostic: detected }] }) };
+  const prefixes = [diagnostic(1, "a.ts", "first prefix"), diagnostic(2, "b.ts", "second prefix")];
+  const terminals = [diagnostic(3, "a.ts", "first terminal"), diagnostic(4, "b.ts", "second terminal")];
+  const requester = { name: "requester", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: (context, key) => context.get(forms, "detector", { witness: key, earned: [prefixes[key]] }, value => ({
+      kind: "abandoned-at-report", report: value, earned: [terminals[key]],
+    })) };
+  const database = product.createDatabase(null, unbounded, noCycle, "recorded");
+  for (const key of [0, 1]) {
+    const refused = database.run(requester, key);
+    assert.equal(refused.kind, "refused");
+    assert.equal(refused.diagnostics.length, 1);
+    assert.strictEqual(refused.diagnostics[0], detected);
+    assert.deepEqual(database.errorOf(unitAt("requester", key)), { kind: "uncomputed" });
+  }
+  const snapshot = database.diagnostics();
+  assert.equal(snapshot.length, 5);
+  for (const item of [detected, ...prefixes, ...terminals]) assert.equal(snapshot.filter(row => row === item).length, 1);
+  assert.deepEqual(database.stats(), [{ name: "forms", computed: 1, hits: 1 }, { name: "requester", computed: 2, hits: 0 }]);
+  const trace = database.trace();
+  assert.deepEqual(trace.filter(event => event.kind === "dependency" && event.to.query === "forms").map(event => event.state), ["cold", "warm"]);
+  assert.deepEqual(trace.filter(event => event.kind === "completion" && event.fact.query === "requester").map(event => event.outcome), ["abandoned", "abandoned"]);
+
+  const limited = product.createDatabase(null, { maximumRecords: 0 }, noCycle, "off");
+  const limit = limited.run(requester, 0);
+  assert.equal(limited.isRecordLimitRefusal(limit), true);
+  assert.strictEqual(limited.run(requester, 1), limit);
+});
+
+test("report abandonment rejects uncomputed, non-detector and crossed report positions", () => {
+  const position = { kind: "module-node", module: "authored", node: 7 };
+  const crossed = { ...position, node: 8 };
+  const multiple = { ...position, node: 9 };
+  const checker = { ...position, node: 10 };
+  const report = unitAt("forms-opposite", "detector", position);
+  const original = hostCause(report);
+  const detected = hostError();
+  const causes = [original];
+  const completed = { name: report.request.query, keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok",
+    value: 0, diagnostics: [detected], emissions: [{ identity: original.diagnostic, diagnostic: detected }], positions: [
+      { position: resultPosition, error: null }, errorPositions(position, causes), errorPositions(crossed, [original]),
+      errorPositions(multiple, [original, cause]), errorPositions(checker, [cause]),
+    ] }) };
+  const borrow = { name: "invalid-borrow", keyData: key => key.request.key, answerPolicy: { kind: "refusal-only" },
+    compute: (unused, value) => ({ kind: "abandoned-at-report", report: value, earned: [] }) };
+  const invalid = (database, value, pattern) => assert.throws(() => database.run(borrow, value),
+    error => error.cause?.owner === "query" && pattern.test(error.message));
+  const database = product.createDatabase(null, unbounded, noCycle, "off");
+  invalid(database, report, /actual completed detector unit/u);
+  assert.equal(database.run(completed, "detector").kind, "completed");
+  for (const position of [resultPosition, multiple, checker, { ...crossed, node: 99 }])
+    invalid(database, { ...report, position }, /one direct host diagnostic cause/u);
+  invalid(database, { ...report, position: crossed }, /actual originating host detector position/u);
+  const refused = { name: "refused-not-report", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: () => ({ kind: "refused", diagnostics: [detected] }) };
+  assert.equal(database.run(refused, null).kind, "refused");
+  invalid(database, unitAt(refused.name, null), /actual completed detector unit/u);
+  causes[0] = { ...original, diagnostic: { ...original.diagnostic, code: "TSONIC_FORGED_REPORT" } };
+  invalid(database, report, /actual completed diagnostic emission/u);
 });
 
 test("ok sparse vectors retain empty, absent and later present slots across root and dependency memo hits", () => {
@@ -764,7 +852,7 @@ test("the root database exposes no synchronous get and a captured reentrant run 
     calls += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] };
   } };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
-  assert.deepEqual(Object.keys(database), ["inputs", "run", "errorOf", "diagnostics", "stats", "trace"]);
+  assert.deepEqual(Object.keys(database), ["inputs", "run", "errorOf", "isRecordLimitRefusal", "diagnostics", "stats", "trace"]);
   assert.equal(database.get, undefined);
   assert.equal(calls, 0);
   assert.deepEqual(database.stats(), []);

@@ -1,5 +1,7 @@
 import type { KeyData, SourceNodeRef } from "../ids/contract.js";
 import type { ComponentSelector, MemberKey, MemberOrigin } from "./data.js";
+import type { TypeProductionRequestData } from "./contract.js";
+import { bindingVectorData } from "./value.js";
 
 interface SelectorPathWork {
   readonly path: readonly ComponentSelector[];
@@ -10,6 +12,9 @@ interface SelectorPathWork {
 function sourceKey(node: SourceNodeRef): readonly KeyData[] {
   return node.kind === "body" ? [node.kind, node.value.body, node.value.node] : [node.kind, node.value.owner, node.value.node];
 }
+
+export const typeProductionRequestData: TypeProductionRequestData = request =>
+  [sourceKey(request.component.root), selectorPathKey(request.component.path), bindingVectorData(request.bindings)];
 
 function memberKeyData(key: MemberKey): readonly KeyData[] {
   switch (key.kind) {

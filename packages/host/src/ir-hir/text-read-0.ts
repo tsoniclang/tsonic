@@ -2,9 +2,14 @@ import type * as Hir from "./contract.js";
 import type * as Ids from "../ids/contract.js";
 import type * as Types from "../ir-types/contract.js";
 import type * as Diag from "../diag/contract.js";
-import { recordReader, sequenceReader, unionReader } from "./text-construction.js";
+import { literalReader, recordReader, sequenceReader, unionReader } from "./text-construction.js";
 import type { HirTextReaders, HirReadGroup0 } from "./text-read-model.js";
 export function createReadGroup0(readers: () => HirTextReaders): HirReadGroup0 {
+  const moduleLink = recordReader<Hir.HirModuleLink>("HirModuleLink", read => {
+    const declaration = read("declaration", readers().identity_n);
+    const evaluation = read("evaluation", literalReader<Hir.ModuleEvaluation>(["eager", "erased", "deferred"]));
+    return { fields: [declaration, evaluation], value: () => ({ declaration: declaration.value(), evaluation: evaluation.value() }) };
+  });
   const record_0 = recordReader<Hir.HirModule>("HirModule", read => {
       const field_module = read("module", readers().identity_mod);
       const field_tree = read("tree", readers().syntax_0);
@@ -12,9 +17,10 @@ export function createReadGroup0(readers: () => HirTextReaders): HirReadGroup0 {
       const field_bodies = read("bodies", sequenceReader(readers().record_2));
       const field_exports = read("exports", sequenceReader(readers().moduleExport));
       const field_bindings = read("bindings", sequenceReader(readers().moduleBinding));
+      const field_moduleLinks = read("moduleLinks", sequenceReader(moduleLink));
       const field_checkerDiagnostics = read("checkerDiagnostics", sequenceReader(readers().record_25));
       const field_obligations = read("obligations", sequenceReader(readers().record_77));
-      return { fields: [field_module, field_tree, field_items, field_bodies, field_exports, field_bindings, field_checkerDiagnostics, field_obligations], value: () => ({ module: field_module.value(), tree: field_tree.value(), items: field_items.value(), bodies: field_bodies.value(), exports: field_exports.value(), bindings: field_bindings.value(), checkerDiagnostics: field_checkerDiagnostics.value(), obligations: field_obligations.value() }) };
+      return { fields: [field_module, field_tree, field_items, field_bodies, field_exports, field_bindings, field_moduleLinks, field_checkerDiagnostics, field_obligations], value: () => ({ module: field_module.value(), tree: field_tree.value(), items: field_items.value(), bodies: field_bodies.value(), exports: field_exports.value(), bindings: field_bindings.value(), moduleLinks: field_moduleLinks.value(), checkerDiagnostics: field_checkerDiagnostics.value(), obligations: field_obligations.value() }) };
     });
   const record_1 = recordReader<Hir.HirDeclarationEntry>("HirDeclarationEntry", read => {
       const field_definition = read("definition", readers().identity_def);

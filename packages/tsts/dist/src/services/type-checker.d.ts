@@ -4,7 +4,9 @@ import type { Context } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Diagnostic } from "../internal/ast/diagnostic.js";
-import type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
+import type { ResolvedSourceModuleLink } from "./source-module-link.js";
+export type { ResolvedSourceModuleLink } from "./source-module-link.js";
+import type { CheckerDiagnosticMembership, ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 export type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 import type { TypeIndexInfo } from "./type-shape.js";
 import type { Program } from "../internal/compiler/program.js";
@@ -18,8 +20,13 @@ import type { ResolvedSourceCallableCompletionInfo, ResolvedSourceGeneratorInfo,
 export interface CreateTypeCheckerQueriesOptions {
     readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
+    readonly admitsCheckerDiagnostic?: CheckerDiagnosticMembership;
 }
 export type ResolvedSourceCallInfo = ResolvedCallEvidence;
+export interface ResolvedSourceIntrinsicValueInfo {
+    readonly kind: "undefined";
+    readonly symbol: Symbol;
+}
 export interface ResolvedSourcePropertyNameInfo {
     readonly kind: "string" | "numeric" | "unique-symbol";
     readonly name: string;
@@ -111,6 +118,11 @@ export type ResolvedAliasStep = ResolvedAliasTarget | {
     readonly exportAssignment: Symbol;
     readonly member: ResolvedAliasTarget | undefined;
 };
+export interface ResolvedModuleExport {
+    readonly name: string;
+    readonly symbol: Symbol;
+    readonly typeOnlyStar: Node | null;
+}
 export interface ResolvedSourceStorageInfo {
     readonly expression: Node;
     readonly storageExpression: Node;
@@ -132,6 +144,7 @@ export interface TypeCheckerQueries {
     readonly getLexicallyResolvedSymbol: (identifier: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getResolvedSymbol: (node: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getResolvedSymbolOrNil: (node: GoPtr<Node>) => GoPtr<Symbol>;
+    readonly getResolvedIntrinsicValueInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceIntrinsicValueInfo>;
     readonly getAliasedSymbol: (symbol: GoPtr<Symbol>) => GoPtr<Symbol>;
     /**
      * One step of an alias chain (see ResolvedAliasStep). Nothing, and no throw, for a symbol that is not
@@ -166,7 +179,7 @@ export interface TypeCheckerQueries {
     readonly getResolvedYieldInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceYieldInfo>;
     readonly getResolvedWellKnownSymbolInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceWellKnownSymbolInfo>;
     readonly getResolvedResourceManagementInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceResourceManagementInfo>;
-    readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;
+    readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly getInvocationReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;
     readonly getCallSignaturesOfType: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignaturesOfType: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
@@ -175,8 +188,9 @@ export interface TypeCheckerQueries {
     readonly getConstantValue: (node: GoPtr<Node>) => unknown;
     readonly typeToString: (type: GoPtr<Type>) => string;
     readonly getModuleSymbolFromSpecifier: (moduleSpecifier: GoPtr<Node>) => GoPtr<Symbol>;
+    readonly getResolvedSourceModuleLink: (specifier: GoPtr<Node>) => GoPtr<ResolvedSourceModuleLink>;
     readonly getResolvedExternalModuleSymbol: (moduleSymbol: GoPtr<Symbol>, dontResolveAlias?: boolean) => GoPtr<Symbol>;
-    readonly getExportsOfModule: (moduleSymbol: GoPtr<Symbol>) => readonly GoPtr<Symbol>[];
+    readonly getExportsOfModule: (moduleSymbol: GoPtr<Symbol>) => readonly ResolvedModuleExport[];
     readonly getSymbolName: (symbol: GoPtr<Symbol>) => string;
     readonly getSymbolDeclarations: (symbol: GoPtr<Symbol>) => readonly GoPtr<Node>[];
     readonly getRootSymbols: (symbol: GoPtr<Symbol>) => readonly GoPtr<Symbol>[];

@@ -1,48 +1,37 @@
-import type { ArtifactBindings, BindingVector, TypeExpansionLimits, TypeTransform } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingVector, BodyInstance, TypeExpansionLimits, TypeInterner, TypeTable,
+  TypeTableAdmissionWork, TypeTransform } from "../ir-types/contract.js";
 import type { ArtifactReference, Instantiate, InstantiatedArtifact, InstantiationResult, ModuleBodies, ProgramIndex } from "./contract.js";
-import { requirePresent } from "../diag/index.js";
+import { hostDiagnosticCode, requirePresent } from "../diag/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
-import type { TirBody } from "../ir-tir/contract.js";
-import type { MirBody } from "../ir-mir/contract.js";
-import type { BodyFacts, Summary } from "../ir-facts/contract.js";
-import { bindingVectorKey, exportTypes, seedTypeInterner, substitute, substituteSignature } from "../ir-types/index.js";
-import type { InstantiationMeter, InstantiationStop } from "./work.js";
-import type { TypeRewrite } from "./canonical-types.js";
-import { chargeWork, remainingWork } from "../dataflow/index.js";
+import type { BodyFacts } from "../ir-facts/contract.js";
+import { admitTypeTable, bindingVectorKey, substitute, substituteSignature, viewTypes } from "../ir-types/index.js";
+import type { InstantiationAllocationStop, InstantiationMeter, InstantiationStop } from "./work.js";
+import type { TypeReferenceRewrite } from "./canonical-types.js";
+import type { SyntaxCopyResult } from "../ir-hir/contract.js";
 import { admitBindingVector, createBindingLookup, createProjectionInventory, drainProjectionInventory, inventoryRecord, summaryBindingsOf, summaryReferenceKey, summaryReferenceOf } from "./program-values.js";
 import { chargeInstantiationWork, createInstantiationMeter } from "./work.js";
 import type { ProjectionInventory } from "./program-values.js";
-import { admitTypeSeed, stabilizePublication } from "./instantiate-types.js";
-import { inventoryBodyFacts, inventorySummary } from "./instantiate-facts.js";
-import { inventoryMirBody, inventoryTirBody } from "./instantiate-tir.js";
+import { foreignTypeDetail, programTypeWork } from "./verification-work.js";
+import { prepareSummary } from "./instantiate-facts.js";
+import { inventoryTirBody } from "./instantiate-tir.js";
 import { inventoryBodySyntax } from "./instantiate-syntax.js";
 import { rewriteBodySyntax } from "./canonical-syntax.js";
-import { rewriteMirBody, rewriteTirBody } from "./canonical-tir.js";
-import { rewriteBodyFacts, rewriteSummary } from "./canonical-facts.js";
+import { typedSyntaxPhaseCopy } from "./canonical-phase.js";
 
-type StructuralArtifact =
-  | { readonly kind: "tir"; readonly body: TirBody }
-  | { readonly kind: "mir"; readonly body: MirBody }
-  | { readonly kind: "facts"; readonly facts: BodyFacts }
-  | { readonly kind: "summary"; readonly summary: Summary };
-
-type ArtifactCandidate = {
-  readonly kind: "candidate";
-  readonly artifact: StructuralArtifact;
-  readonly bindings: ArtifactBindings;
-  readonly dependence: "parametric" | "binding-dependent";
-} | {
-  readonly kind: "candidate";
-  readonly artifact: InstantiatedArtifact & { readonly kind: "metadata" };
-  readonly bindings: ArtifactBindings;
-  readonly dependence: "binding-dependent" | "independent-data";
-};
+type ParametricArtifact = Extract<InstantiatedArtifact, { readonly kind: "tir" | "summary" }>;
+type ArtifactCandidate =
+  | { readonly kind: "bound"; readonly artifact: InstantiatedArtifact; readonly bindings: BindingVector; readonly enclosing: BindingVector }
+  | { readonly kind: "parametric"; readonly artifact: ParametricArtifact | null }
+  | { readonly kind: "independent"; readonly artifact: Extract<InstantiatedArtifact, { readonly kind: "metadata" }> };
 
 type ArtifactSelection =
   | { readonly kind: "exact"; readonly artifact: InstantiatedArtifact }
-  | { readonly kind: "template"; readonly artifact: StructuralArtifact }
+  | { readonly kind: "template"; readonly artifact: ParametricArtifact }
   | { readonly kind: "missing" }
   | InstantiationStop;
+
+const missingArtifactRow: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "Artifact selection requires a dense candidate inventory" };
 
 function bindingKey(meter: InstantiationMeter, bindings: BindingVector): string | InstantiationStop {
   for (const family of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings, bindings.selfBindings]) {
@@ -69,27 +58,33 @@ function select<Value>(
   const keys = new Set<string>();
   let requested: string | null = null;
   let exact: InstantiatedArtifact | null = null;
-  let template: ArtifactCandidate | null = null;
-  for (const value of values) {
+  let template: Extract<ArtifactCandidate, { readonly kind: "parametric" }> | null = null;
+  for (let position = 0; position < values.length; position += 1) {
     const work = chargeInstantiationWork(meter);
     if (work !== null) return work;
+    const value = requirePresent(values[position], missingArtifactRow);
     const candidate = candidateOf(value);
     if (candidate === null) continue;
     if (candidate.kind === "resource-limit" || candidate.kind === "refused") return candidate;
-    if (candidate.dependence === "independent-data") return { kind: "exact", artifact: candidate.artifact };
+    if (candidate.kind === "independent") return { kind: "exact", artifact: candidate.artifact };
     if (requested === null) {
       const key = bindingKey(meter, bindings);
       if (typeof key !== "string") return key;
       requested = key;
     }
-    switch (candidate.bindings.kind) {
+    switch (candidate.kind) {
       case "parametric":
         if (template !== null) throw new TypeError("Duplicate parametric artifact");
         template = candidate;
         break;
-      case "instantiated": {
-        const key = bindingKey(meter, candidate.bindings.bindings);
+      case "bound": {
+        const key = bindingKey(meter, candidate.bindings);
         if (typeof key !== "string") return key;
+        if (candidate.enclosing !== candidate.bindings) {
+          const enclosing = bindingKey(meter, candidate.enclosing);
+          if (typeof enclosing !== "string") return enclosing;
+          if (key !== enclosing) break;
+        }
         const stop = admitVector(meter, keys, key);
         if (stop !== null) return stop;
         if (key === requested) {
@@ -101,9 +96,23 @@ function select<Value>(
     }
   }
   if (exact !== null) return { kind: "exact", artifact: exact };
-  if (template === null || requested === null || template.dependence !== "parametric") return { kind: "missing" };
+  if (template === null || template.artifact === null || requested === null) return { kind: "missing" };
   const stop = admitVector(meter, keys, requested);
   return stop ?? { kind: "template", artifact: template.artifact };
+}
+
+function parametricCandidate(artifact: ParametricArtifact, bindings: ArtifactBindings, bindingDependent: boolean): ArtifactCandidate {
+  return bindings.kind === "instantiated" ? { kind: "bound", artifact, bindings: bindings.bindings, enclosing: bindings.bindings }
+    : { kind: "parametric", artifact: bindingDependent ? null : artifact };
+}
+
+function bodyCandidate(enclosing: BodyInstance, payload: BodyInstance, artifact: InstantiatedArtifact,
+  template: ParametricArtifact | null = null): ArtifactCandidate | null {
+  if (payload.body !== enclosing.body) return null;
+  if (enclosing.bindings.kind === "parametric")
+    return payload.bindings.kind === "parametric" ? { kind: "parametric", artifact: template } : null;
+  return payload.bindings.kind === "instantiated"
+    ? { kind: "bound", artifact, bindings: payload.bindings.bindings, enclosing: enclosing.bindings.bindings } : null;
 }
 
 export function selectArtifact(
@@ -111,98 +120,83 @@ export function selectArtifact(
   artifact: ArtifactReference, bindings: BindingVector,
 ): ArtifactSelection {
   switch (artifact.kind) {
-    case "tir":
-    case "mir": return select(meter, module.bodies, bindings, value => {
+    case "tir": return select(meter, module.bodies, bindings, value => {
       if (value.instance.body !== artifact.body) return null;
-      let selected: StructuralArtifact;
-      if (artifact.kind === "tir") selected = { kind: "tir", body: value.tir };
-      else {
-        if (value.kind === "template") return null;
-        selected = { kind: "mir", body: value.mir };
-      }
-      return { kind: "candidate", artifact: selected, bindings: value.instance.bindings, dependence: value.tir.dependence };
+      const selected: Extract<InstantiatedArtifact, { readonly kind: "tir" }> = { kind: "tir", body: value.tir };
+      return bodyCandidate(value.instance, value.tir, selected, value.tir.dependence === "parametric" ? selected : null);
     });
+    case "mir": return select(meter, module.bodies, bindings, value =>
+      value.instance.body !== artifact.body || value.kind !== "selected" || value.instance.bindings.kind !== "instantiated"
+        ? null : bodyCandidate(value.instance, value.mir, { kind: "mir", body: value.mir }));
     case "facts": return select(meter, module.bodies, bindings, value => {
-      if (value.instance.body !== artifact.body || value.kind === "template") return null;
+      if (value.instance.body !== artifact.body || value.kind !== "selected" || value.instance.bindings.kind !== "instantiated") return null;
       let selected: BodyFacts | null = null;
-      for (const facts of value.facts) {
+      const executions = value.facts;
+      for (let position = 0; position < executions.length; position += 1) {
         const stop = chargeInstantiationWork(meter);
         if (stop !== null) return stop;
+        const facts = requirePresent(executions[position], missingArtifactRow);
         if (facts.execution.provided !== artifact.provided) continue;
         if (selected !== null) throw new TypeError("Duplicate execution facts artifact");
         selected = facts;
       }
-      return selected === null ? null : { kind: "candidate", artifact: { kind: "facts", facts: selected },
-        bindings: selected.execution.instance.bindings, dependence: value.tir.dependence };
+      return selected === null ? null : bodyCandidate(value.instance, selected.execution.instance, { kind: "facts", facts: selected });
     });
     case "summary": {
       const reference = summaryReferenceKey(artifact);
       return select(meter, index.summaries, bindings, summary => {
-      if (summaryReferenceKey(summaryReferenceOf(summary.key)) !== reference) return null;
-      return {
-        kind: "candidate", artifact: { kind: "summary", summary }, bindings: summaryBindingsOf(summary.key),
-        dependence: summary.bindingDependent ? "binding-dependent" : "parametric",
-      };
+        if (summaryReferenceKey(summaryReferenceOf(summary.key)) !== reference) return null;
+        return parametricCandidate({ kind: "summary", summary }, summaryBindingsOf(summary.key), summary.bindingDependent);
       });
     }
     case "metadata": return select(meter, index.metadata, bindings, metadata => {
       if (metadata.key.definition !== artifact.definition) return null;
-      return {
-        kind: "candidate", artifact: { kind: "metadata", metadata }, bindings: metadata.key.bindings,
-        dependence: metadata.kind === "data-layout" ? "independent-data" : "binding-dependent",
-      };
+      const selected: Extract<InstantiatedArtifact, { readonly kind: "metadata" }> = { kind: "metadata", metadata };
+      if (metadata.kind === "data-layout") return { kind: "independent", artifact: selected };
+      return metadata.key.bindings.kind === "instantiated" ? { kind: "bound", artifact: selected,
+        bindings: metadata.key.bindings.bindings, enclosing: metadata.key.bindings.bindings }
+        : { kind: "parametric", artifact: null };
     });
   }
 }
 
 type ArtifactProjection = {
   readonly kind: "complete";
-  readonly project: (rewrite: TypeRewrite, bindings: ArtifactBindings) => StructuralArtifact;
+  readonly project: (rewrite: TypeReferenceRewrite) => SyntaxCopyResult<ParametricArtifact, InstantiationStop>;
 };
 
-function prepareArtifact(scan: ProjectionInventory, artifact: StructuralArtifact): ArtifactProjection | InstantiationStop {
+function prepareArtifact(scan: ProjectionInventory, artifact: ParametricArtifact,
+  bindings: ArtifactBindings,
+): ArtifactProjection | InstantiationStop {
   const environment = inventoryRecord(scan, 2);
   if (environment !== null) return environment;
   switch (artifact.kind) {
     case "tir": {
-      const body = inventoryTirBody(scan, artifact.body) ?? drainProjectionInventory(scan);
-      if (body !== null) return body;
-      const syntax = inventoryBodySyntax(scan, artifact.body);
+      const body = inventoryTirBody(scan, artifact.body);
+      if (body.kind !== "complete") return body;
+      const prepared = body.value;
+      const syntax = inventoryBodySyntax(scan, prepared.roots, typedSyntaxPhaseCopy(scan, "Instantiation.root"));
       if (syntax.kind !== "complete") return syntax;
       return {
         kind: "complete",
-        project: (rewrite, bindings) => {
-          const selected = rewriteBodySyntax(rewrite, artifact.body, syntax.syntax, "Instantiation.root");
-          return { kind: "tir", body: rewriteTirBody(rewrite, artifact.body, selected.root, bindings, selected.params) };
+        project: rewrite => {
+          const selected = rewriteBodySyntax(rewrite, prepared.roots, syntax.value);
+          return selected.kind === "refused" ? selected : { kind: "copied", value: { kind: "tir",
+            body: prepared.project(rewrite, selected.value.root, selected.value.params, bindings),
+          } };
         },
       };
     }
-    case "mir": {
-      const body = inventoryMirBody(scan, artifact.body) ?? drainProjectionInventory(scan);
-      if (body !== null) return body;
-      return { kind: "complete", project: (rewrite, bindings) => ({
-        kind: "mir", body: rewriteMirBody(rewrite, artifact.body, "Instantiation.mir", bindings),
-      }) };
-    }
-    case "facts": {
-      const body = inventoryRecord(scan, 2) ?? inventoryBodyFacts(scan, artifact.facts) ?? drainProjectionInventory(scan);
-      if (body !== null) return body;
-      return { kind: "complete", project: (rewrite, bindings) => ({
-        kind: "facts", facts: rewriteBodyFacts(rewrite, artifact.facts, {
-          instance: { body: artifact.facts.execution.instance.body, bindings }, provided: artifact.facts.execution.provided,
-        }),
-      }) };
-    }
     case "summary": {
-      const body = inventoryRecord(scan, 2) ?? inventorySummary(scan, artifact.summary) ?? drainProjectionInventory(scan);
-      if (body !== null) return body;
-      return { kind: "complete", project: (rewrite, bindings) => ({
-        kind: "summary", summary: rewriteSummary(rewrite, artifact.summary, artifact.summary.key.kind === "body"
-          ? { kind: "body", execution: { instance: { body: artifact.summary.key.execution.instance.body, bindings },
-              provided: artifact.summary.key.execution.provided } }
-          : { kind: "declared", execution: { request: { ...artifact.summary.key.execution.request, bindings },
-              provided: artifact.summary.key.execution.provided } }),
-      }) };
+      const header = inventoryRecord(scan, 2);
+      if (header !== null) return header;
+      const body = prepareSummary(scan, artifact.summary, bindings);
+      if (body.kind === "refused") return body.stop;
+      const stop = drainProjectionInventory(scan);
+      return stop === null ? {
+        kind: "complete",
+        project: rewrite => ({ kind: "copied", value: { kind: "summary", summary: body.value(rewrite) } }),
+      } : stop;
     }
   }
 }
@@ -227,7 +221,7 @@ function transformed<Identity>(values: ReadonlyMap<Identity, Identity>, identity
 
 function substituteReferences<Identity extends number>(
   meter: InstantiationMeter, roots: ReadonlySet<Identity>,
-  apply: (roots: readonly Identity[]) => TypeTransform<readonly Identity[]>,
+  apply: (roots: readonly Identity[]) => TypeTransform<readonly Identity[]> | InstantiationAllocationStop,
 ): { readonly kind: "complete"; readonly values: ReadonlyMap<Identity, Identity> }
   | (InstantiationResult & { readonly kind: "resource-limit" | "refused" }) {
   const requested: Identity[] = [];
@@ -237,55 +231,71 @@ function substituteReferences<Identity extends number>(
     requested.push(root);
   }
   const result = apply(requested);
-  if (result.kind !== "complete") return expansionStop(result);
+  if (result.kind === "refused") return result;
+  if (result.kind === "resource-limit") {
+    switch (result.dimension) {
+      case "depth": case "visits": case "union-members": case "intersection-members": return expansionStop(result);
+      default: return result;
+    }
+  }
   const values = new Map<Identity, Identity>();
   for (const [position, root] of requested.entries()) values.set(root, requirePresent(result.value[position], missingSubstitutionImage));
   return { kind: "complete", values };
 }
 
+function admitInstantiationTypes(table: TypeTable, work: TypeTableAdmissionWork<InstantiationAllocationStop>):
+  { readonly kind: "complete"; readonly types: TypeInterner } | InstantiationAllocationStop {
+  const admitted = admitTypeTable(table, work);
+  if (admitted.kind === "invalid") {
+    const row = admitted.violations[0];
+    if (row === undefined) throw new TypeError("Types admission retains its actual offending row.");
+    const code = hostDiagnosticCode("TSONIC_PROGRAM_TYPE_TABLE_INVALID");
+    return { kind: "refused", diagnostics: [{ code: { kind: "host", name: code, rendered: code }, severity: "error",
+      site: { kind: "none" }, source: "ir-program", evidence: [],
+      message: "Instantiation requires a canonical type table at its original ordinals.",
+      arguments: foreignTypeDetail(row), related: [], fix: null }] };
+  }
+  return admitted;
+}
+
 export const instantiate: Instantiate = (index, module, artifact, bindings, limits) => {
   const meter = createInstantiationMeter(limits);
+  const typeWork = programTypeWork(meter);
+  const table = index.types;
+  const empty = Array.isArray(table.terms) && table.terms.length === 0
+    && Array.isArray(table.signatures) && table.signatures.length === 0;
+  const prepared = empty ? null : admitInstantiationTypes(table, typeWork);
+  if (prepared !== null && prepared.kind !== "complete") return prepared;
   const selected = selectArtifact(meter, index, module, artifact, bindings);
   switch (selected.kind) {
     case "resource-limit": case "refused": return selected;
     case "missing": return { kind: "missing-binding-artifact", artifact, bindings };
-    case "exact": return { kind: "instantiated", artifact: selected.artifact, types: index.types };
-    case "template": break;
   }
+  const admitted = prepared ?? admitInstantiationTypes(table, typeWork);
+  if (admitted.kind !== "complete") return admitted;
+  const interner = admitted.types;
+  if (selected.kind === "exact") return { kind: "instantiated", artifact: selected.artifact, types: viewTypes(interner) };
   const lookup = createBindingLookup(meter, bindings);
   if (lookup.kind !== "complete") return lookup;
-  const seed = admitTypeSeed(meter, index.types);
-  if (seed !== null) return seed;
-  const interner = seedTypeInterner(index.types);
-  const scan = createProjectionInventory(meter, lookup.lookup);
-  const projection = prepareArtifact(scan, selected.artifact);
+  const scan = createProjectionInventory(meter, lookup.lookup, () => {
+    throw new TypeError("Inline cycle in instantiation TypeComponent");
+  });
+  const projection = prepareArtifact(scan, selected.artifact, { kind: "instantiated", bindings });
   if (projection.kind !== "complete") return projection;
   const expansion: TypeExpansionLimits = limits.typeExpansion;
-  const types = substituteReferences(meter, scan.types, roots => substitute(interner, roots, bindings, expansion));
+  const types = substituteReferences(meter, scan.types, roots => substitute(interner, roots, bindings, expansion, typeWork));
   if (types.kind !== "complete") return types;
-  const signatures = substituteReferences(meter, scan.signatures, roots => substituteSignature(interner, roots, bindings, expansion));
+  const signatures = substituteReferences(meter, scan.signatures, roots => substituteSignature(interner, roots, bindings, expansion, "lexical", typeWork));
   if (signatures.kind !== "complete") return signatures;
-  const publication = exportTypes(interner, {
-    maximumWork: remainingWork(meter.account),
-    maximumCreatedRecords: limits.maximumCreatedRecords - meter.created,
-  });
-  if (publication.kind !== "complete") {
-    const stop = { ...publication, maximum: publication.dimension === "work" ? limits.maximumWork : limits.maximumCreatedRecords };
-    meter.failure = stop;
-    return stop;
-  }
-  chargeWork(meter.account, publication.work);
-  meter.created += publication.createdRecords;
-  const stable = stabilizePublication(meter, index.types, publication.value);
-  if (stable.kind !== "complete") return stable;
-  const rewrite: TypeRewrite = {
-    ...lookup.lookup,
-    type: value => stable.rewrite.type(transformed(types.values, value)),
-    signature: value => stable.rewrite.signature(transformed(signatures.values, value)),
+  const rewrite: TypeReferenceRewrite = {
+    type: value => transformed(types.values, value),
+    signature: value => transformed(signatures.values, value),
   };
+  const projected = projection.project(rewrite);
+  if (projected.kind === "refused") return projected.stop;
   return {
     kind: "instantiated",
-    artifact: projection.project(rewrite, { kind: "instantiated", bindings }),
-    types: stable.types,
+    artifact: projected.value,
+    types: viewTypes(interner),
   };
 };

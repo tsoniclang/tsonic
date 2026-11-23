@@ -11,11 +11,45 @@ import { Checker_isTypeAssignableTo, Checker_isTypeIdenticalTo } from "../intern
 import { createExtensionConditionalCapture } from "../extensions/conditional-type-evidence.js";
 import { Checker_getConditionalTypeInstantiationWithCapture } from "../internal/checker/checker/inference.js";
 import { Checker_fillMissingTypeArguments, Checker_getMinTypeArgumentCount } from "../internal/checker/checker/signatures.js";
-import { Type_AsConditionalType, TypeFlagsConditional, TypeFlagsTypeParameter } from "../internal/checker/types.js";
+import { getConditionalTypeKey } from "../internal/checker/checker/state.js";
+import { Type_AsConditionalType, TypeFlagsConditional, TypeFlagsIndexedAccess, TypeFlagsTypeParameter } from "../internal/checker/types.js";
+import { LinkStore_TryGet } from "../internal/core/linkstore.js";
 import { getExtensionHost } from "../extensions/host.js";
 import { createTypeNormalization } from "./type-normalization.js";
+import { readOwnedIndexedAccess } from "./type-indexed-access.js";
+import { flatTypeMapperInputs } from "./type-mapper-inputs.js";
+export function readConditionalApplication(checker, result, data) {
+    const root = data.root;
+    const mapper = data.mapper;
+    if (root === undefined || mapper === undefined || root.outerTypeParameters.length === 0)
+        return null;
+    const inputs = flatTypeMapperInputs(mapper);
+    if (inputs === undefined || inputs.sources.length !== root.outerTypeParameters.length
+        || inputs.targets.length !== root.outerTypeParameters.length)
+        return null;
+    const bindings = [];
+    for (const [index, parameter] of root.outerTypeParameters.entries()) {
+        const argument = inputs.targets[index];
+        if (parameter === undefined || inputs.sources[index] !== parameter || parameter.checker !== checker
+            || (parameter.flags & TypeFlagsTypeParameter) === 0 || argument === undefined || argument.checker !== checker
+            || argument === checker.errorType)
+            return null;
+        const declarations = parameter.symbol?.Declarations;
+        const declaration = declarations?.[0];
+        if (declarations?.length !== 1 || declaration === undefined || !IsTypeParameterDeclaration(declaration))
+            return null;
+        const file = GetSourceFileOfNode(declaration);
+        if (file === undefined || !checker.fileIndexMap.has(file))
+            return null;
+        bindings.push(Object.freeze({ declaration, parameter, argument }));
+    }
+    if (root.instantiations.get(getConditionalTypeKey(inputs.targets, result.alias, false)) !== result)
+        return null;
+    return Object.freeze(bindings);
+}
 export function readTypeAliasApplication(queryChecker, type) {
-    if (queryChecker === undefined || type?.checker === undefined || type.alias === undefined)
+    const symbol = type?.alias?.symbol;
+    if (queryChecker === undefined || type?.checker === undefined || symbol === undefined)
         return undefined;
     const checker = type.checker;
     if (checker !== queryChecker) {
@@ -23,17 +57,36 @@ export function readTypeAliasApplication(queryChecker, type) {
         if (owner === undefined || getExtensionHost(checker.program) !== owner)
             return undefined;
     }
-    const declarations = type.alias.symbol?.Declarations;
+    if ((type.flags & TypeFlagsIndexedAccess) !== 0 && readOwnedIndexedAccess(checker, type) === undefined)
+        return undefined;
+    const declarations = symbol.Declarations;
     const declaration = declarations?.[0];
     if (declarations?.length !== 1 || declaration === undefined || !IsTypeAliasDeclaration(declaration))
         return undefined;
-    const arguments_ = type.alias.typeArguments ?? [];
-    if (arguments_.some(argument => argument === undefined))
+    const file = GetSourceFileOfNode(declaration);
+    const typeNode = Node_Type(declaration);
+    if (file === undefined || !checker.fileIndexMap.has(file) || typeNode === undefined)
         return undefined;
-    const application = resolveTypeAliasApplication(checker, declaration, arguments_);
-    if (application === undefined || !Checker_isTypeIdenticalTo(checker, application.result, type))
+    const links = LinkStore_TryGet(checker.typeAliasLinks, symbol);
+    if (links?.declaredType?.checker !== checker || links.declaredType === checker.errorType)
         return undefined;
-    return Object.freeze({ ...application, result: type });
+    const parameters = Node_TypeParameters(declaration) ?? [];
+    const sourceParameters = links.typeParameters ?? [];
+    const arguments_ = type.alias?.typeArguments ?? [];
+    const defaults = type.alias?.defaultTypeArguments ?? [];
+    if (sourceParameters.length !== parameters.length || arguments_.length + defaults.length !== parameters.length)
+        return undefined;
+    const bindings = [];
+    for (const [index, source] of parameters.entries()) {
+        const parameter = sourceParameters[index];
+        const argument = index < arguments_.length ? arguments_[index] : defaults[index - arguments_.length];
+        if (source === undefined || parameter?.checker !== checker || (parameter.flags & TypeFlagsTypeParameter) === 0
+            || parameter.symbol?.Declarations?.length !== 1 || parameter.symbol.Declarations[0] !== source
+            || argument?.checker !== checker || argument === checker.errorType)
+            return undefined;
+        bindings.push(Object.freeze({ declaration: source, parameter, argument }));
+    }
+    return Object.freeze({ declaration, typeNode, bindings: Object.freeze(bindings), result: type });
 }
 export function resolveTypeAliasApplication(queryChecker, declaration, arguments_) {
     if (declaration === undefined || !IsTypeAliasDeclaration(declaration) || !Array.isArray(arguments_))

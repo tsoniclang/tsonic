@@ -1,12 +1,13 @@
 import type { Cause, Diagnostic, ErrorValue, InvariantFailure, Result, UnitAnswerPosition, UnitPosition, UnitRequest, UnitValue } from "../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
-import type { DefId, Origin, TyId } from "../ids/contract.js";
+import type { DefId, Origin, SigId, TyId } from "../ids/contract.js";
 import { decodeDefId, encodeKey } from "../ids/index.js";
-import type { HirCallableEndpoint, HirNode } from "../ir-hir/contract.js";
+import type { CheckedTypingCuts, HirCallableEndpoint, HirNode } from "../ir-hir/contract.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import type { InferredPartRequest, InferredPartType } from "../ir-infer/contract.js";
-import type { ArtifactBindings, Signature, SignatureRequest } from "../ir-types/contract.js";
-import { encodeSelectorPath, internSignature, internType, readSignature, readType, signatureRequestData, signatureRequestKey, substituteSignature } from "../ir-types/index.js";
+import type { ArtifactBindings, Signature, SignatureInput, SignatureRequest } from "../ir-types/contract.js";
+import { admitTypePublicationStep, encodeSelectorPath, internType, internTypeGraph, readSignature, readType, refuseTypeConstruction,
+  signatureRequestData, signatureRequestKey, substituteSignature, viewTypes } from "../ir-types/index.js";
 import type { DeclaredSignatureErrorData, DeclaredSignaturePause, DeclsDeps, DeclsModule, DeclsStep } from "./contract.js";
 
 type SignatureStep = DeclsStep<Signature, DeclaredSignaturePause>;
@@ -80,8 +81,7 @@ export function signatureValue(inputs: DeclsDeps, unit: UnitRequest, signature: 
     if ((readType(inputs.types, type).kind === "error") !== (error !== null))
       return throwInvariant({ owner: "decls", query: { name: unit.query, encodedKey: encodeKey(unit.key) }, origin: null,
         message: "A signature type position requires its actual error provenance, not an inferred absence." });
-    const position: UnitPosition = { kind: "component", path: encodeSelectorPath([typeof selector === "number"
-      ? { kind: "parameter", signature: signature.id, index: selector } : { kind: selector, signature: signature.id }]) };
+    const position = signatureComponentPosition(signature.id, selector);
     positions.push({ position, error });
     if (error !== null) causes.push({ kind: "unit", unit: {
       request: unit, position } });
@@ -94,7 +94,14 @@ export function signatureValue(inputs: DeclsDeps, unit: UnitRequest, signature: 
   return { value: signature, positions };
 }
 
+export function signatureComponentPosition(signature: SigId, selector: number | "receiver" | "result"): UnitPosition {
+  return { kind: "component", path: encodeSelectorPath([typeof selector === "number"
+    ? { kind: "parameter", signature, index: selector } : { kind: selector, signature }]) };
+}
+
 type SignaturePartValue = Pick<InferredPartType, "part" | "type" | "error">;
+type SignaturePartType = Pick<SignaturePartValue, "part" | "type">;
+type SignatureErrorInputs = Pick<DeclaredSignatureErrorData, "kind" | "state" | "ready" | "unavailable">;
 
 export function resolvePart(answer: InferredPartType, unit: UnitRequest): SignaturePartValue {
   const origin = answer.origin;
@@ -107,7 +114,7 @@ export function resolvePart(answer: InferredPartType, unit: UnitRequest): Signat
     ? null : { kind: "error", causes: [{ kind: "unit", unit: origin }] } };
 }
 
-export function errorSignature(inputs: DeclsDeps, request: SignatureRequest, cause: Cause, data: DeclaredSignatureErrorData): UnitValue<Signature> {
+export function prepareSignatureError(inputs: DeclsDeps, request: SignatureRequest, data: SignatureErrorInputs): Result<DeclaredSignatureErrorData> {
   const selected = endpointOf(inputs, request);
   if (data.kind !== "declared-signature" || signatureRequestKey(data.state.request) !== signatureRequestKey(request))
     return throwInvariant(defect(request, selected.origin, "The classified error data belongs to another semantic request."));
@@ -118,8 +125,10 @@ export function errorSignature(inputs: DeclsDeps, request: SignatureRequest, cau
       || (part.part.part.kind === "parameter-initializer" && (held.part.part.kind !== "parameter-initializer" || held.part.part.index !== part.part.part.index));
   })) return throwInvariant(defect(request, selected.origin, "The classified error data must retain the producer's actual paused part relation."));
   const unit = { query: "declaredSignatureOf", key: signatureRequestData(request) };
-  const answers: (SignaturePartValue | undefined)[] = new Array(data.state.parts.length);
-  const assign = (index: number, answer: SignaturePartValue): void => {
+  const stop = admitTypePublicationStep(inputs.typeWork, data.state.parts.length + data.ready.length + data.unavailable.length);
+  if (stop !== null) return refuseTypeConstruction(inputs.typeWork, stop, selected.origin, unit);
+  const answers: (SignaturePartType | undefined)[] = new Array(data.state.parts.length);
+  const assign = (index: number, answer: SignaturePartType): void => {
     if (!Number.isInteger(index) || index < 0 || index >= answers.length || answers[index] !== undefined)
       return throwInvariant(defect(request, selected.origin, "Ready and unavailable signature parts must be distinct actual request positions."));
     answers[index] = answer;
@@ -131,18 +140,44 @@ export function errorSignature(inputs: DeclsDeps, request: SignatureRequest, cau
     if (part === undefined || part.kind === "yield" || (part.kind === "return" && callableChannels(selected.node)))
       return throwInvariant(defect(request, selected.origin, "A body-channel failure is not an unavailable public signature type position."));
     assign(index, { part: requirePresent(data.state.parts[index], defect(request, selected.origin, "An unavailable part has no request.")).part,
-      type: error, error: { kind: "error", causes: [cause] } });
+      type: error });
   }
   if (data.unavailable.length === 0 || data.ready.length + data.unavailable.length !== answers.length)
     return throwInvariant(defect(request, selected.origin, "Every signature part requires actual ready evidence or its classified unavailability."));
-  return assembleSignature(inputs, data.state, answers.map(answer => requirePresent(answer, defect(request, selected.origin, "A classified signature part has no answer."))), selected,
-    unit);
+  const signature = assembleSignatureType(inputs, data.state, answers.map(answer => requirePresent(answer,
+    defect(request, selected.origin, "A classified signature part has no answer."))), selected, unit, () => {});
+  return signature.kind === "refused" ? signature : { kind: "ok", value: { ...data, signature: signature.value }, diagnostics: [] };
+}
+
+export function errorSignature(inputs: DeclsDeps, request: SignatureRequest, cause: Cause, data: DeclaredSignatureErrorData): UnitValue<Signature> {
+  if (data.kind !== "declared-signature" || signatureRequestKey(data.state.request) !== signatureRequestKey(request)
+    || readSignature(inputs.types, data.signature.id) !== data.signature)
+    return throwInvariant(defect(request, null, "The prepared error signature belongs to another semantic request or type arena."));
+  const unit = { query: "declaredSignatureOf", key: signatureRequestData(request) };
+  const errors = new Map<number | "result", ErrorValue>();
+  const selected = endpointOf(inputs, request);
+  const fail = defect(request, selected.origin, "A classified signature error requires its actual signature type position.");
+  const retain = (index: number, error: ErrorValue, required: boolean): void => {
+    const part = data.state.parts[index]?.part.part;
+    if (part?.kind === "parameter-initializer") errors.set(part.index, error);
+    else if (part?.kind === "return" && !callableChannels(selected.node)) errors.set("result", error);
+    else if (required) throwInvariant(fail);
+  };
+  for (const ready of data.ready) {
+    const error = resolvePart(ready.answer, unit).error;
+    if (error !== null) retain(ready.index, error, false);
+  }
+  const unavailable: ErrorValue = { kind: "error", causes: [cause] };
+  for (const index of data.unavailable) retain(index, unavailable, true);
+  return signatureValue(inputs, unit, data.signature, errors);
 }
 
 export function bindSignature(inputs: DeclsDeps, bindings: ArtifactBindings, signature: Signature, origin: Origin, unit: UnitRequest): Result<Signature> {
   if (bindings.kind === "parametric") return { kind: "ok", value: signature, diagnostics: [] };
-  const transformed = substituteSignature(inputs.types, [signature.id], bindings.bindings, inputs.typeExpansion);
+  const transformed = substituteSignature(inputs.types, [signature.id], bindings.bindings, inputs.typeExpansion, "selected", inputs.typeWork);
   if (transformed.kind === "resource-limit") {
+    if (transformed.dimension === "work" || transformed.dimension === "created-records")
+      return refuseTypeConstruction(inputs.typeWork, transformed, origin, unit);
     const diagnostic: Diagnostic = resourceLimitDiagnostic({ owner: "decls", limit: `type expansion ${transformed.dimension}`,
       maximum: transformed.maximum, site: { kind: "source", origin },
       unit: { request: unit, position: { kind: "result" } } });
@@ -153,7 +188,9 @@ export function bindSignature(inputs: DeclsDeps, bindings: ArtifactBindings, sig
   return { kind: "ok", value: readSignature(inputs.types, substituted), diagnostics: [] };
 }
 
-export function declaredSignatureOf(inputs: DeclsDeps, request: SignatureRequest): SignatureStep {
+export function declaredSignatureOf(inputs: DeclsDeps, request: SignatureRequest, cuts: CheckedTypingCuts): SignatureStep {
+  const cut = cuts.declaration(request.definition);
+  if (cut !== null) return { kind: "done", value: { kind: "refused", diagnostics: cut.diagnostics } };
   const selected = endpointOf(inputs, request);
   const { endpoint, origin } = selected;
   const bound = bindSignature(inputs, request.bindings, readSignature(inputs.types, endpoint.signature), origin,
@@ -172,7 +209,17 @@ function callableChannels(node: HirNode): boolean {
     && (node.asteriskToken !== null || node.modifiers?.nodes.some(modifier => modifier.kind === "AsyncKeyword") === true);
 }
 
-export function assembleSignature(inputs: DeclsDeps, paused: DeclaredSignaturePause, answers: readonly SignaturePartValue[], selected: Endpoint, unit: UnitRequest): UnitValue<Signature> {
+export function constructSignature(inputs: DeclsDeps, signature: SignatureInput, unit: UnitRequest, origin: Origin): Result<Signature> {
+  const table = viewTypes(inputs.types);
+  const result = internTypeGraph({ types: inputs.types, work: inputs.typeWork }, {
+    typeBase: table.terms.length, signatureBase: table.signatures.length, terms: [], signatures: [signature],
+  });
+  if (result.kind !== "complete") return refuseTypeConstruction(inputs.typeWork, result, origin, unit);
+  return { kind: "ok", diagnostics: [], value: readSignature(inputs.types, requirePresent(result.value.signatures[0], HOLE)) };
+}
+
+function assembleSignatureType<Answer extends SignaturePartType>(inputs: DeclsDeps, paused: DeclaredSignaturePause,
+  answers: readonly Answer[], selected: Endpoint, unit: UnitRequest, retain: (slot: number | "result", answer: Answer) => void): Result<Signature> {
   const { request, signature, parts } = paused;
   const { origin, node } = selected;
   const hasChannels = callableChannels(node);
@@ -180,8 +227,10 @@ export function assembleSignature(inputs: DeclsDeps, paused: DeclaredSignaturePa
     return throwInvariant(defect(request, origin, `${answers.length} answers for ${parts.length} requests`));
   let result = signature.result;
   const parameterTypes = new Map<number, TyId>();
-  const errors = new Map<number | "receiver" | "result", ErrorValue>();
-  for (const [position, asked] of parts.entries()) {
+  for (let position = 0; position < parts.length; position++) {
+    const stop = admitTypePublicationStep(inputs.typeWork);
+    if (stop !== null) return refuseTypeConstruction(inputs.typeWork, stop, origin, unit);
+    const asked = requirePresent(parts[position], HOLE);
     const answer = requirePresent(answers[position], defect(request, origin, `no answer for request ${position}`));
     if (inferredPartKey(answer.part) !== inferredPartKey(asked.part))
       return throwInvariant(defect(request, origin, "An inferred-part answer must retain its actual complete requested part identity."));
@@ -189,10 +238,10 @@ export function assembleSignature(inputs: DeclsDeps, paused: DeclaredSignaturePa
     switch (part.kind) {
       case "parameter-initializer":
         parameterTypes.set(part.index, answer.type);
-        if (answer.error !== null) errors.set(part.index, answer.error);
+        retain(part.index, answer);
         break;
       case "return":
-        if (!hasChannels) { result = answer.type; if (answer.error !== null) errors.set("result", answer.error); }
+        if (!hasChannels) { result = answer.type; retain("result", answer); }
         break;
       case "yield":
         if (!hasChannels) return throwInvariant(defect(request, origin, "a yielded part belongs to no callable body channel"));
@@ -200,17 +249,30 @@ export function assembleSignature(inputs: DeclsDeps, paused: DeclaredSignaturePa
       default: return throwInvariant(defect(request, origin, "a non-signature inferred part was requested for a signature"));
     }
   }
+  const parameterStop = admitTypePublicationStep(inputs.typeWork, signature.parameters.length);
+  if (parameterStop !== null) return refuseTypeConstruction(inputs.typeWork, parameterStop, origin, unit);
   const parameters = signature.parameters.map((parameter, index) => {
     const type = parameterTypes.get(index);
     return type === undefined ? parameter : { ...parameter, type };
   });
-  const placed = internSignature(inputs.types, { declaration: signature.declaration, owner: signature.owner, composition: signature.composition,
-    kind: signature.kind, typeParameters: signature.typeParameters, receiver: signature.receiver, parameters, result });
-  return signatureValue(inputs, unit, readSignature(inputs.types, placed), errors);
+  return constructSignature(inputs, { declaration: signature.declaration, owner: signature.owner, composition: signature.composition,
+    kind: signature.kind, typeParameters: signature.typeParameters, receiver: signature.receiver, parameters, result }, unit, origin);
+}
+
+export function assembleSignature(inputs: DeclsDeps, paused: DeclaredSignaturePause, answers: readonly SignaturePartValue[],
+  selected: Endpoint, unit: UnitRequest): Result<UnitValue<Signature>> {
+  const errors = new Map<number | "result", ErrorValue>();
+  const signature = assembleSignatureType(inputs, paused, answers, selected, unit, (slot, answer) => {
+    if (answer.error !== null) errors.set(slot, answer.error);
+  });
+  return signature.kind === "refused" ? signature : { kind: "ok", value: signatureValue(inputs, unit, signature.value, errors), diagnostics: [] };
 }
 
 export function resumeDeclaredSignatureOf(inputs: DeclsDeps, paused: DeclaredSignaturePause, answers: readonly InferredPartType[]): SignatureStep {
   const unit = { query: "declaredSignatureOf", key: signatureRequestData(paused.request) };
-  return { kind: "done", value: { kind: "ok", ...assembleSignature(inputs, paused, answers.map(answer => resolvePart(answer, unit)),
-    endpointOf(inputs, paused.request), unit), diagnostics: [], emissions: [] } };
+  const selected = endpointOf(inputs, paused.request);
+  const stop = admitTypePublicationStep(inputs.typeWork, answers.length);
+  if (stop !== null) return { kind: "done", value: refuseTypeConstruction(inputs.typeWork, stop, selected.origin, unit) };
+  const result = assembleSignature(inputs, paused, answers.map(answer => resolvePart(answer, unit)), selected, unit);
+  return { kind: "done", value: result.kind === "refused" ? result : { kind: "ok", ...result.value, diagnostics: [], emissions: [] } };
 }

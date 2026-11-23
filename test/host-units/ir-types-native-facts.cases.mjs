@@ -4,6 +4,14 @@ import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 const issue = (rule, field, index) => ({ rule, site: { field, index }, detail: [{ kind: "text", value: field }] });
 
 export async function nativeFactsCases(suite, product) {
+  await suite.test("binary floating membership is exact and does not include another numeric representation", () => {
+    for (const carrier of ["float16", "float32", "float64"])
+      assert.equal(product.isNativeBinaryFloatPrimitive(carrier), true, carrier);
+    for (const carrier of ["bool", "char", "decimal", "bigint", "native-int", "native-uint",
+      "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int128", "uint128"])
+      assert.equal(product.isNativeBinaryFloatPrimitive(carrier), false, carrier);
+  });
+
   await suite.test("selected integer geometry owns exact fixed and supplied native widths without a target-geometry guess", () => {
     const facts = nativeFactsFixture();
     facts.nativeIntegerWidths = [{ carrier: "native-int", bits: 41 }, { carrier: "native-uint", bits: 97 }];

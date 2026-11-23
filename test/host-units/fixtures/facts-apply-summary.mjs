@@ -39,7 +39,7 @@ export async function applySummaryCases(suite) {
       { id: 5, path: null, kind: "cell-content", cell: 0, phase: "uncontrolled" }];
     source.arena.boundProducers = source.arena.producers.map(({ id }) => ({ id, producer: id, context: 0, bindings: bindings() }));
     source.arena.origins = [origin(0), ...source.arena.producers.map(({ id }) => origin(id + 1, [id]))];
-    source.arena.contexts[0] = { id: 0, receiver: null, arguments: [1, 2], captures: [{ index: 0, location: 2, cell: 2 }] };
+    source.arena.contexts[0] = { id: 0, receiver: null, arguments: [{ kind: "provided", origins: 1 }, { kind: "provided", origins: 2 }], captures: [{ index: 0, location: 2, cell: 2 }] };
     source.arena.boundaries = [{ id: 0, kind: "opaque-invocation", subject: 1, owner: null, bindings: bindings(), context: 0,
       at: { kind: "node", node: { kind: "body", value: { body: body("callee"), node: 4 } } }, detail: "actual unknown exchange" }];
     source.parameters = [0, 1].map(index => ({ slot: { kind: "parameter", index }, reads: { kind: "complete", paths: [] },
@@ -84,6 +84,23 @@ export async function applySummaryCases(suite) {
     account: flow.createAccount({ maximumWork, maximumResultEntries }), maximumOriginAlternatives: 100,
     maximumConditionAlternatives: 100, originRefusal, conditionRefusal });
   const complete = result => { assert.equal(result.kind, "complete"); return result.value; };
+
+  await suite.test("summary application keeps provided absence distinct from omission", () => {
+    const input = populated();
+    input.caller.origins[1].includesAbsence = true;
+    input.caller.contexts[0].arguments = [{ kind: "provided", origins: 1 }, { kind: "provided", origins: 2 }];
+    const supplied = complete(applySummary(input, limits()));
+    assert.equal(supplied.contexts[0].arguments[0].kind, "provided");
+    assert.equal(supplied.contexts[0].arguments[0].origins.includesAbsence, true);
+    input.caller.contexts[0].arguments[0] = { kind: "omitted" };
+    assert.throws(() => applySummary(input, limits()), /omitted formal has no incoming caller value/);
+    const omitted = simple();
+    omitted.summary.key.execution.provided = 0;
+    omitted.callee = structuredClone(omitted.summary.key);
+    omitted.summary.arena.contexts[0].arguments = [{ kind: "omitted" }];
+    omitted.caller.contexts[0].arguments = [{ kind: "omitted" }];
+    assert.deepEqual(complete(applySummary(omitted, limits())).contexts[0].arguments, [{ kind: "omitted" }]);
+  });
 
   await suite.test("whole summary application preserves all value, cell, exchange, event, exit and backing relations", () => {
     const input = populated();

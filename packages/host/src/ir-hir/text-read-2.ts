@@ -1,7 +1,7 @@
 import type * as Hir from "./contract.js";
 import type * as Ids from "../ids/contract.js";
 import type * as Types from "../ir-types/contract.js";
-import { recordReader, sequenceReader, unionReader } from "./text-construction.js";
+import { literalReader, recordReader, sequenceReader, unionReader } from "./text-construction.js";
 import type { HirTextReaders, HirReadGroup2 } from "./text-read-model.js";
 export function createReadGroup2(readers: () => HirTextReaders): HirReadGroup2 {
   const record_60 = recordReader<{ readonly kind: "mapped"; readonly owner: Ids.SourceNodeRef; readonly key: Types.MemberKey; }>("mapped", read => {
@@ -103,10 +103,10 @@ export function createReadGroup2(readers: () => HirTextReaders): HirReadGroup2 {
       const field_destinationType = read("destinationType", readers().identity_t);
       return { fields: [field_ordinal, field_occurrence, field_value, field_destination, field_destinationType], value: () => ({ kind: "write-fit", ordinal: field_ordinal.value(), occurrence: field_occurrence.value(), value: field_value.value(), destination: field_destination.value(), destinationType: field_destinationType.value() }) };
     });
-  const record_79 = recordReader<{ readonly kind: "operator"; readonly ordinal: number; readonly occurrence: Ids.NodeRef; readonly operator: "!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "-" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~"; readonly operands: readonly Ids.NodeRef[] }>("operator", read => {
+  const record_79 = recordReader<{ readonly kind: "operator"; readonly ordinal: number; readonly occurrence: Ids.NodeRef; readonly operator: "!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "++" | "-" | "--" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~"; readonly operands: readonly Ids.NodeRef[] }>("operator", read => {
       const field_ordinal = read("ordinal", readers().scalar_number);
       const field_occurrence = read("occurrence", readers().record_6);
-      const field_operator = read("operator", unionReader<"!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "-" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~">(() => [readers().literal_8, readers().literal_9, readers().literal_10, readers().literal_11, readers().literal_12, readers().literal_13, readers().literal_14, readers().literal_15, readers().literal_16, readers().literal_17, readers().literal_18, readers().literal_19, readers().literal_20, readers().literal_21, readers().literal_22, readers().literal_23, readers().literal_24, readers().literal_25, readers().literal_26, readers().literal_27, readers().literal_28, readers().literal_29, readers().literal_30, readers().literal_31, readers().literal_32, readers().literal_33, readers().literal_34]));
+      const field_operator = read("operator", unionReader<"!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "++" | "-" | "--" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~">(() => [readers().literal_8, readers().literal_9, readers().literal_10, readers().literal_11, readers().literal_12, readers().literal_13, readers().literal_14, readers().literal_15, readers().literal_16, readers().literal_17, readers().literal_18, readers().literal_19, readers().literal_20, readers().literal_21, readers().literal_22, readers().literal_23, readers().literal_24, readers().literal_25, readers().literal_26, readers().literal_27, readers().literal_28, readers().literal_29, readers().literal_30, readers().literal_31, readers().literal_32, readers().literal_33, readers().literal_34, literalReader(["++", "--"])]));
       const field_operands = read("operands", sequenceReader(readers().record_6));
       return { fields: [field_ordinal, field_occurrence, field_operator, field_operands], value: () => ({ kind: "operator", ordinal: field_ordinal.value(), occurrence: field_occurrence.value(), operator: field_operator.value(), operands: field_operands.value() }) };
     });
@@ -154,12 +154,23 @@ export function createReadGroup2(readers: () => HirTextReaders): HirReadGroup2 {
       const field_value = read("value", readers().record_87);
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
+  const markerApplication = recordReader<Hir.HirMarkerApplication>("HirMarkerApplication", read => {
+      const role = read("role", literalReader<Hir.HirMarkerApplication["role"]>(["struct", "field"]));
+      const occurrence = read("occurrence", readers().record_6);
+      const declaration = read("declaration", readers().identity_def);
+      return { fields: [role, occurrence, declaration], value: () => ({ role: role.value(), occurrence: occurrence.value(), declaration: declaration.value() }) };
+    });
+  const availableApplication = recordReader<{ readonly kind: "available"; readonly value: Hir.HirMarkerApplication | null }>("available", read => {
+      const value = read("value", unionReader<Hir.HirMarkerApplication | null>(() => [readers().scalar_null, markerApplication]));
+      return { fields: [value], value: () => ({ kind: "available", value: value.value() }) };
+    });
   const record_87 = recordReader<Hir.HirMarkersCapture>("HirMarkersCapture", read => {
       const field_struct = read("struct", unionReader<{ readonly valueType: boolean; readonly fields: Hir.CapturedFact<readonly Hir.HirFieldMarkerCapture[]>; } | null>(() => [readers().scalar_null, readers().record_88]));
       const field_field = read("field", unionReader<Hir.HirFieldMarkerCapture | null>(() => [readers().scalar_null, readers().record_90]));
       const field_defaultValue = read("defaultValue", unionReader<{ readonly typeNode: Ids.SourceNodeRef; readonly type: Hir.CapturedFact<Ids.TyId>; } | null>(() => [readers().scalar_null, readers().record_91]));
       const field_jsString = read("jsString", readers().scalar_boolean);
-      return { fields: [field_struct, field_field, field_defaultValue, field_jsString], value: () => ({ struct: field_struct.value(), field: field_field.value(), defaultValue: field_defaultValue.value(), jsString: field_jsString.value() }) };
+      const application = read("application", unionReader<Hir.CapturedFact<Hir.HirMarkerApplication | null>>(() => [availableApplication, readers().record_10]));
+      return { fields: [field_struct, field_field, field_defaultValue, field_jsString, application], value: () => ({ struct: field_struct.value(), field: field_field.value(), defaultValue: field_defaultValue.value(), jsString: field_jsString.value(), application: application.value() }) };
     });
   const record_88 = recordReader<{ readonly valueType: boolean; readonly fields: Hir.CapturedFact<readonly Hir.HirFieldMarkerCapture[]>; }>("Record", read => {
       const field_valueType = read("valueType", readers().scalar_boolean);

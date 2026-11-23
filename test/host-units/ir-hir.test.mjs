@@ -12,6 +12,7 @@ import { compileIsolated, isolationDeps } from "../architecture/host/isolation.m
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { runCase } from "../host-cases/case.mjs";
+import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { syntaxConstructorInputs } from "./fixtures/hir-syntax.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
@@ -19,7 +20,8 @@ const moduleIdentity = "M[P[%002Fproject];main.ts]";
 const definitionIdentity = `D[${moduleIdentity}]`;
 const bodyIdentity = `B[${definitionIdentity};module;0]`;
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const runtimeNames = ["index","bindings","verify-export-bindings","text-read-bindings","pragmas","endpoints","children","walk","print","parse","verify","verify-syntax","verify-bindings","verify-captures","text-syntax","text-data","text-construction","text-read-0","text-read-1","text-read-2","text-read-3","text-read-4","text-read-5","text-read-6","text-read-7","text-read-8","text-read-9","text-read-syntax-0","text-read-syntax-1","text-read-syntax-2","text-read-syntax-3","text-read-syntax-4","text-read-syntax-5","text-read-syntax-6","text-read-syntax-7","text-read-syntax-8","text-read-syntax-9","text-read-syntax-10","text-read-syntax-11","text-read-syntax-12","text-read-syntax-13","text-readers","text-read-scalars","text-causes"];
+const runtimeNames = ["index","bindings","declaration-scopes","storage","verify-export-bindings","text-read-bindings","pragmas","endpoints","children","walk","print","parse","verify","verify-syntax","verify-bindings","verify-captures","text-syntax","text-data","text-construction","text-read-0","text-read-1","text-read-2","text-read-3","text-read-4","text-read-5","text-read-6","text-read-7","text-read-8","text-read-9","text-read-syntax-0","text-read-syntax-1","text-read-syntax-2","text-read-syntax-3","text-read-syntax-4","text-read-syntax-5","text-read-syntax-6","text-read-syntax-7","text-read-syntax-8","text-read-syntax-9","text-read-syntax-10","text-read-syntax-11","text-read-syntax-12","text-read-syntax-13","text-readers","text-read-scalars","text-causes"];
+runtimeNames.push("copy-auxiliary", "copy-expressions", "copy-node", "copy-statements", "copy-syntax", "copy-types", "checked-phase-copy");
 const runtimeFiles = runtimeNames.map(name => resolve(repository, `packages/host/dist/ir-hir/${name}.js`));
 const ownedSources = ["contract", "capture-data", "binding-data", "text-read-model", ...runtimeNames].map(name => `packages/host/src/ir-hir/${name}.ts`);
 const inspector = new Session();
@@ -171,9 +173,102 @@ test("HIR pure walkers handle a genuine 100000-level declared syntax chain itera
   assert.equal(actual.length, depth + 1);
   assert.equal(actual.every((node, ordinal) => node.id === ordinal), true, "complete dense deep preorder");
   assert.equal(actual[0] === expression && actual[depth] === leaf, true, "original root and deepest leaf survive");
+  assert.equal(product.unparenthesizedExpression(expression) === leaf, true);
+  assert.equal(product.unparenthesizedExpression(leaf) === leaf, true);
+  const assertion = syntax("AsExpression", 0, { expression });
+  assert.equal(product.unparenthesizedExpression(assertion) === assertion, true);
 });
 
 const constructorInputs = (count, nullOptionals, reversed) => syntaxConstructorInputs(syntax, nodeList, count, nullOptionals, reversed);
+
+test("HIR structural walk pays before checked roots, required children and ordered list elements", async () => {
+  const { accountFailure, chargeWork, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const { checked, interner } = fixture.checkedModuleOf("export function sum(): number { 1 + 2; return 3; }");
+  assert.deepEqual(fixture.verifyChecked(checked, interner), []);
+  const block = checked.bodies.find(body => body.root.kind === "Block").root;
+  const first = block.statements.nodes[0];
+  assert.equal(first.kind, "ExpressionStatement");
+  const original = first.expression;
+  assert.equal(original.kind, "BinaryExpression");
+  const reads = [];
+  const binary = { ...original,
+    get modifiers() { reads.push("modifiers"); return original.modifiers; },
+    get left() { reads.push("left"); return original.left; },
+    get type() { reads.push("nullable type"); return original.type; },
+    get operatorToken() { reads.push("operator"); return original.operatorToken; },
+    get right() { reads.push("right"); return original.right; },
+  };
+  const invoke = (maximum, roots) => {
+    const account = createAccount({ maximumWork: maximum, maximumResultEntries: 0 });
+    const step = () => chargeWork(account, 1);
+    const result = product.walkSyntaxForest(roots, { root: step, edge: step, node: step });
+    if (result.kind === "resource-limit") assert.equal(result === accountFailure(account), true);
+    assert.equal(remainingWork(account), 0);
+    return result;
+  };
+  const prefix = [
+    [], ["root"], ["root", "modifiers"], ["root", "modifiers", "left"],
+    ["root", "modifiers", "left", "nullable type"],
+    ["root", "modifiers", "left", "nullable type", "operator"],
+    ["root", "modifiers", "left", "nullable type", "operator"],
+    ["root", "modifiers", "left", "nullable type", "operator", "right"],
+    ["root", "modifiers", "left", "nullable type", "operator", "right"],
+  ];
+  const binarySlot = { path: "real.binary", read: () => { reads.push("root"); return binary; } };
+  for (const [maximum, expected] of prefix.entries()) {
+    reads.length = 0;
+    const result = invoke(maximum, [binarySlot]);
+    assert.deepEqual(reads, expected, `paid prefix at ${maximum}`);
+    assert.equal(result.kind, maximum < 8 ? "resource-limit" : "complete");
+    if (result.kind === "complete") {
+      assertNodes(result.value.nodes, [binary, original.left, original.operatorToken, original.right], "one admitted preorder");
+      assertNodes(result.value.postorder, [original.left, original.operatorToken, original.right, binary], "one admitted postorder");
+      assert.equal(result.value.firstRootSize, 4);
+    }
+  }
+
+  const expression = { ...first, get expression() { reads.push("required expression"); return first.expression; } };
+  reads.length = 0;
+  assert.equal(invoke(2, [{ path: "required", read: () => expression }]).kind, "resource-limit");
+  assert.deepEqual(reads, [], "an expression statement's child is not a nullable presence test");
+  reads.length = 0;
+  assert.equal(invoke(3, [{ path: "required", read: () => expression }]).kind, "resource-limit");
+  assert.deepEqual(reads, ["required expression"], "the one paid edge may now pull its required child");
+  const returned = block.statements.nodes[1];
+  assert.equal(returned.kind, "ReturnStatement");
+  const returning = { ...returned, get expression() { reads.push("nullable expression"); return returned.expression; } };
+  reads.length = 0;
+  assert.equal(invoke(2, [{ path: "nullable", read: () => returning }]).kind, "resource-limit");
+  assert.deepEqual(reads, ["nullable expression"], "the paid parent may test a genuinely nullable reference");
+  const noValue = { ...returned, get expression() { reads.push("null expression"); return null; } };
+  reads.length = 0;
+  assert.equal(invoke(2, [{ path: "null", read: () => noValue }]).kind, "complete");
+  assert.deepEqual(reads, ["null expression"], "absence adds no invented edge charge");
+
+  const siblings = block.statements.nodes.map((node, index) => ({ node, index }));
+  const nodes = new Array(siblings.length);
+  for (const { node, index } of siblings) Object.defineProperty(nodes, index, { get() { reads.push(`row ${index}`); return node; } });
+  const root = { ...block, get statements() { reads.push("list header"); return { ...block.statements, nodes }; } };
+  const slot = { path: "real.body", read: () => root };
+  for (const [maximum, expected] of [[1, []], [2, ["list header"]], [3, ["list header", "row 0"]]]) {
+    reads.length = 0;
+    assert.equal(invoke(maximum, [slot]).kind, "resource-limit");
+    assert.deepEqual(reads, expected);
+  }
+  const leaf = original.left;
+  const ordinary = { root: () => null, edge: () => null, node: () => null };
+  assert.equal(invoke(0, []).kind, "complete", "empty root inventory does not invent a paid edge");
+  const shared = { ...binary, left: leaf, right: leaf };
+  const owned = product.walkSyntaxForest([{ path: "first", read: () => shared }, { path: "same", read: () => leaf }], ordinary);
+  assert.equal(owned.kind, "complete");
+  assertNodes(owned.value.nodes, [shared, leaf, original.operatorToken], "shared child and root stay the same actual record");
+  assert.equal(owned.value.wireOf(leaf), 1);
+  const cyclic = { ...block, statements: { ...block.statements, nodes: [] } };
+  cyclic.statements.nodes.push(cyclic);
+  assert.throws(() => product.walkSyntaxForest([{ path: "cycle", read: () => cyclic }], ordinary),
+    { name: "TypeError", message: "Syntax object cycle at cycle.statements.nodes[0]" });
+});
 
 test("HIR closed syntax constructors preserve authored direct children across null, empty, one and ordered several", () => {
   for (const [count, nullOptionals, reversed] of [[0, true, false], [0, false, false], [1, false, false], [3, false, false], [3, false, true]]) {
@@ -184,6 +279,108 @@ test("HIR closed syntax constructors preserve authored direct children across nu
         `lazy ${row.node.kind}/${count}/${nullOptionals}/${reversed}`);
     }
   }
+});
+
+test("HIR checked image preserves qualified nodes and stops before the next actual syntax payload", async () => {
+  const { accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
+  const { publicationRewrite } = await import("../../packages/host/dist/ir-program/canonical-types.js");
+  const { createInstantiationMeter, admitCheckedProjection } = await import("../../packages/host/dist/ir-program/work.js");
+  const { createProjectionInventory, finishProjection, prepareBindingsProjection, prepareComponentProjection, prepareParameterProjection } =
+    await import("../../packages/host/dist/ir-program/program-values.js");
+  const { prepareCoreProjection } = await import("../../packages/host/dist/ir-program/instantiate-phase.js");
+  const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
+  const fixture = await loadFrontFixture();
+  const { checked, interner } = fixture.checkedModuleOf(
+    "export function z(value: string): string { return value; } export function a(value: string, flag: boolean): string { return z(value); }");
+  assert.deepEqual(fixture.verifyChecked(checked, interner), []);
+  const publication = fixture.types.exportTypes(interner, { maximumWork: 1000000, maximumCreatedRecords: 1000000 });
+  assert.equal(publication.kind, "complete");
+  const rewrite = publicationRewrite(publication.value);
+  const nodes = product.indexSyntaxTree(checked.tree);
+  const [first, second] = nodes.filter(node => node.kind === "Identifier");
+  assert.ok(first && second);
+  const firstCore = first.tsonic.core;
+  const forest = product.walkSyntaxForest([{ path: "first", read: () => first }, { path: "second", read: () => second },
+    { path: "module", read: () => checked.tree },
+    ...checked.bodies.map(body => ({ path: body.body, read: () => body.root }))],
+  { root: () => null, node: () => null, edge: () => null }).value;
+  const callable = checked.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration"
+    && node.tsonic.signatures.some(row => row.signature !== rewrite.signature(row.signature)));
+  const run = checked.bodies.find(row => row.candidateLists.length > 0);
+  assert.ok(callable && run && run.locals.length > 0);
+  const reads = [];
+  for (const [index, node] of [first, second].entries()) {
+    const captured = node.tsonic;
+    Object.defineProperty(node, "tsonic", { configurable: true, get() { reads.push(index); return captured; } });
+  }
+  const success = value => ({ kind: "copied", value });
+  const original = { kind: "resource-limit", dimension: "work", maximum: 167 };
+  const copy = (maximumWork, maximumCreatedRecords, stopAt = null) => {
+    const meter = createInstantiationMeter({ maximumWork, maximumCreatedRecords, maximumBindingVectorsPerArtifact: 1,
+      typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
+    const scan = createProjectionInventory(meter, rewrite, path => assert.fail(path));
+    const admit = (work, records) => admitCheckedProjection(meter, work, records);
+    const result = product.copyCheckedModule(checked, forest, {
+      admit, syntaxNode: () => admit(1, 2),
+      type: value => success(rewrite.type(value)), signature: value => success(rewrite.signature(value)),
+      bindings: value => value === stopAt ? { kind: "refused", stop: original } : finishProjection(scan, prepareBindingsProjection(scan, value), rewrite),
+      parameter: value => finishProjection(scan, prepareParameterProjection(scan, () => value), rewrite),
+      component: value => finishProjection(scan, prepareComponentProjection(scan, value, "test.actualComponent", path => assert.fail(path)), rewrite),
+      core: value => value === stopAt ? { kind: "refused", stop: original }
+        : finishProjection(scan, prepareCoreProjection(scan, value, "test.actualCore", path => assert.fail(path)), rewrite),
+    });
+    return { result, meter };
+  };
+  for (const [work, entries] of [[0, 1000000], [1, 1000000], [1000000, 0], [1000000, 1]]) {
+    const { result, meter } = copy(work, entries);
+    assert.equal(result.kind, "refused");
+    assert.equal(result.stop === (meter.failure ?? accountFailure(meter.account)), true);
+    assert.deepEqual(Object.keys(result), ["kind", "stop"]);
+    assert.deepEqual(reads, []);
+  }
+  const inside = copy(1000000, 1000000, firstCore).result;
+  assert.equal(inside.kind === "refused" && inside.stop === original, true);
+  assert.deepEqual(Object.keys(inside), ["kind", "stop"]);
+  assert.deepEqual(reads, [0], "an actual first payload refusal leaves the next original payload unread");
+  reads.length = 0;
+  const firstCopy = copy(1000000, 1000000).result;
+  assert.equal(firstCopy.kind, "copied");
+  assert.deepEqual(reads, [0, 1]);
+  const { module, syntax } = firstCopy.value;
+  assert.equal(module.tree === syntax.sourceFileOf(checked.tree), true);
+  assert.equal(module.bodies.find(body => body.body === run.body).root === syntax.bodyRootOf(run.root), true);
+  assert.equal(module.tree.statements.nodes.find(node => node.id === callable.id) === syntax.nodeOf(callable), true);
+  assert.equal(syntax.nodeOf({ ...callable }), null, "equal checked values have no pointer-image authority");
+  const realLocal = run.locals.find(local => local.checkerSlot.kind === "available"
+    && rewrite.type(local.checkerSlot.value) !== local.checkerSlot.value);
+  assert.ok(realLocal, "the actual local carries a nonidentity type remap");
+  const copiedLocal = module.bodies.find(body => body.body === run.body).locals[realLocal.id];
+  assert.equal(copiedLocal.checkerSlot.value, rewrite.type(realLocal.checkerSlot.value));
+  const candidate = run.candidateLists[0].candidates.find(row => row.bindings.kind === "available");
+  assert.ok(candidate);
+  const copiedCandidate = module.bodies.find(body => body.body === run.body).candidateLists[0].candidates
+    .find(row => row.ordinal === candidate.ordinal);
+  const remap = values => values.map(value => value.kind === "rigid" ? value : { ...value, type: rewrite.type(value.type) });
+  const bindings = candidate.bindings.value;
+  assert.deepEqual(copiedCandidate.bindings.value, {
+    classBindings: remap(bindings.classBindings), methodBindings: remap(bindings.methodBindings),
+    capturedBindings: remap(bindings.capturedBindings), selfBindings: remap(bindings.selfBindings),
+  });
+  assert.equal(copiedCandidate.conditionalFailure === candidate.conditionalFailure, true);
+  assert.deepEqual(syntax.nodeOf(callable).tsonic.signatures.map(row => row.signature),
+    callable.tsonic.signatures.map(row => rewrite.signature(row.signature)));
+  const view = checkedSourceViews([{ module: checked, nodes }]);
+  const qualified = { kind: "body", value: { body: run.body, node: run.root.id } };
+  const crossed = { kind: "body", value: { body: checked.bodies.find(body => body !== run).body, node: run.root.id } };
+  assert.equal(view.nodeOf(qualified) === run.root, true);
+  assert.equal(view.nodeOf(crossed), null);
+  const contributions = candidate.contributions;
+  let contributionRead = false;
+  Object.defineProperty(candidate, "contributions", { configurable: true, get() { contributionRead = true; return contributions; } });
+  const nested = copy(1000000, 1000000, candidate.bindings.value).result;
+  assert.deepEqual(Object.keys(nested), ["kind", "stop"]);
+  assert.equal(nested.kind === "refused" && nested.stop === original, true);
+  assert.equal(contributionRead, false, "the next real nested vector is not read after a candidate binding refusal");
 });
 
 test("HIR lazy child pulls never expand or read beyond an admitted NodeList prefix", () => {
@@ -219,12 +416,18 @@ const unavailable = (reason = "not-provided") => ({ kind: "unavailable", reason,
 
 test("generic captured facts preserve the complete original diagnostic and dependency cause relation", () => {
   const value = moduleWith();
-  const causes = capturedCauses(moduleIdentity, definitionIdentity, bodyIdentity);
+  const causes = [...capturedCauses(moduleIdentity, definitionIdentity, bodyIdentity), ...[
+    { kind: "execution-result", execution: "opaque provided count 1" },
+    { kind: "execution-source-node", execution: "opaque provided count 2", node: { body: bodyIdentity, node: 0 } },
+  ].map(position => ({ kind: "unit", unit: { request: { query: "bodyFactsOf", key: "first" }, position } }))];
   value.tree.tsonic.core.provider = { kind: "unavailable", reason: "checker-error", causes };
   const actual = roundtrip(value, "original captured causes");
   assert.deepEqual(actual.value.tree.tsonic.core.provider.causes, causes);
   assert.equal(actual.text.includes("causes=[diagnostic("), true);
   assert.equal(product.parseHir(actual.text.replace(/, causes=\[[^\n]*?\]\)/u, ")")).kind, "invalid-text");
+  assert.equal(product.parseHir(actual.text.replace("execution-source-node(execution=", "execution-source-node(removed=")).kind, "invalid-text");
+  assert.equal(product.parseHir(actual.text.replace('execution-source-node(execution="opaque provided count 2", node=NodeRef(',
+    'execution-source-node(execution="opaque provided count 2", node=ItemNodeRef(')).kind, "invalid-text");
   const group = causes.find(cause => cause.kind === "unit" && cause.unit.position.kind === "inference-variable").unit.position.group;
   assert.equal(actual.text.includes(`group=${JSON.stringify(group)}`), true,
     actual.text.slice(actual.text.indexOf("inference-variable"), actual.text.indexOf("inference-variable") + 200));
@@ -233,7 +436,7 @@ test("generic captured facts preserve the complete original diagnostic and depen
 });
 const emptyBindings = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const emptyScope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
-const absentCore = () => ({ provider: available(null), markers: available({ struct: null, field: null, defaultValue: null, jsString: false }),
+const absentCore = () => ({ provider: available(null), markers: available({ struct: null, field: null, defaultValue: null, jsString: false, application: available(null) }),
   pointerType: available(null), pointerOperation: available(null), fieldBinding: available(null), recordBinding: available(null),
   attribute: available(null), safety: available(null), argumentPassing: available(null), flowState: available(null) });
 const emptyViews = () => ({ read: unavailable(), declared: available(null), contextual: available(null) });
@@ -247,7 +450,7 @@ const violation = (rule, site, value) => ({ rule, site, detail: [{ kind: "text",
 
 function constructorMetadata(node) {
   const declaration = () => ({ ...declarationFacts(), definition: definitionIdentity });
-  const variable = () => ({ ...declarationFacts(), declaration: { kind: "definition", definition: definitionIdentity }, declaredType: available(null), initializer: null });
+  const variable = () => ({ ...declarationFacts(), declaration: { kind: "definition", definition: definitionIdentity }, declaredType: available(null), inferredTypeBound: null, initializer: null });
   const checkedClass = () => ({ ...declaration(), parameters: [], heritage: [], members: [] });
   switch (node.kind) {
     case "Identifier": case "PrivateIdentifier": case "QualifiedName": return nameMetadata();
@@ -390,8 +593,81 @@ function moduleWith(statements = []) {
   numberSyntaxFixture(tree);
   return { module: moduleIdentity, tree, items: [], bodies: [{ body: bodyIdentity, owner: definitionIdentity,
     params: [], locals: [], root: tree, captures: [], scopes: [], asynchronous: false, generator: false,
-    candidateLists: [], nestedBodies: [] }], exports: [], bindings: [], checkerDiagnostics: [], obligations: [] };
+    candidateLists: [], nestedBodies: [] }], exports: [], bindings: [], moduleLinks: [], checkerDiagnostics: [], obligations: [] };
 }
+
+test("checked declaration scopes retain lexical, static, explicit receiver and nominal ownership", () => {
+  const templates = new Map(checkedConstructorInputs(1, false, false).map(node => [node.kind, node]));
+  const node = (kind, fields = {}) => ({ ...structuredClone(templates.get(kind)), ...fields });
+  const identity = (...names) => ids.encodeDefId({ module: moduleIdentity, segments: names.map(name => ({ name, ordinal: 0 })) });
+  const parameter = (name, definition) => {
+    const source = node("TypeParameter");
+    return { ...source, name: nameExpression(name), tsonic: { ...source.tsonic, definition,
+      parameter: { declaration: definition, constraint: null, default: null } } };
+  };
+  const declaration = (kind, definition, fields) => {
+    const source = node(kind, fields);
+    return { ...source, tsonic: { ...source.tsonic, definition } };
+  };
+  const classOwner = identity("Outer");
+  const classParameter = identity("Outer", "Item");
+  const interfaceOwner = identity("Interface");
+  const interfaceParameter = identity("Interface", "Item");
+  const inner = identity("Outer", "method", "Inner");
+  const field = declaration("PropertyDeclaration", identity("Outer", "field"), { modifiers: nodeList([syntax("ReadonlyKeyword", 0)]) });
+  const staticField = declaration("PropertyDeclaration", identity("Outer", "method", "Inner", "field"), { modifiers: nodeList([syntax("StaticKeyword", 0)]) });
+  const innerClass = declaration("ClassDeclaration", inner, { typeParameters: null, members: nodeList([staticField]) });
+  const protectedMethod = declaration("MethodDeclaration", identity("Outer", "method"), { modifiers: null, typeParameters: null,
+    parameters: nodeList([node("Parameter", { name: nameExpression("value") })]), body: syntax("Block", 0, { statements: nodeList([innerClass]) }) });
+  const receiver = declaration("MethodDeclaration", identity("Outer", "receiver"), { modifiers: null, typeParameters: null,
+    parameters: nodeList([node("Parameter", { name: nameExpression("this") })]) });
+  const solo = declaration("Constructor", identity("Outer", "constructor"), { modifiers: null, typeParameters: null, parameters: nodeList([]) });
+  const staticBlock = declaration("ClassStaticBlockDeclaration", identity("Outer", "static"), {});
+  const rootClass = declaration("ClassDeclaration", classOwner, { typeParameters: nodeList([parameter("Item", classParameter)]),
+    members: nodeList([field, protectedMethod, receiver, solo, staticBlock]) });
+  const call = declaration("CallSignature", identity("Interface", "call"), { typeParameters: null, parameters: nodeList([]) });
+  const construct = declaration("ConstructSignature", identity("Interface", "construct"), { typeParameters: null, parameters: nodeList([]) });
+  const iface = declaration("InterfaceDeclaration", interfaceOwner, { typeParameters: nodeList([parameter("Item", interfaceParameter)]),
+    members: nodeList([call, construct]) });
+  const freeField = declaration("PropertySignature", identity("Alias", "field"), {});
+  const freeMethod = declaration("MethodSignature", identity("Alias", "method"), { typeParameters: null,
+    parameters: nodeList([node("Parameter", { name: node("ObjectBindingPattern") })]) });
+  const aliasOwner = identity("Alias");
+  const aliasParameter = identity("Alias", "Item");
+  const alias = declaration("TypeAliasDeclaration", aliasOwner, { typeParameters: nodeList([parameter("Item", aliasParameter)]),
+    type: node("TypeLiteral", { members: nodeList([freeField, freeMethod]) }) });
+  const closure = declaration("ArrowFunction", identity("closure"), { typeParameters: null });
+  const namedFunction = declaration("FunctionDeclaration", identity("named"), { typeParameters: null });
+  const functionValue = declaration("FunctionExpression", identity("functionValue"), { typeParameters: null });
+  const root = moduleWith();
+  root.tree.statements = nodeList([rootClass, iface, alias, namedFunction, syntax("ExpressionStatement", 0, { expression: closure }),
+    syntax("ExpressionStatement", 0, { expression: functionValue })]);
+  const nodes = indexSyntaxTree(root.tree);
+  for (const [index, syntaxNode] of nodes.entries()) syntaxNode.id = index;
+  for (const syntaxNode of nodes) for (const child of childrenOfSyntax(syntaxNode)) child.parent = syntaxNode.id;
+  for (const entry of [rootClass, innerClass, field, staticField, protectedMethod, receiver, solo, staticBlock, iface, call, construct,
+    alias, freeField, freeMethod, closure, namedFunction, functionValue]) root.items.push({ definition: entry.tsonic.definition, node: entry.id });
+  const absent = identity("absent");
+  const missingNode = identity("missingNode");
+  root.items.push({ definition: missingNode, node: nodes.length });
+  const scopes = product.deriveDeclarationScopes(root, nodes);
+  const scope = entry => scopes.bindingScopeOf(entry.tsonic.definition);
+  assert.equal(scopes.module === root, true);
+  assert.deepEqual(scope(field), { ...emptyScope(), classParameters: [classParameter], selfOwners: [classOwner] });
+  assert.deepEqual(scope(receiver), { ...emptyScope(), classParameters: [classParameter] });
+  assert.deepEqual(scope(staticField), { ...emptyScope(), capturedParameters: [classParameter], selfOwners: [classOwner] });
+  assert.deepEqual(scope(staticBlock), emptyScope());
+  assert.deepEqual(scope(call), { ...emptyScope(), classParameters: [interfaceParameter], selfOwners: [interfaceOwner] });
+  assert.deepEqual(scope(construct), scope(call));
+  assert.deepEqual(scope(freeField), { ...emptyScope(), classParameters: [aliasParameter] });
+  assert.deepEqual(scope(freeMethod), { ...emptyScope(), capturedParameters: [aliasParameter] });
+  assert.deepEqual(scope(namedFunction), emptyScope());
+  assert.deepEqual(scope(functionValue), emptyScope());
+  assert.deepEqual(scopes.nominalOf(interfaceOwner), { kind: "declared", facets: ["instance"] });
+  for (const definition of [classOwner, absent, missingNode]) assert.equal(scopes.nominalOf(definition), null);
+  for (const definition of [absent, missingNode]) assert.equal(scopes.bindingScopeOf(definition), null);
+  assert.throws(() => product.deriveDeclarationScopes(root, nodes.slice(1)), /not the module's own/u);
+});
 
 function fixtureChildren(node) {
   switch (node.kind) {
@@ -431,6 +707,7 @@ function fixtureChildren(node) {
       ...(node.initializer === null ? [] : [node.initializer])];
     case "ExpressionStatement": case "AwaitExpression": case "SpreadElement": case "ParenthesizedExpression":
     case "DeleteExpression": case "TypeOfExpression": case "VoidExpression": return [node.expression];
+    case "ReturnStatement": return node.expression === null ? [] : [node.expression];
     case "PrefixUnaryExpression": case "PostfixUnaryExpression": return [node.operand];
     case "YieldExpression": return [...(node.asteriskToken === null ? [] : [node.asteriskToken]), ...(node.expression === null ? [] : [node.expression])];
     case "ForInStatement": case "ForOfStatement": return [...(node.awaitModifier === null ? [] : [node.awaitModifier]), node.initializer, node.expression, node.statement];
@@ -679,9 +956,56 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 });
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
-  assert.deepStrictEqual(Object.keys(product).sort(), ["binaryOperatorOf", "callableEndpointKey", "childrenOfSyntax", "createModuleBindingViews", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "iterateChildrenOfSyntax", "iterateSyntaxChildEdges", "orderPragmaArguments", "parseHir", "printHir", "projectExportDeclarations", "resolveModuleBinding", "selectedEndpointRoleFaults", "verifyHir", "walkSyntaxTree"]);
+  assert.deepStrictEqual(Object.keys(product).sort(), [
+    "beginSyntaxCopy", "binaryOperatorOf", "callableEndpointKey", "checkedParameterHeadersOf", "checkedVariableStorageOf", "childrenOfSyntax", "compoundAssignmentOperatorOf",
+    "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
+    "iterateChildrenOfSyntax", "iterateSyntaxChildEdges", "orderPragmaArguments", "parseHir", "prefixOperatorOf", "printHir",
+    "readWriteRootStorageOf", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
+    "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
+  ]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
     ownedSources.map(path => basename(path)).sort());
+});
+
+test("HIR only accepts exact qualified writable roots", () => {
+  const local = { kind: "local", local: { body: bodyIdentity, local: ids.localId(0) } };
+  const declared = { kind: "declarations", definitions: [definitionIdentity] };
+  const other = `D[${moduleIdentity};other]`;
+  const place = resolution => available({ base: { kind: "root", resolution }, step: null, write: available(ids.tyId(0)) });
+  for (const target of [local, declared])
+    assert.equal(product.writableRootStorageOf(place(structuredClone(target)), target), ids.tyId(0));
+  for (const [source, target] of [
+    [unavailable(), local],
+    [available({ ...place(local).value, step: { kind: "deref" } }), local],
+    [available({ ...place(local).value, base: { kind: "place" } }), local],
+    [available({ ...place(local).value, write: unavailable() }), local],
+    [available({ ...place(local).value, write: available(null) }), local],
+    [place(local), { ...local, local: { ...local.local, body: `B[${other};function;0]` } }],
+    [place(local), { ...local, local: { ...local.local, local: ids.localId(1) } }],
+    [place(local), declared],
+    [place(declared), { ...declared, definitions: [] }],
+    [place(declared), { ...declared, definitions: new Array(1) }],
+    [place({ ...declared, definitions: [definitionIdentity, other] }), declared],
+    [place(declared), { ...declared, definitions: [other] }],
+  ]) assert.equal(product.writableRootStorageOf(source, target), null);
+  const storage = ids.tyId(0);
+  const readWrite = read => available({ ...place(structuredClone(local)).value, read });
+  assert.equal(product.readWriteRootStorageOf(readWrite(available(storage)), local), storage);
+  for (const read of [unavailable(), available(null), available(ids.tyId(1))])
+    assert.equal(product.readWriteRootStorageOf(readWrite(read), local), null);
+  assert.equal(product.readWriteRootStorageOf(readWrite(available(storage)), declared), null);
+});
+
+test("checked variable storage reads the authored type or the actual unannotated checker bound", () => {
+  const explicit = ids.tyId(0);
+  const inferred = ids.tyId(1);
+  for (const [declaredType, inferredTypeBound, expected] of [
+    [available(explicit), available(inferred), explicit],
+    [available(null), available(inferred), inferred],
+    [available(null), unavailable(), null],
+    [available(null), null, null],
+    [unavailable(), available(inferred), null],
+  ]) assert.equal(product.checkedVariableStorageOf({ tsonic: { declaredType, inferredTypeBound } }), expected);
 });
 
 test("HIR canonical nearest-binding views preserve all targets, qualification, cycles and exact F1 joins", () => {
@@ -705,8 +1029,7 @@ test("HIR canonical nearest-binding views preserve all targets, qualification, c
       assert.equal(resolved.target.value === target, true);
       assert.deepEqual(resolved.aliases, [initial, next]);
       assert.equal(resolved.cycle, null);
-      const views = { ...relation, declarationSourceOf: () => null };
-      assert.equal(product.projectExportDeclarations(views, { name: "alias", target: { kind: "binding", occurrence: initial } }).target.value === target, true);
+      assert.deepEqual(product.resolveModuleExport(relation, { name: "alias", typeOnlyStar: null, target: { kind: "binding", occurrence: initial } }), resolved);
     }
     const missing = unavailable("incomplete-association");
     const unavailableViews = product.createModuleBindingViews([[{ occurrence: initial, target: missing }]]);
@@ -728,13 +1051,11 @@ test("HIR canonical nearest-binding views preserve all targets, qualification, c
   }
   const occurrence = item(3);
   const relation = product.createModuleBindingViews([[{ occurrence, target: available({ kind: "module", module: moduleIdentity }) }]]);
-  const entry = { name: "namespace", target: { kind: "binding", occurrence } };
-  for (const source of [null, executing(3), item(2), item(3, "D[M[P[%002Fproject];other.ts]]"), occurrence]) {
-    const resolved = product.projectExportDeclarations({ ...relation, declarationSourceOf: () => source }, entry);
-    assert.equal(resolved.target.value.kind, source === occurrence ? "declarations" : "module");
-  }
-  const direct = { name: "direct", target: { kind: "declarations", definitions: [definitionIdentity] } };
-  assert.equal(product.projectExportDeclarations({ ...relation, declarationSourceOf: () => assert.fail("direct group does not read a declaration source") }, direct).target.value === direct.target, true);
+  const entry = { name: "namespace", typeOnlyStar: null, target: { kind: "binding", occurrence } };
+  assert.deepEqual(product.resolveModuleExport(relation, entry),
+    { target: available({ kind: "module", module: moduleIdentity }), aliases: [occurrence], cycle: null });
+  const direct = { name: "direct", typeOnlyStar: null, target: { kind: "declarations", definitions: [definitionIdentity] } };
+  assert.equal(product.resolveModuleExport({ bindingOf: () => assert.fail("direct group does not read a binding") }, direct).target.value === direct.target, true);
 });
 
 test("HIR minimal module roundtrips full data and verifies without querying absent providers", () => {
@@ -1321,6 +1642,25 @@ for (const kind of ["call", "construct", "accessor-get", "accessor-set"])
     }
   });
 
+test("HIR admits only the actual checked call argument slots, roles and order for checker evidence", () => {
+  for (const change of ["none", "missing", "crossed", "reordered", "wrong-role"]) {
+    const call = callExpression();
+    call.arguments = nodeList([nameExpression("first"), nameExpression("second")]);
+    const value = expressionModule(call);
+    const [first, second] = call.arguments.nodes;
+    const left = { kind: "value", expression: first.id };
+    const right = { kind: "value", expression: second.id };
+    const supplied = change === "missing" ? [left] : change === "crossed" ? [left, { ...right, expression: call.expression.id }]
+      : change === "reordered" ? [right, left] : change === "wrong-role" ? [{ ...left, kind: "spread", tuple: unavailable() }, right]
+        : [left, right];
+    call.tsonic.application = available({ kind: "call", receiver: null, arguments: supplied, typeArguments: [],
+      candidates: unavailable(), resolvedSignature: available(null) });
+    assert.deepEqual(product.verifyHir(value, contextFor(value)), change === "none" ? [] : [
+      violation("node-reference", nodeSite(call.id), "application arguments must retain their exact authored roles in this execution"),
+    ], change);
+  }
+});
+
 test("HIR candidate-list reference uses the containing body arena, not another scope or a bare global index", () => {
   const expression = callExpression(available({ kind: "call", receiver: null, arguments: [], typeArguments: [],
     candidates: available(7), resolvedSignature: available(null) }));
@@ -1390,7 +1730,7 @@ test("HIR unknown canonical definition and body identities never invent a fallba
   const { module: value, call } = coreCarrier();
   call.tsonic.core.markers = available({ struct: null, field: { name: "field",
     typeNode: { kind: "item", value: { owner: unknown, node: 0 } }, type: unavailable(), readonly: true },
-  defaultValue: null, jsString: false });
+  defaultValue: null, jsString: false, application: available(null) });
   const decoded = roundtrip((value), "unknown qualified item owner");
   const base = contextFor(decoded.value);
   assert.deepStrictEqual(product.verifyHir(decoded.value, { ...base,
@@ -1584,8 +1924,8 @@ test("HIR fresh actual declarations retain generic phases, all seven ports and e
       writeFileSync(resolve(stage, owner, name), readFileSync(resolve(source, name)));
   }
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
-  const positive = `import { callableEndpointKey, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, iterateChildrenOfSyntax, orderPragmaArguments, parseHir, printHir, selectedEndpointRoleFaults, verifyHir, walkSyntaxTree } from "./ir-hir/index.js";
-import type { CallableEndpointKey, EndpointRoleFaults, HasOverloadEndpoints, HirCallableEndpoint, SelectedEndpointRoleFaults, HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, IterateChildrenOfSyntax, OrderPragmaArguments, ParseHir, PrintHir, VerifyHir, WalkSyntaxTree } from "./ir-hir/contract.js";
+  const positive = `import { callableEndpointKey, checkedParameterHeadersOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, iterateChildrenOfSyntax, orderPragmaArguments, parseHir, printHir, selectedEndpointRoleFaults, unparenthesizedExpression, verifyHir, walkSyntaxForest, walkSyntaxTree } from "./ir-hir/index.js";
+import type { CallableEndpointKey, CheckedParameterHeadersOf, EndpointRoleFaults, Expression, HasOverloadEndpoints, HirBody, HirCallableEndpoint, HirNode, SelectedEndpointRoleFaults, HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, IterateChildrenOfSyntax, OrderPragmaArguments, ParseHir, PrintHir, UnparenthesizedExpression, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./ir-hir/contract.js";
 import type { BodyId, DefId, ModuleId, NodeId } from "./ids/contract.js";
 import type { SourceNodeRef } from "./ids/contract.js";
 import { nodeId as issueNode, localId as issueLocal, tyId as issueType, sigId as issueSignature, candidateListId as issueCandidates, expansionId as issueExpansion } from "./ids/index.js";
@@ -1597,7 +1937,12 @@ const children: ChildrenOfSyntax = childrenOfSyntax; const index: IndexSyntaxTre
 const iterate: IterateChildrenOfSyntax = iterateChildrenOfSyntax;
 const cursor: Generator<SyntaxNode<P>, void, undefined> = iterate(node);
 const childResult: readonly SyntaxNode<P>[] = children(node); const indexResult: readonly SyntaxNode<P>[] = index(root); const walkResult: readonly SyntaxNode<P>[] = walk(node, stop);
-return { childResult, indexResult, walkResult, cursor }; }
+const forest: WalkSyntaxForest = walkSyntaxForest;
+const forestResult: readonly SyntaxNode<P>[] = forest<P, never>([{ path: "module", read: () => root }],
+  { root: () => null, edge: () => null, node: () => null }).value.nodes;
+return { childResult, indexResult, walkResult, cursor, forestResult }; }
+export function transparent<P extends Phase>(expression: Expression<P>): Expression<P> {
+const unwrap: UnparenthesizedExpression = unparenthesizedExpression; return unwrap(expression); }
 export function checked(module: HirModule, context: HirVerificationContext) {
 const parse: ParseHir = parseHir; const print: PrintHir = printHir; const verify: VerifyHir = verifyHir;
 const order: OrderPragmaArguments = orderPragmaArguments;
@@ -1608,6 +1953,8 @@ return faults(overloads(endpoints), advertised, api); }
 export function member(endpoints: readonly HirCallableEndpoint[], endpoint: HirCallableEndpoint): boolean {
 const key: CallableEndpointKey = callableEndpointKey;
 return new Set(endpoints.map(row => key(row))).has(key(endpoint)); }
+export function headers(callable: HirNode, body: HirBody, definitionAt: (node: NodeId) => DefId | undefined) {
+const read: CheckedParameterHeadersOf = checkedParameterHeadersOf; return read(callable, body, definitionAt); }
 export function ownedOutput(text:string) {
 const decoded=parseHir(text);
 if(decoded.kind==="invalid-text")return decoded;
@@ -2193,12 +2540,21 @@ function variableModule() {
   const declaration = syntax("VariableDeclaration", 0, { name: syntax("Identifier", 0, { text: "value",
     tsonic: { core: absentCore(), role: "declaration-name", declaration: { kind: "definition", definition } } }),
   exclamationToken: null, type: null, initializer: null, tsonic: { core: absentCore(), parent: definitionIdentity, attributes: [],
-    memory: available(null), declaration: { kind: "definition", definition }, declaredType: available(0), initializer: null } });
+    memory: available(null), declaration: { kind: "definition", definition }, declaredType: available(0), inferredTypeBound: null, initializer: null } });
   const list = syntax("VariableDeclarationList", 0, { declarations: nodeList([declaration]), tsonic: { core: absentCore(), disposal: [] } });
   const value = moduleWith([syntax("VariableStatement", 0, { modifiers: null, declarationList: list })]);
   value.items = [{ definition, node: declaration.id }];
   return { value, list, declaration };
 }
+
+test("HIR rejects an inferred bound at a declaration with no initializer", () => {
+  const { value, declaration } = variableModule();
+  declaration.tsonic.inferredTypeBound = available(0);
+  const decoded = roundtrip(value, "declared-type-bound");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {
+    types: { terms: [{ kind: "primitive", primitive: "bool" }], signatures: [] },
+  })), [violation("inferred-type-bound", nodeSite(declaration.id), "an inferred declaration bound must belong to its unannotated variable initializer")]);
+});
 
 test("HIR resource disposal facts retain empty, one and several ordered sync/async protocols without inventing a producer", () => {
   for (const [count, reverse] of [[0, false], [1, false], [3, false], [3, true]]) {
@@ -2453,7 +2809,7 @@ test("HIR field names retain their first decoded deviation while the same decode
 });
 
 test("HIR a completed record uses the empty required name with the same decoded and lexical priority", () => {
-  const prefix = `HirModule(module=mod:"${moduleIdentity}", tree=n:0, items=[], bodies=[], exports=[], bindings=[], checkerDiagnostics=[], obligations=[], `;
+  const prefix = `HirModule(module=mod:"${moduleIdentity}", tree=n:0, items=[], bodies=[], exports=[], bindings=[], moduleLinks=[], checkerDiagnostics=[], obligations=[], `;
   for (const [name, offset, expected] of [
     ["extra=0)", 0, ["end of record"]],
     ["extra", 0, ["end of record"]],
@@ -2876,6 +3232,7 @@ const binaryObligationInputs = [
 ];
 
 for (const [token, operator, role] of binaryObligationInputs) test(`HIR obligation-complete retains the entire actual binary ${operator} relationship`, () => {
+  assert.equal(product.compoundAssignmentOperatorOf(token), null);
   const expression = syntax("BinaryExpression", 0, { modifiers: null, left: nameExpression("left"), type: null, operatorToken: syntax(token, 0), right: nameExpression("right"),
     tsonic: { core: absentCore(), role, value: emptyValue() } });
   const value = expressionWithObligations(expression, () => [{ kind: "operator", ordinal: 0, occurrence: { body: bodyIdentity, node: 2 }, operator,
@@ -2927,9 +3284,21 @@ test("HIR short-circuit and sequence tokens do not invent arithmetic or assignme
     const decoded = roundtrip((value), `non-operator-obligation/${token}`);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
   }
+  for (const [ordinary, assignment, kind] of [
+    ["AmpersandAmpersandToken", "AmpersandAmpersandEqualsToken", "and"],
+    ["BarBarToken", "BarBarEqualsToken", "or"],
+    ["QuestionQuestionToken", "QuestionQuestionEqualsToken", "coalesce"],
+  ]) {
+    assert.equal(product.shortCircuitOperatorOf(ordinary, "short-circuit"), kind);
+    assert.equal(product.shortCircuitOperatorOf(assignment, "assignment"), kind);
+    assert.equal(product.shortCircuitOperatorOf(ordinary, "assignment"), null);
+    assert.equal(product.shortCircuitOperatorOf(assignment, "short-circuit"), null);
+  }
+  assert.equal(product.shortCircuitOperatorOf("PlusEqualsToken", "assignment"), null);
 });
 
 for (const [token, operator] of assignmentObligationInputs) test(`HIR obligation-complete checks actual ${token} value/destination and never trusts a partial set`, () => {
+  assert.equal(product.compoundAssignmentOperatorOf(token), operator);
   for (const reversed of [false, true]) {
     const expression = syntax("BinaryExpression", 0, { modifiers: null, left: nameExpression("destination"), type: null, operatorToken: syntax(token, 0), right: nameExpression("source"),
       tsonic: { core: absentCore(), role: "assignment", value: emptyValue(), target: unavailable() } });
@@ -2968,14 +3337,23 @@ for (const kind of ["PrefixUnaryExpression", "PostfixUnaryExpression"]) for (con
   test(`HIR obligation-complete retains actual ${kind}/${token} result and operand storage`, () => {
     const expression = syntax(kind, 0, { operator: token, operand: nameExpression("target"),
       tsonic: { core: absentCore(), role: "update", value: emptyValue(), target: unavailable() } });
-    const value = expressionWithObligations(expression, () => [{ kind: "write-fit", ordinal: 0, occurrence: { body: bodyIdentity, node: 2 },
-      value: { body: bodyIdentity, node: 2 }, destination: bodySource(3), destinationType: 0 }]);
+    const value = expressionWithObligations(expression, () => [
+      { kind: "write-fit", ordinal: 0, occurrence: { body: bodyIdentity, node: 2 },
+        value: { body: bodyIdentity, node: 2 }, destination: bodySource(3), destinationType: 0 },
+      { kind: "operator", ordinal: 1, occurrence: { body: bodyIdentity, node: 2 },
+        operator: token === "PlusPlusToken" ? "++" : "--", operands: [{ body: bodyIdentity, node: 3 }] },
+    ]);
     const decoded = roundtrip((value), `${kind}/${token}`);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
     const wrong = structuredClone(value);
     wrong.obligations[0].obligations[0].value.node = 3;
     assert.deepStrictEqual(product.verifyHir((wrong), contextFor(wrong)), [
       violation("obligation-complete", nodeSite(2), "write-fit obligation must retain its actual value and destination"),
+      violation("obligation-complete", nodeSite(2), "root must retain each syntactically required obligation"),
+    ]);
+    const missing = structuredClone(value);
+    missing.obligations[0].obligations.pop();
+    assert.deepStrictEqual(product.verifyHir(missing, contextFor(missing)), [
       violation("obligation-complete", nodeSite(2), "root must retain each syntactically required obligation"),
     ]);
   });
@@ -3067,6 +3445,63 @@ function coreCarrier() {
   return { module: expressionModule(call), call };
 }
 
+function markerApplicationFixture(role) {
+  const { module, call } = coreCarrier();
+  const argument = call.arguments.nodes[0];
+  const field = { name: "flag", readonly: false, type: available(0), typeNode: bodySource(argument.type.id) };
+  const marker = { role, occurrence: { body: bodyIdentity, node: call.id }, declaration: definitionIdentity };
+  const markers = { struct: role === "struct" ? { valueType: true, fields: available([field]) } : null,
+    field: role === "field" ? field : null, defaultValue: null, jsString: false, application: available(marker) };
+  const application = { kind: "call", receiver: null, arguments: [{ kind: "value", expression: argument.id }],
+    typeArguments: [], candidates: available(0), resolvedSignature: available(0) };
+  const selected = candidate(0, { appliedSignature: available(0) });
+  const list = { id: 0, candidates: [selected] };
+  const types = { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature(), signature({ id: 1 })] };
+  call.tsonic.core.markers = available(markers);
+  call.tsonic.application = available(application);
+  module.bodies[0].candidateLists = [list];
+  return { module, call, markers, marker, application, selected, list, types };
+}
+
+test("HIR marker codec retains the genuine scoped application, absence and unavailable proof distinctly", () => {
+  for (const role of ["struct", "field", "unavailable"]) {
+    const { module, markers, types } = markerApplicationFixture(role === "struct" ? "struct" : "field");
+    if (role === "unavailable") markers.application = unavailable("incomplete-association");
+    const decoded = roundtrip(module, `marker application ${role}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, { types })), []);
+  }
+});
+
+for (const [scenario, change] of [
+  ["wrong body", ({ marker }) => { marker.occurrence.body = "B[D[M[P[%002Fproject];main.ts]];module;1]"; }],
+  ["wrong node", ({ marker, call }) => { marker.occurrence.node = call.expression.id; }],
+  ["payload crossed with another role", ({ marker }) => { marker.role = "struct"; }],
+  ["unavailable application", ({ call }) => { call.tsonic.application = unavailable(); }],
+  ["unavailable signature", ({ application }) => { application.resolvedSignature = unavailable(); }],
+  ["absent signature", ({ application }) => { application.resolvedSignature = available(null); }],
+  ["invalid signature index", ({ application }) => { application.resolvedSignature = available(-1); }],
+  ["foreign signature declaration", ({ types }) => { types.signatures[0].declaration = null; }],
+  ["unavailable candidates", ({ application }) => { application.candidates = unavailable(); }],
+  ["invalid candidate index", ({ application }) => { application.candidates = available(-1); }],
+  ["missing candidate list", ({ application }) => { application.candidates = available(1); }],
+  ["ambiguous candidate", ({ selected, list }) => { list.candidates.push({ ...selected, ordinal: 1 }); }],
+  ["unavailable candidate completion", ({ selected }) => { selected.appliedSignature = unavailable(); }],
+  ["different candidate completion for the same declaration", ({ selected }) => { selected.appliedSignature = available(1); }],
+  ["non-call occurrence", ({ call, marker }) => {
+    marker.occurrence.node = call.expression.id;
+    call.expression.tsonic.core.markers = call.tsonic.core.markers;
+    call.tsonic.core.markers = absentCore().markers;
+  }],
+]) test(`HIR marker application rejects ${scenario}`, () => {
+  const fixture = markerApplicationFixture("field");
+  change(fixture);
+  const { module, call, types } = fixture;
+  const node = scenario === "non-call occurrence" ? call.expression.id : call.id;
+  const markerViolations = product.verifyHir(module, contextFor(module, { types })).filter(row => row.rule === "core-capture-reference");
+  assert.deepStrictEqual(markerViolations, [violation("core-capture-reference", nodeSite(node),
+    "a marker application retains its exact checked call, marker payload and selected declaration")]);
+});
+
 for (const kind of ["body", "item"]) test(`HIR Core markers inspect the ${kind}-qualified foreign type kind rather than a Boolean`, () => {
   const type = syntax("AnyKeyword", 0, { tsonic: typeMetadata() });
   const assertion = syntax("TypeAssertionExpression", 0, { type, expression: nameExpression("argument"), tsonic: expressionMetadata() });
@@ -3077,7 +3512,7 @@ for (const kind of ["body", "item"]) test(`HIR Core markers inspect the ${kind}-
     const { module: value, call } = coreCarrier();
     call.tsonic.core.markers = available({ struct: null,
       field: { name: "field", typeNode: referenceIn(foreign, target, kind), type: available(0), readonly: true },
-      defaultValue: null, jsString: false });
+      defaultValue: null, jsString: false, application: available(null) });
     const decoded = roundtrip((value), `foreign marker/${kind}/${target.kind}`);
     const expected = target === type ? [] : [violation("core-capture-kind", nodeSite(2), "marker type reference must point to a type syntax node")];
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [(foreign)])), expected);
@@ -3104,7 +3539,7 @@ for (const kind of ["body", "item"]) test(`HIR missing foreign ${kind} data has 
   const { module: value, call } = coreCarrier();
   const reference = referenceIn(foreign, { id: 99 }, kind);
   call.tsonic.core.markers = available({ struct: null, field: null,
-    defaultValue: { typeNode: reference, type: available(0) }, jsString: false });
+    defaultValue: { typeNode: reference, type: available(0) }, jsString: false, application: available(null) });
   assert.deepStrictEqual(product.verifyHir((value), contextFor(value, {}, [(foreign)])), [
     violation("cross-owner-qualified", nodeSite(2), `qualified ${kind} node must exist in its named owner`),
     violation("core-capture-reference", nodeSite(2), "Core capture reference must retain an existing qualified source node"),
@@ -3150,10 +3585,10 @@ function coreArmInputs() {
   for (const [count, reverse] of [[0, false], [1, false], [3, false], [3, true]]) {
     const fields = Array.from({ length: count }, (_, ordinal) => markerField(`field${ordinal}`, ordinal % 2 === 0));
     add("markers", `struct/${count}/${reverse}`, { struct: { valueType: true, fields: available(reverse ? fields.reverse() : fields) },
-      field: markerField(), defaultValue: { typeNode: bodySource(5), type: available(0) }, jsString: true });
+      field: markerField(), defaultValue: { typeNode: bodySource(5), type: available(0) }, jsString: true, application: available(null) });
   }
   for (const reason of ["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"])
-    add("markers", `unavailable-fields/${reason}`, { struct: { valueType: false, fields: unavailable(reason) }, field: null, defaultValue: null, jsString: false });
+    add("markers", `unavailable-fields/${reason}`, { struct: { valueType: false, fields: unavailable(reason) }, field: null, defaultValue: null, jsString: false, application: available(null) });
   for (const kind of ["builder-state", "application"]) add("attribute", kind, { occurrence: bodySource(2), applicationTarget: bodySource(6),
     selectedMember: { selectedDeclaration: bodySource(3), declarations: [bodySource(3)] }, applicationMemberKind: "method", applicationPlacement: "constructor",
     applicationParameterName: "x", applicationTargetSpecifier: "target", kind, ...(kind === "application" ? { invocation: bodySource(2) } : {}) });
@@ -3270,6 +3705,210 @@ test("HIR closed checked-name, literal, binary, unary, keyword, instantiation, a
     const decoded = roundtrip(value, row.name);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), row.expected, row.name);
   }
+});
+
+test("HIR return write-fit must retain the actual annotated completion, not another equal checked type", async () => {
+  const front = await loadFrontFixture();
+  const source = "export function first(input: string): boolean { return input; } "
+    + "export function second(input: boolean): boolean { return input; }";
+  const { raw, checked, interner } = front.checkedModuleOf(source);
+  const [first, second] = checked.tree.statements.nodes;
+  const statement = first.body.statements.nodes[0];
+  const execution = checked.bodies.find(row => row.root === first.body);
+  const coverage = raw.diagnosticCoverage[0];
+  assert.equal(coverage.kind, "complete");
+  assert.equal(coverage.obligations[0].kind, "write-fit");
+  const definitions = front.front.lowerModuleDefinitions({ module: raw,
+    componentRoots: [first.type, second.type].map(node => ({ module: raw.module, node: node.id })) });
+  assert.equal(definitions.kind, "ok");
+  const referenceOf = node => definitions.value.sourceOccurrences.find(row => row.node === node.id).occurrence;
+  const occurrence = { body: execution.body, node: statement.id };
+  const obligation = { kind: "write-fit", ordinal: 0, occurrence, value: { body: execution.body, node: statement.expression.id },
+    destination: referenceOf(first.type), destinationType: first.type.tsonic.type.value };
+  const withProof = (proof, module = checked) => ({ ...module, obligations: [{
+    diagnostic: coverage.root.index, owner: { kind: "body", value: occurrence }, obligations: [proof],
+  }] });
+  const verify = proof => front.verifyChecked(withProof(proof), interner);
+  assert.equal(first.type.tsonic.type.value, second.type.tsonic.type.value);
+  assert.deepEqual(verify(obligation), []);
+  for (const proof of [
+    { ...obligation, destination: referenceOf(second.type) },
+    { ...obligation, destinationType: first.parameters.nodes[0].type.tsonic.type.value },
+    { ...obligation, value: occurrence },
+  ]) assert.deepEqual(verify(proof).map(row => row.rule), ["obligation-complete"]);
+  const unbound = structuredClone(checked);
+  unbound.tree.statements.nodes[0].tsonic.body = null;
+  const context = contextFor(checked, { types: front.types.viewTypes(interner) });
+  for (const malformed of [unbound, { ...checked, bodies: [] }, { ...checked, bodies: checked.bodies.filter(row => row.root === checked.tree) }])
+    assert.equal(product.verifyHir(withProof(obligation, malformed), context).some(row => row.rule === "obligation-complete"), true);
+});
+
+test("HIR initializer write-fit retains its actual annotated destination and value body", async () => {
+  const front = await loadFrontFixture();
+  for (const placement of ["local", "module"]) {
+    const source = placement === "local"
+      ? "export function convert(input: string, other: boolean): boolean { const output: boolean = input; return output; }"
+      : 'export const input: string = "text", other: boolean = true, output: boolean = input;';
+    const { raw, checked, definitions, interner } = front.checkedModuleOf(source);
+    const declaration = checked.tree.statements.nodes[0];
+    const [input, other, variable] = placement === "local"
+      ? [...declaration.parameters.nodes, declaration.body.statements.nodes[0].declarationList.declarations.nodes[0]]
+      : declaration.declarationList.declarations.nodes;
+    const [coverage] = raw.diagnosticCoverage;
+    assert.equal(coverage.kind, "complete", placement);
+    const [captured] = coverage.obligations;
+    assert.equal(captured.kind, "write-fit", placement);
+    assert.equal(raw.types.components[captured.destination].root.node, variable.type.id, placement);
+    assert.equal(raw.types.components[captured.source].root.node, variable.initializer.id, placement);
+    const sourceOccurrence = node => definitions.sourceOccurrences.find(row => row.node === node.id).occurrence;
+    const occurrence = { body: placement === "local" ? declaration.tsonic.body : checked.tree.tsonic.body, node: variable.id };
+    const value = sourceOccurrence(variable.initializer);
+    assert.equal(value.kind, "body", placement);
+    assert.equal(value.value.body, variable.tsonic.initializer, placement);
+    assert.notEqual(value.value.body, occurrence.body, placement);
+    const obligation = { kind: "write-fit", ordinal: 0, occurrence, value: value.value,
+      destination: sourceOccurrence(variable.type), destinationType: variable.type.tsonic.type.value };
+    const verify = (proof, module = checked) => front.verifyChecked({ ...module, obligations: [{
+      diagnostic: coverage.root.index, owner: { kind: "body", value: occurrence }, obligations: [proof],
+    }] }, interner);
+    assert.equal(obligation.destinationType, other.type.tsonic.type.value, placement);
+    assert.deepEqual(verify(obligation), [], placement);
+    for (const crossed of [
+      { ...obligation, destination: { kind: "body", value: occurrence } },
+      { ...obligation, destination: sourceOccurrence(other.type) },
+      { ...obligation, destinationType: input.type.tsonic.type.value },
+      { ...obligation, value: { body: occurrence.body, node: value.value.node } },
+    ]) assert.equal(verify(crossed).some(row => row.rule === "obligation-complete"), true, placement);
+    const missing = structuredClone(checked);
+    front.hir.indexSyntaxTree(missing.tree)[variable.type.id].tsonic.type = unavailable();
+    assert.equal(verify(obligation, missing).some(row => row.rule === "obligation-complete"), true, placement);
+  }
+});
+
+test("HIR default write-fit uses the callable's checked header and the separate default execution", async () => {
+  const front = await loadFrontFixture();
+  const source = "export function convert(input: string, output: boolean = input): boolean { return output; }";
+  const { raw, checked, interner } = front.checkedModuleOf(source);
+  const [callable] = checked.tree.statements.nodes;
+  const [, parameter] = callable.parameters.nodes;
+  const definitions = front.front.lowerModuleDefinitions({ module: raw,
+    componentRoots: [parameter, parameter.type, parameter.initializer].map(node => ({ module: raw.module, node: node.id })) });
+  assert.equal(definitions.kind, "ok");
+  const sourceOf = node => definitions.value.sourceOccurrences.find(row => row.node === node.id).occurrence;
+  const owner = sourceOf(parameter);
+  const annotation = sourceOf(parameter.type);
+  const value = sourceOf(parameter.initializer);
+  assert.equal(owner.value.body, callable.tsonic.body);
+  assert.equal(annotation.value.body, callable.tsonic.body);
+  assert.equal(value.value.body, parameter.tsonic.initializer);
+  assert.notEqual(value.value.body, owner.value.body);
+  const [coverage] = raw.diagnosticCoverage;
+  assert.equal(coverage.kind, "complete");
+  const [captured] = coverage.obligations;
+  assert.equal(captured.kind, "write-fit");
+  assert.deepEqual([raw.types.components[captured.source].root.node, raw.types.components[captured.destination].root.node],
+    [parameter.initializer.id, parameter.type.id]);
+  const proof = { kind: "write-fit", ordinal: 0, occurrence: owner.value, value: value.value,
+    destination: annotation, destinationType: parameter.type.tsonic.type.value };
+  const withProof = (origin, obligation) => ({ ...checked, obligations: [{
+    diagnostic: coverage.root.index, owner: origin, obligations: [obligation],
+  }] });
+  const verified = roundtrip(withProof(owner, proof), "actual default write-fit");
+  assert.deepEqual(front.verifyChecked(verified.value, interner), []);
+  const lexicalBody = checked.tree.tsonic.body;
+  const lexicalOwner = bodySource(parameter.id, lexicalBody);
+  for (const candidate of [
+    withProof(lexicalOwner, { ...proof, occurrence: lexicalOwner.value }),
+    withProof(owner, { ...proof, destination: bodySource(parameter.type.id, lexicalBody) }),
+    withProof(owner, { ...proof, value: { body: owner.value.body, node: value.value.node } }),
+  ]) assert.equal(front.verifyChecked(candidate, interner).some(row => row.rule === "cross-owner-qualified"), true);
+
+  const execution = checked.bodies.find(body => body.root === callable.body);
+  const issued = new Map(checked.items.map(item => [item.node, item.definition]));
+  const read = (node, body = execution) => product.checkedParameterHeadersOf(node, body, id => issued.get(id));
+  assert.equal(read(callable) === callable.parameters.nodes, true);
+  assert.equal(read(checked.tree) === null, true);
+  assert.equal(read(callable, { ...execution, params: [{ ...execution.params[0], local: -0 }, execution.params[1]] }) === null, true);
+  const crossedHeader = { ...parameter, tsonic: { ...parameter.tsonic,
+    declaration: { kind: "local", local: { body: lexicalBody, local: parameter.tsonic.declaration.local.local } } } };
+  const crossedCallable = { ...callable, parameters: { ...callable.parameters, nodes: [callable.parameters.nodes[0], crossedHeader] } };
+  assert.equal(read(crossedCallable) === null, true);
+});
+
+test("HIR retains a native intrinsic read and refuses to make it a storage root or an unchecked read", async () => {
+  const front = await loadFrontFixture();
+  const { checked, interner } = front.checkedModuleOf("export function read(): undefined { return undefined; }");
+  const occurrenceOf = module => module.tree.statements.nodes[0].body.statements.nodes[0].expression;
+  const decoded = roundtrip(checked, "native global undefined");
+  const occurrence = occurrenceOf(decoded.value);
+  assert.equal(occurrence.kind, "Identifier");
+  assert.deepStrictEqual(occurrence.tsonic.resolution, { kind: "intrinsic-value", intrinsic: "undefined" });
+  assert.deepStrictEqual(front.verifyChecked(decoded.value, interner), []);
+
+  const asPlace = structuredClone(decoded.value);
+  const place = occurrenceOf(asPlace).tsonic;
+  place.value.place = available({ base: { kind: "root", resolution: place.resolution },
+    step: null, read: place.value.views.read, write: available(null) });
+  assert.deepStrictEqual(front.verifyChecked(asPlace, interner).filter(row => row.rule === "intrinsic-value-use").map(row => row.detail),
+    [[{ kind: "text", value: "an intrinsic value is not a storage root" }]]);
+
+  const unchecked = structuredClone(decoded.value);
+  occurrenceOf(unchecked).tsonic.value.views.read = unavailable("not-provided");
+  assert.deepStrictEqual(front.verifyChecked(unchecked, interner).filter(row => row.rule === "intrinsic-value-use").map(row => row.detail),
+    [[{ kind: "text", value: "an intrinsic value resolution belongs to an identifier read with its actual checked type" }]]);
+});
+
+test("HIR export provenance must name the actual resolved type-only star, not a value star", async () => {
+  const front = await loadFrontFixture();
+  const { modules, interner } = front.checkedModulesOf({
+    "main.ts": "export * from './types.js';",
+    "types.ts": "export type * from './leaf.js';",
+    "values.ts": "export * from './leaf.js';",
+    "leaf.ts": "export function run(value: boolean): boolean { return value; }",
+  });
+  const moduleOf = name => front.moduleOf(front.packageOf("/project"), `src/${name}.ts`);
+  const original = modules.find(module => module.module === moduleOf("main"));
+  const valueStar = modules.find(module => module.module === moduleOf("values"));
+  const others = modules.filter(module => module !== original);
+  assert.notEqual(original.exports[0].typeOnlyStar, null);
+  const decoded = roundtrip(original, "transitive type-only star provenance");
+  assert.deepStrictEqual(front.verifyChecked(decoded.value, interner, others), []);
+  const statement = valueStar.tree.statements.nodes[0];
+  const valueBody = valueStar.bodies.find(body => body.root.kind === "SourceFile");
+  const forged = structuredClone(decoded.value);
+  forged.exports[0].typeOnlyStar = { kind: "body", value: { body: valueBody.body, node: statement.id } };
+  assert.deepStrictEqual(front.verifyChecked(forged, interner, others).filter(row => row.rule === "export-type-only-star"),
+    [violation("export-type-only-star", { kind: "module", module: original.module },
+      "a type-only star must name its actual authored export declaration")]);
+});
+
+test("checked module links retain actual runtime and erased declarations in authored order", async () => {
+  const front = await loadFrontFixture();
+  const { modules, interner } = front.checkedModulesOf({
+    "main.ts": "import './leaf.js'; import type { Flag } from './leaf.js'; export type * from './leaf.js'; export { run as published } from './leaf.js'; export * as group from './leaf.js'; export function read(value: Flag): boolean { return value; }",
+    "leaf.ts": "export type Flag = boolean; export function run(value: Flag): boolean { return value; }",
+  });
+  const original = modules.find(module => module.module === front.moduleOf(front.packageOf("/project"), "src/main.ts"));
+  const [eager, erasedImport, erasedExport, named, namespace] = original.tree.statements.nodes;
+  assert.deepEqual(original.moduleLinks, [
+    { declaration: eager.id, evaluation: "eager" },
+    { declaration: erasedImport.id, evaluation: "erased" },
+    { declaration: erasedExport.id, evaluation: "erased" },
+    { declaration: named.id, evaluation: "eager" },
+    { declaration: namespace.id, evaluation: "eager" },
+  ]);
+  const { value } = roundtrip(original, "runtime module link classification");
+  const others = modules.filter(module => module !== original);
+  assert.deepEqual(front.verifyChecked(value, interner, others), []);
+  const wrong = [
+    [{ declaration: eager.id, evaluation: "erased" }, ...value.moduleLinks.slice(1)],
+    [...value.moduleLinks].reverse(),
+    value.moduleLinks.slice(0, 2),
+    [...value.moduleLinks, value.moduleLinks[0]],
+    value.moduleLinks.map(link => link.declaration === named.id ? { ...link, evaluation: "deferred" } : link),
+  ];
+  for (const moduleLinks of wrong)
+    assert.equal(front.verifyChecked({ ...value, moduleLinks }, interner, others).some(row => row.rule === "module-link"), true);
 });
 
 function selectorInputs() {
@@ -3414,7 +4053,7 @@ test("HIR signed zero parent and implicit definition ordinals inside foreign bod
     const definition = ids.encodeDefId({ module, segments: [{ name: "owner", ordinal }] });
     const body = ids.encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
     const declaration = syntax("VariableDeclaration", 0, { name: nameExpression("foreignLocal"), exclamationToken: null, type: null, initializer: null,
-      tsonic: { ...declarationFacts(definition), declaration: { kind: "local", local: { body, local: 0 } }, declaredType: available(0), initializer: null } });
+      tsonic: { ...declarationFacts(definition), declaration: { kind: "local", local: { body, local: 0 } }, declaredType: available(0), inferredTypeBound: null, initializer: null } });
     declaration.name.tsonic = { core: absentCore(), role: "declaration-name", declaration: { kind: "local", local: { body, local: 0 } } };
     const list = syntax("VariableDeclarationList", 0, { declarations: nodeList([declaration]), tsonic: { core: absentCore(), disposal: [] } });
     const foreign = foreignModuleWith([syntax("VariableStatement", 0, { modifiers: null, declarationList: list })]);
@@ -3476,6 +4115,7 @@ function declarationModule(kind) {
   }
   const value = kind === "ClassExpression" ? expressionModule(node) : moduleWith([node]);
   value.items = ["ImportDeclaration", "JSImportDeclaration", "ExportDeclaration"].includes(kind) ? [] : [{ definition, node: node.id }];
+  if (kind === "ImportDeclaration" || kind === "JSImportDeclaration") value.moduleLinks = [{ declaration: node.id, evaluation: "eager" }];
   return { value, node, definition };
 }
 
@@ -3544,7 +4184,7 @@ test("HIR class/interface member declarations retain every supplied ordering ind
             key: available({ kind: "text", value: `field${ordinal}` }), origins: available([{ kind: "declared", declaration: member }]) } }),
           postfixToken: ordinal % 2 === 0 ? null : syntax("QuestionToken", 0), type: syntax("AnyKeyword", 0, { tsonic: typeMetadata() }),
           initializer: null, tsonic: { ...declarationFacts(definition), declaration: { kind: "definition", definition: member },
-            declaredType: available(0), initializer: null },
+            declaredType: available(0), inferredTypeBound: null, initializer: null },
         });
       });
       if (reversed) members.reverse();
@@ -3596,7 +4236,7 @@ function functionModule(roles = ["required"], nested = false) {
       name: syntax("Identifier", 0, { text: role === "this" ? "this" : `p${ordinal}`, tsonic: { core: absentCore(), role: "declaration-name",
         declaration: { kind: "definition", definition: parameterDefinition } } }), questionToken: role === "optional" ? syntax("QuestionToken", 0) : null,
       type: null, initializer, tsonic: { ...declarationFacts(definition), declaration: { kind: "definition", definition: parameterDefinition },
-        declaredType: available(0), initializer: initializerId } });
+        declaredType: available(0), inferredTypeBound: null, initializer: initializerId } });
   });
   const block = syntax("Block", 0, { statements: nodeList([]), multiLine: false });
   const declaration = syntax("FunctionDeclaration", 0, { modifiers: null, typeParameters: null, parameters: nodeList(parameters), type: null,
@@ -3863,7 +4503,7 @@ test("HIR catch locals and lexical scopes retain actual declarations, outer owne
     const declaration = present ? syntax("VariableDeclaration", 0, { name: syntax("Identifier", 0, { text: "error",
       tsonic: { core: absentCore(), role: "declaration-name", declaration: { kind: "local", local } } }),
       exclamationToken: null, type: null, initializer: null,
-      tsonic: { ...declarationFacts(), declaration: { kind: "local", local }, declaredType: available(0), initializer: null } }) : null;
+      tsonic: { ...declarationFacts(), declaration: { kind: "local", local }, declaredType: available(0), inferredTypeBound: null, initializer: null } }) : null;
     const reference = nameExpression("error");
     if (present) reference.tsonic.resolution = { kind: "local", local };
     const block = syntax("Block", 0, { statements: nodeList([syntax("ExpressionStatement", 0, { expression: reference })]), multiLine: true });
@@ -3917,6 +4557,7 @@ test("HIR imports retain qualified binding occurrences, actual targets and avail
       node.moduleSpecifier.tsonic.target = target;
       node.tsonic.target = target;
       numberSyntaxFixture(value.tree);
+      value.moduleLinks[0].evaluation = clause.phaseModifier === "TypeKeyword" ? "erased" : clause.phaseModifier === "DeferKeyword" ? "deferred" : "eager";
       specifiers.forEach((specifier, index) => {
         const occurrence = { kind: "item", value: { owner: definitionIdentity, node: specifier.id } };
         specifier.tsonic = { core: absentCore(), target, bindings: [occurrence] };
@@ -3943,7 +4584,7 @@ test("HIR binding transport retains every semantic target and rejects incomplete
     specifier.tsonic = { core: absentCore(), binding: occurrence };
     specifier.name.tsonic = { core: absentCore(), role: "binding-name", binding: occurrence };
     value.bindings = [{ occurrence, target: available({ kind: "module", module: moduleIdentity }) }];
-    value.exports = [{ name: "alias", target: { kind: "binding", occurrence } }];
+    value.exports = [{ name: "alias", typeOnlyStar: null, target: { kind: "binding", occurrence } }];
     value.checkerDiagnostics = [sourceDiagnostic()];
     return { value, occurrence, specifier };
   };
@@ -4041,7 +4682,7 @@ test("HIR exports retain complete groups and actual binding availability without
       specifier.name.tsonic = { core: absentCore(), role: "binding-name", binding: occurrence };
       value.bindings.push({ occurrence, target: entries[index].ordinal % 2 === 0
         ? available({ kind: "declarations", definitions: [entries[index].definition] }) : unavailable("parameter-dependent") });
-      value.exports.push({ name: entries[index].name, target: { kind: "binding", occurrence } });
+      value.exports.push({ name: entries[index].name, typeOnlyStar: null, target: { kind: "binding", occurrence } });
     });
     value.exports.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
     const decoded = roundtrip(value, `exports/${count}/${reversed}`);
@@ -4062,6 +4703,8 @@ function initializerModule(kind) {
     definition = declaration.tsonic.declaration.definition;
     role = "initializer";
     declaration.initializer = initializer;
+    declaration.tsonic.declaredType = available(null);
+    declaration.tsonic.inferredTypeBound = available(0);
   } else {
     const container = declarationModule(kind === "PropertyDeclaration" ? "ClassDeclaration" : "EnumDeclaration");
     value = container.value;
@@ -4070,7 +4713,7 @@ function initializerModule(kind) {
     const name = syntax("Identifier", 0, { text: "member", tsonic: { core: absentCore(), role: "property-name",
       key: available({ kind: "text", value: "member" }), origins: available([{ kind: "declared", declaration: definition }]) } });
     declaration = syntax(kind, 0, { modifiers: null, name, postfixToken: null, ...(kind === "PropertyDeclaration" ? { type: null } : {}), initializer,
-      tsonic: { ...declarationFacts(container.definition), declaration: { kind: "definition", definition }, declaredType: available(0), initializer: null } });
+      tsonic: { ...declarationFacts(container.definition), declaration: { kind: "definition", definition }, declaredType: available(0), inferredTypeBound: null, initializer: null } });
     container.node.members = nodeList([declaration]);
     container.node.tsonic.members = [definition];
   }
@@ -4656,9 +5299,30 @@ for (const [index, present] of [[null, false], [0, true], [-1, false], [0.5, fal
     const value = expressionModule(expression);
     value.checkerDiagnostics = present ? [sourceDiagnostic()] : [];
     assert.deepStrictEqual(product.verifyHir((value), contextFor(value)), index === null || index === 0 && present ? [] : [
-      violation("diagnostic-reference", nodeSite(expression.id), "an unresolved target requires its actual qualified checker diagnostic root"),
+      violation("diagnostic-reference", nodeSite(expression.id), "a checker diagnostic reference must name its actual qualified published root"),
     ]);
   });
+
+test("an actual checked expression's checker cause must name its published diagnostic", async () => {
+  const fixture = await loadFrontFixture();
+  const { checked, interner } = fixture.checkedModuleOf("export function read(): boolean { return missingName; }");
+  const decoded = roundtrip(checked, "checked source with the real missing-name cause").value;
+  assert.deepEqual(fixture.verifyChecked(decoded, interner), []);
+  const declaration = decoded.tree.statements.nodes[0];
+  const read = declaration.body.statements.nodes[0].expression;
+  const cause = read.tsonic.value.views.read.causes[0].diagnostic.diagnostic;
+  const { module, index } = cause;
+  assert.equal(module, decoded.module);
+  assert.equal(decoded.checkerDiagnostics[index].code.rendered, "TS2304");
+  const foreign = fixture.moduleOf(fixture.packageOf("/foreign"), "src/main.ts");
+  const expected = [violation("diagnostic-reference", nodeSite(read.id, declaration.tsonic.body),
+    "a checker diagnostic reference must name its actual qualified published root")];
+  for (const [suppliedModule, suppliedIndex] of [[module, decoded.checkerDiagnostics.length], [module, -0], [foreign, index]]) {
+    cause.module = suppliedModule;
+    cause.index = suppliedIndex;
+    assert.deepEqual(fixture.verifyChecked(decoded, interner), expected);
+  }
+});
 
 for (const cyclic of [false, true])
   test(`HIR actual place ${cyclic ? "active cycle" : "completed shared target"} keeps one complete graph result`, () => {
@@ -4794,7 +5458,7 @@ for (const kind of ["VariableDeclaration", "Parameter", "EnumMember", "PropertyS
         declaration = syntax(kind, 0, { modifiers: null, name, postfixToken: null,
           ...(kind === "EnumMember" ? {} : { type: null }), initializer: null,
           tsonic: { ...declarationFacts(fixture.definition), declaration: { kind: "definition", definition },
-            declaredType: available(ids.tyId(0)), initializer: null } });
+            declaredType: available(ids.tyId(0)), inferredTypeBound: null, initializer: null } });
         fixture.node.members.nodes.push(declaration);
         fixture.node.tsonic.members = [definition];
         numberSyntaxFixture(value.tree);

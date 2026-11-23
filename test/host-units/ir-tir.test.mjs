@@ -11,6 +11,16 @@ import { runCase } from "../host-cases/case.mjs";
 import { compareCaseValues } from "../host-cases/compare.mjs";
 import { syntaxConstructorInputs } from "./fixtures/hir-syntax.mjs";
 import { syntaxFieldMutations } from "./fixtures/syntax-field-mutations.mjs";
+import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { analysisInput } from "./fixtures/front/analysis-input.mjs";
+import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
+import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
+import { checkCallShapedComputedDeclarationName } from "./fixtures/computed-declaration-name.mjs";
+import { checkCommaSequence, checkCoalescingAssignment, checkOptionalEmbedding, checkLabelledTransfers, checkVoidOperand, checkTirAdmissionCuts, checkTirBodyAdmissionCuts, checkTirVerifierAdmissionCuts, tirFixtureAdmission, tirFixtureBodyVerifier, tirFixtureVerifier } from "./fixtures/typed-occurrence-witnesses.mjs";
+import {
+  available, bodyId, bodyScopeReader, checkerViews, checkedValue, completeScopes, emptyBindings, emptyCore, emptyModuleBody,
+  emptyScope, emptyVerificationInput, header, memberScenario, moduleId, nodeList, origin, ownerId, selectedOperation, typedValue,
+} from "./fixtures/tir-member-scenario.mjs";
 import { hostCatalogue } from "../architecture/host/catalogue.mjs";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources, readImportGraph } from "../architecture/host/import-graph.mjs";
@@ -38,6 +48,9 @@ const post = (method, parameters = {}) => new Promise((accept, reject) => {
   profiler.post(method, parameters, (error, result) => error === null ? accept(result) : reject(error));
 });
 let product;
+let verifyBody;
+let verifyChapter;
+let admitFixtureRead;
 let sameSyntaxFields;
 
 function writeValueEvidence(path, root) {
@@ -105,83 +118,43 @@ before(async () => {
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   product = await import("../../packages/host/dist/ir-tir/index.js");
+  verifyBody = await tirFixtureBodyVerifier(product.verifyTir);
+  verifyChapter = await tirFixtureVerifier(product.verifyTirModule);
+  admitFixtureRead = await tirFixtureAdmission();
   ({ sameSyntaxFields } = await import("../../packages/host/dist/ir-tir/syntax-compare.js"));
 });
 
-const moduleId = "M[P[p];m]";
 await import("./source-add-composed.test.mjs");
 await import("./source-semantic-queries.test.mjs");
-const ownerId = "D[M[P[p];m]]";
-const bodyId = "B[D[M[P[p];m]];module;0]";
+test("native compound static assignment reads the selected cell before a same-cell RHS store", checkCompoundStaticAssignment);
+test("direct static updates return the old or new native value and store only on success", checkStaticUpdates);
+test("authored comma sequences preserve ordered effects and forward only the right value", checkCommaSequence);
+test("a selected callable reads the actual initialized module static through its source binding", checkQualifiedStaticRead);
+test("native local coalescing assignment distinguishes absence from false and retains one optional carrier", checkCoalescingAssignment);
+test("Evaluate consumes the selected optional embedding without changing a native payload", checkOptionalEmbedding);
+test("labelled native transfers retain their actual lexical targets across nested controls", checkLabelledTransfers);
+test("the authored void operator evaluates its operand once and returns native absence only when used", checkVoidOperand);
 const codecBinding = { kind: "item", value: { owner: ownerId, node: 4 } };
 const codecBindingWire = `item(value=ItemNodeRef(owner=def:"${ownerId}", node=n:4))`;
-const emptyBindings = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
-const origin = (start = 0, length = 0) => ({ module: moduleId, start, length, derived: [] });
-const header = (id, parent = null) => ({ id, origin: origin(), parent, flags: [], loc: { pos: 0, end: 0 } });
-const nodeList = (nodes = []) => ({ loc: { pos: 0, end: 0 }, nodes });
-
-function emptyModuleBody() {
-  const end = { ...header(1, 0), kind: "EndOfFile", tsonic: null };
-  const root = { ...header(0), kind: "SourceFile", statements: nodeList(), endOfFileToken: end,
-    languageVariant: "Standard", scriptKind: "TS", commentDirectives: [], pragmas: [], checkJsDirective: null,
-    tsonic: { module: moduleId, template: { body: bodyId, lexicalBindings: emptyBindings(), dependence: "parametric" } } };
-  return { body: bodyId, owner: ownerId, bindings: { kind: "parametric" }, lexicalBindings: emptyBindings(),
-    dependence: "parametric", signature: 0, completion: 0, yielded: null, sent: null, params: [], locals: [], root,
-    nestedBodies: [], captures: [], scopes: [], evidence: [], asynchronous: false, generator: false };
-}
-
 function typeEvidence(category) {
   return { type: 0, component: { kind: "body", value: { body: bodyId, node: 0 } }, category,
     numeric: null, sum: null, nominal: null, pointer: null };
 }
 
-const emptyScope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
-const available = value => ({ kind: "available", value });
-const emptyCore = () => ({ provider: available(null), markers: available({ struct: null, field: null, defaultValue: null, jsString: false }),
-  pointerType: available(null), pointerOperation: available(null), fieldBinding: available(null), recordBinding: available(null),
-  attribute: available(null), safety: available(null), argumentPassing: available(null), flowState: available(null) });
-
-const bodyScopeReader = (body, scopes) => {
-  const instance = structuredClone({ body: body.body, bindings: body.bindings });
-  return target => target.kind === "body" && isDeepStrictEqual(target.instance, instance) ? scopes : null;
-};
 const replaceScopeInventory = (input, scopes) => {
   const knownTarget = input.bindingScopesOf;
-  input.bindingScopesOf = target => knownTarget(target) === null ? null : scopes;
+  input.bindingScopesOf = (...request) => {
+    const actual = knownTarget(...request);
+    return actual.kind !== "complete" || actual.scopes === null ? actual : completeScopes(scopes);
+  };
 };
 const bodyScopes = (input, body) => {
-  const scopes = input.bindingScopesOf({ kind: "body", instance: { body: body.body, bindings: body.bindings } });
+  const result = input.bindingScopesOf({ kind: "body", instance: { body: body.body, bindings: body.bindings } }, body, null);
+  assert.equal(result.kind, "complete");
+  const scopes = result.scopes;
   assert.equal(Array.isArray(scopes), true, "the authored fixture has an actual scope inventory for this complete instance");
   return scopes;
 };
-
-function emptyVerificationInput(body, authoredNodes = [], scopeCount = 2) {
-  const end = { ...header(1, 0), kind: "EndOfFile", tsonic: null };
-  const root = { ...header(0), kind: "SourceFile", statements: nodeList(), endOfFileToken: end,
-    languageVariant: "Standard", scriptKind: "TS", commentDirectives: [], pragmas: [], checkJsDirective: null,
-    tsonic: { core: emptyCore(), parent: null, attributes: [], memory: available(null), definition: ownerId, body: bodyId } };
-  const original = { body: bodyId, owner: ownerId, params: [], locals: [], root, captures: [], scopes: [],
-    asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] };
-  const source = { module: moduleId, tree: root, items: [{ definition: ownerId, node: 0 }], bodies: [original],
-    exports: [], bindings: [], checkerDiagnostics: [], obligations: [] };
-  const module = { module: moduleId, tree: body.root, bodies: [body] };
-  const types = { terms: [{ kind: "intrinsic", intrinsic: "unknown" }], signatures: [{ id: 0, declaration: ownerId,
-    owner: { kind: "body", value: { body: bodyId, node: 0 } }, composition: null, kind: "call", typeParameters: [],
-    receiver: null, parameters: [], result: 0 }] };
-  const declarations = new Map([[ownerId, { scope: emptyScope(), parameterCount: 0, endpoints: [] }]]);
-  const originalNodes = new Map([[0, root], [1, end], ...authoredNodes.map(node => [node.id, node])]);
-  return { source, module, types, bindingScopesOf: bodyScopeReader(body, Array.from({ length: scopeCount }, emptyScope)),
-    declarationOf: definition => declarations.get(definition) ?? null,
-    memberTableOf: () => { throw new Error("unexpected member-table lookup"); },
-    bodyOf: instance => {
-      for (const actual of module.bodies) if (actual.body === instance.body && compareCaseValues(actual.bindings, instance.bindings)) return actual;
-      return null;
-    },
-    nominalOf: () => null,
-    nodeOf: reference => reference.kind === "body" ? reference.value.body === bodyId ? originalNodes.get(reference.value.node) ?? null : null
-      : reference.value.owner === ownerId ? originalNodes.get(reference.value.node) ?? null : null,
-    localExists: reference => reference.body === bodyId && original.locals[reference.local] !== undefined, diagnostics: [] };
-}
 
 function bodylessModuleScenario() {
   const definition = "D[M[P[p];m];Alias]";
@@ -207,7 +180,7 @@ function bodylessModuleScenario() {
     languageVariant: "Standard", scriptKind: "TS", commentDirectives: [], pragmas: [], checkJsDirective: null,
     tsonic: { core: emptyCore(), parent: null, attributes: [], memory: available(null), definition: ownerId, body: null } };
   const source = { module: moduleId, tree: sourceTree,
-    bodies: [], exports: [], bindings: [], checkerDiagnostics: [], obligations: [],
+    bodies: [], exports: [], bindings: [], moduleLinks: [], checkerDiagnostics: [], obligations: [],
     items: [{ definition: ownerId, node: 0 }, { definition, node: 1 }] };
   const module = { module: moduleId, tree, bodies: [] };
   const nodes = new Map([sourceTree, sourceAlias, sourceName, sourceKeyword, sourceEnd].map(node => [node.id, node]));
@@ -216,10 +189,11 @@ function bodylessModuleScenario() {
   const input = { source, module, types: { terms: [{ kind: "intrinsic", intrinsic: "unknown" }], signatures: [] },
     bindingScopesOf: target => {
       queries.push(structuredClone(target));
-      return target.kind === "module" && target.module === moduleId ? scopes : null;
+      return completeScopes(target.kind === "module" && target.module === moduleId ? scopes : null);
     },
     declarationOf: selected => selected === definition || selected === ownerId
       ? { scope: emptyScope(), parameterCount: 0, endpoints: [] } : null,
+    staticStorageOf: () => null,
     memberTableOf: () => { throw new Error("a type-only module has no selected member occurrence"); },
     bodyOf: () => null, nominalOf: () => null,
     nodeOf: reference => reference.kind === "item" && reference.value.owner === definition
@@ -231,122 +205,6 @@ function bodylessModuleScenario() {
 const bodyViolation = (rule, detail, body = bodyId) => ({ rule, site: { kind: "body", body }, detail: [{ kind: "text", value: detail }] });
 const nodeViolation = (rule, node, detail) => ({ rule, site: { kind: "node", module: moduleId, node },
   detail: [{ kind: "text", value: detail }] });
-const checkerViews = type => ({ read: available(type), declared: available(null), contextual: available(null) });
-const checkedValue = (type = 0) => ({ views: checkerViews(type), place: available(null), memory: available(null), observation: available(null) });
-const typedValue = (type = 0) => ({ type, convertedType: type, conversion: { kind: "identity" }, narrowing: null,
-  evidenceIndex: null, demand: { kind: "always" } });
-const selectedOperation = (operation, result = 0) => ({ kind: "decided", decision: { permissionScope: null,
-  decision: { kind: "selected", operation, operands: [], result, execution: { kind: "pure" } } } });
-
-function memberScenario(holder, duplicatedPart = false) {
-  const body = emptyModuleBody();
-  const authored = [];
-  const pair = (kind, id, parent, checkedFields, typedFields, checkedPhase, typedPhase) => {
-    const original = { ...header(id, parent), kind, ...checkedFields, tsonic: checkedPhase };
-    const typed = { ...header(id, parent), kind, ...typedFields, tsonic: typedPhase };
-    authored.push(original);
-    return { original, typed };
-  };
-  const key = { kind: "text", value: "x" };
-  const provenance = { kind: "mapped", owner: { kind: "body", value: { body: bodyId, node: 2 } }, key: { kind: "text", value: "x" } };
-  const decision = { key, origins: [provenance], selectedDeclarations: [], primary: null, read: 0, write: 0,
-    getter: null, setter: null, bindings: emptyBindings(), location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } };
-  const selection = { decision, getter: null, setter: null };
-  const name = (id, parent, role) => pair("Identifier", id, parent, { text: "x" }, { text: "x" },
-    role === "property-name"
-      ? { core: emptyCore(), role, key: available({ kind: "text", value: "x" }), origins: available([provenance]) }
-      : { core: emptyCore(), role, value: checkedValue(), resolution: { kind: "declarations", definitions: [ownerId] },
-        ...(role === "shorthand-value" ? { key: available({ kind: "text", value: "x" }) } : {}) },
-    role === "property-name" ? { role, key: { kind: "text", value: "x" } }
-      : { ...typedValue(), role, resolution: { kind: "definition", definition: ownerId, aliases: [] },
-        ...(role === "shorthand-value" ? { key: { kind: "text", value: "x" } } : {}) });
-  let expression;
-  let memberNode = 2;
-  let selectedCount = 1;
-  let expectedOccurrence;
-  if (holder === "property-access" || holder === "element-access") {
-    const receiver = pair("Identifier", 3, 2, { text: "object" }, { text: "object" },
-      { core: emptyCore(), role: "value", value: checkedValue(1), resolution: { kind: "declarations", definitions: [ownerId] } },
-      { ...typedValue(1), role: "value", resolution: { kind: "definition", definition: ownerId, aliases: [] } });
-    const target = holder === "property-access" ? name(4, 2, "property-name")
-      : pair("StringLiteral", 4, 2, { text: "x", tokenFlags: [] }, { text: "x", tokenFlags: [] },
-        { core: emptyCore(), role: "value", value: checkedValue(), literal: { kind: "string", value: "x" } },
-        { ...typedValue(), role: "value", value: "x" });
-    const checkedFields = { expression: receiver.original, questionDotToken: null,
-      ...(holder === "property-access" ? { name: target.original } : { argumentExpression: target.original }) };
-    const typedFields = { expression: receiver.typed, questionDotToken: null,
-      ...(holder === "property-access" ? { name: target.typed } : { argumentExpression: target.typed }) };
-    expression = pair(holder === "property-access" ? "PropertyAccessExpression" : "ElementAccessExpression", 2, 1,
-      checkedFields, typedFields,
-      { core: emptyCore(), role: "value", value: checkedValue(), origins: available([provenance]), accessor: available(null) },
-      { ...typedValue(), role: "value", selection: { kind: "decided", decision: selection } });
-    expectedOccurrence = { kind: "selection", node: 2, ordinal: 0 };
-  } else if (holder === "property" || holder === "shorthand") {
-    memberNode = 3;
-    const identifier = name(4, 3, holder === "property" ? "property-name" : "shorthand-value");
-    const common = { modifiers: null, postfixToken: null, type: null };
-    let property;
-    if (holder === "property") {
-      const initializer = pair("StringLiteral", 5, 3, { text: "value", tokenFlags: [] }, { text: "value", tokenFlags: [] },
-        { core: emptyCore(), role: "value", value: checkedValue(), literal: { kind: "string", value: "value" } },
-        { ...typedValue(), role: "value", value: "value" });
-      property = pair("PropertyAssignment", 3, 2, { ...common, name: identifier.original, initializer: initializer.original },
-        { ...common, name: identifier.typed, initializer: initializer.typed },
-        { core: emptyCore(), key: available({ kind: "text", value: "x" }), origins: available([provenance]) },
-        { key: { kind: "text", value: "x" }, member: { kind: "decided", decision: selection } });
-    } else property = pair("ShorthandPropertyAssignment", 3, 2,
-      { ...common, name: identifier.original, equalsToken: null, objectAssignmentInitializer: null },
-      { ...common, name: identifier.typed, equalsToken: null, objectAssignmentInitializer: null },
-      { core: emptyCore(), key: available({ kind: "text", value: "x" }), origins: available([provenance]) },
-      { key: { kind: "text", value: "x" }, member: { kind: "decided", decision: selection } });
-    expression = pair("ObjectLiteralExpression", 2, 1, { properties: nodeList([property.original]), multiLine: false },
-      { properties: nodeList([property.typed]), multiLine: false },
-      { core: emptyCore(), role: "value", value: checkedValue() },
-      { ...typedValue(), role: "value", construction: selectedOperation({ kind: "object-construction", parts: [] }) });
-    expectedOccurrence = { kind: "selection", node: 3, ordinal: 0 };
-  } else {
-    const part = { part: 0, source: { body: bodyId, node: 2 },
-      destination: { root: { kind: "body", value: { body: bodyId, node: 2 } }, path: [] }, member: decision,
-      embedding: { kind: "identity" } };
-    const typedPhase = holder === "pattern" ? { role: "assignment-pattern", storage: 0, parts: [part] }
-      : { ...typedValue(), role: "value", construction: selectedOperation({ kind: "object-construction", parts: [part] }) };
-    if (duplicatedPart) {
-      typedPhase.conversion = { kind: "convert", role: "initialization",
-        operation: { permissionScope: null, decision: { kind: "selected",
-          operation: { kind: "object-construction", parts: [part] }, operands: [0], result: 0, execution: { kind: "pure" } } } };
-      selectedCount = 2;
-    }
-    expression = pair("ObjectLiteralExpression", 2, 1, { properties: nodeList(), multiLine: false },
-      { properties: nodeList(), multiLine: false },
-      holder === "pattern" ? { core: emptyCore(), role: "assignment-pattern", views: checkerViews(0) }
-        : { core: emptyCore(), role: "value", value: checkedValue() }, typedPhase);
-    expectedOccurrence = { kind: "construction-part", node: 2, ordinal: 0, source: { body: bodyId, node: 2 },
-      destination: { root: { kind: "body", value: { body: bodyId, node: 2 } }, path: [] }, part: 0 };
-  }
-  const statement = pair("ExpressionStatement", 1, 0, { expression: expression.original }, { expression: expression.typed }, null, null);
-  const end = pair("EndOfFile", holder === "property" ? 6 : holder === "shorthand" || holder === "property-access" ||
-    holder === "element-access" ? 5 : 3, 0, {}, {}, null, null);
-  body.root.statements = nodeList([statement.typed]);
-  body.root.endOfFileToken = end.typed;
-  const input = emptyVerificationInput(body, authored, 2 + selectedCount);
-  input.source.tree.statements = nodeList([statement.original]);
-  input.source.tree.endOfFileToken = end.original;
-  const actualMember = { key: { kind: "text", value: "x" }, origins: [provenance], readOrigins: [provenance], writeOrigins: [provenance],
-    kind: "property", read: 0, write: 0, optional: false, readonly: false };
-  input.types.terms.push({ kind: "shape", members: [actualMember], indexes: [], calls: [], constructs: [] });
-  const table = { receiver: 1, members: [actualMember], indexes: [], calls: [], constructs: [], accessors: [], constructors: [],
-    completeness: { kind: "complete" } };
-  const facts = Array.from({ length: selectedCount }, (_, ordinal) => ({
-    instance: { body: bodyId, bindings: { kind: "parametric" } }, occurrence: { ...expectedOccurrence, ordinal }, table,
-  }));
-  const queries = [];
-  input.memberTableOf = (instance, occurrence) => {
-    queries.push({ instance, occurrence });
-    return facts.find(fact => isDeepStrictEqual(fact.instance, instance) && isDeepStrictEqual(fact.occurrence, occurrence))?.table ?? null;
-  };
-  return { body, input, facts, queries, decision, selection, memberNode, table };
-}
-
 function evidenceText(category) {
   return `TypeEvidence(type=t:0, component=body(value=NodeRef(body=body:"${bodyId}", node=n:0)), category=${category}, numeric=null, sum=null, nominal=null, pointer=null)`;
 }
@@ -373,11 +231,10 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   const functionBody = `B[${definition};function;0]`;
   const typeDefinition = "D[M[P[p];m];f/T]";
   const valueDefinition = "D[M[P[p];m];f/v]";
-  const identity = { owner: definition, index: 0 };
-  const parameter = { identity, declaration: typeDefinition, constraint: null, default: null };
-  const scope = { ...emptyScope(), methodParameters: [identity] };
-  const rigid = () => ({ ...emptyBindings(), methodBindings: [{ kind: "rigid", parameter: identity }] });
-  const bound = type => ({ ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: identity, type }] });
+  const parameter = { declaration: typeDefinition, constraint: null, default: null };
+  const scope = { ...emptyScope(), methodParameters: [typeDefinition] };
+  const rigid = () => ({ ...emptyBindings(), methodBindings: [{ kind: "rigid", parameter: typeDefinition }] });
+  const bound = type => ({ ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: typeDefinition, type }] });
   const local = { body: functionBody, local: 0 };
   const declaration = { kind: "local", local };
   const localSource = { kind: "item", value: { owner: valueDefinition, node: nodes.parameter } };
@@ -412,7 +269,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   const checkedParameter = { ...header(nodes.parameter, nodes.callable), kind: "Parameter", modifiers: null, dotDotDotToken: null,
     name: checkedValueName, questionToken: null, type: null, initializer: null,
     tsonic: { core: emptyCore(), parent: definition, attributes: [], memory: available(null), declaration,
-      declaredType: available(1), initializer: null } };
+      declaredType: available(1), inferredTypeBound: null, initializer: null } };
   const checkedValueNode = { ...header(nodes.value, nodes.return), kind: "Identifier", text: "v",
     tsonic: { core: emptyCore(), role: "value", value: checkedValue(1), resolution: { kind: "local", local } } };
   const checkedReturn = { ...header(nodes.return, nodes.block), kind: "ReturnStatement", expression: checkedValueNode, tsonic: null };
@@ -453,7 +310,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   const signature = (id, type, typeParameters) => ({ id, declaration: definition,
     owner: { kind: "body", value: { body: functionBody, node: nodes.callable } }, composition: null, kind: "call", typeParameters,
     receiver: null, parameters: [{ declaration: valueDefinition, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false }], result: type });
-  const types = { terms: [{ kind: "intrinsic", intrinsic: "unknown" }, { kind: "param", parameter: identity },
+  const types = { terms: [{ kind: "intrinsic", intrinsic: "unknown" }, { kind: "param", parameter: typeDefinition },
     { kind: "string" }, { kind: "primitive", primitive: "int32" }, { kind: "callable", calls: [1], constructs: [] }],
   signatures: [initial.types.signatures[0], signature(1, 1, [parameter]), signature(2, 2, []), signature(3, 3, [])] };
   const declarations = new Map([[ownerId, { scope: emptyScope(), parameterCount: 0, endpoints: [] }],
@@ -473,6 +330,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   const scopeReaders = new Map([...scopes].map(([body, inventory]) => [body, bodyScopeReader(body, inventory)]));
   const inputFor = selected => ({ source: initial.source, module, types, bindingScopesOf: scopeReaders.get(selected), diagnostics: [],
     declarationOf: selectedDefinition => declarations.get(selectedDefinition) ?? null,
+    staticStorageOf: () => null,
     memberTableOf: () => { throw new Error("unexpected generic-function member lookup"); },
     bodyOf: instance => module.bodies.find(body => body.body === instance.body && compareCaseValues(body.bindings, instance.bindings)) ?? null,
     nominalOf: () => null,
@@ -480,7 +338,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
       : itemNodes.get(reference.value.owner)?.get(reference.value.node) ?? null,
     localExists: reference => reference.body === functionBody && reference.local === 0 });
   return { outer, functionTemplate, instances, inputFor, originalFunction, definition, functionBody, typeDefinition,
-    valueDefinition, identity, scope, types, declarations, checkedFunction, functionNodes, outerNodes, outerBodyNodes,
+    valueDefinition, scope, types, declarations, checkedFunction, functionNodes, outerNodes, outerBodyNodes,
     itemNodes, module, nodes };
 }
 
@@ -587,7 +445,7 @@ function nestedDeclarationScenario(bodyless) {
   if (!bodyless) {
     const sourceParameter = sourceDeclaration.parameters.nodes[0];
     sourceParameter.tsonic = { core: emptyCore(), parent: definition, attributes: [], memory: available(null),
-      declaration: { kind: "local", local: local(0) }, declaredType: available(2), initializer: null };
+      declaration: { kind: "local", local: local(0) }, declaredType: available(2), inferredTypeBound: null, initializer: null };
     sourceParameter.name.tsonic = { core: emptyCore(), declaration: null, declaredType: available(2) };
     const sourceElement = sourceParameter.name.elements.nodes[0];
     sourceElement.tsonic = { core: emptyCore(), declaration: { kind: "local", local: local(1) }, declaredType: available(1) };
@@ -636,14 +494,14 @@ before(async () => { ({ childrenOfSyntax: hirChildren } = await import("../../pa
 
 test("a genuine bodyless callable has no invented execution parameter namespace", () => {
   const fixture = nestedDeclarationScenario(true);
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("nested callable parameter patterns retain actual nested local storage, not the enclosing module's", () => {
   const fixture = nestedDeclarationScenario(false);
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.pattern.elements.nodes[0].name.tsonic.storage = 0;
-  assert.equal(product.verifyTir(fixture.input, fixture.body).some(violation => violation.rule === "binding-storage"), true);
+  assert.equal(verifyBody(fixture.input, fixture.body).some(violation => violation.rule === "binding-storage"), true);
 });
 
 function siblingIdentityScenario(sourceShared, typedShared) {
@@ -787,7 +645,7 @@ function callScenario(mode = "sync") {
   const advertised = { declaration: fixture.definition, role: "advertised", signature: 1, body: fixture.functionBody };
   const api = { declaration: fixture.definition, role: "api-body", signature: 2, body: fixture.functionBody };
   fixture.declarations.get(fixture.definition).endpoints.push(advertised, api);
-  const bindings = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: fixture.identity, type: 2 }] };
+  const bindings = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: fixture.typeDefinition, type: 2 }] };
   const decision = { candidate: 0, advertised, api, bindings, implementationBindings: bindings,
     parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }],
     completion: { signature: 2, completion: 2, yielded: generator ? 3 : null, sent: generator ? 0 : null }, result };
@@ -1284,31 +1142,216 @@ for (const path of [...functionCases, ...verifierCases]) {
         assert.equal(input.format, "tir");
         const parsed = product.parseTir(input.text);
         assert.equal(parsed.kind, "parsed", "verifier input is independently authored and schema-valid");
-        return { kind: "accepted", value: product.verifyTir(emptyVerificationInput(parsed.value), parsed.value), diagnostics: [] };
+        return { kind: "accepted", value: verifyBody(emptyVerificationInput(parsed.value), parsed.value), diagnostics: [] };
       } },
     }, path);
     assert.equal(result.status, "passed", JSON.stringify(result.status === "failed" ? result : { path }));
   });
 }
-test("exact annotated runtime ports include the owning binding and operation projections, no parallel printer or private metadata API", () => {
-  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "parseTir", "printTir", "tirBindingOwners", "tirOperationsOf", "verifyTir", "verifyTirModule"]);
+test("exact annotated runtime ports include the owning operation projection and retire the second binding walk", () => {
+  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "parseTir", "printTir", "tirOperationsOf", "verifyTir", "verifyTirModule"]);
 });
 
-test("binding and operation projections retain the actual ready body and module domains", () => {
+test("operation projection retains the actual ready body domain", () => {
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   const instance = { body: body.body, bindings: body.bindings };
   assertCompleteValue(product.tirOperationsOf(input, instance), []);
-  assert.equal(Array.isArray(product.tirBindingOwners(input, { kind: "body", instance })), true);
-  assert.equal(Array.isArray(product.tirBindingOwners(input, { kind: "module", module: moduleId })), true);
-  assert.throws(() => product.tirBindingOwners(input, { kind: "module", module: "M[P[other];module]" }), TypeError);
   input.bodyOf = () => null;
-  assert.throws(() => product.tirBindingOwners(input, { kind: "body", instance }), TypeError);
   assert.throws(() => product.tirOperationsOf(input, instance), TypeError);
   const operation = operationScenario();
   const rows = product.tirOperationsOf(operation.input, { body: operation.body.body, bindings: operation.body.bindings });
   assert.equal(rows.length > 0, true);
   assert.equal(rows.every(row => row.node.body === operation.body.body && row.origin.module === moduleId), true);
+});
+
+test("the paid verification scope visitor stops before subsequent binding roles and never visits a foreign subject", () => {
+  const body = emptyModuleBody();
+  const foreign = { ...body };
+  const original = { reason: "original scope refusal" };
+  const run = (subject, maximum, consumerCut = false) => {
+    const input = emptyVerificationInput(body);
+    const supplied = input.bindingScopesOf;
+    const roles = [];
+    const rolePositions = [];
+    let visited = 0;
+    let active = false;
+    input.bindingScopesOf = (target, candidate, visit) => {
+      if (candidate !== body) return completeScopes(null);
+      assert.notEqual(visit, null);
+      active = true;
+      const stop = visit(owner => {
+        roles.push(owner);
+        rolePositions.push(visited);
+        return consumerCut ? original : null;
+      });
+      active = false;
+      return stop === null ? supplied(target, candidate, visit) : { kind: "resource-stop", stop };
+    };
+    const result = product.verifyTir(input, request => {
+      if (!active) return null;
+      assert.equal(request.kind, "row");
+      return ++visited > maximum ? original : null;
+    })(subject);
+    return { result, roles, rolePositions, visited };
+  };
+  const full = run(body, Infinity);
+  assertCompleteValue(full.result, { kind: "complete", violations: [] });
+  assert.equal(full.roles.length, 2);
+  assert.equal(full.rolePositions[0] < full.rolePositions[1], true);
+  const exact = run(body, full.visited);
+  assertCompleteValue(exact, full);
+  for (let maximum = 0; maximum < full.visited; maximum += 1) {
+    const cut = run(body, maximum);
+    assert.equal(cut.result.kind, "resource-stop");
+    assert.equal(cut.result.stop === original, true);
+    assert.equal(cut.visited, maximum + 1);
+    assertCompleteValue(cut.rolePositions, full.rolePositions.filter(position => position <= maximum));
+  }
+  const consumer = run(body, Infinity, true);
+  assert.equal(consumer.result.stop === original && consumer.visited === full.rolePositions[0], true);
+  assertCompleteValue(consumer.roles, full.roles.slice(0, 1));
+  const rejected = run(foreign, 0);
+  assert.equal(rejected.visited, 0);
+  assert.equal(rejected.result.violations.some(finding => finding.rule === "binding-vector-complete"), true);
+});
+
+test("body and chapter paid readers preserve the original refusal at every reached boundary", () => {
+  const empty = bodylessModuleScenario();
+  assert.deepEqual(checkTirVerifierAdmissionCuts(admitFixtureRead, product.verifyTirModule, empty.input, empty.module), ["bindingScopesOf"]);
+  for (const [fixture, reader] of [[callScenario(), "bodyOf"], [argumentScenario("default"), "bodyOf"],
+    [memberScenario("construction"), "memberTableOf"]]) {
+    const reads = checkTirBodyAdmissionCuts(admitFixtureRead, product.verifyTir, fixture.input, fixture.body);
+    assert.equal(reads.includes(reader), true);
+  }
+});
+
+test("normal TIR verification rejects a crossed throw parenthesis and selected application endpoint", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const source = analysisInput(fixture, "sdk-minimal", `
+    function effect(): void { return; }
+    function value(): boolean { return true; }
+    export function explicit(): void { throw (void effect()); }
+    export function ordinary(): void { throw ((value())); }`);
+  const checked = captureSourceBarrier(source);
+  assert.equal(checked.kind, "ok");
+  const typed = typeSourceBarrier(source, checked.value, createAccount(source.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const input = typed.value.verifierOf(source.snapshot.entryPoint);
+  const selected = input.module.bodies.filter(body => body.bindings.kind === "instantiated" && body.root.kind === "Block");
+  const explicit = selected.find(body => body.root.statements.nodes[0]?.expression?.expression?.kind === "VoidExpression");
+  const ordinary = selected.find(body => body.root.statements.nodes[0]?.expression?.expression?.kind === "ParenthesizedExpression");
+  const voidCall = explicit.root.statements.nodes[0].expression.expression.expression;
+  assert.deepEqual(verifyBody(input, explicit), []);
+  assert.deepEqual(verifyBody(input, ordinary), []);
+  checkTirBodyAdmissionCuts(admitFixtureRead, product.verifyTir, input, ordinary);
+  for (const [crossing, detail] of [
+    ["parenthesis", "a throw parenthesis does not retain its actual child value endpoint"],
+    ["application", "a throw must retain its actual selected operand endpoint"],
+    ["effect-only", "a throw operand cannot be an effect-only completion"],
+  ]) {
+    const forged = structuredClone(ordinary);
+    const statement = forged.root.statements.nodes[0];
+    const outer = statement.expression;
+    const inner = outer.expression;
+    const operand = inner.expression;
+    if (crossing === "parenthesis") inner.tsonic.type = inner.tsonic.convertedType = voidCall.tsonic.type;
+    else {
+      operand.tsonic.application.decision.callee.decision.result = voidCall.tsonic.type;
+      if (crossing === "effect-only") for (const occurrence of [outer, inner, operand])
+        occurrence.tsonic.type = occurrence.tsonic.convertedType = voidCall.tsonic.type;
+    }
+    const violations = verifyBody(input, forged);
+    assert.equal(violations.some(row => row.rule === "operation-type" && row.site.node === statement.id
+      && row.detail[0]?.value === detail), true, crossing);
+  }
+});
+
+test("actual wide typed modules admit one independent membership vector and exactly one key per checked body", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { publicationMembership } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { accountFailure, createAccount, refuseAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const fixture = await loadFrontFixture();
+  for (const count of [4, 16, 64]) {
+    const text = Array.from({ length: count }, (_, ordinal) =>
+      `export function f${ordinal.toString().padStart(2, "0")}(value: boolean): boolean { return value; }`).join("\n");
+    const source = analysisInput(fixture, "sdk-minimal", text);
+    const checked = captureSourceBarrier(source);
+    assert.equal(checked.kind, "ok");
+    const typed = typeSourceBarrier(source, checked.value, createAccount(source.limits.dataflow));
+    assert.equal(typed.kind, "ok", `width ${count}`);
+    const input = typed.value.verifierOf(source.snapshot.entryPoint);
+    const bodies = input.module.bodies;
+    assert.equal(bodies.length, 2 * (count + 1));
+    assert.equal(bodies.every(body => body.bindings.kind === "parametric" ||
+      Object.values(body.bindings.bindings).every(family => family.length === 0)), true);
+    assert.equal(new Set(bodies.map(body => body.body)).size, count + 1);
+    const rowWork = body => 2 + body.body.length + (body.bindings.kind === "parametric" ? 0 : 1);
+    const keyEntries = body => body.bindings.kind === "parametric" ? 1 : 6;
+    const vectorWork = bodies.reduce((total, body) => total + rowWork(body), 0);
+    const vectorEntries = bodies.reduce((total, body) => total + keyEntries(body), 0);
+    const limits = { maximumWork: 2 * vectorWork, maximumResultEntries: 1 + bodies.length + 2 * vectorEntries };
+    function run(allowance, subjects = bodies) {
+      const reads = [];
+      const findings = [];
+      const inventory = new Proxy(bodies, { get(rows, property) {
+        if (typeof property === "string" && /^\d+$/u.test(property)) reads.push(Number(property));
+        return Reflect.get(rows, property);
+      } });
+      const account = createAccount(allowance);
+      const observe = { ...input, module: { ...input.module, bodies: inventory } };
+      const membership = publicationMembership(observe, tirReadyReadAdmission(account));
+      assert.deepEqual(reads, []);
+      let stop = null;
+      for (const body of subjects) {
+        stop = membership(body, rule => findings.push(rule));
+        if (stop !== null) break;
+      }
+      const { work, entries } = InvocationAccount.stateOf(account);
+      return { reads, stop, findings, work, entries, account };
+    }
+    const exact = run(limits);
+    assert.equal(exact.stop, null);
+    assert.deepEqual(exact.findings, []);
+    assert.equal(exact.work, limits.maximumWork);
+    assert.equal(exact.entries, limits.maximumResultEntries);
+    assert.deepEqual(exact.reads, bodies.map((_, ordinal) => ordinal));
+    let work = 0;
+    let entries = 1;
+    for (const [position, body] of bodies.entries()) {
+      const beforeRow = run({ ...limits, maximumWork: work });
+      assert.equal(beforeRow.stop === accountFailure(beforeRow.account), true);
+      assert.notEqual(beforeRow.stop, null);
+      assert.deepEqual(beforeRow.reads, exact.reads.slice(0, position));
+      const beforeRetain = run({ ...limits, maximumResultEntries: entries + keyEntries(body) });
+      assert.equal(beforeRetain.stop === accountFailure(beforeRetain.account), true);
+      assert.notEqual(beforeRetain.stop, null);
+      assert.deepEqual(beforeRetain.reads, exact.reads.slice(0, position + 1));
+      work += rowWork(body);
+      entries += keyEntries(body) + 1;
+    }
+    assert.deepEqual(run({ ...limits, maximumResultEntries: 0 }).reads, []);
+    for (const field of ["maximumWork", "maximumResultEntries"]) {
+      const missing = run({ ...limits, [field]: limits[field] - 1 });
+      assert.equal(missing.stop === accountFailure(missing.account), true);
+      assert.notEqual(missing.stop, null);
+      assert.deepEqual(missing.reads, exact.reads);
+    }
+    const crossed = run(limits, [{ ...bodies[0] }]);
+    assert.equal(crossed.stop, null);
+    assert.deepEqual(crossed.findings, ["template-shared-once"]);
+    const stopped = createAccount(limits);
+    const original = refuseAccount(stopped, { kind: "refused", diagnostics: [] });
+    const unread = new Proxy({}, { get() { assert.fail("No verification input is opened after the original stop."); } });
+    const verify = product.verifyTir(unread, tirReadyReadAdmission(stopped));
+    assert.equal(verify(unread).stop === original, true);
+  }
 });
 
 test("nonexecuting declaration-name payloads have one exact syntax-only codec across expression slots", () => {
@@ -1327,7 +1370,16 @@ test("nonexecuting declaration-name payloads have one exact syntax-only codec ac
     `n:2=Identifier(${syntaxHeaderWire(2, 0)}, text="key", tsonic=${wire})`,
   ].join("\n") + "\n";
   assertBodyRoundTrip(body, expected, "one nonexecuting member-name payload");
+  const wrapper = emptyModuleBody();
+  wrapper.root = { ...header(0), kind: "ParenthesizedExpression", expression, tsonic: marker };
+  const wrapperWire = [expected.split("\n")[0],
+    `n:0=ParenthesizedExpression(${headerWire}, expression=n:1, tsonic=${wire})`,
+    `n:1=Identifier(${syntaxHeaderWire(1, 0)}, text="source", tsonic=${wire})`,
+  ].join("\n") + "\n";
+  assertBodyRoundTrip(wrapper, wrapperWire, "parenthesized syntax retains the same nonexecuting marker");
 });
+
+test("a call-shaped declaration key carries syntax only and publishes no checked runtime call", checkCallShapedComputedDeclarationName);
 
 test("the declaration-name owner compares the exact original key and cause relation without authorizing other contexts", async () => {
   const { verifyDeclarationNames } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
@@ -1340,7 +1392,7 @@ test("the declaration-name owner compares the exact original key and cause relat
       resolution: { kind: "definition", definition: ownerId, aliases: [] } } };
     const checkedName = { ...name, expression: checkedExpression, tsonic: { core: emptyCore(), key } };
     const checkedParent = { ...parent, name: checkedName, tsonic: { core: emptyCore(), parent: null, attributes: [],
-      memory: available(null), declaration: { kind: "definition", definition: ownerId }, declaredType: available(0), initializer: null } };
+      memory: available(null), declaration: { kind: "definition", definition: ownerId }, declaredType: available(0), inferredTypeBound: null, initializer: null } };
     const nodes = [parent, name, expression];
     const originals = new Map([checkedParent, checkedName, checkedExpression].map(node => [node.id, node]));
     const findings = [];
@@ -1409,9 +1461,9 @@ test("an executing parameter never borrows the bodyless absence of a local or pa
     const fixture = genericFunctionScenario();
     const body = fixture.functionTemplate;
     const input = fixture.inputFor(body);
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
     body.params[0].tsonic[field] = null;
-    assert.equal(product.verifyTir(input, body).some(finding => finding.rule === "parameter-order"), true, field);
+    assert.equal(verifyBody(input, body).some(finding => finding.rule === "parameter-order"), true, field);
   }
 });
 
@@ -1481,7 +1533,7 @@ test("the member selection key separates two selections that differ in any one f
   const other = "D[M[P[p];m];other]";
   const body = "B[D[M[P[p];m];owner];function;0]";
   const endpoint = { declaration: owner, role: "advertised", signature: 0, body };
-  const rigid = { kind: "rigid", parameter: { owner, index: 0 } };
+  const rigid = { kind: "rigid", parameter: typeParameterDeclaration(owner, 0) };
   const vector = changes => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [], ...changes });
   const callee = { decision: { candidate: 0, advertised: endpoint, api: { ...endpoint, role: "api-body" }, bindings: vector({}),
     implementationBindings: vector({}), parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }],
@@ -1548,10 +1600,11 @@ test("the binding vector key encodes each position of each family on its own, a 
   const owner = "D[M[P[p];m];owner]";
   const other = "D[M[P[p];m];other]";
   const empty = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const typeBindings = () => [{ kind: "rigid", parameter: typeParameterDeclaration(owner, 0) },
+    { kind: "rigid", parameter: typeParameterDeclaration(other, 3) },
+    { kind: "bound", parameter: typeParameterDeclaration(owner, 0), type: 0 }];
   const members = {
-    classBindings: [{ kind: "rigid", parameter: { owner, index: 0 } }, { kind: "rigid", parameter: { owner: other, index: 3 } }, { kind: "bound", parameter: { owner, index: 0 }, type: 0 }],
-    methodBindings: [{ kind: "rigid", parameter: { owner, index: 0 } }, { kind: "rigid", parameter: { owner: other, index: 3 } }, { kind: "bound", parameter: { owner, index: 0 }, type: 0 }],
-    capturedBindings: [{ kind: "rigid", parameter: { owner, index: 0 } }, { kind: "rigid", parameter: { owner: other, index: 3 } }, { kind: "bound", parameter: { owner, index: 0 }, type: 0 }],
+    classBindings: typeBindings(), methodBindings: typeBindings(), capturedBindings: typeBindings(),
     selfBindings: [{ kind: "rigid", owner }, { kind: "rigid", owner: other }, { kind: "bound", owner, type: 0 }],
   };
   const selection = bindings => ({ decision: { key: { kind: "text", value: "x" }, origins: [], selectedDeclarations: [], primary: null, read: 0, write: 0,
@@ -2112,19 +2165,19 @@ const savedInvocationCases = [
     { kind: "element", occurrence: codecReference, value: codecEvidence },
     { kind: "property", occurrence: codecReference, key: codecKey, value: codecEvidence },
     { kind: "spread", occurrence: codecReference, value: codecEvidence },
-  ], destination: codecEvidence }, `LiteralConstructionInput(context=${codecContextWire}, construction="object", parts=[` +
+  ], destination: codecEvidence, result: codecEvidence }, `LiteralConstructionInput(context=${codecContextWire}, construction="object", parts=[` +
     `element(occurrence=${codecReferenceWire}, value=${codecEvidenceWire}), ` +
     `property(occurrence=${codecReferenceWire}, key=${codecKeyWire}, value=${codecEvidenceWire}), ` +
-    `spread(occurrence=${codecReferenceWire}, value=${codecEvidenceWire})], destination=${codecEvidenceWire})`],
+    `spread(occurrence=${codecReferenceWire}, value=${codecEvidenceWire})], destination=${codecEvidenceWire}, result=${codecEvidenceWire})`],
   ["candidate", { context: codecContext, kind: "call", callee: codecEvidence, receiver: codecEvidence,
     typeArguments: [codecEvidence], arguments: [{ occurrence: codecReference, kind: "spread", value: codecEvidence,
-      tuple: [codecEvidence] }], candidates: [{ ordinal: 0, declaration: ownerId, advertised: codecEndpoint,
-      api: { ...codecEndpoint, role: "api-body" }, bindings: emptyBindings(), conditionalFailure: null }] },
+      tuple: [codecEvidence] }], candidates: [{ ordinal: 0, declaration: ownerId, advertised: codecEndpoint, advertisedSignature: 0,
+      api: { ...codecEndpoint, role: "api-body" }, apiSignature: 0, bindings: emptyBindings(), conditionalFailure: null }] },
     `CandidateInput(context=${codecContextWire}, kind="call", callee=${codecEvidenceWire}, receiver=${codecEvidenceWire}, ` +
     `typeArguments=[${codecEvidenceWire}], arguments=[CandidateArgument(occurrence=${codecReferenceWire}, kind="spread", ` +
     `value=${codecEvidenceWire}, tuple=[${codecEvidenceWire}])], candidates=[CandidateEndpoint(ordinal=0, declaration=def:"${ownerId}", ` +
-    `advertised=${codecEndpointWire}, api=HirCallableEndpoint(declaration=def:"${ownerId}", role="api-body", signature=sig:0, ` +
-    `body=body:"${bodyId}"), bindings=${codecBindingsWire}, conditionalFailure=null)])`],
+    `advertised=${codecEndpointWire}, advertisedSignature=sig:0, api=HirCallableEndpoint(declaration=def:"${ownerId}", role="api-body", signature=sig:0, ` +
+    `body=body:"${bodyId}"), apiSignature=sig:0, bindings=${codecBindingsWire}, conditionalFailure=null)])`],
   ["operator", { context: codecContext, operator: "+", operands: [codecEvidence], permissionScope: codecReference },
     `OperatorInput(context=${codecContextWire}, operator="+", operands=[${codecEvidenceWire}], permissionScope=${codecReferenceWire})`],
   ["literal-fit", { context: codecContext, literal: { kind: "bigint", token: "1208925819614629174706176n", value: 1208925819614629174706176n }, destination: codecEvidence },
@@ -2141,7 +2194,7 @@ const savedInvocationCases = [
   ["core", { context: codecContext, captured: emptyCore(), declaration: ownerId, operands: [codecEvidence],
     result: codecEvidence, permissionScope: codecReference },
     `CoreInput(context=${codecContextWire}, captured=HirCoreCapture(provider=available(value=null), ` +
-    "markers=available(value=HirMarkersCapture(struct=null, field=null, defaultValue=null, jsString=false)), " +
+    "markers=available(value=HirMarkersCapture(struct=null, field=null, defaultValue=null, jsString=false, application=available(value=null))), " +
     "pointerType=available(value=null), pointerOperation=available(value=null), fieldBinding=available(value=null), " +
     "recordBinding=available(value=null), attribute=available(value=null), " +
     "safety=available(value=null), argumentPassing=available(value=null), flowState=available(value=null)), " +
@@ -2165,14 +2218,14 @@ for (const [rule, input, inputWire] of savedInvocationCases) {
     const context = { occurrence: { body: bodyId, node: 2 }, origin: origin(), bindings: emptyBindings() };
     fixture.typed.tsonic.operation = { kind: "deferred", deferred: { invocation: { rule, input: { ...input, context } }, result: 1 } };
     replaceScopeInventory(fixture.input, Array.from({ length: rule === "candidate" ? 4 : 3 }, emptyScope));
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
-const codecParameterIdentity = { owner: ownerId, index: 0 };
-const codecParameterType = { identity: codecParameterIdentity, declaration: ownerId, constraint: 0, default: 0 };
-const codecParameterTypeWire = `TypeParameter(identity=TypeParameterIdentity(owner=def:"${ownerId}", index=0), ` +
-  `declaration=def:"${ownerId}", constraint=t:0, default=t:0)`;
+const codecParameterDefinition = typeParameterDeclaration(ownerId, 0);
+const codecParameterWire = `def:"${codecParameterDefinition}"`;
+const codecParameterType = { declaration: codecParameterDefinition, constraint: 0, default: 0 };
+const codecParameterTypeWire = `TypeParameter(declaration=${codecParameterWire}, constraint=t:0, default=t:0)`;
 const codecAttribute = { declaration: ownerId, occurrence: codecSource, arguments: [codecSource] };
 const codecAttributeWire = `HirAttribute(declaration=def:"${ownerId}", occurrence=${codecSourceWire}, arguments=[${codecSourceWire}])`;
 const codecCallable = { definition: ownerId, parameters: [codecParameterType], signatures: [codecEndpoint],
@@ -2233,6 +2286,19 @@ test("mapped types retain both modifier tokens, declaration, remapping and membe
     `PlusToken(${syntaxHeaderWire(5, 4)}, tsonic=null)`, ...codecTypeParameterDefinitions(6, 4), codecTypeWire(11, 4),
     `MinusToken(${syntaxHeaderWire(12, 4)}, tsonic=null)`, codecTypeWire(13, 4),
   ], "mapped type");
+});
+
+test("the TIR codec rejects the retired owner and index type-parameter identity", () => {
+  const { expected } = syntaxPayloadCase(codecTypeParameter(4, 2), codecTypeParameterDefinitions(4, 2));
+  assert.equal(product.parseTir(expected).kind, "parsed");
+  const oldField = `identity=TypeParameterIdentity(owner=def:"${ownerId}", index=0)`;
+  for (const wire of [
+    expected.replace("TypeParameter(declaration=", `TypeParameter(${oldField}, declaration=`),
+    expected.replace(`declaration=${codecParameterWire}`, oldField),
+  ]) {
+    assert.notEqual(wire, expected);
+    assert.notEqual(product.parseTir(wire).kind, "parsed");
+  }
 });
 
 for (const kind of ["FunctionType", "ConstructorType", "CallSignature", "ConstructSignature"]) {
@@ -2298,13 +2364,12 @@ for (const kind of ["literal", "declared", "operation", "application"]) {
 
 for (const kind of ["authored", "inferred"]) {
   test(`complete ${kind} sum evidence retains all actual arm and binding fields`, () => {
-    const bindings = { classBindings: [{ kind: "bound", parameter: codecParameterIdentity, type: 0 }],
-      methodBindings: [{ kind: "rigid", parameter: codecParameterIdentity }],
-      capturedBindings: [{ kind: "bound", parameter: codecParameterIdentity, type: 0 }],
+    const bindings = { classBindings: [{ kind: "bound", parameter: codecParameterDefinition, type: 0 }],
+      methodBindings: [{ kind: "rigid", parameter: codecParameterDefinition }],
+      capturedBindings: [{ kind: "bound", parameter: codecParameterDefinition, type: 0 }],
       selfBindings: [{ kind: "bound", owner: ownerId, type: 0 }, { kind: "rigid", owner: ownerId }] };
-    const identity = `TypeParameterIdentity(owner=def:"${ownerId}", index=0)`;
-    const bindingsWire = `BindingVector(classBindings=[bound(parameter=${identity}, type=t:0)], ` +
-      `methodBindings=[rigid(parameter=${identity})], capturedBindings=[bound(parameter=${identity}, type=t:0)], ` +
+    const bindingsWire = `BindingVector(classBindings=[bound(parameter=${codecParameterWire}, type=t:0)], ` +
+      `methodBindings=[rigid(parameter=${codecParameterWire})], capturedBindings=[bound(parameter=${codecParameterWire}, type=t:0)], ` +
       `selfBindings=[bound(owner=def:"${ownerId}", type=t:0), rigid(owner=def:"${ownerId}")])`;
     const sum = { kind, component: evidenceSource, bindings, arms: [{ authoredIndex: 0, component: evidenceSource, member: 0 }] };
     assertEvidenceRecord({ ...typeEvidence({ kind: "dynamic" }), sum },
@@ -2331,7 +2396,7 @@ for (const [pointer, wire] of pointerEvidenceCases) {
 
 function assertCoreField(field, value, expectedField, name) {
   const fields = { provider: "available(value=null)",
-    markers: "available(value=HirMarkersCapture(struct=null, field=null, defaultValue=null, jsString=false))",
+    markers: "available(value=HirMarkersCapture(struct=null, field=null, defaultValue=null, jsString=false, application=available(value=null)))",
     pointerType: "available(value=null)", pointerOperation: "available(value=null)", fieldBinding: "available(value=null)",
     recordBinding: "available(value=null)", attribute: "available(value=null)",
     safety: "available(value=null)", argumentPassing: "available(value=null)", flowState: "available(value=null)", [field]: expectedField };
@@ -2352,7 +2417,10 @@ function assertCoreField(field, value, expectedField, name) {
 
 test("TIR captured facts preserve all original cause positions without substituting or emitting a diagnostic", () => {
   const fixture = operationScenario();
-  const causes = capturedCauses(fixture.body.root.origin.module, ownerId, bodyId);
+  const causes = [...capturedCauses(fixture.body.root.origin.module, ownerId, bodyId), ...[
+    { kind: "execution-result", execution: "opaque provided count 1" },
+    { kind: "execution-source-node", execution: "opaque provided count 2", node: { body: bodyId, node: 0 } },
+  ].map(position => ({ kind: "unit", unit: { request: { query: "bodyFactsOf", key: "first" }, position } }))];
   const captured = { ...emptyCore(), provider: { kind: "unavailable", reason: "checker-error", causes } };
   const input = { context: codecContext, captured, declaration: ownerId,
     operands: [codecEvidence], result: codecEvidence, permissionScope: codecReference };
@@ -2363,6 +2431,9 @@ test("TIR captured facts preserve all original cause positions without substitut
     : JSON.stringify({ ...parsed, near: text.slice(Math.max(0, parsed.offset - 70), parsed.offset + 70) }));
   assert.deepEqual(parsed.value.root.statements.nodes[0].expression.tsonic.operation.deferred.invocation.input.captured.provider.causes, causes);
   assert.equal(product.parseTir(text.replace("causes=[diagnostic(", "removedCauses=[diagnostic(")).kind, "invalid-text");
+  assert.equal(product.parseTir(text.replace("execution-source-node(execution=", "execution-source-node(removed=")).kind, "invalid-text");
+  assert.equal(product.parseTir(text.replace('execution-source-node(execution="opaque provided count 2", node=NodeRef(',
+    'execution-source-node(execution="opaque provided count 2", node=ItemNodeRef(')).kind, "invalid-text");
   const group = causes.find(cause => cause.kind === "unit" && cause.unit.position.kind === "inference-variable").unit.position.group;
   for (const malformed of ["7", "null", "true", JSON.stringify("not-a-group")])
     assert.equal(product.parseTir(text.replace(`group=${JSON.stringify(group)}`, `group=${malformed}`)).kind, "invalid-text");
@@ -2381,7 +2452,7 @@ for (const captureKind of ["core", "markers", "field-binding", "record-binding"]
       case "markers":
         captured.markers = available({ struct: { valueType: false, fields: unavailable },
           field: { name: "field", typeNode: codecSource, type: unavailable, readonly: false },
-          defaultValue: null, jsString: false });
+          defaultValue: null, jsString: false, application: available(null) });
         break;
       case "field-binding":
         captured.fieldBinding = available({ occurrence: codecReference, bindings: unavailable,
@@ -2465,19 +2536,22 @@ test("nonempty struct/field/default markers retain actual saved type and source 
   const field = { name: "field", typeNode: codecSource, type: available(0), readonly: true };
   const fieldWire = `HirFieldMarkerCapture(name="field", typeNode=${codecSourceWire}, type=available(value=t:0), readonly=true)`;
   const markers = { struct: { valueType: true, fields: available([field]) }, field,
-    defaultValue: { typeNode: codecSource, type: available(0) }, jsString: true };
+    defaultValue: { typeNode: codecSource, type: available(0) }, jsString: true,
+    application: available({ role: "field", occurrence: codecReference, declaration: ownerId }) };
   assertCoreField("markers", available(markers), `available(value=HirMarkersCapture(struct=Record(valueType=true, ` +
     `fields=available(value=[${fieldWire}])), field=${fieldWire}, defaultValue=Record(typeNode=${codecSourceWire}, ` +
-    'type=available(value=t:0)), jsString=true))', "complete markers");
+    `type=available(value=t:0)), jsString=true, application=available(value=HirMarkerApplication(role="field", ` +
+    `occurrence=${codecReferenceWire}, declaration=def:"${ownerId}"))))`, "complete markers");
 });
 
 test("unavailable marker fields and captured types remain distinct genuine capture arms", () => {
   const markers = { struct: { valueType: false, fields: { kind: "unavailable", reason: "checker-error", causes: [] } },
     field: { name: "field", typeNode: codecSource, type: { kind: "unavailable", reason: "not-provided", causes: [] }, readonly: false },
-    defaultValue: null, jsString: false };
+    defaultValue: null, jsString: false, application: { kind: "unavailable", reason: "incomplete-association", causes: [] } };
   assertCoreField("markers", available(markers), 'available(value=HirMarkersCapture(struct=Record(valueType=false, ' +
     'fields=unavailable(reason="checker-error", causes=[])), field=HirFieldMarkerCapture(name="field", ' +
-    `typeNode=${codecSourceWire}, type=unavailable(reason="not-provided", causes=[]), readonly=false), defaultValue=null, jsString=false))`,
+    `typeNode=${codecSourceWire}, type=unavailable(reason="not-provided", causes=[]), readonly=false), defaultValue=null, jsString=false, ` +
+    'application=unavailable(reason="incomplete-association", causes=[])))',
     "unavailable marker data");
 });
 
@@ -2662,10 +2736,10 @@ const selectorCases = [
   [{ kind: "result", signature: 0 }, "result(signature=sig:0)"],
   [{ kind: "type-argument", declaration: ownerId, index: 0 }, `type-argument(declaration=def:"${ownerId}", index=0)`],
   ...["authored", "inferred"].map(sumOrigin => [{ kind: "sum-arm", family: { origin: sumOrigin,
-    component: { root: codecSource, path: [] }, parameters: [codecParameterIdentity],
+    component: { root: codecSource, path: [] }, parameters: [codecParameterDefinition],
     roles: [{ authoredIndex: 0, component: codecSource, member: 0 }] }, index: 0 },
   `sum-arm(family=SumFamily(origin="${sumOrigin}", component=TypeComponent(root=${codecSourceWire}, path=[]), ` +
-    `parameters=[TypeParameterIdentity(owner=def:"${ownerId}", index=0)], roles=[SumArmRole(authoredIndex=0, ` +
+    `parameters=[${codecParameterWire}], roles=[SumArmRole(authoredIndex=0, ` +
     `component=${codecSourceWire}, member=t:0)]), index=0)`]),
 ];
 for (const [selector, selectorWire] of selectorCases) {
@@ -2718,12 +2792,13 @@ for (const [code, codeWire, severity, site, siteWire, detailed] of diagnosticCas
         'code=extension(number=2, extensionCode="E_RELATED", rendered="TSEXT2"), message="detail")], ' +
         `fix=DiagnosticFix(description="replace", edits=[TextEdit(origin=${codecOriginWire}, replacement="replacement")]))` :
         'arguments=[], related=[], fix=null)');
-    const endpoint = { ordinal: 0, declaration: ownerId, advertised: codecEndpoint, api: codecEndpoint,
+    const endpoint = { ordinal: 0, declaration: ownerId, advertised: codecEndpoint, advertisedSignature: 0, api: codecEndpoint, apiSignature: 0,
       bindings: emptyBindings(), conditionalFailure: diagnostic };
     const input = { context: codecContext, kind: "call", callee: codecEvidence, receiver: null, typeArguments: [], arguments: [], candidates: [endpoint] };
     const inputWire = `CandidateInput(context=${codecContextWire}, kind="call", callee=${codecEvidenceWire}, receiver=null, ` +
       `typeArguments=[], arguments=[], candidates=[CandidateEndpoint(ordinal=0, declaration=def:"${ownerId}", ` +
-      `advertised=${codecEndpointWire}, api=${codecEndpointWire}, bindings=${codecBindingsWire}, conditionalFailure=${diagnosticWire})])`;
+      `advertised=${codecEndpointWire}, advertisedSignature=sig:0, api=${codecEndpointWire}, apiSignature=sig:0, ` +
+      `bindings=${codecBindingsWire}, conditionalFailure=${diagnosticWire})])`;
     const phase = { ...typedValue(), role: "value", operation: { kind: "deferred", deferred: { invocation: { rule: "candidate", input }, result: 0 } } };
     const phaseWire = `TypedPrefix(${valueWire}, role="value", operation=deferred(deferred=DeferredDecision(invocation=` +
       `DeferredInvocation(rule="candidate", input=${inputWire}), result=t:0)))`;
@@ -3818,7 +3893,7 @@ for (const [rule, input, inputWire] of savedInvocationCases.filter(([rule]) =>
       fixture.typed.tsonic.operation = { kind: "deferred", deferred: {
         invocation: { rule, input: { ...supplied, context } }, result: 1 } };
       replaceScopeInventory(fixture.input, Array.from({ length: rule === "candidate" ? 4 : 3 }, emptyScope));
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     });
   }
 }
@@ -3839,7 +3914,7 @@ test("F4 a saved candidate's ordinary argument has a genuine null tuple, not a g
   fixture.typed.tsonic.operation = { kind: "deferred", deferred: { invocation: { rule: "candidate", input: { ...supplied,
     context: { occurrence: { body: bodyId, node: 2 }, origin: origin(), bindings: emptyBindings() } } }, result: 1 } };
   replaceScopeInventory(fixture.input, Array.from({ length: 4 }, emptyScope));
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("F4 ImportKeyword is an actual complete keyword expression, not a meta-property scalar", () => {
@@ -4165,13 +4240,91 @@ test("the complete independently authored empty module prints exactly once in de
 
 test("actual source/publication/table/scopes yield the complete valid verifier vector", () => {
   const body = emptyModuleBody();
-  assertCompleteValue(product.verifyTir(emptyVerificationInput(body), body), []);
+  assertCompleteValue(verifyBody(emptyVerificationInput(body), body), []);
+});
+
+test("source preservation distinguishes an unlabelled switch break from its enclosing loop continue", async () => {
+  const { verifySourcePreservation } = await import("../../packages/host/dist/ir-tir/verify.js");
+  const body = emptyModuleBody();
+  const target = node => ({ body: body.body, node });
+  const transfer = (id, kind, node) => ({ ...header(id, 7), kind, label: null, tsonic: { target: target(node) } });
+  const stop = transfer(8, "BreakStatement", 4);
+  const next = transfer(9, "ContinueStatement", 1);
+  const branch = { ...header(7, 6), kind: "DefaultClause", expression: null, statements: nodeList([stop, next]), tsonic: null };
+  const choice = { ...header(4, 3), kind: "SwitchStatement", expression: { ...header(5, 4), kind: "TrueKeyword", tsonic: typedValue() },
+    caseBlock: { ...header(6, 4), kind: "CaseBlock", clauses: nodeList([branch]), tsonic: null }, tsonic: null };
+  const loop = { ...header(1, 0), kind: "WhileStatement", expression: { ...header(2, 1), kind: "TrueKeyword", tsonic: typedValue() },
+    statement: { ...header(3, 1), kind: "Block", statements: nodeList([choice]), multiLine: false, tsonic: null }, tsonic: null };
+  body.root.statements = nodeList([loop]);
+  body.root.endOfFileToken = { ...header(10, 0), kind: "EndOfFile", tsonic: null };
+  const { source, module } = emptyVerificationInput(body);
+  source.tree.statements = structuredClone(body.root.statements);
+  source.tree.endOfFileToken = { ...body.root.endOfFileToken };
+  const authored = source.tree.statements.nodes[0];
+  authored.expression.tsonic = { core: emptyCore(), role: "value", value: checkedValue(0) };
+  const authoredSwitch = authored.statement.statements.nodes[0];
+  authoredSwitch.expression.tsonic = { core: emptyCore(), role: "value", value: checkedValue(0) };
+  for (const control of authoredSwitch.caseBlock.clauses.nodes[0].statements.nodes) control.tsonic = null;
+  const boundary = { original: source.bodies[0], nestedRoots: new Set(), headers: [] };
+  const verify = () => {
+    const findings = [];
+    verifySourcePreservation(body, source, module, boundary, (rule, node) => findings.push([rule, node?.id]));
+    return findings;
+  };
+  assert.deepEqual(verify(), []);
+  stop.tsonic = { target: target(loop.id) };
+  next.tsonic = { target: target(choice.id) };
+  assert.deepEqual(verify(), [["node-reference", stop.id], ["node-reference", next.id]]);
+});
+
+test("source preservation checks a labelled break against the actual checked label occurrence", async () => {
+  const { verifySourcePreservation } = await import("../../packages/host/dist/ir-tir/verify.js");
+  const body = emptyModuleBody();
+  const target = node => ({ body: body.body, node });
+  const name = (id, parent, text, declaration) =>
+    ({ ...header(id, parent), kind: "Identifier", text, tsonic: { role: "label", target: target(declaration) } });
+  const stop = { ...header(7, 6), kind: "BreakStatement", label: name(8, 7, "outer", 1), tsonic: { target: target(1) } };
+  const inner = { ...header(4, 3), kind: "LabeledStatement", label: name(5, 4, "inner", 4), tsonic: { target: target(4) },
+    statement: { ...header(6, 4), kind: "Block", statements: nodeList([stop]), multiLine: false, tsonic: null } };
+  const outer = { ...header(1, 0), kind: "LabeledStatement", label: name(2, 1, "outer", 1), tsonic: { target: target(1) },
+    statement: { ...header(3, 1), kind: "Block", statements: nodeList([inner]), multiLine: false, tsonic: null } };
+  body.root.statements = nodeList([outer]);
+  body.root.endOfFileToken = { ...header(9, 0), kind: "EndOfFile", tsonic: null };
+  const { source, module } = emptyVerificationInput(body);
+  source.tree.statements = structuredClone(body.root.statements);
+  source.tree.endOfFileToken = { ...body.root.endOfFileToken };
+  const checkedOuter = source.tree.statements.nodes[0];
+  const checkedInner = checkedOuter.statement.statements.nodes[0];
+  const checkedStop = checkedInner.statement.statements.nodes[0];
+  for (const node of [checkedOuter, checkedInner, checkedStop]) {
+    node.label.tsonic = { core: emptyCore(), ...node.label.tsonic };
+    node.tsonic = null;
+  }
+  const verify = () => {
+    const findings = [];
+    verifySourcePreservation(body, source, module, { original: source.bodies[0], nestedRoots: new Set(), headers: [] },
+      (rule, node) => findings.push([rule, node?.id]));
+    return findings;
+  };
+  assert.deepEqual(verify(), []);
+  const expected = stop.tsonic.target;
+  for (const crossed of [target(inner.id), { ...expected, body: "crossed" }]) {
+    stop.tsonic.target = crossed;
+    stop.label.tsonic.target = crossed;
+    assert.deepEqual(verify(), [["node-reference", stop.id]]);
+  }
+  stop.tsonic.target = expected;
+  stop.label.tsonic.target = expected;
+  checkedStop.label.tsonic.target = null;
+  assert.deepEqual(verify(), [["node-reference", stop.id]]);
+  checkedStop.label.tsonic.target = expected;
+  assert.deepEqual(verify(), []);
 });
 
 for (const includeHole of [false, true]) {
   test(`the actual generic tuple-pattern parameter preserves its real whole-argument and named local slots: hole=${includeHole}`, () => {
     const fixture = bindingPatternScenario(includeHole);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -4179,24 +4332,24 @@ test("a named element cannot discard its real binding phase in favour of the hol
   const fixture = bindingPatternScenario(false);
   const actual = fixture.binding.tsonic;
   fixture.binding.tsonic = { role: "hole" };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("binding-element-role-exact", 7,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("binding-element-role-exact", 7,
     "binding element role is hole exactly when its authored name is absent")]);
   fixture.binding.tsonic = actual;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("a hole cannot claim the adjacent genuine named element's binding record", () => {
   const fixture = bindingPatternScenario(true);
   fixture.hole.tsonic = fixture.binding.tsonic;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("binding-element-role-exact", 7,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("binding-element-role-exact", 7,
     "binding element role is hole exactly when its authored name is absent")]);
   fixture.hole.tsonic = { role: "hole" };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("a bodyless type-only module verifies its real tree without constructing a body", () => {
   const fixture = bodylessModuleScenario();
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
   assertCompleteValue(fixture.queries, [{ kind: "module", module: moduleId }]);
 });
 
@@ -4209,21 +4362,21 @@ for (const changed of ["publication-module", "source-module", "publication-tree"
       module: changed === "publication-module" ? { ...fixture.module, module: otherModule }
         : changed === "publication-tree" ? { ...fixture.module, tree: structuredClone(fixture.module.tree) } : fixture.module,
       source: changed === "source-module" ? { ...fixture.input.source, module: otherModule } : fixture.input.source };
-    assertCompleteValue(product.verifyTirModule(input, fixture.module), [nodeViolation("module-node-identity", 0,
+    assertCompleteValue(verifyChapter(input, fixture.module), [nodeViolation("module-node-identity", 0,
       "module tree does not retain its actual source and publication identity")]);
     assert.equal(fixture.module.module, moduleId);
     assert.equal(fixture.input.module === fixture.module, true);
-    assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+    assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
   });
 }
 
 test("module scalar parent references resolve in the actual source arena without body collateral", () => {
   const fixture = bodylessModuleScenario();
   fixture.module.tree.parent = 99;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [nodeViolation("node-reference", 0,
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("node-reference", 0,
     "node identity does not name an actual node in its module arena")]);
   fixture.module.tree.parent = null;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
 });
 
 test("the closed typed source-file parser rejects an undeclared checker field", () => {
@@ -4254,35 +4407,35 @@ test("module repeated missing declarations share the actual nullable cache and s
   const queries = [];
   fixture.input.declarationOf = definition => { queries.push(definition); return actual(definition); };
   fixture.keyword.tsonic.declarations = [missing, missing];
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [nodeViolation("cross-owner-qualified", 3,
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("cross-owner-qualified", 3,
     "definition reference does not name an actual declaration")]);
   assertCompleteValue(queries, [fixture.definition, missing]);
   queries.length = 0;
   fixture.keyword.tsonic.declarations = [fixture.definition, fixture.definition];
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
   assertCompleteValue(queries, [fixture.definition]);
   queries.length = 0;
   fixture.keyword.tsonic.declarations = [];
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
   assertCompleteValue(queries, [fixture.definition]);
 });
 
 test("the module verifier owns an invalid type payload outside every published body", () => {
   const fixture = bodylessModuleScenario();
   fixture.alias.tsonic.type = 9;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [nodeViolation("type-closed", 1,
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("type-closed", 1,
     "typed reference does not reach a present closed type/signature graph")]);
   fixture.alias.tsonic.type = 0;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
 });
 
 test("module definition payloads resolve through the actual declaration reader", () => {
   const fixture = bodylessModuleScenario();
   fixture.keyword.tsonic.declarations = ["D[M[P[foreign];types];missing]"];
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [nodeViolation("cross-owner-qualified", 3,
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("cross-owner-qualified", 3,
     "definition reference does not name an actual declaration")]);
   fixture.keyword.tsonic.declarations = [fixture.definition];
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
 });
 
 test("a module retains the actual qualified signature-owner finding and its complete corrected opposite", () => {
@@ -4290,10 +4443,10 @@ test("a module retains the actual qualified signature-owner finding and its comp
   const signature = { id: 0, declaration: fixture.definition, owner: { kind: "item", value: { owner: fixture.definition, node: 99 } },
     composition: null, kind: "call", typeParameters: [], receiver: null, parameters: [], result: 0 };
   fixture.input.types.signatures.push(signature);
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [nodeViolation("cross-owner-qualified", 0,
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("cross-owner-qualified", 0,
     "type verifier: cross-owner-qualified")]);
   signature.owner.value.node = 1;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
 });
 
 test("module verification stops before a genuine published body and leaves its reference failure to that body exactly once", () => {
@@ -4302,12 +4455,13 @@ test("module verification stops before a genuine published body and leaves its r
   body.completion = 9;
   const actualBodyScopes = input.bindingScopesOf;
   const queries = [];
-  input.bindingScopesOf = target => {
+  input.bindingScopesOf = (target, subject, visit) => {
     queries.push(structuredClone(target));
-    return target.kind === "module" ? target.module === moduleId ? [] : null : actualBodyScopes(target);
+    return target.kind === "module" ? completeScopes(target.module === moduleId ? [] : null)
+      : actualBodyScopes(target, subject, visit);
   };
-  assertCompleteValue(product.verifyTirModule(input, input.module), []);
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("type-closed",
+  assertCompleteValue(verifyChapter(input, input.module), []);
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("type-closed",
     "typed reference does not reach a present closed type/signature graph")]);
   assertCompleteValue(queries, [{ kind: "module", module: moduleId },
     { kind: "body", instance: { body: bodyId, bindings: { kind: "parametric" } } }]);
@@ -4315,26 +4469,26 @@ test("module verification stops before a genuine published body and leaves its r
 
 test("unknown module binding context is not treated as the known empty occurrence vector", () => {
   const fixture = bodylessModuleScenario();
-  fixture.input.bindingScopesOf = () => null;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [nodeViolation("binding-vector-complete", 0,
+  fixture.input.bindingScopesOf = () => completeScopes(null);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("binding-vector-complete", 0,
     "binding target has no actual supplied scope inventory")]);
-  fixture.input.bindingScopesOf = target => target.kind === "module" && target.module === moduleId ? [] : null;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  fixture.input.bindingScopesOf = target => completeScopes(target.kind === "module" && target.module === moduleId ? [] : null);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
 });
 
 test("an extra module scope remains a complete node-site finding, not a guessed body scope", () => {
   const fixture = bodylessModuleScenario();
   fixture.scopes.push(emptyScope());
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [nodeViolation("binding-vector-complete", 0,
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("binding-vector-complete", 0,
     "supplied binding scope has no corresponding actual vector")]);
   fixture.scopes.pop();
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
 });
 
 test("a genuine sparse published-body vector is an exact module-path caller defect", () => {
   const fixture = bodylessModuleScenario();
   fixture.module.bodies = Array(1);
-  assert.throws(() => product.verifyTirModule(fixture.input, fixture.module), { name: "TypeError",
+  assert.throws(() => verifyChapter(fixture.input, fixture.module), { name: "TypeError",
     message: 'ir-tir: sparse vector at $module["bodies"][0]' });
 });
 
@@ -4342,8 +4496,8 @@ test("a null body-scope answer preserves the complete real instance and reports 
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   const queries = [];
-  input.bindingScopesOf = target => { queries.push(structuredClone(target)); return null; };
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("binding-vector-complete",
+  input.bindingScopesOf = target => { queries.push(structuredClone(target)); return completeScopes(null); };
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("binding-vector-complete",
     "binding target has no actual supplied scope inventory")]);
   assertCompleteValue(queries, [{ kind: "body", instance: { body: bodyId, bindings: { kind: "parametric" } } }]);
 });
@@ -4355,14 +4509,14 @@ for (const selected of [0, 1]) {
     const input = fixture.inputFor(body);
     const reader = input.bindingScopesOf;
     const queries = [];
-    input.bindingScopesOf = target => { queries.push(structuredClone(target)); return reader(target); };
-    assertCompleteValue(product.verifyTir(input, body), []);
+    input.bindingScopesOf = (target, subject, visit) => { queries.push(structuredClone(target)); return reader(target, subject, visit); };
+    assertCompleteValue(verifyBody(input, body), []);
     const expectedBindings = { kind: "instantiated", bindings: { classBindings: [],
-      methodBindings: [{ kind: "bound", parameter: { owner: fixture.definition, index: 0 }, type: selected + 2 }],
+      methodBindings: [{ kind: "bound", parameter: fixture.typeDefinition, type: selected + 2 }],
       capturedBindings: [], selfBindings: [] } };
     assertCompleteValue(queries, [{ kind: "body", instance: { body: fixture.functionBody, bindings: expectedBindings } }]);
     assert.equal(reader({ kind: "body", instance: { body: fixture.functionBody,
-      bindings: fixture.instances[1 - selected].bindings } }), null);
+      bindings: fixture.instances[1 - selected].bindings } }, body, null).scopes, null);
   });
 }
 
@@ -4370,15 +4524,15 @@ test("missing and extra actual vector scopes are not guessed from empty data or 
   const body = emptyModuleBody();
   const missing = emptyVerificationInput(body);
   replaceScopeInventory(missing, [emptyScope()]);
-  assertCompleteValue(product.verifyTir(missing, body), [
+  assertCompleteValue(verifyBody(missing, body), [
     { rule: "binding-vector-complete", site: { kind: "node", module: moduleId, node: 0 },
       detail: [{ kind: "text", value: "actual binding vector has no corresponding supplied scope" }] },
   ]);
   const extra = emptyVerificationInput(body);
   bodyScopes(extra, body).push(emptyScope());
-  assertCompleteValue(product.verifyTir(extra, body), [bodyViolation("binding-vector-complete", "supplied binding scope has no corresponding actual vector")]);
+  assertCompleteValue(verifyBody(extra, body), [bodyViolation("binding-vector-complete", "supplied binding scope has no corresponding actual vector")]);
   body.root.tsonic.template.lexicalBindings = body.lexicalBindings;
-  assertCompleteValue(product.verifyTir(emptyVerificationInput(body), body), [], "two declared visits remain two actual scope positions");
+  assertCompleteValue(verifyBody(emptyVerificationInput(body), body), [], "two declared visits remain two actual scope positions");
 });
 
 test("actual table-only lower findings retain their complete type/signature order without occurrence fallbacks", () => {
@@ -4388,7 +4542,7 @@ test("actual table-only lower findings retain their complete type/signature orde
   input.types.signatures.push({ id: 8, declaration: null,
     owner: { kind: "item", value: { owner: "D[M[P[p];m];foreign]", node: 0 } },
     composition: null, kind: "call", typeParameters: [], receiver: null, parameters: [], result: 99 });
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     bodyViolation("type-closed", "type verifier: type-reference"),
     bodyViolation("type-closed", "type verifier: signature-order"),
     bodyViolation("cross-owner-qualified", "type verifier: cross-owner-qualified"),
@@ -4411,7 +4565,7 @@ test("the indexed lower join preserves every original finding across repeated bi
   body.evidence = [evidence, evidence];
   const input = emptyVerificationInput(body, [], 4);
   input.types.terms.push({ kind: "array", element: 99, readonly: false });
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     bodyViolation("type-closed", "type verifier: type-reference"),
     bodyViolation("binding-vector-complete", "type verifier: binding-vector-complete"),
     bodyViolation("binding-vector-complete", "type verifier: self-owner"),
@@ -4438,14 +4592,14 @@ test("a deferred closure decision is a saved invocation of its own occurrence, v
   body.root.tsonic.closure = { kind: "deferred", deferred: { result: 4, invocation: { rule: "closure", input: { context, callable: evidence, captures: [] } } } };
   const input = fixture.inputFor(body);
   replaceScopeInventory(input, [fixture.scope, fixture.scope, fixture.scope]);
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   context.occurrence = { body: body.body, node: 3 };
-  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("deferred-parameters", 2,
+  assertCompleteValue(verifyBody(input, body), [nodeViolation("deferred-parameters", 2,
     "saved invocation does not retain its occurrence and complete captured rigid-parameter support")]);
   context.occurrence = { body: body.body, node: 2 };
   body.root.tsonic.closure = decided;
   replaceScopeInventory(input, [fixture.scope, fixture.scope]);
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 test("a closure's rows follow the storage of each captured binding, and the created body states the closure's outcome", () => {
@@ -4482,7 +4636,7 @@ test("a closure's rows follow the storage of each captured binding, and the crea
   outer.locals = outerLocals; outer.params = outerParams;
   const localExists = input.localExists;
   input.localExists = reference => reference.body === bodyId ? outerLocals[reference.local] !== undefined : localExists(reference);
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   // Storage another party can still write is a captured location: a binding that can be reassigned, a parameter passed by
   // reference. For the others the evidence forces neither value. A captured value of o is the reference o holds: the
   // object's contents stay shared through it.
@@ -4491,10 +4645,10 @@ test("a closure's rows follow the storage of each captured binding, and the crea
     const flipped = logical.map((capture, index) => index !== position ? capture
       : capture === "captured-location" ? "captured-value" : "captured-location");
     body.root.tsonic.closure = decided(flipped); body.captures = stated(flipped);
-    assertCompleteValue(product.verifyTir(input, body), location ? [binding] : [], name);
+    assertCompleteValue(verifyBody(input, body), location ? [binding] : [], name);
   }
   body.root.tsonic.closure = decided(logical.map(() => "captured-location")); body.captures = stated(logical.map(() => "captured-location"));
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   // The created body states the decided rows: locals, order and logical capture.
   const agree = bodyViolation("capture-rows-agree", "body capture rows do not state the outcome of the closure that creates the body", fixture.functionBody);
   body.root.tsonic.closure = decided(logical); body.captures = stated(logical);
@@ -4507,7 +4661,7 @@ test("a closure's rows follow the storage of each captured binding, and the crea
     ["a null row in a ready body", stated(logical.map((capture, index) => index === 0 ? null : capture)), [agree]],
   ]) {
     body.captures = changed;
-    assertCompleteValue(product.verifyTir(input, body), expected, label);
+    assertCompleteValue(verifyBody(input, body), expected, label);
   }
   body.captures = stated(logical);
   // A deferred closure rule: the parametric template states the saved locals with no capture yet, every row null; each
@@ -4521,17 +4675,17 @@ test("a closure's rows follow the storage of each captured binding, and the crea
     context, callable: evidence(4, "callable"), captures: captured } } } });
   body.root.tsonic.closure = deferred(saved); body.captures = stated(rows.map(() => null));
   replaceScopeInventory(input, [fixture.scope, fixture.scope, fixture.scope]);
-  assertCompleteValue(product.verifyTir(input, body), [], "a non-empty deferred template");
+  assertCompleteValue(verifyBody(input, body), [], "a non-empty deferred template");
   for (const instance of fixture.instances) {
     assertCompleteValue(instance.root.tsonic.closure, decided(logical));
     assertCompleteValue(instance.captures, stated(logical));
-    assertCompleteValue(product.verifyTir(fixture.inputFor(instance), instance).filter(violation => violation.rule === "capture-rows-agree"), [],
+    assertCompleteValue(verifyBody(fixture.inputFor(instance), instance).filter(violation => violation.rule === "capture-rows-agree"), [],
       "its instance states the decided rows");
   }
   body.captures = stated(rows.map((_row, index) => index === 0 ? logical[0] : null));
-  assertCompleteValue(product.verifyTir(input, body), [agree], "mixed null and decided rows under a deferred closure");
+  assertCompleteValue(verifyBody(input, body), [agree], "mixed null and decided rows under a deferred closure");
   body.captures = stated(logical);
-  assertCompleteValue(product.verifyTir(input, body), [agree], "decided rows under a deferred closure");
+  assertCompleteValue(verifyBody(input, body), [agree], "decided rows under a deferred closure");
   body.captures = stated(rows.map(() => null));
   const savedBinding = nodeViolation("closure-capture-binding", 2, "saved capture evidence does not state the binding evidence of its captured locals");
   for (const [label, changed] of [
@@ -4542,12 +4696,12 @@ test("a closure's rows follow the storage of each captured binding, and the crea
     ["a parameter saved as a binding", saved.map((capture, index) => index === 4 ? { ...capture, incoming: { kind: "binding" } } : capture)],
   ]) {
     body.root.tsonic.closure = deferred(changed);
-    assertCompleteValue(product.verifyTir(input, body), [savedBinding], label);
+    assertCompleteValue(verifyBody(input, body), [savedBinding], label);
   }
   const sequence = nodeViolation("capture-qualified", 2, "closure captures do not retain the real authored outer-local sequence");
   body.root.tsonic.closure = deferred([saved[1], saved[0], ...saved.slice(2)]);
   body.captures = [stated(rows.map(() => null))[1], stated(rows.map(() => null))[0], ...stated(rows.map(() => null)).slice(2)];
-  assertCompleteValue(product.verifyTir(input, body), [order, sequence], "the saved locals in another order");
+  assertCompleteValue(verifyBody(input, body), [order, sequence], "the saved locals in another order");
   body.root.tsonic.closure = deferred(saved); body.captures = stated(rows.map(() => null));
   // A captured local with no row in its checked body, and a source body list with a hole: no evidence, so no finding from
   // the binding rule. The decided closure has no saved context, so the template's scope inventory is its own again.
@@ -4559,14 +4713,14 @@ test("a closure's rows follow the storage of each captured binding, and the crea
   input.localExists = reference => reference.body === bodyId ? reference.local <= rows.length : localExists(reference);
   body.root.tsonic.closure = { kind: "decided", decision: { carrier: 4, captures: [...stated(logical), { local: rowless, capture: "captured-value" }], execution: { kind: "pure" } } };
   body.captures = [...stated(logical), { local: rowless, capture: "captured-value" }];
-  assertCompleteValue(product.verifyTir(input, body), [], "a captured local without a row");
+  assertCompleteValue(verifyBody(input, body), [], "a captured local without a row");
   input.source.bodies.length += 1;
-  assertCompleteValue(product.verifyTir(input, body), [], "a hole in the source body list");
+  assertCompleteValue(verifyBody(input, body), [], "a hole in the source body list");
   input.source.bodies.length -= 1;
   // A closure that saved another rule names no captured locals.
   body.root.tsonic.closure = { kind: "deferred", deferred: { result: 4, invocation: { rule: "refinement", input: {
     context, source: evidence(3, "number"), checked: evidence(3, "number") } } } };
-  assertCompleteValue(product.verifyTir(input, body).filter(violation => violation.rule === "closure-capture-total"),
+  assertCompleteValue(verifyBody(input, body).filter(violation => violation.rule === "closure-capture-total"),
     [nodeViolation("closure-capture-total", 2, "a deferred closure does not save the closure rule's evidence of its captured locals")]);
 });
 
@@ -4577,23 +4731,26 @@ test("a shared vector is authenticated against each occurrence's actual declarat
   const evidence = { type: 4, component: { kind: "body", value: context.occurrence },
     category: { kind: "known", category: "callable" }, numeric: null, sum: null, nominal: null, pointer: null };
   const endpoint = { declaration: ownerId, role: "advertised", signature: 0, body: bodyId };
-  const candidate = { ordinal: 0, declaration: ownerId, advertised: endpoint, api: { ...endpoint, role: "api-body" },
+  const candidate = { ordinal: 0, declaration: ownerId, advertised: endpoint, advertisedSignature: 0,
+    api: { ...endpoint, role: "api-body" }, apiSignature: 0,
     bindings: body.lexicalBindings, conditionalFailure: null };
   body.root.tsonic.conversion = { kind: "deferred", deferred: { result: 4, invocation: { rule: "candidate", input: {
     context, kind: "call", callee: evidence, receiver: null, typeArguments: [], arguments: [], candidates: [candidate] } } } };
   const input = fixture.inputFor(body);
   replaceScopeInventory(input, [fixture.scope, fixture.scope, emptyScope(), fixture.scope]);
   assert.equal(candidate.bindings === body.lexicalBindings, true);
-  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("binding-vector-complete", 2,
+  assertCompleteValue(verifyBody(input, body), [nodeViolation("binding-vector-complete", 2,
     "type verifier: binding-vector-complete")]);
   candidate.bindings = emptyBindings();
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   candidate.bindings = body.lexicalBindings;
   candidate.declaration = fixture.definition;
   candidate.advertised = { declaration: fixture.definition, role: "advertised", signature: 1, body: body.body };
+  candidate.advertisedSignature = 1;
   candidate.api = { ...candidate.advertised, role: "api-body" };
+  candidate.apiSignature = 1;
   bodyScopes(input, body)[2] = fixture.scope;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 for (const resolution of ["local", "definition", "known-aliases", "missing-definition", "missing-alias", "repeated-missing-aliases"]) {
@@ -4617,9 +4774,9 @@ for (const resolution of ["local", "definition", "known-aliases", "missing-defin
         nodeViolation("cross-owner-qualified", 9, "source reference does not name an actual node in its declared owner"),
         nodeViolation("cross-owner-qualified", 9, "definition reference does not name an actual declaration"),
       ] : [];
-    assertCompleteValue(product.verifyTir(input, body), expected);
+    assertCompleteValue(verifyBody(input, body), expected);
     value.tsonic.resolution = original;
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
   });
 }
 
@@ -4682,13 +4839,13 @@ test("body scalar definitions share the real nullable declaration cache only wit
   const actual = input.declarationOf;
   const queries = [];
   input.declarationOf = definition => { queries.push(definition); return actual(definition); };
-  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("cross-owner-qualified", 9,
+  assertCompleteValue(verifyBody(input, body), [nodeViolation("cross-owner-qualified", 9,
     "definition reference does not name an actual declaration")]);
-  assertCompleteValue(queries, [fixture.definition, fixture.valueDefinition, fixture.typeDefinition, missing]);
+  assertCompleteValue(queries, [fixture.definition, fixture.typeDefinition, fixture.valueDefinition, missing]);
   queries.length = 0;
   fixture.declarations.set(missing, { scope: emptyScope(), parameterCount: 0, endpoints: [] });
-  assertCompleteValue(product.verifyTir(input, body), []);
-  assertCompleteValue(queries, [fixture.definition, fixture.valueDefinition, fixture.typeDefinition, missing]);
+  assertCompleteValue(verifyBody(input, body), []);
+  assertCompleteValue(queries, [fixture.definition, fixture.typeDefinition, fixture.valueDefinition, missing]);
 });
 
 for (const variant of ["outer", "template", "string", "int32"]) {
@@ -4696,7 +4853,7 @@ for (const variant of ["outer", "template", "string", "int32"]) {
     const fixture = genericFunctionScenario();
     const selected = variant === "outer" ? fixture.outer : variant === "template" ? fixture.functionTemplate
       : fixture.instances[variant === "string" ? 0 : 1];
-    assertCompleteValue(product.verifyTir(fixture.inputFor(selected), selected), []);
+    assertCompleteValue(verifyBody(fixture.inputFor(selected), selected), []);
     assert.equal(fixture.outer.dependence, "parametric");
     assert.equal(fixture.functionTemplate.dependence, "binding-dependent");
     assert.equal(fixture.functionTemplate.root === fixture.module.tree.statements.nodes[0].expression, true);
@@ -4712,14 +4869,14 @@ for (const selected of ["outer", "template", "string", "int32"]) {
     const fixture = twoParameterScenario();
     const body = selected === "outer" ? fixture.outer : selected === "template" ? fixture.functionTemplate
       : fixture.instances[selected === "string" ? 0 : 1];
-    assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+    assertCompleteValue(verifyBody(fixture.inputFor(body), body), []);
   });
 }
 test("several finalized formals cannot be reordered while their actual parameter nodes retain declared order", () => {
   const fixture = twoParameterScenario();
   const body = fixture.functionTemplate;
   body.params = [...body.params].reverse();
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), [
     ...[5, 7].flatMap(node => [
       nodeViolation("authored-node-ids-preserved", node, "typed node identity differs from the actual authored node at this position"),
       nodeViolation("authored-node-ids-preserved", node + 1, "typed node identity differs from the actual authored node at this position"),
@@ -4733,7 +4890,7 @@ test("omitting a second real formal preserves both inventory and actual occurren
   const fixture = twoParameterScenario();
   const body = fixture.functionTemplate;
   body.params = body.params.slice(0, 1);
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), [
     bodyViolation("parameter-order", "parameter records do not retain the actual declared formal order", fixture.functionBody),
     nodeViolation("parameter-order", 7, "parameter occurrence does not retain its actual declared formal and local association"),
   ]);
@@ -4745,9 +4902,9 @@ for (const mode of ["sync", "async", "generator", "async-generator"]) {
     const publication = fixture.input.bodyOf;
     const queries = [];
     fixture.input.bodyOf = instance => { queries.push(instance); return publication(instance); };
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     assertCompleteValue(queries, [{ body: fixture.functionBody, bindings: { kind: "instantiated", bindings: {
-      classBindings: [], methodBindings: [{ kind: "bound", parameter: fixture.identity, type: 2 }], capturedBindings: [], selfBindings: [],
+      classBindings: [], methodBindings: [{ kind: "bound", parameter: fixture.typeDefinition, type: 2 }], capturedBindings: [], selfBindings: [],
     } } }]);
     assert.equal(fixture.decision.completion.completion, 2);
     assert.equal(fixture.types.signatures[2].result, mode === "sync" ? 2 : 5);
@@ -4757,7 +4914,7 @@ for (const mode of ["sync", "async", "generator", "async-generator"]) {
     const fixture = callScenario(mode);
     const input = fixture.inputFor(fixture.target);
     input.nominalOf = fixture.input.nominalOf;
-    assertCompleteValue(product.verifyTir(input, fixture.target), []);
+    assertCompleteValue(verifyBody(input, fixture.target), []);
   });
   for (const channel of ["signature", "completion", "yielded", "sent"]) {
     test(`completion-endpoint detects the genuine ${mode}/${channel} canonical-body mismatch`, () => {
@@ -4766,15 +4923,13 @@ for (const mode of ["sync", "async", "generator", "async-generator"]) {
         : channel === "yielded" ? 2 : 3;
       const expected = [nodeViolation("completion-endpoint", 2,
         "selected completion does not retain the actual activated body's signature and channels")];
-      if (channel === "signature") expected.unshift(nodeViolation("completion-endpoint", 2,
-        "selected completion does not retain its actual API signature"));
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), expected);
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), expected);
     });
   }
   test(`missing ${mode} actual publication remains only instance resolution, not invented completion channels`, () => {
     const fixture = callScenario(mode);
     fixture.module.bodies.splice(fixture.module.bodies.indexOf(fixture.target), 1);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("nested-instance-key", 2,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("nested-instance-key", 2,
       "instance does not select a real canonical body with the complete artifact environment")]);
   });
 }
@@ -4784,7 +4939,7 @@ for (const field of ["candidate", "advertised"]) {
     const fixture = callScenario();
     if (field === "candidate") fixture.decision.candidate = 99;
     else fixture.decision.advertised = { ...fixture.decision.advertised, body: bodyId };
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("call-endpoints", 2,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("call-endpoints", 2,
       "selected callable endpoints do not belong to their actual declarations and candidate")]);
   });
 }
@@ -4793,7 +4948,7 @@ const callEndpoints = () => [nodeViolation("call-endpoints", 2,
 test("an overloaded family's implementation endpoint cannot stand in for its advertised endpoint", () => {
   const fixture = callScenario();
   fixture.decision.advertised = fixture.decision.api;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), callEndpoints());
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), callEndpoints());
 });
 test("a family without an advertised row selects one endpoint as both the advertised and the API endpoint", () => {
   const fixture = callScenario();
@@ -4801,11 +4956,11 @@ test("a family without an advertised row selects one endpoint as both the advert
   const advertised = fixture.decision.advertised;
   family.splice(family.indexOf(advertised), 1);
   fixture.decision.advertised = fixture.decision.api;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.decision.advertised = advertised;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), callEndpoints());
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), callEndpoints());
   fixture.decision.advertised = { ...fixture.decision.api, signature: 1 };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), callEndpoints());
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), callEndpoints());
 });
 // A bodiless API signature declared by another definition, as in the inference case of a native binding: the callee is
 // not activated, so no body's completion is involved and only endpoint membership is under test.
@@ -4824,18 +4979,25 @@ test("an advertised row is a family member by its signature as well as its owner
   const fixture = callScenario();
   const family = fixture.declarations.get(fixture.definition).endpoints;
   family.push({ ...fixture.decision.advertised, signature: 3 });
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   family.pop();
   fixture.decision.advertised = { ...fixture.decision.advertised, signature: 3 };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), callEndpoints());
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), callEndpoints());
 });
 test("an API endpoint declared by another definition is selected only through the selected declaration's family", () => {
   const unrelated = callScenario();
   foreignApi(unrelated);
-  assertCompleteValue(product.verifyTir(unrelated.input, unrelated.body), callEndpoints());
+  assertCompleteValue(verifyBody(unrelated.input, unrelated.body), callEndpoints());
   const associated = callScenario();
   associated.declarations.get(associated.definition).endpoints.push(foreignApi(associated));
-  assertCompleteValue(product.verifyTir(associated.input, associated.body), []);
+  assertCompleteValue(verifyBody(associated.input, associated.body), []);
+  const completion = associated.decision.completion;
+  associated.decision.completion = { ...completion, signature: associated.decision.advertised.signature };
+  assertCompleteValue(verifyBody(associated.input, associated.body), [
+    nodeViolation("completion-endpoint", 2, "selected completion does not retain its actual API signature"),
+  ]);
+  associated.decision.completion = completion;
+  assertCompleteValue(verifyBody(associated.input, associated.body), []);
 });
 test("an enclosing capture's logical capture is read from the creating body's own typed row", () => {
   // function outer() { v is outer's capture of a local of f; return () => v; }: the closure (verified here, the root of its
@@ -4863,7 +5025,7 @@ test("an enclosing capture's logical capture is read from the creating body's ow
     body.captures = [{ local: ownSecond, capture: "captured-value" }, ...bodyRows([own], inner)];
     body.root.tsonic.closure = { kind: "decided", decision: { carrier: 4, captures: [{ local: ownSecond, capture: "captured-value" }, { local: own, capture: inner }],
       execution: { kind: "pure" } } };
-    return product.verifyTir(input, body).filter(violation => violation.rule === "closure-capture-binding");
+    return verifyBody(input, body).filter(violation => violation.rule === "closure-capture-binding");
   };
   assertCompleteValue(judged("captured-location", "captured-value"), [binding], "an enclosing captured location is a captured location");
   assertCompleteValue(judged("captured-location", "captured-location"), []);
@@ -4884,7 +5046,7 @@ test("an enclosing capture's logical capture is read from the creating body's ow
   const judgedInstance = instance => {
     const instanceInput = fixture.inputFor(instance);
     instanceInput.localExists = input.localExists;
-    return product.verifyTir(instanceInput, instance).filter(violation => violation.rule === "closure-capture-binding");
+    return verifyBody(instanceInput, instance).filter(violation => violation.rule === "closure-capture-binding");
   };
   assertCompleteValue(judgedInstance(first), [], "no artifact of the creating body creates this instance: missing context, no template guess");
   // Two artifacts of the same creating body, in different environments, each creating one instance, with different rows.
@@ -4911,6 +5073,20 @@ test("an enclosing capture's logical capture is read from the creating body's ow
   bodies.push(creatorFor(first, "captured-location"), creatorFor(second, "captured-value"));
   assertCompleteValue(judgedInstance(first), [binding], "the artifact that creates the first instance states a captured location");
   assertCompleteValue(judgedInstance(second), [], "the artifact that creates the second instance states a captured value");
+  const firstInput = { ...fixture.inputFor(first), localExists: input.localExists };
+  checkTirBodyAdmissionCuts(admitFixtureRead, product.verifyTir, firstInput, first);
+  const decided = first.root.tsonic.closure;
+  const occurrence = { body: first.body, node: first.root.id };
+  first.root.tsonic.closure = { kind: "deferred", deferred: { result: 4, invocation: { rule: "closure",
+    input: { context: { occurrence, origin: first.root.origin, bindings: first.lexicalBindings },
+      callable: { type: 4, component: { kind: "body", value: occurrence }, category: { kind: "known", category: "callable" },
+        numeric: null, sum: null, nominal: null, pointer: null },
+      captures: decided.decision.captures.map(row => ({ local: row.local, reassignable: false, incoming: { kind: "capture", capture: row.capture },
+        value: { type: 2, component: { kind: "body", value: occurrence }, category: { kind: "known", category: "string" },
+          numeric: null, sum: null, nominal: null, pointer: null } })),
+    } } } };
+  checkTirBodyAdmissionCuts(admitFixtureRead, product.verifyTir, firstInput, first);
+  first.root.tsonic.closure = decided;
   bodies.reverse();
   assertCompleteValue(judgedInstance(first), [binding], "publication order: the same artifact is read");
   assertCompleteValue(judgedInstance(second), [], "publication order: the same artifact is read for the second");
@@ -4924,23 +5100,76 @@ test("an enclosing capture's logical capture is read from the creating body's ow
 
 test("a callee's activation names its API body", () => {
   const fixture = callScenario();
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
+  const original = fixture.callee.activation;
   fixture.callee.activation = { ...fixture.callee.activation, body: "B[D[M[P[p];m];other];function;0]" };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body).filter(violation => violation.rule === "call-endpoints"),
+  assertCompleteValue(verifyBody(fixture.input, fixture.body).filter(violation => violation.rule === "call-endpoints"),
     [nodeViolation("call-endpoints", 2, "callee activation does not retain its actual API body")]);
+  fixture.callee.activation = { ...original, bindings: fixture.instances[1].bindings };
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
+    nodeViolation("call-endpoints", 2, "callee activation does not retain its actual implementation bindings"),
+  ]);
+  fixture.callee.activation = original;
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
-test("a nonactivated callee retains actual endpoints and states no captured locations", () => {
+test("activation keys admit selected bindings before reading implementation bindings", async () => {
+  const { verifyActivation } = await import("../../packages/host/dist/ir-tir/verify-applications.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { accountFailure, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const { callee, call } = callScenario();
+  const selected = callee.activation.bindings.bindings;
+  const implementation = callee.decision.implementationBindings;
+  const bindingWork = 2 + selected.methodBindings[0].parameter.length;
+  const work = 3 + 2 * bindingWork;
+  const limits = { maximumWork: work, maximumResultEntries: 12 };
+  function inspect(allowance, body = callee.activation.body) {
+    const reads = [];
+    const account = createAccount(allowance);
+    const actual = { activation: { body, get bindings() {
+      reads.push("artifact");
+      return { kind: "instantiated", get bindings() { reads.push("selected"); return selected; } };
+    } }, decision: { ...callee.decision, get implementationBindings() { reads.push("implementation"); return implementation; } } };
+    const findings = [];
+    const result = verifyActivation(actual, call, (rule, _node, detail) => findings.push([rule, detail]), tirReadyReadAdmission(account));
+    return { result, reads, findings, account };
+  }
+  const exact = inspect(limits);
+  assert.deepEqual(exact.result, { kind: "complete", valid: true });
+  assert.equal(remainingWork(exact.account), 0);
+  assert.deepEqual(exact.reads, ["artifact", "selected", "implementation"]);
+  for (let maximumWork = 0; maximumWork < work; maximumWork += 1) {
+    const cut = inspect({ ...limits, maximumWork });
+    assert.equal(cut.result.kind, "resource-stop");
+    assert.equal(cut.result.stop === accountFailure(cut.account), true);
+    assert.deepEqual(cut.reads, exact.reads.filter((_label, index) => maximumWork >= [1, 2, bindingWork + 3][index]));
+  }
+  for (let maximumResultEntries = 0; maximumResultEntries < 12; maximumResultEntries += 1) {
+    const cut = inspect({ ...limits, maximumResultEntries });
+    assert.equal(cut.result.kind, "resource-stop");
+    assert.equal(cut.result.stop === accountFailure(cut.account), true);
+    assert.deepEqual(cut.reads, exact.reads.slice(0, maximumResultEntries < 6 ? 2 : 3));
+  }
+  const crossed = inspect({ maximumWork: 0, maximumResultEntries: 0 }, "B[D[M[P[p];m];other];function;0]");
+  assert.deepEqual(crossed.result, { kind: "complete", valid: false });
+  assert.deepEqual(crossed.reads, []);
+  assert.deepEqual(crossed.findings, [["call-endpoints", "callee activation does not retain its actual API body"]]);
+});
+
+test("a nonactivated callee retains actual endpoints and states no captured locations", async () => {
+  const { verifyActivation } = await import("../../packages/host/dist/ir-tir/verify-applications.js");
   const fixture = callScenario();
   fixture.callee.activation = null;
   bodyScopes(fixture.input, fixture.body).splice(3, 1);
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
+  assert.deepEqual(verifyActivation(fixture.callee, fixture.call, (_rule, _node, detail) => assert.fail(detail),
+    admitFixtureRead()), { kind: "complete", valid: true });
   assert.equal(Object.hasOwn(fixture.callee, "captures"), false, "a resolved callee has no list of captured locals");
 });
 
 test("two contextual property components in one literal retain distinct authentic tables", () => {
   const fixture = contextualLiteralScenario();
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   assertCompleteValue(fixture.queries, fixture.facts.map(fact => ({ instance: fact.instance, occurrence: fact.occurrence })));
   assert.equal(fixture.facts[0].table.receiver, 1);
   assert.equal(fixture.facts[1].table.receiver, 2);
@@ -4953,7 +5182,7 @@ test("swapping contextual property associations is not repaired from the enclosi
   const first = fixture.facts[0].table;
   fixture.facts[0].table = fixture.facts[1].table;
   fixture.facts[1].table = first;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("member-origin", 3, "member selection does not retain a real member key and its actual declared origins"),
     nodeViolation("member-origin", 6, "member selection does not retain a real member key and its actual declared origins"),
   ]);
@@ -4963,7 +5192,7 @@ for (const [name, position] of [["parametric", 0], ["bound-string", 1], ["bound-
   test(`actual ${name} instance selects its own same-node property association and receiver context`, () => {
     const fixture = genericObjectScenario();
     const body = [fixture.functionTemplate, ...fixture.instances][position];
-    assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+    assertCompleteValue(verifyBody(fixture.inputFor(body), body), []);
     assertCompleteValue(fixture.queries, [{ instance: fixture.facts[position].instance, occurrence: { kind: "selection", node: 10, ordinal: 0 } }]);
     assert.equal(fixture.facts[position].table.receiver, position + 5);
     assert.equal(fixture.facts[position].table.members[0].read, position + 1);
@@ -4974,7 +5203,7 @@ test("same authored node and body under another bound environment do not satisfy
   const fixture = genericObjectScenario();
   const body = fixture.instances[0];
   fixture.facts[1].instance = { body: fixture.functionBody, bindings: fixture.instances[1].bindings };
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [nodeViolation("member-origin", 10,
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), [nodeViolation("member-origin", 10,
     "member selection does not retain a real member key and its actual declared origins")]);
 });
 
@@ -4982,7 +5211,7 @@ test("an owner change cannot authenticate itself through unchanged body and temp
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   body.owner = "D[M[P[p];m];foreign]";
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     bodyViolation("body-owner", "body identity and owner do not retain the actual original body"),
     bodyViolation("nested-template-identity", "published template is not the authentic body's canonical shared module subtree"),
     bodyViolation("cross-owner-qualified", "definition reference does not name an actual declaration"),
@@ -4994,7 +5223,7 @@ test("the actual source module remains authoritative for typed publication ident
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   input.module.module = "M[P[p];other]";
-  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("module-node-identity", 0,
+  assertCompleteValue(verifyBody(input, body), [nodeViolation("module-node-identity", 0,
     "body does not retain its module identity and canonical parametric subtree")]);
 });
 
@@ -5002,7 +5231,7 @@ test("an equal-looking copy is not the shared canonical parametric module subtre
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   body.root = structuredClone(body.root);
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     nodeViolation("module-node-identity", 0, "body does not retain its module identity and canonical parametric subtree"),
     bodyViolation("nested-template-identity", "published template is not the authentic body's canonical shared module subtree"),
   ]);
@@ -5012,7 +5241,7 @@ test("a duplicate canonical publication is rejected even when both entries are t
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   input.module.bodies.push(body);
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     bodyViolation("template-shared-once", "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once"),
     bodyViolation("template-shared-once", "actual source body has more than one canonical parametric template"),
   ]);
@@ -5022,7 +5251,7 @@ test("an instantiated publication cannot replace its required authentic parametr
   const body = emptyModuleBody();
   body.bindings = { kind: "instantiated", bindings: emptyBindings() };
   const input = emptyVerificationInput(body, [], 3);
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     bodyViolation("template-shared-once", "actual source body has no canonical parametric template in the publication"),
     nodeViolation("nested-template-identity", 0, "typed template does not retain its real authored body and shared syntax identity"),
   ]);
@@ -5031,14 +5260,14 @@ test("an instantiated publication cannot replace its required authentic parametr
 test("canonical template order retains the actual source body's publication order", () => {
   const fixture = genericFunctionScenario();
   fixture.module.bodies = [fixture.functionTemplate, fixture.outer, ...fixture.instances];
-  assertCompleteValue(product.verifyTir(fixture.inputFor(fixture.outer), fixture.outer), [bodyViolation("stable-order",
+  assertCompleteValue(verifyBody(fixture.inputFor(fixture.outer), fixture.outer), [bodyViolation("stable-order",
     "canonical template publication does not retain actual source body order")]);
 });
 
 test("the closed typed body graph cannot invent a missing completion type reference", () => {
   const body = emptyModuleBody();
   body.completion = 99;
-  assertCompleteValue(product.verifyTir(emptyVerificationInput(body), body), [bodyViolation("type-closed",
+  assertCompleteValue(verifyBody(emptyVerificationInput(body), body), [bodyViolation("type-closed",
     "typed reference does not reach a present closed type/signature graph")]);
 });
 
@@ -5047,7 +5276,7 @@ test("a genuine recursive type reference graph is closed without an invented ver
   body.completion = 1;
   const input = emptyVerificationInput(body);
   input.types.terms.push({ kind: "array", element: 1, readonly: false });
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 for (const term of [
@@ -5067,7 +5296,7 @@ for (const term of [
   { kind: "callable", calls: [0], constructs: [1] },
   { kind: "declared", definition: "D[M[P[core];types];Container]", arguments: [1], facet: "instance", extent: null },
   { kind: "enum", definition: "D[M[P[core];types];Choice]" },
-  { kind: "param", parameter: { owner: ownerId, index: 0 } },
+  { kind: "param", parameter: typeParameterDeclaration(ownerId, 0) },
   { kind: "self", owner: ownerId },
   { kind: "projection", source: 0, projection: { kind: "awaited" } },
 ]) {
@@ -5082,7 +5311,7 @@ for (const term of [
       ["D[M[P[core];types];Choice]", { kind: "enum", facets: ["instance", "value"] }],
     ]);
     input.nominalOf = definition => nominals.get(definition) ?? null;
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
   });
 }
 
@@ -5090,7 +5319,7 @@ test("an actual construction-reference reaches its real array-pattern source wit
   const fixture = memberScenario("construction");
   fixture.input.types.terms.push({ kind: "construction-reference", definition: { occurrence: { body: bodyId, node: 2 }, captures: [] }, arguments: [0] });
   fixture.body.completion = fixture.input.types.terms.length - 1;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("the closed signature graph includes its real receiver, parameter, constraint, default and composition edges", () => {
@@ -5099,9 +5328,9 @@ test("the closed signature graph includes its real receiver, parameter, constrai
   const input = emptyVerificationInput(body);
   input.types.signatures.push({ id: 1, declaration: ownerId,
     owner: { kind: "body", value: { body: bodyId, node: 0 } }, composition: { kind: "intersection", signatures: [0] },
-    kind: "call", typeParameters: [{ identity: { owner: ownerId, index: 0 }, declaration: ownerId, constraint: 0, default: 0 }],
+    kind: "call", typeParameters: [{ declaration: typeParameterDeclaration(ownerId, 0), constraint: 0, default: 0 }],
     receiver: 0, parameters: [{ declaration: ownerId, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false }], result: 0 });
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 test("an actual open producer variable cannot become a closed TIR completion endpoint", () => {
@@ -5109,7 +5338,7 @@ test("an actual open producer variable cannot become a closed TIR completion end
   body.completion = 1;
   const input = emptyVerificationInput(body);
   input.types.terms.push({ kind: "open", group: `G[${bodyId}]`, variable: 0 });
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("type-closed",
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("type-closed",
     "typed reference does not reach a present closed type/signature graph")]);
 });
 
@@ -5118,12 +5347,12 @@ test("a reachable actual error type requires the current matching source error d
   body.completion = 1;
   const input = emptyVerificationInput(body);
   input.types.terms.push({ kind: "error" });
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("error-diagnostic",
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("error-diagnostic",
     "error type is not accompanied by an actual error diagnostic at its source origin")]);
   input.diagnostics.push({ code: { kind: "checker", number: 999, rendered: "TS999" }, severity: "error",
     site: { kind: "source", origin: origin() }, source: null, evidence: [], message: "actual source error",
     arguments: [], related: [], fix: null });
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 test("a real outer capture retains its actual foreign-local existence boundary", () => {
@@ -5132,17 +5361,17 @@ test("a real outer capture retains its actual foreign-local existence boundary",
   const capture = { body: "B[D[M[P[foreign];source];f];function;0]", local: 0 };
   body.captures = [{ local: capture, capture: "captured-location" }];
   input.source.bodies[0].captures = [capture];
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("cross-owner-qualified",
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("cross-owner-qualified",
     "local reference does not name an actual local in its declared body")]);
   input.localExists = reference => reference.body === capture.body && reference.local === 0;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 test("an enclosing body cannot claim the evidence occurrence of its genuine nested body", () => {
   const fixture = genericFunctionScenario();
   fixture.outer.evidence = [{ ...typeEvidence({ kind: "dynamic" }),
     component: { kind: "body", value: { body: bodyId, node: 9 } } }];
-  assertCompleteValue(product.verifyTir(fixture.inputFor(fixture.outer), fixture.outer), [
+  assertCompleteValue(verifyBody(fixture.inputFor(fixture.outer), fixture.outer), [
     bodyViolation("cross-owner-qualified", "source reference does not name an actual node in its declared owner"),
     bodyViolation("node-reference", "qualified node does not name an actual node in its declared body"),
     bodyViolation("nested-boundary", "body evidence crosses an authentic nested-body root or leaves its own body subtree"),
@@ -5154,7 +5383,7 @@ test("an enclosing body cannot claim the evidence occurrence of its genuine nest
 test("nullable authored callable-body presence is structural, not a missing-required-field fabrication", () => {
   const fixture = genericFunctionScenario();
   fixture.functionTemplate.root.body = null;
-  assertCompleteValue(product.verifyTir(fixture.inputFor(fixture.functionTemplate), fixture.functionTemplate), [
+  assertCompleteValue(verifyBody(fixture.inputFor(fixture.functionTemplate), fixture.functionTemplate), [
     nodeViolation("kind-children-shape", 2, "typed syntax does not retain the authored kind, fields and child presence"),
   ]);
 });
@@ -5163,7 +5392,7 @@ test("nonfinite or reversed actual source intervals are not retained as valid ge
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   body.root.endOfFileToken.loc.end = -1;
-  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("origin-range", 1,
+  assertCompleteValue(verifyBody(input, body), [nodeViolation("origin-range", 1,
     "typed origin or lexical range does not retain the actual source interval")]);
 });
 
@@ -5171,7 +5400,7 @@ test("a present but wrong parent is distinct from an absent node reference", () 
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   body.root.endOfFileToken.parent = 1;
-  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("parent-reference", 1,
+  assertCompleteValue(verifyBody(input, body), [nodeViolation("parent-reference", 1,
     "typed node parent differs from the real authored parent")]);
 });
 
@@ -5179,7 +5408,7 @@ test("a missing parent retains both genuine parent-preservation and node-referen
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   body.root.endOfFileToken.parent = 99;
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     nodeViolation("parent-reference", 1, "typed node parent differs from the real authored parent"),
     nodeViolation("node-reference", 1, "node identity does not name an actual node in its module arena"),
   ]);
@@ -5189,7 +5418,7 @@ test("internally consistent renumbering still retains every authored-identity an
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   body.root.endOfFileToken.id = 2;
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     nodeViolation("authored-node-ids-preserved", 2, "typed node identity differs from the actual authored node at this position"),
     nodeViolation("no-inserted-nodes", 2, "typed syntax includes a node not present in the actual source arena"),
     nodeViolation("node-in-body-range", 2, "typed syntax contains a real or invented node outside its actual original body subtree"),
@@ -5200,22 +5429,22 @@ test("internally consistent renumbering still retains every authored-identity an
 for (const shared of [false, true]) {
   test(`the genuine ${shared ? "shared" : "distinct"} authored sibling identities preserve their exact arena association`, () => {
     const fixture = siblingIdentityScenario(shared, shared);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 test("one typed arena node cannot collapse two different authentic authored sibling identities", () => {
   const fixture = siblingIdentityScenario(false, true);
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("authored-node-ids-preserved", 1,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("authored-node-ids-preserved", 1,
     "typed node identity differs from the actual authored node at this position")]);
   fixture.body.root.statements.nodes[1] = { ...fixture.second };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 test("two typed arena objects cannot replace one actually shared authored sibling", () => {
   const fixture = siblingIdentityScenario(true, false);
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("no-inserted-nodes", 1,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("no-inserted-nodes", 1,
     "typed syntax duplicates an actual authored arena node")]);
   fixture.body.root.statements.nodes[1] = fixture.firstTyped;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("closed nested phase records reject checker views at their text boundary", () => {
@@ -5239,7 +5468,7 @@ test("local dense identity and actual local-slot existence remain distinct full-
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
   body.locals[0].id = 1;
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), [
     bodyViolation("local-dense", "local records are not dense in their actual body order", fixture.functionBody),
     bodyViolation("local-storage", "local identity does not select a real local storage slot", fixture.functionBody),
   ]);
@@ -5249,7 +5478,7 @@ test("a formal's actual finalized storage cannot disagree with its genuine local
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
   body.params[0].tsonic.storage = 2;
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), [
     bodyViolation("local-storage", "parameter storage does not retain its real local slot", fixture.functionBody),
     nodeViolation("binding-storage", 5, "binding occurrence does not retain its actual qualified local storage slot"),
   ]);
@@ -5259,7 +5488,7 @@ test("the authored Parameter occurrence must retain the actual body-local storag
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
   body.root.parameters.nodes[0].tsonic.storage = 2;
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), [
     bodyViolation("local-storage", "parameter storage does not retain its real local slot", fixture.functionBody),
     nodeViolation("binding-storage", 5, "binding occurrence does not retain its actual qualified local storage slot"),
   ]);
@@ -5269,7 +5498,7 @@ test("a type-correct formal role change does not retain the original parameter i
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
   body.params[0].tsonic.role = "optional";
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), [
     bodyViolation("parameter-order", "parameter records do not retain the actual declared formal order", fixture.functionBody),
     nodeViolation("parameter-order", 5, "parameter occurrence does not retain its actual declared formal and local association"),
   ]);
@@ -5290,7 +5519,7 @@ for (const defect of ["missing", "foreign-kind", "foreign-node", "foreign-owner"
         : defect === "foreign-node" ? { ...checked, id: checked.id + 100 }
           : { ...checked, tsonic: { ...checked.tsonic, parent: fixture.valueDefinition } }
       : original(reference);
-    const findings = product.verifyTir(input, body);
+    const findings = verifyBody(input, body);
     assert.equal(findings.some(value => value.rule === "parameter-order"), true, defect);
   });
 }
@@ -5299,18 +5528,18 @@ test("a duplicate selected header has no invented second checked formal", () => 
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
   body.params = [body.params[0], body.params[0]];
-  assert.equal(product.verifyTir(fixture.inputFor(body), body).some(value => value.rule === "parameter-order"), true);
+  assert.equal(verifyBody(fixture.inputFor(body), body).some(value => value.rule === "parameter-order"), true);
 });
 
 test("a parametric body reuses its exact canonical selected header rather than a detached equal copy", () => {
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), []);
   const canonical = body.params[0];
   body.params = [structuredClone(canonical)];
-  assert.equal(product.verifyTir(fixture.inputFor(body), body).some(value => value.rule === "module-node-identity"), true);
+  assert.equal(verifyBody(fixture.inputFor(body), body).some(value => value.rule === "module-node-identity"), true);
   body.params = [canonical];
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), []);
 });
 
 test("binding verification reads only the actual owning formal inventory, not unrelated checked bodies", async () => {
@@ -5334,11 +5563,11 @@ test("binding verification reads only the actual owning formal inventory, not un
   const findings = [];
   const emit = (rule, node, detail) => findings.push({ rule, node: node?.id ?? null, detail });
   const nodes = walkSyntaxTree(body.root, []);
-  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
   assert.deepEqual(findings, []);
   assert.equal(reads, 1, "the same ready owning parameter row inventory is indexed once");
   sources.delete(body.body);
-  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
   assert.equal(findings.some(value => value.rule === "parameter-order"), true,
     "a missing owning inventory is not silently accepted as a parameter match");
 });
@@ -5376,7 +5605,7 @@ test("capture binding verification indexes each demanded owner's formal local re
     const findings = [];
     const emit = (rule, node) => findings.push({ rule, node: node?.id ?? null });
     const sources = new Map(input.source.bodies.map(source => [source.body, source]));
-    verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+    verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
     assert.deepEqual(findings, []);
     assert.equal(inventoryReads, 1, "all captured formals borrow the same actual demanded-owner inventory");
     assert.equal(localReads, count * 2, "one formal index read and one exact local match per captured formal");
@@ -5384,14 +5613,14 @@ test("capture binding verification indexes each demanded owner's formal local re
       findings.length = 0;
       body.root.tsonic.closure = deferred(saved.map((capture, position) => position === index
         ? { ...capture, incoming: position === count ? { kind: "parameter", passing: "by-value" } : { kind: "binding" } } : capture));
-      verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+      verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
       assert.equal(findings.some(finding => finding.rule === "closure-capture-binding"), true,
         "a pattern-bound child remains its own binding and a real formal retains its exact passing evidence");
     }
     findings.length = 0;
     body.root.tsonic.closure = deferred(saved.map((capture, index) => index === 0
       ? { ...capture, local: { ...capture.local, local: -0 }, incoming: { kind: "parameter", passing: "move" } } : capture));
-    verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+    verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
     assert.equal(findings.some(finding => finding.rule === "capture-qualified"), true);
     assert.equal(findings.some(finding => finding.rule === "closure-capture-binding"), false,
       "a nonidentical local index cannot borrow another formal's passing evidence");
@@ -5447,10 +5676,10 @@ test("a genuine default initializer retains syntax but not callable-body semanti
   const nodeOf = input.nodeOf;
   input.nodeOf = reference => reference.kind === "body" && reference.value.body === defaultBody
     ? reference.value.node === 7 ? checked : null : nodeOf(reference);
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   body.evidence.push({ type: storage, component: { kind: "body", value: { body: body.body, node: 7 } },
     category: { kind: "known", category: "boolean" }, numeric: null, sum: null, nominal: null, pointer: null });
-  assert.equal(product.verifyTir(input, body).some(value => value.rule === "nested-boundary"), true,
+  assert.equal(verifyBody(input, body).some(value => value.rule === "nested-boundary"), true,
     "the separately owned initializer occurrence cannot be claimed as callable execution evidence");
 });
 
@@ -5458,7 +5687,7 @@ test("same-body capture invention retains both qualification and original-order 
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
   body.captures.push({ local: { body: fixture.functionBody, local: 0 }, capture: "captured-location" });
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), [
     bodyViolation("capture-qualified", "capture inventory does not name a real qualified outer local", fixture.functionBody),
     bodyViolation("stable-order", "capture and nested-body inventories do not retain actual source order", fixture.functionBody),
     bodyViolation("capture-rows-agree", "body capture rows do not state the outcome of the closure that creates the body", fixture.functionBody),
@@ -5480,12 +5709,13 @@ test("placed initializer modes use the actual authored creator and qualified inc
   const body = { ...fixture.functionTemplate, body: initializer, owner: fixture.valueDefinition, root, params: [], locals: [],
     captures: [{ local: captured, capture: "captured-location" }] };
   const input = fixture.inputFor(fixture.functionTemplate);
-  input.nodeOf = () => creator;
+  const nodeOf = input.nodeOf;
   const originals = new Map([[root.id, checked], [creator.id, creator]]);
   const sources = new Map([[outer.body, outer]]);
   const verify = () => {
     const findings = [];
-    verifyBindingSlots(input, body, [root], originals, sources, (rule, node) => findings.push({ rule, node: node?.id ?? null }));
+    verifyBindingSlots(body, [root], originals, sources, input.module.bodies, input.bodyOf, input.nodeOf,
+      (rule, node) => findings.push({ rule, node: node?.id ?? null }), admitFixtureRead());
     return findings;
   };
   assert.deepEqual(verify(), []);
@@ -5497,9 +5727,16 @@ test("placed initializer modes use the actual authored creator and qualified inc
   assert.equal(verify().some(row => row.rule === "closure-capture-binding"), true);
   body.captures[0].capture = "captured-location";
   assert.deepEqual(verify(), []);
+  const previous = outer.locals[0];
+  outer.locals[0] = { ...previous, role: "capture", capturedFrom: { body: fixture.outer.body, local: 0 } };
+  assert.deepEqual(checkTirAdmissionCuts(admitFixtureRead, (admit, read) =>
+    verifyBindingSlots(body, [root], originals, sources, input.module.bodies, input.bodyOf,
+      reference => { read("nodeOf"); return input.nodeOf(reference); },
+      (_rule, _node, detail) => assert.fail(detail), admit)), ["nodeOf"]);
+  outer.locals[0] = previous;
   input.nodeOf = () => null;
   assert.equal(verify().some(row => row.rule === "capture-qualified"), true);
-  input.nodeOf = () => creator;
+  input.nodeOf = nodeOf;
   creator.tsonic.initializer = null;
   assert.equal(verify().some(row => row.rule === "capture-qualified"), true);
   creator.tsonic.initializer = initializer;
@@ -5510,7 +5747,7 @@ test("placed initializer modes use the actual authored creator and qualified inc
 for (const form of ["whole", "empty", "unknown", "values", "empty-rest", "optional", "default"]) {
   test(`actual argument/formal transport retains the complete ${form} disposition`, () => {
     const fixture = argumentScenario(form);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     if (form === "whole") {
       assertCompleteValue(fixture.parts, [{ kind: "spread", expression: 5, tuple: [2, 2] }]);
       assertCompleteValue(fixture.decision.parameters, [
@@ -5529,13 +5766,13 @@ test("the actual omitted default initializer has one separate canonical publicat
   const publication = fixture.input.bodyOf;
   const queries = [];
   fixture.input.bodyOf = instance => { queries.push(instance); return publication(instance); };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   assertCompleteValue(queries, [{ body: "B[D[M[P[api];collections];f/default];default-argument;0]", bindings: { kind: "parametric" } }]);
 });
 test("a real missing omitted-initializer publication is not replaced by the calling body's own record", () => {
   const fixture = argumentScenario("default");
   fixture.input.bodyOf = () => null;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("nested-instance-key", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("nested-instance-key", 2,
     "instance does not select a real canonical body with the complete artifact environment")]);
 });
 
@@ -5548,9 +5785,9 @@ test("overloaded zero-argument calls retain the actual optional, default and emp
     fixture.captured.resolvedSignature.value = advertisedId;
     fixture.input.source.bodies[0].candidateLists[0].candidates[0].appliedSignature.value = advertisedId;
     fixture.input.types.terms[1].calls = [advertisedId];
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [], `${form}: implementation formals, not overload arity, own transport`);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [], `${form}: implementation formals, not overload arity, own transport`);
     fixture.decision.parameters = [];
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [
       nodeViolation("argument-total", 2, "application dispositions are not total over the real API formals and receiver"),
     ], `${form}: decision and transport report the same complete public finding once through the existing exact-key emitter`);
   }
@@ -5590,7 +5827,7 @@ function parameterCodecFixture(passing, role, initializer, localRecord) {
 for (const passing of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"]) {
   test(`closed API/formal/actual argument transport retains ${passing} without a passing-mode guess`, () => {
     const fixture = argumentScenario("unknown", passing);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     assert.equal(fixture.decision.parameters[0].passing, passing);
     assert.equal(fixture.parameters[0].passing, passing);
   });
@@ -5625,49 +5862,49 @@ for (const role of ["parameter", "binding", "capture", "catch"]) {
 test("missing real parameter dispositions retain the full argument-total finding", () => {
   const fixture = argumentScenario();
   fixture.application.arguments = [];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("argument-total", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("argument-total", 2,
     "application dispositions are not total over the real API formals and receiver")]);
 });
 
 test("a provided disposition cannot silently select another actual formal ordinal", () => {
   const fixture = argumentScenario();
   fixture.application.arguments[0].parameter = 1;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("argument-parameter-order", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("argument-parameter-order", 2,
     "argument and mapping parameters do not retain formal order")]);
 });
 
 test("a mapping passing mismatch is not repaired from the actual captured argument mode", () => {
   const fixture = argumentScenario();
   fixture.decision.parameters[0].passing = "move";
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("argument-passing", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("argument-passing", 2,
     "argument mapping does not retain the formal passing mode")]);
 });
 
 test("optional absence is not an empty-rest disposition", () => {
   const fixture = argumentScenario("optional");
   fixture.application.arguments[0].value = { kind: "empty-rest" };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("omission-valid", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("omission-valid", 2,
     "omission does not match the selected capability, default initializer or rest formal")]);
 });
 
 test("ordinary/rest/spread parts retain their actual authored evaluation order", () => {
   const fixture = argumentScenario("values");
   fixture.application.arguments[0].parts = [fixture.parts[2], fixture.parts[1], fixture.parts[0]];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("authored-order-preserved", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("authored-order-preserved", 2,
     "argument transport does not retain the original authored argument sequence")]);
 });
 
 test("a known empty authored spread cannot become an unknown tuple", () => {
   const fixture = argumentScenario("empty");
   fixture.parts[0].tuple = null;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("empty-spread-preserved", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("empty-spread-preserved", 2,
     "authored empty spread is not retained in the whole spread tuple and rest source indices")]);
 });
 
 test("dropping an empty spread retains both actual transport and empty-source findings", () => {
   const fixture = argumentScenario("empty");
   fixture.application.arguments[0].parts = [];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("authored-order-preserved", 2, "argument transport does not retain the original authored argument sequence"),
     nodeViolation("empty-spread-preserved", 2, "authored empty spread is not retained in the whole spread tuple and rest source indices"),
   ]);
@@ -5685,24 +5922,24 @@ test("several real tuple components join once to their retained whole rest sprea
     { kind: "rest", parameter: 2, arguments: [0], passing: "by-value" }];
   application.arguments = [application.arguments[0], { kind: "provided", parameter: 1, expression: 5 },
     { ...application.arguments[1], parameter: 2 }];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   decision.parameters[0].component = 1;
   decision.parameters[1].component = 0;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("authored-order-preserved", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("authored-order-preserved", 2,
     "argument transport does not retain the original authored argument sequence")]);
 });
 
 for (const disposition of ["true", "false", "dynamic"]) {
   test(`actual ${disposition} conditional branches retain their own selected/never demand contexts`, () => {
     const fixture = conditionalScenario(disposition);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
 test("a claimed control cannot replace the actual authored condition and silently repair its children", () => {
   const fixture = conditionalScenario("true");
   fixture.typed.tsonic.selection.control = 5;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("controlled-demand", 2, "selection does not retain its authored control and branch endpoints"),
     nodeViolation("controlled-demand", 5, "demand does not retain its actual enclosing control, branch and condition"),
     nodeViolation("controlled-demand", 7, "demand does not retain its actual enclosing control, branch and condition"),
@@ -5712,59 +5949,59 @@ test("a claimed control cannot replace the actual authored condition and silentl
 test("a never-evaluated conditional branch is not an unconditional demand", () => {
   const fixture = conditionalScenario("true");
   fixture.typed.whenFalse.tsonic.demand = { kind: "always" };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("controlled-demand", 7,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("controlled-demand", 7,
     "controlled branch does not retain its selected or never-evaluated demand")]);
 });
 
 test("a selected branch cannot substitute an unrelated actual control node", () => {
   const fixture = conditionalScenario();
   fixture.typed.whenTrue.tsonic.demand.control = 7;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("controlled-demand", 5,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("controlled-demand", 5,
     "demand does not retain its actual enclosing control, branch and condition")]);
 });
 
 test("actual native operator endpoints retain their real lexical permission scope", () => {
   const fixture = operationScenario();
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("missing lexical scopes retain the complete source-inventory and operation cofindings", () => {
   const fixture = operationScenario();
   const scopes = fixture.body.scopes;
   fixture.body.scopes = [];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     bodyViolation("permission-scope", "lexical scope inventory does not retain actual authored scope order and ownership"),
     nodeViolation("permission-scope", 2, "operation permission scope is not an actual enclosing lexical scope"),
   ]);
   fixture.body.scopes = scopes;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("a selected operation cannot invent a different actual occurrence result", () => {
   const fixture = operationScenario();
   fixture.operation.decision.result = 0;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("operation-type", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("operation-type", 2,
     "selected occurrence operation does not retain its value result endpoint")]);
 });
 
 test("a selected native operator retains its authored operand count and value endpoints", () => {
   const fixture = operationScenario();
   fixture.operation.decision.operands = [];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("operation-type", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("operation-type", 2,
     "selected operation does not retain the authored operand count and value endpoints")]);
 });
 
 test("an operation permission cannot select a present nonscope expression as its lexical owner", () => {
   const fixture = operationScenario();
   fixture.operation.permissionScope = 3;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("permission-scope", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("permission-scope", 2,
     "operation permission scope is not an actual enclosing lexical scope")]);
 });
 
 test("a mismatched lexical permission inventory preserves both actual data and enclosing-scope failures", () => {
   const fixture = operationScenario();
   fixture.body.scopes[0].attributes.push({ declaration: ownerId, occurrence: { kind: "body", value: { body: bodyId, node: 0 } }, arguments: [] });
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     bodyViolation("permission-scope", "lexical scope inventory does not retain actual authored scope order and ownership"),
     nodeViolation("permission-scope", 2, "operation permission scope is not an actual enclosing lexical scope"),
   ]);
@@ -5777,7 +6014,7 @@ for (const nodes of [[], [2], [2, 3], [3, 2]]) {
       arguments: nodes.map(node => ({ kind: "body", value: { body: bodyId, node } })) });
     fixture.body.scopes[0].attributes = [attribute()];
     fixture.input.source.bodies[0].scopes[0].attributes = [attribute()];
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 for (const field of ["occurrence", "argument"]) {
@@ -5789,7 +6026,7 @@ for (const field of ["occurrence", "argument"]) {
     fixture.input.source.bodies[0].scopes[0].attributes = [attribute()];
     if (field === "occurrence") fixture.body.scopes[0].attributes[0].occurrence.value.node = 2;
     else fixture.body.scopes[0].attributes[0].arguments[0].value.node = 3;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [bodyViolation("permission-scope",
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [bodyViolation("permission-scope",
       "lexical scope attributes do not retain actual authored permission data")]);
   });
 }
@@ -5804,21 +6041,21 @@ test("a conversion's structural source is checked without replaying the embeddin
   const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "conversion", embedding: carriedEmbedding, from: 1, to: 1 },
     operands: [1], result: 1, execution: { kind: "pure" } } };
   fixture.typed.tsonic.conversion = { kind: "convert", role: "initialization", operation };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   operation.decision.operands = [0];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("conversion-source", 2, "conversion does not retain its value source endpoint"),
     nodeViolation("operation-type", 2, "conversion operation does not retain its explicit operand and result endpoints")]);
 });
 
 test("identity conversion preserves its actual source and destination without a relation solver", () => {
   const fixture = operationScenario();
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.typed.tsonic.convertedType = 0;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("conversion-destination", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("conversion-destination", 2,
     "conversion does not retain its destination endpoint")]);
   fixture.typed.tsonic.convertedType = 1;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("a conversion's structural destination is checked without guessing a receiver or relation", () => {
@@ -5827,21 +6064,21 @@ test("a conversion's structural destination is checked without guessing a receiv
     operands: [1], result: 1, execution: { kind: "pure" } } };
   fixture.typed.tsonic.conversion = { kind: "convert", role: "initialization", operation };
   fixture.typed.tsonic.convertedType = 0;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("conversion-destination", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("conversion-destination", 2,
     "conversion does not retain its destination endpoint")]);
 });
 
 test("a saved generic conversion retains its genuine rigid-parameter declaration and full captured environment", () => {
   const fixture = deferredConversionScenario();
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   assert.equal(fixture.context.bindings.methodBindings[0].kind, "rigid");
-  assertCompleteValue(fixture.context.bindings.methodBindings[0].parameter, fixture.identity);
+  assertCompleteValue(fixture.context.bindings.methodBindings[0].parameter, fixture.typeDefinition);
 });
 
 test("a saved conversion cannot substitute a different genuine occurrence as its own", () => {
   const fixture = deferredConversionScenario();
   fixture.context.occurrence.node = fixture.nodes.return;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("conversion-deferred", 9, "deferred conversion does not retain its occurrence and result"),
     nodeViolation("deferred-parameters", 9,
       "saved invocation does not retain its occurrence and complete captured rigid-parameter support"),
@@ -5851,14 +6088,14 @@ test("a saved conversion cannot substitute a different genuine occurrence as its
 test("a saved conversion result is not silently repaired from its current value endpoint", () => {
   const fixture = deferredConversionScenario();
   fixture.deferred.result = 2;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("conversion-deferred", 9,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("conversion-deferred", 9,
     "deferred conversion does not retain its occurrence and result")]);
 });
 
 test("a saved invocation cannot omit the genuine rigid parameter required by its reachable input type", () => {
   const fixture = deferredConversionScenario();
   fixture.context.bindings = emptyBindings();
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("binding-vector-complete", 9, "type verifier: binding-vector-complete"),
     nodeViolation("deferred-parameters", 9,
       "saved invocation does not retain its occurrence and complete captured rigid-parameter support"),
@@ -5868,9 +6105,9 @@ test("a saved invocation cannot omit the genuine rigid parameter required by its
 test("an actual refinement result retains the finalized value endpoint", () => {
   const fixture = operationScenario();
   fixture.typed.tsonic.narrowing = { kind: "identity", type: 1 };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.typed.tsonic.narrowing.type = 0;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("refinement-destination", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("refinement-destination", 2,
     "refinement does not retain its value endpoint")]);
 });
 
@@ -5878,32 +6115,32 @@ test("an error resolution needs the actual current source error diagnostic, not 
   const fixture = memberScenario("property-access");
   const receiver = fixture.body.root.statements.nodes[0].expression.expression;
   receiver.tsonic.resolution = { kind: "error", diagnostic: 0 };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("error-diagnostic", 3,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("error-diagnostic", 3,
     "error resolution does not select an actual error diagnostic at its source origin")]);
   fixture.input.diagnostics = [{ code: { kind: "checker", number: 1234, rendered: "TS1234" }, severity: "error",
     site: { kind: "source", origin: origin() }, source: "checker", evidence: [], message: "authored source error",
     arguments: [], related: [], fix: null }];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 for (const [role, token] of [["arithmetic", "PlusToken"], ["comparison", "EqualsEqualsEqualsToken"],
   ["short-circuit", "AmpersandAmpersandToken"], ["assignment", "EqualsToken"], ["sequence", "CommaToken"]]) {
   test(`the closed ${role} binary role retains its actual authored operator`, () => {
     const fixture = binaryScenario(role, token);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
 test("a genuine wrong binary role is rejected independently of phase-record constructibility", () => {
   const fixture = binaryScenario("sequence", "PlusToken");
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("binary-role-operator", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("binary-role-operator", 2,
     "binary role does not match its authored operator token")]);
 });
 
 test("a property-name cannot replace an actual authored value occurrence", () => {
   const fixture = memberScenario("property-access");
   fixture.body.root.statements.nodes[0].expression.expression.tsonic = { role: "property-name", key: { kind: "text", value: "x" } };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("occurrence-role", 3, "typed occurrence does not retain its authored occurrence role"),
     nodeViolation("name-role-position", 3, "name role does not match its original syntactic position"),
     nodeViolation("typed-value-occurrence", 3, "authored value occurrence has no typed value endpoints"),
@@ -5916,9 +6153,9 @@ test("a real value evidence index retains its exact qualified occurrence compone
   const evidence = { ...typeEvidence({ kind: "known", category: "number" }), type: 1, component };
   fixture.body.evidence = [evidence];
   fixture.operand.tsonic.evidenceIndex = 0;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   evidence.component = { kind: "body", value: { body: bodyId, node: 2 } };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("evidence-reference", 3,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("evidence-reference", 3,
     "value evidence does not retain its actual occurrence component")]);
 });
 
@@ -5926,7 +6163,7 @@ for (const index of [-1, -0, 0.5, 1, Infinity]) {
   test(`a genuine invalid value evidence coordinate is not repaired: ${Object.is(index, -0) ? "-0" : index}`, () => {
     const fixture = operationScenario();
     fixture.operand.tsonic.evidenceIndex = index;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("evidence-reference", 3,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("evidence-reference", 3,
       "value evidence index and type do not select a present evidence record")]);
   });
 }
@@ -5936,9 +6173,9 @@ test("body evidence ordering follows actual own-body occurrence order, not arbit
   const at = node => ({ ...typeEvidence({ kind: "known", category: "number" }), type: 1,
     component: { kind: "body", value: { body: bodyId, node } } });
   fixture.body.evidence = [at(2), at(3)];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.body.evidence.reverse();
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [bodyViolation("evidence-order",
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [bodyViolation("evidence-order",
     "evidence vector does not retain actual own-body occurrence order")]);
 });
 
@@ -5950,7 +6187,7 @@ for (const mismatch of ["kind", "asynchronous", "thrown"]) {
     if (mismatch === "kind") protocol.kind = "iterate";
     if (mismatch === "asynchronous") protocol.asynchronous = true;
     if (mismatch === "thrown") protocol.thrown = 2;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation(
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation(
       mismatch === "thrown" ? "protocol-thrown-unknown" : "protocol-total", 4,
       mismatch === "thrown" ? "protocol thrown channel is not the canonical intrinsic unknown type"
         : "selected protocol does not retain its actual authored kind and asynchrony")]);
@@ -5966,9 +6203,9 @@ test("a protocol step retains its genuine bodyless API result without inventing 
     execution: { kind: "invocation", writesStorage: true, failure: "unwind" } } };
   spread.tsonic.protocol.decision.steps = [{ role: "next", operation, callee }];
   replaceScopeInventory(fixture.input, Array.from({ length: 7 }, emptyScope));
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   operation.decision.result = 2;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("protocol-total", 4,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("protocol-total", 4,
     "protocol step operation and callee do not retain the same selected endpoint and result")]);
 });
 
@@ -5982,13 +6219,13 @@ test("the saved protocol operation checks its own closed step results and canoni
   call.tsonic.operation = { kind: "decided", decision: { permissionScope: null,
     decision: { kind: "selected", operation: identity, operands: [], result: 0, execution: { kind: "pure" } } } };
   replaceScopeInventory(fixture.input, Array.from({ length: 6 }, emptyScope));
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   identity.steps[0].result = 2;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("protocol-total", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("protocol-total", 2,
     "protocol step operation and callee do not retain the same selected endpoint and result")]);
   identity.steps[0].result = 0;
   identity.thrown = 2;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("protocol-thrown-unknown", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("protocol-thrown-unknown", 2,
     "protocol thrown channel is not the canonical intrinsic unknown type")]);
 });
 
@@ -6197,7 +6434,7 @@ test("actual child cycles fail both typed ports at the child path and text at it
   body.root = root;
   assert.throws(() => product.printTir(body), { name: "TypeError",
     message: 'ir-tir: syntax cycle at $syntax["statements"]["nodes"][0]' });
-  assert.throws(() => product.verifyTir(emptyVerificationInput(body), body), { name: "TypeError",
+  assert.throws(() => verifyBody(emptyVerificationInput(body), body), { name: "TypeError",
     message: 'ir-tir: syntax cycle at $body["root"]["statements"]["nodes"][0]' });
   const text = completeEmptyWire.split("\n")[0] + "\n" +
     `n:0=Block(${headerWire}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:0]), multiLine=false, tsonic=null)\n`;
@@ -6232,7 +6469,7 @@ test("layered legal sharing has one complete arena declaration and verification 
     assertCompleteValue(normalizeRoot(node), normalizeRoot(fixture.typed[level]), `entire arena node${level}`, compareCaseValues);
     node = node.statements.nodes[0];
   }
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("shared syntax uses first arena order for complete evidence vectors, never last incoming edge order", () => {
@@ -6241,9 +6478,9 @@ test("shared syntax uses first arena order for complete evidence vectors, never 
   fixture.input.source.tree.statements.nodes.push(fixture.input.source.tree.statements.nodes[0]);
   const at = node => ({ ...typeEvidence({ kind: "dynamic" }), component: { kind: "body", value: { body: bodyId, node } } });
   fixture.body.evidence = [at(1), at(2)];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.body.evidence.reverse();
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [bodyViolation("evidence-order",
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [bodyViolation("evidence-order",
     "evidence vector does not retain actual own-body occurrence order")]);
 });
 
@@ -6495,7 +6732,7 @@ for (const name of ["params", "evidence", "syntax"]) {
     const printPath = name === "syntax" ? '$syntax["statements"]["nodes"][0]' : `$body["${name}"][0]`;
     const verifyPath = name === "syntax" ? '$body["root"]["statements"]["nodes"][0]' : `$body["${name}"][0]`;
     assert.throws(() => product.printTir(body), { name: "TypeError", message: `ir-tir: sparse vector at ${printPath}` });
-    assert.throws(() => product.verifyTir(emptyVerificationInput(body), body),
+    assert.throws(() => verifyBody(emptyVerificationInput(body), body),
       { name: "TypeError", message: `ir-tir: sparse vector at ${verifyPath}` });
   });
 }
@@ -6512,7 +6749,7 @@ test("100000 actual inline CategoryEvidence layers print and parse without host-
   const parsed = product.parseTir(expected);
   assert.equal(parsed.kind, "parsed");
   assertCompleteValue(parsed.value, body, "the entire 100000-layer typed value is retained", compareCaseValues);
-  assertCompleteValue(product.verifyTir(emptyVerificationInput(body), body), [], "the same complete 100000-layer value is verified without recursion or refusal");
+  assertCompleteValue(verifyBody(emptyVerificationInput(body), body), [], "the same complete 100000-layer value is verified without recursion or refusal");
 });
 
 test("C2931 actual inline cycles throw with their exact path while inline aliases are encoded by value", () => {
@@ -6523,7 +6760,7 @@ test("C2931 actual inline cycles throw with their exact path while inline aliase
   cyclicBody.evidence = [typeEvidence(cycle)];
   assert.throws(() => product.printTir(cyclicBody), { name: "TypeError",
     message: 'ir-tir: inline cycle at $body["evidence"][0]["category"]["alternatives"][0]' });
-  assert.throws(() => product.verifyTir(emptyVerificationInput(cyclicBody), cyclicBody), { name: "TypeError",
+  assert.throws(() => verifyBody(emptyVerificationInput(cyclicBody), cyclicBody), { name: "TypeError",
     message: 'ir-tir: inline cycle at $body["evidence"][0]["category"]["alternatives"][0]' });
   const shared = { kind: "choice", alternatives: [{ kind: "dynamic" }] };
   const body = emptyModuleBody();
@@ -6537,7 +6774,7 @@ test("C2931 actual inline cycles throw with their exact path while inline aliase
   assertCompleteValue(parsed.value, body, "complete inline values agree independently of allocation", compareCaseValues);
   assert.equal(parsed.value.evidence[0].category === parsed.value.evidence[1].category, false,
     "inline identity is not an arena identity or hidden second wire reference");
-  assertCompleteValue(product.verifyTir(emptyVerificationInput(body), body), [], "shared inline values are each visited without being mistaken for a cycle");
+  assertCompleteValue(verifyBody(emptyVerificationInput(body), body), [], "shared inline values are each visited without being mistaken for a cycle");
 });
 
 test("every TypedString role retains the full closed record and exact UTF16/lone-surrogate payload", () => {
@@ -6620,10 +6857,10 @@ for (const holder of ["property-access", "element-access", "property", "shorthan
     if (holder === "property" || holder === "shorthand") actual.member = deferred;
     else actual.selection = deferred;
     fixture.input.memberTableOf = () => { throw new Error("a deferred request has no selected member occurrence"); };
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     assertCompleteValue(fixture.queries, []);
     deferred.deferred.invocation.input.context.occurrence.node = 0;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("deferred-parameters", fixture.memberNode,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("deferred-parameters", fixture.memberNode,
       "saved invocation does not retain its occurrence and complete captured rigid-parameter support")]);
   });
 }
@@ -6723,10 +6960,10 @@ for (const holder of ["property-access", "element-access", "property", "shorthan
   test(`actual bodyless accessor endpoints are retained for ${holder}`, () => {
     const fixture = memberScenario(holder);
     attachActualGetter(fixture);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     fixture.selection.getter = null;
     bodyScopes(fixture.input, fixture.body).splice(-2);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("accessor-activation", fixture.memberNode,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("accessor-activation", fixture.memberNode,
       "selected accessor activation does not retain the actual member endpoint and access role")]);
   });
 }
@@ -6735,7 +6972,7 @@ for (const holder of ["property-access", "element-access", "property", "shorthan
   test(`authentic per-instance member occurrence: ${holder}`, () => {
     const fixture = memberScenario(holder);
     const expectedQueries = fixture.facts.map(fact => ({ instance: fact.instance, occurrence: fact.occurrence }));
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     assertCompleteValue(fixture.queries, expectedQueries);
   });
   for (const mismatch of ["instance", "ordinal", "absent", "empty-table"]) {
@@ -6755,7 +6992,7 @@ for (const holder of ["property-access", "element-access", "property", "shorthan
           fixture.input.source.tree.statements.nodes[0].expression.expression.tsonic.value.views.read = available(2);
         }
       }
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("member-origin", fixture.memberNode,
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("member-origin", fixture.memberNode,
         "member selection does not retain a real member key and its actual declared origins")]);
       assert.equal(fixture.queries.length, 1);
     });
@@ -6767,7 +7004,7 @@ test("a conversion that carries a construction is refused, and its part and the 
   const expected = [0, 1].map(ordinal => ({ instance: { body: bodyId, bindings: { kind: "parametric" } },
     occurrence: { kind: "construction-part", node: 2, ordinal, source: { body: bodyId, node: 2 },
       destination: { root: { kind: "body", value: { body: bodyId, node: 2 } }, path: [] }, part: 0 } }));
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("conversion-operation", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("conversion-operation", 2,
     "a conversion is carried out by the conversion identity, and a backed conversion by a core or library operation")]);
   assertCompleteValue(fixture.queries, expected);
 });
@@ -6776,13 +7013,13 @@ for (const holder of ["calculation", "protocol", "disposal"]) {
   test(`actual ${holder} construction-part holders use the same canonical per-instance occurrence reader`, () => {
     const fixture = nestedPartScenario(holder);
     const expected = [{ instance: fixture.fact.instance, occurrence: fixture.fact.occurrence }];
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     assertCompleteValue(fixture.queries, expected);
   });
   test(`actual ${holder} construction-part holders cannot reuse another operation's ordinal`, () => {
     const fixture = nestedPartScenario(holder);
     fixture.fact.occurrence.ordinal = 1;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("member-origin", fixture.node.id,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("member-origin", fixture.node.id,
       "member selection does not retain a real member key and its actual declared origins")]);
     assert.equal(fixture.queries.length, 1);
   });
@@ -6795,7 +7032,7 @@ for (const coordinate of ["source", "destination", "part"]) {
     if (coordinate === "destination") fixture.facts[0].occurrence.destination = {
       root: { kind: "body", value: { body: bodyId, node: 1 } }, path: [] };
     if (coordinate === "part") fixture.facts[0].occurrence.part = 1;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
       "member selection does not retain a real member key and its actual declared origins")]);
   });
 }
@@ -6820,12 +7057,12 @@ for (const flags of [[], ["Ambient"]]) {
 test("C2996 module node sites belong to the subject tree, not its conflicting publication label", () => {
   const fixture = bodylessModuleScenario();
   fixture.module.module = "M[P[p];other]";
-  fixture.input.bindingScopesOf = target => target.kind === "module" && target.module === "M[P[p];other]" ? [] : null;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [nodeViolation("module-node-identity", 0,
+  fixture.input.bindingScopesOf = target => completeScopes(target.kind === "module" && target.module === "M[P[p];other]" ? [] : null);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("module-node-identity", 0,
     "module tree does not retain its actual source and publication identity")]);
   fixture.module.module = moduleId;
-  fixture.input.bindingScopesOf = target => target.kind === "module" && target.module === moduleId ? [] : null;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  fixture.input.bindingScopesOf = target => completeScopes(target.kind === "module" && target.module === moduleId ? [] : null);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
 });
 
 test("C2996 another genuine module qualifies its own body subject and restored identity", () => {
@@ -6855,13 +7092,13 @@ test("C2996 another genuine module qualifies its own body subject and restored i
   input.nodeOf = reference => reference.kind === "body" && reference.value.body === identity ||
     reference.kind === "item" && reference.value.owner === owner ? reference.value.node === 0 ? input.source.tree :
       reference.value.node === 1 ? input.source.tree.endOfFileToken : null : null;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   input.module.module = moduleId;
-  assertCompleteValue(product.verifyTir(input, body), [{ rule: "module-node-identity",
+  assertCompleteValue(verifyBody(input, body), [{ rule: "module-node-identity",
     site: { kind: "node", module, node: 0 }, detail: [{ kind: "text",
       value: "body does not retain its module identity and canonical parametric subtree" }] }]);
   input.module.module = module;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 for (const shape of ["ordinary-field", "flags", "sparse-flags", "directive", "inline-field"]) {
@@ -6874,14 +7111,14 @@ for (const shape of ["ordinary-field", "flags", "sparse-flags", "directive", "in
     if (shape === "directive") body.root.checkJsDirective = { enabled: true, range: { pos: 0, end: 0,
       kind: "SingleLineCommentTrivia", hasTrailingNewLine: false } };
     if (shape === "inline-field") body.root.statements = { ...body.root.statements, loc: { pos: 1, end: 0 } };
-    assertCompleteValue(product.verifyTir(input, body), [nodeViolation("kind-children-shape", 0,
+    assertCompleteValue(verifyBody(input, body), [nodeViolation("kind-children-shape", 0,
       "typed syntax does not retain the authored kind, fields and child presence")]);
     if (shape === "ordinary-field") body.root.languageVariant = "Standard";
     if (shape === "flags" || shape === "sparse-flags") body.root.flags = [];
     if (shape === "sparse-flags") input.source.tree.flags = [];
     if (shape === "directive") body.root.checkJsDirective = null;
     if (shape === "inline-field") body.root.statements = { ...body.root.statements, loc: { pos: 0, end: 0 } };
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
   });
 }
 
@@ -6898,14 +7135,14 @@ test("F4 absent authentic source body retains every complete publication cofindi
   const input = emptyVerificationInput(body);
   const original = input.source.bodies[0];
   input.source.bodies = [];
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     bodyViolation("body-owner", "body identity and owner do not retain the actual original body"),
     bodyViolation("stable-order", "canonical template publication does not retain actual source body order"),
     bodyViolation("nested-template-identity", "published template is not the authentic body's canonical shared module subtree"),
     nodeViolation("nested-template-identity", 0, "typed template does not retain its real authored body and shared syntax identity"),
   ]);
   input.source.bodies = [original];
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 for (const derived of [[{ kind: "expansion", expansion: "one" }], [{ kind: "lowering", pass: "elaborate" }]]) {
@@ -6915,10 +7152,10 @@ for (const derived of [[{ kind: "expansion", expansion: "one" }], [{ kind: "lowe
     input.source.tree.origin.derived = derived;
     body.root.origin.derived = derived[0].kind === "expansion" ? [{ kind: "expansion", expansion: "two" }]
       : [{ kind: "lowering", pass: "front" }];
-    assertCompleteValue(product.verifyTir(input, body), [nodeViolation("origin-range", 0,
+    assertCompleteValue(verifyBody(input, body), [nodeViolation("origin-range", 0,
       "typed origin or lexical range does not retain the actual source interval")]);
     body.root.origin.derived = structuredClone(derived);
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
   });
 }
 
@@ -6927,10 +7164,10 @@ for (const family of ["terms", "signatures"]) {
     const body = emptyModuleBody();
     const input = emptyVerificationInput(body);
     input.types[family].length = 2;
-    assertCompleteValue(product.verifyTir(input, body), [bodyViolation("type-closed",
+    assertCompleteValue(verifyBody(input, body), [bodyViolation("type-closed",
       `type verifier: ${family === "terms" ? "type-reference" : "signature-reference"}`)]);
     input.types[family].length = 1;
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
   });
 }
 
@@ -6938,9 +7175,9 @@ test("F4 ITEM-qualified evidence keeps its actual source and complete BODY oppos
   const body = emptyModuleBody();
   body.evidence = [{ ...typeEvidence({ kind: "dynamic" }), component: { kind: "item", value: { owner: ownerId, node: 0 } } }];
   const input = emptyVerificationInput(body);
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   body.evidence[0].component = { kind: "body", value: { body: bodyId, node: 0 } };
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 for (const shared of [false, true]) {
@@ -6949,14 +7186,14 @@ for (const shared of [false, true]) {
     const old = fixture.deferred.invocation.input.from;
     if (shared) old.type = 99;
     else fixture.deferred.invocation.input.from = { ...old, type: 99 };
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [
       nodeViolation("type-closed", 9, "typed reference does not reach a present closed type/signature graph"),
       nodeViolation("evidence-reference", 9, "type verifier: type-reference"),
       ...(shared ? [nodeViolation("evidence-reference", 9, "type verifier: type-reference")] : []),
     ]);
     old.type = 1;
     fixture.deferred.invocation.input.from = old;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -6964,13 +7201,15 @@ for (const endpoint of ["advertised", "api"]) {
   test(`F4 actual ${endpoint} signature declaration is independently qualified`, () => {
     const fixture = callScenario();
     const signature = fixture.types.signatures[fixture.decision[endpoint].signature];
+    const completion = endpoint === "api" ? [nodeViolation("completion-endpoint", 2,
+      "selected completion does not retain the actual activated body's signature and channels")] : [];
     signature.declaration = ownerId;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("call-endpoints", 2,
-      "selected callable endpoints do not belong to their actual declarations and candidate")]);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("call-endpoints", 2,
+      "selected callable endpoints do not belong to their actual declarations and candidate"), ...completion]);
     signature.declaration = fixture.definition;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     signature.declaration = null;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), completion);
   });
 }
 
@@ -6987,14 +7226,14 @@ for (const malformed of ["member-hole", "member-repeat", "accessor-hole", "acces
         fixture.table.accessors = [accessor, accessor];
       }
       if (receiverMismatch) fixture.table.receiver = 0;
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), [
         ...(receiverMismatch ? [nodeViolation("member-origin", 2, "member inventory does not retain the actual receiver type")] : []),
         nodeViolation("member-origin", 2, "member selection does not retain a real member key and its actual declared origins"),
       ]);
       fixture.table.members = members;
       fixture.table.accessors = [];
       fixture.table.receiver = 1;
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     });
   }
 }
@@ -7004,11 +7243,11 @@ test("F4 a selected getter's genuine endpoint cannot become a null decision endp
   attachActualGetter(fixture);
   const actual = fixture.decision.getter;
   fixture.decision.getter = null;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("access-location", 2, "member location is an accessor exactly when a getter or setter is selected"),
     nodeViolation("accessor-activation", 2, "selected accessor activation does not retain the actual member endpoint and access role")]);
   fixture.decision.getter = actual;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("a member location is an accessor exactly when the decision selects a getter or a setter", () => {
@@ -7016,14 +7255,14 @@ test("a member location is an accessor exactly when the decision selects a gette
   const finding = nodeViolation("access-location", 2, "member location is an accessor exactly when a getter or setter is selected");
   const field = memberScenario("property-access");
   field.decision.location = data;
-  assertCompleteValue(product.verifyTir(field.input, field.body), []);
+  assertCompleteValue(verifyBody(field.input, field.body), []);
   field.decision.location = { kind: "accessor" };
-  assertCompleteValue(product.verifyTir(field.input, field.body), [finding]);
+  assertCompleteValue(verifyBody(field.input, field.body), [finding]);
   const accessor = memberScenario("property-access");
   attachActualGetter(accessor);
-  assertCompleteValue(product.verifyTir(accessor.input, accessor.body), []);
+  assertCompleteValue(verifyBody(accessor.input, accessor.body), []);
   accessor.decision.location = data;
-  assertCompleteValue(product.verifyTir(accessor.input, accessor.body), [finding]);
+  assertCompleteValue(verifyBody(accessor.input, accessor.body), [finding]);
 });
 
 for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
@@ -7034,16 +7273,16 @@ for (const family of ["classBindings", "methodBindings", "capturedBindings", "se
     bindings[family] = Array(1);
     const other = { ...body, bindings: { kind: "instantiated", bindings } };
     input.module.bodies.push(other);
-    assertCompleteValue(product.verifyTir(input, body), []);
-    assert.throws(() => product.verifyTir(input, other), { name: "TypeError",
+    assertCompleteValue(verifyBody(input, body), []);
+    assert.throws(() => verifyBody(input, other), { name: "TypeError",
       message: `ir-tir: sparse vector at $body["bindings"]["bindings"]["${family}"][0]` });
     input.module.bodies = [body, body];
-    assertCompleteValue(product.verifyTir(input, body), [
+    assertCompleteValue(verifyBody(input, body), [
       bodyViolation("template-shared-once", "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once"),
       bodyViolation("template-shared-once", "actual source body has more than one canonical parametric template"),
     ]);
     input.module.bodies = [body];
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
   });
 }
 
@@ -7051,15 +7290,16 @@ test("F4 a publication vector hole is DATA at the body port and a caller defect 
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   input.module.bodies.length = 2;
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("template-shared-once",
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("template-shared-once",
     "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once")]);
-  assert.throws(() => product.verifyTirModule(input, input.module), { name: "TypeError",
+  assert.throws(() => verifyChapter(input, input.module), { name: "TypeError",
     message: 'ir-tir: sparse vector at $module["bodies"][1]' });
   input.module.bodies.length = 1;
   const actual = input.bindingScopesOf;
-  input.bindingScopesOf = target => target.kind === "module" && target.module === moduleId ? [] : actual(target);
-  assertCompleteValue(product.verifyTir(input, body), []);
-  assertCompleteValue(product.verifyTirModule(input, input.module), []);
+  input.bindingScopesOf = (target, subject, visit) => target.kind === "module" && target.module === moduleId
+    ? completeScopes([]) : actual(target, subject, visit);
+  assertCompleteValue(verifyBody(input, body), []);
+  assertCompleteValue(verifyChapter(input, input.module), []);
 });
 
 const argumentFindings = {
@@ -7100,10 +7340,10 @@ for (const [name, form, mutate, expected] of [
   test(`F4 entire transport/formal vector ${name}`, () => {
     const fixture = argumentScenario(form);
     mutate(fixture);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), expected.map(key =>
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), expected.map(key =>
       nodeViolation(argumentFindings[key][0], 2, argumentFindings[key][1])));
     const valid = argumentScenario(form);
-    assertCompleteValue(product.verifyTir(valid.input, valid.body), []);
+    assertCompleteValue(verifyBody(valid.input, valid.body), []);
   });
 }
 
@@ -7114,21 +7354,21 @@ test("F4 required void omission consumes the actual selected capability without 
   fixture.parameters[0].kind = "required";
   fixture.parameters[0].type = type;
   fixture.decision.parameters[0].type = type;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.parameters[0].acceptsOmission = false;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body),
+  assertCompleteValue(verifyBody(fixture.input, fixture.body),
     [nodeViolation(argumentFindings.omission[0], 2, argumentFindings.omission[1])]);
 });
 
 for (const form of ["optional", "default"]) {
   test(`F4 ${form} omission retains the actual selected capability in both mapping and value transport`, () => {
     const fixture = argumentScenario(form);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     fixture.parameters[0].acceptsOmission = false;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body),
+    assertCompleteValue(verifyBody(fixture.input, fixture.body),
       [nodeViolation(argumentFindings.omission[0], 2, argumentFindings.omission[1])]);
     fixture.parameters[0].acceptsOmission = true;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -7138,12 +7378,12 @@ for (const [position, role] of [[1, "this"], [0, "rest"]]) {
     const body = fixture.functionTemplate;
     const input = fixture.inputFor(body);
     body.params[position].tsonic.role = role;
-    assertCompleteValue(product.verifyTir(input, body), [
+    assertCompleteValue(verifyBody(input, body), [
       bodyViolation("parameter-order", "parameter records do not retain the actual declared formal order", fixture.functionBody),
       nodeViolation("parameter-order", body.params[position].id, "parameter occurrence does not retain its actual declared formal and local association"),
     ]);
     body.params[position].tsonic.role = "required";
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
   });
 }
 
@@ -7157,12 +7397,12 @@ for (const field of ["name", "capturedFrom", "capture-role"]) {
     if (field === "capture-role") body.locals[0].role = "capture";
     const binding = bodyViolation("binding-storage", "local storage is not associated with its real original binding", fixture.functionBody);
     const capture = bodyViolation("capture-qualified", "captured local does not retain its actual qualified outer binding", fixture.functionBody);
-    assertCompleteValue(product.verifyTir(input, body), field === "name" ? [binding] : field === "capturedFrom" ? [capture] :
+    assertCompleteValue(verifyBody(input, body), field === "name" ? [binding] : field === "capturedFrom" ? [capture] :
       [binding, capture, bodyViolation("local-storage", "parameter storage does not retain its real local slot", fixture.functionBody)]);
     body.locals[0].name = "v";
     body.locals[0].capturedFrom = null;
     body.locals[0].role = "parameter";
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
   });
 }
 
@@ -7171,19 +7411,19 @@ test("F4 a genuine additional local is not an authored binding inventory", () =>
   const input = emptyVerificationInput(body);
   body.locals = [{ id: 0, declaration: { kind: "body", value: { body: bodyId, node: 0 } }, name: "v", role: "binding",
     storage: 0, capturedFrom: null, mutable: true }];
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("binding-storage",
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("binding-storage",
     "local inventory does not retain the actual source binding inventory")]);
   body.locals = [];
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 test("F4 nested inventory multiplicity retains genuine source order", () => {
   const fixture = genericFunctionScenario();
   fixture.outer.nestedBodies.push(fixture.functionBody);
-  assertCompleteValue(product.verifyTir(fixture.inputFor(fixture.outer), fixture.outer), [bodyViolation("stable-order",
+  assertCompleteValue(verifyBody(fixture.inputFor(fixture.outer), fixture.outer), [bodyViolation("stable-order",
     "capture and nested-body inventories do not retain actual source order")]);
   fixture.outer.nestedBodies.pop();
-  assertCompleteValue(product.verifyTir(fixture.inputFor(fixture.outer), fixture.outer), []);
+  assertCompleteValue(verifyBody(fixture.inputFor(fixture.outer), fixture.outer), []);
 });
 
 test("a conversion states its embedding once; whether it requires a check and how its operation executes are separate events", () => {
@@ -7202,7 +7442,7 @@ test("a conversion states its embedding once; whether it requires a check and ho
     const fixture = operationScenario();
     fixture.typed.tsonic.conversion = conversion;
     for (let added = 0; added < scopes; added += 1) bodyScopes(fixture.input, fixture.body).push(emptyScope());
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), expected, label);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), expected, label);
   };
   const convert = (check, execution) => ({ kind: "convert", role: "return", operation: identityConversion(embedding(check), execution) });
   // const narrow: int8 = wide          under a recoverable overflow fact: the range test, then a pure truncation
@@ -7247,15 +7487,15 @@ for (const endpoint of ["from", "to"]) {
     const operation = { permissionScope: null, decision: { kind: "selected", operation: {
       kind: "conversion", embedding: carriedEmbedding, from: 1, to: 1 }, operands: [1], result: 1, execution: { kind: "pure" } } };
     fixture.typed.tsonic.conversion = { kind: "convert", role: "return", operation };
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     operation.decision.operation[endpoint] = 0;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [
       nodeViolation(endpoint === "from" ? "conversion-source" : "conversion-destination", 2,
         endpoint === "from" ? "conversion does not retain its value source endpoint" : "conversion does not retain its destination endpoint"),
       nodeViolation("operation-type", 2, "conversion operation does not retain its explicit operand and result endpoints"),
     ]);
     operation.decision.operation[endpoint] = 1;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -7272,12 +7512,20 @@ for (const kind of ["DeleteExpression", "TypeOfExpression", "VoidExpression"]) {
     delete fixture.checked.operator;
     delete fixture.checked.operand;
     delete fixture.checked.tsonic.role;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    if (kind === "VoidExpression") {
+      const absence = fixture.input.types.terms.length;
+      fixture.input.types.terms.push({ kind: "intrinsic", intrinsic: "absence" });
+      fixture.typed.tsonic.type = fixture.typed.tsonic.convertedType = absence;
+      fixture.checked.tsonic = { core: emptyCore(), ...checkedValue(absence) };
+      fixture.operation.decision.operation = { kind: "discard" };
+      fixture.operation.decision.result = absence;
+    }
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     fixture.operation.decision.operands = [];
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("operation-type", 2,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("operation-type", 2,
       "selected operation does not retain the authored operand count and value endpoints")]);
     fixture.operation.decision.operands = [1];
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -7291,12 +7539,12 @@ for (const [token, kind] of [["BarBarToken", "or"], ["QuestionQuestionToken", "c
       const when = kind === "or" ? "false" : "absent";
       fixture.typed.right.tsonic.demand = disposition === "right" ? { kind: "always" } : disposition === "left"
         ? { kind: "never", control: 3 } : { kind: "selected", control: 3, when };
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
       fixture.typed.right.tsonic.demand = { kind: "always" };
-      if (disposition !== "right") assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("controlled-demand", 5,
+      if (disposition !== "right") assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("controlled-demand", 5,
         "controlled branch does not retain its selected or never-evaluated demand")]);
       selection.control = 5;
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("controlled-demand", 2,
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("controlled-demand", 2,
         "selection does not retain its authored control and branch endpoints")]);
     });
   }
@@ -7308,19 +7556,19 @@ for (const family of ["classBindings", "methodBindings", "capturedBindings"]) {
       const body = emptyModuleBody();
       const input = emptyVerificationInput(body);
       const bindings = emptyBindings();
-      bindings[family] = [{ kind: mode, parameter: { owner: ownerId, index: 0 }, ...(mode === "bound" ? { type: 0 } : {}) }];
+      bindings[family] = [{ kind: mode, parameter: typeParameterDeclaration(ownerId, 0), ...(mode === "bound" ? { type: 0 } : {}) }];
       const other = { ...body, bindings: { kind: "instantiated", bindings } };
       input.module.bodies.push(other);
-      assertCompleteValue(product.verifyTir(input, body), []);
+      assertCompleteValue(verifyBody(input, body), []);
       input.module.bodies.push(other);
-      assertCompleteValue(product.verifyTir(input, body), [bodyViolation("template-shared-once",
+      assertCompleteValue(verifyBody(input, body), [bodyViolation("template-shared-once",
         "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once")]);
       input.module.bodies.pop();
       const different = emptyBindings();
-      different[family] = [{ kind: mode === "rigid" ? "bound" : "rigid", parameter: { owner: ownerId, index: 0 },
+      different[family] = [{ kind: mode === "rigid" ? "bound" : "rigid", parameter: typeParameterDeclaration(ownerId, 0),
         ...(mode === "rigid" ? { type: 0 } : {}) }];
       input.module.bodies.push({ ...body, bindings: { kind: "instantiated", bindings: different } });
-      assertCompleteValue(product.verifyTir(input, body), []);
+      assertCompleteValue(verifyBody(input, body), []);
     });
   }
 }
@@ -7333,10 +7581,10 @@ test("F4 self rigid and bound publication keys stay distinct and duplicates rema
   const bound = { ...body, bindings: { kind: "instantiated", bindings: { ...emptyBindings(),
     selfBindings: [{ kind: "bound", owner: ownerId, type: 0 }] } } };
   input.module.bodies.push(rigid, bound);
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   for (const duplicate of [rigid, bound]) {
     input.module.bodies.push(duplicate);
-    assertCompleteValue(product.verifyTir(input, body), [bodyViolation("template-shared-once",
+    assertCompleteValue(verifyBody(input, body), [bodyViolation("template-shared-once",
       "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once")]);
     input.module.bodies.pop();
   }
@@ -7350,12 +7598,12 @@ test("F4 protocol core and genuine callee retain the same real declaration endpo
     kind: "core", declaration: fixture.definition, bindings: emptyBindings() }, operands: [], result: 0, execution: { kind: "pure" } } };
   spread.tsonic.protocol.decision.steps = [{ role: "next", operation, callee }];
   replaceScopeInventory(fixture.input, Array.from({ length: 7 }, emptyScope));
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   operation.decision.operation.declaration = ownerId;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("protocol-total", 4,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("protocol-total", 4,
     "protocol step operation and callee do not retain the same selected endpoint and result")]);
   operation.decision.operation.declaration = fixture.definition;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("F4 different actual child kinds retain both parent and child shape findings", () => {
@@ -7365,21 +7613,21 @@ test("F4 different actual child kinds retain both parent and child shape finding
   const typed = { ...header(2, 1), kind: "StringLiteral", text: "one", tokenFlags: [],
     tsonic: { ...typedValue(), role: "value", value: "one" } };
   const fixture = expressionScenario(checked, typed, [], 3, []);
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("kind-children-shape", 1, "typed syntax does not retain the authored kind, fields and child presence"),
     nodeViolation("kind-children-shape", 2, "typed syntax does not retain the authored kind, fields and child presence"),
   ]);
   const matching = { ...header(2, 1), kind: "NumericLiteral", text: "1", tokenFlags: [],
     tsonic: { ...typedValue(), role: "value", value: { numerator: 1n, denominator: 1n, negativeZero: false } } };
   const opposite = expressionScenario(checked, matching, [], 3, []);
-  assertCompleteValue(product.verifyTir(opposite.input, opposite.body), []);
+  assertCompleteValue(verifyBody(opposite.input, opposite.body), []);
 });
 
 test("F4 a genuinely inserted authored child retains the displaced EOF and all source cofindings", () => {
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   body.root.statements.nodes.push({ ...header(2, 0), kind: "EmptyStatement", tsonic: null });
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     nodeViolation("kind-children-shape", 0, "typed syntax does not retain the authored kind, fields and child presence"),
     nodeViolation("no-inserted-nodes", 1, "typed syntax adds an authored child position"),
     nodeViolation("authored-node-ids-preserved", 2, "typed node identity differs from the actual authored node at this position"),
@@ -7389,14 +7637,14 @@ test("F4 a genuinely inserted authored child retains the displaced EOF and all s
     nodeViolation("node-reference", 2, "node identity does not name an actual node in its module arena"),
   ]);
   body.root.statements.nodes = [];
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 test("F4 changing only the supplied root identity retains every root and subtree cofinding", () => {
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   body.root.id = 5;
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     nodeViolation("authored-node-ids-preserved", 5, "typed node identity differs from the actual authored node at this position"),
     nodeViolation("no-inserted-nodes", 5, "typed syntax includes a node not present in the actual source arena"),
     nodeViolation("node-in-body-range", 5, "typed body root does not retain the actual original body subtree"),
@@ -7406,7 +7654,7 @@ test("F4 changing only the supplied root identity retains every root and subtree
     nodeViolation("node-reference", 5, "node identity does not name an actual node in its module arena"),
   ]);
   body.root.id = 0;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 test("F4 ITEM-qualified binding declarations compare actual owner and node coordinates", () => {
@@ -7416,12 +7664,12 @@ test("F4 ITEM-qualified binding declarations compare actual owner and node coord
   const actual = { kind: "item", value: { owner: fixture.valueDefinition, node: fixture.nodes.parameter } };
   body.locals[0].declaration = actual;
   fixture.originalFunction.locals[0].declaration = actual;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   body.locals[0].declaration = { kind: "item", value: { owner: fixture.valueDefinition, node: fixture.nodes.parameterName } };
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("binding-storage",
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("binding-storage",
     "local storage is not associated with its real original binding", fixture.functionBody)]);
   body.locals[0].declaration = actual;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 for (const family of ["classParameters", "methodParameters", "capturedParameters", "selfOwners"]) {
@@ -7431,14 +7679,14 @@ for (const family of ["classParameters", "methodParameters", "capturedParameters
     const input = fixture.inputFor(body);
     const scopes = [...bodyScopes(input, body)];
     const actual = { ...fixture.scope, [family]: family === "selfOwners" ? [ownerId]
-      : [{ owner: fixture.definition, index: family === "methodParameters" ? 1 : 0 }] };
+      : [family === "methodParameters" ? typeParameterDeclaration(fixture.definition, 1) : fixture.typeDefinition] };
     replaceScopeInventory(input, [actual, ...scopes.slice(1)]);
-    assertCompleteValue(product.verifyTir(input, body), [
+    assertCompleteValue(verifyBody(input, body), [
       bodyViolation("binding-vector-complete", "binding environment does not retain its genuine declaration scope", fixture.functionBody),
       bodyViolation("binding-vector-complete", "type verifier: binding-vector-complete", fixture.functionBody),
     ]);
     replaceScopeInventory(input, scopes);
-    assertCompleteValue(product.verifyTir(input, body), []);
+    assertCompleteValue(verifyBody(input, body), []);
   });
 }
 
@@ -7450,25 +7698,25 @@ test("F4 distinct real self owners retain all metadata and lower-order cofinding
   body.root.tsonic.callable.template.lexicalBindings.selfBindings.push({ kind: "rigid", owner: ownerId });
   const input = fixture.inputFor(body);
   const scopes = [...bodyScopes(input, body)];
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   replaceScopeInventory(input, [{ ...fixture.scope, selfOwners: [fixture.definition] }, ...scopes.slice(1)]);
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     bodyViolation("binding-vector-complete", "binding environment does not retain its genuine declaration scope", fixture.functionBody),
     bodyViolation("binding-vector-complete", "type verifier: self-owner", fixture.functionBody),
     bodyViolation("binding-vector-complete", "type verifier: self-binding-order", fixture.functionBody),
   ]);
   replaceScopeInventory(input, scopes);
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 test("F4 a present actual candidate list cannot disappear from its source inventory", () => {
   const fixture = callScenario();
   const candidates = fixture.input.source.bodies[0].candidateLists;
   fixture.input.source.bodies[0].candidateLists = [];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("call-endpoints", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("call-endpoints", 2,
     "selected application names a missing actual candidate inventory")]);
   fixture.input.source.bodies[0].candidateLists = candidates;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("F4 a real outside-body source node provides no disposal capture for this using occurrence", () => {
@@ -7499,26 +7747,26 @@ test("F4 a real outside-body source node provides no disposal capture for this u
   for (const node of [sourceStatement, sourceList]) fixture.functionNodes.set(node.id, node);
   for (const node of [sourceAlias, sourceName, sourceType]) fixture.outerNodes.set(node.id, node);
   list.id = 200;
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     nodeViolation("authored-node-ids-preserved", 200, "typed node identity differs from the actual authored node at this position"),
     nodeViolation("node-in-body-range", 200, "typed syntax contains a real or invented node outside its actual original body subtree"),
   ]);
   list.id = 101;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   list.id = 999;
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     nodeViolation("authored-node-ids-preserved", 999, "typed node identity differs from the actual authored node at this position"),
     nodeViolation("no-inserted-nodes", 999, "typed syntax includes a node not present in the actual source arena"),
     nodeViolation("node-in-body-range", 999, "typed syntax contains a real or invented node outside its actual original body subtree"),
     nodeViolation("node-reference", 999, "node identity does not name an actual node in its module arena"),
   ]);
   list.id = fixture.nodes.end;
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     nodeViolation("authored-node-ids-preserved", fixture.nodes.end, "typed node identity differs from the actual authored node at this position"),
     nodeViolation("node-in-body-range", fixture.nodes.end, "typed syntax contains a real or invented node outside its actual original body subtree"),
   ]);
   list.id = 101;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 for (const access of ["write", "read-write"]) {
@@ -7537,7 +7785,7 @@ for (const access of ["write", "read-write"]) {
         replaceScopeInventory(fixture.input, Array.from({ length: 3 }, emptyScope));
       }
       attachActualSetter(fixture);
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
       const setter = fixture.selection.setter;
       const getter = fixture.selection.getter;
       const endpoint = fixture.decision.setter;
@@ -7555,7 +7803,7 @@ for (const access of ["write", "read-write"]) {
       }
       replaceScopeInventory(fixture.input, Array.from({ length: 3 + (fixture.selection.getter === null ? 0 : 2) +
         (fixture.selection.setter === null ? 0 : 2) }, emptyScope));
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("accessor-activation", 2,
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("accessor-activation", 2,
         "selected accessor activation does not retain the actual member endpoint and access role")]);
       fixture.selection.setter = setter;
       fixture.selection.getter = getter;
@@ -7563,7 +7811,7 @@ for (const access of ["write", "read-write"]) {
       if (access === "write") fixture.decision.getter = null;
       fixture.table.accessors[0].setter = tableSetter;
       replaceScopeInventory(fixture.input, Array.from({ length: access === "write" ? 5 : 7 }, emptyScope));
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     });
   }
 }
@@ -7608,12 +7856,12 @@ test("F4 a genuine namespace definition owns its authentic nested Block template
   input.nodeOf = reference => reference.kind === "body" ? reference.value.body === bodyId ? nodes.get(reference.value.node) ?? null
     : reference.value.body === nestedId && reference.value.node === 3 ? sourceBlock : null
     : reference.value.owner === ownerId || reference.value.owner === definition ? nodes.get(reference.value.node) ?? null : null;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   template.body = bodyId;
-  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("nested-template-identity", 1,
+  assertCompleteValue(verifyBody(input, body), [nodeViolation("nested-template-identity", 1,
     "typed template does not retain its real authored body and shared syntax identity")]);
   template.body = nestedId;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 for (const kind of ["FunctionExpression", "ArrowFunction"]) {
@@ -7645,37 +7893,37 @@ for (const kind of ["FunctionExpression", "ArrowFunction"]) {
       const input = fixture.inputFor(body);
       const localExists = input.localExists;
       input.localExists = reference => reference.body === foreignBody ? foreignLocals[reference.local] !== undefined : localExists(reference);
-      assertCompleteValue(product.verifyTir(input, body), []);
+      assertCompleteValue(verifyBody(input, body), []);
       // The decision's rows name the captured locals; the body states the same rows. Change both together to judge the
       // locals alone, and one of them to judge their agreement.
       const own = [{ body: fixture.functionBody, local: 0 }];
       const sequence = nodeViolation("capture-qualified", 2, "closure captures do not retain the real authored outer-local sequence");
       const agree = bodyViolation("capture-rows-agree", "body capture rows do not state the outcome of the closure that creates the body", fixture.functionBody);
       body.root.tsonic.closure = closureDecisionOf(4, own); body.captures = bodyRows(own);
-      assertCompleteValue(product.verifyTir(input, body), [
+      assertCompleteValue(verifyBody(input, body), [
         bodyViolation("capture-qualified", "capture inventory does not name a real qualified outer local", fixture.functionBody),
         bodyViolation("stable-order", "capture and nested-body inventories do not retain actual source order", fixture.functionBody),
         nodeViolation("capture-qualified", 2, "closure captures contain a local from the closure's own body"), sequence]);
       if (count === 2) {
         const reversed = [...captures].reverse();
         body.root.tsonic.closure = closureDecisionOf(4, reversed); body.captures = bodyRows(reversed);
-        assertCompleteValue(product.verifyTir(input, body), [
+        assertCompleteValue(verifyBody(input, body), [
           bodyViolation("stable-order", "capture and nested-body inventories do not retain actual source order", fixture.functionBody), sequence]);
       }
       body.root.tsonic.closure = closureDecisionOf(4, captures); body.captures = bodyRows(captures);
-      assertCompleteValue(product.verifyTir(input, body), []);
+      assertCompleteValue(verifyBody(input, body), []);
       const missing = nodeViolation("cross-owner-qualified", 2, "local reference does not name an actual local in its declared body");
       for (const wrong of [[...captures, { body: foreignBody, local: count }], ...(count === 0 ? [] : [captures.slice(1)])]) {
         body.root.tsonic.closure = closureDecisionOf(4, wrong);
         // the foreign body has two locals: a row naming the third is a reference to no local
-        assertCompleteValue(product.verifyTir(input, body), [agree, ...(wrong.some(local => local.local >= 2) ? [missing] : []), sequence]);
+        assertCompleteValue(verifyBody(input, body), [agree, ...(wrong.some(local => local.local >= 2) ? [missing] : []), sequence]);
       }
       body.root.tsonic.closure = closureDecisionOf(4, captures, "captured-value");
-      assertCompleteValue(product.verifyTir(input, body), count === 0 ? [] : [agree]);
+      assertCompleteValue(verifyBody(input, body), count === 0 ? [] : [agree]);
       body.captures = bodyRows(captures, "captured-value");
-      assertCompleteValue(product.verifyTir(input, body), []);
+      assertCompleteValue(verifyBody(input, body), []);
       body.root.tsonic.closure = closureDecisionOf(4, captures); body.captures = bodyRows(captures);
-      assertCompleteValue(product.verifyTir(input, body), []);
+      assertCompleteValue(verifyBody(input, body), []);
     });
   }
 }
@@ -7683,10 +7931,10 @@ for (const kind of ["FunctionExpression", "ArrowFunction"]) {
 test("F4 an ordinary actual argument cannot claim a tuple component", () => {
   const fixture = callScenario();
   fixture.decision.parameters[0].component = 0;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("authored-order-preserved", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("authored-order-preserved", 2,
     "argument transport does not retain the original authored argument sequence")]);
   fixture.decision.parameters[0].component = null;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("F4 complete array separator failure retains the second quoted token's own coordinate", () => {
@@ -7726,7 +7974,7 @@ test("F4 a genuine zero-argument bodyless call has no invented optional or rest 
   fixture.parameters.length = 0;
   fixture.decision.parameters = [];
   fixture.application.arguments = [];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 for (const kind of ["ThisKeyword", "SuperKeyword"]) {
@@ -7735,9 +7983,9 @@ for (const kind of ["ThisKeyword", "SuperKeyword"]) {
     const typed = { ...header(2, 1), kind, tsonic: { ...typedValue(), role: kind === "ThisKeyword" ? "receiver" : "super",
       owner: ownerId, ...(kind === "SuperKeyword" ? { base: 0 } : {}) } };
     const fixture = expressionScenario(checked, typed, [], 3, []);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     typed.tsonic = { role: "type-literal", type: 0 };
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [
       nodeViolation("occurrence-role", 2, "typed occurrence does not retain its authored occurrence role"),
       nodeViolation("typed-value-occurrence", 2, "authored value occurrence has no typed value endpoints"),
     ]);
@@ -7757,12 +8005,12 @@ for (const kind of ["PrivateIdentifier"]) {
       { left: typedName(3, "Left", 2), right: typedName(4, "Right", 2) }),
       tsonic: { role: "declaration-name", declaration: { kind: "definition", definition: ownerId }, storage: null } };
     const fixture = expressionScenario(checked, typed, kind === "PrivateIdentifier" ? [] : [checked.left, checked.right], kind === "PrivateIdentifier" ? 3 : 5, []);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [
       nodeViolation("occurrence-role", 2, "typed occurrence does not retain its authored occurrence role"),
       nodeViolation("name-role-position", 2, "name role does not match its original syntactic position"),
     ]);
     typed.tsonic = { role: "type-name", type: 0, declarations: [ownerId] };
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -7787,12 +8035,12 @@ test("F4 QualifiedName uses its genuine EntityName slot and complete module-site
   const nodeOf = fixture.input.nodeOf;
   fixture.input.nodeOf = reference => reference.kind === "item" && reference.value.owner === fixture.definition
     ? nodes.get(reference.value.node) ?? nodeOf(reference) : nodeOf(reference);
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [
     nodeViolation("occurrence-role", 4, "typed occurrence does not retain its authored occurrence role"),
     nodeViolation("name-role-position", 4, "name role does not match its original syntactic position"),
   ]);
   typed.tsonic = { role: "type-name", type: 0, declarations: [fixture.definition] };
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
 });
 
 function foreignMemberScenario(kind) {
@@ -7807,19 +8055,18 @@ function foreignMemberScenario(kind) {
     role: "property-name", key: available({ kind: "text", value: "x" }), origins: available([{ kind: "declared", declaration: fieldDefinition }]) } };
   const field = { ...header(1, 0), origin: classOrigin, kind: "PropertyDeclaration", modifiers: null, name: fieldName,
     postfixToken: null, type: null, initializer: null, tsonic: { core: emptyCore(), parent: classDefinition, attributes: [],
-      memory: available(null), declaration: { kind: "definition", definition: fieldDefinition }, declaredType: available(0), initializer: null } };
+      memory: available(null), declaration: { kind: "definition", definition: fieldDefinition }, declaredType: available(0), inferredTypeBound: null, initializer: null } };
   const className = { ...header(3, 0), origin: classOrigin, kind: "Identifier", text: "Container", tsonic: { core: emptyCore(),
     role: "declaration-name", declaration: { kind: "definition", definition: classDefinition } } };
   const declaration = { ...header(0), origin: classOrigin, kind: "ClassDeclaration", modifiers: null, name: className,
     typeParameters: null, heritageClauses: null, members: nodeList([field]), tsonic: { core: emptyCore(), parent: null,
       attributes: [], memory: available(null), definition: classDefinition, parameters: [], heritage: [], members: [fieldDefinition] } };
-  const identity = { owner: mappedDefinition, index: 0 };
   const parameterName = { ...header(3, 2), origin: mappedOrigin, kind: "Identifier", text: "K", tsonic: { core: emptyCore(),
     role: "type-name", resolution: { kind: "definition", definition: parameterDefinition, aliases: [] } } };
   const constraint = { ...header(4, 2), origin: mappedOrigin, kind: "StringKeyword", tsonic: { core: emptyCore(), type: available(0), referencedDefinitions: [] } };
   const parameter = { ...header(2, 1), origin: mappedOrigin, kind: "TypeParameter", modifiers: null, name: parameterName,
     constraint, expression: null, defaultType: null, tsonic: { core: emptyCore(), parent: mappedDefinition, attributes: [],
-      memory: available(null), definition: parameterDefinition, parameter: { identity, declaration: parameterDefinition, constraint: 0, default: null } } };
+      memory: available(null), definition: parameterDefinition, parameter: { declaration: parameterDefinition, constraint: 0, default: null } } };
   const type = { ...header(5, 1), origin: mappedOrigin, kind: "StringKeyword", tsonic: { core: emptyCore(), type: available(0), referencedDefinitions: [] } };
   const mapped = { ...header(1, 0), origin: mappedOrigin, kind: "MappedType", readonlyToken: null, typeParameter: parameter,
     nameType: null, questionToken: null, type, members: null,
@@ -7857,12 +8104,12 @@ function foreignMemberScenario(kind) {
 for (const kind of ["declared", "class-prototype", "mapped"]) {
   test(`F4 real ${kind} member provenance retains its complete declared association`, () => {
     const fixture = foreignMemberScenario(kind);
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     fixture.decision.origins = [{ kind: "declared", declaration: ownerId }];
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
       "member selection does not retain a real member key and its actual declared origins")]);
     fixture.decision.origins = [fixture.provenance];
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -7876,12 +8123,30 @@ test("F-3 source-only member selection cannot borrow a declaration identity", ()
   fixture.decision.origins = [origin];
   fixture.input.source.tree.statements.nodes[0].expression.tsonic.origins = available([origin]);
   const mismatched = nodeViolation("member-origin", 2, "member selection does not retain a real member key and its actual declared origins");
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [mismatched]);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [mismatched]);
   fixture.decision.primary = null;
   fixture.decision.selectedDeclarations = [];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.decision.origins = [{ kind: "source-member", occurrence: { ...origin.occurrence, node: 4 } }];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [mismatched]);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [mismatched]);
+});
+
+test("intrinsic member inventory matches the exact retained symbol, not another intrinsic origin", () => {
+  const fixture = foreignMemberScenario("declared");
+  const origin = { kind: "intrinsic", symbol: "undefined" };
+  const member = fixture.table.members[0];
+  member.origins = [origin];
+  member.readOrigins = [origin];
+  member.writeOrigins = [origin];
+  fixture.decision.origins = [origin];
+  fixture.decision.primary = null;
+  fixture.decision.selectedDeclarations = [];
+  fixture.input.source.tree.statements.nodes[0].expression.tsonic.origins = available([origin]);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
+  fixture.decision.origins = [{ kind: "intrinsic", symbol: "global-this" }];
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
+    nodeViolation("member-origin", 2, "member selection does not retain a real member key and its actual declared origins"),
+  ]);
 });
 
 for (const negative of ["primary-not-selected", "empty-selected", "other-selected"]) {
@@ -7890,11 +8155,11 @@ for (const negative of ["primary-not-selected", "empty-selected", "other-selecte
     if (negative === "primary-not-selected") fixture.decision.primary = fixture.classDefinition;
     if (negative === "empty-selected") fixture.decision.selectedDeclarations = [];
     if (negative === "other-selected") { fixture.decision.selectedDeclarations = [fixture.classDefinition]; fixture.decision.primary = null; }
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
       "member selection does not retain a real member key and its actual declared origins")]);
     fixture.decision.primary = fixture.fieldDefinition;
     fixture.decision.selectedDeclarations = [fixture.fieldDefinition];
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -7913,12 +8178,12 @@ for (const [numerator, negativeZero] of [[1n, false], [0n, false], [0n, true]]) 
     fixture.decision.key = key;
     fixture.table.members[0].key = key;
     fixture.decision.origins[0].key = key;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     fixture.decision.key = { kind: "number", value: { numerator: 2n, denominator: 1n, negativeZero: false } };
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
       "member selection does not retain a real member key and its actual declared origins")]);
     fixture.decision.key = key;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -7931,7 +8196,7 @@ test("F4 an actual named value without its real local slot keeps every storage c
   const variable = { ...header(3, 2), kind: "VariableDeclaration", name, exclamationToken: null, type: null, initializer: null,
     tsonic: { declaration, storage: 0, initializer: null } };
   const sourceVariable = { ...header(3, 2), kind: "VariableDeclaration", name: sourceName, exclamationToken: null, type: null, initializer: null,
-    tsonic: { core: emptyCore(), parent: ownerId, attributes: [], memory: available(null), declaration, declaredType: available(0), initializer: null } };
+    tsonic: { core: emptyCore(), parent: ownerId, attributes: [], memory: available(null), declaration, declaredType: available(0), inferredTypeBound: null, initializer: null } };
   const list = { ...header(2, 1), kind: "VariableDeclarationList", declarations: nodeList([variable]), tsonic: { role: "ordinary" } };
   const sourceList = { ...header(2, 1), kind: "VariableDeclarationList", declarations: nodeList([sourceVariable]), tsonic: { core: emptyCore(), disposal: [] } };
   const statement = { ...header(1, 0), kind: "VariableStatement", modifiers: null, declarationList: list, tsonic: null };
@@ -7944,7 +8209,7 @@ test("F4 an actual named value without its real local slot keeps every storage c
   input.source.tree.endOfFileToken = end;
   const declarationRef = { kind: "body", value: { body: bodyId, node: 3 } };
   input.source.bodies[0].locals = [{ id: 0, declaration: declarationRef, name: "v", role: "binding", checkerSlot: available(0), capturedFrom: null, mutable: true }];
-  assertCompleteValue(product.verifyTir(input, body), [
+  assertCompleteValue(verifyBody(input, body), [
     bodyViolation("binding-storage", "local inventory does not retain the actual source binding inventory"),
     nodeViolation("local-storage", 4, "same-body local reference does not select a real local storage slot"),
     nodeViolation("local-storage", 3, "same-body local reference does not select a real local storage slot"),
@@ -7952,10 +8217,10 @@ test("F4 an actual named value without its real local slot keeps every storage c
     nodeViolation("binding-storage", 4, "binding occurrence does not retain its actual qualified local storage slot"),
   ]);
   body.locals = [{ id: 0, declaration: declarationRef, name: "v", role: "binding", storage: 0, capturedFrom: null, mutable: true }];
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   variable.tsonic.storage = 1;
   input.types.terms.push({ kind: "string" });
-  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("binding-storage", 3,
+  assertCompleteValue(verifyBody(input, body), [nodeViolation("binding-storage", 3,
     "binding occurrence does not retain its actual qualified local storage slot")]);
 });
 
@@ -7975,12 +8240,12 @@ test("F4 an actual symbol member key uses its real declaration and authored iden
   delete sourceMember.argumentExpression.tokenFlags;
   fixture.decision.key = key;
   fixture.table.members[0].key = key;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   fixture.decision.key = { kind: "symbol", declaration: fixture.classDefinition };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
     "member selection does not retain a real member key and its actual declared origins")]);
   fixture.decision.key = key;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 for (const childFirst of [false, true]) {
@@ -7991,19 +8256,19 @@ for (const childFirst of [false, true]) {
       const input = emptyVerificationInput(body);
       const leaf = kind === "error" ? { kind } : { kind, group: `G[${bodyId}]`, variable: 0 };
       input.types.terms.push(...(childFirst ? [leaf, { kind: "optional", value: 1 }] : [{ kind: "optional", value: 2 }, leaf]));
-      assertCompleteValue(product.verifyTir(input, body), [bodyViolation(kind === "error" ? "error-diagnostic" : "type-closed",
+      assertCompleteValue(verifyBody(input, body), [bodyViolation(kind === "error" ? "error-diagnostic" : "type-closed",
         kind === "error" ? "error type is not accompanied by an actual error diagnostic at its source origin"
           : "typed reference does not reach a present closed type/signature graph")]);
       if (kind === "error") {
         input.diagnostics = [{ code: { kind: "checker", number: 999, rendered: "TS999" }, severity: "error",
           site: { kind: "source", origin: origin() }, source: null, evidence: [], message: "actual source error",
           arguments: [], related: [], fix: null }];
-        assertCompleteValue(product.verifyTir(input, body), []);
+        assertCompleteValue(verifyBody(input, body), []);
       }
       input.types.terms[1] = { kind: "optional", value: 2 };
       input.types.terms[2] = { kind: "array", element: 1, readonly: false };
       input.diagnostics = [];
-      assertCompleteValue(product.verifyTir(input, body), []);
+      assertCompleteValue(verifyBody(input, body), []);
     });
   }
 }
@@ -8016,12 +8281,12 @@ test("F4 genuine error recovery retains both complete node findings until its ex
   const fixture = expressionScenario(source, typed, [], 3, [{ kind: "error" }]);
   const expected = [nodeViolation("error-diagnostic", 2, "error type is not accompanied by an actual error diagnostic at its source origin"),
     nodeViolation("error-diagnostic", 2, "error resolution does not select an actual error diagnostic at its source origin")];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), expected);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), expected);
   fixture.input.diagnostics = [{ code: { kind: "checker", number: 2304, rendered: "TS2304" }, severity: "error",
     site: { kind: "source", origin: origin() }, source: null, evidence: [], message: "missing name", arguments: [], related: [], fix: null }];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), expected);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), expected);
   fixture.input.diagnostics[0].site.origin = origin(10, 1);
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("F4 a genuine captured local cannot substitute another existing foreign local", () => {
@@ -8036,7 +8301,7 @@ test("F4 a genuine captured local cannot substitute another existing foreign loc
       text: position === 0 ? "first" : "second", tsonic: { core: emptyCore(), role: "declaration-name",
         declaration: { kind: "local", local: { body: outerBody, local: position } } } }, questionToken: null, type: null, initializer: null,
     tsonic: { core: emptyCore(), parent: outerDefinition, attributes: [], memory: available(null),
-      declaration: { kind: "local", local: { body: outerBody, local: position } }, declaredType: available(0), initializer: null } }));
+      declaration: { kind: "local", local: { body: outerBody, local: position } }, declaredType: available(0), inferredTypeBound: null, initializer: null } }));
   const locals = parameters.map((parameter, position) => ({ id: position, declaration: { kind: "item",
     value: { owner: definitions[position], node: parameter.id } }, name: parameter.name.text, role: "parameter",
     checkerSlot: available(0), capturedFrom: null, mutable: true }));
@@ -8088,16 +8353,16 @@ test("F4 a genuine captured local cannot substitute another existing foreign loc
   const declarationOf = input.declarationOf;
   input.declarationOf = selected => definitions.includes(selected) || selected === outerDefinition
     ? { scope: emptyScope(), parameterCount: selected === outerDefinition ? 2 : 0, endpoints: [] } : declarationOf(selected);
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
   body.locals[0].declaration = { kind: "item", value: { owner: definitions[1], node: 1 } };
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("binding-storage",
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("binding-storage",
     "local storage is not associated with its real original binding", fixture.functionBody)]);
   body.locals[0].declaration = declaration;
   body.locals[0].capturedFrom = { body: outerBody, local: 1 };
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("capture-qualified",
+  assertCompleteValue(verifyBody(input, body), [bodyViolation("capture-qualified",
     "captured local does not retain its actual qualified outer binding", fixture.functionBody)]);
   body.locals[0].capturedFrom = first;
-  assertCompleteValue(product.verifyTir(input, body), []);
+  assertCompleteValue(verifyBody(input, body), []);
 });
 
 for (const kind of ["CallExpression", "NewExpression"]) {
@@ -8118,16 +8383,17 @@ for (const kind of ["CallExpression", "NewExpression"]) {
     const context = { occurrence: { body: bodyId, node: 2 }, origin: origin(), bindings: emptyBindings() };
     const input = { context, kind: kind === "CallExpression" ? "call" : "construct", callee: evidence(3, 1), receiver: null,
       typeArguments: [], arguments: [{ occurrence: { body: bodyId, node: 5 }, kind: "spread", value: evidence(5, 5), tuple: [evidence(5, 2), evidence(5, 2)] }],
-      candidates: [{ ordinal: 0, declaration: fixture.definition, advertised: fixture.decision.advertised, api: fixture.decision.api,
+      candidates: [{ ordinal: 0, declaration: fixture.definition, advertised: fixture.decision.advertised,
+        advertisedSignature: fixture.decision.advertised.signature, api: fixture.decision.api, apiSignature: fixture.decision.api.signature,
         bindings: emptyBindings(), conditionalFailure: null }] };
     fixture.call.tsonic.application = { kind: "deferred", deferred: { invocation: { rule: "candidate", input }, result: 0 } };
     replaceScopeInventory(fixture.input, Array.from({ length: 4 }, emptyScope));
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     context.occurrence.node = 3;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("deferred-parameters", 2,
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("deferred-parameters", 2,
       "saved invocation does not retain its occurrence and complete captured rigid-parameter support")]);
     context.occurrence.node = 2;
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   });
 }
 
@@ -8150,16 +8416,17 @@ for (const mode of ["absent", "decided", "deferred"]) {
       { kind: "deferred", deferred: { invocation: { rule: "candidate", input: { context: { occurrence: { body: bodyId, node: 2 },
         origin: origin(), bindings: emptyBindings() }, kind: "call", callee: evidence, receiver: null, typeArguments: [], arguments: [],
         candidates: [{ ordinal: 0, declaration: fixture.definition, advertised: fixture.decision.advertised,
-          api: fixture.decision.api, bindings: emptyBindings(), conditionalFailure: null }] } }, result: 0 } };
+          advertisedSignature: fixture.decision.advertised.signature, api: fixture.decision.api,
+          apiSignature: fixture.decision.api.signature, bindings: emptyBindings(), conditionalFailure: null }] } }, result: 0 } };
     fixture.call.tsonic = { ...typedValue(), role: "value", bindings: emptyBindings(), application };
     replaceScopeInventory(fixture.input, Array.from({ length: mode === "absent" ? 3 : 5 }, emptyScope));
-    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     if (mode === "decided") {
       fixture.input.types.signatures[1].declaration = ownerId;
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("call-endpoints", 2,
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("call-endpoints", 2,
         "selected callable endpoints do not belong to their actual declarations and candidate")]);
       fixture.input.types.signatures[1].declaration = fixture.definition;
-      assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+      assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
     }
   });
 }
@@ -8185,15 +8452,15 @@ test("F4 a saved self-type conversion requires the genuine captured self owner",
   fixture.deferred.invocation.input.to = evidence;
   fixture.value.tsonic = { ...typedValue(selfType), role: "receiver", owner: fixture.definition,
     conversion: { kind: "deferred", deferred: fixture.deferred } };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   const scopes = [...bodyScopes(fixture.input, fixture.body)];
   fixture.context.bindings = { ...fixture.body.lexicalBindings, selfBindings: [] };
   replaceScopeInventory(fixture.input, [scopes[0], { ...fixture.scope, selfOwners: [] }, scopes[2]]);
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("deferred-parameters", 9,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("deferred-parameters", 9,
     "saved invocation does not retain its occurrence and complete captured rigid-parameter support")]);
   fixture.context.bindings = fixture.body.lexicalBindings;
   replaceScopeInventory(fixture.input, scopes);
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("a typed protocol cannot replace a genuine authored nonprotocol expression", () => {
@@ -8212,14 +8479,14 @@ test("a typed protocol cannot replace a genuine authored nonprotocol expression"
     [{ kind: "primitive", primitive: "int32" }, { kind: "intrinsic", intrinsic: "unknown" }]);
   fixture.body.asynchronous = true;
   fixture.input.source.bodies[0].asynchronous = true;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("kind-children-shape", 1, "typed syntax does not retain the authored kind, fields and child presence"),
     nodeViolation("kind-children-shape", 2, "typed syntax does not retain the authored kind, fields and child presence"),
   ]);
   checked.kind = "AwaitExpression";
   checked.tsonic = { core: emptyCore(), ...checkedValue(),
     protocol: available({ kind: "await", subject: 3, completion: 0 }) };
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("F4 a real spread protocol's saved input retains the actual nullable channels", () => {
@@ -8232,12 +8499,12 @@ test("F4 a real spread protocol's saved input retains the actual nullable channe
     completion: evidence(0), yielded: null, sent: evidence(0), thrown: evidence(0) };
   spread.tsonic.protocol = { kind: "deferred", deferred: { invocation: { rule: "protocol", input }, result: 5 } };
   replaceScopeInventory(fixture.input, Array.from({ length: 5 }, emptyScope));
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   context.occurrence.node = 2;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("deferred-parameters", 4,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("deferred-parameters", 4,
     "saved invocation does not retain its occurrence and complete captured rigid-parameter support")]);
   context.occurrence.node = 4;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("F4 a genuine nonidentity refinement arm retains its explicit result endpoint", () => {
@@ -8246,27 +8513,53 @@ test("F4 a genuine nonidentity refinement arm retains its explicit result endpoi
   const narrowing = { kind: "narrowed", source: 1, result: 1,
     proof: { steps: [{ from: component, to: component, rule: "identity", premises: [] }], conclusion: 0 }, failure: "unwind" };
   fixture.typed.tsonic.narrowing = narrowing;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
   narrowing.result = 0;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("refinement-destination", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("refinement-destination", 2,
     "refinement does not retain its value endpoint")]);
   narrowing.result = 1;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
+});
+
+test("an unrefined non-null occurrence retains the same already-present typed operand", async () => {
+  const { verifyOccurrenceOperation } = await import("../../packages/host/dist/ir-tir/verify-occurrences.js");
+  const table = { terms: [
+    { kind: "primitive", primitive: "bool" },
+    { kind: "string" },
+    { kind: "literal", value: { kind: "boolean", value: false }, base: 0 },
+    { kind: "intrinsic", intrinsic: "absence" },
+    { kind: "literal", value: { kind: "absence" }, base: 3 },
+    { kind: "optional", value: 0 },
+  ], signatures: [] };
+  for (const [type, operand, expected] of [
+    [0, 0, []], [1, 1, []], [2, 2, []], [0, 1, ["operation-type"]],
+    [3, 3, ["operation-type"]], [4, 4, ["operation-type"]], [5, 5, ["operation-type"]], [6, 6, ["operation-type"]],
+  ]) {
+    const expression = { ...header(5, 4), kind: "Identifier", text: "value",
+      tsonic: { ...typedValue(operand), role: "value", resolution: { kind: "definition", definition: ownerId, aliases: [] } } };
+    for (const narrowing of [null, { kind: "identity", type }]) {
+      const tsonic = { ...typedValue(type), narrowing, evidenceIndex: null };
+      const findings = [];
+      verifyOccurrenceOperation({ ...header(4, 2), kind: "NonNullExpression", expression, tsonic }, table,
+        rule => findings.push(rule));
+      assert.deepEqual(findings, expected, `type ${type}, operand ${operand}, refinement ${narrowing?.kind ?? "none"}`);
+    }
+  }
 });
 
 test("F4 an otherwise correct actual member table cannot replace its real receiver", () => {
   const fixture = memberScenario("property-access");
   fixture.table.receiver = 0;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("member-origin", 2,
     "member inventory does not retain the actual receiver type")]);
   fixture.table.receiver = 1;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("fresh strict whole-owner isolation includes every current executable TIR module", async () => {
   const module = hostCatalogue.find(item => item.name === "ir-tir");
   const candidates = [...sourceFiles];
-  for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer"]) {
+  for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "step"]) {
     for (const file of readdirSync(resolve(repository, `packages/host/src/${name}`)).filter(path => path.endsWith(".ts"))) {
       candidates.push(`packages/host/src/${name}/${file}`);
     }
@@ -8337,11 +8630,11 @@ test("header binding verification reads only its actual owning checked and publi
   const findings = [];
   const emit = (rule, node, detail) => findings.push({ rule, node: node?.id ?? null, detail });
   const nodes = walkSyntaxTree(body.root, []);
-  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
   assert.deepEqual(findings, []);
   assert.equal(reads, 1, "the actual owning formal inventory is indexed once");
   sources.delete(body.body);
-  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
   assert.equal(findings.some(value => value.rule === "parameter-order"), true,
     "a missing owning inventory is not silently accepted");
 });
@@ -8363,10 +8656,15 @@ test("nested header ownership reads only the exact parametric callable publicati
     const queries = [];
     let publication = nested;
     const bodyOf = instance => { queries.push(instance); return publication; };
-    const verify = () => verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, bodyOf, emit);
+    const verify = () => verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, bodyOf, input.nodeOf, emit, admitFixtureRead());
     verify();
     assert.deepEqual(findings, [], kind);
     assert.deepEqual(queries, [{ body: nested.body, bindings: { kind: "parametric" } }]);
+    assert.deepEqual(checkTirAdmissionCuts(admitFixtureRead, (admit, read) =>
+      verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, instance => {
+        read("bodyOf");
+        return bodyOf(instance);
+      }, input.nodeOf, emit, admit)), ["bodyOf"]);
     for (const wrong of [null, { ...nested, body: body.body }, { ...nested, owner: body.owner }, fixture.instances[0]]) {
       publication = wrong;
       findings.length = 0;
@@ -8423,7 +8721,7 @@ test("capture binding verification indexes each demanded owner's formal local re
     const findings = [];
     const emit = (rule, node) => findings.push({ rule, node: node?.id ?? null });
     const sources = new Map(input.source.bodies.map(source => [source.body, source]));
-    const verify = () => verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+    const verify = () => verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
     verify();
     assert.deepEqual(findings, []);
     assert.equal(inventoryReads, 1, "all captured formals borrow the same actual demanded-owner inventory");
@@ -8449,12 +8747,12 @@ test("capture binding verification indexes each demanded owner's formal local re
 test("a parametric body reuses its exact canonical selected header rather than a detached equal copy", () => {
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), []);
   const canonical = body.params[0];
   body.params = [structuredClone(canonical)];
-  assert.equal(product.verifyTir(fixture.inputFor(body), body).some(value => value.rule === "module-node-identity"), true);
+  assert.equal(verifyBody(fixture.inputFor(body), body).some(value => value.rule === "module-node-identity"), true);
   body.params = [canonical];
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+  assertCompleteValue(verifyBody(fixture.inputFor(body), body), []);
 });
 
 test("the removed scalar TirParam record is not a selected parameter occurrence", () => {

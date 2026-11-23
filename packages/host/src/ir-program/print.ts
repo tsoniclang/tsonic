@@ -8,6 +8,7 @@ import { textArtifactBindings, textBindingVector, textBodyInstance, textConstant
 import { textHirLexicalScope } from "./text-core.js";
 import { textBodyCaptureRow } from "./text-inference.js";
 import { textModuleBinding, textModuleExport } from "./text-module-bindings.js";
+import { textProgramInitialization } from "./initialization-text.js";
 import { createSyntaxText, syntaxText } from "./print-syntax.js";
 import { boolean, deferred, emitText, field, identity, nullable, numeric, numericIdentity, record, sequence, text, textDiagnostic, textLocalRef, textSourceNodeRef, token } from "./text-values.js";
 
@@ -80,6 +81,7 @@ export const printProgramIndex: PrintProgramIndex = index => `${emitText(deferre
   field("summaries", sequence(index.summaries, value => token(printSummary(value).trimEnd()))),
   field("constants", sequence(index.constants, constantRecord)), field("diagnostics", sequence(index.diagnostics, textDiagnostic)),
   field("nativeFactsKey", text(index.nativeFactsKey)),
+  field("initialization", textProgramInitialization(index.initialization)),
 ])), "ProgramIndex")}\n`;
 
 function tirBodyRecord(value: TirBody, context: SyntaxTextContext): TextWork {

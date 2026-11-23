@@ -31,7 +31,7 @@ export function publicDeclarations(source, files, catalogue) {
     const identity = sourceSymbol(source, file);
     if (identity === undefined) continue;
     for (const exported of queries.getExportsOfModule(identity)) {
-      const selected = sourceSymbol(source, file, exported);
+      const selected = sourceSymbol(source, file, exported.symbol);
       const declaration = queries.getSymbolValueDeclaration(selected);
       if (declaration === undefined) continue;
       const declarationPath = source.ast.getFileName(source.ast.getSourceFile(declaration)).slice("/host-gate/".length);

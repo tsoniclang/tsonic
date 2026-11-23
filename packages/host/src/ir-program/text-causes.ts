@@ -1,12 +1,12 @@
 import type { Cause, DiagnosticIdentity, UnitPosition, UnitRef, UnitRequest } from "../diag/contract.js";
-import type { GroupId, KeyData, KeyRecord, ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
+import type { GroupId, KeyData, KeyRecord, ModuleId, NodeId, NodeRef, SourceNodeRef } from "../ids/contract.js";
 import { decodeGroupId, encodeGroupId } from "../ids/index.js";
 import type { Cursor, TextStep } from "./parse-values.js";
 import { acceptText, arrayText, atomicText, choice, closeRecord, delimiter, fieldText, openRecord, readBigInt, readBoolean,
   invalid, readHostCode, readModuleId, readNodeId, readNumber, readString } from "./parse-values.js";
-import { readSourceNodeRef } from "./parse-diagnostics.js";
+import { readNodeRef, readSourceNodeRef } from "./parse-diagnostics.js";
 import type { TextWork } from "./text-values.js";
-import { boolean, deferred, field, identity, numeric, numericIdentity, record, sequence, text, textSourceNodeRef, token } from "./text-values.js";
+import { boolean, deferred, field, identity, numeric, numericIdentity, record, sequence, text, textNodeRef, textSourceNodeRef, token } from "./text-values.js";
 
 function keyText(value: KeyData): TextWork {
   if (value === null) return record("KeyNull", []);
@@ -26,6 +26,8 @@ function positionText(value: UnitPosition): TextWork {
       case "result": return record(value.kind, []);
       case "module-node": return record(value.kind, [field("module", identity("mod", value.module)), field("node", numericIdentity("n", value.node))]);
       case "source-node": return record(value.kind, [field("node", textSourceNodeRef(value.node))]);
+      case "execution-result": return record(value.kind, [field("execution", text(value.execution))]);
+      case "execution-source-node": return record(value.kind, [field("execution", text(value.execution)), field("node", textNodeRef(value.node))]);
       case "component": return record(value.kind, [field("path", sequence(value.path, keyText))]);
       case "inference-variable": return record(value.kind, [field("group", text(value.group)), field("variable", numeric(value.variable))]);
     }
@@ -78,7 +80,7 @@ function readRequest<Root>(cursor: Cursor, finish: (value: UnitRequest) => TextS
 }
 
 function readPosition<Root>(cursor: Cursor, finish: (value: UnitPosition) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["result", "module-node", "source-node", "component", "inference-variable"]), kind =>
+  return atomicText(cursor, next => choice(next, ["result", "module-node", "source-node", "execution-result", "execution-source-node", "component", "inference-variable"]), kind =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields = { given: new Set<string>() };
       const complete = (value: UnitPosition): TextStep<Root> => atomicText(cursor, next => closeRecord(next, fields), () => acceptText(value, finish));
@@ -87,6 +89,10 @@ function readPosition<Root>(cursor: Cursor, finish: (value: UnitPosition) => Tex
         case "module-node": return fieldText<ModuleId, Root>(cursor, fields, "module", (next, done) => atomicText(next, readModuleId, done), module =>
           fieldText<NodeId, Root>(cursor, fields, "node", (next, done) => atomicText(next, readNodeId, done), node => complete({ kind, module, node })));
         case "source-node": return fieldText<SourceNodeRef, Root>(cursor, fields, "node", (next, done) => atomicText(next, readSourceNodeRef, done), node => complete({ kind, node }));
+        case "execution-result": return fieldText<string, Root>(cursor, fields, "execution", (next, done) => atomicText(next, readString, done),
+          execution => complete({ kind, execution }));
+        case "execution-source-node": return fieldText<string, Root>(cursor, fields, "execution", (next, done) => atomicText(next, readString, done), execution =>
+          fieldText<NodeRef, Root>(cursor, fields, "node", (next, done) => atomicText(next, readNodeRef, done), node => complete({ kind, execution, node })));
         case "component": return fieldText<readonly KeyData[], Root>(cursor, fields, "path", (next, done) => arrayText(next, readKey, done), path => complete({ kind, path }));
         case "inference-variable": return fieldText<GroupId, Root>(cursor, fields, "group", (next, done) => atomicText(next, current => {
           const text = readString(current);

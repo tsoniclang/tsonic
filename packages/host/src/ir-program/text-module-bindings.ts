@@ -3,13 +3,13 @@ import type { CheckerDiagnosticRef } from "../diag/contract.js";
 import type { DefId, ModuleId, SourceNodeRef } from "../ids/contract.js";
 import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
 import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
-import { acceptText, arrayText, atomicText, choice, closeRecord, delimiter, fieldText, invalid, openRecord,
+import { acceptText, arrayText, atomicText, choice, closeRecord, delimiter, fieldText, invalid, nullableText, openRecord,
   readDefinitionId, readModuleId, readNumber, readString } from "./parse-values.js";
 import { readSourceNodeRef } from "./parse-diagnostics.js";
 import { readCapturedFactText } from "./parse-core.js";
 import { readMemberKeyText, readMemberOriginText } from "./parse-types.js";
 import type { TextWork } from "./text-values.js";
-import { deferred, field, identity, numeric, record, sequence, text, textSourceNodeRef } from "./text-values.js";
+import { deferred, field, identity, nullable, numeric, record, sequence, text, textSourceNodeRef } from "./text-values.js";
 import { textCapturedFact } from "./text-core.js";
 import { textMemberKey, textMemberOrigin } from "./text-types.js";
 
@@ -31,7 +31,8 @@ function textBindingTarget(value: HirBindingTarget): TextWork {
 }
 
 export function textModuleExport(value: HirModuleExport): TextWork {
-  return deferred(value, () => record("HirModuleExport", [field("name", text(value.name)), field("target", textExportTarget(value.target))]));
+  return deferred(value, () => record("HirModuleExport", [field("name", text(value.name)), field("target", textExportTarget(value.target)),
+    field("typeOnlyStar", nullable(value.typeOnlyStar, textSourceNodeRef))]));
 }
 
 export function textModuleBinding(value: HirModuleBinding): TextWork {
@@ -94,7 +95,9 @@ export function readModuleExportText<Root>(cursor: Cursor, finish: (value: HirMo
   return atomicText(cursor, next => openRecord(next, "HirModuleExport"), fields =>
     fieldText<string, Root>(cursor, fields, "name", (next, done) => atomicText(next, readString, done), name =>
       fieldText<HirExportTarget, Root>(cursor, fields, "target", readExportTargetText, target =>
-        atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ name, target }, finish)))));
+        fieldText<SourceNodeRef | null, Root>(cursor, fields, "typeOnlyStar",
+          (next, done) => nullableText(next, (next, done) => atomicText(next, readSourceNodeRef, done), done), typeOnlyStar =>
+            atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ name, target, typeOnlyStar }, finish))))));
 }
 
 export function readModuleBindingText<Root>(cursor: Cursor, finish: (value: HirModuleBinding) => TextStep<Root>): TextStep<Root> {

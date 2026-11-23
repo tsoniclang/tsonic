@@ -8,13 +8,11 @@ export interface SyntaxEdge {
 }
 
 export function syntaxEdges(node: SyntaxNode<TypedPhase>): readonly SyntaxEdge[] {
-  return [...iterateSyntaxEdges(node)];
-}
-
-export function* iterateSyntaxEdges(node: SyntaxNode<TypedPhase>): Generator<SyntaxEdge, void> {
+  const edges: SyntaxEdge[] = [];
   for (const edge of iterateSyntaxChildEdges(node)) {
     let segment = "";
     for (const field of edge.fields) segment += typeof field === "number" ? "[" + field + "]" : "." + field;
-    yield { node: edge.node, segment };
+    edges.push({ node: edge.node, segment });
   }
+  return edges;
 }

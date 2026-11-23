@@ -32,8 +32,8 @@ test("actual declared and mapped indexes retain source origin and row key withou
     assert.equal("declaration" in row, false);
     const key = raw.types.types[row.key];
     const value = raw.types.types[row.value];
-    assert.deepEqual(raw.types.components[key.component].path.at(-1), { kind: "index-key", origin: row.origin, key: row.key });
-    assert.deepEqual(raw.types.components[value.component].path.at(-1), { kind: "index-value", origin: row.origin, key: row.key });
+    assert.deepEqual(raw.types.components[key.component].path?.step, { kind: "index-key", origin: row.origin, key: row.key });
+    assert.deepEqual(raw.types.components[value.component].path?.step, { kind: "index-value", origin: row.origin, key: row.key });
   }
   const deps = fixture.lowerDepsFor(identified.value, fixture.types.createTypeInterner(), source);
   assert.equal("bindingOccurrenceOf" in deps, false);

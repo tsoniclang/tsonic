@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 
 export async function literalCompatibilityCases(suite, types) {
-  const facts = { nativeIntegerWidths: [{ carrier: "native-int", bits: 9 }, { carrier: "native-uint", bits: 41 }] };
+  const facts = { nativeIntegerWidths: [{ carrier: "native-int", bits: 9 }, { carrier: "native-uint", bits: 41 }], floatingFormats: [] };
   const number = (numerator, denominator = 1n, negativeZero = false) => ({ kind: "number", value: { numerator, denominator, negativeZero } });
   const string = value => ({ kind: "string", value });
   const table = terms => ({ terms, signatures: [] });
   const check = (terms, value, type = 0, selected = facts) => types.literalCompatibilityOf(table(terms), type, value, selected,
-    { typeOf: id => terms[id], admit: () => true });
+    { numericRepresentation: "literal-operand", typeOf: id => terms[id], admit: () => true });
   const boolean = { kind: "boolean", value: true };
   const absent = { kind: "absence" };
 
@@ -26,6 +26,7 @@ export async function literalCompatibilityCases(suite, types) {
           return true;
         };
         const result = types.literalCompatibilityOf(table(terms), 0, boolean, facts, {
+          numericRepresentation: "literal-operand",
           admit: (work, entries) => charge(work) && charge(entries),
           typeOf: id => {
             if (!charge(1)) return null;
@@ -109,7 +110,7 @@ export async function literalCompatibilityCases(suite, types) {
     assert.throws(() => check([{ kind: "literal", value: boolean, base: 0 }], boolean), /acyclic/);
     let reads = 0;
     const terms = [{ kind: "primitive", primitive: "int32" }];
-    assert.equal(types.literalCompatibilityOf(table(terms), 0, boolean, facts, { admit: () => true,
+    assert.equal(types.literalCompatibilityOf(table(terms), 0, boolean, facts, { numericRepresentation: "literal-operand", admit: () => true,
       typeOf: () => { reads += 1; return null; } }).kind, "resource-stop");
     assert.equal(reads, 1);
     const samples = [[{ kind: "literal", value: string("x"), base: 1 }, { kind: "string" }],
@@ -118,6 +119,7 @@ export async function literalCompatibilityCases(suite, types) {
     for (const terms of samples) {
       let needed = 0;
       const full = types.literalCompatibilityOf(table(terms), 0, string("x"), facts, {
+        numericRepresentation: "literal-operand",
         admit: (work, entries) => { needed += work + entries; return true; },
         typeOf: id => { needed += 1; return terms[id]; } });
       assert.notEqual(full.kind, "resource-stop");
@@ -128,10 +130,53 @@ export async function literalCompatibilityCases(suite, types) {
           if (work + entries > remaining) { stopped = true; return false; }
           remaining -= work + entries; return true;
         };
-        const result = types.literalCompatibilityOf(table(terms), 0, string("x"), facts, { admit,
+        const result = types.literalCompatibilityOf(table(terms), 0, string("x"), facts, { numericRepresentation: "literal-operand", admit,
           typeOf: id => admit(1, 0) ? terms[id] : null });
         assert.equal(result.kind, allowance === needed ? full.kind : "resource-stop");
       }
+    }
+  });
+
+  await suite.test("binary64 literal fit requires the selected descriptor and exact finite dyadic value", () => {
+    const format = { carrier: "float64", interchange: "ieee754-binary64", nanSignObservable: true,
+      nanPayloadObservable: true, signalingNaNObservable: true };
+    const terms = [{ kind: "primitive", primitive: "float64" }];
+    const selected = { ...facts, floatingFormats: [format] };
+    const values = [[number(0n, 1n, true), true], [number(5n, 4n), true], [number(-5n, 4n), true],
+      [number(9007199254740994n), true],
+      [number(1n, 1n << 1074n), true], [number((1n << 1024n) - (1n << 971n)), true],
+      [number(9007199254740993n), false], [number(1n, 10n), false], [number(1n, 1n << 1075n), false],
+      [number(1n << 1024n), false], [number(1n, -1n), false], [number(2n, 4n), false],
+      [number(0n, 2n), false], [number(1n, 1n, true), false]];
+    for (const [value, exact] of values) {
+      assert.equal(types.exactFloat64LiteralFit(value.value, format), exact);
+      assert.equal(check(terms, value, 0, selected).kind, exact ? "compatible" : "needs-selected-evidence");
+    }
+    const other = { ...format, carrier: "float32", interchange: "ieee754-binary32" };
+    assert.equal(types.exactFloat64LiteralFit(number(0n).value, other), false);
+    assert.equal(types.exactFloat64LiteralFit(number(0n).value, { ...format, interchange: other.interchange }), false);
+    assert.equal(check(terms, number(0n), 0, facts).kind, "needs-selected-evidence");
+    const unread = { get floatingFormats() { assert.fail("Retaining an existing payload must not select materialization."); } };
+    assert.deepEqual(types.literalCompatibilityOf(table(terms), 0, number(5n, 4n), unread, {
+      numericRepresentation: "preserve-payload", typeOf: id => terms[id], admit: () => true,
+    }), { kind: "needs-selected-evidence", type: 0, primitive: "float64", requirement: "literal-conversion" });
+    assert.equal(types.literalCompatibilityOf(table(terms), 0, number(5n, 4n), unread, {
+      typeOf: id => terms[id], admit: () => true,
+    }).kind, "needs-selected-evidence", "the old unqualified reader cannot authorize binary64 fit");
+    const selectedFormats = [other, format];
+    for (let allowance = 0; allowance <= 8; allowance += 1) {
+      let remaining = allowance;
+      const reads = [];
+      const admit = (work, entries) => { remaining -= work + entries; return remaining >= 0; };
+      const formats = new Proxy(selectedFormats, { get(rows, key) {
+        if (key === "0" || key === "1") reads.push(Number(key));
+        return Reflect.get(rows, key);
+      } });
+      const result = types.literalCompatibilityOf(table(terms), 0, number(0n), { ...facts, floatingFormats: formats }, {
+        numericRepresentation: "literal-operand", admit, typeOf: id => admit(1, 0) ? terms[id] : null,
+      });
+      assert.equal(result.kind, allowance === 8 ? "compatible" : "resource-stop");
+      assert.deepEqual(reads, [0, 1].slice(0, Math.max(0, allowance - 6)));
     }
   });
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
-import { createModuleBindingViews, projectExportDeclarations, resolveModuleBinding } from "../../packages/host/dist/ir-hir/index.js";
+import { createModuleBindingViews, resolveModuleBinding, resolveModuleExport } from "../../packages/host/dist/ir-hir/index.js";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId, nodeId } from "../../packages/host/dist/ids/index.js";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { moduleFixture } from "./ir-program-fixtures.mjs";
@@ -62,21 +62,16 @@ test("the one ready relation rejects duplicate ownership and walks long actual c
   }
 });
 
-test("an export's genuine syntax declaration requires the exact F1 owner and node join", () => {
+test("an item-owned export resolves its binding and does not turn its syntax owner into a declaration group", () => {
   const occurrence = { kind: "item", value: { owner: definition, node: nodeId(7) } };
-  const entry = { name: "namespace", target: { kind: "binding", occurrence } };
+  const entry = { name: "namespace", typeOnlyStar: null, target: { kind: "binding", occurrence } };
   const relation = createModuleBindingViews([[{ occurrence, target: available({ kind: "module", module }) }]]);
-  const genuine = projectExportDeclarations({ ...relation, declarationSourceOf: actual => actual === definition ? structuredClone(occurrence) : null }, entry);
-  assert.deepEqual(genuine.target, available({ kind: "declarations", definitions: [definition] }));
-  assert.deepEqual(resolveModuleBinding(relation, occurrence).target, available({ kind: "module", module }));
-  for (const declaration of [null, { ...occurrence, value: { owner: definition, node: nodeId(6) } },
-    { ...occurrence, value: { owner: another, node: nodeId(7) } }, executing(7)]) {
-    const projected = projectExportDeclarations({ ...relation, declarationSourceOf: () => declaration }, entry);
-    assert.deepEqual(projected.target, available({ kind: "module", module }));
-    assert.deepEqual(projected.aliases, [occurrence]);
-  }
-  const direct = { name: "overload", target: { kind: "declarations", definitions: [definition, another] } };
-  assert.equal(projectExportDeclarations({ ...relation, declarationSourceOf: () => assert.fail("a direct group does not need a binding lookup") }, direct).target.value === direct.target, true);
+  const resolved = resolveModuleExport(relation, entry);
+  assert.deepEqual(resolved.target, available({ kind: "module", module }));
+  assert.deepEqual(resolved.aliases, [occurrence]);
+  assert.deepEqual(resolved, resolveModuleBinding(relation, occurrence));
+  const direct = { name: "overload", typeOnlyStar: null, target: { kind: "declarations", definitions: [definition, another] } };
+  assert.equal(resolveModuleExport({ bindingOf: () => assert.fail("a direct group does not need a binding lookup") }, direct).target.value === direct.target, true);
 });
 
 test("module and exported-value-member targets never become a chosen declaration", () => {
@@ -234,7 +229,7 @@ test("real raw B1 direct overload inventory retains every declaration in canonic
   const deps = fixture.lowerDepsFor(definitions.value, fixture.types.createTypeInterner(), source);
   const lowered = fixture.front.lowerModuleExports(deps, captured.value);
   assert.deepEqual(lowered, { kind: "ok", diagnostics: [], value: { module: opened.module,
-    entries: [{ name: "over", target: { kind: "declarations", definitions: expected } }], bindings: [] } });
+    entries: [{ name: "over", typeOnlyStar: null, target: { kind: "declarations", definitions: expected } }], bindings: [] } });
 });
 
 test("real B1 cross-module aliases retain every nearest binding hop and star/module targets", async () => {
@@ -295,12 +290,10 @@ test("real B1 cross-module aliases retain every nearest binding hop and star/mod
     available({ kind: "module", module: sourceModules.get("a.ts") }));
   const namespaceDefinition = captured.find(entry => entry.raw.module === sourceModules.get("namespace.ts")).inventory.rows.find(row => row.kind === "NamespaceExport");
   assert.notEqual(namespaceDefinition, undefined);
-  assert.equal(namespace.occurrence.value.owner, namespaceDefinition.definition);
-  const declarationSources = new Map(captured.flatMap(entry => entry.inventory.rows.map(row => [row.definition,
-    { kind: "item", value: { owner: row.definition, node: row.node } }])));
-  const projected = fixture.hir.projectExportDeclarations({ ...relation,
-    declarationSourceOf: definition => declarationSources.get(definition) ?? null }, { name: "names", target: namespace });
-  assert.deepEqual(projected.target, available({ kind: "declarations", definitions: [namespaceDefinition.definition] }));
+  assert.deepEqual(namespace.occurrence, { kind: "item", value: { owner: namespaceDefinition.definition, node: namespaceDefinition.node } });
+  const projected = fixture.hir.resolveModuleExport(relation, { name: "names", target: namespace });
+  assert.deepEqual(projected.target, available({ kind: "module", module: sourceModules.get("a.ts") }));
+  assert.deepEqual(projected.aliases, [namespace.occurrence]);
   for (const entry of [...captured].reverse()) {
     const repeat = fixture.front.lowerModuleExports(deps, entry.raw);
     assert.deepEqual(repeat.value, lowered.find(value => value.module === entry.raw.module));

@@ -1,576 +1,834 @@
 import type {
-  ApplicationDecision, ConstructionPartDecision, DeferredDecision, DeferredInvocation, EmbeddingDecision,
-  EmbeddingProof, MemberDecision, OperationDecision, OperationIdentity, ProtocolStepDecision,
-  RefinementDecision, RuleOutcome,
+  ApplicationDecision, CandidateArgument, CandidateEndpoint, ClosureCaptureEvidence, ConstructionPartDecision, DeferredDecision, DeferredInvocation, EmbeddingDecision,
+  EmbeddingProof, MemberDecision, OperationIdentity, ParameterMapping, ProtocolStepDecision,
+  LiteralConstructionPart, RefinementDecision, RuleContext, RuleOutcome,
 } from "../ir-infer/contract.js";
 import type {
-  ConversionDecision, MemberSelection, ResolvedCallee, TirApplication, TirProtocol, TypedOperation, TypedValue,
-  TargetAccess, TypedAlias, TypedApplication, TypedBigInt, TypedBinary, TypedBinding, TypedBindingElement,
-  TypedCallable, TypedClass, TypedClassValue, TypedClosure, TypedConditional, TypedConstruction, TypedDecorator,
-  TypedEnum, TypedExportAssignment, TypedHeritage, TypedIndexDeclaration, TypedInstantiation, TypedInterface, TypedIteration,
-  TypedKeyword, TypedMember, TypedName, TypedNamespace, TypedNumber, TypedObjectSpread, TypedOmission,
-  TypedParameter, TypedPredicate, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue,
-  TypedSourceFile, TypedStaticBlock, TypedStorageDeclaration, TypedString, TypedTemplate, TypedType,
-  TypedTypeParameter, TypedUnary, TypedUpdate, TypedVariableList,
+  ConversionDecision, MemberSelection, ResolvedCallee, TirApplication, TirArgument, TirProtocol, TirProtocolStep, TirRestPart, TypedOperation, TypedOperationOf, TypedValue,
 } from "../ir-tir/contract.js";
 import type {
-  CapturedFact, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirRecordBindingCapture,
+  CapturedFact, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirRecordBindingCapture, PreparedSyntaxSlot, SyntaxCopyResult,
 } from "../ir-hir/contract.js";
-import type { ProjectionInventory } from "./program-values.js";
+import type { BodyInstance, TypeEvidence } from "../ir-types/contract.js";
+import type { TyId } from "../ids/contract.js";
+import type { TypeReferenceRewrite } from "./canonical-types.js";
+import type { InvariantFailure } from "../diag/contract.js";
+import { requirePresent } from "../diag/index.js";
+import type { PreparedReferenceProjection, ProjectionInventory } from "./program-values.js";
 import type { InstantiationStop } from "./work.js";
-import { inventoryBindings, inventoryComponent, inventoryEach, inventoryEndpoint, inventoryEvidence, inventoryFields, inventoryInstance, inventoryParameter, inventoryRecord, inventorySignature, inventoryType } from "./program-values.js";
+import {
+  deferComponentProjection, deferProjection, inventoryFields, inventoryRecord, inventorySignature, inventoryType,
+  prepareBindingsProjection, prepareEndpoint, prepareEvidenceProjection, prepareInstance, prepareProjectionRows,
+} from "./program-values.js";
+import { chargeInstantiationWork, reserveInstantiationRecord } from "./work.js";
 
-function embeddingProof(scan: ProjectionInventory, value: EmbeddingProof): InstantiationStop | null {
-  inventoryEach(scan, value.steps, step => inventoryRecord(scan, 4)
-    ?? inventoryComponent(scan, step.from) ?? inventoryComponent(scan, step.to));
-  return inventoryRecord(scan, 2);
+export type PreparedPhase<Value> = PreparedReferenceProjection<Value>;
+export type PhaseProject<Value> = PreparedSyntaxSlot<Value, TypeReferenceRewrite>;
+
+export function withPlan<Before, After>(source: PreparedPhase<Before>,
+  next: (ready: PhaseProject<Before>) => PreparedPhase<After>,
+): PreparedPhase<After> {
+  return source.kind === "refused" ? source : next(source.value);
 }
 
-export function inventoryEmbedding(scan: ProjectionInventory, value: EmbeddingDecision): InstantiationStop | null {
+export function paidPhase<Value>(scan: ProjectionInventory, fields: number, next: () => PreparedPhase<Value>): PreparedPhase<Value> {
+  const stop = inventoryRecord(scan, fields);
+  return stop === null ? next() : { kind: "refused", stop };
+}
+
+export function holdPhase<Value>(value: Value): PreparedPhase<Value> {
+  return { kind: "copied", value: () => value };
+}
+
+export function borrowPhase<Value>(scan: ProjectionInventory, fields: number, value: Value): PreparedPhase<Value> {
+  const stop = inventoryFields(scan, fields);
+  return stop === null ? holdPhase(value) : { kind: "refused", stop };
+}
+
+export function typePhase(scan: ProjectionInventory, type: TyId): PreparedPhase<TyId> {
+  const stop = inventoryType(scan, type);
+  return stop === null ? { kind: "copied", value: image => image.type(type) } : { kind: "refused", stop };
+}
+
+export function optionalTypePhase(scan: ProjectionInventory, type: TyId | null): PreparedPhase<TyId | null> {
+  return type === null ? holdPhase(null) : typePhase(scan, type);
+}
+
+export function typesPhase(scan: ProjectionInventory, types: readonly TyId[]): PhaseProject<readonly TyId[]> {
+  return prepareProjectionRows(scan, types, read => {
+    const stop = chargeInstantiationWork(scan.meter);
+    if (stop !== null) return { kind: "refused", stop };
+    const type = read();
+    scan.types.add(type);
+    return { kind: "copied", value: image => image.type(type) };
+  });
+}
+
+function prepareEmbeddingProof(scan: ProjectionInventory, value: EmbeddingProof, at: string): PreparedPhase<EmbeddingProof> {
+  return paidPhase(scan, 2, () => {
+    const steps = prepareProjectionRows(scan, value.steps, (read, index) => paidPhase(scan, 4, () => {
+      const step = read();
+      const prefix = at + ".steps[" + index + "]";
+      const from = deferComponentProjection(scan, () => step.from, prefix + ".from", scan.componentCycle);
+      const to = deferComponentProjection(scan, () => step.to, prefix + ".to", scan.componentCycle);
+      const { rule, premises } = step;
+      return { kind: "copied", value: image => ({ from: from(image), to: to(image), rule, premises }) };
+    }));
+    const conclusion = value.conclusion;
+    return { kind: "copied", value: image => ({ steps: steps(image), conclusion }) };
+  });
+}
+
+export function prepareEmbedding(scan: ProjectionInventory, value: EmbeddingDecision, at: string): PreparedPhase<EmbeddingDecision> {
   switch (value.kind) {
-    case "identity":
-    case "refused": return inventoryFields(scan, 1);
-    case "conversion": return inventoryRecord(scan, 4) ?? embeddingProof(scan, value.proof);
+    case "identity": case "refused": return borrowPhase(scan, 1, value);
+    case "conversion": return paidPhase(scan, 4, () =>
+      withPlan(prepareEmbeddingProof(scan, value.proof, at + ".proof"), proof => {
+        const { conversion, check } = value;
+        return { kind: "copied", value: image => ({ kind: "conversion", conversion, check, proof: proof(image) }) };
+      }));
   }
 }
 
-function memberDecision(scan: ProjectionInventory, value: MemberDecision): InstantiationStop | null {
-  if (value.getter !== null) {
-    const getter = value.getter;
-    scan.pending.push(() => inventoryEndpoint(scan, getter));
-  }
-  if (value.setter !== null) {
-    const setter = value.setter;
-    scan.pending.push(() => inventoryEndpoint(scan, setter));
-  }
-  return inventoryRecord(scan, 10) ?? inventoryType(scan, value.read)
-    ?? inventoryType(scan, value.write) ?? inventoryBindings(scan, value.bindings);
+function prepareMember(scan: ProjectionInventory, value: MemberDecision): PreparedReferenceProjection<MemberDecision> {
+  const header = inventoryRecord(scan, 10);
+  if (header !== null) return { kind: "refused", stop: header };
+  const rawGetter = value.getter;
+  const getter = rawGetter === null ? () => null : deferProjection(scan, () => prepareEndpoint(scan, () => rawGetter));
+  const rawSetter = value.setter;
+  const setter = rawSetter === null ? () => null : deferProjection(scan, () => prepareEndpoint(scan, () => rawSetter));
+  const read = value.read;
+  const readStop = inventoryType(scan, read);
+  if (readStop !== null) return { kind: "refused", stop: readStop };
+  const write = value.write;
+  const writeStop = inventoryType(scan, write);
+  if (writeStop !== null) return { kind: "refused", stop: writeStop };
+  const bindings = prepareBindingsProjection(scan, value.bindings);
+  if (bindings.kind === "refused") return bindings;
+  const { key, origins, selectedDeclarations, primary, location } = value;
+  return { kind: "copied", value: rewrite => ({
+    key, origins, selectedDeclarations, primary, location, bindings: bindings.value(rewrite),
+    read: read === null ? null : rewrite.type(read), write: write === null ? null : rewrite.type(write),
+    getter: getter(rewrite), setter: setter(rewrite),
+  }) };
 }
 
-export function inventoryApplication(scan: ProjectionInventory, value: ApplicationDecision): InstantiationStop | null {
-  inventoryEach(scan, value.parameters, parameter => {
+export function prepareApplication(scan: ProjectionInventory, value: ApplicationDecision): PreparedReferenceProjection<ApplicationDecision> {
+  const header = inventoryRecord(scan, 9);
+  if (header !== null) return { kind: "refused", stop: header };
+  const parameters = prepareProjectionRows<ParameterMapping, ParameterMapping>(scan, value.parameters, read => {
+    const slot = chargeInstantiationWork(scan.meter);
+    if (slot !== null) return { kind: "refused", stop: slot };
+    const parameter = read();
     switch (parameter.kind) {
       case "argument":
       case "default":
-      case "rest": return inventoryFields(scan, 1);
-      case "omitted": return inventoryRecord(scan, 3) ?? inventoryType(scan, parameter.type);
+      case "rest": return { kind: "copied", value: () => parameter };
+      case "omitted": {
+        const rowStop = reserveInstantiationRecord(scan.meter) ?? inventoryFields(scan, 3);
+        if (rowStop !== null) return { kind: "refused", stop: rowStop };
+        const type = parameter.type;
+        const stop = inventoryType(scan, type);
+        if (stop !== null) return { kind: "refused", stop };
+        const index = parameter.parameter;
+        return { kind: "copied", value: rewrite => ({ kind: "omitted", parameter: index, type: rewrite.type(type) }) };
+      }
     }
   });
-  return inventoryRecord(scan, 9) ?? inventoryEndpoint(scan, value.advertised) ?? inventoryEndpoint(scan, value.api)
-    ?? inventoryBindings(scan, value.bindings) ?? inventoryBindings(scan, value.implementationBindings)
-    ?? inventoryRecord(scan, 4) ?? inventorySignature(scan, value.completion.signature)
-    ?? inventoryType(scan, value.completion.completion) ?? inventoryType(scan, value.completion.yielded)
-    ?? inventoryType(scan, value.completion.sent) ?? inventoryType(scan, value.result);
+  const advertised = prepareEndpoint(scan, () => value.advertised);
+  if (advertised.kind === "refused") return advertised;
+  const api = prepareEndpoint(scan, () => value.api);
+  if (api.kind === "refused") return api;
+  const bindings = prepareBindingsProjection(scan, value.bindings);
+  if (bindings.kind === "refused") return bindings;
+  const implementation = prepareBindingsProjection(scan, value.implementationBindings);
+  if (implementation.kind === "refused") return implementation;
+  const completionHeader = inventoryRecord(scan, 4);
+  if (completionHeader !== null) return { kind: "refused", stop: completionHeader };
+  const entry = value.completion;
+  const signature = entry.signature;
+  const signatureStop = inventorySignature(scan, signature);
+  if (signatureStop !== null) return { kind: "refused", stop: signatureStop };
+  const completion = entry.completion;
+  const completionStop = inventoryType(scan, completion);
+  if (completionStop !== null) return { kind: "refused", stop: completionStop };
+  const yielded = entry.yielded;
+  const yieldedStop = inventoryType(scan, yielded);
+  if (yieldedStop !== null) return { kind: "refused", stop: yieldedStop };
+  const sent = entry.sent;
+  const sentStop = inventoryType(scan, sent);
+  if (sentStop !== null) return { kind: "refused", stop: sentStop };
+  const result = value.result;
+  const resultStop = inventoryType(scan, result);
+  if (resultStop !== null) return { kind: "refused", stop: resultStop };
+  const { candidate, activation } = value;
+  return { kind: "copied", value: rewrite => ({
+    candidate, activation, advertised: advertised.value(rewrite), api: api.value(rewrite),
+    bindings: bindings.value(rewrite), implementationBindings: implementation.value(rewrite), parameters: parameters(rewrite),
+    completion: { signature: rewrite.signature(signature), completion: rewrite.type(completion),
+      yielded: yielded === null ? null : rewrite.type(yielded), sent: sent === null ? null : rewrite.type(sent) },
+    result: rewrite.type(result),
+  }) };
 }
 
-export function inventoryConstructionPart(scan: ProjectionInventory, value: ConstructionPartDecision): InstantiationStop | null {
-  return inventoryRecord(scan, 5) ?? inventoryComponent(scan, value.destination)
-    ?? (value.member === null ? null : memberDecision(scan, value.member)) ?? inventoryEmbedding(scan, value.embedding);
-}
-
-function protocolStep(scan: ProjectionInventory, value: ProtocolStepDecision): InstantiationStop | null {
-  inventoryEach(scan, value.operands, type => inventoryType(scan, type));
-  const base = inventoryRecord(scan, 4) ?? inventoryType(scan, value.result);
-  if (base !== null) return base;
-  switch (value.operation.kind) {
-    case "call": return inventoryRecord(scan, 2) ?? inventoryApplication(scan, value.operation.application);
-    case "core": return inventoryRecord(scan, 3) ?? inventoryBindings(scan, value.operation.bindings);
-    case "completion": return inventoryRecord(scan, 1);
-  }
-}
-
-function operationIdentity(scan: ProjectionInventory, value: OperationIdentity): InstantiationStop | null {
-  switch (value.kind) {
-    case "native-operator":
-    case "bigint-operator":
-    case "string-operator":
-    case "boolean-operator":
-    case "absence-test":
-    case "pointer-address":
-    case "pointer-read":
-    case "pointer-write":
-    case "pointer-offset":
-    case "type-query":
-    case "discard": return inventoryFields(scan, 1);
-    case "object-construction":
-    case "array-construction":
-      inventoryEach(scan, value.parts, part => inventoryConstructionPart(scan, part));
-      return inventoryRecord(scan, 2);
-    case "protocol":
-      inventoryEach(scan, value.steps, step => protocolStep(scan, step));
-      return inventoryRecord(scan, 9) ?? inventoryType(scan, value.value) ?? inventoryType(scan, value.completion)
-        ?? inventoryType(scan, value.yielded) ?? inventoryType(scan, value.sent) ?? inventoryType(scan, value.thrown);
-    case "conversion": return inventoryRecord(scan, 4) ?? inventoryType(scan, value.from)
-      ?? inventoryType(scan, value.to) ?? inventoryEmbedding(scan, value.embedding);
-    case "library":
-    case "core": return inventoryRecord(scan, 3) ?? inventoryBindings(scan, value.bindings);
-  }
-}
-
-function operationDecision(scan: ProjectionInventory, value: OperationDecision): InstantiationStop | null {
-  inventoryEach(scan, value.operands, type => inventoryType(scan, type));
-  scan.pending.push(() => operationIdentity(scan, value.operation));
-  return inventoryRecord(scan, 5) ?? inventoryType(scan, value.result);
-}
-
-export function inventoryTypedOperation(scan: ProjectionInventory, value: TypedOperation): InstantiationStop | null {
-  return inventoryRecord(scan, 2) ?? operationDecision(scan, value.decision);
-}
-
-export function inventoryRefinement(scan: ProjectionInventory, value: RefinementDecision): InstantiationStop | null {
-  switch (value.kind) {
-    case "identity": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
-    case "narrowed": return inventoryRecord(scan, 5) ?? inventoryType(scan, value.source)
-      ?? inventoryType(scan, value.result) ?? embeddingProof(scan, value.proof);
-  }
-}
-
-function invocation(scan: ProjectionInventory, value: DeferredInvocation): InstantiationStop | null {
-  const context = inventoryRecord(scan, 2) ?? inventoryRecord(scan, 3) ?? inventoryBindings(scan, value.input.context.bindings);
-  if (context !== null) return context;
-  switch (value.rule) {
-    case "embed": return inventoryRecord(scan, 4) ?? inventoryEvidence(scan, value.input.from) ?? inventoryEvidence(scan, value.input.to);
-    case "domain-fit": return inventoryRecord(scan, 3) ?? inventoryEvidence(scan, value.input.value) ?? inventoryEvidence(scan, value.input.domain);
-    case "memory-equivalent": return inventoryRecord(scan, 3) ?? inventoryEvidence(scan, value.input.left) ?? inventoryEvidence(scan, value.input.right);
-    case "member": return inventoryRecord(scan, 5) ?? inventoryEvidence(scan, value.input.receiver);
-    case "index": return inventoryRecord(scan, 4) ?? inventoryEvidence(scan, value.input.receiver) ?? inventoryEvidence(scan, value.input.key);
-    case "construct-literal":
-      inventoryEach(scan, value.input.parts, part => inventoryRecord(scan, part.kind === "property" ? 4 : 3) ?? inventoryEvidence(scan, part.value));
-      return inventoryRecord(scan, 4) ?? (value.input.destination === null ? null : inventoryEvidence(scan, value.input.destination));
-    case "candidate":
-      inventoryEach(scan, value.input.typeArguments, type => inventoryEvidence(scan, type));
-      inventoryEach(scan, value.input.arguments, argument => {
-        if (argument.tuple !== null) inventoryEach(scan, argument.tuple, type => inventoryEvidence(scan, type));
-        return inventoryRecord(scan, 4) ?? inventoryEvidence(scan, argument.value);
-      });
-      inventoryEach(scan, value.input.candidates, candidate => inventoryRecord(scan, 6)
-        ?? inventoryEndpoint(scan, candidate.advertised) ?? inventoryEndpoint(scan, candidate.api)
-        ?? inventoryBindings(scan, candidate.bindings));
-      return inventoryRecord(scan, 7) ?? inventoryEvidence(scan, value.input.callee)
-        ?? (value.input.receiver === null ? null : inventoryEvidence(scan, value.input.receiver));
-    case "operator":
-      inventoryEach(scan, value.input.operands, operand => inventoryEvidence(scan, operand));
-      return inventoryRecord(scan, 4);
-    case "literal-fit": return inventoryRecord(scan, 3) ?? inventoryEvidence(scan, value.input.destination);
-    case "protocol":
-      inventoryEach(scan, value.input.operands, operand => inventoryEvidence(scan, operand));
-      return inventoryRecord(scan, 9)
-        ?? (value.input.subject === null ? null : inventoryEvidence(scan, value.input.subject))
-        ?? (value.input.completion === null ? null : inventoryEvidence(scan, value.input.completion))
-        ?? (value.input.yielded === null ? null : inventoryEvidence(scan, value.input.yielded))
-        ?? (value.input.sent === null ? null : inventoryEvidence(scan, value.input.sent))
-        ?? inventoryEvidence(scan, value.input.thrown);
-    case "refinement": return inventoryRecord(scan, 3) ?? inventoryEvidence(scan, value.input.source) ?? inventoryEvidence(scan, value.input.checked);
-    case "library":
-      inventoryEach(scan, value.input.arguments, argument => inventoryEvidence(scan, argument));
-      return inventoryRecord(scan, 5) ?? (value.input.receiver === null ? null : inventoryEvidence(scan, value.input.receiver))
-        ?? inventoryEvidence(scan, value.input.result);
-    case "core":
-      inventoryEach(scan, value.input.operands, operand => inventoryEvidence(scan, operand));
-      return inventoryRecord(scan, 6) ?? inventoryCoreCapture(scan, value.input.captured) ?? inventoryEvidence(scan, value.input.result);
-    case "closure":
-      inventoryEach(scan, value.input.captures, capture => inventoryRecord(scan, 4) ?? inventoryEvidence(scan, capture.value));
-      return inventoryRecord(scan, 3) ?? inventoryEvidence(scan, value.input.callable);
-  }
-}
-
-export function inventoryDeferred(scan: ProjectionInventory, value: DeferredDecision): InstantiationStop | null {
-  scan.pending.push(() => invocation(scan, value.invocation));
-  return inventoryRecord(scan, 2) ?? inventoryType(scan, value.result);
-}
-
-export function inventoryOutcome<Decision>(
-  scan: ProjectionInventory, value: RuleOutcome<Decision>, visit: (decision: Decision) => InstantiationStop | null,
-): InstantiationStop | null {
-  const record = inventoryRecord(scan, 2);
-  if (record !== null) return record;
-  switch (value.kind) {
-    case "decided": return visit(value.decision);
-    case "deferred": return inventoryDeferred(scan, value.deferred);
-  }
-}
-
-export function inventoryCallee(scan: ProjectionInventory, value: ResolvedCallee): InstantiationStop | null {
-  return inventoryRecord(scan, 3) ?? inventoryApplication(scan, value.decision)
-    ?? (value.activation === null ? null : inventoryInstance(scan, value.activation));
-}
-
-export function inventorySelection(scan: ProjectionInventory, value: MemberSelection): InstantiationStop | null {
-  return inventoryRecord(scan, 3) ?? memberDecision(scan, value.decision)
-    ?? (value.getter === null ? null : inventoryCallee(scan, value.getter))
-    ?? (value.setter === null ? null : inventoryCallee(scan, value.setter));
-}
-
-export function inventoryTirApplication(scan: ProjectionInventory, value: TirApplication): InstantiationStop | null {
-  inventoryEach(scan, value.arguments, argument => {
-    switch (argument.kind) {
-      case "provided": return inventoryFields(scan, 1);
-      case "rest":
-        inventoryEach(scan, argument.parts, part => {
-          switch (part.kind) {
-            case "value": return inventoryFields(scan, 1);
-            case "spread":
-              if (part.tuple !== null) inventoryEach(scan, part.tuple, type => inventoryType(scan, type));
-              return inventoryRecord(scan, 3);
-          }
-        });
-        return inventoryRecord(scan, 3);
-      case "omitted":
-        switch (argument.value.kind) {
-          case "absence":
-          case "empty-rest": return inventoryFields(scan, 2);
-          case "initializer": return inventoryRecord(scan, 3) ?? inventoryRecord(scan, 2)
-            ?? inventoryInstance(scan, argument.value.instance);
+function prepareProtocolStep(scan: ProjectionInventory, read: () => ProtocolStepDecision): PreparedPhase<ProtocolStepDecision> {
+  return paidPhase<ProtocolStepDecision>(scan, 4, () => {
+    const value = read();
+    const operands = typesPhase(scan, value.operands);
+    return withPlan(typePhase(scan, value.result), result => {
+      const operation = value.operation;
+      const { role } = value;
+      switch (operation.kind) {
+        case "call": return paidPhase<ProtocolStepDecision>(scan, 2, () =>
+          withPlan(prepareApplication(scan, operation.application), application => ({
+            kind: "copied", value: image => ({ role, operands: operands(image), result: result(image),
+              operation: { kind: "call", application: application(image) } }),
+          })));
+        case "core": return paidPhase<ProtocolStepDecision>(scan, 3, () =>
+          withPlan(prepareBindingsProjection(scan, operation.bindings), bindings => {
+            const declaration = operation.declaration;
+            return { kind: "copied", value: image => ({ role, operands: operands(image), result: result(image),
+              operation: { kind: "core", declaration, bindings: bindings(image) } }) };
+          }));
+        case "completion": {
+          const stop = inventoryRecord(scan, 1);
+          return stop === null ? { kind: "copied", value: image => ({ role, operands: operands(image), result: result(image), operation }) }
+            : { kind: "refused", stop };
         }
+      }
+    });
+  });
+}
+
+type ConversionIdentity = OperationIdentity & { readonly kind: "conversion" };
+type BackedIdentity = OperationIdentity & { readonly kind: "library" | "core" };
+
+function prepareConversionIdentity(scan: ProjectionInventory, value: ConversionIdentity, at: string): PreparedPhase<ConversionIdentity> {
+  return paidPhase(scan, 4, () => withPlan(typePhase(scan, value.from), from =>
+    withPlan(typePhase(scan, value.to), to =>
+      withPlan(prepareEmbedding(scan, value.embedding, at + ".embedding"), embedding => ({
+        kind: "copied", value: image => ({ kind: "conversion", from: from(image), to: to(image), embedding: embedding(image) }),
+      })))));
+}
+
+function prepareBackedIdentity(scan: ProjectionInventory, value: BackedIdentity): PreparedPhase<BackedIdentity> {
+  return paidPhase(scan, 3, () => withPlan(prepareBindingsProjection(scan, value.bindings), bindings => {
+    const { kind, declaration } = value;
+    return { kind: "copied", value: image => ({ kind, declaration, bindings: bindings(image) }) };
+  }));
+}
+
+function prepareOperationIdentity(scan: ProjectionInventory, value: OperationIdentity, at: string): PreparedPhase<OperationIdentity> {
+  switch (value.kind) {
+    case "native-operator": case "bigint-operator": case "string-operator": case "boolean-operator":
+    case "absence-test": case "pointer-address": case "pointer-read": case "pointer-write": case "pointer-offset":
+    case "type-query": case "discard": return borrowPhase(scan, 1, value);
+    case "object-construction": case "array-construction": return paidPhase(scan, 2, () => {
+      const kind = value.kind;
+      const parts = prepareProjectionRows(scan, value.parts, (read, index) =>
+        prepareConstructionPart(scan, read, at + ".parts[" + index + "]"));
+      return { kind: "copied", value: image => ({ kind, parts: parts(image) }) };
+    });
+    case "protocol": return paidPhase(scan, 9, () => {
+      const steps = prepareProjectionRows(scan, value.steps, read => prepareProtocolStep(scan, read));
+      return withPlan(typePhase(scan, value.value), result =>
+        withPlan(typePhase(scan, value.completion), completion =>
+          withPlan(optionalTypePhase(scan, value.yielded), yielded =>
+            withPlan(optionalTypePhase(scan, value.sent), sent =>
+              withPlan(typePhase(scan, value.thrown), thrown => {
+                const { protocol, asynchronous } = value;
+                return { kind: "copied", value: image => ({ kind: "protocol", protocol, asynchronous,
+                  value: result(image), completion: completion(image), yielded: yielded(image), sent: sent(image),
+                  thrown: thrown(image), steps: steps(image),
+                }) };
+              })))));
+    });
+    case "conversion": return prepareConversionIdentity(scan, value, at);
+    case "library": case "core": return prepareBackedIdentity(scan, value);
+  }
+}
+
+export function prepareConstructionPart(scan: ProjectionInventory, read: () => ConstructionPartDecision, at: string):
+  PreparedPhase<ConstructionPartDecision> {
+  return paidPhase(scan, 5, () => {
+    const value = read();
+    const destination = deferComponentProjection(scan, () => value.destination, at + ".destination", scan.componentCycle);
+    const member = value.member;
+    return withPlan(member === null ? holdPhase(null) : prepareMember(scan, member), selected =>
+      withPlan(prepareEmbedding(scan, value.embedding, at + ".embedding"), embedding => {
+        const { part, source } = value;
+        return { kind: "copied", value: image => ({ part, source, destination: destination(image), member: selected(image), embedding: embedding(image) }) };
+      }));
+  });
+}
+
+function prepareOperationAs<Identity extends OperationIdentity>(
+  scan: ProjectionInventory, value: TypedOperationOf<Identity>,
+  prepare: (identity: Identity) => PreparedPhase<Identity>,
+): PreparedPhase<TypedOperationOf<Identity>> {
+  return paidPhase(scan, 2, () => paidPhase(scan, 5, () => {
+    const decision = value.decision;
+    const operands = typesPhase(scan, decision.operands);
+    const operation = deferProjection(scan, () => prepare(decision.operation));
+    return withPlan(typePhase(scan, decision.result), result => {
+      const { execution } = decision;
+      const permissionScope = value.permissionScope;
+      return { kind: "copied", value: image => ({ permissionScope, decision: {
+        kind: "selected", operation: operation(image), operands: operands(image), result: result(image), execution,
+      } }) };
+    });
+  }));
+}
+
+export function prepareTypedOperation(scan: ProjectionInventory, value: TypedOperation, at: string): PreparedPhase<TypedOperation> {
+  return prepareOperationAs(scan, value, identity => prepareOperationIdentity(scan, identity, at + ".decision.operation"));
+}
+
+export function prepareRefinement(scan: ProjectionInventory, value: RefinementDecision, at: string): PreparedPhase<RefinementDecision> {
+  switch (value.kind) {
+    case "identity": return paidPhase(scan, 2, () =>
+      withPlan(typePhase(scan, value.type), type => ({ kind: "copied", value: image => ({ kind: "identity", type: type(image) }) })));
+    case "narrowed": return paidPhase(scan, 5, () =>
+      withPlan(typePhase(scan, value.source), source => withPlan(typePhase(scan, value.result), result =>
+        withPlan(prepareEmbeddingProof(scan, value.proof, at + ".proof"), proof => {
+          const failure = value.failure;
+          return { kind: "copied", value: image => ({ kind: "narrowed", source: source(image), result: result(image), proof: proof(image), failure }) };
+        }))));
+  }
+}
+
+export function withOptionalPlan<Source, Value>(source: Source | null, prepare: (source: Source) => PreparedPhase<Value>):
+  PreparedPhase<Value | null> {
+  return source === null ? holdPhase(null) : prepare(source);
+}
+
+function prepareCandidateEndpoint(scan: ProjectionInventory, read: () => CandidateEndpoint): PreparedPhase<CandidateEndpoint> {
+  return paidPhase(scan, 8, () => {
+    const candidate = read();
+    return withPlan(prepareEndpoint(scan, () => candidate.advertised), advertised => {
+      const advertisedSignature = candidate.advertisedSignature;
+      const early = inventorySignature(scan, advertisedSignature);
+      if (early !== null) return { kind: "refused", stop: early };
+      return withPlan(prepareEndpoint(scan, () => candidate.api), api => {
+        const apiSignature = candidate.apiSignature;
+        const late = inventorySignature(scan, apiSignature);
+        if (late !== null) return { kind: "refused", stop: late };
+        return withPlan(prepareBindingsProjection(scan, candidate.bindings), bindings => {
+          const { ordinal, declaration, conditionalFailure } = candidate;
+          return { kind: "copied", value: image => ({ ordinal, declaration, conditionalFailure,
+            advertised: advertised(image), advertisedSignature: image.signature(advertisedSignature),
+            api: api(image), apiSignature: image.signature(apiSignature), bindings: bindings(image),
+          }) };
+        });
+      });
+    });
+  });
+}
+
+function prepareInvocation(scan: ProjectionInventory, value: DeferredInvocation, at: string): PreparedPhase<DeferredInvocation> {
+  const stop = inventoryRecord(scan, 2) ?? inventoryRecord(scan, 3);
+  if (stop !== null) return { kind: "refused", stop };
+  const { bindings, occurrence, origin } = value.input.context;
+  return withPlan(prepareBindingsProjection(scan, bindings), ready => {
+    const context: PhaseProject<RuleContext> = image => ({ occurrence, origin, bindings: ready(image) });
+    return prepareInvocationInput(scan, value, context, at);
+  });
+}
+
+function prepareInvocationInput(scan: ProjectionInventory, invocation: DeferredInvocation,
+  context: PhaseProject<RuleContext>, at: string): PreparedPhase<DeferredInvocation> {
+  const evidence = (read: () => TypeEvidence): PreparedPhase<TypeEvidence> => prepareEvidenceProjection(scan, read);
+  const optional = (value: TypeEvidence | null): PreparedPhase<TypeEvidence | null> =>
+    withOptionalPlan(value, ready => evidence(() => ready));
+  const rows = (values: readonly TypeEvidence[]): PhaseProject<readonly TypeEvidence[]> =>
+    prepareProjectionRows(scan, values, evidence);
+  switch (invocation.rule) {
+    case "embed": return paidPhase(scan, 4, () => {
+      const input = invocation.input;
+      return withPlan(evidence(() => input.from), from => withPlan(evidence(() => input.to), to => {
+        const { role } = input;
+        return { kind: "copied", value: image => ({ rule: "embed", input: { context: context(image), from: from(image), to: to(image), role } }) };
+      }));
+    });
+    case "domain-fit": return paidPhase(scan, 3, () => {
+      const input = invocation.input;
+      return withPlan(evidence(() => input.value), value => withPlan(evidence(() => input.domain), domain => ({
+        kind: "copied", value: image => ({ rule: "domain-fit", input: { context: context(image), value: value(image), domain: domain(image) } }),
+      })));
+    });
+    case "memory-equivalent": return paidPhase(scan, 3, () => {
+      const input = invocation.input;
+      return withPlan(evidence(() => input.left), left => withPlan(evidence(() => input.right), right => ({
+        kind: "copied", value: image => ({ rule: "memory-equivalent", input: { context: context(image), left: left(image), right: right(image) } }),
+      })));
+    });
+    case "member": return paidPhase(scan, 5, () => {
+      const input = invocation.input;
+      return withPlan(evidence(() => input.receiver), receiver => {
+        const { key, access, origins } = input;
+        return { kind: "copied", value: image => ({ rule: "member", input: { context: context(image), receiver: receiver(image), key, access, origins } }) };
+      });
+    });
+    case "index": return paidPhase(scan, 4, () => {
+      const input = invocation.input;
+      return withPlan(evidence(() => input.receiver), receiver => withPlan(evidence(() => input.key), key => {
+        const { access } = input;
+        return { kind: "copied", value: image => ({ rule: "index", input: { context: context(image), receiver: receiver(image), key: key(image), access } }) };
+      }));
+    });
+    case "construct-literal": return paidPhase(scan, 5, () => {
+      const input = invocation.input;
+      const parts = prepareProjectionRows<LiteralConstructionPart, LiteralConstructionPart>(scan, input.parts,
+        read => paidPhase(scan, 0, () => {
+          const part = read();
+          const remaining = inventoryFields(scan, part.kind === "property" ? 4 : 3);
+          if (remaining !== null) return { kind: "refused", stop: remaining };
+          return withPlan(evidence(() => part.value), (value): PreparedPhase<LiteralConstructionPart> => {
+            const { kind, occurrence } = part;
+            if (kind === "property") {
+              const { key } = part;
+              return { kind: "copied", value: image => ({ kind, occurrence, key, value: value(image) }) };
+            }
+            return { kind: "copied", value: image => ({ kind, occurrence, value: value(image) }) };
+          });
+        }));
+      return withPlan(optional(input.destination), destination => withPlan(evidence(() => input.result), result => {
+        const { construction } = input;
+        return { kind: "copied", value: image => ({ rule: "construct-literal", input: {
+          context: context(image), construction, parts: parts(image), destination: destination(image), result: result(image),
+        } }) };
+      }));
+    });
+    case "candidate": return paidPhase(scan, 7, () => {
+      const input = invocation.input;
+      const typeArguments = rows(input.typeArguments);
+      const args = prepareProjectionRows<CandidateArgument, CandidateArgument>(scan, input.arguments, read => paidPhase(scan, 4, () => {
+        const argument = read();
+        const elements = argument.tuple;
+        const tuple = elements === null ? () => null : rows(elements);
+        return withPlan(evidence(() => argument.value), value => {
+          const { occurrence, kind } = argument;
+          return { kind: "copied", value: image => ({ occurrence, kind, tuple: tuple(image), value: value(image) }) };
+        });
+      }));
+      const candidates = prepareProjectionRows(scan, input.candidates, read => prepareCandidateEndpoint(scan, read));
+      return withPlan(evidence(() => input.callee), callee => withPlan(optional(input.receiver), receiver => {
+        const { kind } = input;
+        return { kind: "copied", value: image => ({ rule: "candidate", input: { context: context(image),
+          kind, callee: callee(image), receiver: receiver(image), typeArguments: typeArguments(image), arguments: args(image), candidates: candidates(image),
+        } }) };
+      }));
+    });
+    case "operator": return paidPhase(scan, 4, () => {
+      const { operands, operator, permissionScope } = invocation.input;
+      const ready = rows(operands);
+      return { kind: "copied", value: image => ({ rule: "operator", input: { context: context(image), operator, operands: ready(image), permissionScope } }) };
+    });
+    case "literal-fit": return paidPhase(scan, 3, () => {
+      const input = invocation.input;
+      return withPlan(evidence(() => input.destination), destination => {
+        const { literal } = input;
+        return { kind: "copied", value: image => ({ rule: "literal-fit", input: { context: context(image), literal, destination: destination(image) } }) };
+      });
+    });
+    case "protocol": return paidPhase(scan, 9, () => {
+      const input = invocation.input;
+      const operands = rows(input.operands);
+      return withPlan(optional(input.subject), subject => withPlan(optional(input.completion), completion =>
+        withPlan(optional(input.yielded), yielded => withPlan(optional(input.sent), sent =>
+          withPlan(evidence(() => input.thrown), thrown => {
+            const { kind, asynchronous } = input;
+            return { kind: "copied", value: image => ({ rule: "protocol", input: {
+              context: context(image), kind, asynchronous, subject: subject(image), operands: operands(image),
+              completion: completion(image), yielded: yielded(image), sent: sent(image), thrown: thrown(image),
+            } }) };
+          })))));
+    });
+    case "refinement": return paidPhase(scan, 3, () => {
+      const input = invocation.input;
+      return withPlan(evidence(() => input.source), source => withPlan(evidence(() => input.checked), checked => ({
+        kind: "copied", value: image => ({ rule: "refinement", input: { context: context(image), source: source(image), checked: checked(image) } }),
+      })));
+    });
+    case "library": return paidPhase(scan, 5, () => {
+      const input = invocation.input;
+      const args = rows(input.arguments);
+      return withPlan(optional(input.receiver), receiver => withPlan(evidence(() => input.result), result => {
+        const { declaration } = input;
+        return { kind: "copied", value: image => ({ rule: "library", input: { context: context(image), declaration,
+          receiver: receiver(image), arguments: args(image), result: result(image),
+        } }) };
+      }));
+    });
+    case "core": return paidPhase(scan, 6, () => {
+      const input = invocation.input;
+      const operands = rows(input.operands);
+      return withPlan(prepareCoreProjection(scan, input.captured, at + ".input.captured", scan.componentCycle), captured =>
+        withPlan(evidence(() => input.result), result => {
+          const { declaration, permissionScope } = input;
+          return { kind: "copied", value: image => ({ rule: "core", input: { context: context(image),
+            captured: captured(image), declaration, operands: operands(image), result: result(image), permissionScope,
+          } }) };
+        }));
+    });
+    case "closure": return paidPhase(scan, 3, () => {
+      const input = invocation.input;
+      const captures = prepareProjectionRows<ClosureCaptureEvidence, ClosureCaptureEvidence>(scan, input.captures,
+        read => paidPhase(scan, 4, () => {
+          const capture = read();
+          return withPlan(evidence(() => capture.value), value => {
+            const { local, reassignable, incoming } = capture;
+            return { kind: "copied", value: image => ({ local, reassignable, incoming, value: value(image) }) };
+          });
+        }));
+      return withPlan(evidence(() => input.callable), callable => ({
+        kind: "copied", value: image => ({ rule: "closure", input: { context: context(image), captures: captures(image), callable: callable(image) } }),
+      }));
+    });
+  }
+}
+
+export function prepareDeferred(scan: ProjectionInventory, value: DeferredDecision, at: string): PreparedPhase<DeferredDecision> {
+  return paidPhase(scan, 2, () => {
+    const invocation = deferProjection(scan, () => prepareInvocation(scan, value.invocation, at + ".invocation"));
+    return withPlan(typePhase(scan, value.result), result =>
+      ({ kind: "copied", value: image => ({ invocation: invocation(image), result: result(image) }) }));
+  });
+}
+
+export function prepareOutcome<Decision>(scan: ProjectionInventory, read: () => RuleOutcome<Decision>,
+  prepare: (value: Decision) => PreparedPhase<Decision>, at: string): PreparedPhase<RuleOutcome<Decision>> {
+  return paidPhase<RuleOutcome<Decision>>(scan, 2, () => {
+    const value = read();
+    switch (value.kind) {
+      case "decided": return withPlan(prepare(value.decision), decision =>
+        ({ kind: "copied", value: image => ({ kind: "decided", decision: decision(image) }) }));
+      case "deferred": return withPlan(prepareDeferred(scan, value.deferred, at + ".deferred"), deferred =>
+        ({ kind: "copied", value: image => ({ kind: "deferred", deferred: deferred(image) }) }));
     }
   });
-  return inventoryRecord(scan, 3) ?? inventoryCallee(scan, value.callee);
 }
 
-export function inventoryProtocol(scan: ProjectionInventory, value: TirProtocol): InstantiationStop | null {
-  inventoryEach(scan, value.steps, step => inventoryRecord(scan, 3) ?? inventoryTypedOperation(scan, step.operation)
-    ?? (step.callee === null ? null : inventoryCallee(scan, step.callee)));
-  return inventoryRecord(scan, 7) ?? inventoryType(scan, value.value) ?? inventoryType(scan, value.completion)
-    ?? inventoryType(scan, value.sent) ?? inventoryType(scan, value.thrown);
+export function prepareCallee(scan: ProjectionInventory, value: ResolvedCallee): PreparedReferenceProjection<ResolvedCallee> {
+  const header = inventoryRecord(scan, 2);
+  if (header !== null) return { kind: "refused", stop: header };
+  const decision = prepareApplication(scan, value.decision);
+  if (decision.kind === "refused") return decision;
+  const rawActivation = value.activation;
+  const activation: PreparedReferenceProjection<BodyInstance | null> = rawActivation === null
+    ? { kind: "copied", value: () => null } : prepareInstance(scan, rawActivation, null);
+  if (activation.kind === "refused") return activation;
+  return { kind: "copied", value: rewrite => ({ decision: decision.value(rewrite), activation: activation.value(rewrite) }) };
 }
 
-function conversion(scan: ProjectionInventory, value: ConversionDecision): InstantiationStop | null {
-  switch (value.kind) {
-    case "identity": return inventoryFields(scan, 1);
-    case "convert": return inventoryRecord(scan, 3) ?? inventoryTypedOperation(scan, value.operation);
-    case "backed-convert": return inventoryRecord(scan, 4) ?? inventoryEmbedding(scan, value.embedding) ?? inventoryTypedOperation(scan, value.operation);
-    case "deferred": return inventoryRecord(scan, 2) ?? inventoryDeferred(scan, value.deferred);
+export function prepareSelection(scan: ProjectionInventory, value: MemberSelection): PreparedReferenceProjection<MemberSelection> {
+  const header = inventoryRecord(scan, 3);
+  if (header !== null) return { kind: "refused", stop: header };
+  const decision = prepareMember(scan, value.decision);
+  if (decision.kind === "refused") return decision;
+  const rawGetter = value.getter;
+  const getter: PreparedReferenceProjection<ResolvedCallee | null> = rawGetter === null
+    ? { kind: "copied", value: () => null } : prepareCallee(scan, rawGetter);
+  if (getter.kind === "refused") return getter;
+  const rawSetter = value.setter;
+  const setter: PreparedReferenceProjection<ResolvedCallee | null> = rawSetter === null
+    ? { kind: "copied", value: () => null } : prepareCallee(scan, rawSetter);
+  if (setter.kind === "refused") return setter;
+  return { kind: "copied", value: rewrite => ({
+    decision: decision.value(rewrite), getter: getter.value(rewrite), setter: setter.value(rewrite),
+  }) };
+}
+
+function prepareRestPart(scan: ProjectionInventory, read: () => TirRestPart): PreparedPhase<TirRestPart> {
+  const row = chargeInstantiationWork(scan.meter);
+  if (row !== null) return { kind: "refused", stop: row };
+  const part = read();
+  if (part.kind === "value") return holdPhase(part);
+  const record = reserveInstantiationRecord(scan.meter) ?? inventoryFields(scan, 3);
+  if (record !== null) return { kind: "refused", stop: record };
+  const { expression, tuple } = part;
+  const elements = tuple === null ? () => null : typesPhase(scan, tuple);
+  return { kind: "copied", value: image => ({ kind: "spread", expression, tuple: elements(image) }) };
+}
+
+function prepareTirArgument(scan: ProjectionInventory, read: () => TirArgument): PreparedPhase<TirArgument> {
+  const row = chargeInstantiationWork(scan.meter);
+  if (row !== null) return { kind: "refused", stop: row };
+  const argument = read();
+  switch (argument.kind) {
+    case "provided": return holdPhase(argument);
+    case "rest": {
+      const record = reserveInstantiationRecord(scan.meter) ?? inventoryFields(scan, 3);
+      if (record !== null) return { kind: "refused", stop: record };
+      const parameter = argument.parameter;
+      const parts = prepareProjectionRows(scan, argument.parts, read => prepareRestPart(scan, read));
+      return { kind: "copied", value: image => ({ kind: "rest", parameter, parts: parts(image) }) };
+    }
+    case "omitted": {
+      const value = argument.value;
+      if (value.kind !== "initializer") return borrowPhase(scan, 1, argument);
+      const record = reserveInstantiationRecord(scan.meter) ?? inventoryFields(scan, 3);
+      if (record !== null) return { kind: "refused", stop: record };
+      return paidPhase(scan, 2, () => withPlan(prepareInstance(scan, value.instance, null), instance => {
+        const parameter = argument.parameter;
+        return { kind: "copied", value: image => ({ kind: "omitted", parameter, value: { kind: "initializer", instance: instance(image) } }) };
+      }));
+    }
   }
 }
 
-export function inventoryValue(scan: ProjectionInventory, value: TypedValue): InstantiationStop | null {
-  return inventoryRecord(scan, 6) ?? inventoryType(scan, value.type) ?? inventoryType(scan, value.convertedType)
-    ?? conversion(scan, value.conversion) ?? (value.narrowing === null ? null : inventoryRefinement(scan, value.narrowing));
+export function prepareTirApplication(scan: ProjectionInventory, value: TirApplication): PreparedPhase<TirApplication> {
+  return paidPhase(scan, 3, () => {
+    const args = prepareProjectionRows(scan, value.arguments, read => prepareTirArgument(scan, read));
+    return withPlan(prepareCallee(scan, value.callee), callee => {
+      const receiver = value.receiver;
+      return { kind: "copied", value: image => ({ receiver, callee: callee(image), arguments: args(image) }) };
+    });
+  });
 }
 
-function captured<Value>(
-  scan: ProjectionInventory, value: CapturedFact<Value>, visit: (value: Value) => InstantiationStop | null,
-): InstantiationStop | null {
-  switch (value.kind) {
-    case "unavailable": return inventoryFields(scan, 2);
-    case "available": return inventoryRecord(scan, 2) ?? visit(value.value);
-  }
-}
-
-function fieldMarker(scan: ProjectionInventory, value: HirFieldMarkerCapture): InstantiationStop | null {
-  return inventoryRecord(scan, 4) ?? captured(scan, value.type, type => inventoryType(scan, type));
-}
-
-function markers(scan: ProjectionInventory, value: HirMarkersCapture): InstantiationStop | null {
-  if (value.struct !== null) {
-    const struct = value.struct;
-    scan.pending.push(() => inventoryRecord(scan, 2) ?? captured(scan, struct.fields, values => {
-      inventoryEach(scan, values, field => fieldMarker(scan, field));
-      return null;
+export function prepareProtocol(scan: ProjectionInventory, value: TirProtocol, at: string): PreparedPhase<TirProtocol> {
+  return paidPhase(scan, 7, () => {
+    const steps = prepareProjectionRows<TirProtocolStep, TirProtocolStep>(scan, value.steps, (read, index) => paidPhase(scan, 3, () => {
+      const step = read();
+      return withPlan(prepareTypedOperation(scan, step.operation, at + ".steps[" + index + "].operation"), operation =>
+        withPlan(withOptionalPlan(step.callee, callee => prepareCallee(scan, callee)), callee => {
+          const role = step.role;
+          return { kind: "copied", value: image => ({ role, operation: operation(image), callee: callee(image) }) };
+        }));
     }));
-  }
-  if (value.field !== null) {
-    const field = value.field;
-    scan.pending.push(() => fieldMarker(scan, field));
-  }
-  if (value.defaultValue !== null) {
-    const defaultValue = value.defaultValue;
-    scan.pending.push(() => inventoryRecord(scan, 2) ?? captured(scan, defaultValue.type, type => inventoryType(scan, type)));
-  }
-  return inventoryRecord(scan, 4);
+    return withPlan(typePhase(scan, value.value), result => withPlan(typePhase(scan, value.completion), completion =>
+      withPlan(optionalTypePhase(scan, value.sent), sent => withPlan(typePhase(scan, value.thrown), thrown => {
+        const { kind, asynchronous } = value;
+        return { kind: "copied", value: image => ({ kind, asynchronous, steps: steps(image), value: result(image),
+          completion: completion(image), sent: sent(image), thrown: thrown(image) }) };
+      }))));
+  });
 }
 
-function capturedType(scan: ProjectionInventory, value: HirCapturedType): InstantiationStop | null {
-  return inventoryRecord(scan, 2) ?? captured(scan, value.type, type => inventoryType(scan, type))
-    ?? inventoryComponent(scan, value.component);
-}
-
-function pointerCapture(scan: ProjectionInventory, value: HirPointerTypeCapture): InstantiationStop | null {
+function prepareConversion(scan: ProjectionInventory, value: ConversionDecision, at: string): PreparedPhase<ConversionDecision> {
   switch (value.kind) {
-    case "raw-address":
-    case "native-pointer": return inventoryFields(scan, 1);
-    case "typed-location": return inventoryRecord(scan, 3) ?? capturedType(scan, value.pointee);
-    case "function-pointer":
-      inventoryEach(scan, value.parameters, parameter => capturedType(scan, parameter));
-      return inventoryRecord(scan, 5) ?? capturedType(scan, value.result);
+    case "identity": return borrowPhase(scan, 1, value);
+    case "convert": return paidPhase(scan, 3, () =>
+      withPlan(prepareOperationAs(scan, value.operation, identity => prepareConversionIdentity(scan, identity, at + ".operation.decision.operation")),
+        operation => {
+          const { role } = value;
+          return { kind: "copied", value: image => ({ kind: "convert", role, operation: operation(image) }) };
+        }));
+    case "backed-convert": return paidPhase(scan, 4, () =>
+      withPlan(prepareEmbedding(scan, value.embedding, at + ".embedding"), embedding =>
+        withPlan(prepareOperationAs(scan, value.operation, identity => prepareBackedIdentity(scan, identity)), operation => {
+          const { role } = value;
+          return { kind: "copied", value: image => ({ kind: "backed-convert", role, embedding: embedding(image), operation: operation(image) }) };
+        })));
+    case "deferred": return paidPhase(scan, 2, () =>
+      withPlan(prepareDeferred(scan, value.deferred, at + ".deferred"), deferred =>
+        ({ kind: "copied", value: image => ({ kind: "deferred", deferred: deferred(image) }) })));
   }
 }
 
-function fieldBindingCapture(scan: ProjectionInventory, value: HirFieldBindingCapture): InstantiationStop | null {
-  return inventoryRecord(scan, 7) ?? captured(scan, value.bindings, bindings => inventoryBindings(scan, bindings))
-    ?? captured(scan, value.owner, type => inventoryType(scan, type)) ?? captured(scan, value.pointee, type => inventoryType(scan, type));
+export function prepareValue(scan: ProjectionInventory, value: TypedValue, at: string): PreparedPhase<TypedValue> {
+  return paidPhase(scan, 6, () => withPlan(typePhase(scan, value.type), type =>
+    withPlan(typePhase(scan, value.convertedType), convertedType =>
+      withPlan(prepareConversion(scan, value.conversion, at + ".conversion"), conversion =>
+        withPlan(withOptionalPlan(value.narrowing, refinement => prepareRefinement(scan, refinement, at + ".narrowing")), narrowing => {
+          const { demand, evidenceIndex } = value;
+          return { kind: "copied", value: image => ({ type: type(image), convertedType: convertedType(image),
+            conversion: conversion(image), narrowing: narrowing(image), demand, evidenceIndex,
+          }) };
+        })))));
 }
 
-function recordBindingCapture(scan: ProjectionInventory, value: HirRecordBindingCapture): InstantiationStop | null {
-  return inventoryRecord(scan, 6) ?? captured(scan, value.bindings, bindings => inventoryBindings(scan, bindings))
-    ?? captured(scan, value.source, type => inventoryType(scan, type));
+
+type CorePlan<Value> = (rewrite: TypeReferenceRewrite) => Value;
+type Prepared<Value> = SyntaxCopyResult<CorePlan<Value>, InstantiationStop>;
+
+const missingCoreProjection: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "A core capture projection uses its actual completed paid preparations." };
+
+function hold<Value>(value: Value): Prepared<Value> {
+  return { kind: "copied", value: () => value };
 }
 
-function inventoryCoreCapture(scan: ProjectionInventory, value: HirCoreCapture): InstantiationStop | null {
-  return inventoryRecord(scan, 10) ?? captured(scan, value.markers, value => markers(scan, value))
-    ?? captured(scan, value.pointerType, value => value === null ? null : pointerCapture(scan, value))
-    ?? captured(scan, value.fieldBinding, value => value === null ? null : fieldBindingCapture(scan, value))
-    ?? captured(scan, value.recordBinding, value => value === null ? null : recordBindingCapture(scan, value));
-}
-
-export function inventoryAccess(scan: ProjectionInventory, value: TargetAccess): InstantiationStop | null {
-  switch (value.kind) {
-    case "write": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.storage);
-    case "read-write": return inventoryRecord(scan, 5) ?? inventoryType(scan, value.storage) ?? inventoryType(scan, value.read)
-      ?? (value.narrowing === null ? null : inventoryRefinement(scan, value.narrowing));
+export function prepareCoreProjection(scan: ProjectionInventory, core: HirCoreCapture, at: string,
+  failCycle: (path: string) => never,
+): Prepared<HirCoreCapture> {
+  function precharge<Value>(fields: number, action: () => Prepared<Value>): Prepared<Value> {
+    const stop = inventoryRecord(scan, fields);
+    return stop === null ? action() : { kind: "refused", stop };
   }
-}
 
-export function inventoryName(scan: ProjectionInventory, value: TypedName): InstantiationStop | null {
-  switch (value.role) {
-    case "declaration-name-expression": return inventoryRecord(scan, 1);
-    case "value": return inventoryRecord(scan, 8) ?? inventoryValue(scan, value);
-    case "shorthand-value": return inventoryRecord(scan, 9) ?? inventoryValue(scan, value);
-    case "assignment-target": return inventoryRecord(scan, 3) ?? inventoryAccess(scan, value.access);
-    case "declaration-name": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.storage);
-    case "type-name": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.type);
-    case "property-name":
-    case "label":
-    case "binding-name":
-    case "private-name": return inventoryFields(scan, 1);
+  function deferred<Value>(action: () => Prepared<Value>): CorePlan<Value> {
+    let complete: CorePlan<Value> | undefined;
+    scan.pending.push(() => {
+      const prepared = action();
+      if (prepared.kind === "refused") return prepared.stop;
+      complete = prepared.value;
+      return null;
+    });
+    return rewrite => requirePresent(complete, missingCoreProjection)(rewrite);
   }
-}
 
-export function inventoryString(scan: ProjectionInventory, value: TypedString): InstantiationStop | null {
-  switch (value.role) {
-    case "declaration-name-expression": return inventoryRecord(scan, 1);
-    case "value": return inventoryRecord(scan, 8) ?? inventoryValue(scan, value);
-    case "type-literal": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
-    case "property-name":
-    case "declaration-name":
-    case "module-specifier":
-    case "export-name":
-    case "attribute-value": return inventoryFields(scan, 1);
+  function rows<Value>(source: readonly Value[], fields: number,
+    prepare: (value: Value, position: number) => Prepared<Value>,
+  ): CorePlan<readonly Value[]> {
+    const plans: CorePlan<Value>[] = [];
+    const size = source.length;
+    let position = 0;
+    const next = (): InstantiationStop | null => {
+      if (position === size) return null;
+      const stop = inventoryRecord(scan, fields);
+      if (stop !== null) return stop;
+      const index = position;
+      position += 1;
+      const value = requirePresent(source[index], missingCoreProjection);
+      scan.pending.push(next);
+      const plan = prepare(value, index);
+      if (plan.kind === "refused") return plan.stop;
+      plans.push(plan.value);
+      return null;
+    };
+    scan.pending.push(next);
+    return rewrite => plans.map(plan => plan(rewrite));
   }
-}
 
-export function inventoryNumber(scan: ProjectionInventory, value: TypedNumber | TypedBigInt): InstantiationStop | null {
-  switch (value.role) {
-    case "declaration-name-expression": return inventoryRecord(scan, 1);
-    case "value": return inventoryRecord(scan, 8) ?? inventoryValue(scan, value);
-    case "type-literal": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
-    case "property-name":
-    case "declaration-name": return inventoryFields(scan, 1);
+  function captured<Value>(value: CapturedFact<Value>,
+    prepare: (value: Value) => Prepared<Value>,
+  ): Prepared<CapturedFact<Value>> {
+    if (value.kind === "unavailable") {
+      const stop = inventoryFields(scan, 2);
+      return stop === null ? hold(value) : { kind: "refused", stop };
+    }
+    return precharge(2, () => {
+      const retained = prepare(value.value);
+      return retained.kind === "refused" ? retained : { kind: "copied", value: rewrite => ({
+        kind: "available", value: retained.value(rewrite),
+      }) };
+    });
   }
-}
 
-export function inventoryKeyword(scan: ProjectionInventory, value: TypedKeyword): InstantiationStop | null {
-  switch (value.role) {
-    case "value": return inventoryRecord(scan, 7) ?? inventoryValue(scan, value);
-    case "receiver": return inventoryRecord(scan, 8) ?? inventoryValue(scan, value);
-    case "super": return inventoryRecord(scan, 9) ?? inventoryValue(scan, value) ?? inventoryType(scan, value.base);
-    case "type-literal": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
+  function type(value: TyId): Prepared<TyId> {
+    const stop = inventoryType(scan, value);
+    return stop === null ? { kind: "copied", value: rewrite => rewrite.type(value) } : { kind: "refused", stop };
   }
-}
 
-export function inventoryBinary(scan: ProjectionInventory, value: TypedBinary): InstantiationStop | null {
-  const common = inventoryValue(scan, value);
-  if (common !== null) return common;
-  switch (value.role) {
-    case "arithmetic":
-    case "comparison": return inventoryRecord(scan, 8) ?? inventoryOutcome(scan, value.operation, operation => inventoryTypedOperation(scan, operation));
-    case "short-circuit": return inventoryRecord(scan, 8);
-    case "assignment": return inventoryRecord(scan, 10) ?? inventoryType(scan, value.storage)
-      ?? (value.calculation === null ? null : inventoryOutcome(scan, value.calculation, operation => inventoryTypedOperation(scan, operation)));
-    case "sequence": return inventoryRecord(scan, 7);
+  function fieldMarker(field: HirFieldMarkerCapture): Prepared<HirFieldMarkerCapture> {
+    const ready = captured(field.type, type);
+    if (ready.kind === "refused") return ready;
+    const { name, typeNode, readonly } = field;
+    return { kind: "copied", value: rewrite => ({ name, typeNode, type: ready.value(rewrite), readonly }) };
   }
-}
 
-export function inventoryUnary(scan: ProjectionInventory, value: TypedUnary | TypedTemplate): InstantiationStop | null {
-  return inventoryRecord(scan, 7) ?? inventoryValue(scan, value)
-    ?? inventoryOutcome(scan, value.operation, operation => inventoryTypedOperation(scan, operation));
-}
-
-export function inventoryPrefix(scan: ProjectionInventory, value: TypedPrefix): InstantiationStop | null {
-  switch (value.role) {
-    case "type-literal": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
-    case "value": return inventoryRecord(scan, 8) ?? inventoryUnary(scan, value);
-    case "update": return inventoryRecord(scan, 9) ?? inventoryUnary(scan, value) ?? inventoryType(scan, value.storage);
+  function markers(value: HirMarkersCapture): Prepared<HirMarkersCapture> {
+    return precharge(5, () => {
+      const { struct, field, defaultValue, jsString, application } = value;
+      const structPlan = struct === null ? () => null : deferred(() => precharge(2, () => {
+        const fields = captured(struct.fields, fields => ({
+          kind: "copied", value: rows(fields, 4, fieldMarker),
+        }));
+        if (fields.kind === "refused") return fields;
+        const valueType = struct.valueType;
+        return { kind: "copied", value: rewrite => ({ valueType, fields: fields.value(rewrite) }) };
+      }));
+      const fieldPlan = field === null ? () => null : deferred(() => precharge(4, () => fieldMarker(field)));
+      const defaultPlan = defaultValue === null ? () => null : deferred(() => precharge(2, () => {
+        const retained = captured(defaultValue.type, type);
+        if (retained.kind === "refused") return retained;
+        const typeNode = defaultValue.typeNode;
+        return { kind: "copied", value: rewrite => ({ typeNode, type: retained.value(rewrite) }) };
+      }));
+      return { kind: "copied", value: rewrite => ({
+        struct: structPlan(rewrite), field: fieldPlan(rewrite), defaultValue: defaultPlan(rewrite), jsString, application,
+      }) };
+    });
   }
-}
 
-export function inventoryUpdate(scan: ProjectionInventory, value: TypedUpdate): InstantiationStop | null {
-  return inventoryRecord(scan, 8) ?? inventoryUnary(scan, value) ?? inventoryType(scan, value.storage);
-}
-
-export function inventoryTypedMember(scan: ProjectionInventory, value: TypedMember): InstantiationStop | null {
-  if (value.role === "declaration-name-expression") return inventoryRecord(scan, 1);
-  const selection = inventoryOutcome(scan, value.selection, selection => inventorySelection(scan, selection));
-  if (selection !== null) return selection;
-  switch (value.role) {
-    case "value": return inventoryRecord(scan, 8) ?? inventoryValue(scan, value);
-    case "assignment-target": return inventoryRecord(scan, 3) ?? inventoryAccess(scan, value.access);
+  function capturedType(value: HirCapturedType, path: string): Prepared<HirCapturedType> {
+    const retainedType = captured(value.type, type);
+    if (retainedType.kind === "refused") return retainedType;
+    const component = deferComponentProjection(scan, () => value.component, path + ".component", failCycle);
+    return { kind: "copied", value: rewrite => ({ type: retainedType.value(rewrite), component: component(rewrite) }) };
   }
-}
 
-export function inventoryTypedApplication(scan: ProjectionInventory, value: TypedApplication): InstantiationStop | null {
-  return inventoryRecord(scan, 8) ?? inventoryValue(scan, value)
-    ?? inventoryOutcome(scan, value.application, application => inventoryTirApplication(scan, application))
-    ?? (value.operation === null ? null : inventoryOutcome(scan, value.operation, operation => inventoryTypedOperation(scan, operation)));
-}
-
-export function inventoryProtocolValue(scan: ProjectionInventory, value: TypedProtocolValue): InstantiationStop | null {
-  return inventoryRecord(scan, 7) ?? inventoryValue(scan, value)
-    ?? inventoryOutcome(scan, value.protocol, protocol => inventoryProtocol(scan, protocol));
-}
-
-export function inventoryConstruction(scan: ProjectionInventory, value: TypedConstruction): InstantiationStop | null {
-  switch (value.role) {
-    case "value": return inventoryRecord(scan, 8) ?? inventoryValue(scan, value)
-      ?? inventoryOutcome(scan, value.construction, operation => inventoryTypedOperation(scan, operation));
-    case "assignment-pattern":
-      inventoryEach(scan, value.parts, part => inventoryConstructionPart(scan, part));
-      return inventoryRecord(scan, 3) ?? inventoryType(scan, value.storage);
+  function pointer(value: HirPointerTypeCapture | null): Prepared<HirPointerTypeCapture | null> {
+    if (value === null) return hold(null);
+    switch (value.kind) {
+      case "raw-address":
+      case "native-pointer": {
+        const stop = inventoryFields(scan, 1);
+        return stop === null ? hold(value) : { kind: "refused", stop };
+      }
+      case "typed-location": return precharge(3, () => precharge(2, () => {
+        const pointee = capturedType(value.pointee, at + ".pointerType.value.pointee");
+        if (pointee.kind === "refused") return pointee;
+        const mutability = value.mutability;
+        return { kind: "copied", value: rewrite => ({ kind: "typed-location", pointee: pointee.value(rewrite), mutability }) };
+      }));
+      case "function-pointer": return precharge(5, () => {
+        const parameters = rows(value.parameters, 2, (parameter, position) =>
+          capturedType(parameter, at + ".pointerType.value.parameters[" + position + "]"));
+        return precharge(2, () => {
+          const result = capturedType(value.result, at + ".pointerType.value.result");
+          if (result.kind === "refused") return result;
+          const { declaration, abi } = value;
+          return { kind: "copied", value: rewrite => ({
+            kind: "function-pointer", declaration, parameters: parameters(rewrite), result: result.value(rewrite), abi,
+          }) };
+        });
+      });
+    }
   }
-}
 
-export function inventoryInstantiation(scan: ProjectionInventory, value: TypedInstantiation): InstantiationStop | null {
-  const bindings = inventoryBindings(scan, value.bindings);
-  if (bindings !== null) return bindings;
-  switch (value.role) {
-    case "value": return inventoryRecord(scan, 9) ?? inventoryValue(scan, value)
-      ?? (value.application === null ? null : inventoryOutcome(scan, value.application, application => inventoryApplication(scan, application)));
-    case "heritage": return inventoryRecord(scan, 4) ?? inventoryType(scan, value.type);
+  function fieldBinding(value: HirFieldBindingCapture | null): Prepared<HirFieldBindingCapture | null> {
+    if (value === null) return hold(null);
+    return precharge(7, () => {
+      const bindings = captured(value.bindings, input => {
+        const result = prepareBindingsProjection(scan, input);
+        return result.kind === "refused" ? result : { kind: "copied", value: result.value };
+      });
+      if (bindings.kind === "refused") return bindings;
+      const owner = captured(value.owner, type);
+      if (owner.kind === "refused") return owner;
+      const pointee = captured(value.pointee, type);
+      if (pointee.kind === "refused") return pointee;
+      const { occurrence, fieldExpression, field, pointerExpression } = value;
+      return { kind: "copied", value: rewrite => ({
+        occurrence, bindings: bindings.value(rewrite), owner: owner.value(rewrite), pointee: pointee.value(rewrite),
+        fieldExpression, field, pointerExpression,
+      }) };
+    });
   }
-}
 
-export function inventoryBinding(scan: ProjectionInventory, value: TypedBinding): InstantiationStop | null {
-  return inventoryRecord(scan, 3) ?? inventoryType(scan, value.storage);
-}
-
-export function inventoryBindingElement(scan: ProjectionInventory, value: TypedBindingElement): InstantiationStop | null {
-  switch (value.role) {
-    case "binding": return inventoryRecord(scan, 4) ?? inventoryBinding(scan, value);
-    case "hole": return inventoryFields(scan, 1);
+  function recordBinding(value: HirRecordBindingCapture | null): Prepared<HirRecordBindingCapture | null> {
+    if (value === null) return hold(null);
+    return precharge(6, () => {
+      const bindings = captured(value.bindings, input => {
+        const result = prepareBindingsProjection(scan, input);
+        return result.kind === "refused" ? result : { kind: "copied", value: result.value };
+      });
+      if (bindings.kind === "refused") return bindings;
+      const source = captured(value.source, type);
+      if (source.kind === "refused") return source;
+      const { occurrence, layoutExpression, layout, fields } = value;
+      return { kind: "copied", value: rewrite => ({
+        occurrence, bindings: bindings.value(rewrite), source: source.value(rewrite), layoutExpression, layout, fields,
+      }) };
+    });
   }
-}
 
-export function inventoryVariableList(scan: ProjectionInventory, value: TypedVariableList): InstantiationStop | null {
-  switch (value.role) {
-    case "ordinary": return inventoryFields(scan, 1);
-    case "using":
-      inventoryEach(scan, value.protocols, protocol => inventoryOutcome(scan, protocol, decision => inventoryProtocol(scan, decision)));
-      return inventoryRecord(scan, 3);
-  }
-}
-
-export function inventoryCallable(scan: ProjectionInventory, value: TypedCallable): InstantiationStop | null {
-  inventoryEach(scan, value.parameters, parameter => inventoryParameter(scan, parameter));
-  inventoryEach(scan, value.signatures, signature => inventoryEndpoint(scan, signature));
-  return inventoryRecord(scan, 5) ?? (value.template === null ? null
-    : inventoryRecord(scan, 3) ?? inventoryBindings(scan, value.template.lexicalBindings));
-}
-
-export function inventoryClosure(scan: ProjectionInventory, value: TypedClosure): InstantiationStop | null {
-  return inventoryRecord(scan, 8) ?? inventoryValue(scan, value) ?? inventoryCallable(scan, value.callable)
-    ?? inventoryOutcome(scan, value.closure, decision =>
-      inventoryRecord(scan, 3) ?? inventoryEach(scan, decision.captures, () => inventoryRecord(scan, 2)) ?? inventoryType(scan, decision.carrier));
-}
-
-export function inventoryClass(scan: ProjectionInventory, value: TypedClass): InstantiationStop | null {
-  inventoryEach(scan, value.parameters, parameter => inventoryParameter(scan, parameter));
-  inventoryEach(scan, value.heritage, type => inventoryType(scan, type));
-  return inventoryRecord(scan, 6) ?? inventoryType(scan, value.type);
-}
-
-export function inventoryInterface(scan: ProjectionInventory, value: TypedInterface): InstantiationStop | null {
-  inventoryEach(scan, value.parameters, parameter => inventoryParameter(scan, parameter));
-  return inventoryRecord(scan, 4) ?? inventoryType(scan, value.type);
-}
-
-export function inventoryAlias(scan: ProjectionInventory, value: TypedAlias): InstantiationStop | null {
-  inventoryEach(scan, value.parameters, parameter => inventoryParameter(scan, parameter));
-  return inventoryRecord(scan, 3) ?? inventoryType(scan, value.type);
-}
-
-export function inventorySourcePhase(scan: ProjectionInventory, value: TypedSourceFile): InstantiationStop | null {
-  return inventoryRecord(scan, 2) ?? (value.template === null ? null
-    : inventoryRecord(scan, 3) ?? inventoryBindings(scan, value.template.lexicalBindings));
-}
-
-export function inventoryPropertyKey(scan: ProjectionInventory, value: TypedPropertyKey): InstantiationStop | null {
-  switch (value.kind) {
-    case "declaration": return inventoryRecord(scan, 2) ?? captured(scan, value.key, () => null);
-    case "constant": return inventoryFields(scan, 1);
-    case "computed": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
-  }
-}
-
-export function inventoryDecorator(scan: ProjectionInventory, value: TypedDecorator): InstantiationStop | null {
-  return inventoryRecord(scan, 1) ?? inventoryOutcome(scan, value.application, application => inventoryTirApplication(scan, application));
-}
-
-export function inventoryConditional(scan: ProjectionInventory, value: TypedConditional): InstantiationStop | null {
-  return inventoryRecord(scan, 7) ?? inventoryValue(scan, value);
-}
-
-export function inventoryObjectSpread(scan: ProjectionInventory, value: TypedObjectSpread): InstantiationStop | null {
-  return inventoryRecord(scan, 1) ?? inventoryOutcome(scan, value.construction, operation => inventoryTypedOperation(scan, operation));
-}
-
-export function inventoryProperty(scan: ProjectionInventory, value: TypedProperty): InstantiationStop | null {
-  return inventoryRecord(scan, 2) ?? inventoryOutcome(scan, value.member, member => inventorySelection(scan, member));
-}
-
-export function inventoryOmission(scan: ProjectionInventory, value: TypedOmission): InstantiationStop | null {
-  return inventoryRecord(scan, 1) ?? inventoryType(scan, value.storage);
-}
-
-export function inventoryIteration(scan: ProjectionInventory, value: TypedIteration): InstantiationStop | null {
-  return inventoryRecord(scan, 1) ?? inventoryOutcome(scan, value.protocol, protocol => inventoryProtocol(scan, protocol));
-}
-
-export function inventoryTypedParameter(scan: ProjectionInventory, value: TypedParameter): InstantiationStop | null {
-  return inventoryRecord(scan, 6) ?? inventoryType(scan, value.storage);
-}
-
-export function inventoryClassValue(scan: ProjectionInventory, value: TypedClassValue): InstantiationStop | null {
-  return inventoryRecord(scan, 7) ?? inventoryValue(scan, value) ?? inventoryClass(scan, value.declaration);
-}
-
-export function inventoryHeritage(scan: ProjectionInventory, value: TypedHeritage): InstantiationStop | null {
-  inventoryEach(scan, value.types, type => inventoryType(scan, type));
-  return inventoryRecord(scan, 1);
-}
-
-export function inventoryEnum(scan: ProjectionInventory, value: TypedEnum): InstantiationStop | null {
-  return inventoryRecord(scan, 3) ?? inventoryType(scan, value.type);
-}
-
-export function inventoryStorage(scan: ProjectionInventory, value: TypedStorageDeclaration): InstantiationStop | null {
-  return inventoryRecord(scan, 4) ?? inventoryType(scan, value.storage);
-}
-
-export function inventoryStaticBlock(scan: ProjectionInventory, value: TypedStaticBlock): InstantiationStop | null {
-  return inventoryRecord(scan, 1) ?? inventoryRecord(scan, 3) ?? inventoryBindings(scan, value.template.lexicalBindings);
-}
-
-export function inventoryIndexDeclaration(scan: ProjectionInventory, value: TypedIndexDeclaration): InstantiationStop | null {
-  return inventoryRecord(scan, 4) ?? inventoryType(scan, value.key) ?? inventoryType(scan, value.read) ?? inventoryType(scan, value.write);
-}
-
-export function inventoryTypedType(scan: ProjectionInventory, value: TypedType): InstantiationStop | null {
-  return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
-}
-
-export function inventoryPredicate(scan: ProjectionInventory, value: TypedPredicate): InstantiationStop | null {
-  return inventoryRecord(scan, 3) ?? inventoryType(scan, value.narrowed);
-}
-
-export function inventoryTypeParameter(scan: ProjectionInventory, value: TypedTypeParameter): InstantiationStop | null {
-  return inventoryRecord(scan, 1) ?? inventoryParameter(scan, value.parameter);
-}
-
-export function inventoryNamespace(scan: ProjectionInventory, value: TypedNamespace): InstantiationStop | null {
-  return inventoryRecord(scan, 3) ?? inventoryType(scan, value.type) ?? (value.template === null ? null
-    : inventoryRecord(scan, 3) ?? inventoryBindings(scan, value.template.lexicalBindings));
-}
-
-export function inventoryExportAssignment(scan: ProjectionInventory, value: TypedExportAssignment): InstantiationStop | null {
-  return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
+  return precharge<HirCoreCapture>(10, () => {
+    const markerPlan = captured(core.markers, markers);
+    if (markerPlan.kind === "refused") return markerPlan;
+    const pointerPlan = captured(core.pointerType, pointer);
+    if (pointerPlan.kind === "refused") return pointerPlan;
+    const fieldPlan = captured(core.fieldBinding, fieldBinding);
+    if (fieldPlan.kind === "refused") return fieldPlan;
+    const recordPlan = captured(core.recordBinding, recordBinding);
+    if (recordPlan.kind === "refused") return recordPlan;
+    const { provider, pointerOperation, attribute, safety, argumentPassing, flowState } = core;
+    return { kind: "copied", value: rewrite => ({
+      provider, markers: markerPlan.value(rewrite), pointerType: pointerPlan.value(rewrite), pointerOperation,
+      fieldBinding: fieldPlan.value(rewrite), recordBinding: recordPlan.value(rewrite), attribute, safety, argumentPassing, flowState,
+    }) };
+  });
 }

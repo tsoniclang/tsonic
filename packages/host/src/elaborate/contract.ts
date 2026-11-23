@@ -1,37 +1,52 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import type { ModuleId, SourceNodeRef } from "../ids/contract.js";
-import type { BindingScope, BodyInstance, SignatureOf, TypeOf, TypeInterner } from "../ir-types/contract.js";
-import type { HirBindingViews, HirBody, HirNode } from "../ir-hir/contract.js";
+import type { DefId, ModuleId, SourceNodeRef } from "../ids/contract.js";
+import type { BindingScope, BodyInstance, SignatureOf, TypeOf, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
+import type { CheckedTypingCut, CheckedTypingCuts, HirBindingViews, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { ConstraintSet, RuleTable, Solution } from "../ir-infer/contract.js";
-import type { TirBody } from "../ir-tir/contract.js";
+import type { StaticStorageOf, TirBody } from "../ir-tir/contract.js";
 
-export interface ElaborateDeps extends HirBindingViews {
+export interface ElaborateDeps<State> extends HirBindingViews {
+  readonly cuts: CheckedTypingCuts;
   readonly types: TypeInterner;
+  readonly typeWork: TypePublicationWork;
 
-  readonly rules: RuleTable;
+  readonly rules: RuleTable<State>;
 
   readonly typeOf: TypeOf;
   readonly signatureOf: SignatureOf;
   readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
+  readonly itemOf: (definition: DefId) => HirNode;
+  readonly staticStorageOf: StaticStorageOf;
 
   readonly checkerDiagnosticsOf: (module: ModuleId) => readonly Diagnostic[];
 }
 
-export interface ElaborateInput {
+export type ElaborationCause =
+  | { readonly kind: "form"; readonly cut: CheckedTypingCut }
+  | { readonly kind: "producer"; readonly refusal: Extract<Result<never>, { readonly kind: "refused" }> };
 
+export interface ElaborationNoResult {
+  readonly kind: "no-result";
   readonly instance: BodyInstance;
-  readonly scope: BindingScope;
-
-  readonly body: HirBody;
-
-  readonly constraints: ConstraintSet;
-
-  readonly solution: Solution;
-
-  readonly template: TirBody | null;
-
-  readonly nestedBodies: readonly TirBody[];
-  readonly initializers: readonly TirBody[];
+  readonly causes: readonly [ElaborationCause, ...ElaborationCause[]];
+  readonly diagnostics: readonly Diagnostic[];
 }
 
-export type Elaborate = (deps: ElaborateDeps, input: ElaborateInput) => Result<TirBody>;
+export type ElaborationChild = TirBody | ElaborationNoResult;
+
+export interface ElaborateInput {
+  readonly instance: BodyInstance;
+  readonly scope: BindingScope;
+  readonly body: HirBody;
+  readonly typing: {
+    readonly kind: "ready";
+    readonly constraints: ConstraintSet;
+    readonly solution: Solution;
+    readonly template: TirBody | null;
+  } | ElaborationNoResult;
+  readonly nestedBodies: readonly ElaborationChild[];
+  readonly initializers: readonly ElaborationChild[];
+}
+
+export type ElaborationResult = Extract<Result<TirBody>, { readonly kind: "ok" }> | ElaborationNoResult;
+export type Elaborate = <State>(deps: ElaborateDeps<State>, input: ElaborateInput) => ElaborationResult;

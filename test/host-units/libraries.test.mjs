@@ -1251,7 +1251,7 @@ test("all unused required/optional/default/rest formals retain dense identities,
   const complete = { kind: "complete", paths: [] };
   const expected = emptySummary(binding, {
     arena: { cells: [], projections: [], producers: [0, 1, 2, 3].map(index => ({ id: index, kind: "parameter", index, path: null })),
-      contexts: [{ id: 0, receiver: null, arguments: [1, 2, 3, 4], captures: [] }],
+      contexts: [{ id: 0, receiver: null, arguments: [{ kind: "provided", origins: 1 }, { kind: "provided", origins: 2 }, { kind: "provided", origins: 3 }, { kind: "provided", origins: 4 }], captures: [] }],
       boundProducers: [0, 1, 2, 3].map(id => ({ id, producer: id, bindings: binding.request.bindings.bindings, context: 0 })),
       origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
         ...[0, 1, 2, 3].map(id => ({ id: id + 1, kind: "complete", producers: [id], includesAbsence: false }))], boundaries: [] },
@@ -1294,7 +1294,7 @@ test("binding canonical write and escape keys include the complete secondary tar
     ] };
   const complete = { kind: "complete", paths: [] };
   const expected = emptySummary(binding, { arena: { cells: detachedCells(binding, 1), projections: [], producers: [{ id: 0, kind: "parameter", index: 0, path: null }],
-    contexts: [{ id: 0, receiver: null, arguments: [2], captures: [] }], boundProducers: [{ id: 0, producer: 0, bindings: binding.request.bindings.bindings, context: 0 }],
+    contexts: [{ id: 0, receiver: null, arguments: [{ kind: "provided", origins: 2 }], captures: [] }], boundProducers: [{ id: 0, producer: 0, bindings: binding.request.bindings.bindings, context: 0 }],
     origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
       { id: 1, kind: "complete", producers: [], includesAbsence: true }, { id: 2, kind: "complete", producers: [0], includesAbsence: false }], boundaries: [] },
   parameters: [{ slot: { kind: "parameter", index: 0 }, reads: complete, writes: complete }],
@@ -1562,7 +1562,7 @@ for (const scenario of ["path-parent", "producer-path", "parameter-read", "param
       boundProducers: [{ id: 0, producer: 0, bindings: binding.request.bindings.bindings, context: 0 }],
       origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
         { id: 1, kind: "complete", producers: [0], includesAbsence: false }],
-      contexts: [{ id: 0, receiver: null, arguments: [1], captures: [] }], boundaries: [] },
+      contexts: [{ id: 0, receiver: null, arguments: [{ kind: "provided", origins: 1 }], captures: [] }], boundaries: [] },
     parameters: [{ slot: { kind: "parameter", index: 0 }, reads: complete, writes: complete }] });
     if (scenario === "producer-path") {
       valid.producers = [{ id: 0, kind: "parameter", index: 0, path: 0 }];
@@ -1671,7 +1671,7 @@ test("repeated projected parameter producers carry one complete root environment
       boundProducers: [{ id: 0, producer: 0, bindings, context: 0 }, { id: 1, producer: 1, bindings, context: 0 }],
       origins: [{ id: 0, kind: "complete", producers: [1], includesAbsence: false },
         { id: 1, kind: "complete", producers: [0], includesAbsence: false }],
-      contexts: [{ id: 0, receiver: null, arguments: [1], captures: [] }], boundaries: [] },
+      contexts: [{ id: 0, receiver: null, arguments: [{ kind: "provided", origins: 1 }], captures: [] }], boundaries: [] },
     parameters: [{ slot: { kind: "parameter", index: 0 }, reads: { kind: "complete", paths: [0] },
       writes: { kind: "complete", paths: [] } }] });
     const bound = ({ sources, sourceRoles: [] });
@@ -1736,7 +1736,7 @@ test("canonical duplicate paths and export aliases remap bound values without me
       bindings: binding.request.bindings.bindings, context: 0, detail: "result" },
     { id: 1, kind: "opaque-write", at: at(2), subject: 6, owner: 4,
       bindings: binding.request.bindings.bindings, context: 0, detail: "write" }],
-    contexts: [{ id: 0, receiver: 2, arguments: [3], captures: [{ index: 0, location: 2 }] }],
+    contexts: [{ id: 0, receiver: 2, arguments: [{ kind: "provided", origins: 3 }], captures: [{ index: 0, location: 2 }] }],
   }, parameters: [{ slot: { kind: "receiver" }, reads: { kind: "complete", paths: [0, 1, 2] }, writes: complete },
     { slot: { kind: "parameter", index: 0 }, reads: complete,
       writes: { kind: "open", paths: [0, 1, 2], boundaries: [0, 1] } }],
@@ -1935,7 +1935,7 @@ test("bound retention orders all nine complete canonical targets for the same so
     origins: [{ id: 0, kind: "complete", producers: [3], includesAbsence: false },
       { id: 1, kind: "complete", producers: [0], includesAbsence: false },
       { id: 2, kind: "complete", producers: [1], includesAbsence: false }],
-    contexts: [{ id: 0, receiver: 1, arguments: [2], captures: [{ index: 0, location: 2 }] }],
+    contexts: [{ id: 0, receiver: 1, arguments: [{ kind: "provided", origins: 2 }], captures: [{ index: 0, location: 2 }] }],
     boundaries: [{ id: 0, kind: "external-input", at: at(1), subject: 3, owner: null,
       bindings: binding.request.bindings.bindings, context: 0, detail: "input" }] },
   parameters: [{ slot: { kind: "receiver" }, reads: complete, writes: complete },
@@ -2033,7 +2033,7 @@ test("binding remaps the complete relational graph into signature-order formals 
       { id: 4, kind: "allocation", at: at(0), path: null }, { id: 5, kind: "shared", definition: sharedDefinition, path: null },
       { id: 6, kind: "parameter", index: 1, path: 0 }, { id: 7, kind: "receiver", path: 1 },
       { id: 8, kind: "capture", index: 0, path: 2 }, { id: 9, kind: "allocation", at: at(1), path: 3 }],
-    contexts: [{ id: 0, receiver: 2, arguments: [3, 4], captures: [{ index: 0, location: 3, cell: 3 }] }],
+    contexts: [{ id: 0, receiver: 2, arguments: [{ kind: "provided", origins: 3 }, { kind: "provided", origins: 4 }], captures: [{ index: 0, location: 3, cell: 3 }] }],
     boundProducers: Array.from({ length: 10 }, (_, id) => ({ id, producer: id,
       bindings: id === 5 ? sharedBindings : binding.request.bindings.bindings, context: 0 })),
     origins: [{ id: 0, kind: "complete", producers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], includesAbsence: true },

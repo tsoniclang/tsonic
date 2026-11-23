@@ -17,13 +17,14 @@ import { accountFailure, createAccount, refuseAccount, remainingWork } from "../
 import { iterateChildrenOfSyntax } from "../../packages/host/dist/ir-hir/index.js";
 import { verifyFacts, verifySummary, printFacts, parseFacts, printSummary, parseSummary, escapeTargetKey } from "../../packages/host/dist/ir-facts/index.js";
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
+import { checkRepeatedStaticInitialization } from "./fixtures/program-static-exposure.mjs";
 
 const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
 const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 128, maximumConditionAlternatives: 128,
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -38,11 +39,14 @@ let terminatorOperands;
 let readLocal;
 let assignedLattice;
 let assignedEntry;
+let taintUnwritten;
+let unwrittenCause;
 let localSlotLifetimes;
 let solveStorageLive;
 let storageLiveLattice;
 let bodyNodes;
 let callSummary;
+let scalarArgument;
 let applyScalarCall;
 let joinOrigins;
 let appliedOrigins;
@@ -51,10 +55,11 @@ let valueProblem;
 let transferValue;
 let callValueEffects;
 let prepareCallCaptures;
-let captureMustAtExit;
+let cellMustAtExit;
 let callExitAssigned;
 let sourceNeedAssigned;
-let captureLocalAtCall;
+let recordUninitializedRead;
+let callSlotAt;
 let callWrites;
 let collectCellWrites;
 let primitiveExitLocals;
@@ -73,16 +78,16 @@ before(async () => {
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   ({ analyzeBodyRound, proveInitialization } = await import("../../packages/host/dist/analyses/body/index.js"));
   ({ solveAssigned, transferAssigned, statementOperands, terminatorOperands, assignedLattice, assignedEntry,
-    localSlotLifetimes, solveStorageLive, storageLiveLattice } =
+    localSlotLifetimes, solveStorageLive, storageLiveLattice, taintUnwritten, unwrittenCause } =
     await import("../../packages/host/dist/analyses/body/storage.js"));
   ({ readLocal } = await import("../../packages/host/dist/analyses/body/places.js"));
   ({ sourceOccurrences, orderedRows } = await import("../../packages/host/dist/analyses/body/source.js"));
   ({ bodyNodes } = await import("../../packages/host/dist/ir-facts/verify-body-nodes.js"));
-  ({ callSummary, applyScalarCall, callValueEffects } = await import("../../packages/host/dist/analyses/body/calls.js"));
+  ({ callSummary, scalarArgument, applyScalarCall, callValueEffects } = await import("../../packages/host/dist/analyses/body/calls.js"));
   ({ joinOrigins, appliedOrigins, valueOrigins } = await import("../../packages/host/dist/analyses/body/values.js"));
   ({ valueProblem, transferValue, collectExitContents, removeUnchangedContents } = await import("../../packages/host/dist/analyses/body/value-flow.js"));
   ({ prepareCallCaptures } = await import("../../packages/host/dist/analyses/body/captures.js"));
-  ({ captureMustAtExit, callExitAssigned, sourceNeedAssigned, captureLocalAtCall } =
+  ({ cellMustAtExit, callExitAssigned, sourceNeedAssigned, callSlotAt, recordUninitializedRead } =
     await import("../../packages/host/dist/analyses/body/initialization.js"));
   ({ callWrites, collectCellWrites, primitiveExitLocals, recordCaptureWrite } = await import("../../packages/host/dist/analyses/body/writes.js"));
   ({ retainValue, retainCallCaptures, collectRetainedValues } = await import("../../packages/host/dist/analyses/body/exits.js"));
@@ -169,7 +174,7 @@ function checkedPair(current, result) {
   current.factsContext = context;
   const account = createAccount(limits);
   assert.deepEqual(verifyFacts(pair.facts, current.input.mir, context, account), { kind: "complete", violations: [] }, "the real Facts barrier accepts producer output");
-  const conditionRefusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/initialization",
+  const conditionRefusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/body",
     limit: "analysis.maximumConditionAlternatives", maximum: current.deps.limits.maximumConditionAlternatives,
     site: { kind: "source", origin: current.program.tir.root.origin }, unit: { request: current.deps.unit, position: { kind: "result" } } })] };
   assert.deepEqual(verifySummary(pair.summary, context, { account, conditionRefusal }),
@@ -193,7 +198,7 @@ function checkSignatureStops(current) {
     assert.equal(reads > 0, true);
     for (let stopAt = 1; stopAt <= reads; stopAt += 1) {
       const account = createAccount(limits);
-      const refused = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/origins",
+      const refused = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/body",
         limit: "analysis.maximumOriginAlternatives", maximum: 0, site: { kind: "source", origin: operation.origin },
         unit: { request: current.deps.unit, position: { kind: "result" } } })] };
       let count = 0;
@@ -308,6 +313,62 @@ function locationDefaultProgram(name, { incoming = false, count = 1, receiver = 
     captures: child.tir.captures, signature: child.tir.signature })) };
 }
 
+test("an errored placed call does not invent effects for a later actual captured read", () => {
+  for (const incoming of [false, true]) {
+    const data = locationDefaultProgram(`body-round.tainted-capture.${incoming}`, { count: 2, incoming });
+    const caller = fixture(data.program, data.internal, incoming ? 0 : 1);
+    const initializers = data.children.map(child => fixture(child));
+    const outer = data.owner === null ? [] : [fixture(data.owner)];
+    const retained = initializers.map(initializer => {
+      initializer.related = [caller, ...outer];
+      return { value: checkedPair(initializer, analyzeBodyRound(initializer.deps, initializer.input)).summary,
+        unit: { request: initializer.deps.unit, position: { kind: "result" } } };
+    });
+    const answerWithFailure = failed => key => {
+      const index = initializers.findIndex(initializer => executionKey(key.execution) === executionKey(initializer.execution));
+      assert.notEqual(index, -1);
+      const selected = retained[index];
+      return index === failed ? { value: { kind: "error", causes: [{ kind: "unit", unit: selected.unit }] }, unit: selected.unit } : selected;
+    };
+    const answer = answerWithFailure(0);
+    const full = analyzeBodyRound({ ...caller.deps, summaryOf: answer, account: createAccount(limits) }, caller.input);
+    assert.equal(full.kind, "complete");
+    assert.deepEqual(full.value.diagnostics, []);
+    assert.deepEqual(full.value.value.causes, [{ kind: "unit", unit: retained[0].unit }]);
+    const reversed = analyzeBodyRound({ ...caller.deps, summaryOf: answerWithFailure(1), account: createAccount(limits) }, caller.input);
+    assert.equal(reversed.kind, "complete");
+    assert.deepEqual(reversed.value.diagnostics, []);
+    assert.deepEqual(reversed.value.value.causes, [{ kind: "unit", unit: retained[1].unit }]);
+    for (const field of ["maximumWork", "maximumResultEntries"]) {
+      let completed = false;
+      for (let maximum = 0; maximum < 10000; maximum += 1) {
+        const account = createAccount({ ...limits, [field]: maximum });
+        const result = analyzeBodyRound({ ...caller.deps, summaryOf: answer, account }, caller.input);
+        if (result.kind === "complete") { completed = true; break; }
+        assert.equal(result, accountFailure(account));
+      }
+      assert.equal(completed, true, field);
+    }
+  }
+});
+
+test("error taint follows the real edge and cell rather than suppressing an unrelated read or ready call", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const definitions = "let state: boolean; function fail(flag: boolean): boolean { let broken: boolean; return broken; } "
+    + "function identity(value: boolean): boolean { return value; } ";
+  for (const [body, local] of [
+    ["if (flag) return fail(flag); return identity(state);", null],
+    ["let clean: boolean; if (flag) { clean = true; fail(flag); } return clean;", "clean"],
+  ]) {
+    const text = `${definitions}export function inspect(flag: boolean): boolean { ${body} }`;
+    const result = await analyzeOptionalSource(text);
+    assert.equal(result.kind, "refused", body);
+    assert.deepEqual(result.diagnostics.map(diagnostic => [diagnostic.code.rendered, diagnostic.site.origin.start]),
+      [text.lastIndexOf("broken"), ...(local === null ? [] : [text.lastIndexOf(local)])]
+        .map(start => ["TSONIC_READ_BEFORE_INITIALIZATION", start]), body);
+  }
+});
+
 test("a real placed captured-location initializer discharges its root read against the caller's actual provided slot", async () => {
   const { program, child, internal } = locationDefaultProgram("body-round.located-default");
   const initializer = fixture(child);
@@ -344,39 +405,19 @@ test("a real placed captured-location initializer discharges its root read again
   const checked = verifyFacts(invalidOrigins, caller.input.mir, caller.factsContext, createAccount(limits));
   assert.equal(checked.kind, "complete");
   assert.equal(checked.violations.some(row => row.rule === "local-producer-location-only"), true);
-  const { rewriteBodyFacts } = await import("../../packages/host/dist/ir-program/canonical-facts.js");
-  const { inventoryBodyFacts } = await import("../../packages/host/dist/ir-program/instantiate-facts.js");
-  const { createProjectionInventory, drainProjectionInventory } = await import("../../packages/host/dist/ir-program/program-values.js");
+  const { projectBodyFacts } = await import("../../packages/host/dist/ir-program/canonical-facts.js");
+  const { createProjectionInventory } = await import("../../packages/host/dist/ir-program/program-values.js");
   const { createInstantiationMeter } = await import("../../packages/host/dist/ir-program/work.js");
-  const { remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
   const binding = { parameterBinding: () => assert.fail("No selected local transport substitution."),
     selfBinding: () => assert.fail("No selected local transport self substitution.") };
-  const canonical = rewriteBodyFacts({ ...binding, type: type => type, signature: signature => signature }, pair.facts, caller.execution);
-  assert.deepEqual(canonical.arena.producers, pair.facts.arena.producers);
-  assert.notEqual(canonical.arena.producers[location.id], location);
-  assert.notEqual(canonical.arena.producers[location.id].local, location.local);
+  const scan = createProjectionInventory(createInstantiationMeter({ maximumWork: 100000, maximumCreatedRecords: 10000,
+    maximumBindingVectorsPerArtifact: 1, typeExpansion: { maximumDepth: 10, maximumVisits: 100, maximumUnionMembers: 10, maximumIntersectionMembers: 10 } }), binding, path => assert.fail(path));
+  const projected = projectBodyFacts(scan, { type: type => type, signature: signature => signature }, pair.facts);
+  assert.equal(projected.kind, "copied");
+  const canonical = projected.value;
+  assert.equal(canonical.arena.producers === pair.facts.arena.producers, true);
+  assert.equal(canonical.arena.producers[location.id] === location, true);
   assert.deepEqual(canonical.arena.contexts, pair.facts.arena.contexts, "location transport does not infer a different cell association");
-  const projectionLimits = { maximumWork: 1000000, maximumCreatedRecords: 1000000, maximumBindingVectorsPerArtifact: 1000,
-    typeExpansion: { maximumDepth: 100, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } };
-  const inventory = (facts, meter) => {
-    const scan = createProjectionInventory(meter, binding);
-    return inventoryBodyFacts(scan, facts) ?? drainProjectionInventory(scan);
-  };
-  const baseline = createInstantiationMeter(projectionLimits);
-  const measured = createInstantiationMeter(projectionLimits);
-  assert.equal(inventory({ ...pair.facts, arena: { ...pair.facts.arena, producers: pair.facts.arena.producers.filter(row => row.kind !== "local") } }, baseline), null);
-  assert.equal(inventory(pair.facts, measured), null);
-  const work = projectionLimits.maximumWork - remainingWork(measured.account);
-  assert.equal(work - (projectionLimits.maximumWork - remainingWork(baseline.account)), 9);
-  assert.equal(measured.created - baseline.created, 2);
-  for (const [field, needed] of [["maximumWork", work], ["maximumCreatedRecords", measured.created]]) {
-    for (let maximum = 0; maximum <= needed; maximum += 1) {
-      const meter = createInstantiationMeter({ ...projectionLimits, [field]: maximum });
-      const stop = inventory(pair.facts, meter);
-      if (maximum === needed) assert.equal(stop, null);
-      else assert.equal(stop, meter.failure ?? accountFailure(meter.account));
-    }
-  }
   for (const qualified of [null, { body: child.tir.body, local: 0 }, { body: caller.program.tir.body, local: 999 }]) {
     const mir = { ...caller.input.mir, locals: caller.input.mir.locals.map(row => row.id === source ? { ...row, source: qualified } : row) };
     assert.throws(() => analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir }), /actual qualified source local/);
@@ -544,7 +585,7 @@ test("actual captured call bindings refuse growth and retain every unsupported n
   assert.equal(run(pair.summary, caller.input, { limits: { ...analysisLimits, maximumRelationalReferencesPerBody: 9 } }).kind, "complete");
   const cell = pair.summary.arena.cells[0];
   for (const role of [{ kind: "local", local: cell.occurrence.local }, { kind: "capture", index: 1 }])
-    assert.throws(() => run({ ...pair.summary, arena: { ...pair.summary.arena, cells: [{ ...cell, role }] } }), /actual capture or created-cell binding/);
+    assert.throws(() => run({ ...pair.summary, arena: { ...pair.summary.arena, cells: [{ ...cell, role }] } }), /actual static, capture or created-cell binding/);
   assert.throws(() => run({ ...pair.summary, arena: { ...pair.summary.arena, producers: [{ id: 0, path: 0, kind: "capture", index: 0 }] } }),
     /actual root argument or capture transport/);
   assert.equal(run({ ...pair.summary, writes: [{ target: 0, value: 0 }] }).kind, "complete",
@@ -695,7 +736,10 @@ test("body-local capture cells retain actual storage markers and discharge only 
     } else {
       assert.equal(result.value.value.kind, "error");
       assert.equal(result.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
-      assert.equal(result.value.value, result.value.positions[0].error);
+      const [original, completed] = result.value.positions;
+      assert.equal(original.position.kind, "execution-source-node");
+      assert.equal(completed.position.kind, "execution-result");
+      assert.equal(result.value.value, completed.error);
     }
     for (const dimension of ["maximumWork", "maximumResultEntries"]) {
       let complete = false;
@@ -987,6 +1031,76 @@ test("an omitted actual boolean default calls its separately analyzed scalar ini
   checkedPair(supplied, analyzeBodyRound(supplied.deps, supplied.input));
 });
 
+test("an aborting native value uses the verified normal destination and the existing round account", () => {
+  const type = declareType("body-native-int64", { kind: "primitive", primitive: "int64" });
+  const makeBody = failure => {
+    const name = `body-round.native-add.${failure}`;
+    const builder = builders(name);
+    const operation = native("+", "int64", [type, type], type,
+      { kind: "invocation", writesStorage: false, failure });
+    return fixture(typedBody(name, { signature: signature(name, [["left", type], ["right", type], ["borrowed", T.string]], type),
+      completion: type, params: [[0, "required", type], [1, "required", type], [2, "required", T.string]],
+      locals: [["left", "parameter", type], ["right", "parameter", type], ["borrowed", "parameter", T.string]],
+      root: builder.block(builder.returns(builder.arithmetic(builder.id("left", 0, type), "PlusToken",
+        builder.id("right", 1, type), type, operation))) }));
+  };
+  const current = makeBody("abort");
+  const mir = current.input.mir;
+  const invoke = mir.blocks.find(block => block.terminator.kind === "invoke").terminator;
+  const destination = mir.places[invoke.destination].base.local;
+  const whole = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(whole.summary.returns, true);
+  assert.equal(whole.summary.unwinds, false);
+  assert.equal(whole.facts.initialization.reads.every(row => row.assigned), true);
+  const assigned = solveAssigned({ ...current.deps, account: createAccount(limits) }, current.input);
+  assert.equal(assigned.kind, "complete");
+  const incoming = mir.blocks.find(block => block.terminator === invoke).id;
+  assert.equal(assigned.value.entry[incoming].written.has(destination), false);
+  assert.equal(assigned.value.entry[invoke.next].written.has(destination), true);
+  const live = solveStorageLive(current.input, assigned.value.entry, createAccount(limits));
+  assert.equal(live.kind, "complete");
+  assert.ok(live.value[invoke.next] !== null);
+
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 2000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+      if (result.kind === "complete") {
+        assert.deepEqual(result.value.value, whole);
+        complete = true;
+        break;
+      }
+      assert.equal(result, accountFailure(account));
+      assert.equal(analyzeBodyRound({ ...current.deps, account },
+        new Proxy({}, { get() { assert.fail("No input after the original operation stop."); } })), result);
+    }
+    assert.equal(complete, true);
+  }
+  const stopped = createAccount(limits);
+  const refusal = { kind: "refused", diagnostics: [] };
+  const stoppedReader = solveAssigned({ ...current.deps, account: stopped, typeOf: () => {
+    refuseAccount(stopped, refusal);
+    return { kind: "primitive", primitive: "int64" };
+  } }, current.input);
+  assert.equal(stoppedReader, refusal);
+
+  const unwind = makeBody("unwind");
+  assert.throws(() => solveAssigned(unwind.deps, unwind.input), /selected call, failure or suspension transport/u);
+  for (const [change, failure] of [
+    [candidate => { candidate.blocks.find(block => block.terminator.kind === "invoke").terminator.destination = null; },
+      /selected call, failure or suspension transport/u],
+    [candidate => { candidate.places[invoke.destination].storage = T.bool; }, /exact local result place/u],
+    [candidate => { candidate.locals[destination].role = { kind: "user" }; }, /own temporary result/u],
+  ]) {
+    const opposite = structuredClone(mir);
+    change(opposite);
+    assert.throws(() => solveAssigned({ ...current.deps, account: createAccount(limits) }, { ...current.input, mir: opposite }), failure);
+  }
+  assert.throws(() => solveAssigned({ ...current.deps, account: createAccount(limits), typeOf: () => ({ kind: "string" }) },
+    current.input), /selected primitive result/u);
+});
+
 test("an actual placed header initializer outside the physical nested-callable inventory is not traversed", () => {
   const { program, child } = defaultProgram();
   assert.deepEqual(program.tir.nestedBodies, []);
@@ -1034,7 +1148,12 @@ test("the sole native absence survives a genuine separately executing null defau
     assert.equal(demands > 0, provided === 0);
     assert.equal(pair.facts.origins.activations.length, provided === 0 ? 1 : 0);
     assert.equal(pair.summary.arena.origins[pair.summary.result].includesAbsence, true);
-    assert.equal(pair.summary.arena.origins[pair.summary.arena.contexts[0].arguments[0]].includesAbsence, true);
+    const entry = pair.summary.arena.contexts[0].arguments[0];
+    if (provided === 0) assert.deepEqual(entry, { kind: "omitted" });
+    else {
+      assert.equal(entry.kind, "provided");
+      assert.equal(pair.summary.arena.origins[entry.origins].includesAbsence, true);
+    }
     assert.equal(pair.facts.origins.reads.every(row => pair.facts.arena.origins[row.origins].includesAbsence), true);
     assert.equal(pair.facts.origins.writes.every(row => row.values.every(value => pair.facts.arena.origins[value.origins].includesAbsence)), true);
     assert.equal(pair.facts.origins.subjects.every(row => pair.facts.arena.origins[row.origins].includesAbsence), true);
@@ -1264,7 +1383,7 @@ test("real fixed by-value scalar arguments retain selected formals, source reads
   assert.equal(transport.passing, "by-value");
   assert.equal(transport.repeated, false);
   assert.equal(transport.projection, null);
-  assert.equal(pair.facts.arena.contexts[alternative.context].arguments[0], transport.actual);
+  assert.equal(pair.facts.arena.contexts[alternative.context].arguments[0].origins, transport.actual);
   assert.equal(transport.formal.owner.kind, "summary");
   assert.equal(executionKey(transport.formal.owner.key.execution), executionKey(target.execution));
   const formal = childPair.summary.arena.producers[transport.formal.producer];
@@ -1339,8 +1458,16 @@ test("real fixed by-value scalar arguments retain selected formals, source reads
   assert.equal(failed.kind, "complete");
   assert.equal(failed.value.value.kind, "error");
   assert.equal(failed.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
+  const erroneous = entry => ({ ...entry, deps: { ...entry.deps, summaryOf: () => ({ value: failed.value.value, unit: completed }) } });
+  const ownRead = analyzeBodyRound(erroneous(unwritten).deps, unwritten.input);
+  assert.equal(ownRead.kind, "complete");
+  assert.deepEqual(ownRead.value.diagnostics, failed.value.diagnostics);
+  const borrowed = analyzeBodyRound({ ...erroneous(current).deps, account: createAccount(limits) }, current.input);
+  assert.equal(borrowed.kind, "complete");
+  assert.deepEqual(borrowed.value.value.causes, [{ kind: "unit", unit: completed }]);
+  assert.deepEqual(borrowed.value.diagnostics, []);
   for (const dimension of ["maximumWork", "maximumResultEntries"]) {
-    for (const entry of [current, unwritten]) {
+    for (const entry of [current, unwritten, erroneous(unwritten)]) {
       let complete = false;
       for (let maximum = 0; maximum < 10000; maximum += 1) {
         const account = createAccount({ ...limits, [dimension]: maximum });
@@ -1352,6 +1479,108 @@ test("real fixed by-value scalar arguments retain selected formals, source reads
       assert.equal(complete, true);
     }
   }
+});
+
+test("an omitted reference formal is initialized by its real body, with no fictitious caller value", () => {
+  const name = "body-round.omitted-reference";
+  const { program, children, internal } = locationDefaultProgram(name, { type: T.string, count: 2 });
+  const target = fixture(program, internal, 1);
+  const initializers = children.map(child => fixture(child));
+  const answers = new Map(initializers.map(initializer => {
+    initializer.related = [target];
+    const initialPair = checkedPair(initializer, analyzeBodyRound(initializer.deps, initializer.input));
+    return [executionKey(initializer.execution), { value: initialPair.summary, unit: { request: initializer.deps.unit, position: { kind: "result" } } }];
+  }));
+  target.related = initializers;
+  target.deps.summaryOf = key => answers.get(executionKey(key.execution));
+  const result = checkedPair(target, analyzeBodyRound(target.deps, target.input));
+  const selected = callee(name, program.tir.signature, [mapped(0, 0), ...children.map((child, index) =>
+    ({ kind: "default", parameter: index + 1, initializer: child.tir.body }))], T.string);
+  const current = fixture(shaped(`${name}.call`, [["argument", "required", T.string]], T.string, builder =>
+    builder.block(builder.returns(builder.call(builder.global("target", name, T.unknown),
+      [{ $: "input-argument", ...builder.id("argument", 0, T.string) }], T.string, at =>
+        ({ callee: selected, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("input-argument") },
+          ...internal.map(({ instance }, index) =>
+            ({ kind: "omitted", parameter: index + 1, value: { kind: "initializer", instance } }))] }))))));
+  current.related = [target, ...initializers];
+  const unit = { request: target.deps.unit, position: { kind: "result" } };
+  current.deps.summaryOf = key => {
+    assert.deepEqual(key, result.summary.key);
+    return { value: result.summary, unit };
+  };
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const invocation = pair.facts.origins.invocations[0];
+  const selectedCall = invocation.alternatives[0];
+  const supplied = pair.facts.arena.contexts[0].arguments[0];
+  assert.equal(supplied.kind, "provided");
+  assert.deepEqual(pair.facts.arena.contexts[selectedCall.context].arguments, [supplied, { kind: "omitted" }, { kind: "omitted" }]);
+  assert.equal(selectedCall.arguments[1].kind, "omitted");
+  assert.deepEqual(Object.keys(selectedCall.arguments[1]).sort(), ["formal", "kind", "parameter", "parameterIndex"]);
+  assert.equal(pair.summary.result, supplied.origins);
+  assert.deepEqual(result.summary.arena.contexts[0].arguments[1], { kind: "omitted" });
+  assert.deepEqual(result.summary.arena.boundProducers.map(row => result.summary.arena.producers[row.producer].index), [0]);
+
+  const operation = current.input.mir.blocks[invocation.point.block].terminator;
+  const deps = { ...current.deps, account: createAccount(limits) };
+  assert.throws(() => scalarArgument(deps, operation, 1), /actual selected argument/);
+  const retained = TABLE.signatures[program.tir.signature];
+  for (const formal of [undefined, { ...retained.parameters[1], kind: "required" },
+    { ...retained.parameters[1], acceptsOmission: false }, { ...retained.parameters[1], passing: "move" },
+    { ...retained.parameters[1], initializer: DEFAULT_BODY }]) {
+    assert.throws(() => callSummary({ ...deps, signatureOf: () => ({ ...retained,
+      parameters: [retained.parameters[0], formal, retained.parameters[2]] }),
+    summaryOf: () => assert.fail("No Summary reader after the actual default signature is invalid."),
+    }, current.input.mir, operation), /actual default of each omitted/);
+  }
+  const mapping = selected.decision.parameters[1];
+  const wrongPosition = { ...operation, callee: { ...operation.callee, resolution: { ...selected,
+    decision: { ...selected.decision, parameters: [selected.decision.parameters[0], { ...mapping, parameter: 0 }] } } } };
+  assert.throws(() => callSummary({ ...deps, summaryOf: () => assert.fail("No Summary reader for the wrong formal.") },
+    current.input.mir, wrongPosition), /actual selected argument omission/);
+  const refusal = { kind: "refused", diagnostics: [] };
+  const refusedAccount = createAccount(limits);
+  assert.equal(callSummary({ ...deps, account: refusedAccount, signatureOf: () => {
+    refuseAccount(refusedAccount, refusal);
+    return new Proxy({}, { get() { assert.fail("No signature answer read after its original refusal."); } });
+  }, summaryOf: () => assert.fail("No Summary reader after the selected signature refuses."),
+  }, current.input.mir, operation), refusal);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 2000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      let signatureReads = 0;
+      const response = callSummary({ ...current.deps, account, signatureOf: id => {
+        signatureReads += 1;
+        assert.equal(id, retained.id);
+        return retained;
+      } }, current.input.mir, operation);
+      assert.equal(signatureReads <= 1, true);
+      if (response.kind === "complete") {
+        assert.equal(response.value, result.summary);
+        assert.equal(signatureReads, 1);
+        complete = true;
+        break;
+      }
+      assert.equal(response, accountFailure(account));
+    }
+    assert.equal(complete, true);
+  }
+  const syntax = sourceOccurrences(current.input.tir, createAccount(limits)).value.get(invocation.node);
+  const args = syntax.tsonic.application.decision.arguments;
+  for (const wrong of [undefined, { ...args[1], parameter: 0 }]) {
+    const original = args[1];
+    args[1] = wrong;
+    try {
+      assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input),
+        /exact selected omitted disposition/);
+    } finally { args[1] = original; }
+  }
+  const invented = { ...result.summary, arena: { ...result.summary.arena, boundProducers: [
+    ...result.summary.arena.boundProducers, { id: 1, producer: 1, context: 0, bindings: EMPTY_BINDINGS },
+  ] } };
+  const state = current.input.mir.locals.map(() => supplied.origins);
+  assert.throws(() => callValueEffects(deps, current.input, operation, invocation.point, invented, pair.facts.arena, state, [], []),
+    /actual provided argument/);
 });
 
 test("WT1's real two-argument add call keeps both actual selected formal identities in authored order", () => {
@@ -1368,7 +1597,7 @@ test("WT1's real two-argument add call keeps both actual selected formal identit
   const alternative = pair.facts.origins.invocations[0].alternatives[0];
   assert.deepEqual(alternative.arguments.map(row => [row.authoredIndex, row.parameterIndex, row.formal.producer]), [[0, 0, 0], [1, 1, 1]]);
   assert.deepEqual(alternative.arguments.map(row => row.parameter), TABLE.signatures[programs.add.tir.signature].parameters.map(row => row.declaration));
-  assert.deepEqual(pair.facts.arena.contexts[alternative.context].arguments, alternative.arguments.map(row => row.actual));
+  assert.deepEqual(pair.facts.arena.contexts[alternative.context].arguments.map(slot => slot.origins), alternative.arguments.map(row => row.actual));
   assert.deepEqual(child.summary.parameters.map(row => [row.reads, row.writes]), [0, 1].map(() => [
     { kind: "complete", paths: [] }, { kind: "complete", paths: [] }]));
 });
@@ -1396,7 +1625,7 @@ test("a called semantic error keeps its actual completed UnitRef through the sol
     assert.equal(complete, true);
   }
   const stopped = createAccount(limits);
-  const refused = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/origins", limit: "analysis.maximumOriginAlternatives",
+  const refused = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/body", limit: "analysis.maximumOriginAlternatives",
     maximum: 0, site: { kind: "source", origin: operation.origin }, unit })] };
   const response = callSummary({ ...deps, account: stopped, summaryOf: () => {
     refuseAccount(stopped, refused);
@@ -1463,34 +1692,76 @@ test("call identity, selected storage and missing effect relations are checked b
 
 test("called errors are monotone definite-state lattice members, not copied diagnostics or resource stops", () => {
   const { current, unit, operation } = defaultRound();
-  const first = { kind: "error", key: "a", unit };
-  const later = { kind: "error", key: "z", unit: { request: current.deps.unit, position: { kind: "result" } } };
-  const assigned = new Set([0]);
+  const first = { kind: "error", key: "a", unit, provided: 0 };
+  const later = { kind: "error", key: "z", unit: { request: current.deps.unit, position: { kind: "result" } }, provided: 0 };
+  const assigned = { written: new Set([0]), taint: null };
+  const other = { written: new Set([1]), taint: null };
   const lattice = assignedLattice(4);
-  assert.equal(lattice.join(first, assigned, createAccount(limits)), first);
-  assert.equal(lattice.join(assigned, first, createAccount(limits)), first);
-  assert.equal(lattice.join(first, later, createAccount(limits)), first);
-  assert.equal(lattice.join(later, first, createAccount(limits)), first);
-  assert.equal(lattice.equals(first, later, createAccount(limits)), false);
-  assert.equal(lattice.equals(first, assigned, createAccount(limits)), false);
-  assert.equal(lattice.equals(assigned, first, createAccount(limits)), false);
-  assert.equal(lattice.equals(first, { ...first }, createAccount(limits)), true);
-  for (const maximumWork of [0, 1]) {
-    const account = createAccount({ ...limits, maximumWork });
-    assert.equal(lattice.join(later, first, account), later);
-    assert.equal(lattice.equals(first, { ...first }, account), true);
-    assert.equal(accountFailure(account).kind, "resource-limit");
+  const account = createAccount(limits);
+  const fromFirst = taintUnwritten(assigned, first, account);
+  const fromLater = taintUnwritten(other, later, account);
+  const joined = lattice.join(fromFirst, fromLater, account);
+  assert.deepEqual([...joined.written], []);
+  assert.deepEqual([0, 1, 2].map(local => unwrittenCause(joined, local)), [later, first, first]);
+  assert.equal(unwrittenCause(fromFirst, 0), null);
+  assert.equal(unwrittenCause(assigned, 2), null);
+  assert.equal(lattice.equals(joined, lattice.join(fromLater, fromFirst, account), account), true);
+  assert.equal(lattice.join(fromFirst, assigned, account).taint, fromFirst.taint);
+  const same = taintUnwritten(assigned, { ...first }, account);
+  assert.equal(lattice.equals(fromFirst, same, account), true);
+  assert.equal(lattice.equals(fromFirst, fromLater, account), false);
+  assert.equal(lattice.equals(fromFirst, assigned, account), false);
+  assert.equal(lattice.equals(assigned, fromFirst, account), false);
+  const another = taintUnwritten(fromFirst, later, account);
+  assert.equal(unwrittenCause(another, 0), null, "both real calls leave the previously written slot alone");
+  assert.equal(unwrittenCause(another, 2), first);
+  const dead = transferAssigned(current.input.mir, { kind: "storage-dead", local: 0 }, another, account);
+  assert.equal(unwrittenCause(dead, 0), null, "the earlier exceptions apply even after the slot is no longer written");
+  assert.equal(unwrittenCause(taintUnwritten(dead, later, account), 0), later,
+    "the previously written exception stops protecting the now unwritten cell on a later failing edge");
+  const local = current.input.mir.places[operation.destination].base.local;
+  const unwritten = taintUnwritten({ written: new Set(), taint: null }, first, account);
+  assert.equal(unwrittenCause(unwritten, local), first);
+  const cleared = transferAssigned(current.input.mir, { kind: "assign", place: operation.destination }, unwritten, account);
+  assert.equal(cleared.written.has(local), true);
+  const reset = transferAssigned(current.input.mir, { kind: "storage-live", local }, cleared, account);
+  assert.equal(unwrittenCause(reset, local), null, "an actual write clears taint before a later reset");
+  assert.equal(transferAssigned(current.input.mir, { kind: "assign", place: operation.destination }, reset, account).taint,
+    reset.taint, "a write to an already clean slot needs no new exception");
+  const otherClean = taintUnwritten({ written: new Set([1]), taint: null }, first, account);
+  const unequal = lattice.join(otherClean, { written: new Set([0]), taint: null }, account);
+  const equalShape = lattice.join(fromFirst, other, account);
+  assert.equal(lattice.equals(equalShape, unequal, account), false);
+  for (const field of ["maximumWork", "maximumResultEntries"]) {
+    for (const run of [borrowed => taintUnwritten(fromFirst, later, borrowed),
+      borrowed => lattice.join(fromFirst, fromLater, borrowed),
+      borrowed => lattice.join(fromLater, fromFirst, borrowed),
+      borrowed => lattice.equals(equalShape, unequal, borrowed),
+      borrowed => transferAssigned(current.input.mir, { kind: "assign", place: operation.destination }, unwritten, borrowed)]) {
+      let completed = false;
+      for (let maximum = 0; maximum < 256; maximum += 1) {
+        const limited = createAccount({ ...limits, [field]: maximum });
+        run(limited);
+        const stop = accountFailure(limited);
+        if (stop === null) { completed = true; break; }
+        assert.equal(stop.kind, "resource-limit");
+        run(limited);
+        assert.equal(accountFailure(limited), stop);
+      }
+      assert.equal(completed, true, field);
+    }
   }
-  assert.throws(() => assignedEntry([first], 0), /actual solved initialization entry/);
-  assert.equal(transferAssigned(current.input.mir, { kind: "storage-live", local: 0 }, first, createAccount(limits)), first);
   const callBlock = current.input.mir.blocks.find(block => block.terminator === operation);
   const next = current.input.mir.blocks[operation.next];
   const blocks = current.input.mir.blocks.map(block => block === next ? { ...block, statements: [], terminator: operation } : block);
   const response = solveAssigned({ ...current.deps, account: createAccount(limits),
     summaryOf: () => ({ value: { kind: "error", causes: [] }, unit }) }, { ...current.input, mir: { ...current.input.mir, blocks } });
   assert.equal(response.kind, "complete");
-  assert.equal(response.value.error.unit, unit);
-  assert.equal(response.value.entry[callBlock.id] instanceof Set, true);
+  assert.equal(response.value.error.grounds.length, 1);
+  assert.strictEqual(response.value.error.grounds[0], unit);
+  assert.equal(response.value.entry[callBlock.id].written instanceof Set, true);
+  const destination = current.input.mir.places[operation.destination].base.local;
+  assert.equal(response.value.entry[next.id].written.has(destination), true);
 });
 
 test("actual call continuations honor no-return, existing local writes and relational growth refusal", () => {
@@ -1539,13 +1810,128 @@ test("actual call continuations honor no-return, existing local writes and relat
     return current.deps.summaryOf(key);
   } }, current.input);
   assert.equal(solved.kind, "complete");
-  let rereads = 0;
-  const late = analyzeBodyRound({ ...current.deps, account: createAccount(limits), summaryOf: key => {
-    rereads += 1;
-    return rereads <= reads ? current.deps.summaryOf(key) : { value: { kind: "error", causes: [] }, unit };
+  assert.equal(reads, 1);
+  let roundReads = 0;
+  const retained = analyzeBodyRound({ ...current.deps, account: createAccount(limits), summaryOf: key => {
+    assert.equal(++roundReads, 1, "the replay borrows the exact completed answer selected by the solver");
+    return current.deps.summaryOf(key);
   } }, current.input);
-  assert.equal(late.kind, "complete");
-  assert.equal(late.value.value.causes[0].unit, unit, "a reread error cannot become a partial successful projection");
+  checkedPair(current, retained);
+  assert.equal(roundReads, 1);
+});
+
+test("an offered prior or outside read pays its exact identity before any selected signature demand", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { admitSummaryIdentity } = await import("../../packages/host/dist/ir-facts/index.js");
+  const { declaredInvocationFixture } = await import("./fixtures/program-invocations.mjs");
+  const { current, childPair, initializer, operation, unit } = defaultRound();
+  const summary = childPair.summary;
+  const entry = initializer.input.mir.entries.find(row => row.provided === initializer.execution.provided);
+  assert.ok(entry);
+  const least = { kind: "least", execution: initializer.execution, signature: initializer.input.tir.signature, entry };
+  const authority = auth => {
+    const account = createAccount(limits);
+    assert.equal(admitSummaryIdentity(auth, account), null);
+    const { work, entries } = InvocationAccount.stateOf(account);
+    return { maximumWork: work, maximumResultEntries: entries };
+  };
+  const run = (observe, maxima = limits) => {
+    const account = createAccount(maxima);
+    const state = () => {
+      const { work, entries } = InvocationAccount.stateOf(account);
+      return { maximumWork: work, maximumResultEntries: entries };
+    };
+    const reads = [];
+    const result = callSummary({ ...current.deps, account, summaryOf: () => {
+      reads.push("answer");
+      return observe(state(), reads);
+    }, signatureOf: requested => {
+      reads.push("signatureOf");
+      return current.deps.signatureOf(requested);
+    } }, current.input.mir, operation);
+    return { result, reads, stop: accountFailure(account), used: state() };
+  };
+  for (const [authored, offered, wrap, expectations] of [
+    [summary, summary.key, selected => ({ kind: "prior-summary", summary: selected }), ["answer", "key", "signature", "signatureOf"]],
+    [summary, summary.key, selected => ({ value: selected, unit }), ["answer", "key", "signature", "signatureOf"]],
+    [least, { kind: "body", execution: least.execution }, selected => selected, ["answer", "signature", "signatureOf"]],
+  ]) {
+    let prefix;
+    let selected;
+    const observe = (used, reads) => {
+      prefix = used;
+      selected = { ...authored, get signature() { reads.push("signature"); return authored.signature; } };
+      if (authored === summary) Object.defineProperty(selected, "key", { get() { reads.push("key"); return summary.key; } });
+      return wrap(selected);
+    };
+    const baseline = run(observe);
+    assert.equal(baseline.result.kind, "complete");
+    assert.strictEqual(baseline.result.value, selected);
+    assert.deepEqual(baseline.reads, expectations);
+    const beforeOffered = prefix;
+    const price = authority(offered);
+    for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+      for (let admitted = 0; admitted < price[dimension]; admitted += 1) {
+        const blocked = run(observe, { ...limits, [dimension]: beforeOffered[dimension] + admitted });
+        assert.strictEqual(blocked.result, blocked.stop);
+        assert.equal(blocked.result.dimension, dimension === "maximumWork" ? "work" : "result-entries");
+        assert.deepEqual(blocked.reads, expectations.slice(0, -2));
+      }
+    }
+    const exact = run(observe, baseline.used);
+    assert.equal(exact.result.kind, "complete");
+    assert.strictEqual(exact.result.value, selected);
+    assert.deepEqual(exact.reads, expectations);
+  }
+  const declared = declaredInvocationFixture().summary;
+  assert.equal(declared.key.kind, "declared");
+  let beforeDeclared;
+  let crossedReads;
+  const wrong = (used, reads) => {
+    beforeDeclared = used;
+    crossedReads = reads;
+    return { kind: "prior-summary", summary: { ...declared, get signature() {
+      assert.fail("a declared offer cannot authorize a selected body signature");
+    } } };
+  };
+  assert.throws(() => run(wrong), /exact complete selected execution and provided count/u);
+  assert.deepEqual(crossedReads, ["answer"]);
+  const keyStop = run(wrong, { ...limits, maximumWork: beforeDeclared.maximumWork + authority(declared.key).maximumWork - 1 });
+  assert.strictEqual(keyStop.result, keyStop.stop);
+  assert.deepEqual(keyStop.reads, ["answer"]);
+});
+
+test("private ordinary least validates the actual entry and does not read either unproved continuation", () => {
+  const { current, initializer, operation } = defaultRound();
+  const target = initializer.input.mir.entries.find(row => row.provided === initializer.execution.provided);
+  assert.ok(target);
+  const least = { kind: "least", execution: initializer.execution, signature: initializer.input.tir.signature, entry: target };
+  const currentOperation = { ...operation, get destination() { assert.fail("normal destination requires a finite return"); } };
+  const input = { ...current.input, mir: { ...current.input.mir, blocks: current.input.mir.blocks.map(block =>
+    block.terminator === operation ? { ...block, terminator: currentOperation } : block) } };
+  let reads = 0;
+  const deps = { ...current.deps, account: createAccount(limits), summaryOf: key => {
+    reads += 1;
+    assert.equal(executionKey(key.execution), executionKey(initializer.execution));
+    return least;
+  } };
+  const state = solveAssigned(deps, input);
+  assert.equal(state.kind, "complete");
+  assert.equal(reads, 1);
+  assert.equal(state.value.entry[operation.next], null);
+  assert.ok([...state.value.calls.values()].some(row => row === least));
+  const call = { ...operation, get destination() { assert.fail("least must not read the normal destination"); },
+    get unwind() { assert.fail("least must not read unwind effects after structural graph admission"); } };
+  assert.strictEqual(callSummary({ ...deps, account: createAccount(limits) }, input.mir, call).value, least);
+  assert.throws(() => callSummary({ ...deps, account: createAccount(limits),
+    summaryOf: () => ({ ...least, entry: { ...target, provided: target.provided + 1 } }) }, input.mir, currentOperation),
+  /actual selected ordinary entry and provided count/u);
+  const actual = analyzeBodyRound({ ...deps, account: createAccount(limits) }, current.input);
+  assert.equal(actual.kind, "complete");
+  assert.equal(actual.value.value.summary.returns, false);
+  assert.equal(actual.value.value.summary.unwinds, false);
+  assert.deepEqual(actual.value.value.facts.origins.invocations, []);
+  assert.deepEqual(actual.value.value.facts.origins.activations, []);
 });
 
 test("a real selected float64 add produces complete BodyFacts and its whole stable Summary projection", () => {
@@ -1622,8 +2008,8 @@ test("selected provided entries initialize only supplied formals and actual omis
     const result = solveAssigned({ ...current.deps, account: createAccount(limits) },
       { ...current.input, execution: { ...current.execution, provided } });
     assert.equal(result.kind, "complete");
-    assert.equal(result.value.entry[entry.block].has(0), provided === 1, "omitted storage is not prematurely initialized at entry");
-    assert.equal(result.value.entry[0].has(0), true, "the actual omission prologue assignment establishes initialization before the full body");
+    assert.equal(result.value.entry[entry.block].written.has(0), provided === 1, "omitted storage is not prematurely initialized at entry");
+    assert.equal(result.value.entry[0].written.has(0), true, "the actual omission prologue assignment establishes initialization before the full body");
   }
 });
 
@@ -1647,7 +2033,7 @@ test("actual selected capture entries distinguish a copied scalar value from an 
     const selected = current.input.mir.entries.find(row => row.provided === 0);
     const solved = solveAssigned({ ...current.deps, account: createAccount(limits) }, current.input);
     assert.equal(solved.kind, "complete");
-    assert.equal(assignedEntry(solved.value.entry, selected.block).has(captured.id), capture === "captured-value",
+    assert.equal(assignedEntry(solved.value.entry, selected.block).written.has(captured.id), capture === "captured-value",
       "a location's availability does not initialize the actual external cell's content");
     if (capture === "captured-location") {
       current.related = [fixture(owner)];
@@ -1668,7 +2054,7 @@ test("actual selected capture entries distinguish a copied scalar value from an 
       assert.deepEqual(pair.summary.initialization.rows, [{ point: 0, cell: null, condition: 0 }, { point: 1, cell: null, condition: 0 }]);
       assert.throws(() => proveInitialization({ account: createAccount(limits), unit: current.deps.unit,
         summaryOf: () => ({ value: pair.summary, unit: { request: current.deps.unit, position: { kind: "result" } } }) },
-      { modules: [], entries: [current.execution], storage: [] }), /callback\/event\/caller-cell application/);
+      { modules: [], entries: [current.execution], storage: [] }), /actual supplied cell and completion-event bindings/);
       for (const dimension of ["maximumWork", "maximumResultEntries"]) {
         let completed = false;
         for (let maximum = 0; maximum <= 1024; maximum += 1) {
@@ -1781,7 +2167,7 @@ test("captured primitive may-write history is separate from the intersection of 
   }
   const account = createAccount(limits);
   const refusal = refuseAccount(account, { kind: "refused", diagnostics: [] });
-  assert.equal(captureMustAtExit({ account }, new Proxy([], { get() { assert.fail("No return-state input after original stop."); } }),
+  assert.equal(cellMustAtExit({ account }, new Proxy([], { get() { assert.fail("No return-state input after original stop."); } }),
     new Set(), null), refusal);
 });
 
@@ -1885,7 +2271,12 @@ test("an authored throw of an uninitialized own local retains the original read 
   const result = analyzeBodyRound(current.deps, current.input);
   assert.equal(result.kind, "complete");
   assert.equal(result.value.value.kind, "error");
-  assert.equal(result.value.positions[0].error, result.value.value);
+  const [detector, completed] = result.value.positions;
+  const read = current.input.tir.root.statements.nodes.at(-1).expression;
+  const execution = executionKey(current.execution);
+  assert.deepEqual(detector.position, { kind: "execution-source-node", execution, node: { body: current.input.tir.body, node: read.id } });
+  assert.deepEqual(completed.position, { kind: "execution-result", execution });
+  assert.equal(completed.error, result.value.value);
   assert.equal(result.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
   assert.equal("summary" in result.value.value, false);
 });
@@ -1928,7 +2319,7 @@ test("an actual escaping authored callee throw binds its value and retention to 
   current.deps.summaryOf = () => ({ value: summary, unit: { request: target.deps.unit, position: { kind: "result" } } });
   const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
   const call = current.input.mir.blocks.find(row => row.terminator.kind === "call");
-  const argument = pair.facts.arena.contexts[0].arguments[0];
+  const argument = pair.facts.arena.contexts[0].arguments[0].origins;
   assert.equal(pair.summary.returns, false);
   assert.equal(pair.summary.unwinds, true);
   assert.equal(pair.summary.thrown, argument);
@@ -2006,7 +2397,7 @@ test("an actual placed reference write replaces current content and transports o
     const executed = count === (incoming ? 0 : 2);
     const source = incoming ? pair.summary.arena.contexts[0].captures[executed ? 1 : 0].location : null;
     const expected = incoming ? pair.summary.arena.origins.find(row => row.producers.length === 1 && row.producers[0] === source).id
-      : pair.summary.arena.contexts[0].arguments[executed ? 1 : 0];
+      : pair.summary.arena.contexts[0].arguments[executed ? 1 : 0].origins;
     assert.equal(pair.summary.result, expected);
     assert.equal(pair.summary.retention.some(row => row.into.kind === "capture"), incoming && executed,
       "an internal parameter SLOT is not an externally retained parameter VALUE target");
@@ -2047,7 +2438,7 @@ test("an actual both-exit callee keeps returned and thrown arguments distinct at
     current.deps.summaryOf = () => ({ value: summary, unit: { request: target.deps.unit, position: { kind: "result" } } });
     const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
     const call = pair.facts.origins.invocations[0];
-    const arguments_ = pair.facts.arena.contexts[0].arguments;
+    const arguments_ = pair.facts.arena.contexts[0].arguments.map(slot => slot.origins);
     const thrown = arguments_[sameValue ? 1 : 2];
     assert.equal(pair.summary.returns && pair.summary.unwinds, true);
     assert.equal(pair.summary.result, arguments_[1]);
@@ -2147,7 +2538,7 @@ test("two real placed reference writes union may history while the last normal c
     return { value: summaries[index], unit: { request: ready[index].deps.unit, position: { kind: "result" } } };
   };
   const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
-  assert.equal(pair.summary.result, pair.facts.arena.contexts[0].arguments[2]);
+  assert.equal(pair.summary.result, pair.facts.arena.contexts[0].arguments[2].origins);
   assert.deepEqual(pair.facts.arena.origins[pair.facts.origins.exitContents.onReturn[0].value].producers, [2]);
   assert.equal(pair.summary.writes.length, 0, "only actual incoming captured cells are exported as external histories");
   for (const dimension of ["maximumWork", "maximumResultEntries"]) {
@@ -2162,6 +2553,507 @@ test("two real placed reference writes union may history while the last normal c
   }
 });
 
+for (const mode of ["supplied", "omitted", "shadow", "null"]) {
+  test(`verified optional Boolean calls keep ${mode} distinct through conversion and applied Origins`, async () => {
+    const { checkOptionalDefault } = await import("./fixtures/optional-default.mjs");
+    await checkOptionalDefault(mode);
+  });
+}
+
+test("an optional reference default retains only the actual fallback or supplied actor and never retains absence", async () => {
+  const { checkOptionalReferenceDefault } = await import("./fixtures/optional-reference-default.mjs");
+  await checkOptionalReferenceDefault();
+});
+
+test("an optional string without a default starts its omitted entry with native absence and only retains a supplied reference", async () => {
+  const { checkOptionalReferenceNoInitializer } = await import("./fixtures/optional-no-initializer.mjs");
+  await checkOptionalReferenceNoInitializer();
+});
+
+test("a module static destination is written only by a returning placed initializer", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const { bindInitialization, summaryKey } = await import("../../packages/host/dist/ir-facts/index.js");
+  const { conditionRefusal } = await import("./fixtures/facts-verification.mjs");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { decodeDefId } = await import("../../packages/host/dist/ids/index.js");
+  const converge = pipelineWiring.summaries.convergeComponent;
+  let observed;
+  pipelineWiring.summaries.convergeComponent = (deps, input) => {
+    const outcome = converge(deps, input);
+    const member = input.members[0];
+    if (member.tir.root.kind === "SourceFile" && member.mir.places.some(place => place.base.kind === "static")) {
+      assert.equal(outcome.kind, "complete");
+      const value = outcome.value[0].result;
+      assert.equal(value.kind, "ok");
+      observed = { member, ...value.value, environment: deps.environment, outside: input.outside };
+    }
+    return outcome;
+  };
+  const read = key => {
+    const selected = observed.outside.find(row => summaryKey(row.key) === summaryKey(key));
+    assert.ok(selected);
+    return selected.answer;
+  };
+  const invoke = (account, mir = observed.member.mir) => analyzeBodyRound({ ...observed.environment, account,
+    unit: observed.member.unit, summaryOf: read }, { ...observed.member, mir, liveness: observed.facts.liveness });
+  const bind = summary => {
+    const cells = summary.initialization.cells.map(index => ({ kind: "cell", index }));
+    const answer = bindInitialization({ caller: summary.arena, events: [],
+      application: { owner: { kind: "summary", key: summary.key }, arena: summary.arena, table: summary.initialization,
+        binding: { cells, events: [] } } }, { account: createAccount(limits), eventCount: 0, refusal: conditionRefusal,
+      maximumConditionAlternatives: analysisLimits.maximumConditionAlternatives });
+    assert.equal(answer.kind, "complete");
+    return answer.value;
+  };
+  const exerciseCuts = () => {
+    const complete = createAccount(limits);
+    assert.equal(invoke(complete).kind, "complete");
+    const { work, entries } = InvocationAccount.stateOf(complete);
+    for (const [dimension, needed] of [["work", work], ["result-entries", entries]]) {
+      for (let maximum = 0; maximum < needed; maximum += 1) {
+        const account = createAccount({ maximumWork: dimension === "work" ? maximum : work,
+          maximumResultEntries: dimension === "result-entries" ? maximum : entries });
+        const refused = invoke(account);
+        assert.equal(refused.kind, "resource-limit", dimension);
+        assert.equal(refused.dimension, dimension);
+        assert.equal(refused, accountFailure(account));
+      }
+    }
+    const exact = createAccount({ maximumWork: work, maximumResultEntries: entries });
+    assert.equal(invoke(exact).kind, "complete");
+  };
+  try {
+    for (const returns of [true, false]) {
+      observed = undefined;
+      const source = returns ? "export const selected: boolean = true;"
+        : "export function fail(value: boolean): boolean { throw value; } export const selected: boolean = fail(true);";
+      assert.equal((await analyzeOptionalSource(source)).kind, "ok");
+      assert.ok(observed);
+      const { member, facts, summary } = observed;
+      const [cell] = facts.arena.cells;
+      assert.equal(facts.arena.cells.length, 1);
+      assert.deepEqual(summary.arena.cells, [cell]);
+      const call = member.mir.blocks.find(({ terminator }) => terminator.kind === "call"
+        && terminator.destination !== null && member.mir.places[terminator.destination].base.kind === "static").terminator;
+      const place = member.mir.places[call.destination];
+      assert.deepEqual(cell.role, { kind: "static", declaration: { definition: place.base.definition, bindings: member.mir.bindings } });
+      assert.deepEqual(cell.occurrence, { kind: "declared", at: { kind: "node", node: { kind: "item",
+        value: { owner: place.base.definition, node: call.tir.node } } } });
+      assert.deepEqual(summary.initialization.cells, [cell.id]);
+      assert.equal(summary.returns, returns);
+      assert.equal(summary.unwinds, !returns);
+      assert.deepEqual(summary.initialization.points, [{ kind: returns ? "return" : "unwind" }]);
+      const noValue = { target: cell.id, value: 0 };
+      assert.deepEqual(summary.writes, returns ? [noValue] : []);
+      assert.deepEqual(summary.contentsOnReturn, returns ? [noValue] : []);
+      assert.deepEqual(summary.contentsOnUnwind, []);
+      assert.deepEqual(summary.initialization.rows, returns ? [
+        { point: 0, cell: null, condition: 0 }, { point: 0, cell: cell.id, condition: 1 },
+      ] : [{ point: 0, cell: null, condition: 0 }]);
+      const point = { kind: returns ? "return" : "unwind" };
+      assert.deepEqual(bind(summary), returns ? [
+        { point, cell: null, condition: { alternatives: [] } },
+        { point, cell: { kind: "cell", index: cell.id }, condition: { alternatives: [[]] } },
+      ] : [{ point, cell: null, condition: { alternatives: [] } }]);
+      if (!returns) continue;
+      exerciseCuts();
+      const mismatched = { ...member.mir, places: member.mir.places.map(entry =>
+        entry !== place ? entry : { ...entry, base: { kind: "static", definition: member.tir.owner } }) };
+      assert.throws(() => invoke(createAccount(limits), mismatched), /actual declaration, storage and placed initializer/);
+      const unchecked = { ...member.mir, places: [...member.mir.places, { ...place, id: member.mir.places.length }] };
+      assert.throws(() => invoke(createAccount(limits), unchecked), /static-cell association/);
+      const projected = { ...member.mir, places: [...member.mir.places, { ...place, id: member.mir.places.length,
+        base: { kind: "checked", place: place.id, projection: { kind: "deref" }, tir: call.tir } }] };
+      assert.throws(() => invoke(createAccount(limits), projected), /projection or static-cell producer/);
+      const followedProjection = { ...projected, blocks: projected.blocks.map(block => block.terminator !== call ? block
+        : { ...block, terminator: { ...call, destination: projected.places.length - 1 } }) };
+      assert.throws(() => solveAssigned({ ...observed.environment, summaryOf: read, unit: member.unit, account: createAccount(limits) },
+        { ...member, mir: followedProjection }), /actual selected logical-cell binding/);
+      const unrelatedLocal = { ...unchecked, places: unchecked.places.map(entry => entry !== place ? entry
+        : { ...entry, base: { kind: "local", local: 0 } }) };
+      assert.throws(() => invoke(createAccount(limits), unrelatedLocal), /static-cell association/);
+      const nonScalar = { ...observed.environment, typeOf: type => type === place.storage ? { kind: "string" }
+        : observed.environment.typeOf(type) };
+      assert.throws(() => analyzeBodyRound({ ...nonScalar, account: createAccount(limits), unit: member.unit, summaryOf: read },
+        { ...member, liveness: facts.liveness }), /non-scalar static content and retention producer/);
+    }
+    observed = undefined;
+    assert.equal((await analyzeOptionalSource("export function fail(value: boolean): boolean { throw value; } "
+      + "export const z: boolean = true; export const a: boolean = fail(false); export const m: boolean = true;")).kind, "ok");
+    assert.ok(observed);
+    const { summary } = observed;
+    const cells = summary.arena.cells;
+    assert.equal(cells.length, 3);
+    assert.deepEqual(cells.map(cell => decodeDefId(cell.role.declaration.definition).value.segments.at(-1).name), ["a", "m", "z"]);
+    assert.equal(summary.returns, false);
+    assert.equal(summary.unwinds, true);
+    assert.deepEqual(summary.writes, [{ target: 2, value: 0 }]);
+    assert.deepEqual(summary.contentsOnReturn, []);
+    assert.deepEqual(summary.contentsOnUnwind, [{ target: 2, value: 0 }]);
+    assert.deepEqual(summary.initialization.points, [{ kind: "unwind" }]);
+    assert.deepEqual(summary.initialization.rows, [{ point: 0, cell: null, condition: 0 }, { point: 0, cell: 2, condition: 1 }]);
+    assert.deepEqual(bind(summary).filter(row => row.cell !== null).map(row => row.cell.index), [2]);
+    exerciseCuts();
+    observed = undefined;
+    assert.equal((await analyzeOptionalSource("export let selected: boolean | undefined;")).kind, "ok");
+    assert.ok(observed);
+    assert.deepEqual(observed.summary.initialization.cells, [0]);
+    assert.deepEqual(observed.summary.contentsOnReturn.map(row => row.target), [0]);
+    const absence = observed.summary.arena.origins[observed.summary.contentsOnReturn[0].value];
+    assert.deepEqual(absence, { id: absence.id, kind: "complete", producers: [], includesAbsence: true });
+    assert.deepEqual(observed.summary.initialization.rows, [
+      { point: 0, cell: null, condition: 0 }, { point: 0, cell: 0, condition: 1 },
+    ]);
+    exerciseCuts();
+  } finally { pipelineWiring.summaries.convergeComponent = converge; }
+});
+
+test("module static reads use one actual cell per declaration and preserve the declaring execution binding", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const { staticCells } = await import("../../packages/host/dist/analyses/body/places.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { summaryKey } = await import("../../packages/host/dist/ir-facts/index.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const converge = pipelineWiring.summaries.convergeComponent;
+  let observed;
+  let owner;
+  pipelineWiring.summaries.convergeComponent = (deps, input) => {
+    if (input.members[0].tir.root.kind === "Block") observed = { deps, member: input.members[0], outside: input.outside };
+    if (input.members[0].tir.root.kind === "SourceFile" && input.members[0].mir.places.some(place => place.base.kind === "static"))
+      owner = input.members[0];
+    return converge(deps, input);
+  };
+  try {
+    const actual = await analyzeOptionalSource("export const state: boolean = true; "
+      + "export function read(): boolean { if (state) return state; return state; }");
+    assert.equal(actual.kind, "ok");
+    assert.ok(observed && owner);
+    const { deps, member, outside } = observed;
+    const selected = actual.value.modules.flatMap(module => module.bodies)
+      .find(body => body.kind === "selected" && body.instance.body === member.tir.body);
+    const [facts] = selected.facts;
+    const members = { ...member, liveness: facts.liveness };
+    const summaryOf = key => outside.find(row => summaryKey(row.key) === summaryKey(key))?.answer;
+    const run = (account, changes = {}) => analyzeBodyRound({ ...deps.environment, summaryOf, unit: member.unit, account, ...changes }, members);
+    const exact = createAccount(limits);
+    assert.equal(run(exact).kind, "complete");
+    assert.equal(facts.arena.cells.filter(cell => cell.role.kind === "static").length, 1);
+    const { work, entries } = InvocationAccount.stateOf(exact);
+    for (const [dimension, needed] of [["work", work], ["result-entries", entries]]) for (let maximum = 0; maximum < needed; maximum += 1) {
+      const account = createAccount({ maximumWork: dimension === "work" ? maximum : work,
+        maximumResultEntries: dimension === "result-entries" ? maximum : entries });
+      assert.equal(run(account), accountFailure(account));
+      assert.equal(accountFailure(account)?.dimension, dimension);
+    }
+    assert.equal(run(createAccount({ maximumWork: work, maximumResultEntries: entries })).kind, "complete");
+
+    const refused = { kind: "refused", diagnostics: [] };
+    const stopped = createAccount(limits);
+    assert.equal(run(stopped, { staticModuleBindingsOf: () => { refuseAccount(stopped, refused); return null; } }), refused);
+    assert.throws(() => run(createAccount(limits), { staticModuleBindingsOf: () => null }), /actual initialized module execution binding/);
+    const nodes = sourceOccurrences(member.tir, createAccount(limits)).value;
+    const read = [...nodes.values()].find(node => node.kind === "Identifier" && node.tsonic.resolution?.kind === "static");
+    assert.ok(read);
+    const changedReference = declaration => ({ ...read, tsonic: { ...read.tsonic, resolution: { ...read.tsonic.resolution, declaration } } });
+    const invoke = (input, source = nodes) => staticCells({ ...deps.environment, account: createAccount(limits) }, input, source);
+    assert.throws(() => invoke({ ...members, mir: { ...member.mir, bindings: { kind: "parametric" } } }), /projection or static-cell producer/);
+    assert.throws(() => invoke(members, new Map(nodes).set(read.id,
+      changedReference({ ...read.tsonic.resolution.declaration, node: read.id }))), /actual declaration node and storage/);
+    const foreign = "bad declaration";
+    const crossed = { ...members, mir: { ...member.mir, places: member.mir.places.map(place =>
+      place.base.kind === "static" ? { ...place, base: { kind: "static", definition: foreign } } : place) } };
+    assert.throws(() => invoke(crossed, new Map([[read.id, changedReference({ owner: foreign, node: read.id })]])), /qualified declaration module/);
+    const mismatch = { ...members, mir: { ...member.mir, places: member.mir.places.map(place =>
+      place.base.kind === "static" ? { ...place, storage: T.float64 } : place) } };
+    assert.throws(() => invoke(mismatch), /actual declaration root/);
+    const ownNodes = sourceOccurrences(owner.tir, createAccount(limits)).value;
+    assert.throws(() => invoke({ ...owner, tir: { ...owner.tir, root: member.tir.root } }, ownNodes), /actual declaration root/);
+    assert.throws(() => invoke(owner, new Map([[read.id, read]])), /actual declaration, storage and placed initializer/);
+  } finally { pipelineWiring.summaries.convergeComponent = converge; }
+  const absence = await analyzeOptionalSource("export let first: undefined; export let second: undefined; "
+    + "export function read(): undefined { first; return second; }");
+  assert.equal(absence.kind, "ok");
+  const index = absence.value.index;
+  const absenceReader = absence.value.modules.flatMap(module => module.bodies)
+    .find(record => record.kind === "selected" && record.tir.root.kind === "Block");
+  const [absenceFacts] = absenceReader.facts;
+  const absenceCheck = account => analyzeBodyRound({
+    ...observed.deps.environment, account, types: index.types, unit: observed.member.unit,
+    typeOf: type => index.types.terms[type], signatureOf: signature => index.types.signatures[signature],
+    staticModuleBindingsOf: () => index.initialization.modules[0].instance.bindings,
+    summaryOf: () => assert.fail("a direct static read has no callee summary dependency"),
+  }, { execution: absenceFacts.execution, mir: absenceReader.mir, tir: absenceReader.tir, liveness: absenceFacts.liveness });
+  const exact = createAccount(limits);
+  assert.equal(absenceCheck(exact).kind, "complete");
+  const { entries } = InvocationAccount.stateOf(exact);
+  for (let maximumResultEntries = 0; maximumResultEntries < entries; maximumResultEntries += 1) {
+    const account = createAccount({ ...limits, maximumResultEntries });
+    assert.equal(absenceCheck(account), accountFailure(account));
+    assert.equal(accountFailure(account)?.dimension, "result-entries");
+  }
+  await assert.rejects(() => analyzeOptionalSource("export let state: boolean | undefined; "
+    + "export function read(): boolean | undefined { return state; }"), /actual incoming value contents/);
+  const authored = await analyzeOptionalSource("export let state: boolean; "
+    + "export function replace(next: boolean): boolean { state = next; return state; }");
+  assert.equal(authored.kind, "ok");
+  const written = authored.value.index.summaries.find(summary => summary.key.kind === "body"
+    && summary.arena.cells.some(cell => cell.role.kind === "static") && summary.contentsOnReturn.length !== 0);
+  const [effect] = written.contentsOnReturn;
+  assert.equal(written.arena.cells[effect.target].role.kind, "static");
+  assert.equal(written.initialization.points.some(point => point.kind === "need"), false);
+});
+
+test("called static reads bind the complete declaration identity and preserve the first resource stop", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const { staticCallInventory } = await import("../../packages/host/dist/analyses/body/static-calls.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { decodeBodyId } = await import("../../packages/host/dist/ids/index.js");
+  const ready = await analyzeOptionalSource("export const first: boolean = true; "
+    + "export const copy: boolean = first; export const again: boolean = first;");
+  assert.equal(ready.kind, "ok");
+  const imported = await analyzeOptionalSource("import { value } from './provider.js'; "
+    + "function read(): boolean | undefined { return value; } export const copy: boolean | undefined = read();",
+  { "provider.ts": "export const value: boolean = true;" });
+  assert.equal(imported.kind, "ok");
+  const importedAbsence = await analyzeOptionalSource("import { value } from './provider.js'; export const copy: undefined = value;",
+    { "provider.ts": "export const value: undefined = undefined;" });
+  assert.equal(importedAbsence.kind, "ok");
+  const { index, modules } = ready.value;
+  const actual = modules.flatMap(module => module.bodies).find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
+  const [facts] = actual.facts;
+  const source = index.summaries.find(row => row.key.kind === "body" && decodeBodyId(row.key.execution.instance.body).value.role === "initializer"
+    && row.initialization.points.some(point => point.kind === "need"));
+  const [borrowed] = source.arena.cells;
+  assert.equal(borrowed.role.kind, "static");
+  const direct = facts.arena.cells.filter(cell => cell.role.kind === "static");
+  assert.equal(direct.filter(cell => cell.role.declaration.definition === borrowed.role.declaration.definition).length, 1);
+  const run = (account, admit = () => null, declared = direct, overrides = {}) => staticCallInventory({
+    account, types: index.types, typeOf: type => index.types.terms[type], staticTypeOf: () => index.types.terms.findIndex(type =>
+      type.kind === "primitive" && type.primitive === "bool"), ...overrides,
+  }, { tir: actual.tir, mir: actual.mir }, declared, admit);
+  const exact = createAccount(limits);
+  const current = run(exact);
+  assert.equal(current.kind, "complete");
+  const view = current.value;
+  assert.equal(view.include(source), null);
+  assert.equal(view.include(source), null);
+  assert.deepEqual(view.additional, []);
+  const expected = direct.find(cell => cell.role.declaration.definition === borrowed.role.declaration.definition).id;
+  assert.equal(view.cellOf(source, borrowed.id), expected);
+  assert.equal(view.slotOf(source, borrowed.id), actual.mir.locals.length + expected - actual.tir.captures.length);
+  assert.equal(view.slotOf(source, borrowed.id + 1), undefined);
+  for (const declared of [direct, []]) {
+    const measured = createAccount(limits);
+    const complete = run(measured, () => null, declared).value;
+    assert.equal(complete.include(source), null);
+    assert.equal(complete.include(source), null);
+    const { work, entries } = InvocationAccount.stateOf(measured);
+    for (const [dimension, need] of [["work", work], ["result-entries", entries]]) for (let maximum = 0; maximum < need; maximum += 1) {
+      const account = createAccount({ maximumWork: dimension === "work" ? maximum : work,
+        maximumResultEntries: dimension === "result-entries" ? maximum : entries });
+      const result = run(account, () => null, declared);
+      const stop = result.kind === "complete" ? result.value.include(source) ?? result.value.include(source) : result;
+      assert.equal(stop, accountFailure(account));
+      assert.equal(stop?.dimension, dimension);
+    }
+  }
+  const absent = await analyzeOptionalSource("export const first: undefined = undefined; export const copy: undefined = first;");
+  assert.equal(absent.kind, "ok");
+  const absentSummary = absent.value.index.summaries.find(row => row.initialization.points.some(point => point.kind === "need")
+    && row.key.kind === "body" && decodeBodyId(row.key.execution.instance.body).value.role === "initializer");
+  const absentType = absent.value.index.types.terms.findIndex(type => type.kind === "intrinsic" && type.intrinsic === "absence");
+  const absentView = run(createAccount(limits), () => null, [], {
+    staticTypeOf: () => absentType, typeOf: type => absent.value.index.types.terms[type],
+  }).value;
+  assert.equal(absentView.include(absentSummary), null);
+  assert.deepEqual([...absentView.absent], [actual.mir.locals.length]);
+  assert.equal(absentView.additional.length, 1);
+
+  const refused = { kind: "refused", diagnostics: [] };
+  for (const phase of ["type", "classification", "allocation"]) {
+    const account = createAccount(limits);
+    const stop = () => { refuseAccount(account, refused); return refused; };
+    const branch = run(account, phase === "allocation" ? stop : () => null, [], {
+      staticTypeOf: phase === "type" ? () => { stop(); return null; } : () => T.bool,
+      typeOf: phase === "classification" ? () => { stop(); return { kind: "primitive", primitive: "bool" }; }
+        : () => ({ kind: "primitive", primitive: "bool" }),
+    }).value;
+    assert.equal(branch.include(source), refused);
+    assert.deepEqual(branch.additional, []);
+  }
+  const rejected = (row, message, overrides = {}) => {
+    const inventory = run(createAccount(limits), () => null, [], overrides).value;
+    assert.throws(() => inventory.include({ ...source, arena: { ...source.arena, cells: [row] } }), message);
+  };
+  rejected({ ...borrowed, occurrence: { kind: "entry" } }, /actual declaration/);
+  rejected({ ...borrowed, occurrence: { kind: "declared", at: { kind: "node", node: { kind: "item",
+    value: { ...borrowed.occurrence.at.node.value, owner: actual.tir.owner } } } } }, /same qualified declaration/);
+  rejected(borrowed, /actual declared storage type/, { staticTypeOf: () => null });
+  rejected(borrowed, /actual incoming non-scalar/, { typeOf: () => ({ kind: "string" }) });
+  assert.throws(() => run(createAccount(limits), () => null, [{ ...borrowed, role: { kind: "detached" } }]), /only its actual static cells/);
+  const crossedDirect = { ...borrowed, occurrence: { kind: "declared", at: { kind: "node", node: { kind: "item",
+    value: { ...borrowed.occurrence.at.node.value, node: borrowed.occurrence.at.node.value.node + 1 } } } } };
+  assert.throws(() => run(createAccount(limits), () => null, [crossedDirect]).value.include(source), /same qualified declaration/);
+});
+
+for (const completion of ["boolean", "void"]) test(`called ${completion} writes retain one bound static per declaration and separate its two finite exits`, async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const { decodeBodyId, decodeDefId } = await import("../../packages/host/dist/ids/index.js");
+  const result = await analyzeOptionalSource(
+    "import { write } from './provider.js'; "
+    + `function relay(flag: boolean, value: boolean): boolean { ${completion === "void" ? "write(flag, value); return value;" : "return write(flag, value);"} } `
+    + "export const started: boolean = relay(true, true);",
+    { "provider.ts": "export let returned: boolean; export let unwound: boolean; "
+      + `export function write(flag: boolean, value: boolean): ${completion} { `
+      + `if (flag) { returned = value; return${completion === "void" ? "" : " value"}; } unwound = value; throw value; }` },
+  );
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const relay = result.value.index.summaries.find(row => row.key.kind === "body"
+    && decodeDefId(decodeBodyId(row.key.execution.instance.body).value.owner).value.segments.at(-1)?.name === "relay");
+  assert.ok(relay);
+  const nameOf = cell => decodeDefId(relay.arena.cells[cell].role.declaration.definition).value.segments.at(-1).name;
+  assert.equal(relay.returns && relay.unwinds, true);
+  assert.deepEqual(relay.writes.map(row => nameOf(row.target)).sort(), ["returned", "unwound"]);
+  assert.deepEqual(relay.contentsOnReturn.map(row => nameOf(row.target)), ["returned"]);
+  assert.deepEqual(relay.contentsOnUnwind.map(row => nameOf(row.target)), ["unwound"]);
+  for (const [kind, name] of [["return", "returned"], ["unwind", "unwound"]]) {
+    const point = relay.initialization.points.findIndex(current => current.kind === kind);
+    const written = relay.initialization.rows.filter(row => row.point === point && row.cell !== null && row.condition === 1);
+    assert.deepEqual(written.map(row => nameOf(relay.initialization.cells[row.cell])), [name]);
+  }
+  const caller = result.value.modules.flatMap(module => module.bodies).find(body =>
+    body.kind === "selected" && body.instance.body === relay.key.execution.instance.body);
+  const callee = result.value.index.summaries.find(row => row.key.kind === "body"
+    && decodeDefId(decodeBodyId(row.key.execution.instance.body).value.owner).value.segments.at(-1)?.name === "write");
+  const operation = caller.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  assert.equal(operation.destination === null, completion === "void");
+  assert.throws(() => callSlotAt({ account: createAccount(limits) }, caller.mir, operation, callee, callee.writes[0].target, null),
+    /actual static-slot binding for this callee declaration/);
+});
+
+test("a real optional formal without an initializer distinguishes omitted absence from a supplied undefined", async () => {
+  const { checkOptionalNoInitializer } = await import("./fixtures/optional-no-initializer.mjs");
+  const { omitted, requiredFormal } = await checkOptionalNoInitializer();
+  const { index, caller, mir, formal, header } = omitted;
+  const original = mir.callee.resolution.decision;
+  const signature = index.types.signatures[original.completion.signature];
+  const check = (operation, named = formal) => callSummary({ account: createAccount(limits),
+    signatureOf: selected => {
+      assert.equal(selected, signature.id);
+      return { ...signature, parameters: [named] };
+    },
+    summaryOf: () => assert.fail("an invalid omission must not read a Summary"),
+  }, caller.mir, operation);
+  const crossed = { ...mir, callee: { ...mir.callee, resolution: { ...mir.callee.resolution,
+    decision: { ...original, parameters: [{ ...original.parameters[0], type: header.type.tsonic.type }] },
+  } } };
+  assert.throws(() => check(crossed), /actual absence omission of a selected formal without an initializer/);
+  const required = { ...formal, kind: requiredFormal.kind, acceptsOmission: requiredFormal.acceptsOmission };
+  assert.throws(() => check(mir, required), /actual absence omission of a selected formal without an initializer/);
+});
+
+test("copied optional entries share the existing account and do not suppress actual reference retention", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const program = await analyzeOptionalSource(
+    "export function copy(first: boolean | undefined, second: boolean | undefined): boolean | undefined { return first; }\n"
+    + "export function keep(first: boolean | undefined, second: boolean | undefined, text: string): string { return text; }");
+  assert.equal(program.kind, "ok");
+  const { index, modules } = program.value;
+  const active = modules.flatMap(module => module.bodies).filter(body => body.kind === "selected" && body.tir.root.kind === "Block");
+  const copy = active.find(body => body.tir.params.length === 2);
+  const keep = active.find(body => body.tir.params.length === 3);
+  assert.ok(copy && keep);
+  assert.deepEqual(copy.facts[0].origins.escapes, []);
+  assert.deepEqual(keep.facts[0].origins.escapes.map(row => row.producer), [2]);
+  const execution = { instance: copy.instance, provided: 2 };
+  const storage = analyzeStorageUse({ account: createAccount(limits) }, { execution, body: copy.mir });
+  assert.equal(storage.kind, "ok");
+  const deps = { types: index.types, typeOf: type => index.types.terms[type], signatureOf: signature => index.types.signatures[signature],
+    summaryOf: () => assert.fail("The actual by-value copy does not call"), limits: analysisLimits,
+    unit: { query: "bodyRound", key: executionKey(execution) } };
+  const input = { execution, mir: copy.mir, tir: copy.tir, liveness: storage.value };
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 1000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...deps, account }, input);
+      if (result.kind === "complete") {
+        assert.equal(result.value.kind, "ok");
+        assert.deepEqual(result.value.value.facts, copy.facts[0]);
+        complete = true;
+        break;
+      }
+      assert.equal(result, accountFailure(account));
+    }
+    assert.equal(complete, true);
+  }
+});
+
+test("optional value transfer rejects an unselected or unsupported replacement of the actual conversion", async () => {
+  const { checkOptionalDefault } = await import("./fixtures/optional-default.mjs");
+  const { types, initializer, defaultValue } = await checkOptionalDefault("omitted");
+  const state = initializer.mir.locals.map(() => 0);
+  const constants = initializer.mir.constants.map(() => 0);
+  const input = { mir: initializer.mir };
+  const call = value => transferValue({ types, typeOf: type => types.terms[type], account: createAccount(limits) }, input,
+    constants, state, state, { ...defaultValue, value });
+  const value = defaultValue.value;
+  assert.throws(() => call({ ...value, kind: "unary" }), /actual selected optional value conversion/);
+  assert.throws(() => call({ ...value, to: value.operation.decision.operation.from }), /actual selected absent or present optional conversion/);
+});
+
+test("an actual optional capture has a symbolic entry value distinct from its initialization need", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  for (const [name, payload, retains] of [["boolean", T.bool, false], ["string", T.string, true]]) {
+    const optional = declareType(`bodyRoundOptionalCapture.${name}`, { kind: "optional", value: payload });
+    const data = locationDefaultProgram(`body-round.optional-capture.${name}`, { type: optional });
+    const current = fixture(data.child);
+    current.related = [fixture(data.program, data.internal, 1)];
+    const { input, deps } = current;
+    assert.equal(input.mir.locals.find(local => local.role.kind === "capture").storage, optional);
+    const run = (account, bounds = analysisLimits) => analyzeBodyRound({ ...deps, account, limits: bounds }, input);
+    const account = createAccount(limits);
+    const pair = checkedPair(current, run(account));
+    const [location] = pair.summary.arena.contexts[0].captures;
+    assert.deepEqual(pair.summary.arena.origins[pair.summary.result],
+      { id: pair.summary.result, kind: "complete", producers: [location.location], includesAbsence: false });
+    assert.deepEqual(pair.summary.retention.map(row => row.source), retains ? [location.location] : []);
+    assert.equal(pair.summary.initialization.points[0].kind, "need");
+    assert.equal(pair.summary.initialization.points[0].cell, location.cell);
+    assert.equal(pair.facts.initialization.reads[0].assigned, false);
+    const cut = createAccount(limits);
+    const refusal = run(cut, { ...analysisLimits, maximumOriginAlternatives: 0 });
+    assert.equal(refusal.kind, "refused");
+    assert.equal(refusal === accountFailure(cut), true);
+    assert.deepEqual(refusal.diagnostics, [resourceLimitDiagnostic({
+      owner: "analyses/body", limit: "analysis.maximumOriginAlternatives", maximum: 0,
+      site: { kind: "source", origin: current.program.tir.root.origin },
+      unit: { request: deps.unit, position: { kind: "result" } },
+    })]);
+    const { work, entries } = InvocationAccount.stateOf(account);
+    for (const [field, required] of [["maximumWork", work], ["maximumResultEntries", entries]]) {
+      for (let maximum = 0; maximum <= required; maximum += 1) {
+        const limited = createAccount({ maximumWork: work, maximumResultEntries: entries, [field]: maximum });
+        const outcome = run(limited);
+        if (maximum === required) assert.equal(outcome.kind, "complete");
+        else {
+          assert.equal(outcome.kind, "resource-limit");
+          assert.equal(outcome === accountFailure(limited), true);
+          assert.equal(analyzeBodyRound({ ...deps, account: limited }, new Proxy({}, {
+            get() { assert.fail("A stopped optional capture cannot read another input"); },
+          })) === outcome, true);
+        }
+      }
+    }
+  }
+  const optional = declareType("bodyRoundOptionalCapture.receiver", { kind: "optional", value: T.string });
+  const data = locationDefaultProgram("body-round.optional-capture.receiver", { type: optional, receiver: true });
+  const current = fixture(data.program, data.internal, 0);
+  assert.equal(current.input.mir.locals.find(local => local.role.kind === "receiver").storage, optional);
+  assert.throws(() => analyzeBodyRound(current.deps, current.input), /actual optional receiver value binding/u);
+});
+
 test("complete retained targets and positions are paid, distinct, canonically ordered and share original stops", () => {
   const { child, selected } = referenceWriteProgram("body-round.reference-retained-key");
   const write = child.input.mir.blocks.flatMap(block => block.statements.map((statement, index) =>
@@ -2172,7 +3064,7 @@ test("complete retained targets and positions are paid, distinct, canonically or
   const retention = [];
   for (const point of [write.point, { block: write.point.block, statement: null }, { block: write.point.block + 1, statement: 0 }])
     for (const target of targets) for (const repeat of [false, true]) {
-      assert.equal(retainValue(child.deps, child.execution, write.statement, point, target, source, selected.facts.arena, escapes, retention), null);
+      assert.equal(retainValue(child.deps, child.execution, write.statement, point, target, source, selected.facts.arena, escapes, retention, null), null);
       assert.equal(typeof repeat, "boolean");
     }
   const sorted = collectRetainedValues(child.deps, escapes, retention);
@@ -2196,14 +3088,14 @@ test("complete retained targets and positions are paid, distinct, canonically or
   const call = { ...write.statement, kind: "call", callee: { kind: "body", captures: [{ place: 0 }] } };
   const invalid = { into: { kind: "capture", index: 0, path: null }, value: { kind: "caller", value: { origins: source } } };
   const invoke = (operation, row, captured = new Map()) => retainCallCaptures({ ...child.deps, account: createAccount(limits) }, child.input,
-    operation, write.point, { retention: [row] }, captured, selected.facts.arena, [], []);
+    operation, write.point, { retention: [row] }, captured, selected.facts.arena, [], [], null);
   for (const operation of [call, { ...call, callee: { kind: "direct" } }]) for (const row of [
     { ...invalid, into: { ...invalid.into, path: 0 } }, { ...invalid, value: { kind: "callee" } },
   ]) assert.throws(() => invoke(operation, row), /actual immediate capture target and value binding/);
   const stopped = createAccount(limits);
   const original = refuseAccount(stopped, { kind: "refused", diagnostics: [] });
   const unread = new Proxy({}, { get() { assert.fail("No retained-value input after its original stop."); } });
-  assert.equal(retainCallCaptures({ ...child.deps, account: stopped }, unread, unread, unread, unread, unread, unread, unread, unread), original);
+  assert.equal(retainCallCaptures({ ...child.deps, account: stopped }, unread, unread, unread, unread, unread, unread, unread, unread, unread), original);
 });
 
 test("actual placed calls keep both finite exits, sibling needs and normal/unwind-only captured writes distinct", () => {
@@ -2326,15 +3218,21 @@ test("an actual scalar call destination establishes its captured primitive cell"
   const source = { body: owner.tir.body, local: 0 };
   const program = typedBody(name, { role: "default-argument", signature: signature(name, [], T.bool), completion: T.bool,
     locals: [["value", "capture", T.bool, true, source]], captures: [{ local: source, capture: "captured-location" }],
-    root: builder.sequence(builder.id("value", 0, T.bool), builder.call(builder.global("thunk", thunkName, T.unknown), [], T.bool,
-      () => ({ callee: callee(thunkName, thunk.program.tir.signature, [], T.bool), receiver: null, arguments: [] })), T.bool) });
+    root: builder.assign(builder.target("value", 0, T.bool), "EqualsToken",
+      builder.call(builder.global("thunk", thunkName, T.unknown), [], T.bool,
+        () => ({ callee: callee(thunkName, thunk.program.tir.signature, [], T.bool), receiver: null, arguments: [] })), T.bool, T.bool) });
   program.bodyOf = instance => [owner.tir, thunk.program.tir].find(tir => sameInstance(instance, { body: tir.body, bindings: tir.bindings })) ?? null;
   const current = fixture(program);
   const captured = current.input.mir.locals.find(row => row.role.kind === "capture");
   const place = current.input.mir.places.find(row => row.base.kind === "local" && row.base.local === captured.id);
-  const mir = { ...current.input.mir, blocks: current.input.mir.blocks.map(block => block.terminator.kind === "call"
-    ? { ...block, terminator: { ...block.terminator, destination: place.id } } : block.terminator.kind === "return"
-      ? { ...block, terminator: { ...block.terminator, value: { kind: "place", place: place.id } } } : block) };
+  const selectedStore = current.input.mir.blocks.flatMap(block => block.statements).find(statement =>
+    statement.kind === "assign" && statement.tir.node === program.tir.root.id && statement.place === place.id);
+  assert.ok(selectedStore);
+  const mir = { ...current.input.mir, blocks: current.input.mir.blocks.map(block => ({ ...block,
+    statements: block.statements.filter(statement => statement !== selectedStore),
+    terminator: block.terminator.kind === "call" ? { ...block.terminator, destination: place.id } : block.terminator.kind === "return"
+      ? { ...block.terminator, value: { kind: "place", place: place.id } } : block.terminator,
+  })) };
   assert.deepEqual(verifyMir(mir, verificationContext(program)), { kind: "complete", violations: [] },
     "the actual selected call may name an available external storage destination in verified MIR");
   current.related = [fixture(owner), thunk];
@@ -2425,8 +3323,9 @@ test("primitive applied-write admission retains precise value, location and orig
   const empty = { caller: [], callee: [], boundaries: [], includesAbsence: false };
   const target = { kind: "located", targets: [cell], same: cell };
   const write = { target, value: empty };
-  const run = (rows = [write], input = caller.input, overrides = {}) => callWrites({ ...caller.deps,
-    account: createAccount(limits), ...overrides }, input, call, summary, summary.writes, rows);
+  const bindings = [{ kind: "cell", index: 0 }];
+  const run = (rows = [write], mappedCells = bindings, overrides = {}) => callWrites({ ...caller.deps,
+    account: createAccount(limits), ...overrides }, call, mappedCells, summary.writes, rows);
   assert.equal(run(), null);
   assert.deepEqual(primitiveExitLocals({ ...caller.deps, account: createAccount(limits) }, caller.input, call, summary, "unwind"),
     { kind: "complete", value: [] });
@@ -2436,14 +3335,16 @@ test("primitive applied-write admission retains precise value, location and orig
     assert.deepEqual(primitiveExitLocals({ ...caller.deps, account: createAccount(limits) }, caller.input, call,
       { ...summary, arena: { ...summary.arena, origins: [value] } }, "return"), { kind: "complete", value: null });
   for (const changed of [{ ...write, target: { ...target, same: null } }, { ...write, target: { ...target, targets: [cell, cell] } },
+    { ...write, target: { ...target, targets: [{ ...cell, cell: 1 }] } },
     ...["callee", "boundaries"].map(key => ({ ...write, value: { ...empty, [key]: [0] } }))])
     assert.throws(() => run([changed]), /actual created, open or unresolved caller-cell write transport/);
+  for (const changed of [[], [{ kind: "cell", index: 1 }]])
+    assert.throws(() => run([write], changed), /actual created, open or unresolved caller-cell write transport/);
   for (const value of [{ ...empty, caller: [{ owner, producer: 0 }] }, { ...empty, includesAbsence: true }])
     assert.equal(run([{ ...write, value }]), null);
   const local = caller.input.mir.places[call.callee.captures[0].place].base.local;
   const referenceInput = { ...caller.input, mir: { ...caller.input.mir, locals: caller.input.mir.locals.map(row =>
     row.id === local ? { ...row, storage: T.string } : row) } };
-  assert.equal(run([write], referenceInput), null);
   assert.deepEqual(primitiveExitLocals({ ...caller.deps, account: createAccount(limits) }, referenceInput, call, summary, "return"),
     { kind: "complete", value: null });
   const unsupported = declareType("bodyRoundCapturedWriteUnknown", { kind: "enum", definition: def("bodyRoundCapturedWriteUnknown") });
@@ -2458,11 +3359,11 @@ test("primitive applied-write admission retains precise value, location and orig
     let complete = false;
     for (let maximum = 0; maximum < 100; maximum += 1) {
       const account = createAccount({ ...limits, [dimension]: maximum });
-      const result = run([write], caller.input, { account });
+      const result = run([write], bindings, { account });
       if (result === null) { complete = true; break; }
       assert.equal(result, accountFailure(account));
       const unread = new Proxy([], { get() { assert.fail("No write-vector read after original stop."); } });
-      assert.equal(callWrites({ ...caller.deps, account }, unread, call, summary, unread, unread), result);
+      assert.equal(callWrites({ ...caller.deps, account }, call, unread, unread, unread), result);
     }
     assert.equal(complete, true);
   }
@@ -2489,8 +3390,8 @@ test("constant call-point state uses original bindings and rejects unprovided ev
   for (const changed of [{ ...summary, arena: { ...summary.arena, cells: [] } },
     { ...summary, arena: { ...summary.arena, cells: [{ ...summary.arena.cells[0], role: { kind: "local", local } }] } }])
     assert.throws(() => run(changed), /actual immediate captured-slot binding/);
-  assert.throws(() => captureLocalAtCall({ ...caller.deps, account: createAccount(limits) }, caller.input.mir,
-    { ...call, callee: { kind: "direct" } }, summary, 0), /actual immediate captured-slot binding/);
+  assert.throws(() => callSlotAt({ ...caller.deps, account: createAccount(limits) }, caller.input.mir,
+    { ...call, callee: { kind: "direct" } }, summary, 0, null), /actual immediate captured-slot binding/);
   const failed = createAccount(limits);
   const original = refuseAccount(failed, { kind: "refused", diagnostics: [] });
   const unread = new Proxy({}, { get() { assert.fail("No point-state input after original refusal."); } });
@@ -2571,11 +3472,20 @@ test("a real unwritten local produces one original initialization error and no f
   assert.equal(result.kind, "complete");
   assert.equal(result.value.kind, "ok");
   assert.equal(result.value.value.kind, "error");
-  assert.equal(result.value.positions[0].error, result.value.value, "the identical ErrorValue occupies the actual result position");
+  const [detector, completed] = result.value.positions;
+  const read = current.input.tir.root.statements.nodes.at(-1).expression;
+  const execution = executionKey(current.execution);
+  const unit = { request: current.deps.unit, position: { kind: "execution-source-node", execution,
+    node: { body: current.input.tir.body, node: read.id } } };
+  assert.deepEqual(detector, { position: unit.position, error: { kind: "error", causes: [{ kind: "diagnostic",
+    diagnostic: { kind: "host", unit, code: "TSONIC_READ_BEFORE_INITIALIZATION" } }] } });
+  assert.deepEqual(completed.position, { kind: "execution-result", execution });
+  assert.equal(completed.error, result.value.value, "the identical ErrorValue occupies the actual result position");
+  assert.deepEqual(completed.error.causes, [{ kind: "unit", unit }]);
   assert.equal(result.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
   assert.equal(result.value.emissions[0].diagnostic, result.value.diagnostics[0]);
   assert.equal("summary" in result.value.value, false);
-  const origin = { request: current.deps.unit, position: { kind: "result" } };
+  const origin = { request: current.deps.unit, position: { kind: "execution-result", execution } };
   const proof = proveInitialization({ account: createAccount(limits), unit: { query: "initializationProof", key: [name] },
     summaryOf: () => ({ value: result.value.value, unit: origin }) }, { modules: [], entries: [current.execution], storage: [] });
   assert.equal(proof.kind, "complete");
@@ -2585,6 +3495,50 @@ test("a real unwritten local produces one original initialization error and no f
   assert.equal(proof.value.positions[0].error, proof.value.value);
   assert.deepEqual(proof.value.diagnostics, []);
   assert.deepEqual(proof.value.emissions, []);
+});
+
+test("intrinsic read collection keys actual lowered source occurrences once and pays before retaining each failure", () => {
+  const name = "body-round.unwritten-occurrences";
+  const builder = builders(name);
+  const program = typedBody(name, { signature: signature(name, [["flag", T.bool]], T.bool), completion: T.bool,
+    params: [[0, "required", T.bool]], locals: [["flag", "parameter", T.bool], ["first", "binding", T.bool, true], ["second", "binding", T.bool, true]],
+    root: builder.block(builder.declare([
+      builder.variable(builder.declName("first", 1), 1, T.bool),
+      builder.variable(builder.declName("second", 2), 2, T.bool),
+    ]), builder.ifElse(builder.id("flag", 0, T.bool), builder.returns({ $: "first-read", ...builder.id("first", 1, T.bool) }),
+      builder.returns({ $: "second-read", ...builder.id("second", 2, T.bool) }))) });
+  const current = fixture(program);
+  const { mir, tir } = current.input;
+  const nodes = sourceOccurrences(tir, createAccount(limits)).value;
+  const operands = mir.blocks.filter(block => block.terminator.kind === "return" && block.terminator.value?.kind === "place")
+    .map(block => readLocal(mir, block.terminator.value));
+  const first = nodes.get(program.at("first-read"));
+  const second = nodes.get(program.at("second-read"));
+  assert.notEqual(operands[0], operands[1]);
+  const record = (account, reads, node, local) =>
+    recordUninitializedRead({ ...current.deps, account }, mir, reads, node.id, local, node.origin);
+  const start = record(createAccount(limits), null, first, operands[0]);
+  assert.equal(start.kind, "complete");
+  assert.equal(record(createAccount(limits), start.value, first, operands[0]).value, start.value);
+  assert.equal(start.value.size, 1);
+  assert.throws(() => record(createAccount(limits), start.value, first, operands[1]), /same lowered storage local/);
+  for (const [field, needed] of [["maximumWork", 2], ["maximumResultEntries", 3]]) {
+    for (let maximum = 0; maximum < needed; maximum += 1) {
+      const account = createAccount({ ...limits, [field]: maximum });
+      const outcome = record(account, start.value, second, operands[1]);
+      assert.equal(outcome, accountFailure(account));
+      assert.equal(record(account, start.value, second, operands[1]), outcome);
+      assert.equal(start.value.size, 1);
+    }
+  }
+  const full = record(createAccount({ ...limits, maximumWork: 2, maximumResultEntries: 3 }), start.value, second, operands[1]);
+  assert.equal(full.kind, "complete");
+  assert.equal(full.value, start.value);
+  assert.deepEqual([...full.value.keys()], [first.id, second.id]);
+  const analyzed = analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input);
+  assert.equal(analyzed.kind, "complete");
+  assert.equal(analyzed.value.diagnostics.length, 2);
+  assert.deepEqual(analyzed.value.emissions.map(row => row.identity.unit.position.node.node), [first.id, second.id]);
 });
 
 test("actual string entries retain formal value Origins through reads, returns and the canonical handoff", () => {
@@ -2602,7 +3556,7 @@ test("actual string entries retain formal value Origins through reads, returns a
     assert.deepEqual(arena.producers[bound.producer], { id: 0, kind: "parameter", index: 0, path: null });
     assert.equal(bound.bindings, current.execution.instance.bindings.bindings);
     assert.equal(bound.context, arena.contexts[0].id);
-    assert.equal(arena.contexts[0].arguments[0], pair.summary.result);
+    assert.equal(arena.contexts[0].arguments[0].origins, pair.summary.result);
     assert.equal(pair.facts.origins.reads.every(row => row.origins === pair.summary.result), true);
     assert.equal(pair.facts.origins.subjects.every(row => row.origins === pair.summary.result), true);
     assert.deepEqual(arena.cells, [], "a formal value producer asserts no physical holding, logical cell or singleton");
@@ -2632,7 +3586,7 @@ test("distinct string return alternatives preserve actual formal ordinals and ca
     assert.deepEqual(arena.origins[pair.summary.result].producers.map(id => arena.producers[arena.boundProducers[id].producer].index),
       repeated ? [1] : [1, 2], "the scalar formal is not a reference and does not shift authored parameter indices");
     assert.equal(pair.facts.origins.subjects.length, 2);
-    assert.deepEqual(arena.origins[arena.contexts[0].arguments[0]].producers, []);
+    assert.deepEqual(arena.origins[arena.contexts[0].arguments[0].origins].producers, []);
     assert.deepEqual(arena.cells, []);
     assert.deepEqual(arena.projections, []);
     assert.equal(pair.summary.retention.length, 2);
@@ -2671,14 +3625,19 @@ test("a reference receiver is a value entry separate from formal ordinals and mi
   const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
   const arena = pair.summary.arena;
   assert.equal(pair.summary.result, arena.contexts[0].receiver);
-  assert.equal(arena.contexts[0].receiver === arena.contexts[0].arguments[0], false);
+  assert.equal(arena.contexts[0].receiver === arena.contexts[0].arguments[0].origins, false);
   assert.deepEqual(arena.producers[arena.boundProducers[arena.origins[pair.summary.result].producers[0]].producer],
     { id: 0, path: null, kind: "receiver" });
-  const parameter = arena.origins[arena.contexts[0].arguments[0]].producers[0];
+  const parameter = arena.origins[arena.contexts[0].arguments[0].origins].producers[0];
   assert.deepEqual(arena.producers[arena.boundProducers[parameter].producer], { id: 1, path: null, kind: "parameter", index: 0 });
-  const invalid = { ...current.input, mir: { ...current.input.mir, locals: current.input.mir.locals.map(local =>
-    local.role.kind === "parameter" ? { ...local, role: { kind: "parameter", index: 7 } } : local) } };
-  assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, invalid), /actual signature formal or receiver producer/);
+  for (const index of [-1, 0.5, -0, 7]) {
+    const invalid = { ...current.input, mir: { ...current.input.mir, locals: current.input.mir.locals.map(local =>
+      local.role.kind === "parameter" ? { ...local, role: { kind: "parameter", index } } : local) } };
+    assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, invalid), /actual signature formal or receiver producer/);
+  }
+  const selected = TABLE.signatures[current.program.tir.signature];
+  assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits),
+    signatureOf: () => ({ ...selected, parameters: [] }) }, current.input), /actual signature formal or receiver producer/);
 });
 
 test("entry reference alternatives retain the complete selected execution vector, not only the creator environment", () => {
@@ -2702,7 +3661,7 @@ test("reference ready-type refusal is sticky before either canonical carrier or 
     builder => builder.block(builder.returns(builder.id("input", 0, T.string)))));
   for (const stopAt of [1, 2]) {
     const account = createAccount(limits);
-    const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/origins",
+    const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/body",
       limit: "analysis.maximumOriginAlternatives", maximum: 0, site: { kind: "source", origin: current.program.tir.root.origin },
       unit: { request: current.deps.unit, position: { kind: "result" } } })] };
     let count = 0;
@@ -2927,10 +3886,212 @@ function referenceRound(name) {
   const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
   const block = current.input.mir.blocks.find(row => row.terminator.kind === "call");
   const initial = current.input.mir.locals.map(() => 0);
-  const state = current.input.mir.locals.map(local => pair.facts.arena.contexts[0].arguments[local.role.kind === "parameter" ? local.role.index : 0]);
+  const state = current.input.mir.locals.map(local => pair.facts.arena.contexts[0].arguments[local.role.kind === "parameter" ? local.role.index : 0].origins);
   return { current, target, summary: targetPair.summary, unit, pair, operation: block.terminator,
     point: { block: block.id, statement: null }, initial, state };
 }
+
+test("the direct least round evaluates its supplied argument without applying either continuation", () => {
+  const { current, target, summary, operation, point, pair, initial, state } = referenceRound("body-round.direct-least");
+  const entry = target.input.mir.entries.find(row => row.provided === target.execution.provided);
+  assert.ok(entry);
+  assert.equal(operation.callee.kind, "direct");
+  const least = { kind: "least", execution: target.execution, signature: target.input.tir.signature, entry };
+  const selected = analyzeBodyRound({ ...current.deps, account: createAccount(limits), summaryOf: () => least }, current.input);
+  assert.equal(selected.kind, "complete");
+  assert.equal(selected.value.value.summary.returns, false);
+  assert.equal(selected.value.value.summary.unwinds, false);
+  assert.deepEqual(selected.value.value.facts.origins.invocations, []);
+  const boundary = { origins: state, contents: new Set() };
+  const account = createAccount(limits);
+  const effects = valueProblem({ ...current.deps, account }, current.input, pair.facts.arena,
+    indexedOrigins(current, pair.facts.arena.origins), [], initial, boundary, current.input.mir.blocks.map(() => true),
+    () => null, new Map(), new Set([0, 1]), new Map([[point.block, least]]));
+  const noContinuation = { ...operation, get destination() { assert.fail("a least value edge cannot apply a selected destination"); },
+    get unwind() { assert.fail("a least value edge cannot apply an unwind effect"); } };
+  assert.deepEqual(effects.terminator(noContinuation, boundary, account, point.block), []);
+  const stable = analyzeBodyRound({ ...current.deps, account: createAccount(limits),
+    summaryOf: () => ({ kind: "prior-summary", summary }) }, current.input);
+  const prior = checkedPair(current, stable);
+  assert.equal(prior.summary.returns, true);
+  assert.equal(prior.facts.origins.invocations.length, pair.facts.origins.invocations.length);
+});
+
+test("a private mutual round transports an actual prior detector to both stable execution results", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const source = "export function head(flag:boolean):boolean { if(flag) { let unread:boolean; return unread; } return tail(true); }\n"
+    + "export function tail(flag:boolean):boolean { return head(flag); }";
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", source);
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok");
+  const account = createAccount(input.limits.dataflow);
+  const typed = typeSourceBarrier(input, checked.value, account);
+  assert.equal(typed.kind, "ok");
+  const converge = pipelineWiring.summaries.convergeComponent;
+  const round = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+  let members;
+  let received;
+  pipelineWiring.summaries.convergeComponent = (deps, component) => {
+    if (component.members.length === 2) members = component.members.map(row => executionKey(row.execution));
+    return converge(deps, component);
+  };
+  pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, input) => round({ ...deps, summaryOf: (key, admittedKey) => {
+    const selected = deps.summaryOf(key, admittedKey);
+    const statement = input.tir.root.kind === "Block" ? input.tir.root.statements.nodes[0] : null;
+    if (statement?.kind === "ReturnStatement" && statement.expression?.kind === "CallExpression"
+      && "kind" in selected && selected.kind === "prior-error") received = { deps, input, selected, admittedKey };
+    return selected;
+  } }, input);
+  try {
+    const result = analyzeTypedSource(input, typed.value, account);
+    assert.equal(result.kind, "refused");
+    assert.deepEqual(result.diagnostics.map(row => [row.code.rendered, row.site.origin.start]),
+      [["TSONIC_READ_BEFORE_INITIALIZATION", source.lastIndexOf("unread")]]);
+    assert.equal(members.length, 2);
+    const request = { query: "bodyFactsOf", key: members[0] };
+    const outcomes = members.map(execution => typed.value.database.errorOf({ request, position: { kind: "execution-result", execution } }));
+    assert.equal(outcomes.every(outcome => outcome.kind === "completed" && outcome.error?.causes.length === 1), true);
+    const [ground] = outcomes[0].error.causes;
+    assert.equal(ground.kind, "unit");
+    assert.equal(ground.unit.position.kind, "execution-source-node");
+    assert.deepEqual(outcomes[1].error.causes, [ground]);
+    const original = typed.value.database.errorOf(ground.unit);
+    assert.equal(original.kind, "completed");
+    assert.equal(original.error.causes[0].kind, "diagnostic");
+    assert.ok(received);
+    assert.equal(received.selected.grounds.length, 1);
+    const [retainedGround] = received.selected.grounds;
+    assert.deepEqual(retainedGround, ground.unit);
+    const attempt = (sparse, maxima = limits) => {
+      const account = createAccount(maxima);
+      const reads = [];
+      const grounds = [];
+      Object.defineProperty(grounds, 0, { get() {
+        const { work, entries } = InvocationAccount.stateOf(account);
+        reads.push({ work, entries });
+        return retainedGround;
+      } });
+      if (sparse) {
+        grounds.length = 2;
+        assert.equal(1 in grounds, false);
+      }
+      return { account, reads, run: () => analyzeBodyRound({ ...received.deps, account, summaryOf: (_key, admittedKey) => {
+        assert.equal(admittedKey, received.admittedKey);
+        return { kind: "prior-error", grounds };
+      } }, received.input) };
+    };
+    const dense = attempt(false);
+    const usable = dense.run();
+    assert.equal(usable.kind, "complete");
+    assert.equal(usable.value.value.kind, "error");
+    assert.strictEqual(usable.value.value.causes[0].unit, retainedGround);
+    assert.deepEqual(usable.value.emissions, []);
+    assert.equal(dense.reads.length, 1);
+    const [first] = dense.reads;
+    const malformed = attempt(true);
+    const message = "An absorbed initialization cause must name its actual ground.";
+    let invalid;
+    assert.throws(() => { invalid = malformed.run(); }, error => {
+      assert.equal(error.message, message);
+      assert.deepEqual(error.cause, { owner: "analyses/body", query: null, origin: null, message });
+      return true;
+    });
+    assert.equal(invalid, undefined);
+    assert.deepEqual(malformed.reads, dense.reads);
+    for (const [maxima, dimension, readCount] of [
+      [{ ...limits, maximumWork: first.work - 1 }, "work", 0],
+      [{ ...limits, maximumWork: first.work }, "work", 1],
+      [{ ...limits, maximumResultEntries: first.entries }, "result-entries", 1],
+    ]) {
+      const cut = attempt(true, maxima);
+      const refused = cut.run();
+      assert.strictEqual(refused, accountFailure(cut.account));
+      assert.equal(refused.dimension, dimension);
+      assert.equal("value" in refused, false);
+      assert.deepEqual(cut.reads, dense.reads.slice(0, readCount));
+    }
+  } finally {
+    pipelineWiring.summaries.convergeComponent = converge;
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = round;
+  }
+});
+
+test("one execution grounds its result in the distinct direct read and placed detector", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const source = "export function read(flag:boolean):boolean { if(flag){let own:boolean;return own;} for(let first:boolean,second:boolean=first;;){return second;} }";
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", source);
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok");
+  const account = createAccount(input.limits.dataflow);
+  const typed = typeSourceBarrier(input, checked.value, account);
+  assert.equal(typed.kind, "ok");
+  const round = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+  const observations = [];
+  pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, input) => {
+    const output = round(deps, input);
+    if (output.kind === "complete" && output.value.kind === "ok" && output.value.emissions.length !== 0)
+      observations.push({ input, output: output.value });
+    return output;
+  };
+  try {
+    const result = analyzeTypedSource(input, typed.value, account);
+    assert.equal(result.kind, "refused");
+    assert.equal("value" in result, false);
+    assert.equal(observations.length, 1);
+    const [{ input: executing, output }] = observations;
+    assert.equal(output.emissions.length, 2);
+    assert.equal(executing.tir.root.kind, "Block");
+    const [conditional] = executing.tir.root.statements.nodes;
+    assert.equal(conditional.kind, "IfStatement");
+    const own = conditional.thenStatement.statements.nodes.at(-1).expression;
+    assert.equal(own.kind, "Identifier");
+    assert.equal(own.text, "own");
+    const placed = executing.mir.blocks.filter(({ terminator }) => terminator.kind === "call"
+      && terminator.origin.start === source.indexOf("second:boolean=first"));
+    assert.equal(placed.length, 1);
+    const [block] = placed;
+    assert.equal(block.terminator.callee.kind, "body");
+    assert.notEqual(own.id, block.terminator.tir.node);
+    const execution = executionKey(executing.execution);
+    const units = [];
+    for (const [position, [site, node]] of [
+      ["own", { body: executing.tir.body, node: own.id }],
+      ["second:boolean=first", block.terminator.tir],
+    ].entries()) {
+      const emission = output.emissions[position];
+      assert.equal(emission.identity.kind, "host");
+      const unit = emission.identity.unit;
+      assert.deepEqual(unit.position, { kind: "execution-source-node", execution, node });
+      const { origin } = emission.diagnostic.site;
+      assert.equal(source.slice(origin.start, origin.start + origin.length), site);
+      assert.equal(emission.diagnostic.code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
+      assert.strictEqual(result.diagnostics[position], emission.diagnostic);
+      assert.deepEqual(typed.value.database.errorOf(unit), {
+        kind: "completed", error: { kind: "error", causes: [{ kind: "diagnostic", diagnostic: emission.identity }] },
+      });
+      units.push(unit);
+    }
+    assert.equal(result.diagnostics.length, units.length);
+    assert.strictEqual(units[0].request, units[1].request);
+    const member = { request: units[0].request, position: { kind: "execution-result", execution } };
+    const completed = typed.value.database.errorOf(member);
+    assert.equal(completed.kind, "completed");
+    assert.deepEqual(completed.error.causes, units.map(unit => ({ kind: "unit", unit })));
+  } finally {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = round;
+  }
+});
 
 test("the canonical reference lattice compares values, pays joins and treats unreachable state as bottom", () => {
   const { current, pair, initial, state, operation, point, summary, unit } = referenceRound("body-round.value-lattice");
@@ -2938,12 +4099,13 @@ test("the canonical reference lattice compares values, pays joins and treats unr
   const reference = state[0];
   const absent = rows.length;
   rows.push({ id: absent, kind: "complete", producers: [], includesAbsence: true });
-  const other = pair.facts.arena.contexts[0].arguments[1];
+  const other = pair.facts.arena.contexts[0].arguments[1].origins;
   const values = indexedOrigins(current, rows);
   const contentState = (origins, contents = new Set()) => ({ origins, contents });
   const boundary = contentState(state);
-  const make = (account = createAccount(limits), overrides = {}, reachable = current.input.mir.blocks.map(() => true), admit = () => null) =>
-    valueProblem({ ...current.deps, ...overrides, account }, current.input, pair.facts.arena, values, [], initial, boundary, reachable, admit, new Map(), new Set([0, 1]));
+  const make = (account = createAccount(limits), answer = summary, reachable = current.input.mir.blocks.map(() => true), admit = () => null) =>
+    valueProblem({ ...current.deps, account }, current.input, pair.facts.arena, values, [], initial, boundary, reachable, admit, new Map(),
+      new Set([0, 1]), new Map([[point.block, answer]]));
   const problem = make();
   const lattice = problem.lattice;
   assert.equal(lattice.equals(boundary, boundary, createAccount(limits)), true);
@@ -2966,11 +4128,11 @@ test("the canonical reference lattice compares values, pays joins and treats unr
   assert.deepEqual(problem.statement(reset, boundary, createAccount(limits), 0, 0).contents, new Set());
   assert.equal(problem.statement({}, null, createAccount(limits), 0, 0), null);
   assert.deepEqual(problem.terminator({}, null, createAccount(limits), 0), []);
-  assert.deepEqual(make(createAccount(limits), {}, []).terminator({ kind: "goto", target: 0 }, boundary,
+  assert.deepEqual(make(createAccount(limits), summary, []).terminator({ kind: "goto", target: 0 }, boundary,
     createAccount(limits), point.block), []);
-  assert.deepEqual(make(createAccount(limits), { summaryOf: () => ({ value: { ...summary, returns: false }, unit }) })
+  assert.deepEqual(make(createAccount(limits), { ...summary, returns: false })
     .terminator(operation, boundary, createAccount(limits), point.block), []);
-  assert.throws(() => make(createAccount(limits), { summaryOf: () => ({ value: { kind: "error", causes: [] }, unit }) })
+  assert.throws(() => make(createAccount(limits), { kind: "error", key: "error", provided: 1, unit })
     .terminator(operation, boundary, createAccount(limits), point.block), /already-completed semantic answer/);
   for (const dimension of ["maximumWork", "maximumResultEntries"]) for (const action of [
     (kernel, account) => kernel.lattice.join(contentState([reference], new Set([0])), contentState([other], new Set([1])), account),
@@ -2998,7 +4160,7 @@ test("the canonical reference lattice compares values, pays joins and treats unr
   const refusal = { kind: "refused", diagnostics: [] };
   const rejected = make(account, {}, [], () => refuseAccount(account, refusal));
   const rejectedLeft = contentState([reference]);
-  assert.equal(rejected.lattice.join(rejectedLeft, contentState([pair.facts.arena.contexts[0].arguments[2]]), account), rejectedLeft);
+  assert.equal(rejected.lattice.join(rejectedLeft, contentState([pair.facts.arena.contexts[0].arguments[2].origins]), account), rejectedLeft);
   assert.equal(accountFailure(account), refusal);
 });
 
@@ -3044,14 +4206,14 @@ test("real many-slot joins and immediate callee exit contents use one linear pai
     const activation = pair.facts.origins.activations.find(row => row.point.block === block.id);
     const contexts = new Map([[block.id, pair.facts.arena.contexts[activation.context].captures]]);
     const make = account => valueProblem({ ...current.deps, account }, current.input, pair.facts.arena, values, [], origins, state,
-      current.input.mir.blocks.map(() => true), () => null, contexts, new Set(locals));
+      current.input.mir.blocks.map(() => true), () => null, contexts, new Set(locals), new Map([[block.id, summary]]));
     const expected = new Set(locals);
     const length = origins.length;
     const joinWork = 3 * length + count + 1;
     const joinEntries = length + count + 4;
     const preludeWork = count + 2 * childBody.length + 11;
-    const callWork = preludeWork + length + 8 * count + count / 2 + 7;
-    const callEntries = length + 2 * count + 34;
+    const callWork = length + 9 * count + count / 2 + 8;
+    const callEntries = length + 2 * count + 9;
     const actions = [
       { work: joinWork, entries: joinEntries, run: (kernel, account) => kernel.lattice.join(state, other, account).contents },
       { work: callWork, entries: callEntries, run: (kernel, account) =>
@@ -3087,7 +4249,7 @@ test("finite exit content unions pay their own current-cell projection and prese
   const { current, pair } = referenceRound("body-round.exit-current-state");
   const rows = [...pair.facts.arena.origins];
   const values = indexedOrigins(current, rows);
-  const [first, second] = pair.facts.arena.contexts[0].arguments;
+  const [first, second] = pair.facts.arena.contexts[0].arguments.map(slot => slot.origins);
   const collect = (account, output, admit = () => null) => collectExitContents({ ...current.deps, account },
     [second], [first], new Set([0]), [0], output, values, admit);
   const output = new Map([[0, first]]);
@@ -3107,7 +4269,7 @@ test("finite exit content unions pay their own current-cell projection and prese
   }
   const rejected = createAccount(limits);
   const refusal = { kind: "refused", diagnostics: [] };
-  const third = pair.facts.arena.contexts[0].arguments[2];
+  const third = pair.facts.arena.contexts[0].arguments[2].origins;
   assert.equal(collectExitContents({ ...current.deps, account: rejected }, [third], [first], new Set([0]), [0], new Map([[0, first]]),
     values, () => refuseAccount(rejected, refusal)), refusal);
   assert.equal(removeUnchangedContents({ ...current.deps, account: rejected }, new Proxy({}, {
@@ -3150,7 +4312,7 @@ test("nonempty parameter footprints and external retention remain genuine unimpl
   const { current, pair, operation, point, summary } = referenceRound("body-round.reference-effects");
   const arena = pair.facts.arena;
   const context = pair.facts.origins.activations[0].context;
-  const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0] }];
+  const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0].origins }];
   const apply = value => applyScalarCall({ ...current.deps, account: createAccount(limits) }, current.input,
     operation, point, value, arena, context, entries, []);
   for (const field of ["reads", "writes"]) assert.throws(() => apply({ ...summary,
@@ -3167,8 +4329,7 @@ test("nonempty parameter footprints and external retention remain genuine unimpl
 test("selected reference-call helpers keep genuine unsupported inputs explicit and stop before reader payloads", () => {
   const { current, pair, operation, point, summary, state, initial } = referenceRound("body-round.reference-boundaries");
   const invoke = (changed = operation, answer = summary, overrides = {}) => callValueEffects({ ...current.deps,
-    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [],
-  0, []);
+    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [], []);
   assert.throws(() => invoke({ ...operation, callee: { kind: "body", instance: current.execution.instance, captures: [] } }),
     /non-formal reference binding/);
   assert.throws(() => invoke({ ...operation, arguments: [{ kind: "place", place: 0 }] }), /actual operand/);
@@ -3177,7 +4338,7 @@ test("selected reference-call helpers keep genuine unsupported inputs explicit a
   for (const role of [{ kind: "capture", index: 0 }, { kind: "parameter", index: 0 }])
     assert.throws(() => invoke(operation, { ...summary, arena: { ...summary.arena,
       cells: [{ id: 0, role, occurrence: { kind: "entry", execution: summary.key.execution, local: 0 }, lifetimes: [] }] } }),
-    /actual capture or created-cell binding/);
+    /actual static, capture or created-cell binding/);
   const enumeration = declareType("bodyRoundCallReferenceEnum", { kind: "enum", definition: def("bodyRoundCallReferenceEnum") });
   assert.throws(() => invoke(operation, summary, { signatureOf: () => ({ ...TABLE.signatures[summary.signature], result: enumeration }) }),
     /selected call-result representation/);
@@ -3190,7 +4351,7 @@ test("canonical Origins unions retain strict supersets and deduplicate genuine o
   const { current, pair } = referenceRound("body-round.reference-overlap");
   const rows = [...pair.facts.arena.origins];
   const values = indexedOrigins(current, rows);
-  const [first, second, third] = pair.facts.arena.contexts[0].arguments;
+  const [first, second, third] = pair.facts.arena.contexts[0].arguments.map(slot => slot.origins);
   const left = joinOrigins(current.deps, values, first, second, () => null);
   const right = joinOrigins(current.deps, values, second, third, () => null);
   assert.equal(joinOrigins(current.deps, values, first, left, () => null), left);
@@ -3217,7 +4378,7 @@ test("an actual discarded reference call retains its effects without writing a n
   const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
   assert.equal(current.input.mir.blocks.find(row => row.terminator.kind === "call").terminator.destination, null);
   assert.equal(pair.facts.origins.writes.length, 0);
-  assert.equal(pair.summary.result, pair.facts.arena.contexts[0].arguments[0]);
+  assert.equal(pair.summary.result, pair.facts.arena.contexts[0].arguments[0].origins);
   for (const dimension of ["maximumWork", "maximumResultEntries"]) {
     let complete = false;
     for (let maximum = 0; maximum < 20000; maximum += 1) {
@@ -3262,7 +4423,7 @@ test("Origins rows are interned by complete payload within their actual arena, n
   const actual = indexedOrigins(current, [...rows]);
   const count = actual.rows.length;
   const repeated = callValueEffects({ ...current.deps, account: createAccount(limits) }, current.input, operation,
-    point, summary, pair.facts.arena, state, [], 0, []);
+    point, summary, pair.facts.arena, state, [], []);
   assert.equal(repeated.kind, "complete");
   assert.equal(repeated.value.kind, "applied");
   const result = appliedOrigins({ ...current.deps, account: createAccount(limits) }, actual, repeated.value.value.result, (_count, retain) => {
@@ -3378,7 +4539,7 @@ test("placed reference captures bind actual caller contents separately from thei
       return { value: summaries[index], unit: { request: children[index].deps.unit, position: { kind: "result" } } };
     };
     const pair = checkedPair(caller, analyzeBodyRound(caller.deps, caller.input));
-    const entry = pair.facts.arena.contexts[0].arguments[0];
+    const entry = pair.facts.arena.contexts[0].arguments[0].origins;
     assert.equal(pair.summary.result, entry, "the result is the exact caller entry VALUE, not its local location subject");
     assert.equal(pair.summary.arena.producers[pair.summary.arena.boundProducers[pair.summary.arena.origins[entry].producers[0]].producer].kind, "parameter");
     assert.equal(pair.facts.arena.cells.length, 1, "two immediate operations capture the actual same current slot");
@@ -3430,7 +4591,7 @@ test("the actual capture-location inventory stops before even reading its body a
 test("canonical row sorting stops immediately when its paid comparison installs the original refusal", () => {
   const account = createAccount(limits);
   const current = fixture(add("body-round.ordering-stop", T.int32, plus("int32", T.int32)));
-  const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/origins",
+  const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/body",
     limit: "analysis.maximumOriginAlternatives", maximum: 0, site: { kind: "source", origin: current.program.tir.root.origin },
     unit: { request: current.deps.unit, position: { kind: "result" } } })] };
   let calls = 0;
@@ -3514,7 +4675,7 @@ test("every prefix of the actual round allowance keeps the same original stop an
 test("a caller refusal is propagated identically before any round or proof input is read", () => {
   const current = fixture(add("body-round.prior-refusal", T.float64, plus("float64", T.float64)));
   const account = createAccount(limits);
-  const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/origins",
+  const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/body",
     limit: "analysis.maximumRelationalRecordsPerBody", maximum: 0, site: { kind: "source", origin: current.program.tir.root.origin },
     unit: { request: current.deps.unit, position: { kind: "result" } } })] };
   assert.equal(refuseAccount(account, refusal), refusal);
@@ -3552,7 +4713,7 @@ test("final initialization publication and callback refusal consume the same acc
   const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
   const unit = { request: current.deps.unit, position: { kind: "result" } };
   const input = { modules: [], entries: [current.execution], storage: [] };
-  const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/initialization",
+  const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/body",
     limit: "analysis.maximumConditionAlternatives", maximum: 0, site: { kind: "source", origin: current.input.tir.root.origin }, unit })] };
   const account = createAccount(limits);
   assert.equal(proveInitialization({ account, unit: current.deps.unit, summaryOf: () => {
@@ -3560,7 +4721,7 @@ test("final initialization publication and callback refusal consume the same acc
     return new Proxy({}, { get() { throw new Error("no answer payload read after original callback refusal"); } });
   } }, input), refusal);
   for (const value of [pair.summary, { kind: "error", causes: [{ kind: "unit", unit }] }]) {
-    const required = "kind" in value ? 8 : 2 * (2 + 3 + 1 + 5) + 8;
+    const required = "kind" in value ? 8 : 2 * (2 + 3 + 1 + 5) + 5 + 8;
     for (let maximumResultEntries = 0; maximumResultEntries <= required; maximumResultEntries += 1) {
       const borrowed = createAccount({ ...limits, maximumResultEntries });
       const result = proveInitialization({ account: borrowed, unit: current.deps.unit, summaryOf: () => ({ value, unit }) }, input);
@@ -3583,6 +4744,8 @@ test("final initialization publication and callback refusal consume the same acc
     assert.equal(result.kind, maximumWork === 2 ? "complete" : "resource-limit");
   }
 });
+
+test("module initialization proof retains each real static once across returning module summaries", checkRepeatedStaticInitialization);
 
 test("actual conditional MIR intersects initialized locals at its real join", () => {
   const current = fixture(shaped("body-round.branch", [["choose", "required", T.bool], ["input", "required", T.int32]], T.int32,
@@ -3655,13 +4818,13 @@ test("private replay preserves actual operands and refuses unsupported applicabl
   const assignment = body.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign");
   assert.equal(assignment !== undefined, true);
   const local = body.places[assignment.place].base.local;
-  const state = new Set([local]);
+  const state = { written: new Set([local]), taint: null };
   assert.equal(transferAssigned(body, assignment, null, createAccount(limits)), null);
   const stopped = createAccount({ ...limits, maximumWork: 0 });
   assert.equal(transferAssigned(body, assignment, state, stopped), state);
   assert.equal(transferAssigned(body, assignment, state, stopped), state);
   const dead = { ...assignment, kind: "storage-dead", local };
-  assert.deepEqual([...transferAssigned(body, dead, state, createAccount(limits))], []);
+  assert.deepEqual([...transferAssigned(body, dead, state, createAccount(limits)).written], []);
   assert.deepEqual(statementOperands(dead), []);
   const operand = { kind: "place", place: assignment.place };
   for (const kind of ["use", "unary", "convert"]) assert.deepEqual(statementOperands({ ...assignment,
@@ -3722,13 +4885,268 @@ test("proof preserves original error origins and names genuine supplied cell-eve
   for (const field of ["cells", "events"]) {
     const summary = { ...pair.summary, initialization: { ...pair.summary.initialization, [field]: [0] } };
     assert.throws(() => proveInitialization({ account: createAccount(limits), unit: current.deps.unit,
-      summaryOf: () => ({ value: summary, unit: origin }) }, input), /actual callback\/event\/caller-cell application/);
+      summaryOf: () => ({ value: summary, unit: origin }) }, input), /actual supplied cell and completion-event bindings/);
   }
   for (const kind of ["need", "before", "completed"]) {
     const summary = { ...pair.summary, initialization: { ...pair.summary.initialization, points: [{ kind }] } };
     assert.throws(() => proveInitialization({ account: createAccount(limits), unit: current.deps.unit,
-      summaryOf: () => ({ value: summary, unit: origin }) }, input), /genuine supplied cell\/event bindings/);
+      summaryOf: () => ({ value: summary, unit: origin }) }, input), /actual supplied cell and completion-event bindings/);
   }
+});
+
+test("body initialization uses the actual counted-loop condition and paid transparent read path", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const program = await analyzeOptionalSource("export function run(flag: boolean): boolean { "
+    + "for (; flag; ) { break; } return (flag = !flag, ((flag))); }");
+  assert.equal(program.kind, "ok");
+  const { index, modules } = program.value;
+  const body = modules.flatMap(module => module.bodies).find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+  const [loop, returned] = body.tir.root.statements.nodes;
+  const result = returned.expression.expression.right.expression.expression;
+  assert.equal(loop.kind, "ForStatement");
+  assert.equal(result.kind, "Identifier");
+  const execution = { instance: body.instance, provided: 1 };
+  const liveness = analyzeStorageUse({ account: createAccount(limits) }, { execution, body: body.mir });
+  assert.equal(liveness.kind, "ok");
+  const deps = { types: index.types, typeOf: type => index.types.terms[type], signatureOf: signature => index.types.signatures[signature],
+    summaryOf: () => assert.fail("This read path has no callee"), limits: analysisLimits,
+    unit: { query: "bodyRound", key: executionKey(execution) } };
+  const run = (account, tir = body.tir) => analyzeBodyRound({ ...deps, account }, { execution, tir, mir: body.mir, liveness: liveness.value });
+  const complete = createAccount(limits);
+  const expected = run(complete);
+  assert.equal(expected.kind, "complete");
+  assert.equal(expected.value.value.facts === undefined, false);
+  const reads = expected.value.value.facts.initialization.reads;
+  assert.equal(reads.some(row => row.node === loop.condition.id && row.assigned), true);
+  assert.equal(reads.some(row => row.node === result.id && row.assigned), true);
+  const { work, entries } = InvocationAccount.stateOf(complete);
+  for (const [field, need] of [["maximumWork", work], ["maximumResultEntries", entries]]) {
+    for (let maximum = 0; maximum < need; maximum += 1) {
+      const account = createAccount({ maximumWork: work, maximumResultEntries: entries, [field]: maximum });
+      assert.equal(run(account), accountFailure(account), `${field} ${maximum}`);
+    }
+  }
+  assert.deepEqual(run(createAccount({ maximumWork: work, maximumResultEntries: entries })), expected);
+  const root = body.tir.root;
+  assert.throws(() => run(createAccount(limits), { ...body.tir, root: { ...root,
+    statements: { ...root.statements, nodes: [{ ...loop, condition: null }, returned] } } }), /actual source occurrence/);
+});
+
+test("the module proof checks each published static exposure and propagates original reader stops", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const { conditionRefusal } = await import("./fixtures/facts-verification.mjs");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { decodeDefId } = await import("../../packages/host/dist/ids/index.js");
+  const source = "export const ready: boolean = true; export let first: boolean; export let second: boolean;";
+  const program = await analyzeOptionalSource(source);
+  assert.equal(program.kind, "ok");
+  const execution = program.value.index.initialization.modules[0];
+  const record = program.value.modules.flatMap(module => module.bodies)
+    .find(body => body.kind === "selected" && body.instance.body === execution.instance.body);
+  const summary = program.value.index.summaries.find(row => row.key.kind === "body"
+    && row.key.execution.instance.body === execution.instance.body);
+  const declarations = record.tir.root.statements.nodes.flatMap(row => row.declarationList.declarations.nodes);
+  const originOf = node => declarations
+    .find(declaration => node.kind === "item" && declaration.id === node.value.node)?.origin ?? null;
+  const reference = cell => ({ owner: { kind: "summary", key: summary.key }, cell });
+  const cells = new Map(summary.arena.cells.map(cell => [decodeDefId(cell.role.declaration.definition).value.segments.at(-1).name, reference(cell.id)]));
+  const unit = { query: "body-proof-static-exposure", key: "main" };
+  const answer = { value: summary, unit: { request: unit, position: { kind: "result" } } };
+  const input = { modules: [execution], entries: [], storage: [...cells.values()] };
+  const check = (account, plan = input, overrides = {}) => proveInitialization({
+    account, unit, summaryOf: () => answer, originOf, maximumConditionAlternatives: 64, conditionRefusal, ...overrides,
+  }, plan);
+  assert.equal(declarations.length, 3);
+  const complete = createAccount(limits);
+  const failed = check(complete);
+  assert.equal(failed.kind, "complete");
+  assert.equal(failed.value.value.kind, "error");
+  assert.deepEqual(failed.value.diagnostics.map(row => row.site.origin), ["first", "second"].map(name =>
+    originOf(summary.arena.cells[cells.get(name).cell].occurrence.at.node)));
+  assert.equal(failed.value.value.causes.length, 2);
+  const onlyReady = { ...input, storage: [cells.get("ready")] };
+  assert.ok("modules" in check(createAccount(limits), onlyReady).value.value);
+  const { work, entries } = InvocationAccount.stateOf(complete);
+  for (const [dimension, needed] of [["work", work], ["result-entries", entries]]) {
+    for (let maximum = 0; maximum < needed; maximum += 1) {
+      const account = createAccount({ maximumWork: dimension === "work" ? maximum : work,
+        maximumResultEntries: dimension === "result-entries" ? maximum : entries });
+      assert.equal(check(account), accountFailure(account));
+      assert.equal(accountFailure(account)?.dimension, dimension);
+    }
+  }
+  assert.deepEqual(check(createAccount({ maximumWork: work, maximumResultEntries: entries })), failed);
+  const untouched = { kind: "refused", diagnostics: failed.value.diagnostics };
+  for (const route of ["summary", "source"]) {
+    const account = createAccount(limits);
+    let reads = 0;
+    const stopped = check(account, input, {
+      summaryOf: () => {
+        if (route !== "summary" || reads++ === 0) return answer;
+        refuseAccount(account, untouched);
+        return { get value() { assert.fail("the refused summary is unread"); } };
+      },
+      originOf: () => { refuseAccount(account, untouched); return null; },
+    });
+    assert.equal(stopped, untouched);
+  }
+  assert.throws(() => check(createAccount(limits), input, { originOf: () => null }), /actual declaration source/);
+  const withReference = (ref, value) => {
+    let reads = 0;
+    return check(createAccount(limits), { ...input, storage: [ref] }, { summaryOf: () => reads++ === 0 ? answer : { ...answer, value } });
+  };
+  assert.throws(() => withReference(undefined, summary), /actual exposed-storage cell binding/);
+  assert.throws(() => withReference(reference(100), summary), /actual exposed-storage cell binding/);
+  for (const value of [failed.value.value, { ...summary, key: { ...summary.key, execution: { ...execution, provided: 1 } } }])
+    assert.throws(() => withReference(cells.get("ready"), value), /actual exposed-storage cell binding/);
+  const stoppedAccount = createAccount({ ...limits, maximumWork: 1 });
+  const unread = new Proxy(input.storage, { get(target, key) {
+    assert.equal(key, "length", "a storage cell reference is not read before its work is admitted");
+    return target.length;
+  } });
+  assert.equal(check(stoppedAccount, { modules: [], entries: [], storage: unread }), accountFailure(stoppedAccount));
+});
+
+test("the module proof discharges a constructed static need only from an earlier normal module exit", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const { conditionRefusal } = await import("./fixtures/facts-verification.mjs");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { programLookup } = await import("../../packages/host/dist/ir-program/program-values.js");
+  const { verifyInitializationEffects } = await import("../../packages/host/dist/ir-program/verify-initialization.js");
+  const { summaryKey } = await import("../../packages/host/dist/ir-facts/index.js");
+  const source = "import './first.js'; export const ready: boolean = true; export function read(value: boolean): boolean { return value; }";
+  const program = await analyzeOptionalSource(source, { "first.ts": "export const earlier: boolean = true;" });
+  assert.equal(program.kind, "ok");
+  const [first, writer] = program.value.index.initialization.modules;
+  const lookup = programLookup(program.value.index);
+  const store = lookup.summaries.get(summaryKey({ kind: "body", execution: writer }));
+  const typed = program.value.modules.flatMap(module => module.bodies).find(body => body.kind === "selected" && body.tir.root.kind === "Block");
+  const record = typed.facts[0];
+  const reader = record.execution;
+  const readerKey = { kind: "body", execution: reader };
+  const stable = lookup.summaries.get(summaryKey(readerKey));
+  const [cell] = store.arena.cells;
+  const returning = typed.mir.blocks.find(block => block.terminator.kind === "return");
+  const at = { kind: "body", execution: reader, point: { block: returning.id, statement: null }, edge: null };
+  const expression = typed.tir.root.statements.nodes[0].expression;
+  const read = { kind: "body", value: { body: reader.instance.body, node: expression.id } };
+  const witness = { read, via: [] };
+  const need = { kind: "need", cell: 0, at, witness };
+  const pending = { ...stable, arena: { ...stable.arena, cells: [cell] }, initialization: {
+    ...stable.initialization, cells: [0], points: [need, { kind: "return" }],
+    rows: [{ point: 0, cell: null, condition: 0 }, { point: 0, cell: 0, condition: 0 }, { point: 1, cell: null, condition: 0 }],
+  } };
+  const unit = { query: "test-static-initialization-proof", key: ["ordered"] };
+  const answer = value => ({ value, unit: { request: unit, position: { kind: "result" } } });
+  const qualified = key => summaryKey(key) === summaryKey(pending.key);
+  const requests = [];
+  const deps = {
+    summaryOf: key => { requests.push(key); return answer(qualified(key) ? pending : lookup.summaries.get(summaryKey(key))); },
+    unit, conditionRefusal, maximumConditionAlternatives: analysisLimits.maximumConditionAlternatives,
+    originOf: reference => { assert.deepEqual(reference, read); return expression.origin; },
+    originAt: position => { assert.deepEqual(position, at); return returning.terminator.origin; },
+    declarationOriginOf: definition => {
+      assert.equal(definition, cell.role.declaration.definition);
+      return program.value.modules.find(module => module.module === expression.origin.module).bodies
+        .find(body => body.tir.root.kind === "SourceFile").tir.root.statements.nodes
+        .find(statement => statement.kind === "VariableStatement").declarationList.declarations.nodes[0].origin;
+    },
+  };
+  const ordered = { modules: [first, writer], entries: [reader], storage: [] };
+  const missing = { modules: [], entries: [reader, writer], storage: [] };
+  assert.deepEqual(proveInitialization({ ...deps, account: createAccount(limits) }, ordered).value.value,
+    { modules: [first, writer], entries: [reader] });
+  const failed = account => proveInitialization({ ...deps, account }, missing);
+  const exact = createAccount(limits);
+  const result = failed(exact);
+  assert.equal(result.value.value.kind, "error");
+  const [diagnostic] = result.value.diagnostics;
+  assert.equal(diagnostic.code.name, "TSONIC_STATIC_READ_BEFORE_INITIALIZATION");
+  assert.deepEqual(diagnostic.site, { kind: "source", origin: expression.origin });
+  assert.deepEqual(diagnostic.related.map(row => row.site.origin), [deps.declarationOriginOf(cell.role.declaration.definition)]);
+  assert.equal(result.value.emissions[0].diagnostic, diagnostic);
+  assert.deepEqual(requests.map(key => key.execution), [first, writer, reader, reader]);
+  const exercise = invoke => {
+    const exact = createAccount(limits);
+    assert.equal(invoke(exact).kind, "complete");
+    const { work, entries } = InvocationAccount.stateOf(exact);
+    for (const [dimension, needed] of [["work", work], ["result-entries", entries]]) {
+      for (let maximum = 0; maximum < needed; maximum += 1) {
+        const account = createAccount({ maximumWork: dimension === "work" ? maximum : work,
+          maximumResultEntries: dimension === "result-entries" ? maximum : entries });
+        const stopped = invoke(account);
+        assert.equal(stopped.kind, "resource-limit");
+        assert.equal(stopped, accountFailure(account));
+      }
+    }
+  };
+  exercise(failed);
+  exercise(account => proveInitialization({ ...deps, account }, ordered));
+  const effectsLookup = { ...lookup, summaries: new Map(lookup.summaries).set(summaryKey(readerKey), pending) };
+  const conditionLimits = () => ({ account: createAccount(limits), eventCount: 0,
+    maximumConditionAlternatives: analysisLimits.maximumConditionAlternatives, refusal: conditionRefusal });
+  const plan = program.value.index.initialization;
+  assert.equal(verifyInitializationEffects({ ...plan, modules: [writer], entries: [reader] }, effectsLookup, conditionLimits()).value, null);
+  const violation = verifyInitializationEffects({ ...plan, modules: [], entries: [writer, reader] }, effectsLookup, conditionLimits()).value;
+  assert.equal(violation.rule, "plan-initialized", "one exposed entry cannot initialize another exposed entry");
+  const thrown = { ...store, returns: false, unwinds: true,
+    initialization: { ...store.initialization, points: [{ kind: "unwind" }] } };
+  const missingAfterUnwind = account => proveInitialization({ ...deps, account, summaryOf: key => {
+    assert.equal(qualified(key), false, "execution never advances to this reader after the module cannot return");
+    return answer(thrown);
+  } }, { ...ordered, modules: [writer] });
+  assert.equal(missingAfterUnwind(createAccount(limits)).value.value.kind, undefined);
+  const through = structuredClone(pending);
+  through.initialization.points[0].witness.via.push({ key: store.key, row: 0 });
+  const writerBody = program.value.modules.flatMap(module => module.bodies)
+    .find(body => body.kind === "selected" && body.instance.body === writer.instance.body);
+  const placement = writerBody.mir.blocks.find(block => block.terminator.kind === "call");
+  const modulePosition = { kind: "body", execution: writer, point: { block: placement.id, statement: null }, edge: null };
+  const selected = { ...store, initialization: { ...store.initialization, points: [{ ...need, at: modulePosition }, { kind: "return" }],
+    rows: pending.initialization.rows } };
+  const via = (account, overrides = {}) => proveInitialization({ ...deps, account, summaryOf: key =>
+    answer(qualified(key) ? through : selected), ...overrides }, missing);
+  const propagated = via(createAccount(limits)).value.diagnostics[0];
+  assert.deepEqual(propagated.related.map(row => row.site.origin), [
+    returning.terminator.origin, deps.declarationOriginOf(cell.role.declaration.definition),
+  ]);
+  const nested = structuredClone(through);
+  const earlierSummary = lookup.summaries.get(summaryKey({ kind: "body", execution: first }));
+  nested.initialization.points[0].witness.via.push({ key: earlierSummary.key, row: 0 });
+  const chain = account => proveInitialization({ ...deps, account, summaryOf: key => answer(qualified(key) ? nested
+    : summaryKey(key) === summaryKey(store.key) ? selected : { ...earlierSummary, initialization: selected.initialization }),
+  originAt: position => {
+    if (position.execution.instance.body === writer.instance.body) {
+      assert.deepEqual(position, modulePosition);
+      return placement.terminator.origin;
+    }
+    return deps.originAt(position);
+  } }, missing);
+  assert.deepEqual(chain(createAccount(limits)).value.diagnostics[0].related.map(row => row.site.origin), [
+    returning.terminator.origin, placement.terminator.origin, deps.declarationOriginOf(cell.role.declaration.definition),
+  ]);
+  exercise(chain);
+  exercise(via);
+  for (const [readerName, message] of [
+    ["originOf", /qualified source read/], ["originAt", /actual propagation site/],
+    ["declarationOriginOf", /retains its actual declaration/],
+  ]) {
+    assert.throws(() => via(createAccount(limits), { [readerName]: () => null }), message);
+    const account = createAccount(limits);
+    assert.equal(via(account, { [readerName]: () => { refuseAccount(account, conditionRefusal); return null; } }), conditionRefusal);
+  }
+  assert.throws(() => via(createAccount(limits), { summaryOf: key => answer(qualified(key) ? through : store) }),
+    /actual propagated need/);
+  for (const unusable of [{ ...store, initialization: { ...store.initialization, rows: [] } },
+    { kind: "error", causes: [{ kind: "unit", unit: answer(store).unit }] }]) {
+    assert.throws(() => via(createAccount(limits), { summaryOf: key => answer(qualified(key) ? through : unusable) }), /actual propagated need/);
+  }
+  const interrupted = createAccount(limits);
+  assert.equal(via(interrupted, { summaryOf: key => {
+    if (!qualified(key)) refuseAccount(interrupted, conditionRefusal);
+    return answer(qualified(key) ? through : selected);
+  } }), conditionRefusal);
 });
 
 test("actual scalar literals and unary operations retain real read sites and original budget stops", () => {
@@ -3776,11 +5194,15 @@ test("ready relation frontiers never fabricate projection, capture, absence or g
   const place = current.input.mir.places[0];
   assert.throws(() => run({ ...current.input, mir: { ...current.input.mir,
     places: [{ ...place, base: { kind: "static", definition: current.program.tir.owner } }, ...current.input.mir.places.slice(1)] } }),
-    /projection or static-cell producer/);
+    /actual declaration root/);
   for (const value of [{ kind: "literal", value: { kind: "absence" } }, { kind: "reference" }]) {
     assert.throws(() => run({ ...current.input, mir: { ...current.input.mir,
       constants: [{ id: 0, type: T.float64, value }] } }), /non-scalar constant relation/);
   }
+  const optionalReference = declareType("bodyRoundOptionalReferenceConstant", { kind: "optional", value: T.string });
+  assert.throws(() => run({ ...current.input, mir: { ...current.input.mir,
+    constants: [{ id: 0, type: optionalReference, value: { kind: "literal", value: { kind: "string", value: "unbound" } } }] } }),
+    /non-scalar constant relation/);
   const selected = current.input.mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign");
   const blocks = current.input.mir.blocks.map(block => ({ ...block, statements: block.statements.map(statement =>
     statement === selected ? { ...statement, value: { ...statement.value, operation: { decision: {
@@ -3802,19 +5224,20 @@ test("ready relation frontiers never fabricate projection, capture, absence or g
 
 test("the actual initialization lattice obeys intersection and equality with one original account", () => {
   const lattice = assignedLattice(4);
-  const variants = [null, new Set(), new Set([0]), new Set([1]), new Set([0, 1]), new Set([1, 0])];
+  const state = written => ({ written: new Set(written), taint: null });
+  const variants = [null, state([]), state([0]), state([1]), state([0, 1]), state([1, 0])];
   assert.equal(lattice.isOverflow(null), false);
   for (const left of variants) for (const right of variants) {
     const account = createAccount(limits);
     const expected = left === null || right === null ? left === right
-      : left.size === right.size && [...left].every(local => right.has(local));
+      : left.written.size === right.written.size && [...left.written].every(local => right.written.has(local));
     assert.equal(lattice.equals(left, right, account), expected);
     const joined = lattice.join(left, right, account);
-    const common = left === null ? right : right === null ? left : new Set([...left].filter(local => right.has(local)));
-    assert.deepEqual(joined === null ? null : [...joined].sort(), common === null ? null : [...common].sort());
+    const common = left === null ? right?.written ?? null : right === null ? left.written : new Set([...left.written].filter(local => right.written.has(local)));
+    assert.deepEqual(joined === null ? null : [...joined.written].sort(), common === null ? null : [...common].sort());
   }
-  const first = new Set([0, 1]);
-  const second = new Set([1, 0]);
+  const first = state([0, 1]);
+  const second = state([1, 0]);
   const work = createAccount({ ...limits, maximumWork: 0 });
   assert.equal(lattice.equals(first, second, work), true);
   assert.equal(accountFailure(work).dimension, "work", "a stopped comparison cannot be mistaken for a complete solver answer");
@@ -3854,7 +5277,7 @@ test("explicit MIR reachability and finite exits, not all syntax, decide the sca
   const input = { ...current.input, mir: { ...current.input.mir, blocks: [...current.input.mir.blocks, unreachable] } };
   const solution = solveAssigned({ ...current.deps, account: createAccount(limits) }, input);
   assert.equal(solution.kind, "complete");
-  assert.equal(assignedEntry(solution.value.entry, 0).has(0), true);
+  assert.equal(assignedEntry(solution.value.entry, 0).written.has(0), true);
   assert.throws(() => assignedEntry(solution.value.entry, unreachable.id), /actual solved initialization entry/);
   assert.throws(() => assignedEntry(solution.value.entry, unreachable.id + 1), /actual solved initialization entry/);
   const reached = analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, input);
@@ -3982,7 +5405,7 @@ test("scalar formal inventory reserves actual producer rows before growth withou
       assert.equal(pair.facts.arena.cells.length, 0);
       assert.equal(pair.facts.arena.producers.length, 2);
       assert.equal(pair.facts.arena.boundProducers.length, 0);
-      assert.deepEqual(pair.facts.arena.contexts[0].arguments, [0, 0]);
+      assert.deepEqual(pair.facts.arena.contexts[0].arguments, [{ kind: "provided", origins: 0 }, { kind: "provided", origins: 0 }]);
     }
   }
 });

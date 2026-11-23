@@ -6,13 +6,14 @@ import type { MirBody, MirOperand, MirSite, MirTerminator, MirUnwind } from "../
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { OperationIdentity } from "../ir-infer/contract.js";
 import type { BodyInstance, ConstValue } from "../ir-types/contract.js";
-import { literalCompatibilityOf, nativeCarrierOf, sameInstance } from "../ir-types/index.js";
+import { nativeCarrierOf, sameInstance } from "../ir-types/index.js";
 import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
 import type { EvaluationResult } from "./data.js";
 import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task } from "./pause.js";
-import { arithmetic, evaluationFault, limit, step, validateLimits, valueFits } from "./budget.js";
+import { arithmetic, evaluationFault, limit, selectedOptionalDomain, step, validateLimits, valueFits } from "./budget.js";
 import { EvaluationSuspension } from "./pause.js";
-import { integerOperation } from "./integer.js";
+import { nativeNumericOperation } from "./integer.js";
+import { selectedConversion } from "./conversions.js";
 
 type Machine = EvaluationMachine<EvaluateDeps>;
 
@@ -109,12 +110,17 @@ function store(machine: Machine, local: LocalId, value: ConstValue): void {
   else cell.value = value;
 }
 
-function returnValue(machine: Machine, value: ConstValue, site: MirSite): void {
-  if (machine.frames.length === 1) {
-    if (valueFits(machine, value, "maximumResultBits", site.origin)) finish(machine, { kind: "value", value });
+function returnValue(machine: Machine, value: ConstValue | null, site: MirSite): void {
+  const frame = current(machine);
+  const caller = frame.caller;
+  if (caller === null) {
+    const result: ConstValue = value ?? { kind: "absence", type: frame.body.result };
+    if (valueFits(machine, result, "maximumResultBits", site.origin)) finish(machine, { kind: "value", value: result });
     return;
   }
   machine.frames.pop();
+  if (caller.destination === null) return;
+  if (value === null) return fail("A call destination requires its actual returned value.", site.origin);
   put(machine, value, site);
 }
 
@@ -146,12 +152,23 @@ function selectBranch(machine: Machine, terminator: Extract<MirTerminator, { rea
   if (operand === undefined) return fail("A verified branch must have its actual discriminant.", terminator.origin);
   frame.block = terminator.otherwise;
   frame.statement = 0;
-  for (const target of terminator.targets) {
+  for (let position = 0; position < terminator.targets.length; position += 1) {
+    if (!arithmetic(machine, 2, terminator.origin)) return;
+    const target = terminator.targets[position];
+    if (target === undefined) return fail("A verified switch must have its complete target vector.", terminator.origin);
     const constant = frame.body.constants[target.constant];
     if (constant?.value.kind !== "literal") return fail("A verified switch case must name its literal constant.", terminator.origin);
     const value = constant.value.value;
-    if (operand.kind !== "boolean" && operand.kind !== "absence") return fail("Evaluate needs the selected native discriminant relation.", terminator.origin);
-    if (!arithmetic(machine, 2, terminator.origin)) return;
+    if (value.kind === "absence" && constant.type !== operand.type)
+      return fail("Evaluate needs the selected native discriminant relation.", terminator.origin);
+    if (operand.kind !== "boolean" && operand.kind !== "absence") {
+      if (value.kind !== "absence") return fail("Evaluate needs the selected native discriminant relation.", terminator.origin);
+      const domain = selectedOptionalDomain(machine, operand.type, terminator.origin);
+      if (domain.kind === "resource-stop") return;
+      if (domain.kind !== "optional-value" || domain.payload !== (operand.kind === "floating" ? "float64" : operand.kind))
+        return fail("Evaluate needs the selected native discriminant relation.", terminator.origin);
+      continue;
+    }
     if (operand.kind === value.kind && (operand.kind === "absence" || value.kind === "boolean" && operand.value === value.value)) {
       frame.block = target.target;
       return;
@@ -300,10 +317,8 @@ function execute(machine: Machine): void {
   switch (terminator.kind) {
     case "goto": frame.block = terminator.target; frame.statement = 0; return;
     case "return":
-      if (terminator.value === null) {
-        const value: ConstValue = { kind: "absence", type: frame.body.result };
-        returnValue(machine, value, terminator);
-      } else frame.work.push({ kind: "return", site: terminator }, { kind: "read", operand: terminator.value, site: terminator });
+      if (terminator.value === null) returnValue(machine, null, terminator);
+      else frame.work.push({ kind: "return", site: terminator }, { kind: "read", operand: terminator.value, site: terminator });
       return;
     case "throw":
       frame.work.push({ kind: "throw", site: terminator, unwind: terminator.unwind }, { kind: "read", operand: terminator.operand, site: terminator });
@@ -378,39 +393,6 @@ function nativeBooleanCarrier(machine: Machine, type: TyId, site: MirSite): bool
   return true;
 }
 
-function literalConversion(machine: Machine, operation: Extract<OperationIdentity, { readonly kind: "conversion" }>,
-  result: TyId, site: MirSite): ConstValue | null {
-  if (!arithmetic(machine, 1, site.origin)) return null;
-  const operands = current(machine).values;
-  const value = operands[0];
-  if (operands.length !== 1 || value?.type !== operation.from || result !== operation.to)
-    return fail("A selected conversion retains its actual source value and destination type.", site.origin);
-  const embedding = operation.embedding;
-  if (embedding.kind === "identity") {
-    if (operation.from !== operation.to) return fail("An identity embedding retains the same selected type.", site.origin);
-    return value;
-  }
-  if (embedding.kind !== "conversion" || embedding.check.kind !== "none")
-    return fail("Evaluate requires the actual selected conversion check and its failure execution.", site.origin);
-  if (embedding.conversion !== "literal-fit" || value.kind === "floating" || value.kind === "error")
-    return fail("Evaluate requires the actual selected representation transformation for this conversion.", site.origin);
-  const reader = {
-    typeOf: (type: TyId) => arithmetic(machine, 1, site.origin) ? machine.deps.typeOf(type) : null,
-    admit: (work: number, entries: number) => arithmetic(machine, work, site.origin) && arithmetic(machine, entries, site.origin),
-  };
-  const held = (type: TyId): boolean => {
-    const selected = literalCompatibilityOf(machine.deps.types, type, value, machine.deps.selectedNativeFacts, reader);
-    if (selected.kind === "resource-stop") return false;
-    if (selected.kind === "needs-selected-evidence")
-      return fail(`Evaluate requires actual selected ${selected.requirement} evidence for literal conversion at type ${selected.type}.`, site.origin);
-    if (selected.kind !== "compatible")
-      return fail("A selected literal-fit conversion retains its exact payload and resolved source/destination domains.", site.origin);
-    return true;
-  };
-  if (!held(operation.from) || !held(operation.to)) return null;
-  return { ...value, type: result };
-}
-
 function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply" }>["operation"], site: MirSite, unwind: MirUnwind | null): void {
   const operation = selected.decision.operation;
   if (operation.kind === "library" || operation.kind === "core") {
@@ -422,13 +404,13 @@ function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply
     return;
   }
   if (operation.kind === "conversion") {
-    const value = literalConversion(machine, operation, selected.decision.result, site);
+    const value = selectedConversion(machine, operation, selected.decision.result, site, current(machine).values);
     if (value !== null) put(machine, value, site);
     return;
   }
   const nativeBoolean = operation.kind === "native-operator" && operation.carrier === "bool" && operation.operator === "!";
   if (operation.kind === "native-operator" && !nativeBoolean) {
-    const value = integerOperation(machine, operation, selected.decision.result, site, unwind, current(machine).values);
+    const value = nativeNumericOperation(machine, operation, selected.decision.result, site, unwind, current(machine).values);
     if (value !== null) put(machine, value, site);
     return;
   }

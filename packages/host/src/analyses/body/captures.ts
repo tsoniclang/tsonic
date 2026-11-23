@@ -21,7 +21,7 @@ type AdmitCaptures = (limit: "maximumRelationalRecordsPerBody" | "maximumRelatio
 export function prepareCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput, arena: CaptureArena,
   source: ReadonlyMap<NodeId, TirNode>, entry: readonly Assigned[], reachable: readonly boolean[],
   capturedLocals: ReadonlyMap<number, number>, captureLocations: readonly CaptureLocation[],
-  cellLocals: LocalId[], bounded: AdmitCaptures, contextReferences: number):
+  cellLocals: number[], bounded: AdmitCaptures, contextReferences: number):
   DataflowResult<{ readonly calls: ReadonlyMap<BlockId, readonly CaptureLocation[]>;
     readonly references: number; readonly lifetimes: number }> {
   const { account } = deps;

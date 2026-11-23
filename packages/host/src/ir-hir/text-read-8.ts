@@ -47,8 +47,13 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
       const field_memory = read("memory", unionReader<Hir.CapturedFact<Hir.HirMemoryFieldCapture | Hir.HirMemoryLayoutCapture | null>>(() => [readers().record_157, readers().record_10]));
       const field_declaration = read("declaration", unionReader<Hir.DeclarationTarget>(() => [readers().record_146, readers().record_201]));
       const field_declaredType = read("declaredType", unionReader<Hir.CapturedFact<Ids.TyId | null>>(() => [readers().record_142, readers().record_10]));
+      const field_inferredTypeBound = read("inferredTypeBound", unionReader<Hir.CapturedFact<Ids.TyId> | null>(() =>
+        [readers().scalar_null, readers().record_9, readers().record_10]));
       const field_initializer = read("initializer", unionReader<Ids.BodyId | null>(() => [readers().scalar_null, readers().identity_body]));
-      return { fields: [field_core, field_parent, field_attributes, field_memory, field_declaration, field_declaredType, field_initializer], value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(), memory: field_memory.value(), declaration: field_declaration.value(), declaredType: field_declaredType.value(), initializer: field_initializer.value() }) };
+      return { fields: [field_core, field_parent, field_attributes, field_memory, field_declaration, field_declaredType, field_inferredTypeBound,
+        field_initializer], value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(),
+        memory: field_memory.value(), declaration: field_declaration.value(), declaredType: field_declaredType.value(),
+        inferredTypeBound: field_inferredTypeBound.value(), initializer: field_initializer.value() }) };
     });
   const record_246 = recordReader<Hir.CheckedExport>("CheckedExport", read => {
       const field_core = read("core", readers().record_84);

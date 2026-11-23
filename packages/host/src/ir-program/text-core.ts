@@ -117,6 +117,9 @@ export function textHirMarkersCapture(value: HirMarkersCapture): TextWork {
     ]);
 }))),
       field("jsString", boolean(value.jsString)),
+      field("application", textCapturedFact(value.application, marker => marker === null ? token("null")
+        : deferred(marker, () => record("HirMarkerApplication", [field("role", text(marker.role)),
+          field("occurrence", textNodeRef(marker.occurrence)), field("declaration", identity("def", marker.declaration))])))),
     ]);
   });
 }

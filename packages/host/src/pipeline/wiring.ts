@@ -2,10 +2,12 @@ import type { CaptureModule, CaptureProgramModules, CreateCheckerExtensions, Ext
   LowerModuleExports, OpenCheckedProgram } from "../front/contract.js";
 import { captureModule, captureProgramModules, createCheckerExtensions, extensionReferencesOf, lowerModule, lowerModuleDefinitions,
   lowerModuleExports, openCheckedProgram } from "../front/index.js";
-import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, MembersOf, MemberTypeOf, PlaceSignature, ResumeDeclaredSignatureOf } from "../decls/contract.js";
-import { classifyCycle, declaredSignatureOf, describeDefinitions, errorSignature, membersOf, memberTypeOf, placeSignature, resumeDeclaredSignatureOf } from "../decls/index.js";
-import type { CreateRuleTable, DecideCaptureModes } from "../rules/contract.js";
-import { createRuleTable, decideCaptureModes } from "../rules/index.js";
+import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, MembersOf, MemberTypeOf, PlaceSignature, ProduceType,
+  ResumeDeclaredSignatureOf, ResumeProduceType } from "../decls/contract.js";
+import { classifyCycle, declaredSignatureOf, describeDefinitions, errorSignature, membersOf, memberTypeOf, placeSignature, produceType,
+  resumeDeclaredSignatureOf, resumeProduceType } from "../decls/index.js";
+import type { CreateRuleTable, DecideCaptureModes, TypePatternMatch } from "../rules/contract.js";
+import { createRuleTable, decideCaptureModes, matchTypePattern } from "../rules/index.js";
 import type { ConstraintsOf, GroupsOf, ResumeConstraintsOf, ResumeSolveGroup, SolveGroup } from "../infer/contract.js";
 import { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup } from "../infer/index.js";
 import type { Elaborate } from "../elaborate/contract.js";
@@ -18,8 +20,8 @@ import type { AnalyzeBodyRound, ProveInitialization } from "../analyses/body/con
 import { analyzeBodyRound, proveInitialization } from "../analyses/body/index.js";
 import type { BindDeclaredSummary, ComponentsOf, ConvergeComponent, DependenciesOf } from "../summaries/contract.js";
 import { bindDeclaredSummary, componentsOf, convergeComponent, dependenciesOf } from "../summaries/index.js";
-import type { FormDiagnostics, SafetyDiagnostics } from "../validate/contract.js";
-import { formDiagnostics, safetyDiagnostics } from "../validate/index.js";
+import type { FormDiagnostics, IndexFormDiagnostics, SafetyDiagnostics } from "../validate/contract.js";
+import { formDiagnostics, indexFormDiagnostics, safetyDiagnostics } from "../validate/index.js";
 
 /**
  * What Pipeline wires: its run-time connections to the components. One member per public operation of a
@@ -32,7 +34,8 @@ import { formDiagnostics, safetyDiagnostics } from "../validate/index.js";
 export interface PipelineWiring {
   readonly front: FrontWiring;
   readonly decls: DeclsWiring;
-  readonly rules: { readonly createRuleTable: CreateRuleTable; readonly decideCaptureModes: DecideCaptureModes };
+  readonly rules: { readonly createRuleTable: CreateRuleTable; readonly decideCaptureModes: DecideCaptureModes;
+    readonly matchTypePattern: TypePatternMatch };
   readonly infer: { readonly constraintsOf: ConstraintsOf; readonly groupsOf: GroupsOf; readonly resumeConstraintsOf: ResumeConstraintsOf;
     readonly resumeSolveGroup: ResumeSolveGroup; readonly solveGroup: SolveGroup };
   readonly elaborate: { readonly elaborate: Elaborate };
@@ -41,7 +44,7 @@ export interface PipelineWiring {
   readonly bodyAnalysis: { readonly analyzeBodyRound: AnalyzeBodyRound; readonly proveInitialization: ProveInitialization };
   readonly summaries: { readonly bindDeclaredSummary: BindDeclaredSummary; readonly componentsOf: ComponentsOf;
     readonly dependenciesOf: DependenciesOf; readonly convergeComponent: ConvergeComponent };
-  readonly validate: { readonly formDiagnostics: FormDiagnostics; readonly safetyDiagnostics: SafetyDiagnostics };
+  readonly validate: { readonly indexFormDiagnostics: IndexFormDiagnostics; readonly formDiagnostics: FormDiagnostics; readonly safetyDiagnostics: SafetyDiagnostics };
 }
 
 export interface DeclsWiring {
@@ -53,6 +56,8 @@ export interface DeclsWiring {
   readonly placeSignature: PlaceSignature;
   readonly membersOf: MembersOf;
   readonly memberTypeOf: MemberTypeOf;
+  readonly produceType: ProduceType;
+  readonly resumeProduceType: ResumeProduceType;
 }
 
 export interface FrontWiring {
@@ -70,13 +75,14 @@ export interface FrontWiring {
 export const pipelineWiring: PipelineWiring = {
   front: { createCheckerExtensions, extensionReferencesOf, openCheckedProgram, captureProgramModules, captureModule, lowerModuleDefinitions,
     lowerModuleExports, lowerModule },
-  decls: { classifyCycle, describeDefinitions, declaredSignatureOf, resumeDeclaredSignatureOf, errorSignature, placeSignature, membersOf, memberTypeOf },
-  rules: { createRuleTable, decideCaptureModes },
+  decls: { classifyCycle, describeDefinitions, declaredSignatureOf, resumeDeclaredSignatureOf, errorSignature, placeSignature, membersOf, memberTypeOf,
+    produceType, resumeProduceType },
+  rules: { createRuleTable, decideCaptureModes, matchTypePattern },
   infer: { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup },
   elaborate: { elaborate },
   lowerMir: { lowerToMir },
   liveness: { analyzeStorageUse },
   bodyAnalysis: { analyzeBodyRound, proveInitialization },
   summaries: { bindDeclaredSummary, componentsOf, dependenciesOf, convergeComponent },
-  validate: { formDiagnostics, safetyDiagnostics },
+  validate: { formDiagnostics, indexFormDiagnostics, safetyDiagnostics },
 };

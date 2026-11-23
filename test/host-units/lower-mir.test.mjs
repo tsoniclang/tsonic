@@ -2,6 +2,7 @@
 // (/shared/tsonic-stage3/spec: low/COMPONENTS.md section 7, low/COMMON-DATA.md, inputs/WALKTHROUGH-PROGRAMS.md)
 // and from the program text, and is stated beside the assertion. Inputs are complete typed bodies
 // written by hand in fixtures/lower-mir/programs; no expectation is derived from an implementation.
+import { admitFixtureTable } from "./fixtures/types-construction.mjs";
 import assert from "node:assert/strict";
 import { readFileSync, realpathSync } from "node:fs";
 import { Session } from "node:inspector";
@@ -26,6 +27,10 @@ import { wt6 } from "./fixtures/lower-mir/programs/wt6.mjs";
 import { s7 } from "./fixtures/lower-mir/programs/s7.mjs";
 import { s2, s3, s6 } from "./fixtures/lower-mir/programs/cleanup.mjs";
 import { s1, wt5, wt8, wt9, wt10, wt11 } from "./fixtures/lower-mir/programs/more.mjs";
+import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { analysisInput } from "./fixtures/front/analysis-input.mjs";
+import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
+import { checkCommaSequence, checkCoalescingAssignment, checkOptionalEmbedding, checkLabelledTransfers, checkVoidOperand } from "./fixtures/typed-occurrence-witnesses.mjs";
 
 // The producer does not lower every construct yet. A construct it does not lower is refused by its one frontier
 // check, a compiler defect whose message starts with FRONTIER. A case that meets it is not a passing case and not a
@@ -48,6 +53,19 @@ directField.decision.decision.primary = field;
 const directBox = declareType("directFieldBox", { kind: "shape", members: [{ key: directField.decision.decision.key,
   origins: [fieldOrigin], readOrigins: [fieldOrigin], writeOrigins: [fieldOrigin], kind: "property",
   read: T.bool, write: T.bool, optional: false, readonly: false }], indexes: [], calls: [], constructs: [] });
+const optionalFlagField = { ...directField, decision: { ...directField.decision,
+  decision: { ...directField.decision.decision, read: optionalBool, write: optionalBool } } };
+const optionalFlagBox = declareType("directOptionalFlagBox", { kind: "shape", members: [{ key: { kind: "text", value: "flag" },
+  origins: [fieldOrigin], readOrigins: [fieldOrigin], writeOrigins: [fieldOrigin], kind: "property",
+  read: optionalBool, write: optionalBool, optional: false, readonly: false }], indexes: [], calls: [], constructs: [] });
+const nestedFieldOrigin = { kind: "declared", declaration: def("NestedBox.inner") };
+const nestedField = selection("inner", directBox, directBox, direct("in-place"));
+nestedField.decision.decision.origins = [nestedFieldOrigin];
+nestedField.decision.decision.selectedDeclarations = [nestedFieldOrigin.declaration];
+nestedField.decision.decision.primary = nestedFieldOrigin.declaration;
+const nestedBox = declareType("nestedStaticFieldBox", { kind: "shape", members: [{ key: { kind: "text", value: "inner" },
+  origins: [nestedFieldOrigin], readOrigins: [nestedFieldOrigin], writeOrigins: [nestedFieldOrigin], kind: "property",
+  read: directBox, write: directBox, optional: false, readonly: false }], indexes: [], calls: [], constructs: [] });
 const test = (name, ...rest) => {
   const run = rest.pop();
   return declare(name, ...rest, context => { current = context; return run(context); });
@@ -87,7 +105,7 @@ before(async () => {
   ({ verifyMir } = await import("../../packages/host/dist/ir-mir/index.js"));
   const types = await import("../../packages/host/dist/ir-types/index.js");
   instanceKey = types.instanceKey;
-  const interner = types.seedTypeInterner(TABLE);
+  const interner = admitFixtureTable(types, TABLE);
   deps = {
     defs: { completionSelector: T.int32, exceptionStorage: T.unknown },
     typeOf: type => types.readType(interner, type),
@@ -128,6 +146,300 @@ after(async () => {
     }
     assert.equal(report.files.filter(file => file.status === "covered").length, runtimeFiles.length);
   } finally { session.disconnect(); }
+});
+
+test("authored MIR: compound static assignment reads before the same-cell RHS store", checkCompoundStaticAssignment);
+test("authored MIR: static prefix and postfix updates keep their selected result and storage", checkStaticUpdates);
+test("authored MIR: local and imported static reads retain the actual storage identity", checkQualifiedStaticRead);
+test("authored MIR: comma sequences execute in order and return the final value", checkCommaSequence);
+test("authored MIR: coalescing assignment evaluates the RHS only for absent storage", checkCoalescingAssignment);
+test("authored MIR: optional embeddings preserve the selected payload or native absence", checkOptionalEmbedding);
+test("authored MIR: labelled transfers keep the selected loop or block destination", checkLabelledTransfers);
+test("authored MIR: void evaluates its operand exactly once", checkVoidOperand);
+
+test("authored MIR: switch evaluates selected labels in order and reads the subject once", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { printModuleBodies, parseModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
+  const { evaluate, resumeEvaluate } = await import("../../packages/host/dist/evaluate/index.js");
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const product = await import("../../packages/host/dist/ir-types/index.js");
+  for (const [name, source, records] of [
+    ["numeric literal", `export function run(subject: number): boolean {
+      switch (subject) { case 1.25: return true; default: return false; }
+    }`, [5, 5, 4, 3, 8]],
+    ["numeric values", `export function run(subject: number, label: number): boolean {
+      switch (subject) { case label: return true; default: return false; }
+    }`, [6, 6, 3, 3, 8]],
+    ["constant subject", `export function run(label: boolean): boolean {
+      switch (true) { case label: return true; default: return false; }
+    }`, [4, 4, 3, 3, 6]],
+    ["call subject", `function retain(flag: boolean): boolean { return flag; }
+    export function run(flag: boolean, label: boolean): boolean {
+      switch (retain(flag)) { case label: return true; default: return false; }
+    }`, [6, 6, 3, 4, 7]],
+    ["label mutation", `export function run(subject: boolean): boolean {
+      switch (subject) { case (subject = false): return false; case true: return true; default: return false; }
+    }`, [8, 8, 3, 5, 15]],
+    ["effectful label", `function effect(flag: boolean, message: string): boolean { if (flag) return flag; throw message; }
+    export function run(subject: boolean, flag: boolean, message: string): boolean {
+      switch (subject) { case false: return true; default: return false; case effect(flag, message): return true; }
+    }`, [10, 10, 3, 6, 13]],
+    ["fast duplicate", `export function run(subject: boolean, entered: boolean): boolean {
+      switch (subject) { case false: entered = true; case false: return entered; default: return false; }
+    }`, [4, 4, 3, 4, 5]],
+  ]) {
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    const output = analyzeHostProgram(input);
+    assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
+    const { index, modules } = output.value;
+    const { types } = index;
+    const module = modules.find(row => row.module === input.snapshot.entryPoint);
+    const text = printModuleBodies(index, module);
+    const parsed = parseModuleBodies(index, text);
+    assert.equal(parsed.kind, "parsed", name);
+    assert.equal(printModuleBodies(index, parsed.value), text, name);
+    const declarations = module.tree.statements.nodes;
+    const bodyOf = declaration => module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
+    const body = bodyOf(declarations.at(-1));
+    const { tir, mir, instance } = body;
+    const [statement] = tir.root.statements.nodes;
+    const [first] = statement.caseBlock.clauses.nodes;
+    const comparisons = mir.blocks.flatMap(block => block.statements.filter(row => row.kind === "assign" && row.value.kind === "binary"));
+    assert.deepEqual([mir.locals.length, mir.places.length, mir.constants.length, mir.blocks.length,
+      mir.blocks.reduce((count, block) => count + block.statements.length, 0)], records, name);
+    if (name === "fast duplicate") {
+      const entry = mir.blocks[mir.entries[0].block];
+      assert.deepEqual(entry.statements, []);
+      assert.deepEqual(entry.terminator.operand, { kind: "place", place: 0 });
+      assert.deepEqual(mir.places[0].base, { kind: "local", local: mir.locals[0].id });
+      assert.equal(mir.blocks.filter(block => block.terminator.kind === "switch").length, 1);
+      assert.deepEqual(comparisons, []);
+    } else {
+      for (const [index, clause] of statement.caseBlock.clauses.nodes.filter(clause => clause.kind === "CaseClause").entries()) {
+        assert.equal(comparisons[index].tir.node, clause.id);
+        assert.deepEqual(comparisons[index].value.operation, clause.tsonic.operation.decision);
+      }
+    }
+    if (name === "numeric literal") {
+      const label = types.terms[first.expression.tsonic.convertedType];
+      assert.equal(label.kind, "literal");
+      assert.equal(label.base, statement.expression.tsonic.convertedType);
+      assert.deepEqual(first.tsonic.operation.decision.decision.operation, { kind: "native-operator", operator: "===", carrier: "float64" });
+    }
+    if (name === "constant subject") {
+      const left = comparisons[0].value.left;
+      assert.equal(left.kind, "constant");
+      const subject = mir.constants[left.constant];
+      assert.equal(subject.type, statement.expression.tsonic.convertedType);
+      assert.deepEqual(subject.value, { kind: "literal", value: { kind: "boolean", value: true } });
+    }
+    if (name === "call subject") {
+      const calls = mir.blocks.map(block => block.terminator).filter(terminator => terminator.kind === "call");
+      assert.equal(calls.length, 1);
+      assert.notEqual(calls[0].destination, null);
+      assert.deepEqual(comparisons[0].value.left, { kind: "place", place: calls[0].destination });
+    }
+    const interner = admitFixtureTable(product, types);
+    const unit = { request: { query: "mirBody", key: instanceKey(instance) }, position: { kind: "result" } };
+    const ready = { defs: { completionSelector: product.internType(interner, { kind: "primitive", primitive: "int32" }),
+      exceptionStorage: product.internType(interner, { kind: "intrinsic", intrinsic: "unknown" }) },
+      typeOf: type => product.readType(interner, type), signatureOf: id => product.readSignature(interner, id) };
+    const lowerAt = maximum => produced({ ...ready, limits: { maximumRecords: maximum }, unit }, tir, []);
+    const exact = records.reduce((total, count) => total + count, 0);
+    for (let maximum = 0; maximum < exact; maximum += 1) {
+      const diagnostic = resourceLimitDiagnostic({ owner: "lower-mir", limit: "lower-mir.maximumRecords", maximum,
+        site: { kind: "source", origin: tir.root.origin }, unit });
+      assert.deepEqual(lowerAt(maximum), { kind: "refused", diagnostics: [diagnostic] }, `${name} at ${maximum}`);
+    }
+    assert.deepEqual(lowerAt(exact), { kind: "ok", value: mir, diagnostics: [] }, name);
+    const evaluation = { types, typeOf: type => types.terms[type], signatureOf: id => types.signatures[id],
+      selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
+    const run = operands => evaluate(evaluation, instance, mir, operands, "compile-time", { query: "constValue", key: [instance, "compile-time"] });
+    const bool = value => ({ kind: "boolean", type: tir.completion, value });
+    const returns = (result, value) => {
+      assert.equal(result.kind, "done", name);
+      assert.equal(result.value.kind, "ok", name);
+      assert.deepEqual(result.value.value, { kind: "value", value: bool(value) }, name);
+      assert.deepEqual(result.value.diagnostics, [], name);
+    };
+    if (name === "numeric literal") {
+      const floating = bits => ({ kind: "floating", type: tir.params[0].tsonic.storage, bits });
+      for (const [bits, match] of [[0x3ff4000000000000n, true], [0n, false], [0x7ff8000000000001n, false]])
+        returns(run([floating(bits)]), match);
+    } else if (name === "numeric values") {
+      const floating = bits => ({ kind: "floating", type: tir.params[0].tsonic.storage, bits });
+      for (const [bits, match] of [[0n, true], [0x8000000000000000n, true], [0x7ff8000000000001n, false]])
+        returns(run([floating(bits), floating(0n)]), match);
+    } else if (name === "constant subject") {
+      for (const label of [false, true]) returns(run([bool(label)]), label);
+    } else if (name === "call subject") {
+      const callee = bodyOf(declarations[0]);
+      for (const flag of [false, true]) for (const label of [false, true]) {
+        const paused = run([bool(flag), bool(label)]);
+        assert.equal(paused.kind, "paused");
+        assert.deepEqual(paused.requests, [{ kind: "mir-body", instance: callee.instance }]);
+        returns(resumeEvaluate(evaluation, paused.paused, [{ kind: "mir-body", body: callee.mir }]), flag === label);
+      }
+    } else if (name === "label mutation") {
+      for (const value of [true, false]) returns(run([bool(value)]), value);
+    } else if (name === "fast duplicate") {
+      for (const value of [true, false]) returns(run([bool(value), bool(false)]), !value);
+    } else if (name === "effectful label") {
+      const callee = bodyOf(declarations[0]);
+      const message = { kind: "string", type: tir.params[2].tsonic.storage, value: "original label failure" };
+      returns(run([bool(false), bool(false), message]), true);
+      for (const value of [true, false]) {
+        const paused = run([bool(true), bool(value), message]);
+        assert.equal(paused.kind, "paused");
+        assert.deepEqual(paused.requests, [{ kind: "mir-body", instance: callee.instance }]);
+        const resumed = resumeEvaluate(evaluation, paused.paused, [{ kind: "mir-body", body: callee.mir }]);
+        if (value) returns(resumed, true);
+        else {
+          assert.equal(resumed.kind, "done");
+          assert.equal(resumed.value.kind, "ok");
+          assert.deepEqual(resumed.value.value, { kind: "value", value: { kind: "error", type: tir.completion } });
+          assert.deepEqual(resumed.value.diagnostics.map(row => row.site.origin), [callee.tir.root.statements.nodes[1].origin]);
+        }
+      }
+    }
+  }
+});
+
+test("authored MIR: an effect-only void operand pays only for a consumed absence", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const product = await import("../../packages/host/dist/ir-types/index.js");
+  const { internType, readSignature, readType } = product;
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function effect(): void { return; }
+    export function discard(): void { void effect(); }
+    export function use(): undefined { return void effect(); }
+    export function direct(): void { effect(); return; }
+    export function forwarded(): void { return effect(); }`);
+  const output = analyzeHostProgram(input);
+  assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
+  const module = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const interner = admitFixtureTable(product, output.value.index.types);
+  const ready = {
+    defs: { completionSelector: internType(interner, { kind: "primitive", primitive: "int32" }),
+      exceptionStorage: internType(interner, { kind: "intrinsic", intrinsic: "unknown" }) },
+    typeOf: type => readType(interner, type),
+    signatureOf: signature => readSignature(interner, signature),
+  };
+  const [effect, discard, use, direct, forwarded] = module.tree.statements.nodes.map(declaration =>
+    module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body));
+  for (const [body, expected] of [[discard, 2], [use, 3], [direct, 2], [forwarded, 2]]) {
+    const [entry, continuation] = body.mir.blocks;
+    assert.deepEqual([body.mir.blocks.length, body.mir.locals.length, body.mir.places.length, body.mir.constants.length,
+      entry.statements.length, continuation.statements.length], [2, 0, 0, body === use ? 1 : 0, 0, 0]);
+    assert.deepEqual([entry.terminator.kind, entry.terminator.callee.kind, entry.terminator.destination, entry.terminator.next,
+      entry.terminator.unwind, continuation.terminator.kind, continuation.terminator.value],
+    ["call", "direct", null, continuation.id, { kind: "escape" }, "return",
+      body === use ? { kind: "constant", constant: body.mir.constants[0].id } : null]);
+    const unit = { request: { query: "mirBody", key: instanceKey(body.instance) }, position: { kind: "result" } };
+    const attempt = maximum => {
+      const reads = [];
+      const lowered = lowerToMir({ ...ready, limits: { maximumRecords: maximum }, unit, typeOf: type => {
+        reads.push(type);
+        return ready.typeOf(type);
+      } }, body.tir, []);
+      assert.deepEqual(reads, maximum === 0 ? [] : body === discard && maximum === expected
+        ? [effect.tir.completion, discard.tir.completion] : [effect.tir.completion]);
+      return lowered;
+    };
+    for (let maximum = 0; maximum < expected; maximum += 1) {
+      const diagnostic = resourceLimitDiagnostic({ owner: "lower-mir", limit: "lower-mir.maximumRecords", maximum,
+        site: { kind: "source", origin: body.tir.root.origin }, unit });
+      assert.deepEqual(attempt(maximum), { kind: "refused", diagnostics: [diagnostic] }, `${body.tir.body} at ${maximum}`);
+    }
+    const exact = attempt(expected);
+    assert.equal(exact.kind, "ok");
+    assert.deepEqual([exact.value, exact.diagnostics], [body.mir, []]);
+  }
+  for (const invalid of ["operation", "execution"]) {
+    const crossed = structuredClone(use.tir);
+    const expression = crossed.root.statements.nodes[0].expression;
+    const selected = expression.tsonic.operation.decision.decision;
+    if (invalid === "operation") selected.operation = { kind: "type-query" };
+    else selected.execution = { kind: "invocation", writesStorage: false, failure: "unwind" };
+    const unit = { request: { query: "mirBody", key: instanceKey(use.instance) }, position: { kind: "result" } };
+    assert.throws(() => lowerToMir({ ...ready, limits: { maximumRecords: 3 }, unit, typeOf: () => {
+      assert.fail("a malformed void decision must stop before reading the call result type");
+    } }, crossed, []), error => error.cause?.owner === "lower-mir" && error.message === "caller defect: void without its selected discard operation", invalid);
+  }
+});
+
+test("authored MIR: static and absence reads preserve their record budget and native carrier", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const product = await import("../../packages/host/dist/ir-types/index.js");
+  const { internType, readSignature, readType } = product;
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export const state: boolean = true;
+    export function read(): boolean { return state; }
+    export function absent(): undefined { return undefined; }`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const table = result.value.index.types;
+  const interner = admitFixtureTable(product, table);
+  const ready = {
+    defs: { completionSelector: internType(interner, { kind: "primitive", primitive: "int32" }),
+      exceptionStorage: internType(interner, { kind: "intrinsic", intrinsic: "unknown" }) },
+    typeOf: type => readType(interner, type),
+    signatureOf: signature => readSignature(interner, signature),
+  };
+  const { bodies } = result.value.modules.find(module => module.module === input.snapshot.entryPoint);
+  const read = bodies.find(body => body.kind === "selected" && body.tir.root.kind === "Block"
+    && body.tir.root.statements.nodes[0]?.expression?.tsonic.resolution?.kind === "static");
+  assert.ok(read);
+  assert.equal(read.tir.nestedBodies.length, 0);
+  const unit = { request: { query: "mirBody", key: instanceKey(read.instance) }, position: { kind: "result" } };
+  const attempt = maximumRecords => lowerToMir({ ...ready, limits: { maximumRecords }, unit }, read.tir, []);
+  const [block] = read.mir.blocks;
+  assert.deepEqual([read.mir.blocks.length, read.mir.locals.length, read.mir.places.length, read.mir.constants.length,
+    block.statements.length], [1, 1, 2, 0, 2]);
+  assert.deepEqual(block.statements.map(statement => statement.kind), ["storage-live", "assign"]);
+  assert.equal(block.terminator.kind, "return");
+  for (let maximum = 0; maximum < 6; maximum += 1) {
+    const diagnostic = resourceLimitDiagnostic({ owner: "lower-mir", limit: "lower-mir.maximumRecords", maximum,
+      site: { kind: "source", origin: read.tir.root.origin }, unit });
+    assert.deepEqual(attempt(maximum), { kind: "refused", diagnostics: [diagnostic] }, `limit ${maximum}`);
+  }
+  const exact = attempt(6);
+  assert.equal(exact.kind, "ok");
+  assert.deepEqual([exact.value, exact.diagnostics], [read.mir, []]);
+
+  const absent = bodies.find(body => body.kind === "selected" && body.tir.root.kind === "Block"
+    && body.tir.root.statements.nodes[0]?.expression?.tsonic.resolution?.kind === "intrinsic-value");
+  assert.ok(absent);
+  const [completion] = absent.tir.root.statements.nodes;
+  const expression = completion.expression;
+  assert.equal(expression.tsonic.conversion.kind, "identity");
+  const absenceUnit = { request: { query: "mirBody", key: instanceKey(absent.instance) }, position: { kind: "result" } };
+  const absenceDeps = { ...ready, limits: { maximumRecords: 2 }, unit: absenceUnit };
+  for (const maximumRecords of [0, 1]) {
+    const reads = [];
+    const refused = lowerToMir({ ...absenceDeps, limits: { maximumRecords }, typeOf: type => {
+      reads.push(type);
+      return ready.typeOf(type);
+    } }, absent.tir, []);
+    assert.equal(refused.kind, "refused");
+    assert.equal(refused.diagnostics.length, 1);
+    assert.equal("value" in refused, false);
+    assert.deepEqual(reads, maximumRecords === 0 ? [] : [expression.tsonic.type]);
+  }
+  const original = lowerToMir(absenceDeps, absent.tir, []);
+  assert.equal(original.kind, "ok");
+  assert.deepEqual(original.value, absent.mir);
+  const presentType = read.tir.root.statements.nodes[0].expression.tsonic.type;
+  assert.deepEqual(readType(interner, presentType), { kind: "primitive", primitive: "bool" });
+  const crossed = { ...completion, expression: { ...expression, tsonic: { ...expression.tsonic, type: presentType } } };
+  const invalid = { ...absent.tir, root: { ...absent.tir.root, statements: { ...absent.tir.root.statements, nodes: [crossed] } } };
+  assert.throws(() => lowerToMir(absenceDeps, invalid, []), error => defectOfLowerMir(error)
+    && error.message === "caller defect: an intrinsic undefined read must retain its native absence type" && error.cause.origin === expression.origin);
 });
 
 /** The findings of the complete MIR verifier for a lowered graph. A refusal for resources is not a list of findings and fails the case. */
@@ -414,6 +726,262 @@ test("direct field lowering does not replace a different holding, check or acces
   assert.throws(() => produced(deps, noPlace.tir, []), /in-place field read requires an evaluated storage place/);
 });
 
+const staticResolution = name => ({ kind: "static", declaration: { owner: def(name), node: 0 }, aliases: [] });
+const staticIdentifier = (name, storage, extra = {}) => ({ kind: "Identifier", text: name,
+  tsonic: { ...value(storage), role: "value", resolution: staticResolution(name), ...extra } });
+const selectedStaticField = (builder, receiver = staticIdentifier("Box", directBox), label = "field") =>
+  ({ $: label, ...builder.property(receiver, "flag", builder.read(T.bool, directField)) });
+const staticWrite = (builder, name, type, right, label) => ({ $: label, ...builder.assign({
+  kind: "Identifier", text: name, tsonic: { role: "assignment-target", resolution: staticResolution(name), access: { kind: "write", storage: type } },
+}, "EqualsToken", right, type, type) });
+const compareBool = (builder, left, right) => builder.comparison(left, "EqualsEqualsEqualsToken", right,
+  native("===", "bool", [T.bool, T.bool], T.bool));
+const staticProjection = (mir, program, label = "field") => {
+  const projection = mir.places.find(place => place.base.kind === "place" && place.base.tir.node === program.at(label));
+  assert.equal(projection?.base.projection.kind, "field");
+  assert.deepEqual(mir.places[projection.base.place].base, { kind: "static", definition: def("Box") });
+  return projection.id;
+};
+const savedStaticField = (mir, program, block, label = "field") => {
+  const saved = block.statements.filter(row => row.kind === "assign" && row.tir.node === program.at(label));
+  assert.equal(saved.length, 1);
+  assert.equal(mir.places[saved[0].place].storage, T.bool);
+  assert.deepEqual(saved[0].value, { kind: "use", operand: { kind: "place", place: staticProjection(mir, program, label) } });
+  return saved[0];
+};
+const lowerAtBounds = (program, records) => {
+  const mir = lower(program);
+  assert.equal(mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+    + mir.blocks.reduce((total, block) => total + block.statements.length, 0), records);
+  for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1) {
+    const result = produced({ ...deps, limits: { maximumRecords } }, program.tir, []);
+    assert.deepEqual([result.kind, "value" in result, result.diagnostics.map(row => row.code.name)],
+      ["refused", false, ["TSONIC_COMPILER_RESOURCE_LIMIT"]], `maximumRecords=${maximumRecords}`);
+  }
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
+  return mir;
+};
+
+test("selected static field: direct return and exact root writes preserve the authored value", () => {
+  const read = shaped("staticField.return", [], T.bool, b => b.block(b.returns(selectedStaticField(b))));
+  const directMir = lowerAtBounds(read, 3);
+  const returned = staticProjection(directMir, read);
+  assert.deepEqual(directMir.blocks[0].terminator.value, { kind: "place", place: returned });
+  for (const [target, records] of [["Box", 16], ["Other", 13]]) {
+    const program = shaped(`staticField.write.${target}`, [["replacement", "required", directBox], ["expected", "required", T.bool]],
+      T.bool, b => b.block(b.returns(compareBool(b, selectedStaticField(b), b.sequence(
+        staticWrite(b, target, directBox, b.id("replacement", 0, directBox), "write"), b.id("expected", 1, T.bool), T.bool)))));
+    const mir = lowerAtBounds(program, records);
+    const [entry] = mir.blocks;
+    const fieldPlace = staticProjection(mir, program);
+    const write = entry.statements.findIndex(row => row.tir.node === program.at("write") && row.kind === "assign");
+    const comparison = entry.statements.find(row => row.value?.kind === "binary");
+    assert.deepEqual(mir.places[entry.statements[write].place].base, { kind: "static", definition: def(target) });
+    let expected = fieldPlace;
+    if (target === "Box") {
+      const saved = savedStaticField(mir, program, entry);
+      assert.ok(entry.statements.indexOf(saved) < write);
+      expected = saved.place;
+    } else assert.equal(entry.statements.some(row => row.tir.node === program.at("field")), false);
+    assert.deepEqual(comparison.value.left, { kind: "place", place: expected });
+    assert.equal(mir.locals.some(row => row.role.kind === "temporary" && row.storage === directBox), false);
+  }
+  const later = shaped("staticField.laterRead", [["replacement", "required", directBox]], T.bool, b =>
+    b.block(b.returns(compareBool(b, selectedStaticField(b), b.sequence(
+      staticWrite(b, "Box", directBox, b.id("replacement", 0, directBox), "write"),
+      selectedStaticField(b, staticIdentifier("Box", directBox), "later"), T.bool)))));
+  const mir = lowerAtBounds(later, 15);
+  const [entry] = mir.blocks;
+  const earlier = savedStaticField(mir, later, entry);
+  const laterPlace = staticProjection(mir, later, "later");
+  const comparison = entry.statements.find(row => row.value?.kind === "binary");
+  assert.notEqual(laterPlace, staticProjection(mir, later));
+  assert.deepEqual([comparison.value.left, comparison.value.right],
+    [{ kind: "place", place: earlier.place }, { kind: "place", place: laterPlace }]);
+  assert.equal(entry.statements.some(row => row.tir.node === later.at("later")), false);
+});
+
+test("selected static field: no-write failure preserves the earlier read, not the check's own operand twice", () => {
+  for (const [failure, unwind] of [["abort", "abort"], ["unwind", "escape"]]) {
+    const name = `staticField.check.${failure}`;
+    const program = shaped(name, [["optional", "required", optionalBool], ["expected", "required", T.bool]], T.bool,
+      b => b.block(b.returns(compareBool(b, selectedStaticField(b), b.sequence(
+        narrowingNode(b, name, b.nonNull(b.id("optional", 0, optionalBool), T.bool, null), optionalBool, T.bool, failure),
+        b.id("expected", 1, T.bool), T.bool)))));
+    const mir = lowerAtBounds(program, 17);
+    const [entry, continuation] = mir.blocks;
+    const saved = savedStaticField(mir, program, entry);
+    assert.deepEqual([entry.terminator.kind, entry.terminator.tir.node, entry.terminator.unwind.kind, entry.terminator.next],
+      ["check", program.at("narrowed"), unwind, continuation.id]);
+    const checked = mir.places[entry.terminator.place];
+    assert.deepEqual(mir.places[checked.base.place].base, { kind: "local", local: 0 });
+    assert.deepEqual(entry.statements.filter(row => row.kind === "assign"), [saved]);
+    assert.deepEqual(continuation.statements.find(row => row.value?.kind === "binary").value.left, { kind: "place", place: saved.place });
+  }
+});
+
+test("selected static field: assignment store and yielded value share one read; discard keeps one direct use", () => {
+  for (const [form, records] of [["return", 9], ["chained", 11], ["composed", 18], ["discard", 7]]) {
+    const rows = form === "composed" ? [["replacement", "required", directBox], ["expected", "required", T.bool]]
+      : form === "discard" ? [["expected", "required", T.bool]] : [];
+    const program = shaped(`staticField.assigned.${form}`, rows, T.bool, b => {
+      const store = staticWrite(b, "Slot", T.bool, selectedStaticField(b), "store");
+      if (form === "return") return b.block(b.returns(store));
+      if (form === "chained") return b.block(b.returns(staticWrite(b, "Second", T.bool, store, "outer")));
+      if (form === "discard") return b.block(b.returns(b.sequence(store, b.id("expected", 0, T.bool), T.bool)));
+      return b.block(b.returns(compareBool(b, store, b.sequence(staticWrite(b, "Box", directBox, b.id("replacement", 0, directBox), "replace"),
+        b.id("expected", 1, T.bool), T.bool))));
+    });
+    const mir = lowerAtBounds(program, records);
+    const [entry] = mir.blocks;
+    const store = entry.statements.find(row => row.kind === "assign" && row.tir.node === program.at("store"));
+    assert.deepEqual(mir.places[store.place].base, { kind: "static", definition: def("Slot") });
+    if (form === "discard") {
+      assert.deepEqual(store.value.operand, { kind: "place", place: staticProjection(mir, program) });
+      assert.deepEqual(entry.statements.filter(row => row.kind === "assign"), [store]);
+      continue;
+    }
+    const saved = savedStaticField(mir, program, entry);
+    const operand = { kind: "place", place: saved.place };
+    assert.ok(entry.statements.indexOf(saved) < entry.statements.indexOf(store));
+    assert.deepEqual(store.value.operand, operand);
+    if (form === "composed") {
+      const replacement = entry.statements.findIndex(row => row.kind === "assign" && row.tir.node === program.at("replace"));
+      const comparison = entry.statements.find(row => row.value?.kind === "binary");
+      assert.ok(replacement > entry.statements.indexOf(store) && entry.statements.indexOf(comparison) > replacement);
+      assert.deepEqual(comparison.value.left, operand);
+    } else {
+      assert.deepEqual(entry.terminator.value, operand);
+      if (form === "chained") {
+        const outer = entry.statements.find(row => row.kind === "assign" && row.tir.node === program.at("outer"));
+        assert.ok(entry.statements.indexOf(outer) > entry.statements.indexOf(store));
+        assert.deepEqual(outer.value.operand, operand);
+      }
+    }
+  }
+});
+
+test("selected static field: a check consumes its own option once, with a save only if the checked value is needed again", () => {
+  for (const [form, records] of [["return", 9], ["discard", 7]]) {
+    const name = `staticField.checkOwn.${form}`;
+    const program = shaped(name, form === "discard" ? [["expected", "required", T.bool]] : [], T.bool, b => {
+      const source = { $: "field", ...b.property(staticIdentifier("Box", optionalFlagBox), "flag", b.read(optionalBool, optionalFlagField)) };
+      const expression = b.nonNull(source, T.bool, null);
+      const root = { kind: "item", value: { owner: def("Box"), node: 0 } };
+      const path = [{ kind: "member", origin: fieldOrigin }];
+      const proof = { steps: [{ from: { root, path }, to: { root, path: [...path, { kind: "optional-value" }] },
+        rule: "absence", premises: [] }], conclusion: 0 };
+      expression.tsonic.narrowing = { kind: "narrowed", source: optionalBool, result: T.bool, failure: "abort", proof };
+      return b.block(b.returns(form === "return" ? expression : b.sequence(expression, b.id("expected", 0, T.bool), T.bool)));
+    });
+    const mir = lowerAtBounds(program, records);
+    const [entry, continuation] = mir.blocks;
+    const fieldPlace = staticProjection(mir, program);
+    const check = entry.terminator;
+    assert.equal(check.kind, "check");
+    if (form === "discard") {
+      assert.deepEqual(entry.statements, []);
+      assert.equal(mir.places[check.place].base.place, fieldPlace);
+    } else {
+      const saved = entry.statements.find(row => row.kind === "assign");
+      assert.equal(saved.tir.node, program.at("field"));
+      assert.equal(mir.places[saved.place].storage, optionalBool);
+      assert.deepEqual(saved.value.operand, { kind: "place", place: fieldPlace });
+      assert.equal(mir.places[check.place].base.place, saved.place);
+      assert.deepEqual(continuation.terminator.value, { kind: "place", place: check.place });
+    }
+  }
+});
+
+test("selected static field: unknown application preserves outer observation, not its own field argument twice", () => {
+  const target = "staticField.call.target";
+  const sig = signature(target, [["flag", T.bool]], T.bool);
+  const program = shaped("staticField.call", [], T.bool, b => b.block(b.returns(compareBool(b, selectedStaticField(b),
+    b.call(b.global(target, target, T.unknown), [selectedStaticField(b, staticIdentifier("Box", directBox), "argument")],
+      T.bool, at => ({ callee: callee(target, sig, [mapped(0, 0)], T.bool), receiver: null,
+        arguments: [{ kind: "provided", parameter: 0, expression: at("argument") }] }))))));
+  const mir = lowerAtBounds(program, 16);
+  const [entry, continuation] = mir.blocks;
+  const saved = savedStaticField(mir, program, entry);
+  assert.deepEqual([entry.terminator.kind, entry.terminator.unwind.kind], ["call", "escape"]);
+  assert.deepEqual(entry.terminator.arguments, [{ kind: "value", passing: "by-value",
+    operand: { kind: "place", place: staticProjection(mir, program, "argument") } }]);
+  assert.deepEqual(entry.statements.filter(row => row.kind === "assign"), [saved]);
+  assert.deepEqual(continuation.statements.find(row => row.value?.kind === "binary").value.left, { kind: "place", place: saved.place });
+});
+
+test("selected static field: readonly normal-only invocation is not an observation barrier", () => {
+  for (const [execution, save] of [[EXECUTIONS.cannotFail, false], [EXECUTIONS.unwinds, true], [EXECUTIONS.endsProcess, true]]) {
+    const program = shaped(`staticField.invoke.${execution.failure}`,
+      [["number", "required", T.int32], ["expected", "required", T.bool]], T.bool, b => b.block(b.returns(compareBool(b,
+        selectedStaticField(b), b.sequence(b.arithmetic(b.id("number", 0, T.int32), "PlusToken", b.num("1", T.int32), T.int32,
+          plus("int32", T.int32, execution)), b.id("expected", 1, T.bool), T.bool)))));
+    const mir = lowerAtBounds(program, save ? 20 : 16);
+    const [entry, continuation] = mir.blocks;
+    assert.equal(entry.terminator.kind, "invoke");
+    assert.equal(entry.terminator.operation.decision.execution.writesStorage, false);
+    const place = save ? savedStaticField(mir, program, entry).place : staticProjection(mir, program);
+    if (!save) assert.equal(entry.statements.some(row => row.kind === "assign"), false);
+    assert.deepEqual(continuation.statements.find(row => row.value?.kind === "binary").value.left, { kind: "place", place });
+  }
+});
+
+test("selected static field: ordinary receiver evaluation remains for aliases, wrappers and narrowing", () => {
+  const aliases = [{ kind: "item", value: { owner: def("importedBox"), node: 0 } }];
+  for (const [name, receiver] of [
+    ["alias", () => staticIdentifier("Box", directBox, { resolution: { ...staticResolution("Box"), aliases } })],
+    ["wrapper", b => b.paren(staticIdentifier("Box", directBox), directBox)],
+    ["narrowing", () => staticIdentifier("Box", directBox, { narrowing: { kind: "identity", type: directBox } })],
+  ]) {
+    const program = shaped(`staticField.receiver.${name}`, [], T.bool,
+      b => b.block(b.returns(selectedStaticField(b, receiver(b)))));
+    const mir = lowerAtBounds(program, 7);
+    const fieldPlace = mir.places.find(place => place.base.projection?.kind === "field");
+    const copy = mir.blocks[0].statements.find(row => row.kind === "assign");
+    assert.equal(fieldPlace.base.place, copy.place);
+    assert.equal(mir.places[copy.place].storage, directBox);
+    assert.deepEqual(mir.places[copy.value.operand.place].base, { kind: "static", definition: def("Box") });
+  }
+  const rejected = (name, change) => shaped(`staticField.rejected.${name}`, [], T.bool, b => {
+    const field = selectedStaticField(b);
+    change(field);
+    return b.block(b.returns(field));
+  });
+  assert.throws(() => produced(deps, rejected("optional", field => {
+    field.questionDotToken = { kind: "QuestionDotToken", tsonic: null };
+  }).tir, []), /selected optional field read/u);
+  assert.throws(() => produced(deps, rejected("checked", field => {
+    const { decision } = directField.decision;
+    field.tsonic.selection = { kind: "decided", decision: { ...directField.decision,
+      decision: { ...decision, location: { kind: "data", receiver: "in-place", check: { kind: "required", failure: "abort" } } } } };
+  }).tir, []), /selected checked or by-reference field read/u);
+  assert.throws(() => produced(deps, rejected("selection", field => {
+    field.expression.tsonic.demand = { kind: "never" };
+  }).tir, []), /value demanded under a selection/u);
+  assert.throws(() => produced(deps, rejected("conversion", field => {
+    field.expression.tsonic.conversion = { kind: "deferred" };
+  }).tir, []), /deferred conversion/u);
+});
+
+test("selected static field: a further projection consumes the selected inner value at its own read anchor", () => {
+  const program = shaped("staticField.nested", [], T.bool, builder => {
+    const inner = { $: "inner", ...builder.property(staticIdentifier("NestedBox", nestedBox), "inner", builder.read(directBox, nestedField)) };
+    return builder.block(builder.returns(selectedStaticField(builder, inner)));
+  });
+  const mir = lowerAtBounds(program, 8);
+  const [entry] = mir.blocks;
+  const [saved] = entry.statements.filter(row => row.kind === "assign");
+  assert.equal(saved.tir.node, program.at("inner"));
+  const inner = mir.places[saved.value.operand.place];
+  assert.equal(inner.base.tir.node, program.at("inner"));
+  assert.deepEqual(mir.places[inner.base.place].base, { kind: "static", definition: def("NestedBox") });
+  assert.equal(mir.places[saved.place].storage, directBox);
+  const flagPlace = mir.places[entry.terminator.value.place];
+  assert.equal(flagPlace.base.tir.node, program.at("field"));
+  assert.equal(flagPlace.base.place, saved.place);
+  assert.equal(mir.locals.some(local => local.storage === nestedBox), false);
+});
+
 test("first producer: the receiver's row and a body that completes with no value", () => {
   // The row of role `this` is the local of role `receiver`; the other rows are counted without it (parameter-source-exact).
   const method = shaped("first.method", [["self", "this", T.counter], ["a", "required", T.int32]], T.int32,
@@ -533,6 +1101,81 @@ const exactLowerBudget = (program, mir) => {
   assert.deepEqual(produced({ ...deps, limits: { maximumRecords: required } }, program.tir, []).value, mir);
 };
 
+test("selected static field: a possible failure in a later arm saves an earlier read at the branch dominator", () => {
+  const name = "staticField.checkInArm";
+  const program = shaped(name, [["maybe", "required", optionalBool], ["flag", "required", T.bool], ["expected", "required", T.bool]],
+    T.bool, b => b.block(b.returns(compareBool(b, selectedStaticField(b), conditional(b.id("flag", 1, T.bool),
+      b.sequence(narrowingNode(b, name, b.nonNull(b.id("maybe", 0, optionalBool), T.bool, null), optionalBool, T.bool, "unwind"),
+        b.id("expected", 2, T.bool), T.bool), b.id("expected", 2, T.bool), T.bool)))));
+  const mir = lower(program);
+  exactLowerBudget(program, mir);
+  const [head] = mir.blocks;
+  const saved = savedStaticField(mir, program, head);
+  assert.equal(head.terminator.kind, "switch");
+  const checking = mir.blocks[head.terminator.targets[0].target];
+  assert.equal(checking.terminator.kind, "check");
+  assert.deepEqual(checking.terminator.unwind, { kind: "escape" });
+  assert.equal(mir.blocks[head.terminator.otherwise].terminator.kind, "goto");
+  assert.equal(mir.blocks.slice(1).some(block => block.statements.some(row => row.tir.node === program.at("field"))), false);
+  const compare = mir.blocks.flatMap(block => block.statements).find(row => row.value?.kind === "binary");
+  assert.deepEqual(compare.value.left, { kind: "place", place: saved.place });
+});
+
+test("a local update reads one direct place, stores on the normal edge and returns its authored old or new value", () => {
+  const type = T.int32;
+  for (const postfix of [false, true]) for (const failure of [false, true]) for (const wrapped of [false, true]) {
+    const operation = selected({ kind: "native-operator", operator: postfix ? "--" : "++", carrier: "int32" }, [type], type,
+      failure ? { kind: "invocation", writesStorage: false, failure: "abort" } : { kind: "pure" });
+    const program = shaped(`update.local.${postfix}.${failure}.${wrapped}`, [["value", "required", type]], type, builder => {
+      const leaf = { $: "leaf", ...builder.target("value", 0, type,
+        { kind: "read-write", storage: type, read: type, narrowing: null, evidenceIndex: null }) };
+      const target = wrapped ? { $: "outer", ...builder.paren({ $: "inner", ...builder.paren(leaf, type) }, type) } : leaf;
+      const update = builder.prefix(target, postfix ? "MinusMinusToken" : "PlusPlusToken", type, operation);
+      return { ...update, kind: postfix ? "PostfixUnaryExpression" : update.kind,
+        tsonic: postfix ? { ...value(type), operation: update.tsonic.operation, storage: type }
+          : { ...update.tsonic, role: "update", storage: type } };
+    });
+    const graph = lower(program);
+    const entry = graph.blocks[0];
+    const local = graph.places.find(place => place.base.kind === "local" && place.base.local === sourceLocal(graph, 0)).id;
+    const old = entry.statements.find(row => row.kind === "assign" && row.value.kind === "use");
+    const unary = failure ? entry.terminator : entry.statements.find(row => row.kind === "assign" && row.value.kind === "unary");
+    const read = failure ? unary.operands[0] : unary.value.operand;
+    const result = failure ? unary.destination : unary.place;
+    const successor = failure ? graph.blocks[unary.next] : entry;
+    if (failure) assert.deepEqual(entry.terminator.unwind, { kind: "abort" });
+    if (postfix) assert.deepEqual(old.value.operand, { kind: "place", place: local });
+    assert.deepEqual(read, { kind: "place", place: postfix ? old.place : local });
+    const stores = graph.blocks.flatMap(row => row.statements.filter(statement => statement.kind === "assign" && statement.place === local));
+    assert.equal(stores.length, 1);
+    assert.equal(successor.statements.includes(stores[0]), true);
+    assert.deepEqual(stores[0].value.operand, { kind: "place", place: result });
+    assert.deepEqual(successor.terminator.value, { kind: "place", place: postfix ? old.place : result });
+    if (wrapped) {
+      const effects = graph.blocks.flatMap(block => [...block.statements, block.terminator]);
+      assert.equal(effects.some(record => record.tir.node === program.at("outer") || record.tir.node === program.at("inner")), false);
+      if (postfix) assert.equal(old.tir.node, program.at("leaf"));
+      for (const alteration of ["conversion", "narrowing"]) {
+        const invalid = structuredClone(program.tir);
+        const inner = invalid.root.operand.expression;
+        if (alteration === "conversion") inner.tsonic.conversion = { kind: "deferred", deferred: null };
+        else inner.tsonic.narrowing = { kind: "narrowed", source: type, result: type, failure: "abort", proof: { steps: [], conclusion: 0 } };
+        assert.throws(() => produced(deps, invalid, []), error => defectOfLowerMir(error)
+          && error.message === `${CALLER_DEFECT}an assignment target has a value conversion or narrowing`);
+      }
+    }
+    exactLowerBudget(program, graph);
+    const leafOf = update => wrapped ? update.operand.expression.expression : update.operand;
+    const forged = structuredClone(program.tir);
+    leafOf(forged.root).tsonic.access = { kind: "write", storage: type };
+    assert.throws(() => produced(deps, forged, []), error => defectOfLowerMir(error)
+      && error.message === `${CALLER_DEFECT}an update without a selected direct read-write root`);
+    const foreign = structuredClone(program.tir);
+    leafOf(foreign.root).tsonic.resolution.local = { body: bodyId("update.foreign"), local: 0 };
+    assert.throws(() => produced(deps, foreign, []), /update local not placed/u);
+  }
+});
+
 const shortCircuit = (b, kind, left, right, type, disposition = "dynamic", tag = "logical") => b.binary(
   { ...left, $: `${tag}.control` }, kind === "and" ? "AmpersandAmpersandToken" : kind === "or" ? "BarBarToken" : "QuestionQuestionToken",
   { ...right, $: `${tag}.right`, tsonic: at => ({ ...(typeof right.tsonic === "function" ? right.tsonic(at) : right.tsonic),
@@ -548,17 +1191,52 @@ test("native boolean and/or and optional absence select exactly their authored s
     const program = shaped(`logical.dynamic.${kind}`, [["left", "required", storage], ["right", "required", storage]], storage,
       b => shortCircuit(b, kind, b.id("left", 0, storage), b.id("right", 1, storage), storage));
     const mir = lower(program);
-    assert.deepEqual(mir.blocks.map(block => block.terminator.kind), ["switch", "goto", "goto", "return"]);
+    assert.deepEqual(mir.blocks.map(block => block.terminator.kind), ["switch", "goto", "return"]);
     assert.equal(mir.locals.filter(local => local.role.kind === "temporary").length, 1);
     for (const input of kind === "coalesce" ? [null, true] : [true, false]) {
       const readsRight = kind === "and" ? input : kind === "or" ? !input : input === null;
       const path = walk(mir, { decide: () => input });
       const assignments = path.events.filter(event => event.record.kind === "assign");
-      assert.equal(assignments.length, 1);
-      assert.equal(rootLocalOf(mir, assignments[0].record.value.operand.place), sourceLocal(mir, readsRight ? 1 : 0));
-      assert.equal(assignments[0].record.place, mir.blocks.at(-1).terminator.value.place);
+      assert.equal(assignments.length, readsRight ? 2 : 1);
+      assert.equal(rootLocalOf(mir, assignments[0].record.value.operand.place), sourceLocal(mir, 0));
+      assert.equal(assignments[0].node, program.at("logical.control"));
+      assert.deepEqual(mir.blocks[0].terminator.operand, { kind: "place", place: assignments[0].record.place });
+      if (readsRight) assert.equal(rootLocalOf(mir, assignments[1].record.value.operand.place), sourceLocal(mir, 1));
+      assert.equal(assignments.every(event => event.record.place === mir.blocks.at(-1).terminator.value.place), true);
       const rightBlock = mir.blocks.find(block => block.tir.node === program.at("logical.right"));
       assert.equal(path.events.some(event => event.block === rightBlock.id), readsRight);
+    }
+    exactLowerBudget(program, mir);
+  }
+});
+
+test("discarded short-circuit values preserve only the guard, demanded reads, and stores", () => {
+  for (const kind of ["and", "or", "coalesce"]) for (const effect of ["read", "write", "conditional-write"]) {
+    const storage = kind === "coalesce" ? optionalBool : T.bool;
+    const writesConditionally = effect === "conditional-write";
+    const program = shaped(`logical.discard.${kind}.${effect}`, [["left", "required", storage], ["right", "required", storage]], storage, b => {
+      const access = { kind: "read-write", storage, read: storage, evidenceIndex: null, narrowing: null };
+      const right = b.id("right", 1, storage);
+      const left = writesConditionally ? b.target("left", 0, storage, access) : b.id("left", 0, storage);
+      const selected = shortCircuit(b, kind, left, effect === "write"
+        ? b.assign(b.target("left", 0, storage), "EqualsToken", right, storage, storage) : right, storage);
+      const expression = !writesConditionally ? selected : { ...selected, operatorToken: { ...selected.operatorToken,
+        kind: kind === "and" ? "AmpersandAmpersandEqualsToken" : kind === "or" ? "BarBarEqualsToken" : "QuestionQuestionEqualsToken" },
+        tsonic: at => ({ ...selected.tsonic(at), role: "assignment", storage, calculation: null }) };
+      return b.block(b.expressionStatement(expression), b.returns(b.id("left", 0, storage)));
+    });
+    const mir = lower(program);
+    assert.deepEqual(mir.blocks.map(block => block.terminator.kind), ["switch", "goto", "return"]);
+    assert.equal(mir.locals.filter(local => local.role.kind === "temporary").length, effect === "write" ? 0 : 1);
+    assert.equal(mir.blocks[0].terminator.tir.node === program.at("logical.control"), !writesConditionally);
+    for (const input of kind === "coalesce" ? [null, true] : [true, false]) {
+      const taken = kind === "and" ? input : kind === "or" ? !input : input === null;
+      const events = walk(mir, { decide: () => input }).events;
+      const assigns = events.filter(event => event.record.kind === "assign");
+      const writes = assigns.filter(event => rootLocalOf(mir, event.record.place) === sourceLocal(mir, 0));
+      assert.equal(assigns.length, Number(taken) + Number(writesConditionally));
+      assert.equal(writes.length, taken && effect !== "read" ? 1 : 0);
+      if (effect === "read" && taken) assert.equal(assigns[0].node, program.at("logical.right"));
     }
     exactLowerBudget(program, mir);
   }
@@ -609,6 +1287,38 @@ test("selected short-circuit effects preserve pre-split pending reads once and n
   }
 });
 
+test("conditional assignment schedules the actual store only on the selected RHS path and uses the same graph budget", () => {
+  for (const kind of ["and", "or"]) for (const disposition of ["dynamic", "left", "right"]) {
+    const program = shaped(`logical.write.${kind}.${disposition}`, [["left", "required", T.bool], ["right", "required", T.bool]], T.bool, builder => {
+      const access = { kind: "read-write", storage: T.bool, read: T.bool, evidenceIndex: null, narrowing: null };
+      const node = shortCircuit(builder, kind, builder.target("left", 0, T.bool, access), builder.id("right", 1, T.bool), T.bool, disposition);
+      return { ...node, operatorToken: { ...node.operatorToken, kind: kind === "and" ? "AmpersandAmpersandEqualsToken" : "BarBarEqualsToken" },
+        tsonic: at => ({ ...node.tsonic(at), role: "assignment", storage: T.bool, calculation: null }) };
+    });
+    const graph = lower(program);
+    for (const control of [true, false]) {
+      const taken = disposition === "right" || disposition === "dynamic" && control === (kind === "and");
+      const path = walk(graph, { decide: () => control });
+      const assignments = path.events.filter(event => event.record.kind === "assign");
+      const target = sourceLocal(graph, 0);
+      assert.equal(assignments.filter(event => rootLocalOf(graph, event.record.place) === target).length, taken ? 1 : 0);
+      const controlCopies = assignments.filter(event => event.node === program.at("logical.control") && event.record.value.kind === "use");
+      assert.equal(controlCopies.filter(event => event.record.value.operand.kind === "place"
+        && rootLocalOf(graph, event.record.value.operand.place) === target).length, 1, "the original control storage is read once");
+      assert.equal(controlCopies.length, 1, "the already evaluated control generates no second source read");
+      const forwards = assignments.filter(event => event.node === program.tir.root.id && event.record.value.kind === "use"
+        && event.record.value.operand.kind === "place" && event.record.value.operand.place === controlCopies[0].record.place);
+      assert.equal(forwards.length, disposition === "dynamic" && !taken ? 1 : 0,
+        "only the retained-left edge forwards the saved control as the selected result");
+    }
+    exactLowerBudget(program, graph);
+    const missing = structuredClone(program.tir);
+    missing.root.tsonic.selection = null;
+    assert.throws(() => produced(deps, missing, []), error => defectOfLowerMir(error)
+      && error.message === `${CALLER_DEFECT}a conditional assignment differs from its actual selected control`);
+  }
+});
+
 test("short-circuit inputs keep actual selected endpoints, boolean/absence carrier and result-view frontiers", () => {
   const make = (tag, kind = "and") => shaped(`logical.invalid.${tag}`, [["x", "required", T.bool], ["y", "required", T.bool]], T.bool,
     b => shortCircuit(b, kind, b.id("x", 0, T.bool), b.id("y", 1, T.bool), T.bool));
@@ -652,6 +1362,57 @@ test("selected conditional arms execute once on their actual edge and share one 
     assert.equal(rootLocalOf(mir, assignments[0].record.value.operand.place), sourceLocal(mir, source));
     assert.equal(assignments[0].record.place, mir.blocks.at(-1).terminator.value.place);
   }
+  exactLowerBudget(program, mir);
+});
+
+test("discarded ternaries share one admitted read slot across nested arms and need none for discarded literals", () => {
+  for (const shape of ["nested", "literal", "known"]) {
+    const program = shaped(`conditional.discard.${shape}`, [["flag", "required", T.bool], ["nested", "required", T.bool],
+      ["first", "required", T.int32], ["second", "required", T.int32], ["third", "required", T.int32]], T.int32, b => {
+      const condition = shape === "known" ? b.keyword("TrueKeyword", literalTrue) : b.id("flag", 0, T.bool);
+      const whenTrue = shape === "nested" ? conditional(b.id("nested", 1, T.bool), b.id("first", 2, T.int32),
+        b.id("second", 3, T.int32), T.int32, "dynamic", "inner") : shape === "literal" ? b.num("3", T.int32) : b.id("first", 2, T.int32);
+      const whenFalse = shape === "literal" ? b.num("4", T.int32) : b.id("third", 4, T.int32);
+      return b.block(b.expressionStatement(conditional(condition, whenTrue, whenFalse, T.int32)), b.returns(b.id("third", 4, T.int32)));
+    });
+    const mir = lower(program);
+    const reads = mir.blocks.flatMap(block => block.statements).filter(row => row.kind === "assign");
+    const expected = shape === "nested" ? [program.at("inner.yes"), program.at("inner.no"), program.at("choice.no")]
+      : shape === "known" ? [program.at("choice.yes")] : [];
+    assert.deepEqual(new Set(reads.map(row => row.tir.node)), new Set(expected));
+    assert.equal(reads.length, expected.length);
+    assert.equal(new Set(reads.map(row => row.place)).size, shape === "literal" ? 0 : 1);
+    const slots = mir.blocks.flatMap(block => block.statements).filter(row => row.kind === "storage-live");
+    assert.equal(slots.length, shape === "literal" ? 0 : 1);
+    assert.equal(mir.constants.length, 1, "only the guard constant is materialized");
+    if (shape === "nested") {
+      assert.equal(mir.blocks[0].statements.includes(slots[0]), true);
+      for (const [outer, inner, tag] of [[false, false, "choice.no"], [true, true, "inner.yes"], [true, false, "inner.no"]]) {
+        const path = walk(mir, { decide: point => point.node === program.at("choice.control") ? outer : inner });
+        assert.deepEqual(path.events.filter(event => event.record.kind === "assign").map(event => event.node), [program.at(tag)]);
+      }
+    }
+    exactLowerBudget(program, mir);
+  }
+});
+
+test("a nested known guard cannot borrow an effect-only read slot with a different carrier", () => {
+  const program = shaped("conditional.discard.known-guard", [["flag", "required", T.bool], ["known", "required", literalTrue],
+    ["first", "required", T.int32], ["second", "required", T.int32]], T.int32, b =>
+    b.block(b.expressionStatement(conditional(b.id("flag", 0, T.bool), conditional(b.id("known", 1, literalTrue),
+      b.id("first", 2, T.int32), b.id("second", 3, T.int32), T.int32, "dynamic", "inner"),
+    b.id("second", 3, T.int32), T.int32)), b.returns(b.id("second", 3, T.int32))));
+  const mir = lower(program);
+  assert.equal(mir.blocks.filter(block => block.terminator.kind === "switch").length, 1);
+  const reads = flag => walk(mir, { decide: () => flag }).events.filter(event => event.record.kind === "assign");
+  const selected = reads(true);
+  const skipped = reads(false);
+  assert.deepEqual(selected.map(event => event.node), [program.at("inner.control"), program.at("inner.yes")]);
+  assert.deepEqual(skipped.map(event => event.node), [program.at("choice.no")]);
+  assert.notEqual(selected[0].record.place, selected[1].record.place);
+  assert.equal(mir.places[selected[0].record.place].storage, literalTrue);
+  assert.equal(selected[1].record.place, skipped[0].record.place);
+  assert.equal(mir.places[selected[1].record.place].storage, T.int32);
   exactLowerBudget(program, mir);
 });
 
@@ -728,6 +1489,37 @@ test("a branch-local write snapshots earlier pending reads at the actual dominat
   }
 });
 
+test("reverse invalidation fills each original read position once without charging empty positions", () => {
+  for (const count of [4, 16, 64]) for (const writing of [false, true]) {
+    const cells = Array.from({ length: count }, (_, position) => `slot${position}`);
+    const parameters = ["gate", "next", ...cells].map(name => [name, "required", T.bool]);
+    const program = shaped(`read.position.${count}.${writing}`, parameters, T.bool, builder => {
+      const next = () => builder.id("next", 1, T.bool);
+      let replacement = next();
+      if (writing) for (const [position, name] of cells.entries()) {
+        const write = builder.assign(builder.target(name, position + 2, T.bool), "EqualsToken", next(), T.bool, T.bool);
+        replacement = builder.sequence(write, replacement, T.bool);
+      }
+      let value = conditional(builder.id("gate", 0, T.bool), replacement, builder.keyword("FalseKeyword", T.bool), T.bool);
+      for (let position = count - 1; position >= 0; position -= 1) {
+        const name = cells[position];
+        value = builder.comparison({ $: `read-${name}`, ...builder.id(name, position + 2, T.bool) }, "EqualsEqualsEqualsToken", value,
+          native("===", "bool", [T.bool, T.bool], T.bool));
+      }
+      return value;
+    });
+    const mir = lower(program);
+    const saved = mir.blocks[0].statements.filter(record => record.kind === "assign" && record.value.kind === "use");
+    assert.deepEqual(saved.map(record => record.tir.node), writing ? cells.map(name => program.at(`read-${name}`)) : []);
+    const consumed = mir.blocks.at(-1).statements.filter(record => record.kind === "assign" && record.value.kind === "binary");
+    assert.deepEqual(consumed.map(record => record.value.left.place).reverse(),
+      writing ? saved.map(record => record.place) : cells.map((_, position) => mir.places.find(place =>
+        place.base.kind === "local" && place.base.local === sourceLocal(mir, position + 2)).id));
+    assert.deepEqual(verified(mir, program), []);
+    exactLowerBudget(program, mir);
+  }
+});
+
 test("conditional inputs reject mismatched selected operands, arm storage and unavailable boolean conversion", () => {
   const make = name => shaped(`conditional.invalid.${name}`, [["c", "required", T.bool]], T.int32,
     b => conditional(b.id("c", 0, T.bool), b.num("1", T.int32), b.num("2", T.int32), T.int32));
@@ -796,6 +1588,7 @@ test("selected scalar literals use one constant and no temporary or check, with 
   for (const [name, type, token, number] of [
     ["zero", T.int32, "0", { numerator: 0n, denominator: 1n, negativeZero: false }],
     ["fraction", T.float64, "1.5", { numerator: 3n, denominator: 2n, negativeZero: false }],
+    ["inexact-fraction", T.float64, "0.1", { numerator: 1n, denominator: 10n, negativeZero: false }],
     ["native64", T.literalInt64, "9007199254740993", { numerator: 9007199254740993n, denominator: 1n, negativeZero: false }],
     ["hex64", T.literalInt64, "0x20000000000001", { numerator: 9007199254740993n, denominator: 1n, negativeZero: false }],
   ]) cases.push([name, type, () => ({ kind: "NumericLiteral", text: token, tokenFlags: [],
@@ -815,7 +1608,7 @@ test("selected scalar literals use one constant and no temporary or check, with 
     const outcome = produced(deps, program.tir, []);
     assert.equal(outcome.kind, "ok");
     const mir = outcome.value;
-    if (name === "fraction") assert.throws(() => verified(mir, program), /missing selected literal literal-conversion evidence/u);
+    if (name === "inexact-fraction") assert.throws(() => verified(mir, program), /missing selected literal literal-conversion evidence/u);
     else assert.deepEqual(verified(mir, program), []);
     assert.deepEqual(mir.constants, [{ id: 0, type, value: { kind: "literal", value: expected } }]);
     assert.deepEqual([mir.locals, mir.places, mir.blocks.length, mir.blocks[0].statements], [[], [], 1, []]);
@@ -883,25 +1676,43 @@ test("selected unary values use the same operation placement and exact record ac
     { kind: "unary", operation: typedOperation(not), operand: { kind: "place", place: 0 } });
 });
 
-test("typeof and void place their selected unary operations after actual operand evaluation", () => {
+test("typeof applies its selected operation and void observes its operand before normal absence", () => {
   for (const [kind, identity, result] of [["TypeOfExpression", "type-query", T.string], ["VoidExpression", "discard", T.absence]]) {
+    const discards = kind === "VoidExpression";
     for (const [name, execution] of Object.entries(EXECUTIONS)) {
       const decision = selected({ kind: identity }, [T.int32], result, execution);
       const program = shaped(`unary.${kind}.${name}`, [["x", "required", T.int32]], result, b => b.block(b.returns({
-        $: "selected", kind, expression: b.id("x", 0, T.int32), tsonic: value(result, { operation: { kind: "decided", decision: typedOperation(decision) } }),
+        $: "selected", kind, expression: { $: "operand", ...b.id("x", 0, T.int32) },
+        tsonic: value(result, { operation: { kind: "decided", decision: typedOperation(decision) } }),
       })));
+      if (discards && execution.kind !== "pure") {
+        assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error)
+          && error.message === "caller defect: void without its selected discard operation", name);
+        continue;
+      }
       const mir = lower(program);
-      if (execution.kind === "pure") assert.deepEqual(mir.blocks[0].statements[1].value,
+      if (discards) {
+        const [block] = mir.blocks;
+        assert.equal(mir.blocks.length, 1);
+        assert.deepEqual(block.statements.map(row => row.kind), ["storage-live", "assign"]);
+        assert.deepEqual([block.statements[1].tir.node, block.statements[1].value],
+          [program.at("operand"), { kind: "use", operand: { kind: "place", place: 0 } }]);
+        assert.equal(mir.locals[block.statements[0].local].storage, T.int32);
+        assert.equal(mir.constants.length, 1);
+        assert.deepEqual([mir.constants[0].type, mir.constants[0].value, block.terminator.value],
+          [T.absence, { kind: "literal", value: { kind: "absence" } }, { kind: "constant", constant: mir.constants[0].id }]);
+      } else if (execution.kind === "pure") assert.deepEqual(mir.blocks[0].statements[1].value,
         { kind: "unary", operation: typedOperation(decision), operand: { kind: "place", place: 0 } });
       else {
         assert.deepEqual(mir.blocks[0].terminator.operands, [{ kind: "place", place: 0 }]);
         assert.deepEqual(mir.blocks[0].terminator.operation, typedOperation(decision));
         assert.equal(mir.blocks[0].terminator.unwind.kind, execution.failure === "unwind" ? "escape" : execution.failure);
       }
-      assert.deepEqual(mir.blocks.at(-1).terminator.value, { kind: "place", place: 1 });
-      for (let maximumRecords = 0; maximumRecords < 7; maximumRecords += 1)
+      if (!discards) assert.deepEqual(mir.blocks.at(-1).terminator.value, { kind: "place", place: 1 });
+      const records = discards ? 8 : 7;
+      for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
         assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${kind}/${name} under ${maximumRecords}`);
-      assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 7 } }, program.tir, []).value, mir);
+      assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
 
       const operandEffect = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
       const effectful = shaped(`unary.${kind}.${name}.operand-effect`, [["x", "required", T.int32]], result, b => b.block(b.returns({
@@ -912,17 +1723,39 @@ test("typeof and void place their selected unary operations after actual operand
       assert.equal(graph.blocks[0].terminator.tir.node, effectful.at("effect"));
       assert.deepEqual(graph.blocks[0].terminator.operation, typedOperation(operandEffect));
       const query = graph.blocks[1];
-      if (execution.kind === "pure") assert.deepEqual(query.statements[1].value.operand, { kind: "place", place: 1 });
+      if (discards) {
+        assert.equal(graph.blocks.length, 2);
+        assert.deepEqual([graph.blocks[0].terminator.next, graph.blocks[0].terminator.unwind], [query.id, { kind: "escape" }]);
+        assert.deepEqual(query.statements, []);
+        assert.deepEqual(query.terminator.value, { kind: "constant", constant: graph.constants[0].id });
+      } else if (execution.kind === "pure") assert.deepEqual(query.statements[1].value.operand, { kind: "place", place: 1 });
       else assert.deepEqual(query.terminator.operands, [{ kind: "place", place: 1 }]);
-      for (let maximumRecords = 0; maximumRecords < 11; maximumRecords += 1)
+      const effectRecords = discards ? 8 : 11;
+      for (let maximumRecords = 0; maximumRecords < effectRecords; maximumRecords += 1)
         assert.equal(produced({ ...deps, limits: { maximumRecords } }, effectful.tir, []).kind, "refused", `${kind}/${name} operand effect under ${maximumRecords}`);
-      assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 11 } }, effectful.tir, []).value, graph);
+      assert.deepEqual(produced({ ...deps, limits: { maximumRecords: effectRecords } }, effectful.tir, []).value, graph);
     }
     const deferred = shaped(`unary.${kind}.deferred`, [["x", "required", T.int32]], result, b => b.block(b.returns({
       kind, expression: b.id("x", 0, T.int32), tsonic: value(result, { operation: { kind: "deferred", deferred: null } }),
     })));
     assert.throws(() => produced(deps, deferred.tir, []), error => defectOfLowerMir(error) && error.message.includes("deferred operation"));
   }
+});
+
+test("discarded void observes its original operand without producing an absence value", () => {
+  const operation = selected({ kind: "discard" }, [T.int32], T.absence);
+  const program = shaped("unary.void.discard", [["input", "required", T.int32]], T.int32, b => b.block(
+    b.expressionStatement({ kind: "VoidExpression", expression: { $: "read", ...b.id("input", 0, T.int32) },
+      tsonic: value(T.absence, { operation: { kind: "decided", decision: typedOperation(operation) } }) }),
+    b.returns(b.id("input", 0, T.int32))));
+  const mir = lower(program);
+  const [started, read] = mir.blocks[0].statements;
+  assert.deepEqual(mir.blocks[0].statements.map(row => row.kind), ["storage-live", "assign"]);
+  assert.equal(read.tir.node, program.at("read"));
+  assert.deepEqual(read.value, { kind: "use", operand: { kind: "place", place: 0 } });
+  assert.equal(mir.locals[started.local].storage, T.int32);
+  assert.deepEqual(mir.constants, []);
+  exactLowerBudget(program, mir);
 });
 
 test("nested unary values run inside out; a writing unary saves only earlier pending exposed reads", () => {
@@ -959,17 +1792,24 @@ test("empty statements have no records and expression statements retain effects 
   assert.deepEqual([bare.locals, bare.places, bare.constants, bare.blocks.length, bare.blocks[0].statements], [[], [], [], 1, []]);
   assert.equal(produced({ ...deps, limits: { maximumRecords: 0 } }, empty.tir, []).kind, "refused");
   assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 1 } }, empty.tir, []).value, bare);
+  const unused = shaped("discard.unused-literal", [], T.void,
+    builder => builder.block(builder.expressionStatement(builder.num("2", T.int32))));
+  const noValue = lower(unused);
+  assert.deepEqual([noValue.locals, noValue.places, noValue.constants, noValue.blocks.length, noValue.blocks[0].statements], [[], [], [], 1, []]);
+  assert.equal(produced({ ...deps, limits: { maximumRecords: 0 } }, unused.tir, []).kind, "refused");
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 1 } }, unused.tir, []).value, noValue);
   const decision = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
   const program = shaped("discard.effect", [["a", "required", T.int32, "byref-readwrite"]], T.void,
     b => b.block(b.expressionStatement(b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, decision)),
       b.expressionStatement(b.id("a", 0, T.int32)), b.returns(null), b.expressionStatement(b.num("2", T.int32))));
   const mir = lower(program);
-  assert.deepEqual(mir.blocks.map(block => block.statements.map(record => record.kind)), [["storage-live"], []]);
+  assert.deepEqual(mir.blocks.map(block => block.statements.map(record => record.kind)), [["storage-live"], ["storage-live", "assign"]]);
+  assert.deepEqual(mir.blocks[1].statements[1].value, { kind: "use", operand: { kind: "place", place: 0 } });
   assert.deepEqual(mir.blocks[0].terminator.operands, [{ kind: "place", place: 0 }]);
   assert.deepEqual([mir.blocks[1].terminator.kind, mir.blocks[1].terminator.value, mir.constants], ["return", null, []]);
-  for (let maximumRecords = 0; maximumRecords < 7; maximumRecords += 1)
+  for (let maximumRecords = 0; maximumRecords < 11; maximumRecords += 1)
     assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `discard under ${maximumRecords}`);
-  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 7 } }, program.tir, []).value, mir);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 11 } }, program.tir, []).value, mir);
 });
 
 test("comma sequences execute each operand once in source order and keep only the right result", () => {
@@ -995,12 +1835,14 @@ test("discard removes only its own exposure while an outer pending read remains 
       b.prefix(b.id("b", 1, T.int32), "MinusToken", T.int32, decision), T.int32), T.int32, plus("int32", T.int32)))));
   const mir = lower(program);
   const saved = mir.blocks[0].statements.filter(record => record.kind === "assign");
-  assert.deepEqual(saved.map(record => record.value), [{ kind: "use", operand: { kind: "place", place: 0 } }]);
+  assert.deepEqual(saved.map(record => record.value), [
+    { kind: "use", operand: { kind: "place", place: 0 } }, { kind: "use", operand: { kind: "place", place: 1 } },
+  ]);
   assert.deepEqual(mir.blocks[0].terminator.operands, [{ kind: "place", place: 1 }]);
-  assert.deepEqual(mir.blocks[1].statements[1].value.left, { kind: "place", place: 2 });
-  for (let maximumRecords = 0; maximumRecords < 17; maximumRecords += 1)
+  assert.deepEqual(mir.blocks[1].statements[1].value.left, { kind: "place", place: saved[0].place });
+  for (let maximumRecords = 0; maximumRecords < 21; maximumRecords += 1)
     assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `waiting under ${maximumRecords}`);
-  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 17 } }, program.tir, []).value, mir);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 21 } }, program.tir, []).value, mir);
 });
 
 test("an escaping throw evaluates its selected operand once, names the actual throw and omits unreachable statements", () => {
@@ -1056,7 +1898,11 @@ test("parenthesized assignment destinations preserve the actual selected local w
         b.id("b", 1, T.int32), T.int32, T.int32, calculation ? plus("int32", T.int32) : null) })));
     const mir = lower(program);
     const writes = mir.blocks[0].statements.filter(record => record.kind === "assign");
-    assert.deepEqual(writes.map(record => record.value.kind), calculation ? ["binary", "use"] : ["use"]);
+    assert.deepEqual(writes.map(record => record.value.kind), calculation ? ["use", "binary", "use"] : ["use"]);
+    if (calculation) {
+      assert.equal(rootLocalOf(mir, writes[0].value.operand.place), sourceLocal(mir, 0));
+      assert.deepEqual(writes[1].value.left, { kind: "place", place: writes[0].place });
+    }
     assert.equal(rootLocalOf(mir, writes.at(-1).place), sourceLocal(mir, 0));
     assert.equal(writes.at(-1).tir.node, program.at("store"));
     assert.deepEqual(mir.blocks[0].terminator.value, writes.at(-1).value.operand);
@@ -1126,6 +1972,33 @@ test("calculated local assignment reads before its right side and stores only af
   }
 });
 
+test("compound assignment has already read its left local when a read-only right-side operation can abort", () => {
+  const type = T.int32;
+  const program = shaped("assignment.calculated.right-aborts", [["a", "required", type], ["b", "required", type]], type,
+    builder => builder.block(builder.returns({ $: "compound", ...builder.assign(
+      { $: "left", ...builder.target("a", 0, type, { kind: "read-write", storage: type, read: type, narrowing: null, evidenceIndex: null }) },
+      "PlusEqualsToken",
+      { $: "right", ...builder.arithmetic(builder.id("b", 1, type), "PlusToken", builder.num("1", type), type,
+        plus("int32", type, { kind: "invocation", writesStorage: false, failure: "abort" })) },
+      type, type, plus("int32", type)) })));
+  const graph = lower(program);
+  const entry = graph.blocks[0];
+  const saved = entry.statements.find(row => row.kind === "assign" && row.tir.node === program.at("left"));
+  assert.equal(saved.value.kind, "use");
+  assert.equal(rootLocalOf(graph, saved.value.operand.place), sourceLocal(graph, 0));
+  assert.equal(entry.terminator.kind, "invoke");
+  assert.equal(entry.terminator.tir.node, program.at("right"));
+  assert.deepEqual(entry.terminator.unwind, { kind: "abort" });
+  const next = graph.blocks[entry.terminator.next];
+  const calculation = next.statements.find(row => row.kind === "assign" && row.value.kind === "binary");
+  assert.deepEqual(calculation.value.left, { kind: "place", place: saved.place });
+  const writes = graph.blocks.flatMap(block => block.statements.filter(row => row.kind === "assign" && rootLocalOf(graph, row.place) === sourceLocal(graph, 0)));
+  assert.equal(writes.length, 1);
+  assert.equal(next.statements.includes(writes[0]), true);
+  assert.equal(writes[0].tir.node, program.at("compound"));
+  exactLowerBudget(program, graph);
+});
+
 test("a write to caller storage preserves all possibly aliased exposed reads, not only its named LocalId", () => {
   for (const passing of ["byref-readwrite", "by-value"]) {
     const program = shaped(`assignment.alias.${passing}`, [["a", "required", T.int32, "byref-readwrite"], ["b", "required", T.int32, passing]], T.int32,
@@ -1152,7 +2025,8 @@ test("assignment rejects unavailable selected inputs rather than inventing a tar
   const make = name => shaped(`assignment.invalid.${name}`, [["a", "required", T.int32]], T.int32,
     b => b.block(b.returns(b.assign(b.target("a", 0, T.int32), "EqualsToken", b.id("a", 0, T.int32), T.int32, T.int32))));
   const cases = [
-    ["selection", node => { node.tsonic.selection = { kind: "and", control: node.left.id, right: node.right.id, disposition: "dynamic" }; }, false, "a conditional assignment"],
+    ["selection", node => { node.tsonic.selection = { kind: "and", control: node.left.id, right: node.right.id, disposition: "dynamic" }; }, true,
+      "a conditional assignment differs from its actual selected control"],
     ["target-kind", node => { node.left.kind = "PropertyAccessExpression"; }, false, "an assignment target of kind PropertyAccessExpression"],
     ["role", node => { node.left.tsonic.role = "value"; }, true, "an assignment without a selected target"],
     ["error", node => { node.left.tsonic.resolution = { kind: "error", diagnostic: 0 }; }, true, "an error resolution"],
@@ -1238,6 +2112,12 @@ test("selected direct calls retain argument order, passing and original unwindin
     assert.deepEqual(call.arguments.map(argument => mir.constants[argument.operand.constant].value.value.value.numerator),
       Array.from({ length: count }, (_, index) => BigInt(index + 1)));
     assert.equal(call.destination === null, result === T.void);
+    assert.equal(mir.constants.length, count);
+    if (result === T.void) {
+      const returned = mir.blocks[call.next].terminator;
+      assert.equal(returned.kind, "return");
+      assert.equal(returned.value, null);
+    }
     assert.equal(walk(mir).events.at(-1).node, program.at(name));
     assert.equal(walk(mir, { decide: () => "unwind" }).end, "unwind");
     const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
@@ -1246,6 +2126,45 @@ test("selected direct calls retain argument order, passing and original unwindin
       assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
     assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
   }
+});
+
+test("a selected void call cannot itself supply a demanded absence value", () => {
+  const location = "call.void.value";
+  const program = shaped("call.void.value-consumer", [], T.absence, builder =>
+    builder.block(builder.returns(directApplication(builder, location, [], T.void))));
+  const origin = program.tir.root.statements.nodes[0].expression.origin;
+  const reads = [];
+  const attempt = maximumRecords => produced({ ...deps, limits: { maximumRecords }, typeOf: type => {
+    reads.push(type);
+    return deps.typeOf(type);
+  } }, program.tir, []);
+  const stopped = attempt(0);
+  assert.deepEqual([stopped.kind, "value" in stopped, stopped.diagnostics.map(row => row.code.name)],
+    ["refused", false, ["TSONIC_COMPILER_RESOURCE_LIMIT"]]);
+  assert.deepEqual(reads, []);
+  assert.throws(() => attempt(1),
+    error => notLoweredYet("a void call with a value consumer")(error) && error.cause.origin === origin);
+  assert.deepEqual(reads, [T.void]);
+});
+
+test("discarded direct calls charge their arguments and control, not a result slot", () => {
+  const program = shaped("call.discarded.result", [], T.void, builder => builder.block(builder.expressionStatement(
+    directApplication(builder, "discarded.call", [builder.num("1", T.int32)], T.int32))));
+  const mir = lower(program);
+  assert.equal(mir.blocks.length, 2);
+  assert.deepEqual(mir.locals, []);
+  assert.deepEqual(mir.places, []);
+  assert.equal(mir.constants.length, 1);
+  assert.ok(mir.blocks.every(block => block.statements.length === 0));
+  const call = mir.blocks[0].terminator;
+  assert.equal(call.kind, "call");
+  assert.equal(call.tir.node, program.at("discarded.call"));
+  assert.equal(call.destination, null);
+  assert.deepEqual(call.unwind, { kind: "escape" });
+  assert.equal(mir.blocks[call.next].terminator.kind, "return");
+  for (let maximumRecords = 0; maximumRecords < 3; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused");
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 3 } }, program.tir, []).value, mir);
 });
 
 test("omitted fixed arguments stay omitted while a supplied native absence remains a value", () => {
@@ -1406,7 +2325,7 @@ test("ordered default entries execute real child MIR and capture the actual earl
   const graphs = new Map(children.map(child => [instanceKey({ body: child.tir.body, bindings }), lower(child)]));
   const mir = lower(program, inputs);
   assert.deepEqual(providedCountsOf(mir), [2, 1, 0]);
-  const interner = types.seedTypeInterner(TABLE);
+  const interner = admitFixtureTable(types, TABLE);
   const views = { types: types.viewTypes(interner), typeOf: type => types.readType(interner, type),
     signatureOf: selected => types.readSignature(interner, selected), selectedNativeFacts: verificationContext(program).selectedNativeFacts,
     limits: { maximumSteps: 100, maximumIntermediateBits: 16, maximumResultBits: 16, maximumArithmeticWork: 100 } };
@@ -1519,8 +2438,9 @@ test("selected local place arguments preserve the location, passing and actual p
       assert.equal(copies.length, incoming !== "by-value" || writable ? 1 : 0);
       if (copies.length !== 0) {
         const beforeEffect = mir.blocks.find(block => block.terminator.tir.node === program.at(`${name}.effect`));
-        assert.equal(beforeEffect.statements.includes(copies[0]), incoming !== "by-value");
-        assert.equal(outerBlock.statements.includes(copies[0]), incoming === "by-value");
+        assert.equal(beforeEffect.statements.includes(copies[0]), true);
+        assert.equal(outerBlock.statements.includes(copies[0]), false);
+        assert.deepEqual(copies[0].value, { kind: "use", operand: { kind: "place", place: argument.place } });
       }
       assert.equal(mir.blocks.flatMap(block => block.statements).some(statement => statement.kind === "assign"
         && statement.tir.node === program.at("place-argument")), false, "passing a local location does not load its value");
@@ -1674,9 +2594,11 @@ test("place argument input defects do not select a value conversion, missing loc
     ["conversion", node => { node.tsonic.conversion = { kind: "deferred" }; }, "a place argument has a value conversion or narrowing"],
     ["narrowing", node => { node.tsonic.narrowing = { kind: "narrowed" }; }, "a place argument has a value conversion or narrowing"],
     ["wrapper-conversion", node => { node.kind = "ParenthesizedExpression"; node.expression = { ...node };
-      node.expression.kind = "Identifier"; node.tsonic = { ...node.tsonic, conversion: { kind: "deferred" } }; }, "a place argument has a value conversion or narrowing"],
+      node.expression.kind = "Identifier"; node.tsonic = { ...value(T.int32), conversion: { kind: "deferred" } }; }, "a place argument has a value conversion or narrowing"],
     ["wrapper-narrowing", node => { node.kind = "ParenthesizedExpression"; node.expression = { ...node };
-      node.expression.kind = "Identifier"; node.tsonic = { ...node.tsonic, narrowing: { kind: "narrowed" } }; }, "a place argument has a value conversion or narrowing"],
+      node.expression.kind = "Identifier"; node.tsonic = { ...value(T.int32), narrowing: { kind: "narrowed" } }; }, "a place argument has a value conversion or narrowing"],
+    ["wrapper-declaration-name", node => { node.kind = "ParenthesizedExpression"; node.expression = { ...node };
+      node.expression.kind = "Identifier"; node.tsonic = { role: "declaration-name-expression" }; }, "a nonexecuting declaration name in an executable value"],
     ["missing-local", node => { node.tsonic.resolution.local.local = 42; }, "a place argument has no local storage in the body"],
     ["foreign-local", node => { node.tsonic.resolution.local.body = bodyId("place.foreign"); }, "a place argument has no local storage in the body"],
   ];
@@ -1698,6 +2620,7 @@ test("place argument input defects do not select a value conversion, missing loc
 
 test("call frontiers and mismatched selected inputs never invent a callee, receiver or parameter", () => {
   const cases = [
+    ["nonexecuting", node => { node.tsonic = { role: "declaration-name-expression" }; }, true, "a nonexecuting declaration name in an executable call"],
     ["operation", node => { node.tsonic.operation = { kind: "decided", decision: typedOperation(plus("int32", T.int32)) }; }, false, "a call with a selected operation"],
     ["deferred", node => { node.tsonic.application = { kind: "deferred", deferred: { invocation: { rule: "embed", input: null }, result: T.int32 } }; }, true, "a deferred call application"],
     ["receiver", node => { node.tsonic.application.decision.receiver = node.expression.id; }, false, "a call with a receiver"],
@@ -1865,15 +2788,41 @@ test("selected module variables execute separate initializers once in authored o
 
 test("module declarations without initializers have no fabricated value, local lifetime or child execution", () => {
   const { program, inputs } = initializedModule("module.uninitialized", 1);
-  const declaration = program.tir.root.statements.nodes[0].declarationList.declarations.nodes[0];
+  const list = program.tir.root.statements.nodes[0].declarationList;
+  list.flags = ["Let"];
+  const declaration = list.declarations.nodes[0];
   declaration.initializer = null;
   declaration.tsonic.initializer = null;
   program.tir.nestedBodies = [];
   const mir = lower(program);
-  assert.deepEqual([mir.locals, mir.places, mir.constants, mir.blocks[0].statements], [[], [], [], []]);
+  assert.deepEqual([mir.locals, mir.constants, mir.blocks[0].statements], [[], [], []]);
+  assert.deepEqual(mir.places, [{ id: 0, origin: declaration.origin, storage: T.bool,
+    base: { kind: "static", definition: declaration.tsonic.declaration.definition } }]);
   assert.equal(mir.blocks.length, 1);
+  assert.deepEqual(mir.blocks[0].terminator.value, null);
+  assert.equal(produced({ ...deps, limits: { maximumRecords: 1 } }, program.tir, []).kind, "refused");
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 2 } }, program.tir, []).value, mir);
   declaration.initializer = { kind: "FalseKeyword", tsonic: value(T.bool) };
   assert.throws(() => produced(deps, program.tir, inputs), notLoweredYet("a variable initializer without its placed execution"));
+});
+
+test("uninitialized static absence uses exactly the actual selected carrier and no child", () => {
+  for (const storage of [optionalBool, T.absence]) {
+    const { program } = initializedModule(`triage.module.absence.${storage}`, 1);
+    const list = program.tir.root.statements.nodes[0].declarationList;
+    const declaration = list.declarations.nodes[0];
+    list.flags = ["Let"];
+    declaration.initializer = null;
+    declaration.tsonic.initializer = null;
+    declaration.tsonic.storage = storage;
+    declaration.name.tsonic.storage = storage;
+    program.tir.nestedBodies = [];
+    const mir = lowerAtBounds(program, 4);
+    assert.deepEqual([mir.locals, mir.places.map(place => place.storage), mir.constants.map(constant => [constant.type, constant.value])],
+      [[], [storage], [[storage, { kind: "literal", value: { kind: "absence" } }]]]);
+    assert.equal(mir.blocks[0].statements[0].tir.node, declaration.id);
+    assert.equal(mir.blocks[0].terminator.kind, "return");
+  }
 });
 
 test("module callable-header and sparse statement inputs are actual caller defects", () => {
@@ -1997,14 +2946,14 @@ test("lexical slot lifetimes end at actual normal and break exits while function
   assert.equal(mir.blocks.filter(block => block.terminator.kind === "call").length, 2);
 });
 
-test("for var initialization executes its placed body once before the condition and retains function-scoped storage", () => {
-  for (const transfer of ["normal", "break", "continue"]) {
-    const name = `binding.for.var.${transfer}`;
-    const { program, input } = initializedBinding(name, "var", "captured-value", false, false, (b, statements) =>
+test("for declaration initialization executes once and ends only the lexical header at its loop exit", () => {
+  for (const keyword of ["var", "let", "const"]) for (const transfer of ["normal", "break", "continue"]) {
+    const name = `binding.for.${keyword}.${transfer}`;
+    const { program, input } = initializedBinding(name, keyword, "captured-value", false, false, (b, statements) =>
       b.block({ $: "loop", ...b.forLoop(statements[0].declarationList,
         b.keyword(transfer === "normal" ? "FalseKeyword" : "TrueKeyword", transfer === "normal" ? literalFalse : literalTrue), null,
         transfer === "normal" ? b.block() : b.block(transfer === "break" ? selectedBreak(b, "loop") : selectedContinue(b, "loop", false))) },
-      b.returns(b.id("slot", 1, T.int32))));
+      b.returns(keyword === "var" ? b.id("slot", 1, T.int32) : b.id("input", 0, T.int32))));
     const mir = lower(program, [input]);
     const call = mir.blocks[0].terminator;
     assert.equal(call.kind, "call");
@@ -2013,7 +2962,8 @@ test("for var initialization executes its placed body once before the condition 
     const slot = mir.locals.find(local => local.role.kind === "user");
     const markers = mir.blocks.flatMap(block => block.statements).filter(statement => statement.local === slot.id
       && (statement.kind === "storage-live" || statement.kind === "storage-dead"));
-    assert.deepEqual(markers.map(marker => marker.kind), ["storage-live"]);
+    assert.deepEqual(markers.map(marker => marker.kind), keyword === "var" || transfer === "continue"
+      ? ["storage-live"] : ["storage-live", "storage-dead"], name);
     assert.equal(mir.blocks[0].statements[0].kind, "storage-live");
     const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
       + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
@@ -2286,6 +3236,209 @@ test("if literal case constants retain actual boolean literal carriers without i
   }
 });
 
+test("known if and while observe the actual local before folding or refusing", () => {
+  for (const [form, expected] of [["if", 7], ["while", 8]]) {
+    const program = shaped(`triage.control.${form}`, [["flag", "required", literalFalse]], T.void, builder => {
+      const condition = { $: "condition", ...builder.id("flag", 0, literalFalse) };
+      const then = { $: "unread", ...builder.returns(null) };
+      return builder.block(form === "if" ? builder.ifElse(condition, then) : builder.whileLoop(condition, then),
+        { $: "after", ...builder.returns(null) });
+    });
+    const mir = lowerAtBounds(program, expected);
+    const writes = mir.blocks.flatMap(block => block.statements).filter(row => row.kind === "assign");
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].tir.node, program.at("condition"));
+    assert.deepEqual(mir.places[writes[0].value.operand.place].base, { kind: "local", local: 0 });
+    assert.equal(mir.blocks.at(-1).terminator.tir.node, program.at("after"));
+    assert.equal(mir.blocks.some(block => block.terminator.kind === "switch" || block.terminator.tir.node === program.at("unread")), false);
+  }
+});
+
+test("a discarded known short-circuit retains its one real left observation", () => {
+  const program = shaped("triage.logical.discard", [["flag", "required", literalTrue]], T.void, builder =>
+    builder.block(builder.expressionStatement(shortCircuit(builder, "and", builder.id("flag", 0, literalTrue),
+      builder.keyword("FalseKeyword", T.bool), T.bool, "right"))));
+  const mir = lowerAtBounds(program, 7);
+  assert.equal(mir.constants.length, 0);
+  const writes = mir.blocks[0].statements.filter(row => row.kind === "assign");
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].tir.node, program.at("logical.control"));
+  assert.deepEqual(mir.places[writes[0].value.operand.place].base, { kind: "local", local: 0 });
+});
+
+const booleanCaseEquality = (subject, label) => selected({ kind: "boolean-operator", operator: "===" }, [subject, label], T.bool);
+
+test("false-only dispatch uses its actual default and pays a fallthrough block, not a lexical var slot", () => {
+  const name = "triage.switch.false.fallthrough";
+  const builder = builders(name);
+  const declaration = { $: "variable", ...builder.variable(builder.declName("slot", 1), 1, T.bool) };
+  const program = typedBody(name, { signature: signature(name, [["flag", T.bool]], T.void), completion: T.void,
+    locals: [["flag", "parameter", T.bool], ["slot", "binding", T.bool, true]], params: [[0, "required", T.bool]],
+    root: builder.block(builder.switchStatement(builder.id("flag", 0, T.bool), [
+      builder.caseClause(builder.keyword("FalseKeyword", literalFalse), booleanCaseEquality(T.bool, literalFalse), builder.declare([declaration])),
+      builder.caseClause(builder.keyword("FalseKeyword", literalFalse), booleanCaseEquality(T.bool, literalFalse), { $: "false", ...builder.returns(null) }),
+      builder.defaultClause({ $: "true", ...builder.returns(null) }),
+    ])) });
+  program.tir.locals[1].declaration = { kind: "body", value: program.nodeRef("variable") };
+  const mir = lowerAtBounds(program, 9);
+  const [entry] = mir.blocks;
+  assert.equal(entry.statements.filter(row => row.kind === "storage-live" && row.local === 1).length, 1);
+  assert.equal(mir.blocks.slice(1).some(block => block.statements.some(row => row.local === 1)), false);
+  const dispatch = entry.terminator;
+  const first = mir.blocks[dispatch.otherwise].terminator;
+  assert.equal(first.kind, "goto");
+  assert.equal(mir.blocks[first.target].terminator.tir.node, program.at("false"));
+  assert.equal(mir.blocks[dispatch.targets[0].target].terminator.tir.node, program.at("true"));
+});
+
+test("switch rejects duplicate default and retains an actual case-wrapper conversion", () => {
+  for (const variant of ["duplicate", "convert"]) {
+    const program = shaped(`triage.switch.${variant}`, [["flag", "required", T.bool]], T.void, builder => {
+      const wrapped = { ...builder.paren({ $: "literal", ...builder.keyword("TrueKeyword", literalTrue) }, literalTrue), $: "wrapper",
+        tsonic: at => {
+          const from = { root: { kind: "body", value: builder.nodeRef(at("literal")) }, path: [] };
+          const to = { root: { kind: "body", value: builder.nodeRef(at("wrapper")) }, path: [] };
+          const embedding = { kind: "conversion", conversion: "literal-fit", check: { kind: "none" },
+            proof: { steps: [{ from, to, rule: "literal-fit", premises: [] }], conclusion: 0 } };
+          return { ...value(literalTrue), convertedType: T.bool, conversion: { kind: "convert", role: "return",
+            operation: typedOperation(selected({ kind: "conversion", from: literalTrue, to: T.bool, embedding }, [literalTrue], T.bool)) } };
+        } };
+      return builder.block(builder.switchStatement(builder.id("flag", 0, T.bool), variant === "duplicate"
+        ? [builder.defaultClause(), builder.defaultClause()]
+        : [builder.caseClause(wrapped, booleanCaseEquality(T.bool, T.bool), builder.returns(null))]));
+    });
+    for (const maximumRecords of [0, 1, 2])
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused");
+    if (variant === "duplicate") {
+      assert.throws(() => produced({ ...deps, limits: { maximumRecords: 3 } }, program.tir, []), /a switch has more than one default clause/u);
+    } else {
+      const mir = lowerAtBounds(program, 19);
+      const records = mir.blocks.flatMap(block => block.statements);
+      const conversion = records.find(row => row.tir.node === program.at("wrapper") && row.kind === "assign" && row.value.kind === "convert");
+      const comparison = records.find(row => row.kind === "assign" && row.value.kind === "binary");
+      assert.equal(conversion !== undefined && comparison !== undefined, true);
+      assert.deepEqual(comparison.value.right, { kind: "place", place: conversion.place });
+    }
+  }
+});
+
+test("switch rejects selected equality from a crossed subject before building case blocks", () => {
+  const program = shaped("switch.case.crossed-subject", [["flag", "required", T.bool]], T.void, builder =>
+    builder.block(builder.switchStatement(builder.id("flag", 0, T.bool), [
+      builder.caseClause(builder.keyword("TrueKeyword", literalTrue), booleanCaseEquality(literalTrue, literalTrue), builder.returns(null)),
+    ])));
+  for (const maximumRecords of [0, 1, 2])
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused");
+  assert.throws(() => produced({ ...deps, limits: { maximumRecords: 3 } }, program.tir, []),
+    /a case has no selected equality of its actual subject/u);
+});
+
+test("an ordered switch observes a projected call result once before the case comparison", () => {
+  const target = "switch.subject.field.call";
+  const selectedTarget = callee(target, signature(target, [], directBox), [], directBox);
+  const program = shaped("switch.subject.field", [["label", "required", T.bool]], T.void, builder => {
+    const receiver = { $: "receiver", ...builder.call(builder.global(target, target, T.unknown), [], directBox,
+      () => ({ callee: selectedTarget, receiver: null, arguments: [] })) };
+    const subject = { $: "subject", ...builder.property(receiver, "flag", builder.read(T.bool, directField)) };
+    const clause = { $: "case", ...builder.caseClause(builder.id("label", 0, T.bool), booleanCaseEquality(T.bool, T.bool),
+      builder.returns(null)) };
+    return builder.block(builder.switchStatement(subject, [clause, builder.defaultClause(builder.returns(null))]));
+  });
+  const mir = lowerAtBounds(program, 19);
+  const call = mir.blocks[0].terminator;
+  assert.equal(call.kind, "call");
+  assert.equal(call.tir.node, program.at("receiver"));
+  const projection = mir.places.find(place => place.base.kind === "place" && place.base.projection.kind === "field");
+  assert.equal(projection.base.place, call.destination);
+  assert.deepEqual(projection.base.projection.member, directField.decision);
+  const tests = mir.blocks[call.next].statements.filter(statement => statement.kind === "assign");
+  assert.deepEqual(tests.map(statement => [statement.tir.node, statement.value.kind]),
+    [[program.at("subject"), "use"], [program.at("case"), "binary"]]);
+  const [save, comparison] = tests;
+  assert.deepEqual(save.value.operand, { kind: "place", place: projection.id });
+  assert.deepEqual(comparison.value.left, { kind: "place", place: save.place });
+});
+
+test("switch clause and statement holes are rejected at entry before dispatch", () => {
+  const program = shaped("switch.sparse-entry", [["flag", "required", T.bool]], T.void, builder =>
+    builder.block(builder.switchStatement(builder.id("flag", 0, T.bool), [
+      builder.caseClause(builder.keyword("TrueKeyword", literalTrue), booleanCaseEquality(T.bool, literalTrue), builder.returns(null)),
+      builder.defaultClause(builder.returns(null)),
+    ])));
+  for (const [kind, message] of [["clause", "a switch clause list has a hole"], ["statement", "a statement list has a hole"]]) {
+    const tree = structuredClone(program.tir);
+    const caseBlock = tree.root.statements.nodes[0].caseBlock;
+    const clauses = caseBlock.clauses.nodes;
+    const origin = kind === "clause" ? caseBlock.origin : clauses[1].origin;
+    if (kind === "clause") delete clauses[1];
+    else delete clauses[1].statements.nodes[0];
+    for (const maximumRecords of [0, 1])
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, tree, []).kind, "refused");
+    assert.throws(() => produced({ ...deps, limits: { maximumRecords: 2 },
+      typeOf: () => assert.fail("sparse entry must stop before selecting a case carrier") }, tree, []),
+    error => error instanceof Error && error.cause?.owner === "lower-mir" && error.cause.origin === origin && error.message === message);
+  }
+});
+
+test("module switch reports a hole at its first reached clause or statement pull", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const product = await import("../../packages/host/dist/ir-types/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `switch (true) { case true: break; default: ; }`);
+  const output = analyzeHostProgram(input);
+  assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
+  const module = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const { instance, tir, mir } = module.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "SourceFile");
+  const table = admitFixtureTable(product, output.value.index.types);
+  const unit = { request: { query: "mirBody", key: instanceKey(instance) }, position: { kind: "result" } };
+  const defs = { completionSelector: product.internType(table, { kind: "primitive", primitive: "int32" }),
+    exceptionStorage: product.internType(table, { kind: "intrinsic", intrinsic: "unknown" }) };
+  const reads = [];
+  const lower = (body, maximumRecords) => produced({ defs, unit, limits: { maximumRecords },
+    typeOf: id => { reads.push(id); return product.readType(table, id); },
+    signatureOf: id => product.readSignature(table, id) }, body, []);
+  const records = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+    + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+  assert.deepEqual(lower(tir, records), { kind: "ok", value: mir, diagnostics: [] });
+  for (const [kind, message] of [["clause", "a switch clause list has a hole"], ["statement", "a switch clause statement list has a hole"]]) {
+    const tree = structuredClone(tir);
+    const statement = tree.root.statements.nodes[0];
+    const clauses = statement.caseBlock.clauses.nodes;
+    const origin = kind === "clause" ? statement.origin : clauses[1].origin;
+    const label = clauses[0].expression.tsonic.type;
+    const carrier = product.readType(table, label);
+    assert.equal(carrier.kind, "literal");
+    const expected = kind === "clause" ? [label, carrier.base] : [label, carrier.base, statement.expression.tsonic.convertedType];
+    if (kind === "clause") delete clauses[1];
+    else delete clauses[1].statements.nodes[0];
+    reads.length = 0;
+    for (const maximum of [0, 1]) {
+      const diagnostic = resourceLimitDiagnostic({ owner: "lower-mir", limit: "lower-mir.maximumRecords", maximum,
+        site: { kind: "source", origin: tree.root.origin }, unit });
+      assert.deepEqual(lower(tree, maximum), { kind: "refused", diagnostics: [diagnostic] });
+      assert.deepEqual(reads, []);
+    }
+    assert.throws(() => lower(tree, 2),
+      error => defectOfLowerMir(error) && error.cause.origin === origin
+        && error.cause.query === null && error.message === `${CALLER_DEFECT}${message}`);
+    assert.deepEqual(reads, expected);
+  }
+});
+
+test("a conditional assignment without its retained read stops before the target or RHS", () => {
+  const program = shaped("triage.conditional.missing-read", [["flag", "required", T.bool]], T.void, builder => {
+    const expression = shortCircuit(builder, "and", builder.target("flag", 0, T.bool),
+      builder.keyword("FalseKeyword", T.bool), T.bool);
+    return builder.block(builder.expressionStatement({ ...expression, operatorToken: { ...expression.operatorToken, kind: "AmpersandAmpersandEqualsToken" },
+      tsonic: at => ({ ...expression.tsonic(at), role: "assignment", storage: T.bool, calculation: null }) }));
+  });
+  for (const maximumRecords of [0, 1])
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused");
+  assert.throws(() => produced({ ...deps, limits: { maximumRecords: 2 } }, program.tir, []),
+    /a conditional assignment without a selected read/u);
+});
+
 test("nested returning if branches preserve the outer pending statement boundary", () => {
   const program = shaped("if.nested", [["outer", "required", T.bool], ["inner", "required", T.bool]], T.int32, b => b.block(
     { $: "outer", ...b.ifElse(b.id("outer", 0, T.bool), b.block(
@@ -2339,6 +3492,121 @@ test("known boolean while loops retain only genuine exits and do not invent fall
     for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
       assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `known while under ${maximumRecords}`);
     assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+  }
+});
+
+test("literal Boolean switches retain actual reachable clauses and exact record limits", () => {
+  const layouts = {
+    fallthrough: (builder, subject) => [builder.defaultClause(), builder.caseClause(builder.keyword("TrueKeyword", literalTrue), booleanCaseEquality(subject, literalTrue), selectedBreak(builder, "dispatch"))],
+    primitive: (builder, subject) => [builder.defaultClause(), builder.caseClause(builder.keyword("TrueKeyword", T.bool), booleanCaseEquality(subject, T.bool), selectedBreak(builder, "dispatch"))],
+    wrapped: (builder, subject) => [builder.defaultClause(), builder.caseClause({
+      kind: "ParenthesizedExpression", expression: builder.keyword("TrueKeyword", literalTrue), tsonic: value(literalTrue),
+    }, booleanCaseEquality(subject, literalTrue), selectedBreak(builder, "dispatch"))],
+    first: (builder, subject) => [builder.caseClause(builder.keyword("TrueKeyword", literalTrue), booleanCaseEquality(subject, literalTrue), { $: "taken", ...builder.returns(null) }),
+      builder.caseClause(builder.keyword("TrueKeyword", literalTrue), booleanCaseEquality(subject, literalTrue), { $: "skipped", ...builder.returns(null) })],
+    fallback: builder => [builder.defaultClause()],
+    empty: () => [],
+  };
+  for (const [name, clauses] of Object.entries(layouts)) for (const known of [false, true]) {
+    const program = shaped(`switch.${name}.${known}`, [["flag", "required", T.bool]], T.void, builder => builder.block(
+      { $: "dispatch", ...builder.switchStatement(known ? builder.keyword("TrueKeyword", literalTrue) : builder.id("flag", 0, T.bool), clauses(builder, known ? literalTrue : T.bool)) },
+      { $: "after", ...builder.returns(null) }));
+    const mir = lower(program);
+    const switches = mir.blocks.filter(block => block.terminator.kind === "switch");
+    assert.equal(switches.length, 1);
+    const dispatch = switches[0].terminator;
+    if ((name === "fallthrough" || name === "wrapped" || name === "primitive") && !known) {
+      const fallback = mir.blocks[dispatch.otherwise].terminator;
+      assert.equal(fallback.kind, "goto");
+      assert.equal(fallback.target, dispatch.targets[0].target);
+    } else if (name === "first") {
+      assert.equal(mir.blocks.some(block => block.terminator.tir.node === program.at("skipped")), false);
+      const entry = dispatch.targets[0]?.target ?? dispatch.otherwise;
+      assert.equal(mir.blocks[entry].terminator.tir.node, program.at("taken"));
+    } else assert.deepEqual(dispatch.targets, []);
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((count, block) => count + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} switch under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+  }
+});
+
+test("Boolean dispatch cannot erase a selected case conversion or trust crossed typed literal evidence", () => {
+  for (const form of ["direct", "wrapped"]) {
+    const kinds = ["conversion", "narrowing", "demand", "crossed-literal", "crossed-carrier", "non-boolean", "role", "identity"];
+    if (form === "wrapped") kinds.push("crossed-wrapper", "crossed-inner-wrapper");
+    for (const kind of kinds) {
+      const name = `switch.case.${form}.${kind}`;
+      const program = shaped(name, [["flag", "required", T.bool]], T.void, builder => {
+        const original = builder.keyword("TrueKeyword", literalTrue);
+        const leaf = kind === "conversion" ? convertingNode(builder, name, original, literalTrue, T.bool, EXECUTIONS.unwinds, "native")
+          : kind === "narrowing" ? narrowingNode(builder, name, original, literalTrue, T.bool, "abort")
+          : { ...original, tsonic: { ...original.tsonic,
+            ...(kind === "demand" ? { demand: { kind: "never", control: null } } : {}),
+            ...(kind === "crossed-literal" || kind === "crossed-carrier" ? value(literalFalse) : {}),
+            ...(kind === "non-boolean" ? value(T.int32) : {}),
+            ...(kind === "role" ? { role: "property-name", key: { kind: "text", value: "true" } } : {}),
+            ...(kind === "identity" ? { convertedType: T.bool } : {}) } };
+        const inner = kind === "crossed-inner-wrapper" ? builder.paren(leaf, literalFalse) : leaf;
+        const label = kind === "conversion" || kind === "narrowing" || kind === "identity" ? T.bool
+          : kind === "crossed-carrier" ? literalFalse : literalTrue;
+        const condition = form === "wrapped" ? builder.paren(inner, kind === "crossed-wrapper" ? T.int32 : label) : leaf;
+        return builder.block(builder.switchStatement(builder.id("flag", 0, T.bool), [
+          builder.caseClause(condition, booleanCaseEquality(T.bool, label), builder.returns(null)), builder.defaultClause(builder.returns(null)),
+        ]));
+      });
+      if (kind === "conversion" || kind === "narrowing") {
+        const outcome = produced(deps, program.tir, []);
+        assert.equal(outcome.kind, "ok", name);
+        const source = program.at(kind === "conversion" ? "converted" : "narrowed");
+        const effect = outcome.value.blocks.find(block => block.terminator.tir.node === source)?.terminator;
+        assert.equal(effect?.kind, kind === "conversion" ? "invoke" : "check", name);
+        assert.equal(effect.unwind.kind, kind === "conversion" ? "escape" : "abort", name);
+      } else if (kind === "identity") {
+        const outcome = produced(deps, program.tir, []);
+        assert.equal(outcome.kind, "ok", name);
+        assert.equal(verified(outcome.value, program).some(violation => violation.rule === "operation-selected"), true, name);
+      } else {
+        assert.throws(() => produced(deps, program.tir, []), kind === "demand"
+          ? /a value demanded under a selection/u : /a Boolean switch case without matching selected literal evidence/u, name);
+      }
+    }
+  }
+});
+
+test("one shared case slot starts empty and ends on fallthrough, bypass, break and outer continue", () => {
+  for (const exit of ["fallthrough", "break", "continue"]) {
+    const name = `switch.lexical.${exit}`;
+    const builder = builders(name);
+    const declaration = { $: "declaration", ...builder.variable(builder.declName("slot", 1), 1, T.int32) };
+    const variables = builder.declare([declaration]);
+    variables.declarationList.flags = ["Let"];
+    const write = builder.expressionStatement({ $: "write", ...builder.assign(builder.target("slot", 1, T.int32), "EqualsToken",
+      builder.num("1", T.int32), T.int32, T.int32) });
+    const tail = exit === "break" ? [selectedBreak(builder, "dispatch")] : exit === "continue" ? [selectedContinue(builder, "loop", false)] : [];
+    const dispatch = { $: "dispatch", ...builder.switchStatement(builder.id("flag", 0, T.bool),
+      [builder.caseClause(builder.keyword("TrueKeyword", literalTrue), booleanCaseEquality(T.bool, literalTrue), variables, write, ...tail)]) };
+    const loop = { $: "loop", ...builder.whileLoop(builder.keyword("FalseKeyword", literalFalse), builder.block(dispatch)), kind: "DoStatement" };
+    const program = typedBody(name, { signature: signature(name, [["flag", T.bool]], T.void), completion: T.void,
+      locals: [["flag", "parameter", T.bool], ["slot", "binding", T.int32, true]], params: [[0, "required", T.bool]],
+      root: builder.block(exit === "continue" ? loop : dispatch, { $: "after", ...builder.returns(null) }) });
+    const mir = lower(program);
+    const slot = mir.locals.find(local => local.source?.body === program.tir.body && local.source.local === 1);
+    assert.equal(markersOf(mir, slot.id).filter(event => event.kind === "storage-dead").length,
+      exit === "continue" ? 2 : 1, "the switch's own exits share one end marker; outer transfers have a separate successor");
+    for (const take of [false, true]) {
+      const path = walk(mir, { decide: point => point.kind === "switch" ? take : "normal" });
+      const events = statementsOn(path);
+      assert.deepEqual(events.filter(event => event.record.local === slot.id).map(event => event.kind), ["storage-live", "storage-dead"], `${exit}/${take}`);
+      assert.equal(events.some(event => event.kind === "assign" && event.node === program.at("write")), take, `${exit}/${take}`);
+      assert.equal(path.events.at(-1).node, program.at("after"));
+    }
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((count, block) => count + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${exit} under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).value, mir);
   }
 });
 
@@ -2560,9 +3828,11 @@ test("selected labelled exits skip the correct remainders and otherwise add no b
       b.throws(b.keyword("TrueKeyword", T.bool)))), b.returns(b.id("x", 0, T.int32))));
   const alias = shaped("label.alias", [["x", "required", T.int32]], T.int32, b => b.block(
     labelledBlock(b, "out", labelledBlock(b, "alias", b.block(selectedBreak(b, "out")), "out")), b.returns(b.id("x", 0, T.int32))));
-  for (const [program, records, blocks] of [[plain, 3, 1], [returned, 3, 1], [broken, 4, 2], [outer, 4, 2], [alias, 4, 2]]) {
+  for (const [program, records, blocks] of [[plain, 7, 1], [returned, 3, 1], [broken, 4, 2], [outer, 4, 2], [alias, 4, 2]]) {
     const mir = lower(program);
-    assert.deepEqual([mir.blocks.length, mir.locals.length, mir.places.length, mir.constants.length], [blocks, 1, 1, 0]);
+    const locals = program === plain ? 2 : 1;
+    assert.deepEqual([mir.blocks.length, mir.locals.length, mir.places.length, mir.constants.length], [blocks, locals, locals, 0]);
+    if (program === plain) assert.deepEqual(mir.blocks[0].statements[1].value, { kind: "use", operand: { kind: "place", place: 0 } });
     if (blocks === 2) assert.deepEqual([mir.blocks[0].terminator.kind, mir.blocks[0].terminator.target], ["goto", 1]);
     assert.deepEqual(mir.blocks.at(-1).terminator.value, { kind: "place", place: 0 });
     for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
@@ -2746,16 +4016,13 @@ test("selected boolean for conditions repeat after the actual update and skip it
   }
 });
 
-test("declaration for frontiers and invalid selected continue owners remain explicit", () => {
-  for (const flag of ["Let", "Const"]) {
-    const declaration = shaped(`for.frontier.declaration.${flag}`, [], T.void,
-      b => b.block(unconditionalFor("loop", b.block(), { ...b.declarationList([]), flags: [flag] })));
-    assert.throws(() => produced(deps, declaration.tir, []), notLoweredYet("for initialization by declarations"));
+test("malformed for declarations and invalid selected continue owners remain explicit", () => {
+  for (const flags of [[], ["Let"], ["Const"]]) {
+    const empty = shaped(`for.empty.declaration.${flags[0] ?? "var"}`, [], T.void,
+      b => b.block(unconditionalFor("loop", b.block(), { ...b.declarationList([]), flags })));
+    assert.throws(() => produced(deps, empty.tir, []), error => defectOfLowerMir(error)
+      && error.message === `${CALLER_DEFECT}an empty variable declaration list`);
   }
-  const empty = shaped("for.empty.declaration", [], T.void,
-    b => b.block(unconditionalFor("loop", b.block(), b.declarationList([]))));
-  assert.throws(() => produced(deps, empty.tir, []), error => defectOfLowerMir(error)
-    && error.message === `${CALLER_DEFECT}an empty variable declaration list`);
   const missing = shaped("for.missing-initializer", [], T.void,
     b => b.block(unconditionalFor("loop", b.block(), { kind: "MissingDeclaration", modifiers: null, tsonic: null })));
   assert.throws(() => produced(deps, missing.tir, []), error => defectOfLowerMir(error) && error.message.includes("missing declaration in for initialization"));
@@ -2892,16 +4159,31 @@ test("WT-1 total: the call is one control point with two supplied arguments", ()
 });
 
 test("WT-1 count: the loop body runs once per true condition and the body returns after a false one", () => {
-  const program = wt1().count;
-  const mir = lower(program);
-  // Program text: `while (current < limit) current = current + 1;`. R5: authored effects execute once on each path that reaches them.
-  let remaining = 2;
-  const path = walk(mir, { decide: point => point.kind === "switch" ? (remaining-- > 0) : "normal" });
-  const increments = statementsOn(path).filter(item => item.kind === "assign" && item.node === program.at("current+1"));
-  assert.equal(increments.length, 2);
-  assert.equal(path.end, "return");
-  // No operation in this body can fail or run user code: no control point other than branches and the return (R2).
-  assert.deepEqual(effects(mir), []);
+  const { count: program, countInitializer } = wt1();
+  const initializer = { instance: { body: countInitializer.tir.body, bindings: countInitializer.tir.bindings },
+    captures: countInitializer.tir.captures, signature: countInitializer.tir.signature };
+  const childKey = instanceKey(initializer.instance);
+  program.bodyOf = instance => instanceKey(instance) === childKey ? countInitializer.tir : null;
+  const child = lower(countInitializer);
+  const [completion] = child.blocks.filter(block => block.terminator.kind === "return");
+  assert.deepEqual(child.constants[completion.terminator.value.constant].value,
+    { kind: "literal", value: { kind: "number", token: "0", value: { numerator: 0n, denominator: 1n, negativeZero: false } } });
+  assert.equal(effects(child).length, 0);
+  const mir = lower(program, [initializer]);
+  const [call] = effects(mir);
+  assert.equal(effects(mir).length, 1);
+  assert.equal(call.kind, "call");
+  assert.equal(call.node, program.at("current"));
+  assert.deepEqual(call.record.callee, { kind: "body", instance: initializer.instance, captures: [] });
+  assert.equal(mir.locals[rootLocalOf(mir, call.record.destination)].source.local, 1);
+  for (const iterations of [0, 1, 2]) {
+    let remaining = iterations;
+    const path = walk(mir, { decide: point => point.kind === "switch" ? remaining-- > 0 : "normal" });
+    const increments = statementsOn(path).filter(item => item.kind === "assign" && item.node === program.at("current+1"));
+    assert.equal(increments.length, iterations);
+    assert.deepEqual(effectsOn(path), [call]);
+    assert.equal(path.end, "return");
+  }
 });
 
 // ---- WT-6 -----------------------------------------------------------------------------------

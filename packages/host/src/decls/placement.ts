@@ -1,13 +1,14 @@
-import type { ErrorValue, UnitRequest } from "../diag/contract.js";
+import type { ErrorValue, Result, UnitRequest, UnitValue } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { DefId, TyId } from "../ids/contract.js";
 import { decodeBodyId, encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirBody, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
+import type { PlacedSignature } from "../ir-infer/contract.js";
 import type { InferredPartType } from "../ir-infer/contract.js";
 import type { Signature, SignatureParameter, SignatureRequest } from "../ir-types/contract.js";
-import { internSignature, readSignature, readType } from "../ir-types/index.js";
+import { admitTypePublicationStep, readSignature, readType, refuseTypeConstruction } from "../ir-types/index.js";
 import type { DeclsDeps, DeclsModule, DeclsStep, PlaceSignature } from "./contract.js";
-import { assembleSignature, bindSignature, endpointOf, findAscending, inferredParts, moduleOf, resolvePart, signatureValue } from "./signatures.js";
+import { assembleSignature, bindSignature, constructSignature, endpointOf, findAscending, inferredParts, moduleOf, resolvePart, signatureValue } from "./signatures.js";
 
 function fail(unit: UnitRequest, message: string): never {
   return throwInvariant({ owner: "decls", query: { name: unit.query, encodedKey: encodeKey(unit.key) }, origin: null, message });
@@ -21,7 +22,11 @@ function nodeOf(checked: DeclsModule, definition: DefId, unit: UnitRequest): Hir
   return node;
 }
 
-function endpointPlacement(inputs: DeclsDeps, request: SignatureRequest, ready: readonly InferredPartType[], unit: UnitRequest): DeclsStep<Signature, never> {
+function placed(answer: UnitValue<Signature>, request: SignatureRequest | null): UnitValue<PlacedSignature> {
+  return { value: { request, signature: answer.value }, positions: answer.positions };
+}
+
+function endpointPlacement(inputs: DeclsDeps, request: SignatureRequest, ready: readonly InferredPartType[], unit: UnitRequest): DeclsStep<PlacedSignature, never> {
   const selected = endpointOf(inputs, request);
   const bound = bindSignature(inputs, request.bindings, readSignature(inputs.types, selected.endpoint.signature), selected.origin, unit);
   if (bound.kind === "refused") return { kind: "done", value: bound };
@@ -33,10 +38,13 @@ function endpointPlacement(inputs: DeclsDeps, request: SignatureRequest, ready: 
         && (actual.part.kind !== "parameter-initializer" || actual.part.index !== expected.part.part.index));
   })) return fail(unit, "Signature placement requires exactly the actual inferred parts in their canonical order.");
   const [first, ...rest] = parts;
-  const value = first === undefined ? signatureValue(inputs, unit, bound.value, new Map())
-    : assembleSignature(inputs, { request, signature: bound.value, parts: [first, ...rest] },
-      ready.map(answer => resolvePart(answer, unit)), selected, unit);
-  return { kind: "done", value: { kind: "ok", ...value, diagnostics: [], emissions: [] } };
+  if (first === undefined)
+    return { kind: "done", value: { kind: "ok", ...placed(signatureValue(inputs, unit, bound.value, new Map()), request), diagnostics: [], emissions: [] } };
+  const stop = admitTypePublicationStep(inputs.typeWork, ready.length);
+  if (stop !== null) return { kind: "done", value: refuseTypeConstruction(inputs.typeWork, stop, selected.origin, unit) };
+  const value = assembleSignature(inputs, { request, signature: bound.value, parts: [first, ...rest] },
+    ready.map(answer => resolvePart(answer, unit)), selected, unit);
+  return { kind: "done", value: value.kind === "refused" ? value : { kind: "ok", ...placed(value.value, request), diagnostics: [], emissions: [] } };
 }
 
 function parameterNode(checked: DeclsModule, body: HirBody, local: number, unit: UnitRequest): ParameterDeclaration<CheckedPhase> {
@@ -47,18 +55,24 @@ function parameterNode(checked: DeclsModule, body: HirBody, local: number, unit:
   return node;
 }
 
-function omissionInventory(inputs: DeclsDeps, checked: DeclsModule, owner: DefId, unit: UnitRequest): ReadonlyMap<DefId, {
+type OmissionInventory = ReadonlyMap<DefId, {
   readonly node: ParameterDeclaration<CheckedPhase>;
   readonly formal: SignatureParameter;
-}> {
+}>;
+
+function omissionInventory(inputs: DeclsDeps, checked: DeclsModule, owner: DefId, unit: UnitRequest): Result<OmissionInventory> {
   const callable = nodeOf(checked, owner, unit);
   if (callable.tsonic === null || !("signatures" in callable.tsonic))
     return fail(unit, "An execution formal has no genuine checked owning callable endpoint inventory.");
   const inventory = new Map<DefId, { readonly node: ParameterDeclaration<CheckedPhase>; readonly formal: SignatureParameter }>();
+  const endpoints = admitTypePublicationStep(inputs.typeWork, callable.tsonic.signatures.length);
+  if (endpoints !== null) return refuseTypeConstruction(inputs.typeWork, endpoints, callable.origin, unit);
   for (const endpoint of callable.tsonic.signatures) {
     const signature = readSignature(inputs.types, endpoint.signature);
     if (signature.declaration !== owner)
       return fail(unit, "A checked endpoint signature must retain its actual callable declaration.");
+    const formals = admitTypePublicationStep(inputs.typeWork, signature.parameters.length);
+    if (formals !== null) return refuseTypeConstruction(inputs.typeWork, formals, callable.origin, unit);
     for (const formal of signature.parameters) {
       const entry = findAscending(checked.module.items, formal.declaration, item => item.definition);
       const node = entry === undefined ? undefined : checked.nodes[entry.node];
@@ -70,13 +84,19 @@ function omissionInventory(inputs: DeclsDeps, checked: DeclsModule, owner: DefId
       inventory.set(formal.declaration, { node, formal });
     }
   }
-  return inventory;
+  return { kind: "ok", value: inventory, diagnostics: [] };
 }
 
-export const placeSignature: PlaceSignature = (inputs, placement, unit) => {
-  if (placement.kind === "endpoint") return endpointPlacement(inputs, placement.request, placement.parts, unit);
+export const placeSignature: PlaceSignature = (inputs, placement, unit, cuts) => {
+  if (placement.kind === "endpoint") {
+    const cut = cuts.declaration(placement.request.definition);
+    if (cut !== null) return { kind: "done", value: { kind: "refused", diagnostics: cut.diagnostics } };
+    return endpointPlacement(inputs, placement.request, placement.parts, unit);
+  }
   if (placement.kind !== "callable-body" && placement.kind !== "execution-body")
     return fail(unit, "Signature placement has no such closed request arm.");
+  const cut = cuts.body(placement.instance.body);
+  if (cut !== null) return { kind: "done", value: { kind: "refused", diagnostics: cut.diagnostics } };
   const path = decodeBodyId(placement.instance.body);
   if (path.kind !== "decoded") return fail(unit, "The placement body has no body path.");
   const checked = moduleOf(inputs, path.value.owner, unit);
@@ -105,7 +125,9 @@ export const placeSignature: PlaceSignature = (inputs, placement, unit) => {
     return fail(unit, "Module and static-statement execution require their actual void normal completion.");
   let receiver: TyId | null = null;
   const parameters: SignatureParameter[] = [];
-  const owners = new Map<DefId, ReturnType<typeof omissionInventory>>();
+  const owners = new Map<DefId, OmissionInventory>();
+  const formals = admitTypePublicationStep(inputs.typeWork, body.params.length);
+  if (formals !== null) return { kind: "done", value: refuseTypeConstruction(inputs.typeWork, formals, body.root.origin, unit) };
   for (const [index, parameter] of body.params.entries()) {
     const node = parameterNode(checked, body, parameter.local, unit);
     const declaredType = node.tsonic.declaredType;
@@ -120,7 +142,9 @@ export const placeSignature: PlaceSignature = (inputs, placement, unit) => {
       if (owner === null) return fail(unit, "An execution formal has no genuine checked owning callable endpoint inventory.");
       let inventory = owners.get(owner);
       if (inventory === undefined) {
-        inventory = omissionInventory(inputs, checked, owner, unit);
+        const admitted = omissionInventory(inputs, checked, owner, unit);
+        if (admitted.kind === "refused") return { kind: "done", value: admitted };
+        inventory = admitted.value;
         owners.set(owner, inventory);
       }
       const evidence = inventory.get(parameter.declaration);
@@ -130,11 +154,12 @@ export const placeSignature: PlaceSignature = (inputs, placement, unit) => {
         initializer: parameter.initializer, acceptsOmission: evidence.formal.acceptsOmission });
     }
   }
-  const id = internSignature(inputs.types, { declaration: null, owner: { kind: "body", value: { body: body.body, node: body.root.id } },
-    composition: null, kind: "call", typeParameters: [], receiver, parameters, result: placement.completion });
-  const bound = bindSignature(inputs, placement.instance.bindings, readSignature(inputs.types, id), body.root.origin, unit);
+  const signature = constructSignature(inputs, { declaration: null, owner: { kind: "body", value: { body: body.body, node: body.root.id } },
+    composition: null, kind: "call", typeParameters: [], receiver, parameters, result: placement.completion }, unit, body.root.origin);
+  if (signature.kind === "refused") return { kind: "done", value: signature };
+  const bound = bindSignature(inputs, placement.instance.bindings, signature.value, body.root.origin, unit);
   if (bound.kind === "refused") return { kind: "done", value: bound };
   const errors = new Map<number | "receiver" | "result", ErrorValue>();
   if (placement.error !== null) errors.set("result", placement.error);
-  return { kind: "done", value: { kind: "ok", ...signatureValue(inputs, unit, bound.value, errors), diagnostics: [], emissions: [] } };
+  return { kind: "done", value: { kind: "ok", ...placed(signatureValue(inputs, unit, bound.value, errors), null), diagnostics: [], emissions: [] } };
 };

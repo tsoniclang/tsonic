@@ -101,7 +101,7 @@ export interface HirReadGroup2 {
   readonly record_76: HirReader<{ readonly kind: "awaited"; }>;
   readonly record_77: HirReader<Hir.HirDiagnosticRoot>;
   readonly record_78: HirReader<{ readonly kind: "write-fit"; readonly ordinal: number; readonly occurrence: Ids.NodeRef; readonly value: Ids.NodeRef; readonly destination: Ids.SourceNodeRef; readonly destinationType: Ids.TyId; }>;
-  readonly record_79: HirReader<{ readonly kind: "operator"; readonly ordinal: number; readonly occurrence: Ids.NodeRef; readonly operator: "!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "-" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~"; readonly operands: readonly Ids.NodeRef[] }>;
+  readonly record_79: HirReader<{ readonly kind: "operator"; readonly ordinal: number; readonly occurrence: Ids.NodeRef; readonly operator: "!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "++" | "-" | "--" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~"; readonly operands: readonly Ids.NodeRef[] }>;
   readonly record_80: HirReader<{ readonly kind: "index"; readonly ordinal: number; readonly occurrence: Ids.NodeRef; readonly receiver: Ids.NodeRef; readonly key: Ids.NodeRef; }>;
   readonly record_81: HirReader<Hir.TextRange>;
   readonly record_82: HirReader<Hir.NodeList<Hir.Expression<Hir.CheckedPhase>>>;

@@ -1,3 +1,4 @@
+import { fixtureTypeWork, insertFixtureType, insertFixtureSignature } from "./fixtures/types-construction.mjs";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -72,10 +73,10 @@ function answer(deps, receiver) {
 
 test("membersOf returns only inventory metadata without reading member types, checked modules or call signature answers", () => {
   const interner = types.createTypeInterner();
-  const boolean = types.internType(interner, { kind: "primitive", primitive: "bool" });
-  const call = types.internSignature(interner, { declaration: null, owner: null, composition: null, kind: "call",
+  const boolean = insertFixtureType(types, interner, { kind: "primitive", primitive: "bool" });
+  const call = insertFixtureSignature(types, interner, { declaration: null, owner: null, composition: null, kind: "call",
     typeParameters: [], receiver: null, parameters: [], result: boolean });
-  const receiver = types.internType(interner, { kind: "shape", members: [{ key: { kind: "text", value: "flag" },
+  const receiver = insertFixtureType(types, interner, { kind: "shape", members: [{ key: { kind: "text", value: "flag" },
     origins: [origin], readOrigins: [origin], writeOrigins: [], kind: "property", read: boolean, write: null,
     optional: true, readonly: true }], indexes: [{ origin: source, key: boolean, read: boolean, write: null, readonly: true }],
     calls: [call], constructs: [] });
@@ -87,7 +88,7 @@ test("membersOf returns only inventory metadata without reading member types, ch
   Object.defineProperty(term.indexes[0], "read", { get: unexpected });
   Object.defineProperty(term.indexes[0], "write", { get: unexpected });
   Object.defineProperty(table.signatures, call, { get: unexpected });
-  const deps = { types: interner, get modules() { throw new Error("checked modules were read"); },
+  const deps = { types: interner, typeWork: fixtureTypeWork(types), get modules() { throw new Error("checked modules were read"); },
     get typeExpansion() { throw new Error("type expansion was requested"); } };
   const inventory = answer(deps, receiver);
   assert.deepEqual(inventory, { receiver, members: [{ key: { kind: "text", value: "flag" }, origins: [origin],
@@ -100,18 +101,18 @@ test("membersOf returns only inventory metadata without reading member types, ch
 
 test("membersOf preserves callable identity and reports only genuine open parameter or dynamic reasons", () => {
   const interner = types.createTypeInterner();
-  const deps = { types: interner, modules: [], typeExpansion: expansion };
-  const callable = types.internType(interner, { kind: "callable", calls: [], constructs: [] });
+  const deps = { types: interner, typeWork: fixtureTypeWork(types), modules: [], typeExpansion: expansion };
+  const callable = insertFixtureType(types, interner, { kind: "callable", calls: [], constructs: [] });
   const inventory = answer(deps, callable);
   assert.deepEqual(inventory.members, []);
   assert.deepEqual(inventory.completeness, { kind: "complete" });
   for (const [term, reason] of [[{ kind: "param", parameter: definition }, { kind: "parameter", parameter: definition }],
     [{ kind: "intrinsic", intrinsic: "any" }, { kind: "dynamic" }],
     [{ kind: "intrinsic", intrinsic: "unknown" }, { kind: "dynamic" }]]) {
-    const receiver = types.internType(interner, term);
+    const receiver = insertFixtureType(types, interner, term);
     assert.deepEqual(answer(deps, receiver).completeness, { kind: "open", reasons: [reason] });
   }
-  const declared = types.internType(interner, { kind: "declared", definition, arguments: [], facet: "instance", extent: null });
+  const declared = insertFixtureType(types, interner, { kind: "declared", definition, arguments: [], facet: "instance", extent: null });
   assert.throws(() => declarations.membersOf(deps, declared), /actual retained checker inventory for declared/);
 });
 
@@ -121,7 +122,7 @@ test("memberTypeOf reads only the requested declared structural member, without 
   const alias = actual.checked.tree.statements.nodes[0];
   const receiver = alias.type.tsonic.type.value;
   const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
-  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner,
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeWork: fixtureTypeWork(types),
     get typeExpansion() { throw new Error("a closed declaration component was substituted again"); } };
   const inventory = answer(deps, receiver);
   const type = types.readType(actual.interner, receiver);
@@ -154,13 +155,13 @@ test("memberTypeOf does not guess an inference result, unretained association, o
   const receiver = alias.type.tsonic.type.value;
   const shape = types.readType(actual.interner, receiver);
   const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
-  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeExpansion: expansion };
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeWork: fixtureTypeWork(types), typeExpansion: expansion };
   const flag = shape.members.findIndex(member => member.key.value === "flag");
   const getter = shape.members.findIndex(member => member.key.value === "enabled");
   const declaration = nodes.find(node => node.kind === "PropertySignature");
   assert.equal(flag >= 0 && getter >= 0 && declaration !== undefined, true);
   const answerFor = member => {
-    const source = types.internType(actual.interner, { ...shape,
+    const source = insertFixtureType(types, actual.interner, { ...shape,
       members: shape.members.map((row, index) => index === flag ? { ...row, ...member } : row) });
     return declarations.memberTypeOf(deps, { receiver: source, member: flag });
   };
@@ -173,10 +174,10 @@ test("memberTypeOf does not guess an inference result, unretained association, o
     /type producer for this member origin/);
   assert.throws(() => answerFor({ origins: [{ kind: "declared", declaration: alias.tsonic.definition }] }),
     /declaration or inferred part/);
-  const error = types.internType(actual.interner, { kind: "error" });
+  const error = insertFixtureType(types, actual.interner, { kind: "error" });
   assert.throws(() => answerFor({ read: error }), /error type without its actual cause/);
   assert.throws(() => answerFor({ write: error }), /error type without its actual cause/);
-  const unavailable = types.internType(actual.interner, { kind: "declared",
+  const unavailable = insertFixtureType(types, actual.interner, { kind: "declared",
     definition: alias.tsonic.definition, arguments: [], facet: "instance", extent: null });
   assert.throws(() => declarations.memberTypeOf(deps, { receiver: unavailable, member: 0 }), /actual retained typed member inventory/);
   const table = types.viewTypes(actual.interner);
@@ -193,7 +194,7 @@ test("memberTypeOf keeps the selected receiver binding for the same actual gener
   const actual = fixture.checkedModuleOf("export type Box<T>={value:T;}; export type Flag=Box<boolean>; export type Text=Box<string>;");
   const [generic, flag, text] = actual.checked.tree.statements.nodes;
   const deps = { modules: [{ module: actual.checked, nodes: fixture.hir.indexSyntaxTree(actual.checked.tree) }],
-    types: actual.interner, typeExpansion: expansion };
+    types: actual.interner, typeWork: fixtureTypeWork(types), typeExpansion: expansion };
   const genericRow = answer(deps, generic.type.tsonic.type.value).members[0];
   const receivers = [flag.type.tsonic.type.value, text.type.tsonic.type.value];
   assert.notEqual(receivers[0], receivers[1]);
@@ -217,7 +218,7 @@ test("membersOf projects real checked accessor origins and construct endpoints w
   const alias = actual.checked.tree.statements.nodes[0];
   const receiver = alias.type.tsonic.type.value;
   const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
-  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeExpansion: expansion };
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeWork: fixtureTypeWork(types), typeExpansion: expansion };
   const inventory = answer(deps, receiver);
   assert.equal(inventory.members.length, 1);
   assert.equal(inventory.accessors.length, 2);
@@ -235,15 +236,15 @@ test("membersOf projects real checked accessor origins and construct endpoints w
 
 test("membersOf consumes construct correspondence metadata but never a constructor parameter or result type", () => {
   const interner = types.createTypeInterner();
-  const boolean = types.internType(interner, { kind: "primitive", primitive: "bool" });
-  const construct = types.internSignature(interner, { declaration: null, owner: null, composition: null, kind: "construct",
+  const boolean = insertFixtureType(types, interner, { kind: "primitive", primitive: "bool" });
+  const construct = insertFixtureSignature(types, interner, { declaration: null, owner: null, composition: null, kind: "construct",
     typeParameters: [], receiver: null, parameters: [], result: boolean });
-  const receiver = types.internType(interner, { kind: "callable", calls: [], constructs: [construct] });
+  const receiver = insertFixtureType(types, interner, { kind: "callable", calls: [], constructs: [construct] });
   const signature = types.readSignature(interner, construct);
   const unexpected = () => { throw new Error("a constructor type position was read"); };
   Object.defineProperty(signature, "parameters", { get: unexpected });
   Object.defineProperty(signature, "result", { get: unexpected });
-  const inventory = answer({ types: interner, modules: [], typeExpansion: expansion }, receiver);
+  const inventory = answer({ types: interner, typeWork: fixtureTypeWork(types), modules: [], typeExpansion: expansion }, receiver);
   assert.deepEqual(inventory.constructors, [{ signature: construct, declaration: null, body: null }]);
 });
 
@@ -254,11 +255,11 @@ test("membersOf rejects missing, foreign and crossed real correspondence associa
   const receiver = alias.type.tsonic.type.value;
   const term = types.readType(actual.interner, receiver);
   const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
-  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeExpansion: expansion };
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeWork: fixtureTypeWork(types), typeExpansion: expansion };
   const accessor = term.members.find(member => member.kind === "accessor");
   const property = term.members.find(member => member.kind === "property");
   assert.equal(accessor !== undefined && property !== undefined, true);
-  const altered = origins => types.internType(actual.interner, { ...term,
+  const altered = origins => insertFixtureType(types, actual.interner, { ...term,
     members: term.members.map(member => member === accessor ? { ...member, origins } : member) });
   assert.throws(() => declarations.membersOf(deps, altered(property.origins)), /actual getter or setter declaration/);
   assert.throws(() => declarations.membersOf(deps, altered([{ kind: "mapped", owner: source, key: accessor.key }])),
@@ -284,9 +285,9 @@ test("membersOf rejects missing, foreign and crossed real correspondence associa
   assert.throws(() => declarations.membersOf(withConstructor({ ...constructor.tsonic, signatures: [
     ...constructor.tsonic.signatures, { ...constructor.tsonic.signatures[0], body: otherBody }] }), receiver),
   /one agreeing actual body association/);
-  const boolean = types.internType(actual.interner, { kind: "primitive", primitive: "bool" });
-  const call = types.internSignature(actual.interner, { declaration: null, owner: null, composition: null, kind: "call",
+  const boolean = insertFixtureType(types, actual.interner, { kind: "primitive", primitive: "bool" });
+  const call = insertFixtureSignature(types, actual.interner, { declaration: null, owner: null, composition: null, kind: "call",
     typeParameters: [], receiver: null, parameters: [], result: boolean });
-  const wrongKind = types.internType(actual.interner, { kind: "callable", calls: [], constructs: [call] });
+  const wrongKind = insertFixtureType(types, actual.interner, { kind: "callable", calls: [], constructs: [call] });
   assert.throws(() => declarations.membersOf(deps, wrongKind), /actual construct signature/);
 });

@@ -1,15 +1,19 @@
-import type { Result } from "../diag/contract.js";
+import type { ErrorValue, Result } from "../diag/contract.js";
 import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
-  AtomicContribution, ConstraintScheme, ContributionKey, FlowConstraint, InferenceValue, MemberConstraint, OperatorConstraint, VariableBound,
+  AtomicContribution, ConstraintScheme, ContributionKey, ContributionOutcome, FlowConstraint, InferenceValue,
+  MemberContributionScheme, MemberInput, MemberRuleAnswer,
+  OperatorConstraint, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, TypeEvidence } from "../ir-types/contract.js";
-import { internType, readType } from "../ir-types/index.js";
+import { compareMemberKeys, internType, readType } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
 import { at as where, callerDefect, notDecidedYet } from "./frontier.js";
 import { decideOperator } from "./operators.js";
 import { mergeErrors, validateValue } from "./errors.js";
+import { MemberSuspension } from "./member-pause.js";
+import type { MemberDestination, MemberOwner, MemberStep } from "./member-pause.js";
 
 export function variableOf(deps: RulesDeps, type: TyId, occurrence: NodeRef, group: GroupId | null): number | null {
   const term = readType(deps.types, type);
@@ -104,7 +108,82 @@ export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstr
   };
 }
 
-export function memberScheme(deps: RulesDeps): ConstraintScheme<MemberConstraint> {
+function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspension, answers: readonly MemberRuleAnswer[]): MemberStep {
+  const { phase, origin, destination } = MemberSuspension.consume(owner, paused);
+  const answer = answers[0];
+  if (phase.kind === "inventory") {
+    if (answers.length !== 1 || answer?.kind !== "membersOf" || answer.value.receiver !== phase.receiver)
+      return callerDefect("a member read must resume with its actual receiver inventory", origin);
+    const inventory = answer.value;
+    if (inventory.completeness.kind !== "complete")
+      return notDecidedYet("a read through an open member inventory", origin);
+    let lower = 0;
+    let upper = inventory.members.length;
+    while (lower < upper) {
+      const middle = lower + Math.floor((upper - lower) / 2);
+      const member = inventory.members[middle];
+      if (member === undefined) return callerDefect("a receiver inventory must retain every canonical member", origin);
+      const comparison = compareMemberKeys(member.key, phase.key);
+      if (comparison < 0) lower = middle + 1;
+      else if (comparison > 0) upper = middle;
+      else {
+        if (member.kind !== "property") return notDecidedYet("an accessor or method member read", origin);
+        if (!member.readOrigins.some(actual => actual.kind === "declared" && actual.declaration === phase.declaration))
+          return callerDefect("a member read must retain its original readable declaration", origin);
+        return MemberSuspension.pause(owner, { kind: "type", request: { receiver: inventory.receiver, member: middle } }, destination, origin);
+      }
+    }
+    return callerDefect("the original member key is missing from its complete receiver inventory", origin);
+  }
+  if (answers.length !== 1 || answer?.kind !== "memberTypeOf"
+    || answer.request.receiver !== phase.request.receiver || answer.request.member !== phase.request.member)
+    return callerDefect("a member read must resume with its actual selected member type", origin);
+  if (answer.value.read === null)
+    return callerDefect("a selected readable member requires its actual read type", origin);
+  if ((readType(deps.types, answer.value.read).kind === "error") !== (answer.error !== null))
+    return callerDefect("a member read must retain the cause of its own actual type answer", origin);
+  if (answer.error === null)
+    return notDecidedYet("the actual selected native receiver representation of this member read", origin);
+  return finishMember(deps, destination, { kind: "error", causes: [{ kind: "unit", unit: answer.origin }] });
+}
+
+function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, destination: MemberDestination): MemberStep {
+  const { access, receiver, key, origins, context } = input;
+  if (access !== "read") return notDecidedYet("a member write decision", context.origin);
+  const origin = origins[0];
+  if (origins.length !== 1 || origin?.kind !== "declared")
+    return notDecidedYet("a read without one original declared member origin", context.origin);
+  const term = readType(deps.types, receiver.type);
+  if (term.kind === "open" || term.kind === "error")
+    return callerDefect("member selection requires a finalized receiver whose original errors were handled", context.origin);
+  return MemberSuspension.pause(owner, { kind: "inventory", receiver: receiver.type, key, declaration: origin.declaration },
+    destination, context.origin);
+}
+
+function finishMember(deps: RulesDeps, destination: MemberDestination, error: ErrorValue): MemberStep {
+  if (destination.kind === "member") return { kind: "done", value: ok({ kind: "member", value: { kind: "error", error } }) };
+  const { occurrence, key, result } = destination;
+  return { kind: "done", value: ok({ kind: "contribution", value: memberError(internType(deps.types, { kind: "error" }),
+    error, occurrence, key, variableOf(deps, result, occurrence, null)) }) };
+}
+
+function memberError(type: TyId, error: NonNullable<InferenceValue["error"]>, occurrence: NodeRef,
+  key: ContributionKey, variable: number | null): ContributionOutcome {
+  const value: InferenceValue = { error, value: { type, component: { kind: "body", value: occurrence },
+    category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null } };
+  return { bounds: variable === null ? [] : [bound(key, variable, "producer", value)],
+    decision: { kind: "error", error }, selectedCandidate: null };
+}
+
+export function memberRules(deps: RulesDeps): Pick<RuleTable<MemberSuspension>, "member" | "resumeMember"> & {
+  readonly scheme: MemberContributionScheme<MemberSuspension>;
+} {
+  const owner: MemberOwner = { kind: "member-rules" };
+  return { member: input => decideMember(deps, owner, input, { kind: "member" }),
+    resumeMember: (paused, answers) => resumeMember(deps, owner, paused, answers), scheme: memberScheme(deps, owner) };
+}
+
+function memberScheme(deps: RulesDeps, owner: MemberOwner): MemberContributionScheme<MemberSuspension> {
   return {
     enumerate: input => {
       const { constraint, group, reference } = input;
@@ -122,14 +201,13 @@ export function memberScheme(deps: RulesDeps): ConstraintScheme<MemberConstraint
       const selected = variable === null ? receiver : input.reads.find(value => value.variable === variable);
       if (selected === undefined) return callerDefect("a member read requires the actual value of its receiver variable", null);
       validateValue(deps, selected);
-      if (selected.error === null)
-        return notDecidedYet("the selected member's declared inventory, type and native receiver representation", null);
-      const result = variableOf(deps, constraint.result, constraint.occurrence, null);
-      const value: InferenceValue = { error: selected.error,
-        value: { type: selected.value.type, component: { kind: "body", value: constraint.occurrence },
-          category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null } };
-      return ok({ bounds: result === null ? [] : [bound(input.contribution.key, result, "producer", value)],
-        decision: { kind: "error", error: selected.error }, selectedCandidate: null });
+      if (selected.error !== null) return { kind: "done", value: ok({ kind: "contribution", value:
+        memberError(selected.value.type, selected.error, constraint.occurrence, input.contribution.key,
+          variableOf(deps, constraint.result, constraint.occurrence, null)) }) };
+      return decideMember(deps, owner, {
+        context: { occurrence: constraint.occurrence, bindings: constraint.bindings, origin: input.origin }, receiver: selected.value,
+        key: constraint.key, origins: constraint.origins, access: constraint.access },
+      { kind: "contribution", occurrence: constraint.occurrence, key: input.contribution.key, result: constraint.result });
     },
   };
 }
@@ -140,10 +218,15 @@ export function flowScheme(deps: RulesDeps): ConstraintScheme<FlowConstraint> {
       const value = input.constraint;
       const from = variableOf(deps, value.from, value.occurrence, input.group);
       const to = variableOf(deps, value.to, value.occurrence, input.group);
-      if (from !== null && to !== null) return one({ node: value.occurrence, candidate: null, role: { kind: "flow" } },
-        [from], from === to ? [] : [to], input.reference);
-      const bounds = from !== null ? [from] : to !== null ? [to] : [];
-      return one({ node: value.occurrence, candidate: null, role: { kind: "flow" } }, [], bounds, input.reference);
+      if (from !== null && to === null) {
+        const variable = input.variables[from];
+        if (variable === undefined || variable.id !== from)
+          return callerDefect("a flow requires its actual qualified source variable", null);
+        if (variable.kind !== "local" || variable.local !== null)
+          return one({ node: value.occurrence, candidate: null, role: { kind: "flow" } }, [], [from], input.reference);
+      }
+      return one({ node: value.occurrence, candidate: null, role: { kind: "flow" } },
+        from === null ? [] : [from], to === null || from === to ? [] : [to], input.reference);
     },
     evaluate: input => {
       const value = input.constraint;
@@ -151,22 +234,20 @@ export function flowScheme(deps: RulesDeps): ConstraintScheme<FlowConstraint> {
       const from = variableOf(deps, value.from, value.occurrence, null);
       const to = variableOf(deps, value.to, value.occurrence, null);
       const key = input.contribution.key;
-      if (from !== null && to !== null) {
-        const resolved = input.reads.find(variable => variable.variable === from);
-        if (resolved === undefined) return callerDefect("an open-to-open flow requires its actual final source read", null);
-        if (from === to) return ok({ bounds: [], decision: resolved.error === null
-          ? { kind: "flow", embedding: { kind: "identity" } } : { kind: "error", error: resolved.error }, selectedCandidate: null });
-        return ok({ bounds: [bound(key, to, "producer", resolved)], decision: null, selectedCandidate: null });
-      }
-      if (from !== null && toEvidence !== undefined)
+      if (from !== null && to === null && input.contribution.bounds[0] === from && toEvidence !== undefined)
         return ok({ bounds: [bound(key, from, "demand", toEvidence)], decision: null, selectedCandidate: null });
-      if (to !== null && fromEvidence !== undefined)
-        return ok({ bounds: [bound(key, to, "producer", fromEvidence)], decision: null, selectedCandidate: null });
-      const error = mergeErrors(input.evidence);
+      const source = from === null ? fromEvidence : input.reads.find(variable => variable.variable === from);
+      if (source === undefined || fromEvidence === undefined || toEvidence === undefined)
+        return callerDefect("a flow requires its actual finalized source and destination evidence", null);
+      if (to !== null) {
+        if (from === to) return ok({ bounds: [], decision: source.error === null
+          ? { kind: "flow", embedding: { kind: "identity" } } : { kind: "error", error: source.error }, selectedCandidate: null });
+        return ok({ bounds: [bound(key, to, "producer", source)], decision: null, selectedCandidate: null });
+      }
+      const error = mergeErrors([source, toEvidence]);
       if (error !== null) return ok({ bounds: [], decision: { kind: "error", error }, selectedCandidate: null });
-      if (fromEvidence === undefined || toEvidence === undefined)
-        return callerDefect("a closed flow requires its actual source and destination evidence", null);
-      const embedding = decideEmbedding(deps, fromEvidence.value, toEvidence.value, value.role, value.occurrence, null);
+      const embedding = decideEmbedding(deps, { ...source.value, component: fromEvidence.value.component }, toEvidence.value,
+        value.role, value.occurrence, null);
       return ok({ bounds: [], decision: { kind: "flow", embedding }, selectedCandidate: null });
     },
   };

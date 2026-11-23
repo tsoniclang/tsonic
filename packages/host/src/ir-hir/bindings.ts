@@ -1,6 +1,6 @@
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
-import type { CreateModuleBindingViews, HirModuleBinding, IsModuleBindingKind, ProjectExportDeclarations, ResolveModuleBinding } from "./contract.js";
+import type { CreateModuleBindingViews, HirModuleBinding, IsModuleBindingKind, IsTypeOnlyExportStar, ResolveModuleBinding, ResolveModuleExport } from "./contract.js";
 
 export const isModuleBindingKind: IsModuleBindingKind = (kind, hasName) => {
   switch (kind) {
@@ -10,6 +10,10 @@ export const isModuleBindingKind: IsModuleBindingKind = (kind, hasName) => {
     default: return false;
   }
 };
+
+export const isTypeOnlyExportStar: IsTypeOnlyExportStar = node => node?.kind === "ExportDeclaration"
+  && node.isTypeOnly && node.exportClause === null && node.moduleSpecifier !== null
+  && node.tsonic.target.kind === "available" && node.tsonic.target.value !== null;
 
 function fail(message: string): never {
   return throwInvariant({ owner: "ir-hir", query: null, origin: null, message });
@@ -72,14 +76,7 @@ export const resolveModuleBinding: ResolveModuleBinding = (views, occurrence) =>
   }
 };
 
-export const projectExportDeclarations: ProjectExportDeclarations = (views, entry) => {
+export const resolveModuleExport: ResolveModuleExport = (views, entry) => {
   if (entry.target.kind === "declarations") return { target: { kind: "available", value: entry.target }, aliases: [], cycle: null };
-  const occurrence = entry.target.occurrence;
-  validOccurrence(occurrence);
-  if (occurrence.kind === "item") {
-    const declaration = views.declarationSourceOf(occurrence.value.owner);
-    if (declaration?.kind === "item" && declaration.value.owner === occurrence.value.owner && declaration.value.node === occurrence.value.node)
-      return { target: { kind: "available", value: { kind: "declarations", definitions: [occurrence.value.owner] } }, aliases: [], cycle: null };
-  }
-  return resolveModuleBinding(views, occurrence);
+  return resolveModuleBinding(views, entry.target.occurrence);
 };

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { admitFixtureTable } from "./fixtures/types-construction.mjs";
 
 test("one iterative type/member assembly preserves twenty thousand nested ready declaration scopes without recursive calls", async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -35,15 +36,15 @@ test("one iterative type/member assembly preserves twenty thousand nested ready 
         name: { ...header(id + 2, id + 1), kind: "Identifier", text: "next", tsonic: null },
         postfixToken: null, type: node, initializer: null, tsonic: null }] } };
   }
-  const interner = fixture.types.seedTypeInterner({ terms, signatures: [] });
+  const interner = admitFixtureTable(fixture.types, { terms, signatures: [] });
   const table = fixture.types.viewTypes(interner);
   assert.equal(table.terms.length, depth + 1);
   const read = new Set();
   const result = lowerCheckedType({ definitions, core: () => core,
-    checkedType: node => {
-      assert.equal(read.has(node), false, "each actual type node completes once");
-      read.add(node);
-      const type = types.get(node);
+    checkedType: ({ id }) => {
+      assert.equal(read.has(id), false, "each actual type node completes once");
+      read.add(id);
+      const type = types.get(id);
       assert.equal(type !== undefined, true);
       return { kind: "complete", value: { kind: "available", value: type } };
     }, memory: () => ({ kind: "available", value: null }),
@@ -88,7 +89,7 @@ test("a missing prepared type retains the original failure and never pulls a lat
   let reads = 0;
   const unused = () => assert.fail("no dependent construction follows the original missing annotation");
   assert.throws(() => lowerCheckedType({ definitions: new Map([[1, owner]]),
-    checkedType: node => { reads += 1; assert.equal(node, 3); throw original; },
+    checkedType: ({ id }) => { reads += 1; assert.equal(id, 3); throw original; },
     core: unused, resolution: unused, signature: unused, memory: unused, expression: unused, property: unused }, root, owner),
   error => error === original);
   assert.equal(reads, 1);
@@ -114,8 +115,8 @@ test("an expected publication stop remains the same result and prevents dependen
       type: { ...header(3, 1), kind: "BooleanKeyword", tsonic: null }, initializer: null, tsonic: null }, later] } };
   const unused = () => assert.fail("the original stop prevents dependent construction");
   let reads = 0;
-  const result = lowerCheckedType({ definitions: new Map([[1, owner]]), checkedType: node => {
-    reads += 1; assert.equal(node, 3); return stop;
+  const result = lowerCheckedType({ definitions: new Map([[1, owner]]), checkedType: ({ id }) => {
+    reads += 1; assert.equal(id, 3); return stop;
   }, core: unused, resolution: unused, signature: unused, memory: unused, expression: unused, property: unused }, root, owner);
   assert.equal(result === stop, true);
   assert.equal(reads, 1);

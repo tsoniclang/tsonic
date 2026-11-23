@@ -24,6 +24,7 @@ import type { SyntaxReadPorts, SyntaxValue } from "./parse-syntax-values.js";
 import { finishSyntaxRecord, readSyntaxReference, resolveSyntaxValue, syntaxArray } from "./parse-syntax-values.js";
 import { readTirBodyText } from "./parse-tir.js";
 import { parseSyntaxDocument } from "./parse-syntax.js";
+import { readProgramInitialization } from "./initialization-text.js";
 
 function readPublishedBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, finish: (value: SyntaxValue<PublishedBody>) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "PublishedBody"), fields =>
@@ -203,9 +204,11 @@ function readProgramIndex(cursor: Cursor): TextParseResult<ProgramIndex> {
   if (diagnostics.kind === "invalid-text") return diagnostics;
   const nativeFactsKey = readField(cursor, fields, "nativeFactsKey", readString);
   if (nativeFactsKey.kind === "invalid-text") return nativeFactsKey;
+  const initialization = readField(cursor, fields, "initialization", readProgramInitialization);
+  if (initialization.kind === "invalid-text") return initialization;
   const closed = closeRecord(cursor, fields);
   return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: {
-    schema: schema.value, nativeFactsKey: nativeFactsKey.value, rootPackage: rootPackage.value, packages: packages.value, modules: modules.value, types: types.value, signatures: signatures.value, bodies: bodies.value, dependencyInventory: dependencyInventory.value, metadata: metadata.value, summaries: summaries.value, constants: constants.value, diagnostics: diagnostics.value
+    schema: schema.value, nativeFactsKey: nativeFactsKey.value, rootPackage: rootPackage.value, packages: packages.value, modules: modules.value, types: types.value, signatures: signatures.value, bodies: bodies.value, dependencyInventory: dependencyInventory.value, metadata: metadata.value, summaries: summaries.value, constants: constants.value, diagnostics: diagnostics.value, initialization: initialization.value
   } };
 }
 

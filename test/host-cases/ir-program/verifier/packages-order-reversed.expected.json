@@ -19,6 +19,13 @@
             "value": "P[%002Fa]"
           }
         ]
+      },
+      {
+        "rule": "initialization-entry-exact",
+        "site": {
+          "kind": "index"
+        },
+        "detail": []
       }
     ]
   },

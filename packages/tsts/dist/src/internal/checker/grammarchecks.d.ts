@@ -1623,6 +1623,7 @@ export declare function Checker_doesAccessorHaveCorrectParameterCount(receiver: 
  * }
  */
 export declare function Checker_checkGrammarTypeOperatorNode(receiver: GoPtr<Checker>, node: GoPtr<TypeOperatorNode>): bool;
+export declare function Checker_grammarErrorForTypeNode(receiver: GoPtr<Checker>, typeNode: GoPtr<Node>, location: GoPtr<Node>, firstToken: boolean, message: GoPtr<Message>, ...args: Array<unknown>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/grammarchecks.go::method::Checker.checkGrammarForInvalidDynamicName","kind":"method","status":"implemented","sigHash":"1b94d484de7b4593d45ea103742133b2b7368240f1f16c848607f82da5475454","bodyHash":"aa939e4f1ad719cf21c1786256f9deab2fb7810a6a88be68e77d5d510b28a082"}
  *

@@ -92,7 +92,7 @@ export interface LiteralConstraintRecord {
 export interface OperatorConstraintRecord {
   readonly kind: "op";
   readonly occurrence: NodeRef;
-  readonly operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";
+  readonly operator: "+" | "-" | "!" | "~" | "++" | "--" | "typeof" | "void" | "delete" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";
   readonly operands: readonly (TyId)[];
   readonly result: TyId;
   readonly permissionScope: NodeRef | null;
@@ -280,7 +280,7 @@ export interface ConstraintsSchemas {
   readonly logicalCaptureSchema: Schema<LogicalCapture>;
   readonly captureSourceSchema: RecordSchema<CaptureSource>;
   readonly defaultRuleSchema: Schema<"binder-declared-default" | "literal-native-default" | "local-producers" | "refuse-unseeded" | "signature-producers">;
-  readonly operatorSchema: Schema<"!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "-" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~">;
+  readonly operatorSchema: Schema<"!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "++" | "-" | "--" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~">;
 }
 
 export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, captures: CapturesSchemas, contributions: ContributionsSchemas, data: DataSchemas, errors: ErrorSchemas): ConstraintsSchemas {
@@ -632,6 +632,6 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
 
   const defaultRuleSchema = enumSchema("DefaultRule", ["signature-producers","local-producers","binder-declared-default","literal-native-default","refuse-unseeded"]);
 
-  const operatorSchema = enumSchema("Operator", ["+","-","!","~","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]);
+  const operatorSchema = enumSchema("Operator", ["+","-","!","~","++","--","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]);
   return { logicalCaptureSchema, captureSourceSchema, closureCaptureSchema, closureConstraintSchema, constraintSetSchema, inferenceGroupSchema, inferredSignaturePartSchema, inferredPartSchema, returnPartSchema, yieldPartSchema, variablePartSchema, fieldPartSchema, parameterInitializerPartSchema, inferenceVariableSchema, signatureVariableSchema, localVariableSchema, binderVariableSchema, literalVariableSchema, binderFamilySchema, flowRoleSchema, accessRoleSchema, protocolKindSchema, ruleIdentitySchema, constraintSchema, equalityConstraintSchema, flowConstraintSchema, literalConstraintSchema, operatorConstraintSchema, memberConstraintSchema, indexConstraintSchema, callConstraintSchema, constructConstraintSchema, applicationConstraintDataSchema, applicationArgumentSchema, valueArgumentSchema, spreadArgumentSchema, literalConstructionConstraintSchema, constructionKindSchema, literalPartSchema, elementPartSchema, propertyPartSchema, spreadPartSchema, protocolConstraintSchema, refinementConstraintSchema, dischargeConstraintSchema, defaultConstraintSchema, defaultRuleSchema, operatorSchema };
 }

@@ -1,7 +1,7 @@
 import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import { requirePresent } from "../../diag/index.js";
-import type { LocalId, OriginsId } from "../../ids/contract.js";
+import type { BoundProducerId, LocalId, OriginsId } from "../../ids/contract.js";
 import type { AppliedSummary, EscapeFact, EscapeTarget, MirPoint, RelationalArena, SummaryRetention } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, escapeTargetKey, summaryPositionKey } from "../../ir-facts/index.js";
 import type { MirSite, MirTerminator } from "../../ir-mir/contract.js";
@@ -23,27 +23,38 @@ export interface ValueRetention {
 
 export function retainValue(deps: BodyRoundDeps, execution: Execution, site: MirSite, point: MirPoint,
   target: EscapeTarget, origins: OriginsId, arena: RelationalArena,
-  escapes: ValueEscape[], retention: ValueRetention[]): DataflowStop | null {
+  escapes: ValueEscape[], retention: ValueRetention[], copiedEntries: ReadonlySet<BoundProducerId> | null): DataflowStop | null {
   const { account } = deps;
   const read = chargeWork(account, 1);
   if (read !== null) return read;
   const value = requirePresent(arena.origins[origins], { owner: "analyses/body", query: null, origin: site.origin,
     message: "An actual retained value retains its bound Origins." });
   if (value.producers.length === 0) return null;
-  const identity = admitSummaryIdentity({ kind: "body", execution }, account)
-    ?? chargeWork(account, 4) ?? chargeResultEntries(account, 2);
-  if (identity !== null) return identity;
-  const targetIdentity = escapeTargetKey(target, account);
-  if (targetIdentity.kind !== "complete") return targetIdentity;
-  const at = { kind: "body", execution, point, edge: null } satisfies SummaryRetention["at"];
-  const key = summaryPositionKey(at);
+  let at: SummaryRetention["at"] | null = null;
+  let targetKey = "";
+  let key = "";
   for (const source of value.producers) {
+    if (copiedEntries !== null) {
+      const classification = chargeWork(account, 1);
+      if (classification !== null) return classification;
+      if (copiedEntries.has(source)) continue;
+    }
+    if (at === null) {
+      const identity = admitSummaryIdentity({ kind: "body", execution }, account)
+        ?? chargeWork(account, 4) ?? chargeResultEntries(account, 2);
+      if (identity !== null) return identity;
+      const targetIdentity = escapeTargetKey(target, account);
+      if (targetIdentity.kind !== "complete") return targetIdentity;
+      targetKey = targetIdentity.value;
+      at = { kind: "body", execution, point, edge: null };
+      key = summaryPositionKey(at);
+    }
     const row = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
     if (row !== null) return row;
     const bound = requirePresent(arena.boundProducers[source], { owner: "analyses/body", query: null, origin: site.origin,
       message: "An actual retained reference retains its bound value producer." });
-    escapes.push({ targetKey: targetIdentity.value, value: { point, node: site.tir.node, producer: bound.producer, target } });
-    retention.push({ key, targetKey: targetIdentity.value, value: { source, at, into: target } });
+    escapes.push({ targetKey, value: { point, node: site.tir.node, producer: bound.producer, target } });
+    retention.push({ key, targetKey, value: { source, at, into: target } });
   }
   return null;
 }
@@ -51,7 +62,7 @@ export function retainValue(deps: BodyRoundDeps, execution: Execution, site: Mir
 export function retainCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, applied: AppliedSummary,
   captured: ReadonlyMap<number, number>, arena: RelationalArena,
-  escapes: ValueEscape[], retention: ValueRetention[]): DataflowStop | null {
+  escapes: ValueEscape[], retention: ValueRetention[], copiedEntries: ReadonlySet<BoundProducerId> | null): DataflowStop | null {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
   for (const row of applied.retention) {
@@ -67,7 +78,7 @@ export function retainCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput,
     const target = chargeResultEntries(deps.account, 1);
     if (target !== null) return target;
     const retained = retainValue(deps, input.execution, operation, point, { kind: "capture", index: incoming, path: null },
-      row.value.value.origins, arena, escapes, retention);
+      row.value.value.origins, arena, escapes, retention, copiedEntries);
     if (retained !== null) return retained;
   }
   return null;

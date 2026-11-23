@@ -82,11 +82,11 @@ export function applySummary(input: SummaryApplicationInput, limits: SummaryAppl
     const stop = grow(limits);
     if (stop !== null) return stop;
     if (!Object.is(context.id, index)) throw new TypeError("The summary context inventory is dense");
-    const argumentsValues = [];
+    const argumentsValues: AppliedContext["arguments"][number][] = [];
     for (const argument of context.arguments) {
       const argumentStop = grow(limits);
       if (argumentStop !== null) return argumentStop;
-      argumentsValues.push(pick(values.value.origins, argument));
+      argumentsValues.push(argument.kind === "provided" ? { kind: "provided", origins: pick(values.value.origins, argument.origins) } : { kind: "omitted" });
     }
     const captures: AppliedContext["captures"][number][] = [];
     const captured = new Map<number, AppliedCell>();
