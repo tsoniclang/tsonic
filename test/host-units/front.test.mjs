@@ -828,6 +828,31 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.throws(() => callSummary({ ...deps, declaredAt: () => ({ ...edge.target, execution: { ...ready.execution, provided: 0 } }),
     summaryOf: () => assert.fail("A crossed provided entry must not read a Summary.") }, mir.value, call), /actual selected binding environment and provided entry/u);
 
+  const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const { chargeWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const converge = pipelineWiring.summaries.convergeComponent;
+  let offered = null;
+  pipelineWiring.summaries.convergeComponent = (deps, input) => {
+    const declared = input.outside.find(row => row.key === edge.target);
+    if (declared === undefined) return converge(deps, input);
+    assert.equal(deps.resources.account, account);
+    offered = declared.answer;
+    assert.equal(offered.value.key.execution, ready.execution);
+    assert.equal(offered.value.signature, ready.placement.signature.id);
+    assert.equal(offered.value.arena.origins[offered.value.result].kind, "open");
+    return chargeWork(account, callInput.limits.dataflow.maximumWork);
+  };
+  try {
+    const refused = analyzeTypedSource(callInput, typed.value, account);
+    assert.equal(refused.kind, "refused");
+    assert.equal(accountFailure(account).dimension, "work");
+    assert.ok(offered);
+    assert.deepEqual(typed.value.database.errorOf(offered.unit), { kind: "completed", error: null });
+  } finally {
+    pipelineWiring.summaries.convergeComponent = converge;
+  }
+
   const siblingGuarantee = { ...guarantee, identity: signatures[0].identity };
   for (const [declarations, chosenStatement] of [[[siblingGuarantee], null], [[siblingGuarantee, guarantee], guarantee]]) {
     const input = claimedInput(callSnapshot, callSession.deps.extensions, registration.reference.package, [], declarations);

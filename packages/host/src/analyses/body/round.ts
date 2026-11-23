@@ -11,7 +11,7 @@ import type { TirArgument, TirSyntaxOccurrence } from "../../ir-tir/contract.js"
 import { sameInstance } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } from "./contract.js";
 import type { CallError } from "./calls.js";
-import { applyScalarCall, bindCallInitialization, callCaptureBindings, callCellIndex, callInstance, isCallError, isLeastCall, scalarArgument } from "./calls.js";
+import { applyScalarCall, bindCallInitialization, callCaptureBindings, callCellIndex, callEntryProducer, callInstance, isCallError, isLeastCall, scalarArgument } from "./calls.js";
 import { orderedRows, sourceOccurrences } from "./source.js";
 import { assignedEntry, selectedCallAt, solveAssigned, statementOperands, terminatorOperands, transferAssigned, unwrittenCause } from "./storage.js";
 import type { AssignedState } from "./storage.js";
@@ -728,6 +728,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const work = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
         if (work !== null) return work;
         const producer = summary.arena.producers[bound.producer];
+        if (producer === undefined) return bodyFrontier("A selected value retains its actual callee producer.");
+        if (!callEntryProducer(producer)) continue;
         const capture = producer?.kind === "capture" && producer.path === null && terminator.callee.kind === "body"
           ? callCaptures[producer.index] : undefined;
         if (capture !== undefined) entryBindings.push({ formal: bound.id, actual: originsOf({ kind: "place", place: capture.place }) });

@@ -2,7 +2,7 @@ import type { CallerRefusal, DataflowResult, DataflowStop } from "../../dataflow
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { UnitRef } from "../../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
-import type { AppliedSummary, BoundInitializationRow, CaptureBinding, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
+import type { AppliedSummary, BoundInitializationRow, CaptureBinding, CaptureLocation, MirPoint, Producer, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
 import { admitArtifactIdentity, admitSummaryIdentity, applySummary, bindInitialization, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
 import type { LocalId, OriginsId, PlaceId, ValueContextId } from "../../ids/contract.js";
@@ -42,6 +42,10 @@ export function isCallError(value: SelectedCall): value is CallError {
 
 export function isLeastCall(value: SelectedCall): value is RoundLeast {
   return "kind" in value && value.kind === "least";
+}
+
+export function callEntryProducer(producer: Producer): boolean {
+  return producer.path === null && (producer.kind === "parameter" || producer.kind === "receiver" || producer.kind === "capture");
 }
 
 export function callInstance(operation: Extract<MirTerminator, { readonly kind: "call" }>): BodyInstance {
@@ -416,6 +420,8 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     const work = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
     if (work !== null) return work;
     const producer = summary.arena.producers[bound.producer];
+    if (producer === undefined) return frontier(operation, "A selected value retains its actual callee producer.");
+    if (!callEntryProducer(producer)) continue;
     const captured = producer?.kind === "capture" && producer.path === null && operation.callee.kind === "body"
       ? captures[producer.index] : undefined;
     if (captured !== undefined) {

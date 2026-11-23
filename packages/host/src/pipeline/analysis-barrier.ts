@@ -2,11 +2,11 @@ import type { CallerRefusal, DataflowAccount, DataflowStop } from "../dataflow/c
 import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Diagnostic, Result, UnitAnswerPosition, UnitDiagnostic, UnitRequest } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
-import type { BodyId, DefId } from "../ids/contract.js";
+import type { BodyId, DefId, SigId, TyId } from "../ids/contract.js";
 import { checkedSourceObjectHoldingOf } from "../ir-hir/index.js";
-import type { BodyFacts, BodyObservations, DependencyInventory, FactsVerificationContext,
+import type { BodyFacts, BodyObservations, DependencyInventory, FactsVerificationContext, ParameterSlot, Summary,
   SummaryAnswer, SummaryKey } from "../ir-facts/contract.js";
-import { admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
+import { admitSummaryIdentity, summaryKey, verifySummary } from "../ir-facts/index.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import { verifyMir } from "../ir-mir/index.js";
 import type { BodyInstance, Execution } from "../ir-types/contract.js";
@@ -57,7 +57,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   const observations = new Map<string, BodyObservations>();
   const facts = new Map<string, BodyFacts>();
   const summaries = new Map<string, SummaryAnswer>();
-  const { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions } = typed.required;
+  const { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions, declared } = typed.required;
   const bindingDependence = new Map<DefId, boolean>();
   const exposedBodies = typed.exposure.bodies;
   const safety: Query<SourceSemanticInputs, BodyInstance, ErrorValue | null, SourceSemanticWitness, DeclaredSignatureErrorData> = {
@@ -178,7 +178,8 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     signatureIdOf: typed.signatureIdOf, declarationSourceOf: sources.declarationSourceOf,
     diagnostics: source.modules.flatMap(module => module.module.checkerDiagnostics),
     bindingDependentOf: definition => bindingDependence.get(definition) ?? null,
-    captureCount: key => key.kind === "body" ? readyBody(key.execution.instance).captures.length : null,
+    captureCount: key => key.kind === "body" ? readyBody(key.execution.instance).captures.length
+      : declared?.get(summaryKey(key))?.guarantee === null ? 0 : null,
     callbackSignaturesOf: () => null,
     arenaOf: owner => {
       if (owner.kind === "body") return facts.get(executionKey(owner.execution))?.arena ?? null;
@@ -327,6 +328,82 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       return { kind: "ok", value: published, diagnostics, emissions, positions };
     },
   };
+  const declaredSummaryOf: Query<SourceSemanticInputs, string, Summary, SourceSemanticWitness, DeclaredSignatureErrorData> = {
+    name: "declaredSummaryOf", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: (_context, key) => {
+      const selectedRead = chargeWork(account, 1);
+      if (selectedRead !== null) return analysisStop(selectedRead, unit);
+      const selected = declared?.get(key);
+      if (selected === undefined) return fail("A declared Summary requires its actual selected ready declaration.");
+      if (selected.guarantee !== null) return fail("The selected native guarantee requires its actual declared cell and callback relations.");
+      const { execution, placement, parameters, scope } = selected;
+      const { signature } = placement;
+      const setup = chargeResultEntries(account, 1);
+      if (setup !== null) return analysisStop(setup, unit);
+      const callables: { readonly slot: ParameterSlot; readonly signatures: readonly [SigId, ...SigId[]] }[] = [];
+      const given = (type: TyId, parameter: number | null): DataflowStop | null => {
+        const read = chargeWork(account, 1);
+        if (read !== null) return read;
+        const term = readType(source.types, type);
+        if (term.kind !== "callable" && term.kind !== "shape") return null;
+        if (term.calls.length === 0) return null;
+        const retained = chargeWork(account, term.calls.length) ?? chargeResultEntries(account, 4 + term.calls.length);
+        if (retained !== null) return retained;
+        const first = term.calls[0];
+        if (first === undefined) return fail("A callable retains its actual dense signature inventory.");
+        const signatures: [SigId, ...SigId[]] = [first];
+        for (let index = 1; index < term.calls.length; index += 1) {
+          const signature = term.calls[index];
+          if (signature === undefined) return fail("A callable retains its actual dense signature inventory.");
+          signatures.push(signature);
+        }
+        callables.push({ slot: parameter === null ? { kind: "receiver" } : { kind: "parameter", index: parameter }, signatures });
+        return null;
+      };
+      if (signature.receiver !== null) {
+        const stop = given(signature.receiver, null);
+        if (stop !== null) return analysisStop(stop, unit);
+      }
+      for (let index = 0; index < parameters.length; index += 1) {
+        const read = chargeWork(account, 1);
+        if (read !== null) return analysisStop(read, unit);
+        const mapping = parameters[index];
+        if (mapping === undefined) return fail("A selected declared call retains ordered actual parameter mappings.");
+        if (mapping.kind !== "argument" && mapping.kind !== "rest") continue;
+        const formal = signature.parameters[index];
+        if (formal === undefined) return fail("A selected declared call requires its corresponding formal.");
+        const stop = given(formal.type, index);
+        if (stop !== null) return analysisStop(stop, unit);
+      }
+      const dependent = scope.classParameters.length + scope.methodParameters.length + scope.capturedParameters.length + scope.selfOwners.length !== 0;
+      const built = pipelineWiring.summaries.bindDeclaredSummary(account,
+        { signature, parameters, source: selected.source, callables },
+        { kind: "unknown", execution, scope, bindingDependent: dependent, suspends: false });
+      if (built.kind !== "complete") return analysisStop(built, unit);
+      if (built.value.kind === "refused") return built.value;
+      const summary = built.value.value;
+      const checked = verifySummary(summary, { ...verification,
+        bindingDependentOf: definition => definition === placement.request.definition ? dependent : verification.bindingDependentOf(definition),
+        arenaOf: owner => owner.kind === "summary" && owner.key.kind === "declared" && owner.key.execution === execution
+          ? summary.arena : verification.arenaOf(owner),
+        callbackSignaturesOf: (requested, subject) => {
+          if (requested !== summary.key) return verification.callbackSignaturesOf(requested, subject);
+          const bound = summary.arena.boundProducers[subject];
+          const producer = bound === undefined ? undefined : summary.arena.producers[bound.producer];
+          if (producer?.kind !== "receiver" && producer?.kind !== "parameter") return null;
+          return callables.find(row => row.slot.kind === "receiver" ? producer.kind === "receiver"
+            : producer.kind === "parameter" && row.slot.index === producer.index)?.signatures ?? null;
+        },
+      }, { account, conditionRefusal });
+      const stopped = accountFailure(account);
+      if (stopped !== null) return analysisStop(stopped, unit);
+      if (checked.kind !== "complete") return analysisStop(checked, unit);
+      if (checked.violations.length !== 0) return fail(`The actual declared Summary violates ${checked.violations[0]?.rule}.`);
+      const retained = chargeResultEntries(account, 11);
+      if (retained !== null) return analysisStop(retained, unit);
+      return { kind: "ok", value: summary, diagnostics: [], emissions: [], positions: [{ position: { kind: "result" }, error: null }] };
+    },
+  };
   const refusedAfterConvergence = (refusal?: Extract<Result<never>, { readonly kind: "refused" }>): Result<AnalysisBarrier> => {
     const diagnostics = typed.database.diagnostics();
     if (refusal !== undefined && diagnostics.length === refusal.diagnostics.length
@@ -341,7 +418,21 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     if (read !== null) return analysisStop(read, unit);
     const component = components.value.components[index];
     if (component === undefined) return fail("The canonical component inventory is dense.");
-    if (component.kind !== "body") return fail("A declared component needs its genuine admitted selected native association.");
+    if (component.kind === "declared") {
+      const operationRead = chargeWork(account, 1);
+      if (operationRead !== null) return analysisStop(operationRead, unit);
+      const selected = operations[component.operation];
+      const key = operationIdentities[component.operation];
+      if (selected?.kind !== "declared" || key === undefined) return fail("A declared component retains its actual admitted execution.");
+      const result = typed.database.run(declaredSummaryOf, key);
+      if (result.kind === "refused") return refusedAfterConvergence(result);
+      const previous = bindingDependence.get(selected.execution.request.definition);
+      if (previous !== undefined && previous !== result.value.bindingDependent)
+        return fail("All selected entries retain the same authored declaration dependence.");
+      bindingDependence.set(selected.execution.request.definition, result.value.bindingDependent);
+      summaries.set(key, { value: result.value, unit: { request: { query: declaredSummaryOf.name, key }, position: { kind: "result" } } });
+      continue;
+    }
     const key = componentKeys[index];
     if (key === null || key === undefined) return fail("A component requires its actual first complete execution key.");
     const result = typed.database.run(bodyFactsOf, key);

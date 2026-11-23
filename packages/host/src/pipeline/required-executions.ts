@@ -8,7 +8,7 @@ import type { ParameterMapping, PlacedSignature } from "../ir-infer/contract.js"
 import { admitArtifactIdentity, admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
 import type { TirBody } from "../ir-tir/contract.js";
 import type { BindingScope, BodyInstance, DeclaredExecution, Execution, Signature, SignatureRequest } from "../ir-types/contract.js";
-import { artifactBindingsKey, instanceKey, readSignature } from "../ir-types/index.js";
+import { artifactBindingsKey, instanceKey, readSignature, signatureRequestKey } from "../ir-types/index.js";
 import type { AdmittedNativeGuarantee } from "../libraries/contract.js";
 import type { SourceBarrier } from "./source-barrier.js";
 import type { CheckedSourceViews } from "./checked-inputs.js";
@@ -20,10 +20,11 @@ function fail(message: string): never {
 }
 
 type BodyOperation = Extract<SummaryKey, { readonly kind: "body" }>;
+type DeclaredPlacement = PlacedSignature & { readonly request: SignatureRequest };
 
 export interface ReadyDeclaredExecution {
   readonly execution: DeclaredExecution;
-  readonly placement: PlacedSignature & { readonly request: SignatureRequest };
+  readonly placement: DeclaredPlacement;
   readonly source: SourceNodeRef;
   readonly scope: BindingScope;
   readonly parameters: readonly ParameterMapping[];
@@ -38,6 +39,7 @@ export interface RequiredExecutions {
   readonly moduleExecutions: ReadonlyMap<ModuleId, Execution>;
   readonly provided: ReadonlyMap<string, readonly number[]>;
   readonly declared: ReadonlyMap<string, ReadyDeclaredExecution> | null;
+  readonly declaredPlacements: ReadonlyMap<string, DeclaredPlacement> | null;
 }
 
 export function prepareRequiredExecutions(source: SourceBarrier, sources: CheckedSourceViews, roots: Iterable<TirBody>,
@@ -53,6 +55,7 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
   const moduleExecutions = new Map<ModuleId, Execution>();
   const counts = new Map<string, { readonly values: Set<number>; minimum: number; maximum: number }>();
   let declared: Map<string, ReadyDeclaredExecution> | null = null;
+  let declaredPlacements: Map<string, DeclaredPlacement> | null = null;
   const declaredOf = (identity: string): ReadyDeclaredExecution | undefined => declared?.get(identity);
 
   const add = (key: SummaryKey): DataflowStop | null => {
@@ -277,18 +280,25 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
             const identity = summaryKey(key);
             const previous = declaredOf(identity);
             if (previous !== undefined) return { kind: "declared", execution: previous.execution };
-            const claim = chargeWork(account, selected.declaration.length);
+            const claim = chargeWork(account, 2 * selected.declaration.length) ?? admitArtifactIdentity(request.bindings, account);
             if (claim !== null) return null;
+            const placementKey = signatureRequestKey(request);
+            const previousPlacement = declaredPlacements?.get(placementKey);
+            if (previousPlacement !== undefined && previousPlacement.signature !== actual)
+              return fail("A declared request retains one actual completed signature.");
             const guarantee = source.nativeGuaranteeOf(selected.declaration);
             if (guarantee !== null && (!("core" in endpoint) || endpoint.core.provider.kind !== "available"
               || endpoint.core.provider.value !== guarantee.declaration))
               return fail("A selected native guarantee borrows its actual checked canonical declaration.");
-            const retain = chargeResultEntries(account, declared === null ? 8 : 7);
+            const retain = chargeResultEntries(account, 4 + (declared === null ? 1 : 0)
+              + (previousPlacement === undefined ? 4 : 0) + (declaredPlacements === null ? 1 : 0));
             if (retain !== null) return null;
             declared ??= new Map();
-            const ready: DeclaredExecution = { request: { ...request, bindings: { kind: "instantiated", bindings: decision.bindings } }, provided };
-            declared.set(identity, { execution: ready, placement: { request: ready.request, signature: actual },
-              source: site, scope, parameters: decision.parameters, guarantee });
+            declaredPlacements ??= new Map();
+            const placement = previousPlacement ?? { request, signature: actual };
+            if (previousPlacement === undefined) declaredPlacements.set(placementKey, placement);
+            const ready: DeclaredExecution = { request: placement.request, provided };
+            declared.set(identity, { execution: ready, placement, source: site, scope, parameters: decision.parameters, guarantee });
             return { kind: "declared", execution: ready };
           }
           ordinal += 1;
@@ -330,5 +340,6 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
     }
     provided.set(key, ordered);
   }
-  return { kind: "ok", diagnostics: [], value: { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions, provided, declared } };
+  return { kind: "ok", diagnostics: [], value: { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions, provided,
+    declared, declaredPlacements } };
 }

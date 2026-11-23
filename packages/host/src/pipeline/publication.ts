@@ -286,19 +286,16 @@ export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourc
     }
     modules.push({ module: module.module, tree: module.tree, bodies: published });
   }
-  const declared = typed.required.declared;
+  const declared = typed.required.declaredPlacements;
   if (declared !== null) {
-    const placements = declared.values();
+    const placements = declared.entries();
     for (let position = 0; position < declared.size; position += 1) {
       const read = chargeWork(account, 1);
       if (read !== null) return analysisStop(read, unit);
       const row = placements.next();
       if (row.done) return fail("The retained declared signature inventory is dense.");
-      const { request, signature } = row.value.placement;
+      const [key, { request, signature }] = row.value;
       if (request.endpoint !== "api-signature") return fail("A declared execution retains its bodyless API signature.");
-      const identity = chargeWork(account, request.definition.length) ?? admitArtifactIdentity(request.bindings, account);
-      if (identity !== null) return analysisStop(identity, unit);
-      const key = signatureRequestKey(request);
       const previous = signatures.get(key);
       if (previous !== undefined) {
         if (previous.signature !== signature.id) return fail("One selected declared signature request retains one actual answer.");

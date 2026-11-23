@@ -585,7 +585,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     for (const endpoint of declarationOf(request.definition)?.endpoints ?? []) {
       if (endpoint.role !== request.endpoint) continue;
       if (ordinal++ !== request.ordinal) continue;
-      if (endpoint.body === null) return readDeclared(request)?.id ?? null;
+      if (endpoint.body === null) return required.value.declaredPlacements?.get(signatureRequestKey(request))?.signature.id ?? null;
       const placed = placedSignatureOf({ body: endpoint.body, bindings: request.bindings });
       return placed?.request !== null && placed !== null && signatureRequestKey(placed.request) === signatureRequestKey(request)
         ? placed.signature.id : null;
@@ -626,7 +626,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         members.push({ instance: { body: body.body, bindings: body.bindings }, occurrence: { kind: "selection", node, ordinal: 0 }, inventory });
       }
     }
-    const declared = required.value.declared;
+    const declared = required.value.declaredPlacements;
     if (declared !== null) {
       const placements = declared.values();
       for (let position = 0; position < declared.size; position += 1) {
@@ -634,7 +634,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         if (stop !== null) return stop;
         const row = placements.next();
         if (row.done) return fail("The completed selected declaration evidence retains every original row.");
-        signatures.push(row.value.placement);
+        signatures.push(row.value);
       }
     }
     const itemRows = items.entries();
