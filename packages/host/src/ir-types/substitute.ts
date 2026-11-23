@@ -6,7 +6,7 @@ import { storedType, storedSignature } from "./interner.js";
 import { TypeArena, type GraphIdentity } from "./arena.js";
 import { remapTerm, remapConditional, remapSignature, orderedSignature, graphReferences, type GraphValue } from "./canonical.js";
 import { stageGraph } from "./graph-stage.js";
-import { bindingVectorKeyOf, typeIdentifier, signatureIdentifier, required } from "./value.js";
+import { readBindingKey, readBindingRows, typeIdentifier, signatureIdentifier, required, type BindingReader } from "./value.js";
 import type { ExpansionResult, ExpansionStop, TypePublicationStop, TypePublicationWork } from "./work.js";
 import { PublicationAccount, publicationAdmission } from "./work.js";
 import { admitGraphType, admitGraphSignature, readStagedGraph } from "./publication-read.js";
@@ -36,8 +36,8 @@ interface SubstitutionEnvironment {
   readonly storage: TypeInterner;
   key: string;
   memo: Map<string, number>;
-  readonly parameters: ReadonlyMap<string, TypeBinding>;
-  readonly self: ReadonlyMap<DefId, SelfBinding>;
+  readonly parameters: ReadonlyMap<DefId, TyId | null>;
+  readonly self: ReadonlyMap<DefId, TyId | null>;
   readonly limits: TypeExpansionLimits;
   readonly goal: "extend" | "project";
   readonly absent: Set<string> | null;
@@ -86,32 +86,29 @@ function prepareSubstitution<Stop extends TypeTableAdmissionStop>(
 ): ExpansionResult<SubstitutionEnvironment> | Stop {
   admittedLimits(limits);
   const storage = interner;
-  const parameters = new Map<string, TypeBinding>();
-  const self = new Map<DefId, SelfBinding>();
+  const parameters = new Map<DefId, TyId | null>();
+  const self = new Map<DefId, TyId | null>();
   const environment: SubstitutionEnvironment = { storage, key: "", parameters, self, limits, goal,
     absent: goal === "project" ? new Set<string>() : null, visits: 0, memo: new Map<string, number>() };
-  for (const family of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings])
-    for (let position = 0; position < family.length; position += 1) {
-      const stop = visitBindingValue(environment) ?? commitment.work(1);
-      if (stop !== null) return stop;
-      const binding = family[position];
-      if (binding === undefined) throw new TypeError("ir-types: a binding vector contains no parameter holes.");
-      const key = parameterKey(binding.parameter);
-      if (parameters.has(key)) throw new Error("ir-types: a binding vector contains each owner-qualified parameter once.");
-      parameters.set(key, binding);
-    }
-  for (let position = 0; position < bindings.selfBindings.length; position += 1) {
-    const stop = visitBindingValue(environment) ?? commitment.work(1);
-    if (stop !== null) return stop;
-    const binding = bindings.selfBindings[position];
-    if (binding === undefined) throw new TypeError("ir-types: a binding vector contains no self holes.");
-    if (self.has(binding.owner)) throw new Error("ir-types: a binding vector contains each lexical self owner once.");
-    self.set(binding.owner, binding);
-  }
+  const admit = () => visitBindingValue(environment) ?? commitment.work(1);
+  const read: BindingReader = (family, row) => {
+    const lexicalSelf = family === "selfBindings";
+    if (row === null) throw new TypeError(lexicalSelf ? "ir-types: a binding vector contains no self holes."
+      : "ir-types: a binding vector contains no parameter holes.");
+    const replacements = lexicalSelf ? self : parameters;
+    if (replacements.has(row[1])) throw new Error(lexicalSelf ? "ir-types: a binding vector contains each lexical self owner once."
+      : "ir-types: a binding vector contains each owner-qualified parameter once.");
+    replacements.set(row[1], row[0] === "bound" ? row[2] : null);
+  };
   if (goal === "extend") {
-    environment.key = encodeKey([bindingVectorKeyOf(bindings), limits.maximumDepth, limits.maximumVisits,
+    const key = readBindingKey(bindings, admit, read);
+    if (key.kind !== "complete") return key;
+    environment.key = encodeKey([key.key, limits.maximumDepth, limits.maximumVisits,
       limits.maximumUnionMembers, limits.maximumIntersectionMembers]);
     environment.memo = TypeArena.substitutions(storage).get(environment.key) ?? environment.memo;
+  } else {
+    const stop = readBindingRows(bindings, admit, read);
+    if (stop !== null) return stop;
   }
   return { kind: "complete", value: environment };
 }
@@ -306,7 +303,7 @@ function transform<Stop extends TypeTableAdmissionStop>(
     let value: SignatureInput | null = signature;
     if (value !== null) {
       if (scope === "selected" && value.typeParameters.length !== 0) {
-        const remaining = value.typeParameters.filter(parameter => parameters.get(parameterKey(parameter.declaration))?.kind !== "bound");
+        const remaining = value.typeParameters.filter(parameter => (parameters.get(parameter.declaration) ?? null) === null);
         if (remaining.length !== value.typeParameters.length) value = { ...value, typeParameters: remaining };
       }
       const keys = value.typeParameters.map(parameter => parameterKey(parameter.declaration));
@@ -355,9 +352,9 @@ function transform<Stop extends TypeTableAdmissionStop>(
     if (plan.kind === "type" && (plan.value.kind === "param" || plan.value.kind === "self")) {
       const value = plan.value;
       const key = value.kind === "param" ? parameterKey(value.parameter) : `self:${value.owner}`;
-      const replacement = value.kind === "param" ? parameters.get(key) : self.get(value.owner);
-      if (!scopeHas(plan.blocked, key) && replacement?.kind === "bound" && replacement.type !== plan.identity) {
-        const selected = child("type", replacement.type, block(plan.blocked, [key]));
+      const replacement = value.kind === "param" ? parameters.get(value.parameter) : self.get(value.owner);
+      if (!scopeHas(plan.blocked, key) && replacement !== undefined && replacement !== null && replacement !== plan.identity) {
+        const selected = child("type", replacement, block(plan.blocked, [key]));
         if (selected.kind !== "complete") return selected;
         plan.redirect = selected.value;
       }
@@ -533,33 +530,37 @@ export const projectBindingValues: ProjectBindingValues = (interner, input, bind
       classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [],
     };
     for (const family of parameterFamilies) {
-      for (let position = 0; position < vector[family].length; position += 1) {
+      const bindings = vector[family];
+      for (let position = 0; position < bindings.length; position += 1) {
         const stop = entry(1);
         if (stop !== null) return stop;
-        const original = vector[family][position];
+        const original = bindings[position];
         if (original === undefined) throw new TypeError("ir-types: a binding vector contains no parameter holes.");
-        const binding = original.kind === "rigid" ? environment.parameters.get(parameterKey(original.parameter)) ?? original : original;
-        if (binding.kind === "rigid") output[family].push(binding);
+        const parameter = original.parameter;
+        const type = original.kind === "rigid" ? environment.parameters.get(parameter) ?? null : original.type;
+        if (type === null) output[family].push(original);
         else {
-          const result = transform(environment, "type", binding.type, "lexical", account);
+          const result = transform(environment, "type", type, "lexical", account);
           if (result.kind !== "complete") return result;
           if (result.value === null) complete = false;
-          else output[family].push({ kind: "bound", parameter: binding.parameter, type: typeIdentifier(result.value) });
+          else output[family].push({ kind: "bound", parameter, type: typeIdentifier(result.value) });
         }
       }
     }
-    for (let position = 0; position < vector.selfBindings.length; position += 1) {
+    const selfBindings = vector.selfBindings;
+    for (let position = 0; position < selfBindings.length; position += 1) {
       const stop = entry(1);
       if (stop !== null) return stop;
-      const original = vector.selfBindings[position];
+      const original = selfBindings[position];
       if (original === undefined) throw new TypeError("ir-types: a binding vector contains no self holes.");
-      const binding = original.kind === "rigid" ? environment.self.get(original.owner) ?? original : original;
-      if (binding.kind === "rigid") output.selfBindings.push(binding);
+      const owner = original.owner;
+      const type = original.kind === "rigid" ? environment.self.get(owner) ?? null : original.type;
+      if (type === null) output.selfBindings.push(original);
       else {
-        const result = transform(environment, "type", binding.type, "lexical", account);
+        const result = transform(environment, "type", type, "lexical", account);
         if (result.kind !== "complete") return result;
         if (result.value === null) complete = false;
-        else output.selfBindings.push({ kind: "bound", owner: binding.owner, type: typeIdentifier(result.value) });
+        else output.selfBindings.push({ kind: "bound", owner, type: typeIdentifier(result.value) });
       }
     }
     values.push(complete ? output : null);

@@ -4108,6 +4108,39 @@ test("a paid binding key uses the same canonical row projection without acquirin
   }
 });
 
+test("a substitution memo cannot assign a computed image to a second read of its bindings", () => {
+  const storage = createTypeInterner();
+  const parameter = parameterDeclaration(owner, 0);
+  const term = product.internType(storage, { kind: "param", parameter });
+  const first = product.internType(storage, { kind: "primitive", primitive: "bool" });
+  const second = product.internType(storage, { kind: "primitive", primitive: "float64" });
+  const root = insertFixtureType(product, storage, { kind: "array", element: term, readonly: false });
+  const rows = new Array(1);
+  const reads = [];
+  const binding = {
+    get kind() { reads.push("kind"); return "bound"; },
+    get parameter() { reads.push("parameter"); return parameter; },
+    get type() { reads.push("type"); return reads.filter(read => read === "type").length === 1 ? first : second; },
+  };
+  Object.defineProperty(rows, 0, { get() { reads.push("row"); return binding; } });
+  const vector = { ...emptyBindings(), classBindings: rows };
+  const work = product.createTypePublicationWork({ maximumWork: 0, maximumCreatedRecords: 100 });
+  const stopped = substitute(storage, [root], vector, limits(), work);
+  assert.deepEqual(stopped, { kind: "resource-limit", dimension: "work", maximum: 0 });
+  assert.equal(substitute(storage, [root], vector, limits(), work) === stopped, true);
+  assert.deepEqual(substitute(storage, [root], vector, limits({ maximumVisits: 0 }), fixtureTypeWork(product)),
+    { kind: "resource-limit", dimension: "visits", maximum: 0 });
+  assert.deepEqual(reads, []);
+  const projected = substitute(storage, [root], vector, limits(), fixtureTypeWork(product));
+  assert.equal(projected.kind, "complete");
+  assert.deepEqual(readType(storage, projected.value[0]), { kind: "array", element: first, readonly: false });
+  const otherImage = substitute(storage, [root], { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: second }] },
+    limits(), fixtureTypeWork(product));
+  assert.equal(otherImage.kind, "complete");
+  assert.deepEqual(readType(storage, otherImage.value[0]), { kind: "array", element: second, readonly: false });
+  assert.deepEqual(reads, ["row", "kind", "parameter", "type"]);
+});
+
 test("lexical support distinguishes nested signature binders, free outer references and foreign ones", () => {
   const inner = parameterDeclaration(other, 0);
   const outer = parameterDeclaration(owner, 0);

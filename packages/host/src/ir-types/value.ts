@@ -1,46 +1,63 @@
-import type { KeyData } from "../ids/contract.js";
+import type { DefId, KeyData, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { ArtifactBindings, BindingVector, BodyInstance, ConstantReference, Execution, SelfBinding, TypeBinding } from "./data.js";
 import type { DeclaredExecution, ReadBindingVectorKey, RigidBindings, SignatureRequest, TypeTableAdmissionStop } from "./contract.js";
 import type { IndexInventoryEntry, MemberKey, MemberOrigin, MemberStorageSelection } from "./data.js";
 export { tyId as typeIdentifier, sigId as signatureIdentifier } from "../ids/index.js";
 
-const typeBindingData = (binding: TypeBinding | undefined): KeyData => binding === undefined ? null : binding.kind === "rigid"
-  ? [binding.kind, binding.parameter]
-  : [binding.kind, binding.parameter, binding.type];
+type BindingRow = readonly ["rigid", DefId] | readonly ["bound", DefId, TyId] | null;
+export type BindingReader = (family: keyof BindingVector, row: BindingRow) => void;
 
-const selfBindingData = (binding: SelfBinding | undefined): KeyData => binding === undefined ? null : binding.kind === "rigid"
-  ? [binding.kind, binding.owner] : [binding.kind, binding.owner, binding.type];
+function typeBindingData(binding: TypeBinding | undefined): BindingRow {
+  if (binding === undefined) return null;
+  const { kind, parameter } = binding;
+  return kind === "rigid" ? [kind, parameter] : [kind, parameter, binding.type];
+}
 
-function bindingFamilyData<Row, Stop extends TypeTableAdmissionStop>(rows: readonly Row[], project: (row: Row | undefined) => KeyData,
-  admitRow: (() => Stop | null) | null): KeyData[] | Stop {
-  const value: KeyData[] = [];
+function selfBindingData(binding: SelfBinding | undefined): BindingRow {
+  if (binding === undefined) return null;
+  const { kind, owner } = binding;
+  return kind === "rigid" ? [kind, owner] : [kind, owner, binding.type];
+}
+
+function readBindingFamily<Row, Stop extends TypeTableAdmissionStop>(rows: readonly Row[], project: (row: Row | undefined) => BindingRow,
+  family: keyof BindingVector, admitRow: () => Stop | null, read: BindingReader): Stop | null {
   for (let position = 0; position < rows.length; position += 1) {
-    const stop = admitRow === null ? null : admitRow();
+    const stop = admitRow();
     if (stop !== null) return stop;
-    value.push(project(rows[position]));
+    read(family, project(rows[position]));
   }
-  return value;
+  return null;
 }
 
-function projectBindingVector<Stop extends TypeTableAdmissionStop>(vector: BindingVector, admitRow: (() => Stop | null) | null): KeyData[] | Stop {
-  const classes = bindingFamilyData(vector.classBindings, typeBindingData, admitRow);
-  if (!Array.isArray(classes)) return classes;
-  const methods = bindingFamilyData(vector.methodBindings, typeBindingData, admitRow);
-  if (!Array.isArray(methods)) return methods;
-  const captured = bindingFamilyData(vector.capturedBindings, typeBindingData, admitRow);
-  if (!Array.isArray(captured)) return captured;
-  const self = bindingFamilyData(vector.selfBindings, selfBindingData, admitRow);
-  if (!Array.isArray(self)) return self;
-  return [classes, methods, captured, self];
+export function readBindingRows<Stop extends TypeTableAdmissionStop>(vector: BindingVector, admitRow: () => Stop | null,
+  read: BindingReader): Stop | null {
+  return readBindingFamily(vector.classBindings, typeBindingData, "classBindings", admitRow, read) ??
+    readBindingFamily(vector.methodBindings, typeBindingData, "methodBindings", admitRow, read) ??
+    readBindingFamily(vector.capturedBindings, typeBindingData, "capturedBindings", admitRow, read) ??
+    readBindingFamily(vector.selfBindings, selfBindingData, "selfBindings", admitRow, read);
 }
 
-export const bindingVectorData = (vector: BindingVector): KeyData => projectBindingVector<never>(vector, null);
+function projectBindingVector<Stop extends TypeTableAdmissionStop>(vector: BindingVector, admitRow: () => Stop | null,
+  read: BindingReader | null): readonly BindingRow[][] | Stop {
+  const classBindings: BindingRow[] = [], methodBindings: BindingRow[] = [], capturedBindings: BindingRow[] = [], selfBindings: BindingRow[] = [];
+  const rows = { classBindings, methodBindings, capturedBindings, selfBindings };
+  const stop = readBindingRows(vector, admitRow, (family, row) => {
+    read?.(family, row);
+    rows[family].push(row);
+  });
+  return stop ?? [classBindings, methodBindings, capturedBindings, selfBindings];
+}
 
-export const readBindingVectorKey: ReadBindingVectorKey = (vector, admitRow) => {
-  const result = projectBindingVector(vector, admitRow);
-  return Array.isArray(result) ? { kind: "complete", key: encodeKey(result) } : result;
-};
+export const bindingVectorData = (vector: BindingVector): KeyData => projectBindingVector<never>(vector, () => null, null);
+
+export function readBindingKey<Stop extends TypeTableAdmissionStop>(vector: BindingVector, admitRow: () => Stop | null,
+  read: BindingReader | null): { readonly kind: "complete"; readonly key: string } | Stop {
+  const result = projectBindingVector(vector, admitRow, read);
+  return "kind" in result ? result : { kind: "complete", key: encodeKey(result) };
+}
+
+export const readBindingVectorKey: ReadBindingVectorKey = (vector, admitRow) => readBindingKey(vector, admitRow, null);
 
 export const artifactBindingsData = (bindings: ArtifactBindings): KeyData =>
   bindings.kind === "parametric" ? [bindings.kind] : [bindings.kind, bindingVectorData(bindings.bindings)];
