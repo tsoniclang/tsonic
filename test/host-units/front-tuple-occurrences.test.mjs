@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { propertyRows, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 async function opened(source, includeArrayIndex = true, foreignSource) {
   const fixture = await loadFrontFixture();
@@ -167,7 +167,7 @@ async function resultProbe(source, observedMethod = "produce", foreignSource) {
   const constructor = checker.getSignatureFromDeclaration(ast.members(build)[0]);
   const arrays = typeShape.getSignatureParameterInfos(constructor).map(row =>
     typeShape.getUnionOrIntersectionTypes(row.type).find(arm => !typeShape.isNullish(arm)));
-  const selected = (receiver, name) => typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === name).type)[0];
+  const selected = (receiver, name) => typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === name).type)[0];
   const produce = selected(arrays[0], observedMethod);
   let observedProgram = program;
   const capture = (query, limits = deps.navigationCapture, shape = {}) => {
@@ -1024,9 +1024,9 @@ test("an active inventory key is paid before the next native inventory reader an
   const run = navigationCapture => {
     reads = 0;
     return capture({}, navigationCapture, {
-      getPropertyInfos(type) {
+      getPropertyInventory(type) {
         if (type === receiver && ++reads === 2) throw stop;
-        return typeShape.getPropertyInfos(type);
+        return typeShape.getPropertyInventory(type);
       },
     });
   };

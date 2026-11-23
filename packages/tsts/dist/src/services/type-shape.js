@@ -156,7 +156,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
         getTupleInfo: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypeTupleInfo(checker, type)),
         getObjectPropertyInfo: (type, name) => withObject(type, (checker, object) => readObjectPropertyInfo(checker, object, name)),
         forEachObjectPropertyHeader: (type, admit, visit) => withObject(type, (checker, object) => walkObjectPropertyHeaders(checker, object, admit, visit)),
-        getPropertyInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypePropertyInfos(checker, type)) ?? [],
+        getPropertyInventory: type => getTypePropertyInventory(program, type, defaultOptions),
         getCallSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindCall)) ?? [],
         getConstructSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindConstruct)) ?? [],
         getSignatureInfos: (type, kind) => {
@@ -238,12 +238,28 @@ function readTypeConditionalComponents(checker, type) {
         trueBranch: readConditionalBranch(checker, syntax.TrueType, trueType),
         falseBranch: readConditionalBranch(checker, syntax.FalseType, falseType) });
 }
-function getTypePropertyInfos(checker, type) {
-    if (checker === undefined) {
-        throw new Error("The source type has no owning checker for property analysis.");
-    }
-    const properties = Checker_GetPropertiesOfType(checker, type) ?? [];
-    return properties.map((symbol) => readTypePropertyInfo(checker, type, symbol));
+function getTypePropertyInventory(program, type, options) {
+    const source = options.sourceFile;
+    const context = options.context ?? Background();
+    const owner = type?.checker;
+    return withOwnedChecker(program, source, owner, context, checker => {
+        const properties = Checker_GetPropertiesOfType(checker, type);
+        const length = properties.length;
+        const inventory = {
+            length,
+            read: (index, admit) => {
+                if (!Number.isSafeInteger(index) || index < 0 || Object.is(index, -0) || index >= length)
+                    throw new RangeError("A property read requires an actual inventory ordinal.");
+                const stop = admit();
+                if (stop !== null)
+                    return { kind: "refused", stop };
+                return withOwnedChecker(program, source, checker, context, current => ({
+                    kind: "complete", value: readTypePropertyInfo(current, type, properties[index]),
+                })) ?? { kind: "unavailable" };
+            },
+        };
+        return Object.freeze(inventory);
+    });
 }
 function getTypeTupleInfo(checker, type) {
     if (checker === undefined || type === undefined || !isTupleType(type))

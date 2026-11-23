@@ -27,6 +27,16 @@ export function rawComponentPath(components, component) {
   return path.reverse();
 }
 
+export function propertyRows(shape, type) {
+  const inventory = shape.getPropertyInventory(type);
+  assert.ok(inventory, "An actual native property inventory retains its checker.");
+  return Array.from({ length: inventory.length }, (_, index) => {
+    const row = inventory.read(index, () => null);
+    assert.equal(row.kind, "complete");
+    return row.value;
+  });
+}
+
 export async function loadFrontFixture() {
   const front = await import("../../../../packages/host/dist/front/index.js");
   const ids = await import("../../../../packages/host/dist/ids/index.js");

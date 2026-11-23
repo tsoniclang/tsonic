@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint } from "@tsonic/tsts";
+import type { ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -562,7 +562,7 @@ function mappedOwner(scope: CaptureScope, type: Type, node: Node | undefined): M
   return { node, declaration };
 }
 
-function capturedMappedMember(scope: CaptureScope, property: ReturnType<TypeShapeQueries["getPropertyInfos"]>[number],
+function capturedMappedMember(scope: CaptureScope, property: TypePropertyInfo,
   owner: MappedOwner, position: RawComponentId, readType: (type: Type, step: RawComponentStep) => RawTypeId | null): RawMember | null {
   if (!admit(scope, "edges")) return null;
   const mapped = property.mapped;
@@ -610,16 +610,19 @@ function capturedMappedMember(scope: CaptureScope, property: ReturnType<TypeShap
     optional: property.optional, readonly: property.readonly, read: available(read), write: available(write) };
 }
 
-function capturedMembers(scope: CaptureScope, type: Type, properties: ReturnType<TypeShapeQueries["getPropertyInfos"]>,
+function capturedMembers(scope: CaptureScope, type: Type, properties: TypePropertyInventory,
   position: RawComponentId, receiver: ReceiverUse | null, active: ActiveReceiverCandidate | null): readonly RawMember[] | null {
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A member inventory requires its actual captured source component."));
   const members: RawMember[] = [];
   let mapped: MappedOwner | null = null;
+  const admitProperty = (): Diagnostic | null => admit(scope, "facts") && admit(scope, "edges") ? null :
+    scope.meter.refusal ?? throwInvariant(invariant("Property admission retains its actual first capture refusal."));
   for (let index = 0; index < properties.length; index += 1) {
-    if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
-    const property = properties[index];
-    if (property === undefined) return throwInvariant(invariant("A selected property inventory must retain every actual row."));
+    const selected = properties.read(index, admitProperty);
+    if (selected.kind === "refused") return null;
+    if (selected.kind === "unavailable") return throwInvariant(invariant("An admitted property retains its actual owning checker."));
+    const property = selected.value;
     const readType = (type: Type, step: RawComponentStep, use: BindingUse | null = null, typeSource?: Node): RawTypeId | null =>
       rawType(scope, () => withoutTypeCause(type, typeSource), appendComponent(scope, parent, step), null, use);
     if (property.mapped !== undefined) {
@@ -2348,7 +2351,8 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   const constructs = shape.getConstructSignatures(type);
   const selectedIndexes = shape.getIndexInfos(type);
   if (!admit(scope, "edges")) return null;
-  const properties = shape.getPropertyInfos(type);
+  const properties = shape.getPropertyInventory(type);
+  if (properties === undefined) return throwInvariant(invariant("A checked type retains its actual owning property inventory."));
   const hasInventory = calls.length !== 0 || constructs.length !== 0 || selectedIndexes.length !== 0 || properties.length !== 0;
   const original = !hasInventory && declarations.length === 1 ? declarations[0] : undefined;
   const syntaxKind = original === undefined ? null : scope.checked.ast.kindName(original);

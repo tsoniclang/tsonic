@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { propertyRows, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { insertFixtureType, insertFixtureSignature } from "./fixtures/types-construction.mjs";
 
 const runtime = fileURLToPath(new URL("../../packages/host/dist/front/lower-members.js", import.meta.url));
@@ -260,7 +260,7 @@ test("mapped properties retain the native key and the actual foreign mapping own
   const own = OpenedProgram.syntax(opened.program).get("/project/src/main.ts").outcome.numbering;
   const sourceNodes = OpenedProgram.syntax(opened.program).get("/project/src/origin.ts").outcome.numbering.nodes;
   const native = checker.getTypeFromTypeNode(own.nodes[use.id]).type;
-  const selected = typeShape.getPropertyInfos(native);
+  const selected = propertyRows(typeShape, native);
   const nativeOrigin = sourceNodes[flags.type.id];
   const original = checker.getTypeFromTypeNode(nativeOrigin).type;
   assert.equal(native === original || typeShape.getTypeReferenceTarget(native) === original, true);
@@ -398,7 +398,7 @@ test("a remapped property cannot use its input key as the selected output key", 
   const { checker, typeShape } = getSourceFileQueries(file);
   const alias = ast.children(file).find(node => ast.kindName(node) === "KindTypeAliasDeclaration");
   const syntax = ast.typeNode(alias);
-  const [selected] = typeShape.getPropertyInfos(checker.getTypeFromTypeNode(syntax).type);
+  const [selected] = propertyRows(typeShape, checker.getTypeFromTypeNode(syntax).type);
   assert.equal(selected.name, "renamed");
   assert.equal(selected.mapped.declaration === syntax, true);
   assert.equal(typeShape.getStringLiteralTypeValue(selected.mapped.keyType), "length");

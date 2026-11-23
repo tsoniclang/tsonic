@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture, rawComponentPath } from "./fixtures/front/checked-module.mjs";
+import { propertyRows, loadFrontFixture, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
 test("unchanged selected signature arguments retain their actual foreign lexical slots", async () => {
   const fixture = await loadFrontFixture();
@@ -338,7 +338,7 @@ test("applied method formals follow the authored receiver argument even when nat
     const syntax = checked.ast.typeNode(numbered.nodes[property.id]);
     const argument = checked.ast.as.AsTypeReferenceNode(syntax).TypeArguments.Nodes[0];
     const receiver = checker.getTypeFromTypeNode(syntax).type;
-    const selected = typeShape.getPropertyInfos(receiver).find(entry => entry.name === "first");
+    const selected = propertyRows(typeShape, receiver).find(entry => entry.name === "first");
     const [signature] = typeShape.getCallSignatures(selected.type);
     assert.equal(signature.target === (fragment === aliasHost ? aliasOriginal : original), true);
     assert.equal(typeShape.getSignatureParameterInfos(signature)[0].type === checker.getTypeFromTypeNode(argument).type, true);
@@ -358,12 +358,12 @@ test("applied method formals follow the authored receiver argument even when nat
     capturedRows.push(row);
     if (fragment !== aliasHost) {
       const forward = inventory.members.find(entry => entry.name === "left");
-      assert.equal(typeShape.getPropertyInfos(receiver).find(entry => entry.name === "left").type === receiver, true);
+      assert.equal(propertyRows(typeShape, receiver).find(entry => entry.name === "left").type === receiver, true);
       assert.equal(raw.types.types[forward.read.value].form.value.inventory, inventory.id);
       assert.equal(raw.types.types[forward.write.value].form.value.inventory, inventory.id);
 
       const loop = inventory.members.find(entry => entry.name === "loop");
-      const [nativeLoop] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(entry => entry.name === "loop").type);
+      const [nativeLoop] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(entry => entry.name === "loop").type);
       assert.equal(checker.getReturnTypeOfSignature(nativeLoop)?.type === receiver, true);
       const call = entry => raw.types.members[raw.types.types[entry.read.value].form.value.inventory].calls[0];
       const loopSignature = raw.types.signatures[call(loop)];
@@ -418,7 +418,7 @@ for (const nested of ["(Box<T>)", "Identity<Box<T>>", "Box<Identity<T>>"]) {
     const unproved = ast.typeNode(nestedProperty);
     const receiver = checker.getTypeFromTypeNode(direct).type;
     assert.equal(checker.getTypeFromTypeNode(unproved).type === receiver, true, nested);
-    const actual = typeShape.getPropertyInfos(receiver);
+    const actual = propertyRows(typeShape, receiver);
     assert.equal(actual.find(entry => entry.name === "direct").type === receiver, true, nested);
     assert.equal(actual.find(entry => entry.name === "unproved").type === receiver, true, nested);
     let reachedLater = false;
@@ -457,7 +457,7 @@ test("recursive receiver admission preserves the actual source-reader stop befor
   const recursive = ast.typeNode(ast.children(right).find(node => ast.kindName(node) === "KindPropertySignature"));
   const receiver = checker.getTypeFromTypeNode(direct).type;
   assert.equal(checker.getTypeFromTypeNode(recursive).type === receiver, true);
-  assert.equal(typeShape.getPropertyInfos(receiver).find(entry => entry.name === "recursive").type === receiver, true);
+  assert.equal(propertyRows(typeShape, receiver).find(entry => entry.name === "recursive").type === receiver, true);
   const stop = new Error("actual recursive source reader stopped");
   let reachedLater = false;
   let attempts = 0;
@@ -520,7 +520,7 @@ test("a direct optional callback keeps the selected receiver binder in each qual
     const property = fragment.members.nodes.find(member => member.name.text === name);
     const syntax = ast.typeNode(numbered.nodes[property.id]);
     const receiver = checker.getTypeFromTypeNode(syntax).type;
-    const methodType = typeShape.getPropertyInfos(receiver).find(entry => entry.name === "sort").type;
+    const methodType = propertyRows(typeShape, receiver).find(entry => entry.name === "sort").type;
     const [method] = typeShape.getCallSignatures(methodType);
     const selected = typeShape.getSignatureParameterInfos(method)[0];
     const selectedType = typeShape.getUnionOrIntersectionTypes(selected.type).find(arm => !typeShape.isNullish(arm));
@@ -572,7 +572,7 @@ test("an alias-wrapped callback cannot borrow its inner FunctionType by native p
   const [method] = ast.children(owner).filter(node => ast.kindName(node) === "KindMethodSignature");
   const property = ast.children(owner).find(node => ast.kindName(node) === "KindPropertySignature");
   const receiver = checker.getTypeFromTypeNode(ast.typeNode(property)).type;
-  const [selected] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(entry => entry.name === "sort").type);
+  const [selected] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(entry => entry.name === "sort").type);
   const original = typeShape.getSignatureParameterInfos(selected.target)[0];
   const wrapped = ast.typeNode(original.declaration);
   const inner = ast.as.AsTypeReferenceNode(wrapped).TypeArguments.Nodes[0];
@@ -604,7 +604,7 @@ test("the exact callback evidence limits preserve the actual annotation reader s
   const method = members.find(node => ast.kindName(node) === "KindMethodSignature");
   const syntax = ast.typeNode(ast.parameters(method)[0]);
   const receiver = checker.getTypeFromTypeNode(exact).type;
-  const [signature] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "sort").type);
+  const [signature] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "sort").type);
   const optional = typeShape.getSignatureParameterInfos(signature)[0].type;
   const selected = typeShape.getUnionOrIntersectionTypes(optional).find(arm => !typeShape.isNullish(arm));
   assert.equal(typeShape.getCallSignatures(selected)[0].target === checker.getSignatureFromDeclaration(syntax), true);
@@ -668,7 +668,7 @@ for (const [scenario, annotation, optional, admitted] of [
     const use = ast.typeNode(chosen);
     const receiver = checker.getTypeFromTypeNode(use).type;
     const [mapping] = typeShape.getTypeReferenceArgumentInfos(receiver);
-    const [method] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(entry => entry.name === "find").type);
+    const [method] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(entry => entry.name === "find").type);
     const [original] = typeShape.getSignatureParameterInfos(method.target);
     const [applied] = typeShape.getSignatureParameterInfos(method);
     const payload = type => typeShape.isUnion(type)
@@ -743,7 +743,7 @@ for (const annotation of ["T[]", "Identity<T[]>"]) {
     const declaration = ast.children(file).find(node => ast.kindName(node) === "KindInterfaceDeclaration");
     const [use, checkpoint] = ast.children(declaration).filter(node => ast.kindName(node) === "KindPropertySignature").map(node => ast.typeNode(node));
     const receiver = checker.getTypeFromTypeNode(use).type;
-    const [method] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "find").type);
+    const [method] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "find").type);
     const [callback] = typeShape.getCallSignatures(typeShape.getSignatureParameterInfos(method)[0].type);
     const original = typeShape.getSignatureParameterInfos(callback.target)[2];
     const selected = typeShape.getSignatureParameterInfos(callback)[2];
@@ -828,7 +828,7 @@ test("an applied callback return retains the original callable and the selected 
     const syntax = ast.typeNode(node);
     const receiver = checker.getTypeFromTypeNode(syntax).type;
     const [argument] = typeShape.getTypeReferenceArgumentInfos(receiver);
-    const [selected] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(member => member.name === "fold").type);
+    const [selected] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(member => member.name === "fold").type);
     const callbackType = typeShape.getSignatureParameterInfos(selected)[0].type;
     const [callback] = typeShape.getCallSignatures(callbackType);
     assert.equal(callback.target === original && callback.mapper !== undefined, true);
@@ -876,7 +876,7 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped callback r
   const inner = wrapped ? ast.as.AsTypeReferenceNode(result).TypeArguments.Nodes[0] : result;
   const receiver = checker.getTypeFromTypeNode(exact).type;
   const [argument] = typeShape.getTypeReferenceArgumentInfos(receiver);
-  const [fold] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(member => member.name === "fold").type);
+  const [fold] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(member => member.name === "fold").type);
   const [selected] = typeShape.getCallSignatures(typeShape.getSignatureParameterInfos(fold)[0].type);
   const original = checker.getSignatureFromDeclaration(annotation);
   assert.equal(selected.target === original, true);
@@ -969,7 +969,7 @@ test("a direct undefined union retains the original result binder and each appli
     const syntax = ast.typeNode(numbered.nodes[member.id]);
     const receiver = checker.getTypeFromTypeNode(syntax).type;
     const [mapping] = typeShape.getTypeReferenceArgumentInfos(receiver);
-    const [signature] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "at").type);
+    const [signature] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "at").type);
     assert.equal(signature.target === original, true);
     const returned = checker.getReturnTypeOfSignature(signature)?.type;
     const selected = typeShape.getUnionOrIntersectionTypes(returned);
@@ -1049,7 +1049,7 @@ test("a declared result keeps the original authored argument and each selected r
     const annotation = ast.typeNode(numbered.nodes[member.id]);
     const receiver = checker.getTypeFromTypeNode(annotation).type;
     const [mapping] = typeShape.getTypeReferenceArgumentInfos(receiver);
-    const [signature] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "values").type);
+    const [signature] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "values").type);
     const returned = checker.getReturnTypeOfSignature(signature)?.type;
     const [argument] = typeShape.getTypeReferenceArgumentInfos(returned);
     assert.equal(signature.target === original && signature.mapper !== undefined, true);
@@ -1102,7 +1102,7 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped self resul
     const receiverNode = ast.typeNode(property);
     const receiver = checker.getTypeFromTypeNode(receiverNode).type;
     const [argument] = typeShape.getTypeReferenceArgumentInfos(receiver);
-    const properties = typeShape.getPropertyInfos(receiver);
+    const properties = propertyRows(typeShape, receiver);
     const [selected] = typeShape.getCallSignatures(properties.find(value => value.name === "revisit").type);
     const [change] = typeShape.getCallSignatures(properties.find(value => value.name === "change").type);
     assert.equal(selected.target === original && selected.mapper !== undefined, true);
@@ -1233,7 +1233,7 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer wrapped rest
   const method = members.find(node => ast.kindName(node) === "KindMethodSignature");
   const original = checker.getSignatureFromDeclaration(method);
   const receiver = checker.getTypeFromTypeNode(anchor).type;
-  const [selected] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(property => property.name === "patch").type);
+  const [selected] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(property => property.name === "patch").type);
   const originalRest = typeShape.getSignatureParameterInfos(original)[1];
   const appliedRest = typeShape.getSignatureParameterInfos(selected)[1];
   const annotation = ast.typeNode(originalRest.declaration);
@@ -1331,7 +1331,7 @@ test("a composed rest preserves original and applied native arm orders and their
     const receiver = checker.getTypeFromTypeNode(receiverNode).type;
     const [argument] = typeShape.getTypeReferenceArgumentInfos(receiver);
     const root = raw.types.types.find(row => row.authoredTypeNode?.node === numbered.ids.get(receiverNode));
-    const nativeMembers = typeShape.getPropertyInfos(receiver);
+    const nativeMembers = propertyRows(typeShape, receiver);
     for (const name of ["first", "second"]) {
       const method = numbered.nodes[left.members.nodes.find(row => row.name.text === name).id];
       const original = checker.getSignatureFromDeclaration(method);
@@ -1358,7 +1358,7 @@ test("a composed rest preserves original and applied native arm orders and their
       recordedUnion(raw.types.types[parent.parameters[1].type], originalUnion, argument.parameter, argumentNode, left);
       recordedUnion(raw.types.types[applied.parameters[1].type], selectedUnion, argument.argument, argumentNode, owner);
       if (owner === left) {
-        const property = typeShape.getPropertyInfos(selectedFormal.type).find(row => row.name === "with");
+        const property = propertyRows(typeShape, selectedFormal.type).find(row => row.name === "with");
         nativeWith.push(typeShape.getCallSignatures(property.type)[0]);
         rawWith.push(applied.id);
       }
@@ -1394,7 +1394,7 @@ test("a crossed rest arm cannot borrow the same native declared reference throug
   const method = members.find(node => ast.kindName(node) === "KindMethodSignature");
   const original = checker.getSignatureFromDeclaration(method);
   const receiver = checker.getTypeFromTypeNode(anchor).type;
-  const [selected] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "crossed").type);
+  const [selected] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "crossed").type);
   const [old] = typeShape.getSignatureParameterInfos(original);
   const [applied] = typeShape.getSignatureParameterInfos(selected);
   const wrapped = ast.as.AsArrayTypeNode(ast.typeNode(old.declaration)).ElementType;
@@ -1477,14 +1477,14 @@ for (const scenario of ["direct", "crossed", "stop"]) test("a composed receiver 
   const [anchor, collect] = ast.children(box).filter(node => ["KindPropertySignature", "KindMethodSignature"].includes(ast.kindName(node)));
   const annotation = ast.typeNode(anchor);
   const receiver = checker.getTypeFromTypeNode(annotation).type;
-  const [appliedCollect] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "collect").type);
+  const [appliedCollect] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "collect").type);
   assert.equal(appliedCollect.target === checker.getSignatureFromDeclaration(collect), true);
   const [rest] = typeShape.getSignatureParameterInfos(appliedCollect);
   const [actualElement] = typeShape.getTypeReferenceArgumentInfos(rest.type);
   const [bare, reference] = typeShape.getUnionOrIntersectionTypes(actualElement.argument);
   const array = ast.children(libraryFile).find(node => ast.kindName(node) === "KindInterfaceDeclaration");
   const [method, counter] = ast.children(array).filter(node => ast.kindName(node) === "KindMethodSignature");
-  const methodSignature = name => typeShape.getCallSignatures(typeShape.getPropertyInfos(rest.type).find(row => row.name === name).type)[0];
+  const methodSignature = name => typeShape.getCallSignatures(propertyRows(typeShape, rest.type).find(row => row.name === name).type)[0];
   const selected = methodSignature("last");
   const original = checker.getSignatureFromDeclaration(method);
   const authored = ast.typeNode(method);
@@ -1655,7 +1655,7 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
     const annotation = ast.typeNode(numbered.nodes[member.id]);
     const receiver = checker.getTypeFromTypeNode(annotation).type;
     const [binding] = typeShape.getTypeReferenceArgumentInfos(receiver);
-    const [signature] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "entries").type);
+    const [signature] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "entries").type);
     const [argument] = typeShape.getTypeReferenceArgumentInfos(checker.getReturnTypeOfSignature(signature)?.type);
     const slots = typeShape.getTupleInfo(argument.argument).elements;
     assert.equal(signature.target === original && signature.mapper !== undefined, true);
@@ -1674,7 +1674,7 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
   const objectType = checker.getTypeFromTypeNode(numbered.nodes[lookalike.type.id]).type;
   assert.equal(typeShape.getTypeReferenceTarget(readonlyType) !== typeShape.getTypeReferenceTarget(pairType), true);
   assert.equal(typeShape.isTuple(objectType), false);
-  const objectFields = typeShape.getPropertyInfos(objectType);
+  const objectFields = propertyRows(typeShape, objectType);
   for (const [index, slot] of typeShape.getTupleInfo(pairType).elements.entries())
     assert.equal(objectFields.find(field => field.name === String(index)).type === slot.type, true);
   assert.equal(authoredRow(pair.type.id).form.value.kind, "tuple");
@@ -1791,7 +1791,7 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot
   const [first, binder, later] = ast.as.AsTupleTypeNode(syntax).Elements.Nodes;
   const receiver = checker.getTypeFromTypeNode(exact).type;
   const [receiverBinding] = typeShape.getTypeReferenceArgumentInfos(receiver);
-  const [selected] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "entries").type);
+  const [selected] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "entries").type);
   const original = checker.getSignatureFromDeclaration(method);
   const returned = checker.getReturnTypeOfSignature(selected)?.type;
   assert.equal(selected.target === original && returned === checker.getReturnTypeOfSignature(original)?.type, true);
@@ -1809,9 +1809,9 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot
     return { ...queries, typeShape: { ...typeShape, getTupleInfo(type) {
       if (type === tuple) tupleReads += 1;
       return typeShape.getTupleInfo(type);
-    }, getPropertyInfos(type) {
+    }, getPropertyInventory(type) {
       if (type === tuple) propertyReads += 1;
-      return typeShape.getPropertyInfos(type);
+      return typeShape.getPropertyInventory(type);
     } }, checker: { ...checker, getTypeFromTypeNode(node) {
       if (node === first || node === binder || node === later || node === checkpoint) read.push(node);
       if (node === binder && !wrapped) throw stop;
@@ -1915,7 +1915,7 @@ for (const forged of [false, true]) test(forged ? "an alias result cannot borrow
   const result = ast.typeNode(method);
   const authored = ast.as.AsTypeReferenceNode(result);
   const receiver = checker.getTypeFromTypeNode(exact).type;
-  const [selected] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "values").type);
+  const [selected] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "values").type);
   const original = checker.getSignatureFromDeclaration(method);
   const returned = checker.getReturnTypeOfSignature(selected)?.type;
   assert.equal(selected.target === original && returned === checker.getReturnTypeOfSignature(original)?.type, true);
@@ -1991,7 +1991,7 @@ test("an alias-wrapped result cannot borrow a matching inner union by native poi
   const members = ast.children(owner);
   const declaration = members.find(node => ast.kindName(node) === "KindMethodSignature");
   const receiver = checker.getTypeFromTypeNode(ast.typeNode(members.find(node => ast.kindName(node) === "KindPropertySignature"))).type;
-  const [selected] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "at").type);
+  const [selected] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "at").type);
   const syntax = ast.typeNode(declaration);
   const inner = ast.as.AsTypeReferenceNode(syntax).TypeArguments.Nodes[0];
   const old = checker.getTypeFromTypeNode(inner).type;
@@ -2038,7 +2038,7 @@ test("the exact union result limits preserve the original signature reader stop"
   const syntax = ast.typeNode(method);
   const [parameter, absent] = ast.as.AsUnionTypeNode(syntax).Types.Nodes;
   const receiver = checker.getTypeFromTypeNode(exact).type;
-  const [selected] = typeShape.getCallSignatures(typeShape.getPropertyInfos(receiver).find(row => row.name === "at").type);
+  const [selected] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "at").type);
   const original = checker.getSignatureFromDeclaration(method);
   assert.equal(selected.target === original && checker.getReturnTypeOfSignature(selected)?.type === checker.getReturnTypeOfSignature(original)?.type, true);
   const stop = new Error("original union result reader stop");

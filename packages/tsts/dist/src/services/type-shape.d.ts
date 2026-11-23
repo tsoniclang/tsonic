@@ -58,6 +58,19 @@ export interface TypePropertyInfo extends TypePropertyHeader {
     };
     readonly mapped?: TypeMappedPropertyInfo;
 }
+export type TypePropertyRead<Stop extends object> = {
+    readonly kind: "complete";
+    readonly value: TypePropertyInfo;
+} | {
+    readonly kind: "refused";
+    readonly stop: Stop;
+} | {
+    readonly kind: "unavailable";
+};
+export interface TypePropertyInventory {
+    readonly length: number;
+    readonly read: <Stop extends object>(index: number, admit: () => Stop | null) => TypePropertyRead<Stop>;
+}
 export interface TypeTupleElementInfo {
     readonly type: Type;
     readonly elementKind: "required" | "optional" | "rest" | "variadic";
@@ -135,7 +148,7 @@ export interface TypeShapeQueries {
     readonly getTupleInfo: (type: GoPtr<Type>) => TypeTupleInfo | undefined;
     readonly getObjectPropertyInfo: (type: GoPtr<Type>, name: string) => TypePropertyInfo | null | undefined;
     readonly forEachObjectPropertyHeader: (type: GoPtr<Type>, admit: () => boolean, visit: (header: TypePropertyHeader) => boolean) => "complete" | "stopped" | undefined;
-    readonly getPropertyInfos: (type: GoPtr<Type>) => readonly TypePropertyInfo[];
+    readonly getPropertyInventory: (type: GoPtr<Type>) => TypePropertyInventory | undefined;
     readonly getCallSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getSignatureInfos: (type: GoPtr<Type>, kind: "call" | "construct") => readonly TypeSignatureInfo[];

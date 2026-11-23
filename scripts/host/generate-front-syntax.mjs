@@ -35,9 +35,16 @@ const literalValues = type => {
 const kindsOfType = type => {
   if (type === undefined) return [];
   const nonNull = shape.getNonNullableType(type);
+  if (nonNull === undefined) return [];
   if (shape.isUnion(nonNull)) return shape.getUnionOrIntersectionTypes(nonNull).flatMap(kindsOfType);
-  const kind = shape.getPropertyInfos(nonNull).find(property => property.name === "kind");
-  return kind === undefined ? [] : literalValues(kind.type);
+  const inventory = shape.getPropertyInventory(nonNull);
+  if (inventory === undefined) throw new TypeError("A generation target requires its actual owning property inventory.");
+  for (let index = 0; index < inventory.length; index += 1) {
+    const row = inventory.read(index, () => null);
+    if (row.kind !== "complete") throw new TypeError("An admitted generation field requires its actual effective property.");
+    if (row.value.name === "kind") return literalValues(row.value.type);
+  }
+  return [];
 };
 const unionNode = ast.typeNode(decls.get("SyntaxNode"));
 const members = ast.children(unionNode).filter(Boolean);

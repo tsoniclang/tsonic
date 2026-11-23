@@ -555,6 +555,20 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       argumentBearingType(node) && ast.typeArguments(node).some(argument => argument !== undefined && parameter(shape.getTypeFromTypeNode(argument)?.type))) return false;
     const active = new Set();
     const completed = new Map();
+    const mutableProperty = type => {
+      const inventory = shape.getPropertyInventory(type);
+      if (inventory === undefined) throw new TypeError("Mutable property inspection requires the actual owning checker.");
+      for (let index = 0; index < inventory.length; index += 1) {
+        const row = inventory.read(index, () => null);
+        if (row.kind !== "complete") throw new TypeError("An admitted inspection requires the actual effective property.");
+        const property = row.value;
+        const declarations = property.rootSymbols.flatMap(root => queries.getSymbolDeclarations(root));
+        const method = declarations.length > 0 && declarations.every(declaration => declaration !== undefined &&
+          (ast.is.IsMethodSignatureDeclaration(declaration) || ast.is.IsMethodDeclaration(declaration)));
+        if (!method && (!property.readonly || visit(property.type))) return true;
+      }
+      return false;
+    };
     const visit = type => {
       if (type === undefined || active.has(type) || parameter(type)) return false;
       const cached = completed.get(type);
@@ -564,12 +578,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       active.add(type);
       const mutable = shape.isUnion(type) || shape.isIntersection(type)
         ? shape.getUnionOrIntersectionTypes(type).some(visit)
-        : shape.getPropertyInfos(type).some(property => {
-          const declarations = property.rootSymbols.flatMap(root => queries.getSymbolDeclarations(root));
-          const method = declarations.length > 0 && declarations.every(declaration => declaration !== undefined &&
-            (ast.is.IsMethodSignatureDeclaration(declaration) || ast.is.IsMethodDeclaration(declaration)));
-          return !method && (!property.readonly || visit(property.type));
-        }) || shape.getIndexInfos(type).some(index => !index.readonly || visit(index.valueType));
+        : mutableProperty(type) || shape.getIndexInfos(type).some(index => !index.readonly || visit(index.valueType));
       active.delete(type);
       completed.set(type, mutable);
       return mutable;

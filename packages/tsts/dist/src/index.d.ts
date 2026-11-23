@@ -16,7 +16,7 @@ export type { BundledLibrarySource, CompilerFileSystem, CompilerHostOptions, Com
 export type { AstAuthoredRange, AstModifierKind, AstReader, AstRegularExpressionLiteralSyntax, AstSourceRange, AstVariableDeclarationKind, } from "./services/ast-reader.js";
 export { createCompilerSession, createCompilerSessionFromFiles, createCompilerSessionFromProgram } from "./services/compiler-session.js";
 export type { CompilerDiagnosticKind, CompilerSession, CompilerSessionOptions, InMemoryCompilerSessionOptions } from "./services/compiler-session.js";
-export type { TypeConditionalComponents, TypeConditionalBranch, TypeIndexInfo, TypeIntrinsicNullishFlags, TypeMappedPropertyInfo, TypePropertyHeader, TypePropertyInfo, TypeReferenceArgumentInfo, TypeSignatureParameterInfo, TypeSignatureInfo, TypeSignatureThisParameterInfo, TypeShapeQueries, TypeTupleElementInfo, TypeTupleInfo, } from "./services/type-shape.js";
+export type { TypeConditionalComponents, TypeConditionalBranch, TypeIndexInfo, TypeIntrinsicNullishFlags, TypeMappedPropertyInfo, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory, TypePropertyRead, TypeReferenceArgumentInfo, TypeSignatureParameterInfo, TypeSignatureInfo, TypeSignatureThisParameterInfo, TypeShapeQueries, TypeTupleElementInfo, TypeTupleInfo, } from "./services/type-shape.js";
 export type { RetainedTypeAliasApplication, TypeAliasApplicationInfo, TypeAliasConditionalStep } from "./services/type-applications.js";
 export type { TypeIndexedAccessComponents, TypeIndexedAccessMember, TypeIndexedAccessSelection } from "./services/type-indexed-access.js";
 export type { TypeKeyOfComponents, TypeSubstitutionComponents } from "./services/type-dependent-operands.js";
