@@ -3572,6 +3572,20 @@ function capturedStorage(scope: CaptureScope, node: Node, occurrence: RawNodeRef
   return { node: occurrence, fact: available({ expression, storageExpression, declaration, symbol, type, writable: selected.writable }) };
 }
 
+function inferredStorageAlias(scope: CaptureScope, node: Node, answer: ResolvedSourceTypeInfo | undefined): RawNodeRef | null {
+  const ast = scope.checked.ast;
+  const declaration = ast.as.AsVariableDeclaration(node);
+  if (declaration === undefined || declaration.Type !== undefined || declaration.Initializer === undefined || answer === undefined
+    || answer.causes.length !== 0 || !admit(scope, "edges")) return null;
+  const type = answer.type;
+  if (type.alias === undefined || !admit(scope, "edges")) return null;
+  const application = scope.shape.getTypeAliasApplication(type);
+  if (application === undefined || application.result !== type || application.bindings.length !== 0
+    || ast.kindName(application.declaration) !== "KindTypeAliasDeclaration" || ast.kindName(application.typeNode) !== "KindTypeLiteral"
+    || ast.typeNode(application.declaration) !== application.typeNode || !admit(scope, "edges")) return null;
+  return referenceTo(scope, scope.program, application.declaration);
+}
+
 function requiredCallReference(scope: CaptureScope, node: Node): RawNodeRef | null {
   const reference = referenceTo(scope, scope.program, node);
   if (reference !== null || scope.meter.refusal !== null) return reference;
@@ -3947,14 +3961,19 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       enums.push(captured);
     }
     if (kind === "KindVariableDeclaration" || kind === "KindEnumMember") {
-      const read = rawType(scope, () => scope.checker.getTypeAtLocation(node), component(scope, reference, null), null);
-      if (read === null) break;
+      const position = component(scope, reference, null);
+      if (position === null || !admit(scope, "facts")) break;
+      const answer = scope.checker.getTypeAtLocation(node);
+      const read = enqueueRawType(scope, answer, position, null, null, null);
+      const storageAlias = kind === "KindVariableDeclaration" ? inferredStorageAlias(scope, node, answer) : null;
+      if (scope.meter.refusal !== null) break;
       const name = ast.name(node);
       const symbol = name === undefined ? undefined : scope.checker.getSymbolAtLocation(name);
       const symbolId = symbol === undefined ? null : rawSymbol(scope, symbol);
       if (symbol !== undefined && symbolId === null) break;
       if (!admit(scope, "facts")) break;
-      views.push({ node: reference, read: available(read), declared: available(null), contextual: available(null), symbol: available(symbolId) });
+      views.push({ node: reference, read: available(read), declared: available(null), contextual: available(null), symbol: available(symbolId),
+        inferredStorageAlias: storageAlias });
     }
     const moduleExpression = moduleSpecifier(ast, node, parent);
     if (moduleExpression && parent !== undefined) {
@@ -4006,7 +4025,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       const symbolId = symbol === undefined ? null : rawSymbol(scope, symbol);
       if (symbol !== undefined && symbolId === null) break;
       if (!admit(scope, "facts")) break;
-      views.push({ node: reference, read: available(read), declared: available(null), contextual: available(contextualType), symbol: available(symbolId) });
+      views.push({ node: reference, read: available(read), declared: available(null), contextual: available(contextualType), symbol: available(symbolId),
+        inferredStorageAlias: null });
       if (kind === "KindIdentifier" && symbolId !== null) {
         const captured = scope.tables.symbols[symbolId];
         if (captured === undefined) return throwInvariant(invariant("A reference has no actual captured symbol target."));

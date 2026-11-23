@@ -39,6 +39,24 @@ function lowerWithReadyExports(deps, raw) {
   return front.lowerModule({ ...deps, exportsOf: module => module === raw.module ? exported.value : null }, raw);
 }
 
+test("native inferred storage keeps the exact alias of its binding, not its structural shape", () => {
+  const { raw } = checkedModuleOf(`
+    export type Box = { flag: boolean };
+    export type Other = { flag: boolean };
+    export function read(before: Box, after: Other): boolean {
+      let original = before;
+      let distinct = after;
+      let plain = true;
+      let annotated: Box = before;
+      return plain;
+    }
+  `);
+  const [box, other, reader] = raw.tree.statements.nodes;
+  const declarations = reader.body.statements.nodes.slice(0, 4).map(statement => statement.declarationList.declarations.nodes[0]);
+  const alias = declaration => raw.checkerViews.find(row => row.node.module === raw.module && row.node.node === declaration.id).inferredStorageAlias;
+  assert.deepEqual(declarations.map(alias), [{ module: raw.module, node: box.id }, { module: raw.module, node: other.id }, null, null]);
+});
+
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "front tests run under the aggregate resource guard");
   session.connect();

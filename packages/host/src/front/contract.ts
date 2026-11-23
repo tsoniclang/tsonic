@@ -299,6 +299,7 @@ export interface RawCheckerViews {
   readonly declared: RawFact<RawTypeId | null>;
   readonly contextual: RawFact<RawTypeId | null>;
   readonly symbol: RawFact<RawSymbolId | null>;
+  readonly inferredStorageAlias: RawNodeRef | null;
 }
 
 export interface RawAuthoredArgument {
