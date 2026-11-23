@@ -8026,7 +8026,7 @@ test("initialization follows the runtime dependency graph, not the compilation r
     assert.equal(parseProgramIndex(printed.slice(0, printed.lastIndexOf(", initialization=")) + ")").kind, "invalid-text");
     const canonical = canonicalizeProgram(result.value, { table: index.types,
       types: index.types.terms.map((_row, position) => position), signatures: index.types.signatures.map((_row, position) => position) },
-    createProgramVerificationWork(input.limits.instantiation, createAccount(input.limits.dataflow)));
+    createProgramVerificationWork(input.limits.instantiation, createAccount(input.limits.dataflow)), { kind: "data-only" });
     assert.equal(canonical.kind, "complete");
     assert.deepEqual(canonical.value.index.initialization, initialization);
     const checked = (candidate, limits = input.limits.dataflow) =>
@@ -8056,12 +8056,17 @@ test("initialization follows the runtime dependency graph, not the compilation r
     assert.equal(captured.kind, "ok");
     const source = captured.value;
     assert.equal(source.modules.find(row => row.module.module === declarative.id).role, "declaration");
-    const executions = new Map(initialization.modules.map((execution, position) => [expected[position], execution]));
-    const plan = account => planModuleInitialization(initialization.entry, source, initialization.external, executions, account);
+    const plan = account => planModuleInitialization(initialization.entry, source, initialization.external, account);
     const allowance = input.limits.dataflow;
     const account = createAccount(allowance);
-    const expectedPlan = { kind: "complete", value: initialization.modules };
-    assert.deepEqual(plan(account), expectedPlan);
+    const expectedRoots = expected.map(module => source.modules.find(row => row.module.module === module).module.tree);
+    const checkPlan = result => {
+      assert.equal(result.kind, "complete");
+      assert.equal(result.value.length, expectedRoots.length);
+      assert.equal(result.value.every((root, index) => root === expectedRoots[index]
+        && root.tsonic.body === initialization.modules[index].instance.body), true);
+    };
+    checkPlan(plan(account));
     const { work, entries } = InvocationAccount.stateOf(account);
     for (const [field, dimension, exact] of [["maximumWork", "work", work], ["maximumResultEntries", "result-entries", entries]]) {
       for (let maximum = 0; maximum < exact; maximum += 1) {
@@ -8070,10 +8075,10 @@ test("initialization follows the runtime dependency graph, not the compilation r
         assert.deepEqual(stopped, { kind: "resource-limit", dimension, maximum });
         assert.equal(stopped === accountFailure(limited), true);
       }
-      assert.deepEqual(plan(createAccount({ ...allowance, [field]: exact })), expectedPlan);
+      checkPlan(plan(createAccount({ ...allowance, [field]: exact })));
     }
     const missing = { ...source, modules: source.modules.filter(row => row.module.module !== declarative.id) };
-    assert.throws(() => planModuleInitialization(initialization.entry, missing, initialization.external, executions,
+    assert.throws(() => planModuleInitialization(initialization.entry, missing, initialization.external,
       createAccount(allowance)), /An eager project dependency requires its actual checked module/u);
   } finally { pipelineWiring.bodyAnalysis.proveInitialization = prove; }
 });

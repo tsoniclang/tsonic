@@ -25,8 +25,7 @@ import type { TypedPhase } from "../ir-tir/contract.js";
 import type { CheckedBodyNodeRange } from "./checked-inputs.js";
 import { analysisStop } from "./analysis-stop.js";
 import { checkedSourceViews } from "./checked-inputs.js";
-import { bindExternalStorage, selectExternalEntries } from "./external-entries.js";
-import { planModuleInitialization } from "./module-initialization.js";
+import { bindExternalStorage } from "./external-entries.js";
 import { lowerMirDeps, mirVerificationContext } from "./lower-mir-step.js";
 import { pipelineWiring } from "./wiring.js";
 
@@ -70,9 +69,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   const known = new Set<string>();
   const dependencies: ExecutionDependency[] = [];
   const moduleExecutions = new Map<ModuleId, Execution>();
-  const selectedExposure = selectExternalEntries(source, sources, inputs.snapshot.contributions.externalEntries, account);
-  if (selectedExposure.kind !== "complete") return analysisStop(selectedExposure, unit);
-  const exposedBodies = selectedExposure.value.bodies;
+  const exposedBodies = typed.exposure.bodies;
   const safety: Query<SourceSemanticInputs, BodyInstance, ErrorValue | null, SourceSemanticWitness, DeclaredSignatureErrorData> = {
     name: "safetyDiagnostics", keyData: instanceKey, answerPolicy: { kind: "refusal-only" },
     compute: (context, instance) => {
@@ -533,11 +530,19 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       + scope.capturedParameters.length + scope.selfOwners.length === 0)
       return fail("An external callable entry requires its actual completed execution or generic template.");
   }
-  const plan = planModuleInitialization(inputs.snapshot.entryPoint, source, selectedExposure.value.selections, moduleExecutions, account);
-  if (plan.kind !== "complete") return analysisStop(plan, unit);
+  const plan: Execution[] = [];
+  for (let index = 0; index < typed.initializationRoots.length; index += 1) {
+    const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (stop !== null) return analysisStop(stop, unit);
+    const root = typed.initializationRoots[index];
+    const execution = root === undefined ? undefined : moduleExecutions.get(root.origin.module);
+    if (execution === undefined || execution.instance.body !== root?.tsonic.body || execution.provided !== 0)
+      return fail("A reachable source module requires its actual selected initializer execution.");
+    plan.push(execution);
+  }
   const summaryOf = (key: SummaryKey): SummaryAnswer => summaries.get(summaryKey(key))
     ?? fail("Initialization proof requires each actual completed stable summary.");
-  const exposed = bindExternalStorage(selectedExposure.value.selections, plan.value, sources, summaryOf, account);
+  const exposed = bindExternalStorage(typed.exposure.selections, plan, sources, summaryOf, account);
   if (exposed.kind !== "complete") return analysisStop(exposed, unit);
   const initialized = pipelineWiring.bodyAnalysis.proveInitialization({
     account, unit, conditionRefusal, maximumConditionAlternatives: inputs.limits.analyses.maximumConditionAlternatives,
@@ -553,7 +558,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       const operation = position.point.statement === null ? block?.terminator : block?.statements[position.point.statement];
       return operation?.origin ?? null;
     },
-  }, { modules: plan.value, entries, storage: exposed.value.storage });
+  }, { modules: plan, entries, storage: exposed.value.storage });
   if (initialized.kind !== "complete") return analysisStop(initialized, unit);
   if (initialized.value.kind === "refused") return initialized.value;
   if ("kind" in initialized.value.value) {
@@ -567,6 +572,6 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   const planGrowth = chargeResultEntries(account, 1);
   if (planGrowth !== null) return analysisStop(planGrowth, unit);
   const initialization: ProgramInitialization = { entry: inputs.snapshot.entryPoint, external: exposed.value.external,
-    modules: plan.value, entries };
+    modules: plan, entries };
   return { kind: "ok", diagnostics, value: { inventory: components.value, mir, observations, facts, summaries, verification, initialization } };
 }

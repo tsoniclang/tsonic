@@ -16,7 +16,7 @@ function fail(message: string): never {
   return throwInvariant({ owner: "pipeline", query: null, origin: null, message });
 }
 
-interface ExternalEntrySelection {
+export interface ExternalEntrySelection {
   readonly bodies: ReadonlySet<BodyId>;
   readonly selections: readonly ExternalTarget[];
 }

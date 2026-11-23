@@ -3,7 +3,7 @@ import { orderDiagnostics, throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, ModuleId, SourceNodeRef } from "../ids/contract.js";
 import type { DataflowAccount, DataflowResult } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
-import type { CheckedPhase, CheckedTypingCut, Declaration, HirBody, HirNode } from "../ir-hir/contract.js";
+import type { CheckedPhase, CheckedTypingCut, Declaration, HirBody, HirNode, SourceFile } from "../ir-hir/contract.js";
 import type { InferenceDeclaration, InferenceGroup, InferSite, PlacedSignature } from "../ir-infer/contract.js";
 import { inferenceBindingSites, inferredPartKey } from "../ir-infer/index.js";
 import type { BindingScope, BodyInstance, SignatureRequest } from "../ir-types/contract.js";
@@ -26,6 +26,8 @@ import { completedFormCut, formDiagnosticsQuery } from "./semantic-queries.js";
 import { createSourceSemanticDatabase } from "./semantic-queries.js";
 import { pipelineWiring } from "./wiring.js";
 import { analysisStop } from "./analysis-stop.js";
+import { selectExternalEntries, type ExternalEntrySelection } from "./external-entries.js";
+import { planModuleInitialization } from "./module-initialization.js";
 
 function fail(message: string): never {
   return throwInvariant({ owner: "pipeline", query: null, origin: null, message });
@@ -52,6 +54,8 @@ function isDeclaration(node: HirNode): node is Declaration<CheckedPhase> {
 
 export interface TypedSourceBarrier {
   readonly source: SourceBarrier;
+  readonly initializationRoots: readonly SourceFile<CheckedPhase>[];
+  readonly exposure: ExternalEntrySelection;
   readonly bodies: {
     readonly get: (key: string) => TirBody | undefined;
     readonly values: () => IterableIterator<TirBody>;
@@ -238,6 +242,11 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     | { readonly kind: "elaborate"; readonly body: HirBody; readonly instance: BodyInstance; readonly key: string;
         readonly scope: BindingScope; readonly publication: ScopedInferencePublication | QueryRefusal; readonly template: TirBody | null;
         readonly initializers: readonly BodyId[] };
+  const unit = { query: "AnalyzeHostProgram", key: inputs.snapshot.packages.fingerprint };
+  const exposure = selectExternalEntries(source, sources, inputs.snapshot.contributions.externalEntries, account);
+  if (exposure.kind !== "complete") return analysisStop(exposure, unit);
+  const initialization = planModuleInitialization(inputs.snapshot.entryPoint, source, exposure.value.selections, account);
+  if (initialization.kind !== "complete") return analysisStop(initialization, unit);
   const modes: readonly ("parametric" | "instantiated")[] = ["parametric", "instantiated"];
   for (const module of roots) {
     for (const mode of modes) {
@@ -400,7 +409,6 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     } };
   };
   const admit = tirReadyReadAdmission(account);
-  const unit = { query: "AnalyzeHostProgram", key: inputs.snapshot.packages.fingerprint };
   for (const module of modules.values()) {
     const prepared = prepareVerifier(module.module);
     if (prepared === null) return fail("A published typed module needs its actual checked source verification input.");
@@ -484,5 +492,5 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   };
   return { kind: "ok", diagnostics, value: { source, modules, verifierOf, sourceNodeOf: sources.nodeOf, declarationOf, database, staticStorageOf,
     bodies: { get: key => bodies.get(key)?.body, *values() { for (const entry of bodies.values()) yield entry.body; } },
-    placedSignatureOf, signatureIdOf, programEvidence } };
+    placedSignatureOf, signatureIdOf, programEvidence, exposure: exposure.value, initializationRoots: initialization.value } };
 }

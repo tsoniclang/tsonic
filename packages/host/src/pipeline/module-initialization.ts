@@ -2,7 +2,7 @@ import type { DataflowAccount, DataflowResult } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork, orderGraph } from "../dataflow/index.js";
 import { throwInvariant } from "../diag/index.js";
 import type { ModuleId } from "../ids/contract.js";
-import type { Execution } from "../ir-types/contract.js";
+import type { CheckedPhase, SourceFile } from "../ir-hir/contract.js";
 import type { SourceBarrier } from "./source-barrier.js";
 
 function fail(message: string): never {
@@ -10,15 +10,15 @@ function fail(message: string): never {
 }
 
 export function planModuleInitialization(entryPoint: ModuleId, source: SourceBarrier,
-  externalEntries: readonly { readonly module: ModuleId }[], executions: ReadonlyMap<ModuleId, Execution>,
-  account: DataflowAccount): DataflowResult<readonly Execution[]> {
+  externalEntries: readonly { readonly module: ModuleId }[],
+  account: DataflowAccount): DataflowResult<readonly SourceFile<CheckedPhase>[]> {
   const start = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
   if (start !== null) return start;
   const positions = new Map<ModuleId, number>();
   const successors: number[][] = [];
   const deferred = new Set<number>();
   const roots: number[] = [];
-  const plan: Execution[] = [];
+  const plan: SourceFile<CheckedPhase>[] = [];
   for (let index = 0; index < source.modules.length; index += 1) {
     const admit = chargeWork(account, 1) ?? chargeResultEntries(account, 3);
     if (admit !== null) return admit;
@@ -98,11 +98,9 @@ export function planModuleInitialization(entryPoint: ModuleId, source: SourceBar
     if (deferred.has(position)) return fail("A reached deferred module link requires its actual deferred activation.");
     const ready = source.modules[position];
     if (ready === undefined) return fail("The module plan requires its actual checked module.");
-    const execution = executions.get(ready.module.module);
-    if (execution === undefined) return fail("A reachable source module requires its actual selected initializer execution.");
     const admit = chargeResultEntries(account, 1);
     if (admit !== null) return admit;
-    plan.push(execution);
+    plan.push(ready.module.tree);
   }
   return { kind: "complete", value: plan };
 }
