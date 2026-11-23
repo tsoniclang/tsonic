@@ -317,8 +317,8 @@ interface CaptureScope extends CaptureAdmission {
   readonly shape: TypeShapeQueries;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
   readonly emptyCoreInventory: boolean;
-  readonly closedDeclarationPassing: boolean;
-  readonly closedDeclaredExtent: boolean;
+  readonly closedOrdinaryPassing: boolean;
+  readonly closedOrdinaryExtent: boolean;
   readonly diagnosticRoots: Map<CheckerDiagnostic, CheckerDiagnosticRef>;
   readonly markerApplications: Map<NodeId, NonNullable<Extract<RawMarkers["application"], { readonly kind: "available" }>["value"]>>;
   readonly tables: CaptureTables;
@@ -2324,7 +2324,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
       }
       if (arguments_.length !== parameters.length) return throwInvariant(invariant("Every selected interface parameter requires its actual checked argument."));
       return { kind: "declared", declaration: source, facet: "instance", parameters, arguments: arguments_, definition: null,
-        extent: scope.closedDeclaredExtent ? available(null) : notProvided() };
+        extent: scope.closedOrdinaryExtent && snapshotDeclaration(scope.program, source) ? available(null) : notProvided() };
     }
   }
   const merged = interfaceFragments > 1 ? symbol : undefined;
@@ -2491,18 +2491,24 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
       readDeclarations, writeDeclarations }] };
 }
 
-function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope, "emptyCoreInventory" | "closedDeclarationPassing" | "closedDeclaredExtent"> {
+function snapshotDeclaration(program: CheckedProgram, reference: RawNodeRef): boolean {
+  return OpenedProgram.file(program, reference.module)?.origin.kind === "snapshot";
+}
+
+function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope, "emptyCoreInventory" | "closedOrdinaryPassing" | "closedOrdinaryExtent"> {
   const contributions = OpenedProgram.contributions(program);
   const table = OpenedProgram.table(program);
-  const closedDeclarationPassing = OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0) &&
-    contributions.safetyProviders.length === 0 && contributions.declarationProviders.length === 0 && contributions.compilerExtensions.length === 0 &&
+  const closedOrdinaryPassing = OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0) &&
+    contributions.safetyProviders.length === 0 && contributions.compilerExtensions.length === 0 &&
+    ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module" || entry.kind === "declaration-provider");
+  const closedCore = closedOrdinaryPassing && contributions.declarationProviders.length === 0 &&
     ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module");
   const semantics = ExtensionTable.semantics(table);
   return {
-    closedDeclarationPassing,
-    closedDeclaredExtent: closedDeclarationPassing && semantics.every(module =>
+    closedOrdinaryPassing,
+    closedOrdinaryExtent: closedOrdinaryPassing && semantics.every(module =>
       module.exports.every(entry => entry.kind !== "type-marker" || entry.marker !== "fixed-array")),
-    emptyCoreInventory: closedDeclarationPassing && semantics.every(module => module.exports.length === 0),
+    emptyCoreInventory: closedCore && semantics.every(module => module.exports.length === 0),
   };
 }
 
@@ -3291,7 +3297,8 @@ function captureSignatureParameter(scope: CaptureScope, draft: SignatureDraft, i
     if (!admit(scope, "facts")) return;
     const passingFact = declarationPassing(scope, parameterNode);
     const passing: RawParameter["passing"] = passingFact === undefined
-      ? parameterSyntax !== undefined && scope.closedDeclarationPassing ? available("by-value") : notProvided()
+      ? parameterSyntax !== undefined && parameterReference !== null && scope.closedOrdinaryPassing &&
+        snapshotDeclaration(program, parameterReference) ? available("by-value") : notProvided()
       : available(passingFact.mode);
     parameters.push({ declaration: parameterReference, symbol: parameterSymbol, kind: parameter.parameterKind, component: position, type, acceptsOmission: parameter.acceptsOmission,
       initializer, passing });

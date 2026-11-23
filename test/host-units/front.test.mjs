@@ -554,6 +554,57 @@ test("provider session files share the actual opened source domain and retain re
   assert.equal(providerReads, 0, "no provider fact is read after the original capture refusal");
 });
 
+test("provider overloads supply their own ABI while ordinary captured declarations keep their closed defaults", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { readSignature, readType } = await import("../../packages/host/dist/ir-types/index.js");
+  const provider = { ...declarationProvider("test.provider.abi", "native:thing", "native.thing"),
+    getDeclarationModel: () => ({ moduleSpecifier: "native:thing", providerModuleId: "native.thing", exports: [
+      { id: "ReadNative", name: "reader", exportName: "read", kind: "function", signatures: [
+        { id: "ReadNative.number", parameters: [{ name: "input", type: { kind: "number" } }], returnType: { kind: "number" } },
+        { id: "ReadNative.bool", parameters: [{ name: "input", type: { kind: "boolean" }, passingMode: "by-value" }], returnType: { kind: "boolean" } },
+      ] },
+    ] }) };
+  const registration = providerRegistration("/provider-one", provider);
+  const fixture = await loadFrontFixture();
+  const libraries = [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }];
+  const source = 'import { read } from "native:thing"; export const saved = read;'
+    + "export function ordinary(input:boolean):boolean{return input;}";
+  const snapshot = projectSnapshot({ sourceFiles: { "main.ts": source }, libraries,
+    providerPackages: [{ root: "/provider-one", name: "provider-one-pkg" }], declarationProviders: [registration.reference] });
+  const opened = openAndCapture(snapshot, [registration]);
+  const owner = opened.set.modules.find(entry => entry.kind === "session-document" && entry.document.artifact === "canonical-export-owner");
+  assert.equal(owner !== undefined, true);
+  const raw = front.captureModule(opened.deps, opened.program, owner.document.module);
+  assert.equal(raw.kind, "ok");
+  const signatures = raw.value.providerDeclarations.filter(entry => entry.identity.signatureId !== null);
+  assert.deepEqual(signatures.map(row => row.identity.signatureId), ["ReadNative.number", "ReadNative.bool"]);
+  for (const { node } of signatures) {
+    const signature = raw.value.types.signatures.find(row => row.declaration?.module === node.module && row.declaration.node === node.node);
+    assert.deepEqual(signature.parameters.map(parameter => parameter.passing), [{ kind: "available", value: "by-value" }]);
+  }
+  const result = captureSourceBarrier({ ...analysisInput(fixture, "sdk-minimal"), snapshot, extensions: opened.deps.extensions });
+  assert.equal(result.kind, "ok");
+  const actual = result.value.modules.find(row => row.module.module === owner.document.module);
+  assert.equal(actual !== undefined, true);
+  const types = signatures.flatMap(({ node }) => {
+    const actualNode = actual.nodes[node.node];
+    assert.equal(actualNode.kind, "CallSignature");
+    assert.equal(actualNode.tsonic.signatures.length, 1);
+    const [endpoint] = actualNode.tsonic.signatures;
+    assert.equal(endpoint.body, null);
+    assert.deepEqual(actualNode.tsonic.core.provider, { kind: "available", value: endpoint.declaration });
+    return readSignature(result.value.types, endpoint.signature);
+  });
+  assert.equal(types.length, 2);
+  assert.equal(types.every(signature => signature.parameters[0].passing === "by-value"), true);
+  assert.notEqual(types[0].parameters[0].type, types[1].parameters[0].type);
+  assert.equal(types.some(signature => readType(result.value.types, signature.parameters[0].type).primitive === "bool"), true);
+  const ordinary = result.value.modules.find(row => row.module.module === snapshot.entryPoint).module.tree.statements.nodes
+    .find(node => node.kind === "FunctionDeclaration");
+  assert.equal(readSignature(result.value.types, ordinary.tsonic.signatures[0].signature).parameters[0].passing, "by-value");
+});
+
 /**
  * The diagnostics of a session created from the inputs that Front computes for a snapshot (`sessionInputs`, the function
  * `openCheckedProgram` itself uses). Front has no operation yet that returns a file's diagnostics (`captureModule`), so these
