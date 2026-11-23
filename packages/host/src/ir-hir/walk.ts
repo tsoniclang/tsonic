@@ -1,6 +1,6 @@
-import type { BinarySyntaxReceipt, BlockSyntaxReceipt, Expression, HirNode, IndexSyntaxTree,
+import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, Expression, HirNode, IndexSyntaxTree,
   NullableInitializerPhase, ParameterDeclaration, Phase, SyntaxForest, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
-  WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
+  SyntaxInitializerImage, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { HirResolution } from "./contract.js";
 import type { MemberKey } from "../ir-types/contract.js";
@@ -56,10 +56,9 @@ export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends NullableInitial
 
 export const indexSyntaxTree: IndexSyntaxTree = root => walkSyntaxTree(root, []);
 
-export const walkSyntaxForest: WalkSyntaxForest = <PhaseType extends NullableInitializerPhase<PhaseType>, Stop>(
-  roots: Iterable<SyntaxRootSlot<PhaseType>>,
+export function createSyntaxForest<PhaseType extends NullableInitializerPhase<PhaseType>, Stop>(
   admission: SyntaxWalkAdmission<PhaseType, Stop>,
-): { readonly kind: "complete"; readonly value: SyntaxForest<PhaseType> } | Stop => {
+) {
   interface Path { readonly parent: Path | null; readonly segment: string }
   type ChildSlot = { readonly kind: "child"; readonly value: SyntaxChildSlot<PhaseType> }
     | { readonly kind: "initializer"; readonly parameter: ParameterDeclaration<PhaseType>; readonly field: "initializer" };
@@ -79,88 +78,92 @@ export const walkSyntaxForest: WalkSyntaxForest = <PhaseType extends NullableIni
   const active = new Set<SyntaxNode<PhaseType>>();
   const nodes: SyntaxNode<PhaseType>[] = [];
   const postorder: SyntaxNode<PhaseType>[] = [];
-  const pending: Frame[] = [{ kind: "root", iterator: roots[Symbol.iterator](), first: true }];
   let firstRootSize = 0;
-  for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
-    switch (frame.kind) {
-      case "root": {
-        const slot = frame.iterator.next();
-        if (slot.done) break;
-        const stop = admission.root();
-        if (stop !== null) return stop;
-        pending.push({ ...frame, first: false });
-        if (frame.first) pending.push({ kind: "first-root-end" });
-        pending.push({ kind: "enter", node: slot.value.read(), path: { parent: null, segment: slot.value.path } });
-        break;
-      }
-      case "first-root-end": firstRootSize = nodes.length; break;
-      case "enter": {
-        if (active.has(frame.node)) {
-          const segments: string[] = [];
-          for (let at: Path | null = frame.path; at !== null; at = at.parent) segments.push(at.segment);
-          throw new TypeError("Syntax object cycle at " + segments.reverse().join(""));
+  let firstRoot = true;
+  function append(roots: Iterable<SyntaxRootSlot<PhaseType>>): Stop | null {
+    const pending: Frame[] = [{ kind: "root", iterator: roots[Symbol.iterator](), first: firstRoot }];
+    for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
+      switch (frame.kind) {
+        case "root": {
+          const slot = frame.iterator.next();
+          if (slot.done) break;
+          const stop = admission.root();
+          if (stop !== null) return stop;
+          pending.push({ ...frame, first: false });
+          if (frame.first) pending.push({ kind: "first-root-end" });
+          pending.push({ kind: "enter", node: slot.value.read(), path: { parent: null, segment: slot.value.path } });
+          break;
         }
-        if (wire.has(frame.node)) break;
-        const stop = admission.node(frame.node);
-        if (stop !== null) return stop;
-        const node = frame.node;
-        active.add(node);
-        const ordinal = nodes.length;
-        let slots: Iterable<ChildSlot>;
-        if (node.kind === "Block" || node.kind === "BinaryExpression") {
-          const reserved = admission.structure(node);
-          if (reserved !== null) return reserved;
-          if (node.kind === "Block") {
-            const value = prepareBlockStructure<PhaseType>(node, ordinal);
-            wire.set(node, value);
-            slots = structuralSlots(value.slots);
-          } else {
-            const value = prepareBinaryStructure<PhaseType, Stop>(node, ordinal, admission.modifiers);
-            if (value.kind === "refused") return value.stop;
-            wire.set(node, value.value);
-            slots = structuralSlots(value.value.slots);
+        case "first-root-end": firstRoot = false; firstRootSize = nodes.length; break;
+        case "enter": {
+          if (active.has(frame.node)) {
+            const segments: string[] = [];
+            for (let at: Path | null = frame.path; at !== null; at = at.parent) segments.push(at.segment);
+            throw new TypeError("Syntax object cycle at " + segments.reverse().join(""));
           }
-        } else {
-          wire.set(node, ordinal);
-          slots = iterateSyntaxChildSlots<PhaseType, ChildSlot>(node, value => ({ kind: "child", value }),
-            (parameter, field) => [{ kind: "initializer", parameter, field }]);
+          if (wire.has(frame.node)) break;
+          const stop = admission.node(frame.node);
+          if (stop !== null) return stop;
+          const node = frame.node;
+          active.add(node);
+          const ordinal = nodes.length;
+          let slots: Iterable<ChildSlot>;
+          if (node.kind === "Block" || node.kind === "BinaryExpression") {
+            const reserved = admission.structure(node);
+            if (reserved !== null) return reserved;
+            if (node.kind === "Block") {
+              const value = prepareBlockStructure<PhaseType>(node, ordinal);
+              wire.set(node, value);
+              slots = structuralSlots(value.slots);
+            } else {
+              const value = prepareBinaryStructure<PhaseType, Stop>(node, ordinal, admission.modifiers);
+              if (value.kind === "refused") return value.stop;
+              wire.set(node, value.value);
+              slots = structuralSlots(value.value.slots);
+            }
+          } else {
+            wire.set(node, ordinal);
+            slots = iterateSyntaxChildSlots<PhaseType, ChildSlot>(node, value => ({ kind: "child", value }),
+              (parameter, field) => [{ kind: "initializer", parameter, field }]);
+          }
+          nodes.push(node);
+          pending.push({ kind: "leave", node }, { kind: "children", iterator: slots[Symbol.iterator](), path: frame.path });
+          break;
         }
-        nodes.push(node);
-        pending.push({ kind: "leave", node }, { kind: "children", iterator: slots[Symbol.iterator](), path: frame.path });
-        break;
-      }
-      case "children": {
-        const slot = frame.iterator.next();
-        if (slot.done) break;
-        if (slot.value.kind === "initializer") {
-          const { parameter, field } = slot.value;
-          const reserved = admission.parameter(parameter);
-          if (reserved !== null) return reserved;
-          const ordinal = wire.get(parameter);
-          if (typeof ordinal !== "number") return throwInvariant({ owner: "ir-hir", query: null, origin: parameter.origin,
-            message: "A formal initializer must belong to its one admitted pointer." });
-          const initializer = parameter.initializer;
-          if (initializer === null) {
+        case "children": {
+          const slot = frame.iterator.next();
+          if (slot.done) break;
+          if (slot.value.kind === "initializer") {
+            const { parameter, field } = slot.value;
+            const reserved = admission.parameter(parameter);
+            if (reserved !== null) return reserved;
+            const ordinal = wire.get(parameter);
+            if (typeof ordinal !== "number") return throwInvariant({ owner: "ir-hir", query: null, origin: parameter.origin,
+              message: "A formal initializer must belong to its one admitted pointer." });
+            const initializer = parameter.initializer;
+            if (initializer === null) {
+              wire.set(parameter, { kind: "parameter", ordinal, initializer });
+              pending.push(frame);
+              break;
+            }
+            const stop = admission.edge();
+            if (stop !== null) return stop;
             wire.set(parameter, { kind: "parameter", ordinal, initializer });
-            pending.push(frame);
+            pending.push(frame, { kind: "enter", node: initializer, path: { parent: frame.path, segment: "." + field } });
             break;
           }
           const stop = admission.edge();
           if (stop !== null) return stop;
-          wire.set(parameter, { kind: "parameter", ordinal, initializer });
-          pending.push(frame, { kind: "enter", node: initializer, path: { parent: frame.path, segment: "." + field } });
+          const node = slot.value.value.read();
+          let segment = "";
+          for (const field of slot.value.value.fields) segment += typeof field === "number" ? "[" + field + "]" : "." + field;
+          pending.push(frame, { kind: "enter", node, path: { parent: frame.path, segment } });
           break;
         }
-        const stop = admission.edge();
-        if (stop !== null) return stop;
-        const node = slot.value.value.read();
-        let segment = "";
-        for (const field of slot.value.value.fields) segment += typeof field === "number" ? "[" + field + "]" : "." + field;
-        pending.push(frame, { kind: "enter", node, path: { parent: frame.path, segment } });
-        break;
+        case "leave": active.delete(frame.node); postorder.push(frame.node); break;
       }
-      case "leave": active.delete(frame.node); postorder.push(frame.node); break;
     }
+    return null;
   }
   function* structuralSlots(values: Iterable<SyntaxChildSlot<PhaseType>>): Generator<ChildSlot> {
     for (const value of values) yield { kind: "child", value };
@@ -169,26 +172,42 @@ export const walkSyntaxForest: WalkSyntaxForest = <PhaseType extends NullableIni
     const entry = wire.get(node);
     return typeof entry === "number" ? entry : entry?.ordinal;
   };
-  const copy = bindSyntaxForest<PhaseType>(nodes, postorder, wireOf, node => {
+  function blockOf(node: Block<PhaseType>): BlockSyntaxReceipt<PhaseType> {
     const entry = wire.get(node);
     if (entry !== undefined && typeof entry !== "number" && entry.kind === "block") return entry;
     return throwInvariant({ owner: "ir-hir", query: null, origin: node.origin, message: "Block requires its exact admitted structural receipt." });
-  }, node => {
+  }
+  function binaryOf(node: BinaryExpression<PhaseType>): BinarySyntaxReceipt<PhaseType> {
     const entry = wire.get(node);
     if (entry !== undefined && typeof entry !== "number" && entry.kind === "binary") return entry;
     return throwInvariant({ owner: "ir-hir", query: null, origin: node.origin, message: "Binary requires its exact admitted structural receipt." });
-  }, (node, expression) => {
+  }
+  const copyInitializer: SyntaxInitializerImage<PhaseType, unknown> = (node, expression) => {
     const entry = wire.get(node);
     if (entry !== undefined && typeof entry !== "number" && entry.kind === "parameter")
       return entry.initializer === null ? null : expression(entry.initializer);
     return throwInvariant({ owner: "ir-hir", query: null, origin: node.origin,
       message: "A formal initializer requires the actually admitted syntax pointer." });
-  });
-  return { kind: "complete", value: { nodes: () => nodes.values(), firstRootSize, wireOf, copy,
-    structureOf: node => {
+  };
+  return { append, nodes, postorder, wireOf, blockOf, binaryOf, copyInitializer,
+    firstRootSize: () => firstRootSize,
+    structureOf: (node: SyntaxNode<PhaseType>): "block" | "binary" | null => {
       const entry = wire.get(node);
       return entry === undefined || typeof entry === "number" || entry.kind === "parameter" ? null : entry.kind;
     },
+  };
+}
+
+export const walkSyntaxForest: WalkSyntaxForest = <PhaseType extends NullableInitializerPhase<PhaseType>, Stop>(
+  roots: Iterable<SyntaxRootSlot<PhaseType>>,
+  admission: SyntaxWalkAdmission<PhaseType, Stop>,
+): { readonly kind: "complete"; readonly value: SyntaxForest<PhaseType> } | Stop => {
+  const state = createSyntaxForest<PhaseType, Stop>(admission);
+  const stopped = state.append(roots);
+  if (stopped !== null) return stopped;
+  const copy = bindSyntaxForest<PhaseType>(state.nodes, state.postorder, state.wireOf, state.blockOf, state.binaryOf, state.copyInitializer);
+  return { kind: "complete", value: {
+    nodes: () => state.nodes.values(), firstRootSize: state.firstRootSize(), wireOf: state.wireOf, structureOf: state.structureOf, copy,
   } };
 };
 

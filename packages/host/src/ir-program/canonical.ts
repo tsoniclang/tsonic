@@ -1,18 +1,19 @@
 import type {
   HostProgram, CanonicalizeProgram, ProgramEvidence, ProgramEvidenceInput, ProgramIdentityImage, ProgramIndex, ProgramInitialization, ProgramMemberEvidence,
-  ResolvedExternalEntry, SignatureRecord,
+  ModuleBodies, ResolvedExternalEntry, SignatureRecord,
 } from "./contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import type { BodyFacts, BodyObservations, MetadataRecord, Summary, SummaryKey } from "../ir-facts/contract.js";
 import type { TirBody, TirModule } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { BodyInstance, Execution, MemberInventory } from "../ir-types/contract.js";
-import type { CheckedContentImage, CheckedPhase, SyntaxRootSlot } from "../ir-hir/contract.js";
+import type { CheckedContentImage, CheckedPhase, SyntaxCopyResult, SyntaxImage, SyntaxRootSlot } from "../ir-hir/contract.js";
 import type { OrderedTextRecord, ProjectionInventory, ProjectionResult } from "./program-values.js";
 import type { InstantiationStop } from "./work.js";
 import type { InvariantFailure } from "../diag/contract.js";
+import type { DataflowStop } from "../dataflow/contract.js";
 import { requirePresent } from "../diag/index.js";
-import { copyCheckedContent, walkSyntaxForest } from "../ir-hir/index.js";
+import { projectCheckedContent } from "../ir-hir/index.js";
 import { encodeKey } from "../ids/index.js";
 import { chargeWork } from "../dataflow/index.js";
 import { admitArtifactIdentity, admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
@@ -220,48 +221,39 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication, r
   }));
   if (modules.kind === "refused") return modules.stop;
   const preparedModules = modules.value;
-  let originals: ProgramEvidenceInput | null = null;
-  if (mode.kind === "with-evidence") {
-    const result = mode.read(scan.meter.account);
-    if (result.kind !== "complete") return { kind: "evidence-input-stop", stop: result };
-    const admission = inventoryRecord(scan, 4);
-    if (admission !== null) return admission;
-    originals = result.value;
-  }
-  const sources = originals?.checked ?? [];
-  function* roots(): Generator<SyntaxRootSlot<CheckedPhase>> {
+  function* candidateRoots(): Generator<SyntaxRootSlot<CheckedPhase>> {
     for (const [position, prepared] of preparedModules.entries()) {
       for (const [ordinal, node] of prepared.module.checkedRoots.entries())
         yield { path: "HostProgram.modules[" + position + "].checked[" + ordinal + "]", read: () => node };
     }
-    for (let position = 0; position < sources.length; position += 1)
-      yield { path: "ProgramEvidence.checked[" + position + "].tree", read: () => requirePresent(sources[position], dense).tree };
   }
-  let content: CheckedContentImage<InstantiationStop> | null = null;
-  if (sources.length !== 0 || preparedModules.some(row => row.module.checkedRoots.length !== 0)) {
-    const projected = checkedContent(scan, roots(), rewrite);
-    if (projected.kind === "refused") return projected.stop;
-    content = projected.value;
-  }
-  const checked: CheckedChapterImage = {
-    expressionOf: source => {
-      const result = content?.syntax.bodyRootOf(source);
-      return requirePresent(result !== null && result?.kind !== "SourceFile" && result?.kind !== "Block" ? result : undefined, dense);
-    },
-    declarationOf: source => {
-      const result = content?.syntax.statementOf(source);
-      return requirePresent(result?.kind === "FunctionDeclaration" || result?.kind === "TypeAliasDeclaration" || result?.kind === "InterfaceDeclaration"
-        ? result : undefined, dense);
-    },
-    sourceFileOf: source => requirePresent(content?.syntax.sourceFileOf(source) ?? undefined, dense),
-  };
-  const finalModules = [];
-  for (const row of preparedModules) {
-    const selected = row.module.materialize(checked, row.bodies);
-    if (selected.kind === "refused") return selected.stop;
-    ready.trees.set(row.module.originalTree, selected.value.tree);
-    finalModules.push(selected.value);
-  }
+  const finalModules: ModuleBodies[] = [];
+  let originalEvidence: ProgramEvidenceInput | null = null;
+  const suppliedEvidence = (): ProgramEvidenceInput | null => originalEvidence;
+  const roots = preparedModules.some(row => row.module.checkedRoots.length !== 0) ? candidateRoots() : null;
+  const settlement = checkedContent<{ readonly kind: "evidence-input-stop"; readonly stop: DataflowStop }>(scan, rewrite, roots, candidate => {
+    const checked = checkedChapterImage(candidate);
+    for (const row of preparedModules) {
+      const selected = row.module.materialize(checked, row.bodies);
+      if (selected.kind === "refused") return selected;
+      ready.trees.set(row.module.originalTree, selected.value.tree);
+      finalModules.push(selected.value);
+    }
+    if (mode.kind !== "with-evidence") return copiedProjection(null);
+    const supplied = mode.read(scan.meter.account);
+    if (supplied.kind !== "complete") return { kind: "refused", stop: { kind: "evidence-input-stop", stop: supplied } };
+    const admission = inventoryRecord(scan, 4);
+    if (admission !== null) return { kind: "refused", stop: admission };
+    originalEvidence = supplied.value;
+    const sources = originalEvidence.checked;
+    if (sources.length === 0) return copiedProjection(null);
+    function* evidenceRoots(): Generator<SyntaxRootSlot<CheckedPhase>> {
+      for (let position = 0; position < sources.length; position += 1)
+        yield { path: "ProgramEvidence.checked[" + position + "].tree", read: () => requirePresent(sources[position], dense).tree };
+    }
+    return copiedProjection(evidenceRoots());
+  });
+  if (settlement.kind === "refused") return settlement.stop;
   const value = { index: index.value, modules: finalModules };
   const image: ProgramIdentityImage = {
     treeOf: source => ready.trees.get(source) ?? null,
@@ -270,29 +262,42 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication, r
     summaryOf: source => ready.summaries.get(source) ?? null, metadataOf: source => ready.metadata.get(source) ?? null,
     initializationOf: source => source === originalInitialization ? index.value.initialization : null,
   };
+  const originals = suppliedEvidence();
   if (originals === null) return { kind: "complete", mode: "data-only", value, image };
-  const evidence = projectEvidence(scan, rewrite, originals, content);
+  const evidence = projectEvidence(scan, rewrite, originals, settlement.value);
   if (evidence.kind === "refused") return evidence.stop;
   return { kind: "complete", mode: "with-evidence", value, image, evidence: evidence.value };
 };
+
+function checkedChapterImage(image: SyntaxImage<CheckedPhase> | null): CheckedChapterImage {
+  return {
+    expressionOf: source => {
+      const result = image?.bodyRootOf(source);
+      return requirePresent(result !== null && result?.kind !== "SourceFile" && result?.kind !== "Block" ? result : undefined, dense);
+    },
+    declarationOf: source => {
+      const result = image?.statementOf(source);
+      return requirePresent(result?.kind === "FunctionDeclaration" || result?.kind === "TypeAliasDeclaration" || result?.kind === "InterfaceDeclaration"
+        ? result : undefined, dense);
+    },
+    sourceFileOf: source => requirePresent(image?.sourceFileOf(source) ?? undefined, dense),
+  };
+}
 
 function inlineCheckedCycle(path: string): never {
   throw new TypeError("Inline cycle in checked Program TypeComponent at " + path);
 }
 
-function checkedContent(scan: ProjectionInventory, roots: Iterable<SyntaxRootSlot<CheckedPhase>>,
-  rewrite: TypeReferenceRewrite): ProjectionResult<CheckedContentImage<InstantiationStop>> {
-  const setup = inventoryRecord(scan, 0);
-  if (setup !== null) return { kind: "refused", stop: setup };
+function checkedContent<Stop>(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, candidate: Iterable<SyntaxRootSlot<CheckedPhase>> | null,
+  independent: (candidate: SyntaxImage<CheckedPhase> | null) =>
+    SyntaxCopyResult<Iterable<SyntaxRootSlot<CheckedPhase>> | null, InstantiationStop | Stop>) {
   const work = () => chargeInstantiationWork(scan.meter);
-  const traversal = walkSyntaxForest<CheckedPhase, InstantiationStop>(roots, { root: work, edge: work, node: work,
+  return projectCheckedContent<InstantiationStop, Stop>(candidate, { root: work, edge: work, node: work,
     parameter: () => admitCheckedProjection(scan.meter, 1, 1),
     structure: node => inventoryRecord(scan, 5) ?? inventoryRecord(scan, node.kind === "Block" ? 2 : 0),
-    modifiers: () => work() });
-  if (traversal.kind !== "complete") return { kind: "refused", stop: traversal };
-  return copyCheckedContent(traversal.value, {
+    modifiers: () => work() }, {
     admit: (units, records) => admitCheckedProjection(scan.meter, units, records),
-    syntaxNode: node => traversal.value.structureOf(node) === null ? inventoryRecord(scan, 5) : null,
+    syntaxNode: () => inventoryRecord(scan, 5),
     type: type => projectRead(scan, () => copiedProjection(rewrite.type(type))),
     signature: signature => projectRead(scan, () => copiedProjection(rewrite.signature(signature))),
     bindings: bindings => finishProjection(scan, prepareBindingsProjection(scan, bindings), rewrite),
@@ -300,7 +305,7 @@ function checkedContent(scan: ProjectionInventory, roots: Iterable<SyntaxRootSlo
     component: component => finishProjection(scan,
       prepareComponentProjection(scan, component, "CheckedModule.component", inlineCheckedCycle), rewrite),
     core: capture => finishProjection(scan, prepareCoreProjection(scan, capture, "CheckedModule.core", inlineCheckedCycle), rewrite),
-  });
+  }, independent);
 }
 
 function inventoryImage(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, value: MemberInventory): ProjectionResult<MemberInventory> {

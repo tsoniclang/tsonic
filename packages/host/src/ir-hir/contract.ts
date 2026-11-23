@@ -5094,6 +5094,13 @@ export type CopyCheckedContent = <Stop>(
   forest: SyntaxForest<CheckedPhase>, project: CheckedProjection<Stop>,
 ) => SyntaxCopyResult<CheckedContentImage<Stop>, Stop>;
 
+export type ProjectCheckedContent = <Stop, SupplyStop>(
+  candidate: Iterable<SyntaxRootSlot<CheckedPhase>> | null,
+  walk: SyntaxWalkAdmission<CheckedPhase, Stop>, project: CheckedProjection<Stop>,
+  independent: (candidate: SyntaxImage<CheckedPhase> | null) =>
+    SyntaxCopyResult<Iterable<SyntaxRootSlot<CheckedPhase>> | null, Stop | SupplyStop>,
+) => SyntaxCopyResult<CheckedContentImage<Stop> | null, Stop | SupplyStop>;
+
 export type CopyCheckedModule = <Stop>(
   module: HirModule, forest: SyntaxForest<CheckedPhase>, project: CheckedProjection<Stop>,
 ) => SyntaxCopyResult<CheckedModuleImage, Stop>;

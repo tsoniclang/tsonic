@@ -3480,6 +3480,54 @@ export const storage: boolean = true;`);
   }
 });
 
+test("final publication constructs its candidate before requesting independent checked evidence", async () => {
+  const { indexSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", "export function negate(flag: boolean): boolean { return !flag; }");
+  const run = maximumCreatedRecords => {
+    const source = captureSourceBarrier(input);
+    assert.equal(source.kind, "ok");
+    const account = createAccount(input.limits.dataflow);
+    const typed = typeSourceBarrier(input, source.value, account);
+    assert.equal(typed.kind, "ok");
+    const actual = source.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+    const node = indexSyntaxTree(actual.tree).find(value => value.kind === "PrefixUnaryExpression");
+    const original = node.operand;
+    const publication = typeProduct.exportTypes(source.value.types, input.limits.instantiation);
+    assert.equal(publication.kind, "complete");
+    const resources = product.createProgramVerificationWork({ ...input.limits.instantiation, maximumCreatedRecords }, account);
+    const meter = ProgramWork.state(resources);
+    let atEvidence = null;
+    let acquisitions = 0;
+    Object.defineProperty(node, "operand", { get() {
+      assert.equal(atEvidence, null, "no candidate operand is acquired after the independent producer opens");
+      acquisitions += 1;
+      return original;
+    } });
+    const candidate = { ...programForEvidence(publicationFixture().index), modules: [
+      { module: actual.module, tree: { kind: "checked-root", root: actual.tree }, bodies: [] },
+    ] };
+    const result = product.canonicalizeProgram(candidate, publication.value, resources, { kind: "with-evidence", read: owner => {
+      assert.equal(owner === account, true);
+      assert.equal(atEvidence, null);
+      atEvidence = meter.created;
+      return typed.value.programEvidence(owner);
+    } });
+    return { result, acquisitions, atEvidence, stop: meter.failure, original: original.id };
+  };
+  const full = run(input.limits.instantiation.maximumCreatedRecords);
+  assert.equal(full.result.kind, "complete");
+  assert.equal(full.atEvidence !== null && full.acquisitions > 0, true);
+  const tree = full.result.value.modules[0].tree.root;
+  assert.equal(full.result.evidence.checked.some(row => row.module.tree === tree), true);
+  assert.equal(indexSyntaxTree(tree).find(value => value.kind === "PrefixUnaryExpression").operand.id, full.original);
+  const stopped = run(full.atEvidence - 1);
+  assert.equal(stopped.result === stopped.stop && stopped.stop?.dimension === "created-records", true);
+  assert.equal(stopped.atEvidence, null);
+});
+
 test("Program transports the exact verified construction-part and its independent Decls inventory", async () => {
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const { indexSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");

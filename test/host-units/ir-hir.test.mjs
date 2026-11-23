@@ -1007,7 +1007,7 @@ test("HIR public index has exactly the current complete data and binding operati
     "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedParameterHeadersOf", "checkedVariableStorageOf", "childrenOfSyntax", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareBinaryStructure", "prepareBlockStructure", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxCopy", "printCheckedDeclarations", "printHir",
-    "readWriteRootStorageOf", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
+    "projectCheckedContent", "readWriteRootStorageOf", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
     "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
   ]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
@@ -1063,6 +1063,42 @@ test("one admitted Checked content image retains detached roots and independent 
   assert.equal(result.value.syntax.nodeOf(foreign) !== null, true);
   assert.equal(seen.filter(node => node === expression).length, 1);
   assert.equal(seen.filter(node => node === foreign).length, 1);
+});
+
+test("independent checked roots extend one image without changing the settled prefix", async () => {
+  const fixture = await loadFrontFixture();
+  const { checked } = fixture.checkedModuleOf("export function selected(flag: boolean = true): boolean { return flag; }");
+  const expression = checked.tree.statements.nodes[0].parameters.nodes[0].initializer;
+  const independent = product.parseHir(product.printHir(checked));
+  assert.equal(independent.kind, "parsed");
+  const distinct = independent.value.tree.statements.nodes[0].parameters.nodes[0].initializer;
+  assert.equal(expression.id, distinct.id);
+  const entry = (path, value) => ({ path, read: () => value });
+  const hold = value => ({ kind: "copied", value });
+  const admitted = [];
+  const walk = { root: () => null, edge: () => null, parameter: () => null, structure: () => null, modifiers: () => null,
+    node: value => { admitted.push(value); return null; } };
+  const project = { admit: () => null, syntaxNode: () => null, type: hold, signature: hold, bindings: hold,
+    parameter: hold, component: hold, core: hold };
+  let prefix = null;
+  const complete = product.projectCheckedContent([entry("candidate", expression)], walk, project, ready => {
+    prefix = ready;
+    assert.equal(admitted.length === 1 && admitted[0] === expression, true);
+    assert.equal(ready.nodeOf(expression)?.id, expression.id);
+    assert.equal(ready.nodeOf(distinct), null);
+    return hold([entry("evidence", checked.tree), entry("distinct", distinct)]);
+  });
+  assert.equal(complete.kind, "copied");
+  const final = complete.value.syntax;
+  assert.equal(prefix.nodeOf(distinct), null);
+  assert.equal(final.nodeOf(expression) === prefix.nodeOf(expression), true);
+  assert.equal(final.nodeOf(distinct) !== null && final.nodeOf(distinct) !== final.nodeOf(expression), true);
+  assert.equal(final.sourceFileOf(checked.tree).statements.nodes[0].parameters.nodes[0].initializer === final.nodeOf(expression), true);
+  assert.equal(admitted.filter(value => value === expression).length, 1);
+  const stop = { kind: "resource-limit", dimension: "work", maximum: 0 };
+  const refused = product.projectCheckedContent([entry("candidate", expression)], walk, { ...project, admit: () => stop },
+    () => assert.fail("candidate refusal does not open the evidence producer"));
+  assert.equal(refused.kind === "refused" && refused.stop === stop, true);
 });
 
 test("an authentic syntax forest has exactly one consuming materialization", async () => {

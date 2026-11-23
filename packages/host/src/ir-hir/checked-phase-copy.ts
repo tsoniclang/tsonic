@@ -7,11 +7,13 @@ import type {
   CheckedTypeAlias, CheckedTypeParameter, CheckedUnary, CheckedValue, CheckedVariable, CopyCheckedContent, CopyCheckedModule, HirApplication,
   HirArgument, HirBody, HirCandidate, HirCandidateList, HirCheckerViews, HirCoreCarrier, HirDiagnosticRoot, HirHeritage,
   HirLocal, HirMemoryFieldCapture, HirMemoryGeometryCapture, HirMemoryLayoutCapture, HirObservationCapture,
-  HirProtocolFact, HirStoragePlace, ProofObligation, SyntaxCopyResult, SyntaxForest, SyntaxImage, SyntaxPhaseCopy,
+  HirProtocolFact, HirStoragePlace, ProjectCheckedContent, ProofObligation, SyntaxCopyResult, SyntaxForest, SyntaxImage, SyntaxPhaseCopy, SyntaxRootSlot, SyntaxWalkAdmission,
 } from "./contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
 import { copied, holdSyntaxPayload } from "./copy-node.js";
+import { createSyntaxCopyState } from "./copy-syntax.js";
+import { createSyntaxForest } from "./walk.js";
 
 const missingEvidence: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
   message: "A checked projection must have complete dense evidence and use its actual admitted roots." };
@@ -524,6 +526,22 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
   return { phase, admit, vector, body, diagnosticRoot };
 }
 
+function checkedContentImage<Stop>(copier: ReturnType<typeof checkedProjector<Stop>>, image: SyntaxImage<CheckedPhase>): CheckedContentImage<Stop> {
+  return {
+    syntax: image,
+    projectModule: source => copier.admit(9, 2, () => {
+      const tree = requirePresent(image.sourceFileOf(source.tree) ?? undefined, missingEvidence);
+      return following(copier.vector(source.bodies, row => copier.body(row, image)), bodies =>
+        following(copier.vector(source.obligations, copier.diagnosticRoot), obligations => copied({
+          module: { module: source.module, tree,
+            items: source.items, bodies, exports: source.exports, bindings: source.bindings, moduleLinks: source.moduleLinks,
+            checkerDiagnostics: source.checkerDiagnostics, obligations },
+          syntax: image,
+        })));
+    }),
+  };
+}
+
 export const copyCheckedContent: CopyCheckedContent = <Stop>(
   forest: SyntaxForest<CheckedPhase>, project: CheckedProjection<Stop>,
 ): SyntaxCopyResult<CheckedContentImage<Stop>, Stop> => {
@@ -534,22 +552,63 @@ export const copyCheckedContent: CopyCheckedContent = <Stop>(
     projector = checkedProjector(project);
     return copied(projector.phase);
   }, node => project.syntaxNode(node), null);
-  return following<SyntaxImage<CheckedPhase>, CheckedContentImage<Stop>, Stop>(syntax, image => {
-    const copier = requirePresent(projector, missingEvidence);
-    return copied({
-      syntax: image,
-      projectModule: source => copier.admit(9, 2, () => {
-        const tree = requirePresent(image.sourceFileOf(source.tree) ?? undefined, missingEvidence);
-        return following(copier.vector(source.bodies, row => copier.body(row, image)), bodies =>
-          following(copier.vector(source.obligations, copier.diagnosticRoot), obligations => copied({
-            module: { module: source.module, tree,
-              items: source.items, bodies, exports: source.exports, bindings: source.bindings, moduleLinks: source.moduleLinks,
-              checkerDiagnostics: source.checkerDiagnostics, obligations },
-            syntax: image,
-          })));
-      }),
-    });
-  });
+  return following(syntax, image => copied(checkedContentImage(requirePresent(projector, missingEvidence), image)));
+};
+
+export const projectCheckedContent: ProjectCheckedContent = <Stop, SupplyStop>(
+  candidate: Iterable<SyntaxRootSlot<CheckedPhase>> | null, walk: SyntaxWalkAdmission<CheckedPhase, Stop>,
+  project: CheckedProjection<Stop>, independent: (candidate: SyntaxImage<CheckedPhase> | null) =>
+    SyntaxCopyResult<Iterable<SyntaxRootSlot<CheckedPhase>> | null, Stop | SupplyStop>,
+): SyntaxCopyResult<CheckedContentImage<Stop> | null, Stop | SupplyStop> => {
+  let forest: ReturnType<typeof createSyntaxForest<CheckedPhase, Stop>> | undefined;
+  let projector: ReturnType<typeof checkedProjector<Stop>> | undefined;
+  let copy: ReturnType<typeof createSyntaxCopyState<CheckedPhase, Stop, null>> | undefined;
+  let settled = 0;
+  let built = 0;
+  const refuse = (stop: Stop): SyntaxCopyResult<never, Stop> => ({ kind: "refused", stop });
+  const append = (roots: Iterable<SyntaxRootSlot<CheckedPhase>>): Stop | null => {
+    if (forest === undefined) {
+      const setup = project.admit(1, 1);
+      if (setup !== null) return setup;
+      forest = createSyntaxForest<CheckedPhase, Stop>(walk);
+    }
+    const walked = forest.append(roots);
+    if (walked !== null) return walked;
+    if (copy === undefined) {
+      const setup = project.admit(1, 1);
+      if (setup !== null) return setup;
+      projector = checkedProjector(project);
+      const originals = forest;
+      copy = createSyntaxCopyState<CheckedPhase, Stop, null>(projector.phase,
+        node => originals.structureOf(node) === null ? project.syntaxNode(node) : null, originals);
+    }
+    for (; settled < forest.nodes.length; settled += 1) {
+      const stopped = copy.prepare(requirePresent(forest.nodes[settled], missingEvidence));
+      if (stopped !== null) return stopped;
+    }
+    const order = forest.postorder;
+    function* suffix() {
+      for (; built < order.length; built += 1) yield requirePresent(order[built], missingEvidence);
+    }
+    copy.materialize(suffix(), null);
+    return null;
+  };
+  const stopped = candidate === null ? null : append(candidate);
+  if (stopped !== null) return refuse(stopped);
+  const endOfCandidate = settled;
+  const prefix = candidate === null ? null : requirePresent(copy, missingEvidence).imageThrough(endOfCandidate);
+  const remaining = independent(prefix);
+  if (remaining.kind === "refused") return remaining;
+  const stoppedAfterEvidence = remaining.value === null ? null : append(remaining.value);
+  if (stoppedAfterEvidence !== null) return refuse(stoppedAfterEvidence);
+  if (candidate === null && remaining.value === null) return copied(null);
+  if (prefix !== null && settled === endOfCandidate) return copied(checkedContentImage(requirePresent(projector, missingEvidence), prefix));
+  if (prefix !== null) {
+    const reserve = project.admit(1, 1);
+    if (reserve !== null) return refuse(reserve);
+  }
+  const complete = requirePresent(copy, missingEvidence).imageThrough(settled);
+  return copied(checkedContentImage(requirePresent(projector, missingEvidence), complete));
 };
 
 export const copyCheckedModule: CopyCheckedModule = (source, forest, project) =>
