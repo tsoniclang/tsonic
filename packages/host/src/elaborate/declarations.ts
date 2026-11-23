@@ -280,7 +280,7 @@ export function callableTypeHeader<State>(deps: ElaborateDeps<State>, node: Hir.
   } };
 }
 
-function propertyName(node: Hir.PropertyName<Checked>): Hir.PropertyName<TypedPhase> {
+export function propertyName(node: Hir.PropertyName<Checked>): Hir.PropertyName<TypedPhase> {
   if (node.kind === "Identifier") return declarationName(node, null);
   if ((node.kind === "StringLiteral" || node.kind === "NumericLiteral") && node.tsonic.role === "declaration-name")
     return { ...node, tsonic: { role: "declaration-name", declaration: node.tsonic.declaration } };

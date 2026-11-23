@@ -1,5 +1,5 @@
 import type { Diagnostic, Result, UnitAnswerPosition, UnitRequest } from "../diag/contract.js";
-import type { BodyId, DefId, ModuleId, NodeRef, Origin, SourceNodeRef } from "../ids/contract.js";
+import type { BodyId, DefId, ModuleId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingScope, Signature, SignatureRequest, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import type { CheckedPhase, CheckedTypingCuts, Declaration, HirBindingViews, HirBody, HirCandidateList, HirModuleBinding, HirNode } from "../ir-hir/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
@@ -104,6 +104,7 @@ export interface GroupConstraints {
   readonly constraints: readonly ConstraintSet[];
   readonly outsideParts: readonly InferredPartType[];
   readonly selectionContexts: readonly SelectionConstraintContext[];
+  readonly enumInitializers: readonly { readonly occurrence: NodeRef; readonly type: TyId }[];
 }
 
 export interface GroupSolution {

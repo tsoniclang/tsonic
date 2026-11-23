@@ -4,6 +4,7 @@ import { suppliedTirScopes, tirFixtureBodyVerifier, tirFixtureVerifier } from ".
 import { isDeepStrictEqual } from "node:util";
 import { before, test } from "node:test";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { checkedDomain } from "./fixtures/front/checked-domain.mjs";
 import { expectedComposedAdd } from "./fixtures/elaborate/add-composed.expected.mjs";
 
@@ -35,6 +36,50 @@ before(async () => {
 });
 
 const EXPANSION = { maximumDepth: 64, maximumVisits: 4096, maximumUnionMembers: 64, maximumIntersectionMembers: 64 };
+
+test("checked enum members share only their actual authored execution roots with the verified chapter", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    'export enum Code { Start = 2, End = 5, Next } export enum Word { Yes = "yes" }');
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const chapter = typed.value.modules.get(input.snapshot.entryPoint);
+  assert.equal(chapter.tree.kind, "ready-root");
+  const [numeric, text] = chapter.tree.root.statements.nodes.map(slot => slot.node);
+  assert.equal(numeric.kind, "EnumDeclaration");
+  assert.equal(text.kind, "EnumDeclaration");
+  assert.notEqual(numeric.tsonic.type, text.tsonic.type);
+  const table = fixture.types.viewTypes(captured.value.types);
+  for (const declaration of [numeric, text]) {
+    assert.deepEqual(table.terms[declaration.tsonic.type], { kind: "enum", definition: declaration.tsonic.definition });
+    for (const member of declaration.members.nodes) {
+      const executions = chapter.bodies.filter(execution => execution.owner === member.tsonic.definition);
+      assert.equal(member.tsonic.storage, declaration.tsonic.type);
+      if (member.initializer === null) {
+        assert.equal(member.name.text, "Next");
+        assert.equal(member.tsonic.initializer, null);
+        assert.equal(executions.length, 0);
+        continue;
+      }
+      assert.equal(executions.length, 2);
+      const parametric = executions.find(execution => execution.bindings.kind === "parametric");
+      const instantiated = executions.find(execution => execution.bindings.kind === "instantiated");
+      assert.equal(parametric.root === member.initializer, true);
+      for (const body of [parametric, instantiated]) {
+        assert.equal(body.body, member.tsonic.initializer);
+        assert.notEqual(body.completion, member.tsonic.storage);
+        assert.equal(table.signatures[body.signature].result, body.completion);
+        const carrier = table.terms[body.completion];
+        if (declaration === numeric) assert.deepEqual(carrier, { kind: "primitive", primitive: "int64" });
+        else assert.deepEqual(carrier.value, { kind: "string", value: "yes" });
+      }
+    }
+  }
+});
 
 for (const resultAnnotation of [": number", ""])
 test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotated"} result passes HIR, genuine Decls/Rules/Infer, composed TIR and actual LowerMir/MIR`, () => {

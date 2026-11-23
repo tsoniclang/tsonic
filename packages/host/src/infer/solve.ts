@@ -8,7 +8,7 @@ import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep
   PlacementPaused, ResumeSolveGroup, SelectionConstraintContext, SolveAnswer, SolveGroup, SolveRequest } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { admitTypePublicationStep, internType, refuseTypeConstruction } from "../ir-types/index.js";
+import { admitTypePublicationStep, internType, readType, refuseTypeConstruction } from "../ir-types/index.js";
 import { checkedSourceObjectFieldOf } from "../ir-hir/index.js";
 import type { BodyInstance, MemberInventory, TypePublicationStop } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
@@ -336,6 +336,24 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
       || variable.signature.part.kind === "field") completions.set(variable.occurrence.body,
       { type: part.type, error: part.error === null ? null : { kind: "error", causes: [{ kind: "unit", unit: part.origin }] } });
   }
+  for (let index = 0; index < generated.enumInitializers.length; index += 1) {
+    if (!take(frame, 1)) return exhausted(frame);
+    const completion = present(generated.enumInitializers[index], "an actual enum initializer result slot");
+    const body = deps.hirBody(completion.occurrence.body);
+    const owner = deps.itemOf(body.owner);
+    if (owner.kind !== "EnumMember" || owner.tsonic.initializer !== body.body || owner.initializer !== body.root
+      || completion.occurrence.node !== body.root.id || completions.has(body.body))
+      return callerDefect(PORT, "an enum completion slot must retain its original selected initializer occurrence");
+    const slot = readType(deps.types, completion.type);
+    if (slot.kind === "open") {
+      if (slot.group !== group.id) return callerDefect(PORT, "an enum initializer cannot borrow a foreign open value slot");
+      const final = present(variables[slot.variable], "the actual completed enum initializer variable");
+      completions.set(body.body, { type: final.value.type, error: final.error === null ? null : absorbed(unit, group.id, slot.variable) });
+    } else {
+      if (slot.kind === "error") return callerDefect(PORT, "an enum initializer error needs its actual solved value cause");
+      completions.set(body.body, { type: completion.type, error: null });
+    }
+  }
   const captures: (readonly CaptureRow[])[] = [];
   for (const reference of group.bodies) {
     const selected = bodyCaptureModes(deps, deps.hirBody(reference), count => take(frame, count));
@@ -351,6 +369,11 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
     const instance: BodyInstance = { body: reference, bindings: { kind: "parametric" } };
     if (owner.kind === "SourceFile") return { kind: "placeSignature", placement: { kind: "execution-body", instance,
       completion: internType(deps.types, { kind: "intrinsic", intrinsic: "void" }), error: null } };
+    if (owner.kind === "EnumMember") {
+      const completion = present(completions.get(reference), "the selected enum initializer completion");
+      return { kind: "placeSignature", placement: { kind: "execution-body", instance,
+        completion: completion.type, error: completion.error } };
+    }
     if (owner.kind === "Parameter" || owner.kind === "VariableDeclaration" || owner.kind === "PropertyDeclaration") {
       let completion = completions.get(reference);
       if (completion === undefined) {

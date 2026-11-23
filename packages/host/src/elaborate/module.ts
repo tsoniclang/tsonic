@@ -2,11 +2,11 @@ import type { Diagnostic, Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId } from "../ids/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
-import type { CheckedPhase, Expression, FunctionDeclaration, ParameterDeclaration, SourceFile, Statement, VariableDeclaration } from "../ir-hir/contract.js";
+import type { CheckedPhase, EnumDeclaration, EnumMember, Expression, FunctionDeclaration, ParameterDeclaration, SourceFile, Statement, VariableDeclaration } from "../ir-hir/contract.js";
 import type { TirBody, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
-import { typePublicationRefusalOf } from "../ir-types/index.js";
+import { internType, typePublicationRefusalOf } from "../ir-types/index.js";
 import type { AttachFormalDefault, ElaborateDeps, ElaborationCause, ElaborationChild, ElaborationNoResult } from "./contract.js";
-import { callableTypeHeader, declarationAlias, declarationFunction, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation } from "./declarations.js";
+import { callableTypeHeader, declarationAlias, declarationFunction, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation, propertyName } from "./declarations.js";
 import { elaborateExport, elaborateImport, moduleLinkRefusal } from "./imports.js";
 
 function defect(message: string): never {
@@ -74,6 +74,19 @@ function callable<State>(deps: ElaborateDeps<State>, node: FunctionDeclaration<C
       template: templateOf(body), attributes: checked.attributes } } };
 }
 
+function completedInitializer<State>(deps: ElaborateDeps<State>, node: VariableDeclaration<CheckedPhase> | EnumMember<CheckedPhase>,
+  definition: DefId, body: TirBody | null): Expression<TypedPhase> | null {
+  if (body === null) {
+    if (node.initializer !== null) return defect("An authored declaration initializer requires its actual completed execution.");
+    return null;
+  }
+  const root = body.root;
+  if (body.body !== node.tsonic.initializer || body.owner !== definition || root.kind === "Block" || root.kind === "SourceFile"
+    || root.id !== node.initializer?.id || root.parent !== node.id || deps.signatureOf(body.signature).result !== body.completion)
+    return defect("A completed initializer must retain its actual declaration, expression and execution result.");
+  return root;
+}
+
 export function elaborateVariable<State>(deps: ElaborateDeps<State>, node: VariableDeclaration<CheckedPhase>,
   bodies: ReadonlyMap<BodyId, TirBody>, definition: DefId): Result<VariableDeclaration<TypedPhase>> {
   const checked = node.tsonic;
@@ -84,16 +97,7 @@ export function elaborateVariable<State>(deps: ElaborateDeps<State>, node: Varia
   if (checked.declaredType.kind !== "available") return defect("A module variable requires its actual checked annotation availability.");
   const body = checked.initializer === null ? null : bodies.get(checked.initializer)
     ?? defect("A module variable requires its actual completed initializer execution.");
-  let initializer: Expression<TypedPhase> | null = null;
-  if (body !== null) {
-    const root = body.root;
-    if (body.owner !== definition || root.kind === "Block" || root.kind === "SourceFile"
-      || root.id !== node.initializer?.id || root.parent !== node.id || deps.signatureOf(body.signature).result !== body.completion)
-      return defect("The completed variable initializer must retain its actual declaration, expression and execution result.");
-    initializer = root;
-  }
-  if ((node.initializer === null) !== (initializer === null))
-    return defect("A module variable retains exactly its separately completed initializer syntax.");
+  const initializer = completedInitializer(deps, node, definition, body);
   const storage = checked.declaredType.value ?? body?.completion
     ?? defect("A variable without an annotation or initializer requires its actual inferred storage producer.");
   if (body !== null && body.completion !== storage)
@@ -101,6 +105,37 @@ export function elaborateVariable<State>(deps: ElaborateDeps<State>, node: Varia
   return { kind: "ok", diagnostics: [], value: { ...node, name: name(node.name, storage), type: type.value, initializer,
     exclamationToken: node.exclamationToken === null ? null : { ...node.exclamationToken, tsonic: null },
     tsonic: { declaration: checked.declaration, storage, initializer: checked.initializer } } };
+}
+
+function elaborateEnum<State>(deps: ElaborateDeps<State>, node: EnumDeclaration<CheckedPhase>, children: ReadonlyMap<BodyId, ElaborationChild>,
+  causes: ElaborationCause[]): EnumDeclaration<TypedPhase> | null {
+  const definition = node.tsonic.definition;
+  const type = internType(deps.types, { kind: "enum", definition });
+  const members: EnumMember<TypedPhase>[] = [];
+  let blocked = false;
+  if (node.tsonic.members.length !== node.members.nodes.length) return defect("An enum requires its complete checked member inventory.");
+  for (let index = 0; index < node.members.nodes.length; index += 1) {
+    const member = node.members.nodes[index];
+    const identity = node.tsonic.members[index];
+    if (member === undefined || identity === undefined) return defect("An enum requires dense checked member rows.");
+    const cut = deps.cuts.syntax(member);
+    if (cut !== null) { causes.push({ kind: "form", cut }); blocked = true; continue; }
+    if (member.tsonic.parent !== definition
+      || member.tsonic.declaration.kind !== "definition" || member.tsonic.declaration.definition !== identity
+      || member.tsonic.declaredType.kind !== "available" || member.tsonic.declaredType.value !== type)
+      return defect("An enum member requires its own nominal storage and declaration.");
+    const execution = member.tsonic.initializer;
+    const child = execution === null ? null : children.get(execution);
+    if (child === undefined || child !== null && "kind" in child && child.kind === "checked")
+      return defect("An authored enum initializer requires its actual demanded checked execution.");
+    if (child !== null && "kind" in child) { causes.push(...child.causes); blocked = true; continue; }
+    const initializer = completedInitializer(deps, member, identity, child);
+    members.push({ ...member, modifiers: modifiers(member.modifiers), name: propertyName(member.name), initializer,
+      postfixToken: member.postfixToken === null ? null : { ...member.postfixToken, tsonic: null },
+      tsonic: { definition: identity, storage: type, initializer: execution, attributes: member.tsonic.attributes } });
+  }
+  return blocked ? null : { ...node, modifiers: modifiers(node.modifiers), name: name(node.name, null),
+    members: { loc: node.members.loc, nodes: members }, tsonic: { definition, type, members: node.tsonic.members } };
 }
 
 export function isInlineModuleStatement(statement: Statement<CheckedPhase>): boolean {
@@ -185,6 +220,11 @@ export function elaborateModuleSyntax<State>(deps: ElaborateDeps<State>, root: S
       }
       case "InterfaceDeclaration": selected = declarationInterface(deps, statement); break;
       case "TypeAliasDeclaration": selected = declarationAlias(deps, statement); break;
+      case "EnumDeclaration": {
+        const node = elaborateEnum(deps, statement, children, causes);
+        if (node !== null) statements.push({ kind: "ready-statement", node });
+        continue;
+      }
       default: return defect(`not elaborated yet: module statement ${statement.kind}.`);
     }
     if (selected.kind === "refused") {

@@ -247,6 +247,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
     return { body, scope, bindings: rigidBindings(scope), candidates: new Map(candidates.map(list => [list.id, list])),
       variables: [], constraints: [], evidence: [] };
   });
+  const enumInitializers: { readonly occurrence: NodeRef; readonly type: Slot }[] = [];
   for (const draft of drafts) {
     const { body } = draft;
     const reference = body.body;
@@ -256,7 +257,8 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
     const walk: Walk = { generation, draft, signature: own === null ? undefined : signatures.get(signatureRequestKey(own.request)),
       typeOf: new Map(), operators: new Map(), returnPart, returnedOperand: false, bareReturn: null };
     const inferReturn = returnPart !== undefined;
-    const inferInitializer = owned.some(part => part.part.kind === "variable" || part.part.kind === "parameter-initializer");
+    const inferInitializer = deps.itemOf(body.owner).kind === "EnumMember" ||
+      owned.some(part => part.part.kind === "variable" || part.part.kind === "parameter-initializer");
     for (const part of owned) {
       const diagnostic = allocate(walk, { kind: "signature", signature: part, occurrence: refOf(walk, body.root) });
       if (diagnostic !== null) return refused(diagnostic);
@@ -327,6 +329,12 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
         || candidate.part.kind === "variable" || candidate.part.kind === "field");
       if (part === undefined) {
         const owner = deps.itemOf(body.owner);
+        if (owner.kind === "EnumMember") {
+          if (owner.tsonic.initializer !== body.body || owner.initializer !== body.root)
+            return callerDefect(PORT, "an enum initializer must be its actual member's qualified expression");
+          enumInitializers.push({ occurrence: refOf(walk, body.root), type: typeAt(walk, body.root) });
+          continue;
+        }
         if (owner.kind !== "Parameter" && owner.kind !== "VariableDeclaration" && owner.kind !== "PropertyDeclaration"
           || owner.tsonic.initializer !== body.body || owner.type === null
           || owner.tsonic.declaredType.kind !== "available" || owner.tsonic.declaredType.value === null
@@ -338,7 +346,8 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
     }
   }
   const typeOf = (slot: Slot): TyId => present(readySlotType(generation, slot), "the actual owned or ready outside type slot");
-  return { kind: "done", value: { kind: "ok", value: { outsideParts, selectionContexts: generation.selectionContexts, constraints: drafts.map(draft => ({
+  return { kind: "done", value: { kind: "ok", value: { outsideParts, selectionContexts: generation.selectionContexts,
+    enumInitializers: enumInitializers.map(entry => ({ occurrence: entry.occurrence, type: typeOf(entry.type) })), constraints: drafts.map(draft => ({
     group: group.id, body: draft.body.body, variables: draft.variables, candidates: [...draft.candidates.values()],
     constraints: draft.constraints.map(constraint => constraint.kind === "flow"
       ? { ...constraint, from: typeOf(constraint.from), to: typeOf(constraint.to) }
@@ -383,7 +392,8 @@ function inCurrentExecution(body: HirBody, node: HirNode): boolean {
     || node.kind === "WhileStatement" || node.kind === "DoStatement" || node.kind === "ForStatement"
     || node.kind === "SwitchStatement") return true;
   if (node.kind === "FunctionDeclaration" || node.kind === "InterfaceDeclaration"
-    || node.kind === "TypeAliasDeclaration" || node.kind === "ImportDeclaration" || node.kind === "ExportDeclaration") return false;
+    || node.kind === "TypeAliasDeclaration" || node.kind === "EnumDeclaration"
+    || node.kind === "ImportDeclaration" || node.kind === "ExportDeclaration") return false;
   return notInferredYet(PORT, `a ${node.kind} in a module body`, node.origin);
 }
 
@@ -424,7 +434,7 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
       return;
     }
     case "EmptyStatement": case "VariableStatement": case "VariableDeclarationList": return;
-    case "InterfaceDeclaration": case "TypeAliasDeclaration":
+    case "InterfaceDeclaration": case "TypeAliasDeclaration": case "EnumDeclaration":
       if (statementList) return;
       return notInferredYet(PORT, `a ${node.kind}`, node.origin);
     case "ParenthesizedExpression": case "AsExpression": case "TypeAssertionExpression": case "SatisfiesExpression":
