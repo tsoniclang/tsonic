@@ -6044,14 +6044,14 @@ export function Checker_getPropertiesOfUnionOrIntersectionType(receiver, t) {
     const d = Type_AsUnionOrIntersectionType(t);
     if (d.resolvedProperties === undefined) {
         const checked = { valuesByKey: new globalThis.Map(), values: [] };
-        let props = [];
+        const props = [];
         for (const current of d.types) {
             for (const prop of Checker_getPropertiesOfType(receiver, current)) {
                 if (!orderedSet_contains(checked, prop.Name)) {
                     orderedSet_add(checked, prop.Name);
                     const combinedProp = Checker_getPropertyOfUnionOrIntersectionType(receiver, t, prop.Name, (t.flags & TypeFlagsIntersection) !== 0);
                     if (combinedProp !== undefined) {
-                        props = [...props, combinedProp];
+                        props.push(combinedProp);
                     }
                 }
             }
