@@ -13,7 +13,7 @@ import { admitSourceTypeAnswer, resolveSourceTypeAnswer } from "./source-type-an
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
 import { IsElementAccessExpression, IsAwaitExpression, IsExportDeclaration, IsExportSpecifier, IsGetAccessorDeclaration, IsIdentifier, IsImportSpecifier, IsNamespaceExport, IsNamespaceImport, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
 import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsFunctionLike, IsObjectLiteralMethod, IsPropertyName, IsDynamicName, IsImportCall, IsInExpressionContext, IsRightSideOfQualifiedNameOrPropertyAccess, ModuleExportNameIsDefault, OEKAssertions, OEKParentheses, SkipOuterExpressions, SkipParentheses, } from "../internal/ast/utilities.js";
-import { Program_GetSourceFile, Program_GetTypeChecker, Program_GetTypeCheckerForFile, Program_IsSourceFileDefaultLibrary } from "../internal/compiler/program.js";
+import { Program_GetSourceFile, Program_GetTypeChecker, Program_GetTypeCheckerForFile, Program_HasUsableCheckerSession, Program_IsSourceFileDefaultLibrary } from "../internal/compiler/program.js";
 import { CheckerLifetimeAPI, CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
 import { getExtensionHost } from "../extensions/host.js";
 import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_ResolveName, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
@@ -617,7 +617,7 @@ function withCheckerForSignature(program, signature, defaultOptions, callback) {
     return withCheckerById(program, defaultOptions.sourceFile, signature.checkerId, defaultOptions.context ?? Background(), callback);
 }
 function withCheckedFile(program, sourceFile, defaultOptions, callback) {
-    if (program === undefined || sourceFile === undefined ||
+    if (program === undefined || sourceFile === undefined || !Program_HasUsableCheckerSession(program) ||
         Program_GetSourceFile(program, SourceFile_FileName(defaultOptions.sourceFile)) !== defaultOptions.sourceFile ||
         Program_GetSourceFile(program, SourceFile_FileName(sourceFile)) !== sourceFile)
         return undefined;
@@ -631,7 +631,7 @@ function withCheckedFile(program, sourceFile, defaultOptions, callback) {
     }
 }
 function withChecker(program, sourceFile, defaultOptions, callback) {
-    if (program === undefined || sourceFile === undefined ||
+    if (program === undefined || sourceFile === undefined || !Program_HasUsableCheckerSession(program) ||
         Program_GetSourceFile(program, SourceFile_FileName(sourceFile)) !== sourceFile) {
         return undefined;
     }

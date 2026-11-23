@@ -556,8 +556,9 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     const active = new Set();
     const completed = new Map();
     const mutableProperty = type => {
-      const inventory = shape.getPropertyInventory(type);
-      if (inventory === undefined) throw new TypeError("Mutable property inspection requires the actual owning checker.");
+      const structured = shape.getStructuredInventory(type, () => null);
+      if (structured.kind !== "complete") throw new TypeError("Mutable property inspection requires the actual owning checker.");
+      const inventory = structured.value.properties;
       for (let index = 0; index < inventory.length; index += 1) {
         const row = inventory.read(index, () => null);
         if (row.kind !== "complete") throw new TypeError("An admitted inspection requires the actual effective property.");
@@ -567,7 +568,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
           (ast.is.IsMethodSignatureDeclaration(declaration) || ast.is.IsMethodDeclaration(declaration)));
         if (!method && (!property.readonly || visit(property.type))) return true;
       }
-      return false;
+      return structured.value.indexes.some(index => !index.readonly || visit(index.valueType));
     };
     const visit = type => {
       if (type === undefined || active.has(type) || parameter(type)) return false;
@@ -578,7 +579,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       active.add(type);
       const mutable = shape.isUnion(type) || shape.isIntersection(type)
         ? shape.getUnionOrIntersectionTypes(type).some(visit)
-        : mutableProperty(type) || shape.getIndexInfos(type).some(index => !index.readonly || visit(index.valueType));
+        : mutableProperty(type);
       active.delete(type);
       completed.set(type, mutable);
       return mutable;

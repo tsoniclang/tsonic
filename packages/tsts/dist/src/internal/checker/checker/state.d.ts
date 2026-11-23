@@ -3022,7 +3022,7 @@ export declare const thisAssignmentDeclarationMethod: thisAssignmentDeclarationK
  * 	return nil
  * }
  */
-export declare function findIndexInfo(indexInfos: GoSlice<GoPtr<IndexInfo>>, keyType: GoPtr<Type>): GoPtr<IndexInfo>;
+export declare function findIndexInfo(checker: GoPtr<Checker>, indexInfos: GoSlice<GoPtr<IndexInfo>>, keyType: GoPtr<Type>): GoPtr<IndexInfo>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::func::getBaseTypeNodeOfClass","kind":"func","status":"implemented","sigHash":"b722ed3f103d9e485606ab2d5f79b66e6d57965b114fa02972fc97c9435a5b6a","bodyHash":"07578170e863fc4d681b6aa7aa1161c3d7b2d0673d0842bc1fad32416d08378b"}
  *

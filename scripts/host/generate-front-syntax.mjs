@@ -37,8 +37,9 @@ const kindsOfType = type => {
   const nonNull = shape.getNonNullableType(type);
   if (nonNull === undefined) return [];
   if (shape.isUnion(nonNull)) return shape.getUnionOrIntersectionTypes(nonNull).flatMap(kindsOfType);
-  const inventory = shape.getPropertyInventory(nonNull);
-  if (inventory === undefined) throw new TypeError("A generation target requires its actual owning property inventory.");
+  const structured = shape.getStructuredInventory(nonNull, () => null);
+  if (structured.kind !== "complete") throw new TypeError("A generation target requires its actual owning property inventory.");
+  const inventory = structured.value.properties;
   for (let index = 0; index < inventory.length; index += 1) {
     const row = inventory.read(index, () => null);
     if (row.kind !== "complete") throw new TypeError("An admitted generation field requires its actual effective property.");

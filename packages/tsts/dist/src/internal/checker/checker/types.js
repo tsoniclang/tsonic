@@ -1,3 +1,4 @@
+import { admitNativeChecker, markNativeCheckerProvisional } from "../resource-admission.js";
 import { LiteralCreation } from "./literal-creation.js";
 import { retainErrorOperandSource, sourceTypeAnswer } from "./source-type-answers.js";
 import { NewGoStructMap } from "../../../go/compat.js";
@@ -5987,6 +5988,7 @@ export function Checker_popTypeResolution(receiver) {
  * }
  */
 export function Checker_getPropertiesOfType(receiver, t) {
+    admitNativeChecker(receiver, "work");
     t = Checker_getReducedApparentType(receiver, t);
     if ((t.flags & TypeFlagsUnionOrIntersection) !== 0) {
         return Checker_getPropertiesOfUnionOrIntersectionType(receiver, t);
@@ -6041,16 +6043,28 @@ export function Checker_getPropertiesOfObjectType(receiver, t) {
  * }
  */
 export function Checker_getPropertiesOfUnionOrIntersectionType(receiver, t) {
+    admitNativeChecker(receiver, "work");
     const d = Type_AsUnionOrIntersectionType(t);
     if (d.resolvedProperties === undefined) {
+        admitNativeChecker(receiver, "retained", 4);
+        markNativeCheckerProvisional(receiver);
         const checked = { valuesByKey: new globalThis.Map(), values: [] };
         const props = [];
-        for (const current of d.types) {
-            for (const prop of Checker_getPropertiesOfType(receiver, current)) {
-                if (!orderedSet_contains(checked, prop.Name)) {
-                    orderedSet_add(checked, prop.Name);
-                    const combinedProp = Checker_getPropertyOfUnionOrIntersectionType(receiver, t, prop.Name, (t.flags & TypeFlagsIntersection) !== 0);
+        const constituents = d.types;
+        for (let constituent = 0; constituent < constituents.length; constituent += 1) {
+            admitNativeChecker(receiver, "work");
+            const current = constituents[constituent];
+            const currentProperties = Checker_getPropertiesOfType(receiver, current);
+            for (let index = 0; index < currentProperties.length; index += 1) {
+                admitNativeChecker(receiver, "work");
+                const name = currentProperties[index].Name;
+                admitNativeChecker(receiver, "work", name.length);
+                if (!orderedSet_contains(checked, name)) {
+                    admitNativeChecker(receiver, "retained", 2);
+                    orderedSet_add(checked, name);
+                    const combinedProp = Checker_getPropertyOfUnionOrIntersectionType(receiver, t, name, (t.flags & TypeFlagsIntersection) !== 0);
                     if (combinedProp !== undefined) {
+                        admitNativeChecker(receiver, "retained");
                         props.push(combinedProp);
                     }
                 }
@@ -7054,6 +7068,7 @@ export function Checker_getReducedType(receiver, t) {
             if (resolvedReducedType !== undefined) {
                 return resolvedReducedType;
             }
+            markNativeCheckerProvisional(receiver);
             const reducedType = Checker_getReducedUnionType(receiver, t);
             Type_AsUnionType(t).resolvedReducedType = reducedType;
             return reducedType;
@@ -7061,6 +7076,7 @@ export function Checker_getReducedType(receiver, t) {
     }
     else if ((t.flags & TypeFlagsIntersection) !== 0) {
         if ((t.objectFlags & ObjectFlagsIsNeverIntersectionComputed) === 0) {
+            markNativeCheckerProvisional(receiver);
             t.objectFlags |= ObjectFlagsIsNeverIntersectionComputed;
             if (core.Some(Checker_getPropertiesOfUnionOrIntersectionType(receiver, t), (prop) => Checker_isNeverReducedProperty(receiver, prop))) {
                 t.objectFlags |= ObjectFlagsIsNeverIntersection;
@@ -7112,6 +7128,7 @@ export function Checker_getReducedUnionType(receiver, unionType) {
  * }
  */
 export function Checker_getReducedApparentType(receiver, t) {
+    admitNativeChecker(receiver, "work");
     return Checker_getReducedType(receiver, Checker_getApparentType(receiver, Checker_getReducedType(receiver, t)));
 }
 /**
@@ -10218,6 +10235,7 @@ export function Checker_isReducibleIntersection(receiver, t) {
  * }
  */
 export function Checker_newType(receiver, flags, objectFlags, data) {
+    admitNativeChecker(receiver, "retained");
     receiver.TypeCount++;
     const t = {
         flags,
@@ -11545,7 +11563,9 @@ export function Checker_UnionTypes(receiver) {
  */
 export function Checker_addTypesToUnion(receiver, typeSet, includes, types) {
     let lastType;
-    for (const t of types) {
+    for (let index = 0; index < types.length; index += 1) {
+        admitNativeChecker(receiver, "work");
+        const t = types[index];
         if (t !== lastType) {
             if ((t.flags & TypeFlagsUnion) !== 0) {
                 const unionType = Type_AsUnionType(t);
@@ -11618,8 +11638,13 @@ export function Checker_addTypeToUnion(receiver, typeSet, includes, t) {
             }
         }
         else {
-            const [index, ok] = slices.BinarySearchFunc(typeSet, t, CompareTypes);
+            const [index, ok] = slices.BinarySearchFunc(typeSet, t, (left, right) => {
+                admitNativeChecker(receiver, "work");
+                return CompareTypes(left, right);
+            });
             if (!ok) {
+                admitNativeChecker(receiver, "work", typeSet.length - index);
+                admitNativeChecker(receiver, "retained");
                 typeSet = slices.Insert(typeSet, index, t);
             }
         }
@@ -12158,7 +12183,9 @@ export function Checker_getIntersectionTypeEx(receiver, types, flags, alias) {
  * }
  */
 export function Checker_addTypesToIntersection(receiver, typeSet, includes, types) {
-    for (const t of types) {
+    for (let index = 0; index < types.length; index += 1) {
+        admitNativeChecker(receiver, "work");
+        const t = types[index];
         includes = Checker_addTypeToIntersection(receiver, typeSet, includes, Checker_getRegularTypeOfLiteralType(receiver, t));
     }
     return includes;
@@ -12212,6 +12239,7 @@ export function Checker_addTypeToIntersection(receiver, typeSet, includes, t) {
     if (Checker_IsEmptyAnonymousObjectType(receiver, t)) {
         if ((includes & TypeFlagsIncludesEmptyObject) === 0) {
             includes = (includes | TypeFlagsIncludesEmptyObject);
+            admitNativeChecker(receiver, "retained", 2);
             orderedSet_add(typeSet, t);
         }
     }
@@ -12233,6 +12261,7 @@ export function Checker_addTypeToIntersection(receiver, typeSet, includes, t) {
                 if ((t.flags & TypeFlagsUnit) !== 0 && (includes & TypeFlagsUnit) !== 0) {
                     includes = (includes | TypeFlagsNonPrimitive);
                 }
+                admitNativeChecker(receiver, "retained", 2);
                 orderedSet_add(typeSet, t);
             }
         }

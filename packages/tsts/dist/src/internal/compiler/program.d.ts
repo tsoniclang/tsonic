@@ -375,6 +375,10 @@ export declare function Program_as_outputpaths_OutputPathsHost(receiver: GoPtr<P
 export declare function Program_as_emitter_SourceFileMayBeEmittedHost(receiver: GoPtr<Program>): SourceFileMayBeEmittedHost;
 export declare function Program_as_modulespecifiers_ModuleSpecifierGenerationHost(receiver: GoPtr<Program>): ModuleSpecifierGenerationHost;
 export declare function Program_as_checker_Host(receiver: GoPtr<Program>): CheckerHost;
+export declare function Program_OfChecker(checker: Checker): GoPtr<Program>;
+export declare function Program_HasUsableCheckerSession(program: Program): boolean;
+export declare function Program_RequireCheckerSession(program: Program): void;
+export declare function Program_TerminateCheckerSession(program: Program, checker: Checker): void;
 export declare function Program_as_checker_Program(receiver: GoPtr<Program>): Program_e32ad451;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::varGroup::_","kind":"varGroup","status":"implemented","sigHash":"49fbaf64ae10ed60e869e0234672578cdcd492d18042f56b9c710f8c12be2c3e","bodyHash":"9211ec5bcaa0345245688aba2615ed9d45b569522876a02a1f6040a4ace25b46"}

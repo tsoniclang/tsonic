@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -403,16 +403,21 @@ function fileNumberingOf(deps: CaptureDeps, program: CheckedProgram, path: strin
   return keep({ kind: "numbered", numbering });
 }
 
-/** Admits one more fact or edge, before it is added; the first one over its limit stops the capture with a refusal. */
-function admit(scope: CaptureAdmission, dimension: "facts" | "edges"): boolean {
+/** Admits facts or edges before they are added; the first one over its limit stops the capture with a refusal. */
+function admit(scope: CaptureAdmission, dimension: "facts" | "edges", units = 1): boolean {
   if (scope.meter.refusal !== null) return false;
   const maximum = dimension === "facts" ? scope.deps.navigationCapture.maximumCapturedFactsPerModule : scope.deps.navigationCapture.maximumCapturedEdgesPerModule;
-  if (scope.meter[dimension] + 1 > maximum) {
+  if (units > maximum - scope.meter[dimension]) {
     scope.meter.refusal = limitRefusal(scope.module, scope.path, dimension === "facts" ? "front.maximumCapturedFactsPerModule" : "front.maximumCapturedEdgesPerModule", maximum);
     return false;
   }
-  scope.meter[dimension] += 1;
+  scope.meter[dimension] += units;
   return true;
+}
+
+function nativeCaptureAdmission(scope: CaptureAdmission): NativeCheckerAdmission<Diagnostic> {
+  return (cost, units) => admit(scope, cost === "work" ? "edges" : "facts", units) ? null :
+    scope.meter.refusal ?? throwInvariant(invariant("Native acquisition retains its actual first capture refusal."));
 }
 
 function moduleOfFile(program: CheckedProgram, file: SourceFile, ast: OpenedProgramView["ast"]): ModuleId | undefined {
@@ -618,9 +623,9 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
   if (parent === undefined) return throwInvariant(invariant("A member inventory requires its actual captured source component."));
   const members: RawMember[] = [];
   let mapped: MappedOwner | null = null;
-  const admitProperty = (): Diagnostic | null => admit(scope, "facts") && admit(scope, "edges") ? null :
-    scope.meter.refusal ?? throwInvariant(invariant("Property admission retains its actual first capture refusal."));
+  const admitProperty = nativeCaptureAdmission(scope);
   for (let index = 0; index < properties.length; index += 1) {
+    if (!admit(scope, "facts")) return null;
     const selected = properties.read(index, admitProperty);
     if (selected.kind === "refused") return null;
     if (selected.kind === "unavailable") return throwInvariant(invariant("An admitted property retains its actual owning checker."));
@@ -2349,13 +2354,12 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   }
   if (scope.meter.refusal !== null) return null;
   const expandMerged = activeMerged === undefined ? merged : undefined;
-  const calls = shape.getCallSignatures(type);
-  const constructs = shape.getConstructSignatures(type);
-  const selectedIndexes = shape.getIndexInfos(type);
   if (!admit(scope, "edges")) return null;
-  const properties = shape.getPropertyInventory(type);
-  if (properties === undefined) return throwInvariant(invariant("A checked type retains its actual owning property inventory."));
-  const hasInventory = calls.length !== 0 || constructs.length !== 0 || selectedIndexes.length !== 0 || properties.length !== 0;
+  const structured = shape.getStructuredInventory(type, nativeCaptureAdmission(scope));
+  if (structured.kind === "refused") return null;
+  if (structured.kind === "unavailable") return throwInvariant(invariant("A checked type retains its actual owning structured inventory."));
+  const { signatures, callSignatureCount, indexes: selectedIndexes, properties } = structured.value;
+  const hasInventory = signatures.length !== 0 || selectedIndexes.length !== 0 || properties.length !== 0;
   const original = !hasInventory && declarations.length === 1 ? declarations[0] : undefined;
   const syntaxKind = original === undefined ? null : scope.checked.ast.kindName(original);
   if (hasInventory || syntaxKind === "KindObjectLiteralExpression" || syntaxKind === "KindTypeLiteral") {
@@ -2364,9 +2368,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     const inventory = rawMemberTableId(scope.tables.nextMember++);
     const root = scope.tables.components[position]?.root;
     if (root === undefined) return throwInvariant(invariant("A callable type has no captured component root."));
-    const captureSignatures = (signatures: readonly (Signature | undefined)[], kind: "call" | "construct"): RawSignatureId[] | null => {
+    const captureSignatures = (first: number, end: number, kind: "call" | "construct"): RawSignatureId[] | null => {
       const captured: RawSignatureId[] = [];
-      for (let index = 0; index < signatures.length; index += 1) {
+      for (let index = first; index < end; index += 1) {
         if (!admit(scope, "edges")) return null;
         const signature = signatures[index];
         if (signature === undefined) return throwInvariant(invariant("A callable inventory contains an absent signature."));
@@ -2377,9 +2381,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
       }
       return captured;
     };
-    const callSignatures = captureSignatures(calls, "call");
+    const callSignatures = captureSignatures(0, callSignatureCount, "call");
     if (callSignatures === null) return null;
-    const constructSignatures = captureSignatures(constructs, "construct");
+    const constructSignatures = captureSignatures(callSignatureCount, signatures.length, "construct");
     if (constructSignatures === null) return null;
     const indexes: RawIndexSignature[] = [];
     if (active !== null) {

@@ -1668,10 +1668,12 @@ test("wrong-arity overload capture retains all actual declarations and the origi
   const checked = source.checked.tree.statements.nodes[2].body.statements.nodes[0].expression;
   assert.deepEqual(checked.tsonic.application.value.resolvedSignature, { kind: "unavailable", reason: "checker-error",
     causes: [{ kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: original } }] });
-  const { deps, program, module } = openedModule(text);
-  const captureAt = maximum => front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture,
-    maximumCapturedEdgesPerModule: maximum } }, program, module);
-  const exact = 14;
+  const captureAt = maximum => {
+    const { deps, program, module } = openedModule(text);
+    return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture,
+      maximumCapturedEdgesPerModule: maximum } }, program, module);
+  };
+  const exact = 16;
   const diagnostic = source.raw.checkerDiagnostics[original.index];
   for (let maximum = 0; maximum < exact; maximum += 1) {
     const stop = resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedEdgesPerModule", maximum,

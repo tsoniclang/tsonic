@@ -1,3 +1,4 @@
+import { admitNativeChecker } from "../resource-admission.js";
 import { NewGoStructMap } from "../../../go/compat.js";
 import { GetNodeId } from "../../ast/utilities.js";
 import { LiteralCreation } from "./literal-creation.js";
@@ -2513,8 +2514,10 @@ export const thisAssignmentDeclarationMethod = 3; // methods only; look in base 
  * 	return nil
  * }
  */
-export function findIndexInfo(indexInfos, keyType) {
-    for (const info of indexInfos) {
+export function findIndexInfo(checker, indexInfos, keyType) {
+    for (let index = 0; index < indexInfos.length; index += 1) {
+        admitNativeChecker(checker, "work");
+        const info = indexInfos[index];
         if (info.keyType === keyType) {
             return info;
         }
@@ -2819,14 +2822,19 @@ export function getModifiedReadonlyState(state, modifiers) {
  */
 export function instantiateList(c, values, m, instantiator) {
     for (let i = 0; i < (values !== undefined ? values.length : 0); i++) {
+        admitNativeChecker(c, "work");
         const value = values[i];
         const mapped = instantiator(c, value, m);
         if (mapped !== value) {
+            admitNativeChecker(c, "retained", 1 + values.length);
             const result = new Array(values.length);
-            for (let k = 0; k < i; k++)
+            for (let k = 0; k < i; k++) {
+                admitNativeChecker(c, "work");
                 result[k] = values[k];
+            }
             result[i] = mapped;
             for (let j = i + 1; j < values.length; j++) {
+                admitNativeChecker(c, "work");
                 result[j] = instantiator(c, values[j], m);
             }
             return result;

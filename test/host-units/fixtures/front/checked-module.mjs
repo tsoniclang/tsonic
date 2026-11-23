@@ -28,13 +28,19 @@ export function rawComponentPath(components, component) {
 }
 
 export function propertyRows(shape, type) {
-  const inventory = shape.getPropertyInventory(type);
-  assert.ok(inventory, "An actual native property inventory retains its checker.");
+  const selected = shape.getStructuredInventory(type, () => null);
+  assert.equal(selected.kind, "complete", "An actual native property inventory retains its checker.");
+  const inventory = selected.value.properties;
   return Array.from({ length: inventory.length }, (_, index) => {
     const row = inventory.read(index, () => null);
     assert.equal(row.kind, "complete");
     return row.value;
   });
+}
+
+export function primeCaptureReader(run, maximum, stop) {
+  assert.throws(() => run(maximum), error => error === stop,
+    "the genuine source reader is reached after completing its native prerequisites");
 }
 
 export async function loadFrontFixture() {

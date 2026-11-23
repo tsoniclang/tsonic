@@ -4,7 +4,7 @@ import { Checker_GetGlobalDiagnostics } from "../checker/checker/diagnostics.js"
 import { NewTracer } from "../checker/tracer.js";
 import { NewWorkGroup } from "../core/workgroup.js";
 import { Concat, Index } from "../../go/slices.js";
-import { Program_as_checker_Program, Program_Options, Program_SingleThreaded, SortAndDeduplicateDiagnostics } from "./program.js";
+import { Program_as_checker_Program, Program_Options, Program_RequireCheckerSession, Program_SingleThreaded, SortAndDeduplicateDiagnostics } from "./program.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/checkerpool.go::varGroup::_","kind":"varGroup","status":"implemented","sigHash":"49fbaf64ae10ed60e869e0234672578cdcd492d18042f56b9c710f8c12be2c3e","bodyHash":"9e7f04f88e8b76eb738dbbc027136b53c2f0ac505b2ff525d29d3d5233e3713f"}
  *
@@ -189,6 +189,7 @@ export function checkerPool_getCheckerNonExclusive(receiver) {
  * }
  */
 export function checkerPool_createCheckers(receiver) {
+    Program_RequireCheckerSession(receiver.program);
     receiver.createCheckersOnce.Do(() => {
         const checkerCount = receiver.checkers.length;
         const wg = NewWorkGroup(Program_SingleThreaded(receiver.program));

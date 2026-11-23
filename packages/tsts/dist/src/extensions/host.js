@@ -2541,6 +2541,13 @@ export class ExtensionHost {
     #compilerContext;
     #sourceAnalysisState = "pending";
     #semanticFinalizationState = "open";
+    #checkerSessionTerminal = false;
+    get checkerSessionTerminal() {
+        return this.#checkerSessionTerminal;
+    }
+    terminateCheckerSession() {
+        this.#checkerSessionTerminal = true;
+    }
     [extensionHostSetFact](subject, key, value, evidence = []) {
         return this.facts[factStoreSetForHost](subject, key, value, evidence);
     }

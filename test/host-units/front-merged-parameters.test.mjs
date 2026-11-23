@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { propertyRows, loadFrontFixture, rawComponentPath } from "./fixtures/front/checked-module.mjs";
+import { primeCaptureReader, propertyRows, loadFrontFixture, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
 test("unchanged selected signature arguments retain their actual foreign lexical slots", async () => {
   const fixture = await loadFrontFixture();
@@ -475,9 +475,10 @@ test("recursive receiver admission preserves the actual source-reader stop befor
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 47], ["maximumCapturedEdgesPerModule", 49]]) {
+  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 58], ["maximumCapturedEdgesPerModule", 67]]) {
     const captureAt = maximum => fixture.front.captureModule({ ...deps,
       navigationCapture: { ...deps.navigationCapture, [limit]: maximum } }, observed, module);
+    primeCaptureReader(captureAt, deps.navigationCapture[limit], stop);
     attempts = 0;
     const refused = captureAt(exact - 1);
     assert.equal(refused.kind, "refused");
@@ -625,8 +626,9 @@ test("the exact callback evidence limits preserve the actual annotation reader s
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 34], ["maximumCapturedEdgesPerModule", 33]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 46], ["maximumCapturedEdgesPerModule", 49]]) {
     const run = cap => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
+    primeCaptureReader(run, deps.navigationCapture[limit], stop);
     reads = 0;
     const refused = run(maximum - 1);
     assert.equal(refused.kind, "refused");
@@ -909,7 +911,8 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped callback r
     assert.equal(readAfter, false);
     return;
   }
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 47], ["maximumCapturedEdgesPerModule", 59]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 62], ["maximumCapturedEdgesPerModule", 77]]) {
+    primeCaptureReader(cap => run(limit, cap), deps.navigationCapture[limit], stop);
     originalReads = 0;
     selectedReads = 0;
     const refused = run(limit, maximum - 1);
@@ -1809,9 +1812,9 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot
     return { ...queries, typeShape: { ...typeShape, getTupleInfo(type) {
       if (type === tuple) tupleReads += 1;
       return typeShape.getTupleInfo(type);
-    }, getPropertyInventory(type) {
+    }, getStructuredInventory(type, admit) {
       if (type === tuple) propertyReads += 1;
-      return typeShape.getPropertyInventory(type);
+      return typeShape.getStructuredInventory(type, admit);
     } }, checker: { ...checker, getTypeFromTypeNode(node) {
       if (node === first || node === binder || node === later || node === checkpoint) read.push(node);
       if (node === binder && !wrapped) throw stop;
@@ -1829,7 +1832,8 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot
     assert.equal(read.length === 2 && read[0] === first && read[1] === binder, true);
     return;
   }
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 36], ["maximumCapturedEdgesPerModule", 42]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 48], ["maximumCapturedEdgesPerModule", 58]]) {
+    primeCaptureReader(cap => run(limit, cap), deps.navigationCapture[limit], stop);
     tupleReads = 0;
     propertyReads = 0;
     read.length = 0;
@@ -1952,21 +1956,22 @@ for (const forged of [false, true]) test(forged ? "an alias result cannot borrow
     assert.equal(readAfter, false);
     return;
   }
-  for (const limit of ["maximumCapturedFactsPerModule", "maximumCapturedEdgesPerModule"]) {
+  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 44], ["maximumCapturedEdgesPerModule", 48]]) {
     const run = maximum => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: maximum } },
       observed, module);
+    primeCaptureReader(run, deps.navigationCapture[limit], stop);
     originalReads = 0;
     selectedReads = 0;
-    const refused = run(31);
+    const refused = run(exact - 1);
     assert.equal(refused.kind, "refused");
     assert.equal(refused.diagnostics.at(-1).code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
     assert.deepEqual(refused.diagnostics.at(-1).arguments, [
-      { kind: "text", value: "front." + limit }, { kind: "number", value: 31 },
+      { kind: "text", value: "front." + limit }, { kind: "number", value: exact - 1 },
     ]);
     assert.equal(originalReads, 0);
     assert.equal(readAfter, false);
     selectedReads = 0;
-    assert.throws(() => run(32), error => error === stop);
+    assert.throws(() => run(exact), error => error === stop);
     assert.equal(selectedReads, 1);
     assert.equal(originalReads, 1);
     assert.equal(readAfter, false);
@@ -2062,8 +2067,9 @@ test("the exact union result limits preserve the original signature reader stop"
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 36], ["maximumCapturedEdgesPerModule", 33]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 48], ["maximumCapturedEdgesPerModule", 49]]) {
     const run = cap => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
+    primeCaptureReader(run, deps.navigationCapture[limit], stop);
     reads = 0;
     selectedReads = 0;
     const refused = run(maximum - 1);

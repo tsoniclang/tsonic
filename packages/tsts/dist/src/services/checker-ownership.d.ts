@@ -4,6 +4,8 @@ import type { Context } from "../go/context.js";
 import type { SourceFile } from "../internal/ast/ast.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import type { Program } from "../internal/compiler/program.js";
+import { type NativeCheckerAdmission, type NativeCheckerResult } from "../internal/checker/resource-admission.js";
 export declare function withCheckerById<Value>(program: GoPtr<Program>, sourceFile: GoPtr<SourceFile>, checkerId: uint, context: Context, read: (checker: Checker) => Value): Value | undefined;
 export declare function withOwnedChecker<Value>(program: GoPtr<Program>, sourceFile: GoPtr<SourceFile>, owner: GoPtr<Checker>, context: Context, read: (checker: Checker) => Value): Value | undefined;
+export declare function withOwnedCheckerAcquisition<Value, Stop extends object>(program: GoPtr<Program>, sourceFile: GoPtr<SourceFile>, owner: GoPtr<Checker>, context: Context, admit: NativeCheckerAdmission<Stop>, read: (checker: Checker) => Value): NativeCheckerResult<Value, Stop>;
 //# sourceMappingURL=checker-ownership.d.ts.map

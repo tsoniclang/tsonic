@@ -1,3 +1,4 @@
+import { admitNativeChecker } from "./resource-admission.js";
 import { Every, Find, FirstOrNil, Filter, Some } from "../core/core.js";
 import * as slices from "../../go/slices.js";
 import { IsTypeOrJSTypeAliasDeclaration, Node_Arguments, Node_Body, Node_Elements, Node_Expression, Node_ImportClause, Node_Initializer, Node_Members, Node_ModifierFlags, Node_Parameters, Node_Properties, Node_PropertyNameOrName, Node_Text, Node_Type, Node_TypeArguments, SourceFile_FileName, SourceFile_Path, SourceFile_Text } from "../ast/ast.js";
@@ -841,7 +842,12 @@ export function createSymbolTable(symbols) {
  * }
  */
 export function Checker_sortSymbols(receiver, symbols) {
-    symbols.sort((s1, s2) => receiver.compareSymbols(s1, s2));
+    admitNativeChecker(receiver, "work", symbols.length);
+    admitNativeChecker(receiver, "retained", symbols.length);
+    symbols.sort((left, right) => {
+        admitNativeChecker(receiver, "work");
+        return receiver.compareSymbols(left, right);
+    });
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::method::Checker.compareSymbolsWorker","kind":"method","status":"implemented","sigHash":"a5fd24773e16e016b610528201ba31244cde2ff517a96997e30f896722ada22d","bodyHash":"655ff032e023a6aba67cb90182dd47ad37d7df9b3e6bcb27692142e59a67b375"}

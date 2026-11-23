@@ -1,3 +1,4 @@
+import { admitNativeChecker } from "../resource-admission.js";
 import { hasExactProviderConstructorDeclarations } from "../../../extensions/provider-materialization-integration.js";
 import { beginSelectedCallEvidenceFrame, bindSelectedCallDefaultOwner, bindSelectedCallDefaultContext, bindSelectedCallInferenceContext, commitSelectedCallEvidenceFrame, journalSelectedCallEvidence, rollbackSelectedCallEvidenceFrame, retainSelectedCallDefault, selectedCallDefaultNode, selectedCallInferenceJournal, selectedCallFrameInferenceJournal, } from "./selected-call-evidence-transaction.js";
 import { retainContextualArgumentOwners, selectedCallInferenceEvidence, withSelectedCallInferenceOrigin, withSelectedCallInferenceProjection } from "./selected-call-inference-evidence.js";
@@ -6692,6 +6693,9 @@ export function Checker_getSignaturesOfStructuredType(receiver, t, kind) {
         return [];
     }
     const resolved = Checker_resolveStructuredTypeMembers(receiver, t);
+    const count = kind === SignatureKindCall ? resolved.callSignatureCount : resolved.signatures.length - resolved.callSignatureCount;
+    admitNativeChecker(receiver, "work", count);
+    admitNativeChecker(receiver, "retained", 1 + count);
     if (kind === SignatureKindCall) {
         return resolved.signatures.slice(0, resolved.callSignatureCount);
     }

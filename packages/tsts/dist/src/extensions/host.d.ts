@@ -654,6 +654,8 @@ export declare class ExtensionHost {
     readonly facts: ExtensionFactStore;
     readonly factResolver: ExtensionFactResolver;
     readonly providers: ProviderRegistry;
+    get checkerSessionTerminal(): boolean;
+    terminateCheckerSession(): void;
     [extensionHostSetFact]<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
     [extensionHostProviderExportMaterialized](symbol: Symbol, sourcePrimitives: readonly ProviderSourcePrimitiveAnnotation[]): void;
     constructor(program: object, options?: ExtensionHostOptions);

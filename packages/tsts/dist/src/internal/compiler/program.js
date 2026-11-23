@@ -60,7 +60,7 @@ import { projectReferenceFileMapper_getProjectReferenceFromSource, projectRefere
 import { OrderedMap_Entries } from "../collections/ordered_map.js";
 import { recordBoundSourceFileExtensionFacts } from "../../extensions/compiler-integration.js";
 import { collectExtensionDiagnosticsForSourceFile } from "../../extensions/diagnostics.js";
-import { attachExtensionHostToProgram } from "../../extensions/host.js";
+import { attachExtensionHostToProgram, getExtensionHost } from "../../extensions/host.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::method::ProgramOptions.canUseProjectReferenceSource","kind":"method","status":"implemented","sigHash":"ec0b72e7f02ed0bbf938625750f60c5c5ca5fb65607e514b72a434b8d968f95a","bodyHash":"5e9030cdbbc310a7c9c2432c0044f7f9256331e4eb290b6426f0aa7d4db4e9f3"}
  *
@@ -394,8 +394,33 @@ export function Program_as_checker_Host(receiver) {
         GetModeForUsageLocation: (file, moduleSpecifier) => Program_GetModeForUsageLocation(receiver, file, moduleSpecifier),
     };
 }
+const checkerProgramOwner = Symbol("checker program owner");
+function isCompilerCheckerProgram(adapter) {
+    return checkerProgramOwner in adapter;
+}
+export function Program_OfChecker(checker) {
+    const adapter = checker.program;
+    return isCompilerCheckerProgram(adapter) ? adapter[checkerProgramOwner] : undefined;
+}
+export function Program_HasUsableCheckerSession(program) {
+    return getExtensionHost(program)?.checkerSessionTerminal !== true &&
+        program.compilerCheckerPool?.checkers[0]?.wasCanceled !== true;
+}
+export function Program_RequireCheckerSession(program) {
+    if (!Program_HasUsableCheckerSession(program))
+        throw new Error("The owning checked session is terminal.");
+}
+export function Program_TerminateCheckerSession(program, checker) {
+    checker.wasCanceled = true;
+    getExtensionHost(program)?.terminateCheckerSession();
+    for (const member of program.compilerCheckerPool?.checkers ?? []) {
+        if (member !== undefined)
+            member.wasCanceled = true;
+    }
+}
 export function Program_as_checker_Program(receiver) {
     const adapter = {
+        [checkerProgramOwner]: receiver,
         __tsgoEmbedded0: Program_as_checker_Host(receiver),
         GetSymlinkCache: () => Program_GetSymlinkCache(receiver),
         CommonSourceDirectory: () => Program_CommonSourceDirectory(receiver),

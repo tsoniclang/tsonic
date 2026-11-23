@@ -5,6 +5,7 @@ import { SymbolName } from "../internal/ast/symbol.js";
 import { SymbolFlagsOptional, SymbolFlagsPrototype } from "../internal/ast/symbolflags.js";
 import { Checker_GetRootSymbols } from "../internal/checker/services.js";
 import { Checker_isErrorType } from "../internal/checker/checker/diagnostics.js";
+import { admitNativeChecker, markNativeCheckerProvisional } from "../internal/checker/resource-admission.js";
 import { Checker_getPropertyOfObjectType, Checker_getPropertyOfType, Checker_getTypeOfSymbol, Checker_isReadonlySymbol } from "../internal/checker/checker/symbols.js";
 import { completedRequiredPropertySource } from "../internal/checker/checker/source-type-answers.js";
 import { Checker_getPropertiesOfObjectType } from "../internal/checker/checker/types.js";
@@ -15,6 +16,9 @@ export function readTypePropertyInfo(checker, type, symbol) {
     if (symbol === undefined)
         throw new Error("The checker returned an absent property symbol for a source type.");
     const selected = Checker_getPropertyOfType(checker, type, symbol.Name);
+    if (selected !== undefined && LinkStore_TryGet(checker.valueSymbolLinks, selected)?.resolvedType === undefined) {
+        markNativeCheckerProvisional(checker);
+    }
     const property = selected === undefined ? undefined : selectedPropertyInfo(checker, symbol, selected);
     if (property === undefined)
         throw new Error(`The checker returned property '${SymbolName(symbol)}' without its effective source type.`);
@@ -59,6 +63,7 @@ function selectedPropertyInfo(checker, symbol, selected) {
     const intrinsicOrigin = symbol === checker.globalThisSymbol ? "global-this"
         : symbol === checker.undefinedSymbol ? "undefined" : undefined;
     const typeSource = selected === symbol && propertyType !== undefined ? completedRequiredPropertySource(checker, symbol, propertyType) : undefined;
+    admitNativeChecker(checker, "retained", mapped ? 3 : 2);
     return {
         symbol,
         rootSymbols: Object.freeze(Checker_GetRootSymbols(checker, symbol).filter((root) => root !== undefined)),

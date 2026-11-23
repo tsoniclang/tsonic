@@ -13,6 +13,16 @@ export function requireApplicableCallInfo(evidence) {
     assert.ok(evidence?.kind === "applicable", "The original valid call requires an actual applicable checker candidate.");
     return evidence;
 }
+export function propertyRows(shape, type) {
+    const selected = shape.getStructuredInventory(type, () => null);
+    assert.equal(selected.kind, "complete", "An actual property query has its owning checker.");
+    const inventory = selected.value.properties;
+    return Array.from({ length: inventory.length }, (_, index) => {
+        const row = inventory.read(index, () => null);
+        assert.equal(row.kind, "complete");
+        return row.value;
+    });
+}
 export function createProgram(sourceText, settings = {}) {
     const fileName = settings.fileName ?? "index.ts";
     const sourcePath = `/src/${fileName}`;
