@@ -3,7 +3,7 @@ import type { TextWork } from "./text-values.js";
 import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textItemNodeRef, textLocalRef, textSourceNodeRef } from "./text-values.js";
 import { textRefinementDecision, textEmbeddingDecision, textDeferredDecision, textOperationDecision, textMemberDecision, textApplicationDecision } from "./text-inference.js";
 import { textImportTarget } from "./text-core.js";
-import { textBodyInstance } from "./text-types.js";
+import { textArtifactBindings, textBodyInstance } from "./text-types.js";
 
 export function textTypedValue(value: TypedValue): TextWork {
   return deferred(value, () => {
@@ -77,6 +77,9 @@ export function textTirResolution(value: TirResolution): TextWork {
       case "static":
         return record(value.kind, [field("declaration", textItemNodeRef(value.declaration)),
           field("aliases", sequence(value.aliases, textSourceNodeRef))]);
+      case "enum-member":
+        return record(value.kind, [field("declaration", textItemNodeRef(value.declaration)),
+          field("bindings", textArtifactBindings(value.bindings)), field("aliases", sequence(value.aliases, textSourceNodeRef))]);
       case "module":
         return record(value.kind, [
       field("target", textImportTarget(value.target)),

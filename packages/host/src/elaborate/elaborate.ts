@@ -223,6 +223,22 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (term.group !== solution.group) return callerDefect("a flow references an inference variable of another group", origin);
     return finals[term.variable] ?? callerDefect("a flow references an unfinalized inference variable", origin);
   };
+  let nameEvidence: Map<NodeId, TyId[]> | null = null;
+  const evidenceOfName = (node: NodeId): readonly TyId[] | undefined => {
+    if (nameEvidence === null) {
+      nameEvidence = new Map();
+      for (const { value, error } of constraints.evidence) {
+        if (error !== null || value.component.kind !== "body" || value.component.value.body !== body.body) continue;
+        const occurrence = value.component.value;
+        const source = nodes[nodePosition(occurrence.node)];
+        if (source?.kind !== "Identifier") continue;
+        const prior = nameEvidence.get(occurrence.node);
+        if (prior === undefined) nameEvidence.set(occurrence.node, [value.type]);
+        else prior.push(value.type);
+      }
+    }
+    return nameEvidence.get(node);
+  };
   for (const solved of solution.constraints) {
     if (solved.constraint.body !== body.body) continue;
     const constraint = constraints.constraints[solved.constraint.index]
@@ -498,6 +514,22 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         return;
       }
       const item = deps.itemOf(definition);
+      if (item.kind === "EnumMember" && checked.role === "value") {
+        const owner = item.tsonic.parent;
+        const parent = owner === null ? null : deps.itemOf(owner);
+        const evidence = evidenceOfName(node.id);
+        const first = evidence?.[0];
+        if (parent?.kind !== "EnumDeclaration" || item.tsonic.declaration.kind !== "definition"
+          || item.tsonic.declaration.definition !== definition || evidence === undefined || first === undefined)
+          return callerDefect("an enum constant read requires its actual closed member and inferred value type", node.origin);
+        const storage = finalType(first, node.origin);
+        if (evidence.some(type => finalType(type, node.origin) !== storage))
+          return callerDefect("an enum constant read carries competing inferred value types", node.origin);
+        names[position] = { resolution: { kind: "enum-member", declaration: { owner: definition, node: item.id },
+          bindings: { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
+          aliases }, storage, role: checked.role };
+        return;
+      }
       if (item.kind !== "VariableDeclaration" || item.tsonic.declaration.kind !== "definition"
         || item.tsonic.declaration.definition !== definition)
         return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);

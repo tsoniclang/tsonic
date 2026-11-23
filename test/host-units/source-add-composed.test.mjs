@@ -94,7 +94,7 @@ test("checked enum members share only their actual authored execution roots with
 test("verified enum evaluation publishes named numeric and text constants without granting runtime activation", async () => {
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { printProgramIndex, parseProgramIndex } = await import("../../packages/host/dist/ir-program/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", 'export enum Code { Start=2, End=2+3, Next }'
+  const input = analysisInput(fixture, "sdk-minimal", 'export enum Code { Start=2, End=Start+3, Next }'
     + 'export enum Word { Yes="yes" } export enum State { Pending, Done }'
     + 'export enum Code { Other=8, OneMore } export enum Empty {}');
   const result = analyzeHostProgram(input);
@@ -139,6 +139,52 @@ test("verified enum evaluation publishes named numeric and text constants withou
   assert.equal("value" in refused, false);
   assert.equal(refused.diagnostics[0].source, "evaluate");
   assert.deepEqual(refused.diagnostics[0].arguments, [{ kind: "text", value: "evaluation.maximumSteps" }, { kind: "number", value: 0 }]);
+});
+
+test("an enum read keeps its verified member and value carrier through both syntax codecs", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { printModuleBodies, parseModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export enum Code { Start=2, Other=2, End=Start+3 }");
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const context = typed.value.verifierOf(input.snapshot.entryPoint);
+  const chapter = typed.value.modules.get(input.snapshot.entryPoint);
+  const [start, other, end] = chapter.tree.root.statements.nodes[0].node.members.nodes;
+  const producer = chapter.bodies.find(body => body.owner === start.tsonic.definition && body.bindings.kind === "parametric");
+  const consumer = chapter.bodies.find(body => body.owner === end.tsonic.definition && body.bindings.kind === "parametric");
+  const original = consumer.root.left.tsonic;
+  const selected = captured.value.checked.declarationSourceOf(start.tsonic.definition);
+  const crossed = captured.value.checked.declarationSourceOf(other.tsonic.definition);
+  assert.equal(selected.kind === "item" && crossed.kind === "item", true);
+  assert.deepEqual(original.resolution, { kind: "enum-member", declaration: selected.value, aliases: [],
+    bindings: { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } } });
+  assert.equal(original.type, producer.completion);
+  assert.deepEqual(verifyBody(context, consumer), []);
+
+  for (const [resolution, expected] of [[{ ...original.resolution, declaration: crossed.value }, ["enum-reference-exact"]],
+    [{ ...original.resolution, bindings: { kind: "parametric" } }, ["binding-vector-complete", "enum-reference-exact"]],
+    [{ kind: "definition", definition: start.tsonic.definition, aliases: [] }, ["binding-vector-complete", "enum-reference-exact"]]]) {
+    consumer.root.left.tsonic = { ...original, resolution };
+    assert.deepEqual(verifyBody(context, consumer).map(finding => finding.rule), expected, resolution.kind);
+  }
+  consumer.root.left.tsonic = original;
+  const text = irTir.printTir(consumer);
+  assert.match(text, /enum-member\(/u);
+  assert.equal(isDeepStrictEqual(irTir.parseTir(text), { kind: "parsed", value: consumer }), true);
+
+  const analyzed = analyzeHostProgram(input);
+  assert.equal(analyzed.kind, "ok", JSON.stringify(analyzed.diagnostics));
+  const actual = analyzed.value.modules.find(module => module.module === input.snapshot.entryPoint);
+  const document = printModuleBodies(analyzed.value.index, actual);
+  assert.match(document, /enum-member\(/u);
+  const parsed = parseModuleBodies(analyzed.value.index, document);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(printModuleBodies(analyzed.value.index, parsed.value), document);
 });
 
 test("authored fractional enum members use the selected exact Float64 literal format", async () => {

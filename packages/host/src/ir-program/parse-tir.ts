@@ -64,7 +64,7 @@ export function readTirDemandText<Root>(cursor: Cursor, finish: (value: TirDeman
 }
 
 export function readTirResolutionText<Root>(cursor: Cursor, finish: (value: TirResolution) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["local","definition","static","module","error","intrinsic-value"]), label =>
+  return atomicText(cursor, next => choice(next, ["local","definition","static","enum-member","module","error","intrinsic-value"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
@@ -86,6 +86,12 @@ export function readTirResolutionText<Root>(cursor: Cursor, finish: (value: TirR
             fieldText<readonly SourceNodeRef[], Root>(cursor, fields, "aliases",
               (next, done) => arrayText(next, (entry, accept) => atomicText(entry, readSourceNodeRef, accept), done), aliases =>
                 atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, declaration, aliases }, finish))));
+        case "enum-member":
+          return fieldText<ItemNodeRef, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readItemNodeRef, done), declaration =>
+            fieldText<ArtifactBindings, Root>(cursor, fields, "bindings", (next, done) => atomicText(next, readArtifactBindings, done), bindings =>
+              fieldText<readonly SourceNodeRef[], Root>(cursor, fields, "aliases",
+                (next, done) => arrayText(next, (entry, accept) => atomicText(entry, readSourceNodeRef, accept), done), aliases =>
+                  atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, declaration, bindings, aliases }, finish)))));
         case "module":
           return fieldText<ImportTarget, Root>(cursor, fields, "target", readImportTargetText, targetValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>

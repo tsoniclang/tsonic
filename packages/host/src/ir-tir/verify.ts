@@ -1,4 +1,4 @@
-import type { BodyId, CandidateListId, DefId, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, CandidateListId, DefId, ItemNodeRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
@@ -747,6 +747,51 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
           return actual === undefined || !sameSourceReference(alias, actual);
         }))
         emit("static-reference-exact", node, "a static access must retain its actual checked declaration, binding hops and storage type");
+    }
+    const enumReference = phase !== null && "resolution" in phase && phase.resolution.kind === "enum-member" ? phase.resolution : null;
+    const checkedRead = original?.kind === "Identifier" && original.tsonic.role === "value" ? original.tsonic.value.views.read : null;
+    if (enumReference !== null || checkedRead?.kind === "available" && input.types.terms[checkedRead.value]?.kind === "enum") {
+      const originalResolution = checked !== undefined && checked !== null && "resolution" in checked ? checked.resolution : null;
+      const binding = originalResolution?.kind === "binding" ? resolveModuleBinding(input, originalResolution.occurrence) : null;
+      const selected = binding === null ? originalResolution : binding.target.kind === "available" ? binding.target.value : null;
+      const aliases = binding?.aliases ?? [];
+      const definition = selected?.kind === "declarations" && selected.definitions.length === 1 ? selected.definitions[0] : undefined;
+      let owned: ItemNodeRef | null = null;
+      if (definition !== undefined) {
+        const paid = admit({ kind: "source-declaration", definition });
+        if (paid !== null) return { kind: "resource-stop", stop: paid };
+        const declaration = input.declarationSourceOf(definition);
+        if (declaration?.kind === "item" && declaration.value.owner === definition) owned = declaration.value;
+      }
+      const paid = owned === null ? null : admit({ kind: "static-item", declaration: owned });
+      if (paid !== null) return { kind: "resource-stop", stop: paid };
+      const member = owned === null ? null : input.nodeOf({ kind: "item", value: owned });
+      if (enumReference !== null || member?.kind === "EnumMember") {
+        let earned = false;
+        if (enumReference !== null && node.kind === "Identifier" && node.tsonic.role === "value" && owned !== null
+          && enumReference.declaration.owner === owned.owner && enumReference.declaration.node === owned.node
+          && member?.kind === "EnumMember" && member.id === owned.node && member.tsonic.declaration.kind === "definition"
+          && member.tsonic.declaration.definition === owned.owner && member.tsonic.initializer !== null
+          && enumReference.bindings.kind === "instantiated" && enumReference.aliases.length === aliases.length
+          && enumReference.aliases.every((alias, index) => {
+            const actual = aliases[index];
+            return actual !== undefined && sameSourceReference(alias, actual);
+          })) {
+          const { bindings } = enumReference.bindings;
+          const template: BodyInstance = { body: member.tsonic.initializer, bindings: { kind: "parametric" } };
+          const stop = admit({ kind: "bindings", bindings }) ?? admit({ kind: "artifact", instance: template });
+          if (stop !== null) return { kind: "resource-stop", stop };
+          const scope = input.declarationOf(owned.owner)?.scope;
+          const ready = input.bodyOf(template);
+          earned = bindings.classBindings.length === 0 && bindings.methodBindings.length === 0
+            && bindings.capturedBindings.length === 0 && bindings.selfBindings.length === 0
+            && scope !== undefined && scope.classParameters.length === 0 && scope.methodParameters.length === 0
+            && scope.capturedParameters.length === 0 && scope.selfOwners.length === 0
+            && ready !== null && ready.body === template.body && ready.bindings.kind === "parametric"
+            && ready.owner === owned.owner && ready.completion === node.tsonic.type;
+        }
+        if (!earned) emit("enum-reference-exact", node, "an enum read must retain its actual checked member, binding hops and completed value type");
+      }
     }
     if (phase !== null && "resolution" in phase && phase.resolution.kind === "error") {
       const index = phase.resolution.diagnostic;

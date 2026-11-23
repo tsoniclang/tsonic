@@ -18,6 +18,7 @@ export type TirResolution =
   | IntrinsicValueResolution
   | { readonly kind: "definition"; readonly definition: DefId; readonly aliases: readonly SourceNodeRef[] }
   | { readonly kind: "static"; readonly declaration: ItemNodeRef; readonly aliases: readonly SourceNodeRef[] }
+  | { readonly kind: "enum-member"; readonly declaration: ItemNodeRef; readonly bindings: ArtifactBindings; readonly aliases: readonly SourceNodeRef[] }
   | { readonly kind: "module"; readonly target: ImportTarget }
   | { readonly kind: "error"; readonly diagnostic: number };
 
@@ -740,7 +741,7 @@ export interface TirVerifierInput extends HirBindingViews {
 export type TirRule = "binding-element-role-exact" | "binding-capture-owner" | "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
   | "parent-reference" | "local-dense" | "local-storage" | "binding-storage" | "type-closed"
   | "capture-qualified" | "capture-rows-agree" | "cross-owner-qualified" | "parameter-order"
-  | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence" | "intrinsic-value-use" | "static-reference-exact"
+  | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence" | "intrinsic-value-use" | "static-reference-exact" | "enum-reference-exact"
   | "argument-total" | "argument-parameter-order" | "argument-passing" | "omission-valid"
   | "authored-order-preserved" | "empty-spread-preserved" | "call-endpoints" | "completion-endpoint"
   | "binding-vector-complete" | "member-origin" | "accessor-activation" | "access-location" | "closure-capture-total" | "closure-capture-binding" | "operation-type"

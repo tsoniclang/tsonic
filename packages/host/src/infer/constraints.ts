@@ -560,6 +560,9 @@ function inspectCheckedExecution(deps: InferenceInputs, body: HirBody, diagnosti
           && item.tsonic.declaration.definition === definition && item.tsonic.declaredType.kind === "available"
           && item.tsonic.declaredType.value === null)
           for (const part of inferredPartsOf(definition, item)) request(part);
+        if (item.kind === "EnumMember") {
+          for (const part of inferredPartsOf(definition, item)) request(part);
+        }
       } else if (selected.kind === "local") {
         const declaration = deps.hirBody(selected.local.body).locals[selected.local.local]?.declaration;
         if (declaration?.kind === "item") {
@@ -920,6 +923,17 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
           return notInferredYet(PORT, "a static variable's actual finalized declaration type", node.origin);
         }
         return type.value;
+      }
+      if (resolution.definitions.length === 1 && item.kind === "EnumMember" && name.role === "value") {
+        if (item.tsonic.declaration.kind !== "definition" || item.tsonic.declaration.definition !== definition)
+          return callerDefect(PORT, "an enum read retains its actual qualified member");
+        const part = inferredPartsOf(definition, item)[0];
+        if (part === undefined)
+          return notInferredYet(PORT, "the actual predecessor type of an implicit enum member", node.origin);
+        const key = inferredPartKey(part);
+        if (!walk.generation.ownParts.has(key) && !walk.generation.outsideParts.has(key))
+          return callerDefect(PORT, "an enum read requires its actual completed or owned value part");
+        return { part };
       }
       if (name.role === "assignment-target") return callerDefect(PORT, "a static assignment targets an actual variable declaration");
       const endpoints = endpointsOf(item, definition);

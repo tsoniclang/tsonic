@@ -399,6 +399,14 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
         return literal(lowering, node, payload, { kind: "absence" });
       }
       value(lowering, payload, node);
+      if (resolution.kind === "enum-member") {
+        const storage = rawType(payload);
+        const operand = constantOperand(state, storage, { kind: "constant", reference: { context: "enum-member",
+          member: resolution.declaration.owner, bindings: resolution.bindings } });
+        if (operand === null) return false;
+        pushOperand(lowering, { kind: "plain", operand, pendingRead: false, storage, site: siteOf(body, node) });
+        return true;
+      }
       if (resolution.kind === "static") {
         const site = siteOf(body, node);
         const storage = rawType(payload);
