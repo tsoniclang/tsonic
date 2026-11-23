@@ -4018,7 +4018,8 @@ export type HirProtocolFact =
 export interface HirStoragePlace {
   readonly base:
     | { readonly kind: "root"; readonly resolution: HirResolution }
-    | { readonly kind: "place"; readonly node: NodeId };
+    | { readonly kind: "place"; readonly node: NodeId }
+    | { readonly kind: "receiver"; readonly node: NodeId };
   readonly step:
     | { readonly kind: "member"; readonly key: MemberKey; readonly origins: readonly MemberOrigin[] }
     | { readonly kind: "index"; readonly expression: NodeId }

@@ -532,8 +532,8 @@ export interface RawMemberUse {
   readonly selectedDeclarations: readonly RawNodeRef[];
   readonly readDeclarations: readonly RawNodeRef[];
   readonly writeDeclarations: readonly RawNodeRef[];
-  readonly read: RawComponentId | null;
-  readonly write: RawComponentId | null;
+  readonly read: RawTypeId | null;
+  readonly write: RawTypeId | null;
   readonly arms: readonly RawMemberArm[];
 }
 

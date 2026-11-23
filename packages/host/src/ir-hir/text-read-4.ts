@@ -161,8 +161,12 @@ export function createReadGroup4(readers: () => HirTextReaders): HirReadGroup4 {
       const field_value = read("value", unionReader<Hir.HirStoragePlace | null>(() => [readers().scalar_null, readers().record_144]));
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
+  const receiverPlace = recordReader<{ readonly kind: "receiver"; readonly node: Ids.NodeId }>("receiver", read => {
+    const node = read("node", readers().identity_n);
+    return { fields: [node], value: () => ({ kind: "receiver", node: node.value() }) };
+  });
   const record_144 = recordReader<Hir.HirStoragePlace>("HirStoragePlace", read => {
-      const field_base = read("base", unionReader<{ readonly kind: "root"; readonly resolution: Hir.HirResolution; } | { readonly kind: "place"; readonly node: Ids.NodeId; }>(() => [readers().record_145, readers().record_153]));
+      const field_base = read("base", unionReader<Hir.HirStoragePlace["base"]>(() => [readers().record_145, readers().record_153, receiverPlace]));
       const field_step = read("step", unionReader<null | { readonly kind: "member"; readonly key: Types.MemberKey; readonly origins: readonly Types.MemberOrigin[]; } | { readonly kind: "index"; readonly expression: Ids.NodeId; } | { readonly kind: "deref"; }>(() => [readers().scalar_null, readers().record_154, readers().record_155, readers().record_156]));
       const field_read = read("read", unionReader<Hir.CapturedFact<Ids.TyId>>(() => [readers().record_9, readers().record_10]));
       const field_write = read("write", unionReader<Hir.CapturedFact<Ids.TyId | null>>(() => [readers().record_142, readers().record_10]));

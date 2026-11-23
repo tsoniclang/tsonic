@@ -4,6 +4,7 @@ import type { HirFieldBindingCapture, HirMemoryFieldCapture, HirMemoryLayoutCapt
 import type { HirBindingRequest, HirSourceNode } from "./verify-bindings.js";
 import type { HirChoiceShape, HirField, HirInventory, HirNodeEntry, HirRecordShape, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirCoreData } from "./text-data.js";
+import { unparenthesizedExpression } from "./walk.js";
 import { hirArray, hirChoice, hirDiscriminant, hirNumericIdentity, hirStringIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
   createSyntaxSchema, hirRecordChoices, walkHirData } from "./verify-syntax.js";
 
@@ -173,7 +174,7 @@ export function createHirSchema(): HirSchema {
       ["dispose", [["subject", "NodeId"], ["asynchronous", "boolean"], ["signature", "SigId"]]],
     ]),
     HirStoragePlace: hirRecord("HirStoragePlace", [["base", hirChoice(hirVariant("root", [["resolution", "HirResolution"]]),
-      hirVariant("place", [["node", "NodeId"]]))], ["step", hirNullable(hirChoice(hirVariant("member", [["key", "MemberKey"],
+      hirVariant("place", [["node", "NodeId"]]), hirVariant("receiver", [["node", "NodeId"]]))], ["step", hirNullable(hirChoice(hirVariant("member", [["key", "MemberKey"],
         ["origins", hirArray("MemberOrigin")]]), hirVariant("index", [["expression", "NodeId"]]), hirVariant("deref", [])))],
       ["read", captured("TyId")], ["write", captured(hirNullable("TyId"))]]),
     HirMemoryGeometryCapture: hirRecord("HirMemoryGeometryCapture", [["source", captured("TyId")],
@@ -380,9 +381,9 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
     const place = "place" in value ? value.place : null;
     if (place !== null && place.kind === "available" && place.value !== null) add(node, place.value);
     if (node.kind === "BinaryExpression" && node.tsonic.role === "assignment" && node.tsonic.target.kind === "available")
-      add(node.left, node.tsonic.target.value);
+      add(unparenthesizedExpression(node.left), node.tsonic.target.value);
     if ((node.kind === "PrefixUnaryExpression" || node.kind === "PostfixUnaryExpression") &&
-      node.tsonic.role === "update" && node.tsonic.target.kind === "available") add(node.operand, node.tsonic.target.value);
+      node.tsonic.role === "update" && node.tsonic.target.kind === "available") add(unparenthesizedExpression(node.operand), node.tsonic.target.value);
   }
   const known = new Map<HirNode, PlaceVertex>();
   for (const entry of inventory.entries) {
@@ -397,7 +398,7 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
     }
   }
   for (const receiver of inventory.receivers) for (const entry of known.get(receiver.access.node)?.places ?? []) {
-    if (entry.place.base.kind === "root") continue;
+    if (entry.place.base.kind !== "place") continue;
     const target = inventory.entriesById.get(entry.place.base.node);
     if (target === undefined || target.ordinal < receiver.expression.ordinal || target.ordinal >= receiver.expression.end)
       entry.receiverViolation = true;
@@ -410,6 +411,13 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
         report("intrinsic-value-use", site, "an intrinsic value is not a storage root");
       if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression")
         report("place-access-base-in-receiver", site, "access base place must lie inside its actual receiver subtree");
+      continue;
+    }
+    if (entry.place.base.kind === "receiver") {
+      const actual = inventory.entriesById.get(entry.place.base.node);
+      if (entry.owner.entry.body === null || node.kind !== "PropertyAccessExpression"
+        || actual?.node !== node.expression || actual.body !== entry.owner.entry.body || entry.place.step?.kind !== "member")
+        report("place-access-base-in-receiver", site, "member receiver must be the actual expression in the same body");
       continue;
     }
     const target = inventory.nodesById.get(entry.place.base.node);

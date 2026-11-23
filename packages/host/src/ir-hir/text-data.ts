@@ -253,7 +253,7 @@ function protocolData(value: Hir.HirProtocolFact): HirDataWork {
 function placeBaseData(value: Hir.HirStoragePlace["base"]): HirDataWork {
   switch (value.kind) {
     case "root": return recordData(value.kind, value, () => [fieldData("resolution", resolutionData(value.resolution))]);
-    case "place": return recordData(value.kind, value, () => [fieldData("node", nodeIdData(value.node))]);
+    case "place": case "receiver": return recordData(value.kind, value, () => [fieldData("node", nodeIdData(value.node))]);
   }
 }
 

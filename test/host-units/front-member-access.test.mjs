@@ -57,7 +57,7 @@ test("actual SDK selected property reads retain their exact receiver, member arm
   assert.equal(declared !== undefined, true);
   assert.deepEqual(use.selectedDeclaration, { module: raw.module, node: declared.node });
   assert.deepEqual(use.readDeclarations, [use.selectedDeclaration]);
-  assert.deepEqual(raw.types.components[use.read].root, use.occurrence);
+  assert.deepEqual(raw.types.components[raw.types.types[use.read].component].root, use.occurrence);
   const { checked, interner } = lower();
   assert.equal(fixture.verifyChecked(checked, interner).length, 0);
   const actual = checked.tree.statements.nodes[1].body.statements.nodes[0].expression;
@@ -85,6 +85,43 @@ test("selected property transport rejects foreign, missing and competing receive
   const missing = lower({ ...raw, memberUses: [] }).checked.tree.statements.nodes[1].body.statements.nodes[0].expression;
   assert.deepEqual(missing.tsonic.origins, { kind: "unavailable", reason: "not-provided", causes: [] });
   assert.equal(missing.name.tsonic.key.kind, "unavailable");
+});
+
+test("a selected native property write captures its own type and exact receiver without an implicit read", async () => {
+  const { fixture, raw, lower } = await captured("export type Box={flag:boolean};export function write(box:Box,value:boolean):void { box.flag = value; }");
+  const [use] = raw.memberUses;
+  const assignment = raw.tree.statements.nodes[1].body.statements.nodes[0].expression;
+  assert.deepEqual(use.occurrence, { module: raw.module, node: assignment.left.id });
+  assert.deepEqual(use.receiver, { module: raw.module, node: assignment.left.expression.id });
+  assert.equal(use.access, "write");
+  assert.equal(use.read, null);
+  assert.deepEqual(use.readDeclarations, []);
+  assert.deepEqual(use.writeDeclarations, [use.selectedDeclaration]);
+  assert.equal(use.writeDeclarations === use.arms[0].writeDeclarations, true);
+  const write = raw.types.types[use.write];
+  assert.equal(write.id, use.write);
+  assert.equal(write.form.kind, "available");
+  assert.deepEqual(raw.types.components[write.component].root, use.occurrence);
+  const { checked, interner } = lower();
+  assert.deepEqual(fixture.verifyChecked(checked, interner), []);
+  const target = checked.tree.statements.nodes[1].body.statements.nodes[0].expression;
+  const annotation = target.left.tsonic;
+  assert.equal(annotation.role, "assignment-target");
+  assert.equal(annotation.access, "write");
+  assert.equal(target.tsonic.target === annotation.place, true);
+  assert.deepEqual(annotation.place.value.base, { kind: "receiver", node: target.left.expression.id });
+  assert.deepEqual(annotation.place.value.step, { kind: "member", key: annotation.origins.kind === "available"
+    ? target.left.name.tsonic.key.value : assert.fail("the write has its actual qualified member key"), origins: annotation.origins.value });
+  assert.deepEqual(annotation.place.value.read, { kind: "unavailable", reason: "not-provided", causes: [] });
+  assert.deepEqual(fixture.types.readType(interner, annotation.place.value.write.value), { kind: "primitive", primitive: "bool" });
+
+  const text = fixture.hir.printHir(checked);
+  const decoded = fixture.hir.parseHir(text);
+  assert.equal(decoded.kind, "parsed");
+  assert.equal(fixture.hir.printHir(decoded.value), text);
+  const copiedTarget = decoded.value.tree.statements.nodes[1].body.statements.nodes[0].expression;
+  copiedTarget.left.tsonic.place.value.base = { kind: "receiver", node: copiedTarget.right.id };
+  assert.equal(fixture.verifyChecked(decoded.value, interner).some(row => row.rule === "place-access-base-in-receiver"), true);
 });
 
 test("a declaration-only computed name never gains an executing property selection", async () => {

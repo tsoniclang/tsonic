@@ -607,17 +607,19 @@ function expression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.Expre
   return lowering.expressions.get(node.id) ?? throwInvariant(invariant("An expression is not completed before its containing node."));
 }
 
-function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax>, readFact: Hir.CapturedFact<TyId>): LiteralResult<{
+function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax>, readFact: Hir.CapturedFact<TyId>,
+  access: "read" | "write" | "read-write"): ConversionResult<{
   readonly key: Hir.CapturedFact<MemberKey>;
   readonly origins: Hir.CapturedFact<readonly MemberOrigin[]>;
   readonly accessor: Hir.CapturedFact<Hir.HirApplication | null>;
+  readonly place: Hir.CapturedFact<Hir.HirStoragePlace>;
 }> {
   const selected = lowering.memberUses.get(node.id);
   const missing: Hir.CapturedFact<never> = readFact.kind === "unavailable" && readFact.reason === "checker-error" ? readFact
     : { kind: "unavailable", reason: "not-provided", causes: [] };
-  if (selected === undefined) return { kind: "complete", value: { key: missing, origins: missing, accessor: missing } };
+  if (selected === undefined) return { kind: "complete", value: { key: missing, origins: missing, accessor: missing, place: missing } };
   if (selected.receiver.module !== lowering.raw.module || selected.receiver.node !== node.expression.id
-    || selected.access !== "read" || selected.optionalChain || selected.chainContinuation || selected.arms.length !== 1)
+    || selected.access !== access || selected.optionalChain || selected.chainContinuation || selected.arms.length !== 1)
     throw new TypeError("front: a member use requires its actual receiver, access and selected arm");
   const arm = selected.arms[0];
   if (arm?.kind !== "member" || arm.receiver !== selected.receiverComponent)
@@ -627,38 +629,62 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
   if (inventory?.component !== arm.receiver || member === undefined)
     throw new TypeError("front: a selected member use must name its genuine receiver inventory row");
   const component = lowering.raw.types.components[selected.receiverComponent];
-  const read = selected.read === null ? undefined : lowering.raw.types.components[selected.read];
-  if (component?.root.module !== selected.receiver.module || component.root.node !== selected.receiver.node || component.path !== null
-    || read?.root.module !== selected.occurrence.module || read.root.node !== selected.occurrence.node || read.path !== null
-    || selected.write !== null || selected.writeDeclarations.length !== 0 || arm.writeDeclarations.length !== 0)
-    throw new TypeError("front: a selected read must retain its actual receiver and read components without a write occurrence");
+  if (component?.root.module !== selected.receiver.module || component.root.node !== selected.receiver.node || component.path !== null)
+    throw new TypeError("front: a selected member must retain its actual receiver component");
   const primary = selected.selectedDeclaration;
   if (primary === null || !member.declarations.some(declaration => declaration.module === primary.module && declaration.node === primary.node)
     || selected.selectedDeclarations.length !== member.declarations.length || selected.selectedDeclarations.some((declaration, index) => {
       const actual = member.declarations[index];
       return actual?.module !== declaration.module || actual.node !== declaration.node;
     }))
-    throw new TypeError("front: a selected read must retain its exact original declaration inventory");
-  const declarations = selected.readDeclarations;
-  if (declarations.length === 0 || declarations.length !== arm.readDeclarations.length)
-    throw new TypeError("front: a member read requires its actual selected read declarations");
-  const origins = declarations.map((declaration, index): MemberOrigin => {
-    const original = arm.readDeclarations[index];
-    const captured = member.origins.find(origin => {
-      if (origin.kind !== "declaration" && origin.kind !== "source-member") return false;
-      const reference = origin.kind === "declaration" ? origin.declaration : origin.occurrence;
-      return origin.access === "read" && reference.module === declaration.module && reference.node === declaration.node;
+    throw new TypeError("front: a selected member must retain its exact original declaration inventory");
+  const actualOrigins = (mode: "read" | "write", type: RawTypeId | null, declarations: readonly RawNodeRef[],
+    originals: readonly RawNodeRef[]): readonly MemberOrigin[] => {
+    if (access !== mode && access !== "read-write") {
+      if (type !== null || declarations.length !== 0 || originals.length !== 0)
+        throw new TypeError("front: a member use cannot include an unselected access arm");
+      return [];
+    }
+    const row = type === null ? undefined : lowering.raw.types.types[type];
+    const found = row?.component === null || row?.component === undefined ? undefined : lowering.raw.types.components[row.component];
+    if (found?.root.module !== selected.occurrence.module || found.root.node !== selected.occurrence.node || found.path !== null
+      || declarations.length === 0 || declarations.length !== originals.length)
+      throw new TypeError("front: a selected member arm requires its actual type component and declarations");
+    return declarations.map((declaration, index): MemberOrigin => {
+      const original = originals[index];
+      const captured = member.origins.find(origin => {
+        if (origin.kind !== "declaration" && origin.kind !== "source-member") return false;
+        const reference = origin.kind === "declaration" ? origin.declaration : origin.occurrence;
+        return origin.access === mode && reference.module === declaration.module && reference.node === declaration.node;
+      });
+      if (original?.module !== declaration.module || original.node !== declaration.node || captured === undefined)
+        throw new TypeError("front: member origins must retain the exact selected receiver declarations");
+      return lowerMemberOrigin(lowering.deps, captured);
     });
-    if (original?.module !== declaration.module || original.node !== declaration.node || captured === undefined)
-      throw new TypeError("front: member read origins must retain the exact selected receiver declarations");
-    return lowerMemberOrigin(lowering.deps, captured);
-  });
+  };
+  const readOrigins = actualOrigins("read", selected.read, selected.readDeclarations, arm.readDeclarations);
+  const writeOrigins = actualOrigins("write", selected.write, selected.writeDeclarations, arm.writeDeclarations);
   const key = lowerMemberKey(lowering, member.key);
   if (key.kind !== "complete") return key;
+  let place: Hir.CapturedFact<Hir.HirStoragePlace> = missing;
+  if (access !== "read") {
+    const write = selected.write;
+    if (write === null) return throwInvariant(invariant("A selected member assignment requires its actual write type."));
+    const written = typeFactOf(lowering, { kind: "available", value: write });
+    if (written.kind !== "complete") return written;
+    const read: ConversionResult<Hir.CapturedFact<TyId>> = selected.read === null
+      ? { kind: "complete", value: { kind: "unavailable", reason: "not-provided", causes: [] } }
+      : typeFactOf(lowering, { kind: "available", value: selected.read });
+    if (read.kind !== "complete") return read;
+    place = { kind: "available", value: { base: { kind: "receiver", node: node.expression.id },
+      step: { kind: "member", key: key.value, origins: writeOrigins }, read: read.value, write: written.value } };
+  }
   lowering.memberUses.delete(node.id);
+  const accessor = readOrigins.length !== 0 && member.readKind === "accessor"
+    || selected.writeDeclarations.some(declaration => member.setters.some(setter => setter.module === declaration.module && setter.node === declaration.node));
   return { kind: "complete", value: { key: { kind: "available", value: key.value },
-    origins: { kind: "available", value: origins }, accessor: member.readKind === "accessor"
-      ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : { kind: "available", value: null } } };
+    origins: { kind: "available", value: access === "write" ? writeOrigins : readOrigins }, accessor: accessor
+      ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : { kind: "available", value: null }, place } };
 }
 
 type ExpressionContext = "execution" | "declaration-name";
@@ -710,7 +736,7 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
       const core = coreOf(lowering, node.id);
       const update = operator === "++" || operator === "--";
       const leaf = update ? unparenthesizedExpression<Checked>(operand) : null;
-      const target = leaf?.kind === "Identifier" && leaf.tsonic.role === "assignment-target" && leaf.tsonic.access === "read-write"
+      const target = (leaf?.kind === "Identifier" || leaf?.kind === "PropertyAccessExpression") && leaf.tsonic.role === "assignment-target" && leaf.tsonic.access === "read-write"
         ? leaf.tsonic.place : null;
       const checked = { core, value: value.value };
       const tsonic: Hir.CheckedUnary = !update ? { ...checked, role: "value" } : {
@@ -749,7 +775,7 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
       if (node.operatorToken.kind === "EqualsToken" || writtenCompoundAssignmentKinds.includes(node.operatorToken.kind)) {
         const left = expression(lowering, node.left);
         const leaf = unparenthesizedExpression<Checked>(left);
-        if (leaf.kind !== "Identifier" || leaf.tsonic.role !== "assignment-target")
+        if ((leaf.kind !== "Identifier" && leaf.kind !== "PropertyAccessExpression") || leaf.tsonic.role !== "assignment-target")
           throw new TypeError("front: an assignment requires its actual selected storage target");
         return { kind: "complete", value: { ...headerOf(node), kind: "BinaryExpression", modifiers: null, left, type: null,
           operatorToken: token(node.operatorToken), right: expression(lowering, node.right),
@@ -813,15 +839,18 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
         throw new TypeError("front: checked optional or private property access is not implemented");
       if (context === "declaration-name" && lowering.memberUses.has(node.id))
         return throwInvariant(invariant("A nonexecuting declaration name cannot retain a captured runtime member use."));
-      const result = memberUse(lowering, node, value.value.views.read);
+      const access = lowering.assignmentTargets.get(node.id) ?? "read";
+      const result = memberUse(lowering, node, value.value.views.read, access);
       if (result.kind !== "complete") return result;
       const selected = result.value;
+      const common = { core: coreOf(lowering, node.id), origins: selected.origins, accessor: selected.accessor };
+      const tsonic: Hir.CheckedMember = access === "read" ? { ...common, role: "value", value: value.value }
+        : { ...common, role: "assignment-target", views: value.value.views, access, place: selected.place };
       return { kind: "complete", value: { ...headerOf(node), kind: node.kind, expression: expression(lowering, node.expression),
         questionDotToken: node.questionDotToken === null ? null : token(node.questionDotToken),
         name: { ...headerOf(node.name), kind: "Identifier", text: node.name.text,
           tsonic: { core: coreOf(lowering, node.name.id), role: "property-name", key: selected.key, origins: selected.origins } },
-        tsonic: { core: coreOf(lowering, node.id), role: "value", value: value.value,
-          origins: selected.origins, accessor: selected.accessor } } };
+        tsonic } };
     }
     default: return throwInvariant(invariant("An expression of an unwritten kind passed the written-kinds check."));
   }

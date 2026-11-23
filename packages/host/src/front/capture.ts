@@ -2482,12 +2482,14 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   if (scope.meter.refusal !== null) return null;
   const writeDeclaration = source(info.selectedWriteDeclaration);
   if (scope.meter.refusal !== null) return null;
-  const read = info.sourceReadType === undefined ? null : component(scope, occurrence, null);
+  const readComponent = info.sourceReadType === undefined ? null : component(scope, occurrence, null);
   if (scope.meter.refusal !== null) return null;
-  if (info.sourceReadType !== undefined && rawType(scope, () => withoutTypeCause(info.sourceReadType), read, null) === null) return null;
-  const write = info.sourceWriteType === undefined ? null : component(scope, occurrence, null);
+  const read = info.sourceReadType === undefined ? null : rawType(scope, () => withoutTypeCause(info.sourceReadType), readComponent, null);
+  if (info.sourceReadType !== undefined && read === null) return null;
+  const writeComponent = info.sourceWriteType === undefined ? null : component(scope, occurrence, null);
   if (scope.meter.refusal !== null) return null;
-  if (info.sourceWriteType !== undefined && rawType(scope, () => withoutTypeCause(info.sourceWriteType), write, null) === null) return null;
+  const write = info.sourceWriteType === undefined ? null : rawType(scope, () => withoutTypeCause(info.sourceWriteType), writeComponent, null);
+  if (info.sourceWriteType !== undefined && write === null) return null;
   if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
   const member = inventory.members[memberIndex];
   if (member === undefined) return throwInvariant(invariant("The selected member row must remain in its actual inventory."));
