@@ -17,7 +17,7 @@ import { hirChildPath, hirDataPathText } from "./walk.js";
 import type { HirDataPath } from "./walk.js";
 import type { InferredStorageBound, InferredStorageCandidate } from "./contract.js";
 import { collectInferredStorageSources } from "./storage-inputs.js";
-import { checkedLayoutOperandOf } from "./layout.js";
+import { checkedLayoutConstructionOf, checkedLayoutOperandOf } from "./layout.js";
 
 type NodeFrame = (
   | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null; readonly path: HirDataPath; readonly member: boolean }
@@ -168,6 +168,7 @@ function syntaxViolations(module: HirModule, inventory: HirInventory, report: Hi
 function declarationViolations(module: HirModule, inventory: HirInventory, paths: HirIdentityPaths, report: HirReport): void {
   const seen = new Set<string>();
   const definitions = new Set<DefId>([module.tree.tsonic.definition, ...module.items.map(item => item.definition)]);
+  let layoutParents: Set<DefId> | null = null;
   let previous: string | null = null;
   for (const item of module.items) {
     const site: HirSite = { kind: "definition", definition: item.definition };
@@ -180,6 +181,20 @@ function declarationViolations(module: HirModule, inventory: HirInventory, paths
     const node = inventory.nodesById.get(item.node);
     if (node === undefined) { report("node-reference", site, "definition node does not exist"); continue; }
     const metadata = node.tsonic;
+    if (node.kind === "CallExpression") {
+      const capture = checkedLayoutConstructionOf(node);
+      const actual = inventory.entriesById.get(item.node);
+      const parent = actual?.parent?.item;
+      const owns = capture !== null && actual?.sourceBody !== null && actual?.sourceBody !== undefined &&
+        capture.occurrence.kind === "body" && capture.occurrence.value.body === actual.sourceBody.body
+        && capture.occurrence.value.node === node.id && !Object.is(parent, item.definition);
+      if (!owns) report("definition-reference", site, "a layout definition must retain its actual checked constructor occurrence");
+      if (owns && parent !== undefined) (layoutParents ??= new Set()).add(parent);
+      if (parent !== undefined && path.kind === "known" && (path.value.segments.length === 0
+        || path.value.segments.at(-1)?.name !== "" || encodeDefId({ module: path.value.module,
+          segments: path.value.segments.slice(0, -1) }) !== parent))
+        report("definition-parent", site, "a layout definition belongs in the actual enclosing declaration's unnamed sibling sequence");
+    }
     const directDefinition = metadata !== null && "definition" in metadata && typeof metadata.definition === "string"
       ? metadata.definition : metadata !== null && "declaration" in metadata && typeof metadata.declaration !== "string" &&
         metadata.declaration !== null && metadata.declaration.kind === "definition" ? metadata.declaration.definition : null;
@@ -197,6 +212,22 @@ function declarationViolations(module: HirModule, inventory: HirInventory, paths
               segments: path.value.segments.slice(0, parentPath.value.segments.length) }) !== parent))
           report("definition-parent", site, "declaration parent must be a proper definition path prefix");
       }
+    }
+  }
+  if (layoutParents !== null) {
+    const unnamed = new Map<DefId, number>();
+    for (const entry of inventory.entries) {
+      const parent = entry.parent?.item;
+      if (parent === undefined || parent === entry.item || !layoutParents.has(parent)) continue;
+      const path = paths.definitionPathOf(entry.item);
+      if (path.kind !== "known") continue;
+      const segment = path.value.segments.at(-1);
+      if (segment?.name !== "") continue;
+      const ordinal = unnamed.get(parent) ?? 0;
+      unnamed.set(parent, ordinal + 1);
+      if (checkedLayoutConstructionOf(entry.node) !== null && segment.ordinal !== ordinal)
+        report("definition-reference", { kind: "definition", definition: entry.item },
+          "a layout definition retains its exact authored unnamed sibling ordinal");
     }
   }
 }
@@ -418,6 +449,8 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
     const node = entry.node;
     const metadata = node.tsonic;
     const site: HirSite = { kind: "node", node: entry.source };
+    if (checkedLayoutConstructionOf(node) !== null && (entry.parent === null || entry.item === entry.parent.item))
+      report("definition-reference", site, "each actual checked layout constructor has its own declaration item");
     if (node.kind === "Identifier" && node.tsonic.role === "enum-qualifier") {
       const parent = inventory.parents.get(node);
       const resolution = node.tsonic.resolution;

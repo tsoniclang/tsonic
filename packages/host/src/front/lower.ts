@@ -11,7 +11,7 @@ import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExport
 import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
 import { bindingOccurrence, lowerBindingFact, lowerBindingTarget, lowerBindings, lowerMemberKey, lowerMemberOrigin, sameSource, sourceOccurrence } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
-import { childSourceBody, enterSourceBody, layoutOperandOwners } from "./source-bodies.js";
+import { childSourceBody, enterSourceBody, layoutSourceRoles } from "./source-bodies.js";
 import type { SourceBodyScope, SourceBodyTransition } from "./source-bodies.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
 import { lowerCall } from "./lower-calls.js";
@@ -224,7 +224,7 @@ function memoryOf(lowering: Lowering, node: NodeId): Hir.CapturedFact<Hir.HirMem
 /** The definition identities of one module, read from its raw tree alone. */
 export function lowerDefinitions(input: ModuleDefinitionsInput): Result<ModuleDefinitions> {
   const raw = input.module;
-  return { kind: "ok", diagnostics: [], value: moduleIdentities(raw.module, raw.tree, raw.propertyNames, input.componentRoots, layoutOperandOwners(raw)) };
+  return { kind: "ok", diagnostics: [], value: moduleIdentities(raw.module, raw.tree, raw.propertyNames, input.componentRoots, layoutSourceRoles(raw)) };
 }
 
 /** The export entries of one module: per exported name its declaration group, in canonical declaration order. */
@@ -290,7 +290,8 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
   const variables: NodeBodies["variables"][number][] = [];
   const assignmentTargets = new Map<NodeId, "write" | "read-write">();
   const labelTargets = new Map<NodeId, NodeRef>();
-  const layoutOperands = layoutOperandOwners(raw);
+  const layout = layoutSourceRoles(raw);
+  const layoutOperands = layout?.operands ?? null;
   const layoutRoots: NodeBodies["layoutRoots"][number][] = [];
   interface LabelBinding {
     readonly declaration: Hir.LabeledStatement<Syntax>;
@@ -302,7 +303,7 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
   type Frame = { readonly node: Hir.SyntaxNode<Syntax>; readonly context: SourceBodyTransition;
     readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly mutable: boolean; readonly label: LabelBinding | null };
   const enter = (node: Hir.SyntaxNode<Syntax>, scope: SourceBodyScope, mutable: boolean, blockVariable: boolean): Frame => {
-    if (!definitionAt.has(node.id) && sourceIdentityName(node, raw.module, properties, definitionAt) !== null)
+    if (!definitionAt.has(node.id) && sourceIdentityName(node, raw.module, properties, definitionAt, layout) !== null)
       definitionAt.set(node.id, deps.definitionOf({ module: raw.module, node: node.id }));
     const body = scope.body;
     let label: LabelBinding | null = null;

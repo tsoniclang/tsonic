@@ -1,8 +1,9 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId } from "../ids/contract.js";
-import { decodeDefId } from "../ids/index.js";
+import { decodeDefId, encodeDefId } from "../ids/index.js";
 import type { CheckedPhase, HirNode, ModifierList } from "../ir-hir/contract.js";
+import { checkedLayoutConstructionOf } from "../ir-hir/index.js";
 import type { DefinitionDescription, DefinitionExport, DescribeDefinitions } from "./contract.js";
 
 const NO_EXPORTS: readonly DefinitionExport[] = [];
@@ -74,6 +75,14 @@ export const describeDefinitions: DescribeDefinitions = (checked, scopes, export
     if (node === undefined || !Object.is(node.id, item.node))
       return throwInvariant(defect(`declaration entry ${item.definition} names node ${item.node}, which the module does not have`, null));
     const payload = node.tsonic;
+    if (checkedLayoutConstructionOf(node) !== null) {
+      const path = decodeDefId(item.definition);
+      if (path.kind !== "decoded" || path.value.segments.length === 0)
+        return throwInvariant(defect("a layout constructor needs its own checked declaration path", node));
+      const { module, segments } = path.value;
+      definitions.push(describe(item.definition, encodeDefId({ module, segments: segments.slice(0, -1) }), node));
+      continue;
+    }
     if (payload === null || !("parent" in payload))
       return throwInvariant(defect(`declaration entry ${item.definition} names a ${node.kind} node, which carries no checked declaration`, node));
     definitions.push(describe(item.definition, payload.parent, node));

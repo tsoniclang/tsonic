@@ -459,6 +459,12 @@ test("layout capture retains the same selected application and authored operands
     capture.geometry.byteAlignmentExpression, capture.geometry.strideExpression].entries())
     assert.equal(body.nodeOf(reference) === layout.arguments.nodes[position], true);
   const checkedModule = checked.value.modules.find(row => row.module.module === snapshot.entryPoint).module;
+  const descriptorItem = checkedModule.items.find(row => row.node === layout.id);
+  assert.equal(body.nodeOf({ kind: "item", value: { owner: descriptorItem.definition, node: descriptorItem.node } }) === layout, true);
+  assert.deepEqual(ids.decodeDefId(descriptorItem.definition).value.segments.at(-1), { name: "", ordinal: 0 });
+  assert.equal(checked.value.descriptions.get(descriptorItem.definition).parent,
+    tree.statements.nodes[1].declarationList.declarations.nodes[0].tsonic.declaration.definition);
+  assert.equal(checkedModule.items.some(row => row.node === observation.id), false);
   const actualBodies = checkedModule.bodies.filter(candidate => ids.decodeBodyId(candidate.body).value.role === "layout-operand");
   assert.equal(actualBodies.length, 3);
   for (const candidate of actualBodies) {
@@ -514,6 +520,33 @@ test("layout capture retains the same selected application and authored operands
     source: selected, bodyOf: proof.bodyOf, types: types.viewTypes(interner), declarationOf: proof.declarationOf,
     bodyOwner: body => checked.value.checked.bodies.get(body)?.owner ?? null, requiredEntries: [0] });
   assert.deepEqual(verified.violations, []);
+
+  const paired = projectSnapshot({ sourceFiles: { "main.ts": 'import { layout as make, size as measure } from "native:layout"; '
+    + "export const width = measure(make(true, 8, 8, 8)) + measure(make(true, 16, 8, 16));" },
+  libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }],
+  providerPackages: [{ root: "/layout-provider", name: "layout-provider" }],
+  declarationProviders: [nativeRegistration.reference], semanticModules: [roles.reference] });
+  const pair = captureSourceBarrier({ ...input, snapshot: paired });
+  assert.equal(pair.kind, "ok", JSON.stringify(pair.diagnostics));
+  const pairedModule = pair.value.modules.find(row => row.module.module === paired.entryPoint);
+  const constructors = pairedModule.module.items.filter(item => pairedModule.nodes[item.node].kind === "CallExpression")
+    .sort((left, right) => left.node - right.node);
+  assert.equal(constructors.length, 2);
+  assert.deepEqual(constructors.map(item => ids.decodeDefId(item.definition).value.segments.at(-1)),
+    [{ name: "", ordinal: 0 }, { name: "", ordinal: 1 }]);
+  assert.equal(new Set(constructors.map(item => pair.value.descriptions.get(item.definition).parent)).size, 1);
+  const { verifyHir } = await import("../../packages/host/dist/ir-hir/index.js");
+  const itemNodes = new Map(constructors.map((item, ordinal) => [item.definition, constructors[1 - ordinal].node]));
+  const crossed = { ...pairedModule.module, items: pairedModule.module.items.map(item => ({ ...item, node: itemNodes.get(item.definition) ?? item.node })) };
+  const findings = verifyHir(crossed, {
+    types: types.viewTypes(pair.value.types), moduleOf: module => pair.value.modules.find(row => row.module.module === module)?.module ?? null,
+    bodyPathOf: id => ids.decodeBodyId(id).value, definitionPathOf: id => pair.value.definitionPaths.get(id) ?? null,
+    bindingScopeOf: id => pair.value.descriptions.get(id)?.generics ?? null,
+    bindingScopeAt: ref => pair.value.descriptions.get(ref.kind === "item" ? ref.value.owner : pair.value.checked.bodies.get(ref.value.body)?.owner)?.generics ?? null,
+    nominalOf: pair.value.nominalOf, nodeOf: pair.value.checked.nodeOf, localExists: pair.value.checked.localExists,
+  });
+  assert.equal(findings.filter(row => row.rule === "definition-reference"
+    && row.detail.some(detail => detail.value === "a layout definition retains its exact authored unnamed sibling ordinal")).length, 2);
 });
 
 const plainSources = { "main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\n",

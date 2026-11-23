@@ -1,10 +1,15 @@
-import type { CheckedLayoutOperandOf, CheckedLayoutRoleOf } from "./contract.js";
+import type { CheckedLayoutConstructionOf, CheckedLayoutOperandOf, CheckedLayoutRoleOf } from "./contract.js";
+
+export const checkedLayoutConstructionOf: CheckedLayoutConstructionOf = node => {
+  if (node.kind !== "CallExpression") return null;
+  const capture = node.tsonic.memory;
+  return capture.kind === "available" && capture.value !== null && capture.value.kind !== "data-layout" ? capture.value : null;
+};
 
 export const checkedLayoutRoleOf: CheckedLayoutRoleOf = call => {
   const observation = call.tsonic.observation;
   if (observation.kind === "available" && observation.value !== null) return observation.value.operation;
-  const capture = call.tsonic.memory;
-  const descriptor = capture.kind === "available" ? capture.value : null;
+  const descriptor = checkedLayoutConstructionOf(call);
   switch (descriptor?.kind) {
     case "value": return "value-layout";
     case "array": return "array-layout";
@@ -14,8 +19,7 @@ export const checkedLayoutRoleOf: CheckedLayoutRoleOf = call => {
 };
 
 export const checkedLayoutOperandOf: CheckedLayoutOperandOf = (call, position) => {
-  const memory = call.tsonic.memory;
-  const descriptor = memory.kind === "available" ? memory.value : null;
+  const descriptor = checkedLayoutConstructionOf(call);
   switch (descriptor?.kind) {
     case "field": return position === 1 ? descriptor.byteOffsetExpression : position === 2 ? descriptor.byteAlignmentExpression : null;
     case "value": case "array":

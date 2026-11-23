@@ -4108,6 +4108,9 @@ export type LayoutCallRole = "value-layout" | "array-layout" | "field-layout" | 
 
 export type CheckedLayoutRoleOf = (call: CallExpression<CheckedPhase>) => LayoutCallRole | null;
 
+export type CheckedLayoutConstructionOf = (node: HirNode) =>
+  Exclude<HirMemoryLayoutCapture, { readonly kind: "data-layout" }> | HirMemoryFieldCapture | null;
+
 export type HirUnaryOperator = "+" | "-" | "!" | "~" | "++" | "--" | "typeof" | "void" | "delete";
 export type HirBinaryOperator = "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^"
   | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";

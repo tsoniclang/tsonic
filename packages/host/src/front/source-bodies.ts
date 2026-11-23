@@ -52,25 +52,36 @@ export function enterSourceBody(node: SyntaxNode<SyntaxPhase>, scope: SourceBody
   return { ...scope, boundary: null };
 }
 
-export function layoutOperandOwners(raw: RawModule): ReadonlyMap<NodeId, NodeId> | null {
+export interface LayoutSourceRoles {
+  readonly declarations: ReadonlySet<NodeId>;
+  readonly operands: ReadonlyMap<NodeId, NodeId>;
+}
+
+export function layoutSourceRoles(raw: RawModule): LayoutSourceRoles | null {
   if (raw.types.memoryDescriptors.length === 0) return null;
-  const result = new Map<NodeId, NodeId>();
+  const declarations = new Set<NodeId>();
+  const operands = new Map<NodeId, NodeId>();
   for (const descriptor of raw.types.memoryDescriptors) {
-    if (!layoutConstructionArity(descriptor.construction, descriptor.operands.length)) continue;
+    if (!layoutConstructionArity(descriptor.construction, descriptor.operands.length)
+      || descriptor.operands.some(operand => operand.kind !== "value")) continue;
     const invocation = descriptor.application.invocation;
+    if (invocation.module !== raw.module || declarations.has(invocation.node))
+      return throwInvariant({ owner: "front", query: null, origin: null,
+        message: "A layout declaration belongs once to its actual captured constructor occurrence." });
+    declarations.add(invocation.node);
     const positions = descriptor.construction === "value" ? [1, 2, 3]
       : descriptor.construction === "array" ? [1, 2, 3, 5] : [1, 2];
     for (const position of positions) {
       const operand = descriptor.operands[position];
       if (operand?.kind !== "value") continue;
       const expression = operand.expression;
-      if (invocation.module !== raw.module || expression.module !== raw.module || result.has(expression.node))
+      if (expression.module !== raw.module || operands.has(expression.node))
         return throwInvariant({ owner: "front", query: null, origin: null,
           message: "A layout constant operand must retain its one actual construction and authored occurrence." });
-      result.set(expression.node, invocation.node);
+      operands.set(expression.node, invocation.node);
     }
   }
-  return result;
+  return { declarations, operands };
 }
 
 export function childSourceBody(parent: SourceBodyTransition, child: SyntaxNode<SyntaxPhase>,

@@ -4,7 +4,7 @@ import { encodeBodyId, encodeDefId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { childrenOfSyntax, isModuleBindingKind } from "../ir-hir/index.js";
 import { childSourceBody, enterSourceBody } from "./source-bodies.js";
-import type { SourceBodyScope } from "./source-bodies.js";
+import type { LayoutSourceRoles, SourceBodyScope } from "./source-bodies.js";
 
 function nameText(name: Hir.SyntaxNode<Hir.SyntaxPhase>, module: ModuleId,
   properties: ReadonlyMap<NodeId, RawPropertyName>, definitions: ReadonlyMap<NodeId, DefId>): string | null {
@@ -34,12 +34,14 @@ function nameText(name: Hir.SyntaxNode<Hir.SyntaxPhase>, module: ModuleId,
  * every kind that is not a declaration).
  */
 export function sourceIdentityName(node: Hir.SyntaxNode<Hir.SyntaxPhase>, module: ModuleId,
-  properties: ReadonlyMap<NodeId, RawPropertyName>, definitions: ReadonlyMap<NodeId, DefId>): string | null {
+  properties: ReadonlyMap<NodeId, RawPropertyName>, definitions: ReadonlyMap<NodeId, DefId>,
+  layout: LayoutSourceRoles | null): string | null {
   switch (node.kind) {
     case "SourceFile":
     case "FunctionExpression": case "ArrowFunction": case "ClassExpression":
     case "Constructor": case "ClassStaticBlockDeclaration": case "CallSignature": case "ConstructSignature": case "IndexSignature":
       return "";
+    case "CallExpression": return layout?.declarations.has(node.id) === true ? "" : null;
     case "ExportAssignment": return node.isExportEquals ? "export=" : "default";
     case "Parameter": return node.name.kind === "Identifier" ? node.name.text : "";
     case "VariableDeclaration": case "BindingElement": {
@@ -86,7 +88,7 @@ function typeSyntax(node: Hir.SyntaxNode<Hir.SyntaxPhase>): Pick<ModuleDefinitio
  * path, so names holding `#`, `/` or `:` cannot make two owners share a counter (K-3343).
  */
 export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.SyntaxPhase>, propertyNames: readonly RawPropertyName[],
-  componentRoots: readonly RawNodeRef[], layoutOperands: ReadonlyMap<NodeId, NodeId> | null): ModuleDefinitions {
+  componentRoots: readonly RawNodeRef[], layout: LayoutSourceRoles | null): ModuleDefinitions {
   const rows: ModuleDefinitionRow[] = [];
   const sourceOccurrences: ModuleDefinitions["sourceOccurrences"][number][] = [];
   const counts = new Map<NodeId, Map<string, number>>();
@@ -102,7 +104,7 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
     [{ node: tree, owner: null, scope: { body: moduleBody, lexicalBody: moduleBody, callableBody: null } }];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
     const { node, owner } = next;
-    const name = sourceIdentityName(node, module, properties, definitions);
+    const name = sourceIdentityName(node, module, properties, definitions, layout);
     let inner = owner;
     if (name !== null) {
       let segments: readonly DefinitionSegment[] = [];
@@ -132,7 +134,7 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
       if (child !== undefined) pending.push({ node: child, owner: inner, scope: context === null ? next.scope
-        : childSourceBody(context, child, layoutOperands) });
+        : childSourceBody(context, child, layout?.operands ?? null) });
     }
   }
   if (requested.size !== 0) throw new TypeError("front: every requested component root must name its actual captured syntax node");
