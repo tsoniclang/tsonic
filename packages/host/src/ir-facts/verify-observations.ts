@@ -8,12 +8,12 @@ import type { HirNode, HirObservationCapture } from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import type { ProjectedBindingValues, BindingVector } from "../ir-types/contract.js";
 import { bindingVectorKey, rigidBindings, projectBindingValues } from "../ir-types/index.js";
-import type { FactsRule, FactsSite, ObservationVerificationContext, MetadataKey, VerifyObservations } from "./contract.js";
+import type { FactsRule, FactsSite, ObservationDescriptorEvidence, ObservationSourceEvidence, ObservationVerificationContext, MetadataKey, VerifyObservations } from "./contract.js";
 import { sameBindings, validIndex } from "./verify-relations.js";
 import { observationBindingInputs } from "./binding-inputs.js";
 import { verifyFactBindings } from "./verify-bindings.js";
 
-function descriptorBindings(node: HirNode | null, occurrence: SourceNodeRef, kind: "value" | "array" | "field",
+function descriptorBindings(node: HirNode | null, evidence: ObservationDescriptorEvidence, kind: "value" | "array" | "field",
   account: DataflowAccount): DataflowResult<BindingVector | null> {
   const initial = chargeWork(account, 1);
   if (initial !== null) return initial;
@@ -21,10 +21,10 @@ function descriptorBindings(node: HirNode | null, occurrence: SourceNodeRef, kin
   if (annotation === undefined || annotation === null || !("core" in annotation)) return { kind: "complete", value: null };
   const value = "value" in annotation ? annotation.value : annotation;
   const memory = "memory" in value ? value.memory : null;
-  if (memory === null || memory.kind !== "available" || memory.value === null || memory.value.kind !== kind
-    || memory.value.bindings.kind !== "available") return { kind: "complete", value: null };
-  const same = sameSource(memory.value.occurrence, occurrence, account);
-  return same.kind !== "complete" ? same : { kind: "complete", value: same.value ? memory.value.bindings.value : null };
+  if (memory === null || memory.kind !== "available" || memory.value === null || memory.value.kind !== kind)
+    return { kind: "complete", value: null };
+  const same = sameSource(memory.value.occurrence, evidence.occurrence, account);
+  return same.kind !== "complete" ? same : { kind: "complete", value: same.value ? evidence.bindings : null };
 }
 
 function descriptorAgrees(key: MetadataKey, expected: BindingVector | undefined,
@@ -121,16 +121,20 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
   }
   const types: TyId[] = [];
   const bindings: BindingVector[] = [];
-  const positions = new Map<NodeId, { readonly type: number | null; readonly bindings: number | null }>();
+  const positions = new Map<NodeId, { readonly type: number | null; readonly bindings: number | null; readonly evidence: ObservationSourceEvidence | null }>();
   for (const [node, capture] of captures) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
     const type = capture.result.kind === "available" && validIndex(capture.result.value, context.types.terms.length) ? types.length : null;
-    const binding = capture.bindings.kind === "available" ? bindings.length : null;
+    const ready = context.observationSourceOf(account, instance, node);
+    if (ready.kind !== "complete") return ready;
+    const evidence = ready.value;
+    const vector = evidence?.bindings ?? null;
+    const binding = vector === null ? null : bindings.length;
     if (type !== null && capture.result.kind === "available") types.push(capture.result.value);
-    if (binding !== null && capture.bindings.kind === "available") bindings.push(capture.bindings.value);
+    if (vector !== null) bindings.push(vector);
     { const stop = chargeResultEntries(account, 2); if (stop !== null) return stop; }
-    positions.set(node, { type, bindings: binding });
+    positions.set(node, { type, bindings: binding, evidence });
   }
   const descriptorPositions = new Map<NodeId, { readonly layout: number | null; readonly field: number | null }>();
   for (const row of observations.rows) {
@@ -138,8 +142,9 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
     if (step !== null) return step;
     const metadata = context.metadataOf(row.layout.metadata);
     const layout = metadata === null || metadata.kind === "data-layout" ? undefined : metadata.layouts[row.layout.layout];
-    const layoutBindingResult: DataflowResult<BindingVector | null> = layout === undefined ? { kind: "complete", value: null }
-      : descriptorBindings(input.nodeOf(layout.occurrence), layout.occurrence, layout.kind, account);
+    const selected = positions.get(row.node)?.evidence;
+    const layoutBindingResult: DataflowResult<BindingVector | null> = layout === undefined || selected?.layout == null ? { kind: "complete", value: null }
+      : descriptorBindings(input.nodeOf(selected.layout.occurrence), selected.layout, layout.kind, account);
     if (layoutBindingResult.kind !== "complete") return layoutBindingResult;
     const layoutBindings = layoutBindingResult.value;
     const layoutPosition = layoutBindings === null ? null : bindings.length;
@@ -147,8 +152,8 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
     const fieldMetadata = row.field === null ? null : context.metadataOf(row.field.metadata);
     const field = row.field === null || fieldMetadata === null || fieldMetadata.kind === "data-layout"
       ? undefined : fieldMetadata.fields[row.field.field];
-    const fieldBindingResult: DataflowResult<BindingVector | null> = field === undefined ? { kind: "complete", value: null }
-      : descriptorBindings(input.nodeOf(field.occurrence), field.occurrence, "field", account);
+    const fieldBindingResult: DataflowResult<BindingVector | null> = field === undefined || selected?.field == null ? { kind: "complete", value: null }
+      : descriptorBindings(input.nodeOf(selected.field.occurrence), selected.field, "field", account);
     if (fieldBindingResult.kind !== "complete") return fieldBindingResult;
     const fieldBindings = fieldBindingResult.value;
     const fieldPosition = fieldBindings === null ? null : bindings.length;
@@ -200,13 +205,14 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
       || !sameBindings(metadata.key.bindings, row.layout.metadata.bindings)) {
       { const stop = report("metadata-reference-resolves", site, "An observation retains its actual selected layout record and complete bindings."); if (stop !== null) return stop; }
     }
-    const layoutOccurrence: DataflowResult<boolean> = layout === undefined || capture === undefined || capture.layout.kind !== "available"
-      ? { kind: "complete", value: false } : sameSource(capture.layout.value, layout.occurrence, account);
+    const evidence = position?.evidence;
+    const layoutOccurrence: DataflowResult<boolean> = layout === undefined || evidence?.layout == null
+      ? { kind: "complete", value: false } : sameSource(evidence.layout.occurrence, layout.occurrence, account);
     if (layoutOccurrence.kind !== "complete") return layoutOccurrence;
     const layoutAgreement: DataflowResult<boolean> = descriptors === undefined || descriptors.layout === null
       ? { kind: "complete", value: false } : descriptorAgrees(row.layout.metadata, selected.bindings[descriptors.layout] ?? undefined, context, account);
     if (layoutAgreement.kind !== "complete") return layoutAgreement;
-    if (layout !== undefined && (capture === undefined || capture.layout.kind !== "available"
+    if (layout !== undefined && (capture === undefined || evidence?.layout == null
       || !layoutOccurrence.value || input.nodeOf(layout.occurrence) === null
       || descriptors === undefined || descriptors.layout === null || !layoutAgreement.value)) {
       { const stop = report("observation-field-exact", site, "The layout is selected by the actual checked descriptor occurrence, never by its type."); if (stop !== null) return stop; }
@@ -219,9 +225,8 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
       || fieldMetadata.key.definition !== row.field.metadata.definition || !sameBindings(fieldMetadata.key.bindings, row.field.metadata.bindings))) {
       { const stop = report("metadata-reference-resolves", site, "An observation retains its actual selected field record and complete bindings."); if (stop !== null) return stop; }
     }
-    const fieldOccurrence: DataflowResult<boolean> = field === undefined || capture === undefined
-      || capture.field.kind !== "available" || capture.field.value === null ? { kind: "complete", value: false }
-      : sameSource(capture.field.value, field.occurrence, account);
+    const fieldOccurrence: DataflowResult<boolean> = field === undefined || evidence?.field == null ? { kind: "complete", value: false }
+      : sameSource(evidence.field.occurrence, field.occurrence, account);
     if (fieldOccurrence.kind !== "complete") return fieldOccurrence;
     const fieldAgreement: DataflowResult<boolean> = row.field === null || descriptors === undefined || descriptors.field === null
       ? { kind: "complete", value: false } : descriptorAgrees(row.field.metadata, selected.bindings[descriptors.field] ?? undefined, context, account);
@@ -230,7 +235,7 @@ export const verifyObservations: VerifyObservations = (observations, input) => {
       if (row.field === null || field === undefined || fieldMetadata === null || fieldMetadata.kind === "data-layout"
         || !validIndex(row.field.field, fieldMetadata.fields.length) || field.id !== row.field.field
         || fieldMetadata.key.definition !== row.field.metadata.definition || !sameBindings(fieldMetadata.key.bindings, row.field.metadata.bindings)
-        || capture === undefined || capture.field.kind !== "available" || capture.field.value === null
+        || capture === undefined || evidence?.field == null
         || !fieldOccurrence.value || input.nodeOf(field.occurrence) === null
         || descriptors === undefined || descriptors.field === null || !fieldAgreement.value
         || layout !== undefined && field.owner !== layout.source) {

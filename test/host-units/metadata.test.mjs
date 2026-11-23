@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAccount, accountFailure, chargeResultEntries, chargeWork } from "../../packages/host/dist/dataflow/index.js";
+import { createAccount, accountFailure, chargeResultEntries, chargeWork, remainingWork } from "../../packages/host/dist/dataflow/index.js";
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId } from "../../packages/host/dist/ids/index.js";
 import { artifactBindingsKey } from "../../packages/host/dist/ir-types/index.js";
@@ -35,16 +35,42 @@ function fixture(maximumWork = 10000, maximumResultEntries = 1000, limits = { ma
     return retained;
   };
   const deps = { limits, admit, limit: failure,
+    nativeFacts: { floatingFormats: [{ carrier: "float64", interchange: "ieee754-binary64" }] },
     matchesKey(requested, delivered) {
       const stop = admit(1 + requested.definition.length + delivered.definition.length, 0);
       return stop ?? { kind: "complete", matches: requested.definition === delivered.definition
         && artifactBindingsKey(requested.bindings) === artifactBindingsKey(delivered.bindings) };
     },
     typeOf: type => [{ kind: "primitive", primitive: "int32" },
-      { kind: "fixed-array", element: 0, extent: { length: 2n, runtimeBase: "bigint" } }][type] ?? null,
+      { kind: "fixed-array", element: 0, extent: { length: 2n, runtimeBase: "bigint" } },
+      { kind: "primitive", primitive: "float64" }][type] ?? null,
   };
   return { deps, account, stopped: () => retained };
 }
+
+test("geometry accepts only the exact represented whole integer in the selected address width", () => {
+  const execute = (deps, bits) => {
+    const pending = layoutOf(deps, scalar);
+    assert.equal(pending.kind, "paused");
+    return resumeLayout(deps, pending.paused, pending.requests.map((request, position) => request.kind === "descriptor"
+      ? { kind: "descriptor", request, value: abi } : { kind: "constant", request,
+        value: position === 1 ? { kind: "floating", type: 2, bits } : { kind: "bigint", type: 0, value: 8n } }));
+  };
+  const proof = fixture();
+  const actual = execute(proof.deps, 0x4020000000000000n);
+  assert.equal(actual.value.kind, "ok");
+  assert.equal(actual.value.value.byteSize, 8n);
+  for (const bits of [0x4021000000000000n, 0xc020000000000000n, 0x7ff8000000000000n, 0x7ff0000000000000n,
+    0x41f0000000000000n, 0x0000000000000001n]) {
+    const result = execute(fixture().deps, bits);
+    assert.equal(result.value.kind, "refused");
+    assert.match(result.value.diagnostics[0].message, /exact nonnegative integer/u);
+  }
+  for (const zero of [0x0000000000000000n, 0x8000000000000000n])
+    assert.equal(execute(fixture().deps, zero).value.value.byteSize, 0n);
+  const limited = fixture(10000 - remainingWork(proof.account) - 1);
+  assert.equal(execute(limited.deps, 0x4020000000000000n).value === limited.stopped(), true);
+});
 
 function finish(deps, declaration, values) {
   const pending = layoutOf(deps, declaration);

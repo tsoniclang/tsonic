@@ -6,7 +6,7 @@ import { verifyBindings } from "../ir-types/index.js";
 import type { BindingVerificationContext, FactsBindingTarget, FactsRule, FactsSite, FactsVerification } from "./contract.js";
 import type { BindingVisit } from "./binding-inputs.js";
 import { validIndex } from "./verify-relations.js";
-import { recordFinding } from "./verification.js";
+import { admitArtifactIdentity, recordFinding } from "./verification.js";
 
 export const verifyFactBindings = (
   entries: Generator<BindingVisit, void>,
@@ -61,6 +61,10 @@ export const verifyFactBindings = (
       const lookup = chargeWork(account, 1);
       if (lookup !== null) return lookup;
       if (index === 0) {
+        if (target.kind === "observations") {
+          const identity = chargeWork(account, target.instance.body.length) ?? admitArtifactIdentity(target.instance.bindings, account);
+          if (identity !== null) return identity;
+        }
         scopes = context.sourceBindingScopesOf(target);
         const stopped = accountFailure(account);
         if (stopped !== null) return stopped;

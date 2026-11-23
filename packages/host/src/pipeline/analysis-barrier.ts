@@ -2,14 +2,15 @@ import type { CallerRefusal, DataflowAccount, DataflowStop } from "../dataflow/c
 import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Diagnostic, Result, UnitAnswerPosition, UnitDiagnostic, UnitRequest } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
-import type { BodyId, DefId, SigId, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, NodeId, SigId, TyId } from "../ids/contract.js";
 import { checkedSourceObjectHoldingOf } from "../ir-hir/index.js";
 import type { BodyFacts, BodyObservations, DependencyInventory, FactsVerificationContext, ParameterSlot, Summary,
-  SummaryAnswer, SummaryKey } from "../ir-facts/contract.js";
-import { admitSummaryIdentity, summaryKey, verifySummary } from "../ir-facts/index.js";
+  MetadataRecord, ObservationFact, ObservationSourceEvidence, SummaryAnswer, SummaryKey } from "../ir-facts/contract.js";
+import { admitArtifactIdentity, admitSummaryIdentity, summaryKey, verifySummary } from "../ir-facts/index.js";
 import type { MirBody } from "../ir-mir/contract.js";
+import type { TirBody } from "../ir-tir/contract.js";
 import { verifyMir } from "../ir-mir/index.js";
-import type { BodyInstance, Execution } from "../ir-types/contract.js";
+import type { BindingScope, BodyInstance, Execution } from "../ir-types/contract.js";
 import { executionKey, instanceKey, internType, readSignature, readType, viewTypes } from "../ir-types/index.js";
 import type { Query } from "../query/contract.js";
 import type { ConvergenceMember, DeclaredSummaryInput } from "../summaries/contract.js";
@@ -23,7 +24,9 @@ import type { InternalBodyInput } from "../lower-mir/contract.js";
 import type { CheckedBodyNodeRange } from "./checked-inputs.js";
 import { analysisStop } from "./analysis-stop.js";
 import { checkedSourceViews } from "./checked-inputs.js";
-import { produceEnumConstants } from "./enum-constants.js";
+import { produceStaticValues } from "./static-values.js";
+import type { ObservationDemand } from "./layout-queries.js";
+import { layoutIdentity } from "./layout-queries.js";
 import { bindExternalStorage } from "./external-entries.js";
 import { lowerMirDeps, mirVerificationContext } from "./lower-mir-step.js";
 import { pipelineWiring } from "./wiring.js";
@@ -39,6 +42,7 @@ export interface AnalysisBarrier {
   readonly facts: ReadonlyMap<string, BodyFacts>;
   readonly summaries: ReadonlyMap<string, SummaryAnswer>;
   readonly constants: readonly ConstantRecord[];
+  readonly metadata: readonly MetadataRecord[];
   readonly verification: FactsVerificationContext;
   readonly initialization: ProgramInitialization;
 }
@@ -57,7 +61,8 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   const table = viewTypes(source.types);
   const mir = new Map<string, MirBody>();
   let constantMir: Map<string, MirBody> | null = null;
-  const observations = new Map<string, BodyObservations>();
+  const observations = new Map<string, { readonly instance: BodyInstance; readonly rows: ObservationFact[] }>();
+  let observationDemands: ObservationDemand[] | null = null;
   const facts = new Map<string, BodyFacts>();
   const summaries = new Map<string, SummaryAnswer>();
   const { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions, declared } = typed.required;
@@ -75,26 +80,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   };
   const readyBody = (instance: BodyInstance) => typed.bodies.get(instanceKey(instance))
     ?? fail("The selected dependency needs its actual verified typed body instance.");
-  for (const body of typed.bodies.values()) {
-    const declarationWork = chargeWork(account, 1);
-    if (declarationWork !== null) return analysisStop(declarationWork, unit);
-    const previous = bindingDependence.get(body.owner);
-    const dependent = body.dependence === "binding-dependent";
-    if (previous === undefined) {
-      const declarationGrowth = chargeResultEntries(account, 1);
-      if (declarationGrowth !== null) return analysisStop(declarationGrowth, unit);
-      bindingDependence.set(body.owner, dependent);
-    } else if (!previous && dependent) bindingDependence.set(body.owner, true);
-    if (body.bindings.kind !== "instantiated" || typed.layoutOnly(body)) continue;
-    const instance: BodyInstance = { body: body.body, bindings: body.bindings };
-    const identity = instanceKey(instance);
-    const safe = typed.database.run(safety, instance);
-    if (safe.kind === "refused") return safe;
-    if (safe.value !== null) {
-      const first = safe.diagnostics[0];
-      if (first === undefined) return fail("A safety error requires its actual original diagnostic.");
-      return { kind: "refused", diagnostics: [first, ...safe.diagnostics.slice(1)] };
-    }
+  const lower = (body: TirBody, identity: string, requiredEntries: readonly number[]): Result<MirBody> => {
     const run = { selectedNativeFacts: inputs.snapshot.nativeFacts, interner: source.types, table,
       defs: { completionSelector: internType(source.types, { kind: "primitive", primitive: "int32" }),
         exceptionStorage: internType(source.types, { kind: "intrinsic", intrinsic: "unknown" }) },
@@ -135,14 +121,38 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
         if (stop !== null) return analysisStop(stop, unit);
       }
     }
-    const constantEntries = typed.constantEntriesOf(body);
-    const requiredEntries = constantEntries ?? typed.required.provided.get(identity) ?? fail("Each selected body needs its independently required entries.");
     const lowered = pipelineWiring.lowerMir.lowerToMir(lowerMirDeps(run,
       { request: { query: "mirBody", key: identity }, position: { kind: "result" } }), body, internal, requiredEntries);
     if (lowered.kind === "refused") return lowered;
     const verified = verifyMir(lowered.value, mirVerificationContext(run, body, requiredEntries));
     if (verified.kind === "resource-limit") return analysisStop(verified, unit);
     if (verified.violations.length !== 0) return fail(`The actual LowerMir result violates ${verified.violations[0]?.rule}.`);
+    return lowered;
+  };
+  for (const body of typed.bodies.values()) {
+    const declarationWork = chargeWork(account, 1);
+    if (declarationWork !== null) return analysisStop(declarationWork, unit);
+    const previous = bindingDependence.get(body.owner);
+    const dependent = body.dependence === "binding-dependent";
+    if (previous === undefined) {
+      const declarationGrowth = chargeResultEntries(account, 1);
+      if (declarationGrowth !== null) return analysisStop(declarationGrowth, unit);
+      bindingDependence.set(body.owner, dependent);
+    } else if (!previous && dependent) bindingDependence.set(body.owner, true);
+    if (body.bindings.kind !== "instantiated" || typed.layoutOnly(body)) continue;
+    const instance: BodyInstance = { body: body.body, bindings: body.bindings };
+    const identity = instanceKey(instance);
+    const safe = typed.database.run(safety, instance);
+    if (safe.kind === "refused") return safe;
+    if (safe.value !== null) {
+      const first = safe.diagnostics[0];
+      if (first === undefined) return fail("A safety error requires its actual original diagnostic.");
+      return { kind: "refused", diagnostics: [first, ...safe.diagnostics.slice(1)] };
+    }
+    const constantEntries = typed.constantEntriesOf(body);
+    const requiredEntries = constantEntries ?? typed.required.provided.get(identity) ?? fail("Each selected body needs its independently required entries.");
+    const lowered = lower(body, identity, requiredEntries);
+    if (lowered.kind === "refused") return lowered;
     const growth = chargeResultEntries(account, constantEntries === null ? 3 : constantMir === null ? 2 : 1);
     if (growth !== null) return analysisStop(growth, unit);
     if (constantEntries !== null) {
@@ -160,14 +170,53 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       const value = metadata !== null && "value" in metadata ? metadata.value : metadata;
       if (value === null || !("observation" in value)) continue;
       const observation = value.observation;
-      if (observation.kind !== "available" || observation.value !== null)
-        return fail("The actual observation capture requires its checked descriptor-to-MetadataKey Layout producer.");
+      if (observation.kind === "unavailable") return fail("A selected execution cannot borrow unavailable observation capture.");
+      if (observation.value !== null) {
+        const stop = chargeWork(account, 1) ?? chargeResultEntries(account, observationDemands === null ? 4 : 3);
+        if (stop !== null) return analysisStop(stop, unit);
+        (observationDemands ??= []).push({ instance, at: observation.value.occurrence });
+      }
     }
-    observationRanges.delete(body.body);
     observations.set(identity, { instance, rows: [] });
   }
-  const constants = produceEnumConstants(inputs, typed, table, mir, constantMir, account, unit);
-  if (constants.kind === "refused") return constants;
+  const staticValues = produceStaticValues(inputs, typed, table, mir, constantMir, (instance, identity) => {
+    const body = readyBody(instance);
+    const signature = readSignature(source.types, body.signature);
+    if (body.params.length !== 0 || body.captures.length !== 0 || signature.parameters.length !== 0)
+      return fail("A Layout operand requires the actual argumentless capture-free prepared execution.");
+    return lower(body, identity, [0]);
+  }, observationDemands, account, unit);
+  if (staticValues.kind === "refused") return staticValues;
+  let observationProofs: Map<string, { readonly values: Map<NodeId, ObservationSourceEvidence>; readonly scopes: BindingScope[] }> | null = null;
+  for (const row of staticValues.value.rows) {
+    const paid = chargeWork(account, 1 + row.instance.body.length) ?? admitArtifactIdentity(row.instance.bindings, account);
+    if (paid !== null) return analysisStop(paid, unit);
+    const identity = instanceKey(row.instance);
+    const actual = observations.get(identity);
+    if (actual === undefined) return fail("A completed observation belongs to its actual selected MIR body.");
+    const offered = observationProofs?.get(identity);
+    if (offered?.values.has(row.observation.node) === true) return fail("An observation evidence row must be qualified once.");
+    const scope = source.descriptions.get(sources.bodies.get(row.instance.body)?.owner
+      ?? fail("An observation source scope retains its actual checked body."))?.generics;
+    if (scope === undefined) return fail("An observation source scope requires its actual enclosing declaration.");
+    const retained = chargeResultEntries(account, observationProofs === null ? 7 : offered === undefined ? 6 : 2);
+    if (retained !== null) return analysisStop(retained, unit);
+    if (offered === undefined) (observationProofs ??= new Map()).set(identity, { values: new Map([[row.observation.node, row.evidence]]), scopes: [scope] });
+    else {
+      offered.values.set(row.observation.node, row.evidence);
+      offered.scopes.push(scope);
+    }
+    actual.rows.push(row.observation);
+  }
+  let metadata: Map<string, MetadataRecord> | null = null;
+  for (const record of staticValues.value.metadata) {
+    const read = chargeWork(account, 1) ?? chargeWork(account, record.key.definition.length) ?? admitArtifactIdentity(record.key.bindings, account)
+      ?? chargeResultEntries(account, metadata === null ? 2 : 1);
+    if (read !== null) return analysisStop(read, unit);
+    const identity = layoutIdentity(record.key);
+    if (metadata?.has(identity) === true) return fail("One actual metadata identity cannot publish two distinct descriptor records.");
+    (metadata ??= new Map()).set(identity, record);
+  }
   const conditionRefusal: CallerRefusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "pipeline",
     limit: "condition alternatives", maximum: inputs.limits.analyses.maximumConditionAlternatives,
     site: { kind: "none" }, unit: { request: unit, position: { kind: "result" } } })] };
@@ -181,9 +230,14 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   if (components.kind !== "complete") return analysisStop(components, unit);
   const verification: FactsVerificationContext = { types: table, limits: inputs.limits.analyses,
     bindingScopeOf: definition => source.descriptions.get(definition)?.generics ?? null,
-    sourceBindingScopesOf: () => null,
+    sourceBindingScopesOf: target => target.kind === "observations" ? observationProofs?.get(instanceKey(target.instance))?.scopes ?? null : null,
     nominalOf: source.nominalOf, nodeExists: node => sources.nodeOf(node) !== null, localExists: sources.localExists,
-    definitionExists: definition => source.descriptions.has(definition), metadataOf: () => null,
+    definitionExists: definition => source.descriptions.has(definition),
+    metadataOf: key => metadata?.get(layoutIdentity(key)) ?? null,
+    observationSourceOf: (meter, instance, node) => {
+      const admitted = chargeWork(meter, 1 + instance.body.length) ?? admitArtifactIdentity(instance.bindings, meter);
+      return admitted ?? { kind: "complete", value: observationProofs?.get(instanceKey(instance))?.values.get(node) ?? null };
+    },
     bodyOwner: body => sources.bodies.get(body)?.owner ?? null, tirBody: readyBody,
     mirBody: instance => mir.get(instanceKey(instance)) ?? null,
     signatureIdOf: typed.signatureIdOf, declarationSourceOf: sources.declarationSourceOf,
@@ -289,6 +343,20 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
           signatureOf: signature => readSignature(source.types, signature),
           staticModuleBindingsOf: module => moduleExecutions.get(module)?.instance.bindings ?? null,
           staticTypeOf: reference => reference.kind === "item" ? typed.staticStorageOf(reference.value) : null,
+          observationOf: (meter, instance, at) => {
+            const paid = chargeWork(meter, 1 + instance.body.length) ?? admitArtifactIdentity(instance.bindings, meter);
+            if (paid !== null) return paid;
+            const selected = observations.get(instanceKey(instance));
+            if (selected === undefined || at.body !== instance.body) return { kind: "complete", value: null };
+            for (let index = 0; index < selected.rows.length; index += 1) {
+              const read = chargeWork(meter, 1);
+              if (read !== null) return read;
+              const row = selected.rows[index];
+              if (row === undefined) return fail("A completed observation inventory is dense.");
+              if (row.node === at.node) return { kind: "complete", value: row };
+            }
+            return { kind: "complete", value: null };
+          },
           sourceObjectHolding: (account, local, storage) => {
             const admitted = chargeWork(account, 1 + local.body.length);
             if (admitted !== null) return admitted;
@@ -539,5 +607,5 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   const initialization: ProgramInitialization = { entry: inputs.snapshot.entryPoint, external: exposed.value.external,
     modules: plan, entries };
   return { kind: "ok", diagnostics, value: { inventory: components.value, mir, observations, facts, summaries,
-    constants: constants.value, verification, initialization } };
+    constants: staticValues.value.constants, metadata: staticValues.value.metadata, verification, initialization } };
 }

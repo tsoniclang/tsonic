@@ -138,7 +138,8 @@ function classifySourceCycle(declarations: DeclsDeps, sources: CheckedSourceView
     if (first.witness.kind === "constant-demand") {
       const constant = (member: typeof first): ConstantCycleMember => {
         if (member.witness.kind !== "constant-demand" || member.answerPolicy !== "refusal-only"
-          || member.fact.query !== "enumOf" && member.fact.query !== "evaluateConstant")
+          || member.fact.query !== "enumOf" && member.fact.query !== "evaluateConstant"
+            && member.fact.query !== "layoutOf" && member.fact.query !== "observationOf")
           return fail("An execution-time constant cycle requires its actual completed-source value demands.");
         return { answerPolicy: member.answerPolicy, origin: member.witness.origin,
           unit: { query: member.fact.query, key: member.fact.key } };

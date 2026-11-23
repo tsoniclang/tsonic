@@ -2444,6 +2444,35 @@ test("coalescing a verified optional value compares only its own absence case an
   }
 });
 
+test("a geometry observation must fit its selected Float64 result without rounding", () => {
+  const value = fixture("evaluate-observation-float64", T.float64, builder => builder.block(builder.returns(builder.num("0", T.float64))));
+  const at = value.body.blocks[0].terminator.tir;
+  const body = { ...value.body, constants: value.body.constants.map(record => ({ ...record, value: { kind: "observation", at } })) };
+  const unit = answerUnit("observationsOf");
+  const run = (observed, maximumArithmeticWork) => {
+    const deps = { ...value.deps, limits: { ...limits, maximumArithmeticWork } };
+    const paused = product.evaluate(deps, value.entry, body, [], "compile-time", value.unit);
+    assert.equal(paused.kind, "paused");
+    return product.resumeEvaluate(deps, paused.paused, [{ kind: "observation-value", unit,
+      value: { value: { kind: "value", value: observed }, positions: [{ position: unit.position, error: null }] } }]).value;
+  };
+  const packing = 2 + 1024 + 1075 + 64;
+  const cut = run(2n ** 53n + 1n, packing - 1);
+  assert.equal(cut.kind, "refused");
+  assert.deepEqual(cut.diagnostics[0].arguments,
+    [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: packing - 1 }]);
+  const inexact = run(2n ** 53n + 1n, packing);
+  assert.equal(inexact.kind, "ok");
+  assert.deepEqual(inexact.value, { kind: "value", value: { kind: "error", type: T.float64 } });
+  assert.deepEqual(inexact.diagnostics.map(row => row.message),
+    ["An observed integer must fit the actual selected Float64 result without rounding."]);
+  assert.equal(inexact.emissions[0].diagnostic === inexact.diagnostics[0], true);
+  assert.deepEqual(inexact.positions[0].error.causes, [{ kind: "diagnostic", diagnostic: inexact.emissions[0].identity }]);
+  const exact = run(8n, packing + 4);
+  assert.equal(exact.kind, "ok");
+  assert.deepEqual(exact.value, { kind: "value", value: { kind: "floating", type: T.float64, bits: 0x4020000000000000n } });
+});
+
 test("an observation error preserves the exact source cause without a fabricated geometry value", () => {
   const value = fixture("evaluate-observation-error", T.int32, b => b.block(b.returns(b.num("1", T.int32))));
   const site = value.body.blocks[0].terminator;

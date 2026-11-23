@@ -5,7 +5,7 @@ import { encodeKey } from "../ids/index.js";
 import type { MirBody, MirOperand, MirSite, MirTerminator, MirUnwind } from "../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { OperationIdentity } from "../ir-infer/contract.js";
-import type { BodyInstance, ConstValue } from "../ir-types/contract.js";
+import type { BodyInstance, ConstValue, ExactRational } from "../ir-types/contract.js";
 import { nativeCarrierOf, sameInstance } from "../ir-types/index.js";
 import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
 import type { EvaluationResult } from "./data.js";
@@ -39,6 +39,21 @@ function absorb(machine: Machine, unit: UnitRef, error: ErrorValue): void {
 function put(machine: Machine, value: ConstValue, site: MirSite): void {
   if (value.kind === "error") return fail("An error-valued dependency must supply its actual unit error position.", site.origin);
   if (valueFits(machine, value, "maximumIntermediateBits", site.origin)) current(machine).values.push(value);
+}
+
+function putNumber(machine: Machine, value: ExactRational, selected: TyId, site: MirSite,
+  source: "authored" | "observation"): void {
+  if (!arithmetic(machine, 1, site.origin)) return;
+  if (!Number.isSafeInteger(selected) || selected < 0 || Object.is(selected, -0) || selected >= machine.deps.types.terms.length)
+    return fail("A numeric literal requires its actual ready type domain.", site.origin);
+  const type = machine.deps.typeOf(selected);
+  if (type === undefined) return fail("A numeric literal requires a complete ready type row.", site.origin);
+  if (type.kind === "primitive" && type.primitive === "float64") {
+    const format = selectedFloatingFormat(machine, type.primitive, site.origin);
+    if (format === null) return;
+    const bits = packFloat64Literal(machine, value, value, site, format, source);
+    if (bits !== null) put(machine, { kind: "floating", type: selected, bits }, site);
+  } else put(machine, { kind: "number", value, type: selected }, site);
 }
 
 function localPlace(machine: Machine, place: PlaceId, site: MirSite): LocalId | null {
@@ -87,20 +102,7 @@ function read(machine: Machine, operand: MirOperand, site: MirSite): void {
   const selected = constant.value;
   switch (selected.kind) {
     case "literal":
-      if (selected.value.kind === "number") {
-        if (!arithmetic(machine, 1, site.origin)) return;
-        if (!Number.isSafeInteger(constant.type) || constant.type < 0 || Object.is(constant.type, -0)
-          || constant.type >= machine.deps.types.terms.length)
-          return fail("A numeric literal requires its actual ready type domain.", site.origin);
-        const type = machine.deps.typeOf(constant.type);
-        if (type === undefined) return fail("A numeric literal requires a complete ready type row.", site.origin);
-        if (type.kind === "primitive" && type.primitive === "float64") {
-          const format = selectedFloatingFormat(machine, type.primitive, site.origin);
-          if (format === null) return;
-          const bits = packFloat64Literal(machine, selected.value.value, selected.value.value, site, format);
-          if (bits !== null) put(machine, { kind: "floating", type: constant.type, bits }, site);
-        } else put(machine, { kind: "number", value: selected.value.value, type: constant.type }, site);
-      }
+      if (selected.value.kind === "number") putNumber(machine, selected.value.value, constant.type, site, "authored");
       else if (selected.value.kind === "bigint") put(machine, { kind: "bigint", value: selected.value.value, type: constant.type }, site);
       else put(machine, { ...selected.value, type: constant.type }, site);
       return;
@@ -510,8 +512,7 @@ export const resumeEvaluate: ResumeEvaluate = (deps, paused, answers) => {
   if (position.error !== null) absorb(machine, answer.unit, position.error);
   else if (answer.kind === "observation-value") {
     if (answer.value.value.kind === "error") return fail("An error-valued observation needs its actual original error position.", pending.site.origin);
-    put(machine, { kind: "number", type: pending.type,
-      value: { numerator: answer.value.value.value, denominator: 1n, negativeZero: false } }, pending.site);
+    putNumber(machine, { numerator: answer.value.value.value, denominator: 1n, negativeZero: false }, pending.type, pending.site, "observation");
   }
   else if (answer.value.value.kind === "not-constant") finish(machine, answer.value.value);
   else {

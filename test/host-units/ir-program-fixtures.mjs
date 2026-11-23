@@ -43,6 +43,22 @@ function exactLookup(supplied) {
   };
 }
 
+export function fixtureObservationSource(nodeOf, instance, node) {
+  const payload = value => value?.tsonic?.value ?? value?.tsonic;
+  const selected = payload(nodeOf({ kind: "body", value: { body: instance.body, node } }))?.observation;
+  const capture = selected?.kind === "available" ? selected.value : null;
+  if (capture === null) return { kind: "complete", value: null };
+  const descriptor = fact => {
+    const occurrence = fact.kind === "available" ? fact.value : null;
+    if (occurrence === null) return null;
+    const memory = payload(nodeOf(occurrence))?.memory;
+    const bindings = memory?.kind === "available" ? memory.value?.bindings : null;
+    return bindings?.kind === "available" && bindings.value != null ? { occurrence, bindings: bindings.value } : null;
+  };
+  return { kind: "complete", value: { bindings: capture.bindings.kind === "available" ? capture.bindings.value : null,
+    layout: descriptor(capture.layout), field: descriptor(capture.field) } };
+}
+
 function contextFor(input, lookup) {
   return {
     initialization: input.context.initialization,
@@ -76,6 +92,7 @@ function contextFor(input, lookup) {
       nodeExists: node => lookup("nodeExists", node),
       localExists: local => lookup("localExists", local),
       metadataOf: key => lookup("metadataOf", key),
+      observationSourceOf: (_account, instance, node) => fixtureObservationSource(reference => lookup("nodeOf", reference), instance, node),
     },
   };
 }

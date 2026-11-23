@@ -1,6 +1,8 @@
 import type { ErrorValue, UnitResult } from "../diag/contract.js";
 import { hostDiagnosticCode, throwInvariant } from "../diag/index.js";
 import type { DefId, Origin } from "../ids/contract.js";
+import type { ConstValue } from "../ir-types/contract.js";
+import { floatingBitsFit, floatingFormatWidth, isNativeBinaryFloatPrimitive } from "../ir-types/index.js";
 import type { LayoutAnswer, LayoutDeps, LayoutOf, LayoutRequest, LayoutStep, MaterializeMetadata, ReadyLayout, ReadyLayoutField, ResumeLayout } from "./contract.js";
 import { materializeMetadata as materialize } from "./materialize.js";
 
@@ -86,6 +88,50 @@ function powerOfTwo(value: bigint): boolean {
   return value > 0n && (value & (value - 1n)) === 0n;
 }
 
+function floatingQuantity(deps: LayoutDeps, work: ReturnType<typeof meter>,
+  value: Extract<ConstValue, { readonly kind: "floating" }>, bits: number): Completed<bigint | null> | Refusal {
+  const header = work.admit(1);
+  if (header !== null) return header;
+  const type = deps.typeOf(value.type);
+  let carrier = type;
+  if (type?.kind === "literal") {
+    const read = work.admit(1);
+    if (read !== null) return read;
+    carrier = deps.typeOf(type.base);
+  }
+  if (carrier?.kind !== "primitive" || !isNativeBinaryFloatPrimitive(carrier.primitive))
+    return { kind: "complete", value: null };
+  for (let index = 0; index < deps.nativeFacts.floatingFormats.length; index += 1) {
+    const read = work.admit(1);
+    if (read !== null) return read;
+    const format = deps.nativeFacts.floatingFormats[index];
+    if (format === undefined) return invariant("A selected native format inventory is dense.");
+    if (format.carrier !== carrier.primitive) continue;
+    const width = floatingFormatWidth(format);
+    if (width === null) return { kind: "complete", value: null };
+    const payload = work.admit(width + bits);
+    if (payload !== null) return payload;
+    if (!floatingBitsFit(value.bits, format)) return { kind: "complete", value: null };
+    const fractionWidth = width === 64 ? 52 : width === 32 ? 23 : 10;
+    const exponentWidth = width - fractionWidth - 1;
+    const exponentLimit = (1 << exponentWidth) - 1;
+    const exponent = Number((value.bits >> BigInt(fractionWidth)) & BigInt(exponentLimit));
+    const fraction = BigInt.asUintN(fractionWidth, value.bits);
+    if (exponent === 0 && fraction === 0n) return { kind: "complete", value: 0n };
+    if (value.bits >> BigInt(width - 1) !== 0n || exponent === 0 || exponent === exponentLimit)
+      return { kind: "complete", value: null };
+    const shift = exponent - (exponentLimit >> 1) - fractionWidth;
+    const significand = (1n << BigInt(fractionWidth)) | fraction;
+    if (shift >= 0)
+      return { kind: "complete", value: shift < bits && BigInt.asUintN(bits - shift, significand) === significand
+        ? significand << BigInt(shift) : null };
+    const discarded = -shift;
+    return { kind: "complete", value: discarded <= fractionWidth && BigInt.asUintN(discarded, significand) === 0n
+      ? significand >> BigInt(discarded) : null };
+  }
+  return { kind: "complete", value: null };
+}
+
 export const resumeLayout: ResumeLayout = (deps, paused, answers) => {
   const { declaration, requests } = paused;
   const origin = declaration.origin;
@@ -129,7 +175,9 @@ export const resumeLayout: ResumeLayout = (deps, paused, answers) => {
     if (stop !== null) return { kind: "stop", result: refused(stop) };
     const constant = answer.value.value;
     if (constant.kind === "error") return invariant("A layout needs its originating completed error position.");
-    const value = constant.kind === "bigint" ? constant.value
+    const converted = constant.kind === "floating" ? floatingQuantity(deps, work, constant, bits) : null;
+    if (converted?.kind === "refused") return { kind: "stop", result: refused(converted) };
+    const value = converted !== null ? converted.value : constant.kind === "bigint" ? constant.value
       : constant.kind === "number" && constant.value.denominator === 1n ? constant.value.numerator : null;
     return value !== null && BigInt.asUintN(bits, value) === value
       ? { kind: "complete", value }

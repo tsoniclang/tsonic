@@ -442,6 +442,17 @@ export interface BodyObservations {
   readonly rows: readonly ObservationFact[];
 }
 
+export interface ObservationDescriptorEvidence {
+  readonly occurrence: SourceNodeRef;
+  readonly bindings: BindingVector;
+}
+
+export interface ObservationSourceEvidence {
+  readonly layout: ObservationDescriptorEvidence | null;
+  readonly field: ObservationDescriptorEvidence | null;
+  readonly bindings: BindingVector | null;
+}
+
 export interface RawLocationFact {
   readonly node: NodeId;
   readonly operation: "to-raw" | "reinterpret";
@@ -613,6 +624,7 @@ export interface MetadataVerificationContext extends BindingVerificationContext 
 export interface ObservationVerificationContext extends BindingVerificationContext {
   readonly bodyOwner: (body: BodyId) => DefId | null;
   readonly metadataOf: (key: MetadataKey) => MetadataRecord | null;
+  readonly observationSourceOf: (account: DataflowAccount, instance: BodyInstance, node: NodeId) => DataflowResult<ObservationSourceEvidence | null>;
 }
 
 export interface FactsVerificationContext extends MetadataVerificationContext, ObservationVerificationContext {

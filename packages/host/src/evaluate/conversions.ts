@@ -4,7 +4,7 @@ import type { OperationIdentity } from "../ir-infer/contract.js";
 import type { MirSite } from "../ir-mir/contract.js";
 import type { ConstValue, ExactRational, LiteralCompatibilityReader, NativeFloatingFormat, TypeTerm } from "../ir-types/contract.js";
 import { exactFloat64LiteralFit, literalCompatibilityOf } from "../ir-types/index.js";
-import { arithmetic, limit, selectedFloatingFormat, selectedOptionalDomain } from "./budget.js";
+import { arithmetic, evaluationFault, limit, selectedFloatingFormat, selectedOptionalDomain } from "./budget.js";
 import type { EvaluateDeps } from "./contract.js";
 import type { Machine as EvaluationMachine } from "./pause.js";
 
@@ -12,7 +12,7 @@ type Machine = EvaluationMachine<EvaluateDeps>;
 const fail = (message: string, origin: Origin): never => throwInvariant({ owner: "evaluate", query: null, origin, message });
 
 export function packFloat64Literal(machine: Machine, value: ExactRational, authored: ExactRational,
-  site: MirSite, format: NativeFloatingFormat): bigint | null {
+  site: MirSite, format: NativeFloatingFormat, source: "authored" | "observation"): bigint | null {
   const float64FractionBits = 52;
   const float64Bias = 1023;
   const float64SmallestExponent = 1 - float64Bias;
@@ -22,8 +22,13 @@ export function packFloat64Literal(machine: Machine, value: ExactRational, autho
   if (!arithmetic(machine, float64LiteralWork, site.origin)) return null;
   const { numerator, denominator, negativeZero } = value;
   if (numerator !== authored.numerator || denominator !== authored.denominator || negativeZero !== authored.negativeZero
-    || !exactFloat64LiteralFit(value, format))
+    || !exactFloat64LiteralFit(value, format)) {
+    if (source === "observation") {
+      evaluationFault(machine, site.origin, "An observed integer must fit the actual selected Float64 result without rounding.");
+      return null;
+    }
     return fail("A selected Float64 materialization requires the unchanged, exactly representable literal payload.", site.origin);
+  }
   if (machine.deps.limits.maximumIntermediateBits < float64Width) {
     limit(machine, "maximumIntermediateBits", site.origin);
     return null;
@@ -117,7 +122,7 @@ export function selectedConversion(machine: Machine, operation: Extract<Operatio
       if (destination.kind === "primitive" && destination.primitive === "float64") {
         const format = selectedFloatingFormat(machine, "float64", site.origin);
         if (format === null) return null;
-        const bits = packFloat64Literal(machine, value.value, source.value.value, site, format);
+        const bits = packFloat64Literal(machine, value.value, source.value.value, site, format, "authored");
         return bits === null ? null : { kind: "floating", type: result, bits };
       }
     }

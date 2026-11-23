@@ -212,6 +212,18 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     return bodyFrontier("BodyAnalysis requires the actual association for every selected captured execution slot.");
   for (const constant of mir.constants) {
     const kind = valueKind(deps, constant.type);
+    if (constant.value.kind === "observation") {
+      const stopped = accountFailure(account) ?? chargeWork(account, 1);
+      if (stopped !== null) return stopped;
+      const at = constant.value.at;
+      if (at.body !== execution.instance.body) return bodyFrontier("An observation operand must belong to the exact executing body.");
+      const ready = deps.observationOf(account, execution.instance, at);
+      if (ready.kind !== "complete") return ready;
+      if (ready.value === null || ready.value.node !== at.node || ready.value.result !== constant.type || kind !== "primitive")
+        return bodyFrontier("BodyAnalysis requires the completed scalar observation at its actual qualified use.");
+      constantOrigins.push(empty);
+      continue;
+    }
     const isAbsence = constant.value.kind === "literal" && constant.value.value.kind === "absence";
     if (constant.value.kind !== "literal" || kind === null || kind === "reference"
       || (isAbsence ? kind !== "absence" && kind !== "primitive-optional" && kind !== "reference-optional"

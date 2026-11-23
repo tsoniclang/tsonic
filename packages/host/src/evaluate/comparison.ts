@@ -80,7 +80,7 @@ function exactFloat64Operands(machine: Machine, left: ConstValue, right: ConstVa
           base = literal.base;
         } else if (base !== literal.base) return wrongCarrier();
         const row = formatOf();
-        return row === null ? null : packFloat64Literal(machine, value.value, literal.value.value, site, row);
+        return row === null ? null : packFloat64Literal(machine, value.value, literal.value.value, site, row, "authored");
       }
     }
     return throwInvariant({ owner: "evaluate", query: null, origin, message: "A selected floating comparison requires both exact floating bit values." });

@@ -132,6 +132,7 @@ export const indexChapterSyntax: IndexChapterSyntax = function* (roots, slots) {
 
 export const bodyOccurrenceSlots: BodyOccurrenceSlots = function* (subject, containsNested) {
   const node = subject.node;
+  if (subject.kind === "ordinary" && subject.node.kind === "CallExpression" && "layout" in subject.node.tsonic) return;
   const annotation = node.tsonic;
   const template = annotation !== null && "callable" in annotation ? annotation.callable.template
     : annotation !== null && "template" in annotation ? annotation.template : null;

@@ -38,7 +38,9 @@ function sameOccurrence(left: SourceNodeRef, right: SourceNodeRef): boolean {
     : right.kind === "body" && left.value.body === right.value.body;
 }
 
-const absent = { kind: "complete", value: null } satisfies ReturnType<ResolveCheckedLayout>;
+function absent(): { readonly kind: "complete"; readonly value: null } {
+  return { kind: "complete", value: null };
+}
 
 export const resolveCheckedLayout: ResolveCheckedLayout = (deps, reference) => {
   const initial = deps.admit(1, 1);
@@ -48,7 +50,7 @@ export const resolveCheckedLayout: ResolveCheckedLayout = (deps, reference) => {
   while (node !== null) {
     const step = deps.admit(1, 1);
     if (step !== null) return { kind: "resource-stop", stop: step };
-    if (visited.has(node)) return absent;
+    if (visited.has(node)) return absent();
     visited.add(node);
     if (node.kind === "ParenthesizedExpression") {
       node = node.expression;
@@ -63,25 +65,25 @@ export const resolveCheckedLayout: ResolveCheckedLayout = (deps, reference) => {
       const item = deps.itemOf(node);
       if (item === null || deps.nodeOf(capture.occurrence) !== node
         || capture.kind === "data-layout" && (capture.declaration.kind !== "available" || capture.declaration.value !== item.owner))
-        return absent;
+        return absent();
       return { kind: "complete", value: { definition: item.owner, capture, node } };
     }
     if (node.kind === "VariableDeclaration") {
       const read = deps.admit(2, 0);
       if (read !== null) return { kind: "resource-stop", stop: read };
       const parent = deps.parentOf(node);
-      if (parent?.kind !== "VariableDeclarationList" || !parent.flags.includes("Const")) return absent;
+      if (parent?.kind !== "VariableDeclarationList" || !parent.flags.includes("Const")) return absent();
       node = node.initializer;
       continue;
     }
-    if (node.kind !== "Identifier" || node.tsonic.role !== "value") return absent;
+    if (node.kind !== "Identifier" || node.tsonic.role !== "value") return absent();
     let resolution = node.tsonic.resolution;
     while (resolution.kind === "binding") {
       const read = deps.admit(2, 1);
       if (read !== null) return { kind: "resource-stop", stop: read };
       const binding = deps.bindingOf(resolution.occurrence);
       if (binding === null || visited.has(binding) || !sameOccurrence(resolution.occurrence, binding.occurrence)
-        || binding.target.kind !== "available") return absent;
+        || binding.target.kind !== "available") return absent();
       visited.add(binding);
       resolution = binding.target.value;
     }
@@ -90,8 +92,8 @@ export const resolveCheckedLayout: ResolveCheckedLayout = (deps, reference) => {
     const owner = resolution.kind === "local" ? deps.localDeclarationOf(resolution.local)
       : resolution.kind === "declarations" && resolution.definitions.length === 1
         ? deps.declarationSourceOf(resolution.definitions[0]) : null;
-    if (owner === null) return absent;
+    if (owner === null) return absent();
     node = deps.nodeOf(owner);
   }
-  return absent;
+  return absent();
 };

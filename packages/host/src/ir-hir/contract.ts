@@ -4055,13 +4055,18 @@ export interface HirMemoryGeometryCapture {
   readonly stride: CapturedFact<bigint>;
 }
 
-export type HirMemoryLayoutCapture = {
+interface HirMemoryLayoutOccurrence {
   readonly occurrence: SourceNodeRef;
   readonly bindings: CapturedFact<BindingVector>;
-} & (
-  | { readonly kind: "data-layout"; readonly declaration: CapturedFact<DefId>;
-      readonly fingerprint: CapturedFact<string>; readonly byteOrder: CapturedFact<"little" | "big">;
-      readonly addressWidth: CapturedFact<32 | 64> }
+}
+
+export type HirMemoryLayoutCapture = HirAuthoredMemoryLayoutCapture | (HirMemoryLayoutOccurrence & {
+  readonly kind: "data-layout"; readonly declaration: CapturedFact<DefId>;
+  readonly fingerprint: CapturedFact<string>; readonly byteOrder: CapturedFact<"little" | "big">;
+  readonly addressWidth: CapturedFact<32 | 64>;
+});
+
+export type HirAuthoredMemoryLayoutCapture = HirMemoryLayoutOccurrence & (
   | { readonly kind: "value"; readonly geometry: HirMemoryGeometryCapture;
       readonly fieldExpressions: readonly SourceNodeRef[]; readonly fields: CapturedFact<readonly SourceNodeRef[]> }
   | { readonly kind: "array"; readonly geometry: HirMemoryGeometryCapture;
@@ -4109,7 +4114,7 @@ export type LayoutCallRole = "value-layout" | "array-layout" | "field-layout" | 
 export type CheckedLayoutRoleOf = (call: CallExpression<CheckedPhase>) => LayoutCallRole | null;
 
 export type CheckedLayoutConstructionOf = (node: HirNode) =>
-  Exclude<HirMemoryLayoutCapture, { readonly kind: "data-layout" }> | HirMemoryFieldCapture | null;
+  HirAuthoredMemoryLayoutCapture | HirMemoryFieldCapture | null;
 
 export interface CheckedLayoutSourceDeps<Stop extends object> extends HirBindingViews {
   readonly admit: (work: number, records: number) => Stop | null;

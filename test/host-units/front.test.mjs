@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import { capturedCauses } from "./fixtures/captured-causes.mjs";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector";
@@ -476,13 +477,13 @@ test("layout capture retains the same selected application and authored operands
   assert.equal(selectedObservation.operation, "size");
   assert.equal(body.nodeOf({ kind: "body", value: selectedObservation.operand }) === observation.arguments.nodes[0], true);
   const { resolveCheckedLayout } = await import("../../packages/host/dist/ir-hir/index.js");
-  const { chargeWork, chargeResultEntries, accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
+  const { chargeWork, chargeResultEntries, accountFailure, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
   function resolveAt(limit, operand, readers = body, bindings = checked.value.bindingOf) {
     const meter = createAccount({ maximumWork: limit, maximumResultEntries: 100 });
     const resolution = resolveCheckedLayout({ ...readers, bindingOf: bindings,
       admit: (work, records) => chargeWork(meter, work) ?? (records === 0 ? null : chargeResultEntries(meter, records)) }, operand);
     if (resolution.kind !== "complete") assert.equal(resolution.stop === accountFailure(meter), true);
-    return { resolution, work: meter.work };
+    return { resolution, work: limit - remainingWork(meter) };
   }
   const operand = { kind: "body", value: selectedObservation.operand };
   const resolved = resolveAt(100, operand);
@@ -490,6 +491,7 @@ test("layout capture retains the same selected application and authored operands
   assert.equal(resolved.resolution.value.capture === capture, true);
   assert.equal(resolved.resolution.value.node === layout, true);
   assert.equal(resolved.resolution.value.definition, descriptorItem.definition);
+  assert.equal(resolved.work > 0, true);
   for (let maximum = 0; maximum < resolved.work; maximum += 1) {
     assert.equal(resolveAt(maximum, operand).resolution.kind, "resource-stop", String(maximum));
   }
@@ -568,6 +570,99 @@ test("layout capture retains the same selected application and authored operands
   });
   assert.equal(findings.filter(row => row.rule === "definition-reference"
     && row.detail.some(detail => detail.value === "a layout definition retains its exact authored unnamed sibling ordinal")).length, 2);
+});
+
+test("selected native layout geometry reaches verified Program through the real constant and observation demands", async () => {
+  const root = "/layout-provider";
+  const specifier = "native:layout";
+  const providerModuleId = "native.layout";
+  const provider = { ...declarationProvider("test.layout", specifier, providerModuleId),
+    getDeclarationModel: () => ({ moduleSpecifier: specifier, providerModuleId, exports: [
+      { id: "Abi", name: "Abi", kind: "value", type: { kind: "boolean" } },
+      { id: "layout", name: "layout", kind: "function", signatures: [{ id: "layout.call", typeParameters: [{ name: "T" }],
+        parameters: [{ name: "abi", type: { kind: "boolean" } }, ...["size", "alignment", "stride"].map(name => ({ name, type: { kind: "number" } }))],
+        returnType: { kind: "boolean" } }] },
+      { id: "size", name: "size", kind: "function", signatures: [{ id: "size.call",
+        parameters: [{ name: "descriptor", type: { kind: "boolean" } }], returnType: { kind: "number" } }] },
+    ] }) };
+  const registration = providerRegistration(root, provider);
+  const roles = { reference: reference(root, "roles"), value: { kind: "semantics-module", value: { moduleSpecifier: specifier,
+    exports: [{ kind: "call-marker", exportName: "layout", marker: "memory-value-layout" },
+      { kind: "call-marker", exportName: "size", marker: "memory-size" }] } } };
+  const declaration = { providerId: provider.identity.id, providerVersion: provider.identity.version,
+    providerModuleId, moduleSpecifier: specifier, exportId: "Abi" };
+  const native = { fingerprint: "selected-layout", byteOrder: "big", addressWidth: 64 };
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { printProgramIndex, parseProgramIndex, printModuleBodies, parseModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
+  const makeInput = (text, limits) => {
+    const snapshot = projectSnapshot({ sourceFiles: { "main.ts": 'import { Abi, layout as make, size as measure } from "native:layout"; ' + text },
+      libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }], providerPackages: [{ root, name: "layout-provider" }],
+      declarationProviders: [registration.reference], semanticModules: [roles.reference] });
+    return { ...limits, extensions: front.createCheckerExtensions([registration, roles]), snapshot: { ...snapshot,
+      contributions: { ...snapshot.contributions, dataLayouts: [declaration] },
+      nativeFacts: { ...snapshot.nativeFacts, geometry: { layouts: [{ declaration, layout: native }] } } } };
+  };
+  const baseline = analysisInput(await loadFrontFixture(), "sdk-minimal");
+  const named = "const descriptor = make<boolean>(Abi, 8, 8, 8); export const width = measure(descriptor);";
+  const inline = "export const width = measure(make<boolean>(Abi, 8, 8, 8));";
+  const dependent = "const inner = make<boolean>(Abi, 8, 8, 8); export const width = measure(make<boolean>(Abi, measure(inner), 8, 8));";
+  for (const [text, expectedLayouts, expectedConstants] of [[named, 1, 3], [inline, 1, 3], [dependent, 2, 6]]) {
+    const input = makeInput(text, baseline);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index, modules } = result.value;
+    const data = index.metadata.find(record => record.kind === "data-layout");
+    const layouts = index.metadata.filter(record => record.kind === "memory-layout");
+    assert.equal(layouts.length, expectedLayouts);
+    assert.equal(index.metadata.length, expectedLayouts + 1);
+    assert.deepEqual([data.fingerprint, data.byteOrder, data.addressWidth], [native.fingerprint, native.byteOrder, native.addressWidth]);
+    for (const layout of layouts) {
+      const geometry = layout.layouts[layout.root];
+      assert.equal(geometry.dataLayout, data.key.definition);
+      assert.deepEqual([geometry.byteSize, geometry.byteAlignment, geometry.stride], [8n, 8n, 8n]);
+    }
+    assert.equal(index.constants.length, expectedConstants);
+    for (const record of index.constants) {
+      assert.equal(record.reference.context, "compile-time");
+      assert.equal(ids.decodeBodyId(record.reference.initializer.body).value.role, "layout-operand");
+      assert.deepEqual(record.value, { type: record.value.type, kind: "floating", bits: 0x4020000000000000n });
+    }
+    const selected = modules.find(chapter => chapter.module === input.snapshot.entryPoint);
+    const observations = selected.bodies.flatMap(body => body.kind === "selected" ? body.observations.rows : []);
+    assert.equal(observations.length, 1);
+    assert.deepEqual([observations[0].operation, observations[0].value], ["size", 8n]);
+    assert.equal(layouts.some(layout => isDeepStrictEqual(layout.key, observations[0].layout.metadata)
+      && layout.root === observations[0].layout.layout), true);
+    assert.equal(index.dependencyInventory.operations.every(operation => operation.kind === "body"), true);
+    for (const [program, print, parse] of [[index, printProgramIndex, parseProgramIndex],
+      [selected, module => printModuleBodies(index, module), wire => parseModuleBodies(index, wire)]]) {
+      const wire = print(program);
+      const decoded = parse(wire);
+      assert.equal(decoded.kind, "parsed", JSON.stringify(decoded.diagnostics));
+      assert.equal(print(decoded.value), wire);
+    }
+  }
+  const opaque = analyzeHostProgram(makeInput(inline.replace("(Abi,", "(false,"), baseline));
+  assert.equal(opaque.kind, "refused");
+  assert.match(opaque.diagnostics[0].message, /immutable checked descriptor/u);
+  const fractional = analyzeHostProgram(makeInput(inline.replace("Abi, 8,", "Abi, 7.5,"), baseline));
+  assert.equal(fractional.kind, "refused");
+  assert.match(fractional.diagnostics[0].message, /exact nonnegative integer/u);
+  const cycle = analyzeHostProgram(makeInput(
+    "const descriptor: boolean = make<boolean>(Abi, measure(descriptor), 8, 8); export const width = measure(descriptor);", baseline));
+  assert.equal(cycle.kind, "refused");
+  assert.deepEqual(cycle.diagnostics.map(row => row.message), ["The constant value depends on its own completion."]);
+  const undemanded = analyzeHostProgram(makeInput("const descriptor = make<boolean>(Abi, 7.5, 8, 8); export const width = 42;", baseline));
+  assert.equal(undemanded.kind, "ok");
+  assert.deepEqual(undemanded.value.index.metadata, []);
+  assert.deepEqual(undemanded.value.index.constants, []);
+  assert.equal(undemanded.value.modules.every(chapter => chapter.bodies.every(row => row.kind !== "selected" || row.observations.rows.length === 0)), true);
+  const limited = analyzeHostProgram(makeInput(inline, { ...baseline, limits: { ...baseline.limits, evaluation: {
+    ...baseline.limits.evaluation, maximumSteps: 0 } } }));
+  assert.equal(limited.kind, "refused");
+  assert.equal(limited.diagnostics[0].source, "evaluate");
+  assert.deepEqual(limited.diagnostics[0].arguments, [{ kind: "text", value: "evaluation.maximumSteps" }, { kind: "number", value: 0 }]);
 });
 
 const plainSources = { "main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\n",
@@ -2519,7 +2614,12 @@ test("K-3313.2 an argument-only marker module does not remove the actual signatu
   const raw = front.captureModule(deps, program, module);
   assert.equal(raw.kind, "ok");
   assert.equal(raw.value.core.length, 18);
-  assert.deepEqual([...new Set(raw.value.core.flatMap(row => Object.entries(row).filter(([name]) => name !== "node").map(([, fact]) => JSON.stringify(fact))))], [JSON.stringify(notProvided)]);
+  assert.equal(raw.value.calls.length, 0);
+  for (const { node, layoutQuery, ...facts } of raw.value.core) {
+    assert.equal(node.module, module);
+    assert.deepEqual(layoutQuery, { kind: "available", value: null });
+    assert.equal(Object.values(facts).every(fact => isDeepStrictEqual(fact, notProvided)), true);
+  }
   const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
   const lower = value => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), addSource), value);
   const checked = lower(raw.value);

@@ -1,6 +1,6 @@
 import type { Diagnostic, ErrorValue, UnitRef, UnitResult } from "../diag/contract.js";
 import type { Origin, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { ConstValue, ConstantReference, MemberStorageSelection, TypeTerm } from "../ir-types/contract.js";
+import type { ConstValue, ConstantReference, MemberStorageSelection, SelectedNativeFacts, TypeTerm } from "../ir-types/contract.js";
 import type { MetadataKey, MetadataRecord } from "../ir-facts/contract.js";
 import type { Step } from "../step/contract.js";
 
@@ -85,6 +85,7 @@ type LayoutRefusal = Extract<UnitResult<never>, { readonly kind: "refused" }>;
 
 export interface LayoutDeps {
   readonly admit: (work: number, records: number) => LayoutRefusal | null;
+  readonly nativeFacts: SelectedNativeFacts;
   readonly limit: (origin: Origin, axis: "work" | "geometry-bits", maximum: number) => LayoutRefusal;
   readonly matchesKey: (requested: MetadataKey, delivered: MetadataKey) =>
     { readonly kind: "complete"; readonly matches: boolean } | LayoutRefusal;

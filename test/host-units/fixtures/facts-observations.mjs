@@ -6,7 +6,7 @@ import { encodeDefId } from "../../../packages/host/dist/ids/index.js";
 import * as typesProduct from "../../../packages/host/dist/ir-types/index.js";
 import { bindingVectorKey } from "../../../packages/host/dist/ir-types/index.js";
 import { admitFixtureTable } from "./types-construction.mjs";
-import { encodeContextKey, moduleFixture } from "../ir-program-fixtures.mjs";
+import { encodeContextKey, fixtureObservationSource, moduleFixture } from "../ir-program-fixtures.mjs";
 
 const available = value => ({ kind: "available", value });
 const empty = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
@@ -50,8 +50,10 @@ function observationFixture(selected = null) {
     metadataOf: key => same(key, metadata.key) ? metadata : null,
   };
   const nodes = ref => same(ref, at) ? node : same(ref, descriptor) ? descriptorNode : null;
-  return { fixture, source, node, descriptorNode, descriptor, capture, metadata, observations, bindings, parameter,
-    input: { account: verificationAccount(), source, bodyOf: () => null, nodeOf: nodes, facts, types: admitFixtureTable(typesProduct, fixture.index.types), typeExpansion: expansion() } };
+  const input = { account: verificationAccount(), source, bodyOf: () => null, nodeOf: nodes, facts,
+    types: admitFixtureTable(typesProduct, fixture.index.types), typeExpansion: expansion() };
+  facts.observationSourceOf = (_account, selected, node) => fixtureObservationSource(input.nodeOf, selected, node);
+  return { fixture, source, node, descriptorNode, descriptor, capture, metadata, observations, bindings, parameter, input };
 }
 
 function rules(value) {

@@ -1,10 +1,10 @@
 import type { CallerRefusal, DataflowAccount, DataflowResult } from "../../dataflow/contract.js";
 import type { ErrorValue, UnitRef, UnitRequest, UnitResult } from "../../diag/contract.js";
 import type { DefId, LocalRef, ModuleId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../../ids/contract.js";
-import type { AnalysisLimits, BodyFacts, LivenessFacts, ModuleStaticCellRef, Summary, SummaryAnswer, SummaryKey, SummaryPosition } from "../../ir-facts/contract.js";
+import type { AnalysisLimits, BodyFacts, LivenessFacts, ModuleStaticCellRef, ObservationFact, Summary, SummaryAnswer, SummaryKey, SummaryPosition } from "../../ir-facts/contract.js";
 import type { MirBody, MirEntry } from "../../ir-mir/contract.js";
 import type { TirBody } from "../../ir-tir/contract.js";
-import type { ArtifactBindings, Execution, SignatureOf, TypeOf, TypeTable } from "../../ir-types/contract.js";
+import type { ArtifactBindings, BodyInstance, Execution, SignatureOf, TypeOf, TypeTable } from "../../ir-types/contract.js";
 
 export interface BodyRoundEnvironment {
   readonly types: TypeTable;
@@ -13,6 +13,7 @@ export interface BodyRoundEnvironment {
   readonly staticModuleBindingsOf: (module: ModuleId) => ArtifactBindings | null;
   readonly staticTypeOf: (declaration: SourceNodeRef) => TyId | null;
   readonly sourceObjectHolding: (account: DataflowAccount, local: LocalRef, storage: TyId) => DataflowResult<boolean>;
+  readonly observationOf: (account: DataflowAccount, instance: BodyInstance, at: NodeRef) => DataflowResult<ObservationFact | null>;
   readonly limits: AnalysisLimits;
 }
 

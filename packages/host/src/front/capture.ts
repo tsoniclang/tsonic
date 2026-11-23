@@ -4139,10 +4139,11 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
     const markers = capturedMarkers(scope, node, id);
     if (markers === null) break;
-    const literal = ast.is.IsLiteralKind(node.Kind) || kind === "KindTrueKeyword" || kind === "KindFalseKeyword" || kind === "KindNullKeyword";
-    const empty = coreFacts(reference, scope.emptyCoreInventory, literal || scope.emptyObservationInventory);
-    const base = markers === undefined ? empty : { ...empty, markers: available(markers) };
     const application = kind === "KindCallExpression" ? scope.callCore.get(id) : undefined;
+    const noObservation = kind !== "KindCallExpression" || application !== "ordinary" && application?.role === "layout-construction"
+      || scope.emptyObservationInventory;
+    const empty = coreFacts(reference, scope.emptyCoreInventory, noObservation);
+    const base = markers === undefined ? empty : { ...empty, markers: available(markers) };
     const row = provider !== undefined ? { ...base, provider: available(provider) }
       : application === "ordinary" ? { ...base, provider: available(null) }
         : application?.role === "provider" ? { ...base, provider: available(application.receipt) } : base;

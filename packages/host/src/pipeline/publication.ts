@@ -2,7 +2,7 @@ import type { CallerRefusal, DataflowAccount, DataflowResult, DataflowStop } fro
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Result } from "../diag/contract.js";
 import { orderDiagnostics, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
-import type { DefId, ItemNodeRef, ModuleId, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { DefId, ItemNodeRef, ModuleId, NodeId, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeModuleId, encodeKey } from "../ids/index.js";
 import type {
   BodyRecord, HostProgram, ModuleBodies, ProgramEvidence, ProgramIdentityImage, ProgramIndex, ProgramVerificationContext,
@@ -18,7 +18,8 @@ import type { HostAnalysisInputs } from "./contract.js";
 import type { TypedSourceBarrier } from "./typed-barrier.js";
 import type { AnalysisBarrier } from "./analysis-barrier.js";
 import { analysisStop } from "./analysis-stop.js";
-import type { BodyFacts, RelationalArena, Summary } from "../ir-facts/contract.js";
+import { layoutIdentity } from "./layout-queries.js";
+import type { BodyFacts, MetadataRecord, ObservationSourceEvidence, RelationalArena, Summary } from "../ir-facts/contract.js";
 import { admitArtifactIdentity, admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
 
 function fail(message: string): never {
@@ -226,6 +227,51 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
   }
   const initialization = image.initializationOf(analysis.initialization);
   if (initialization === null) return fail("Final verification needs its actual retained initialization proof.");
+  let metadata: Map<string, MetadataRecord> | null = null;
+  for (let index = 0; index < analysis.metadata.length; index += 1) {
+    const stop = admit(metadata === null ? 2 : 1);
+    if (stop !== null) return stop;
+    const original = analysis.metadata[index];
+    if (original === undefined) return fail("The verified original metadata inventory is dense.");
+    const originalIdentity = chargeWork(account, original.key.definition.length) ?? admitArtifactIdentity(original.key.bindings, account);
+    if (originalIdentity !== null) return originalIdentity;
+    const projected = image.metadataOf(original);
+    if (projected === null || analysis.verification.metadataOf(original.key) !== original)
+      return fail("Final metadata needs its independently produced original descriptor record and exact projection.");
+    const finalIdentity = chargeWork(account, projected.key.definition.length) ?? admitArtifactIdentity(projected.key.bindings, account);
+    if (finalIdentity !== null) return finalIdentity;
+    const key = layoutIdentity(projected.key);
+    if (metadata?.has(key) === true) return fail("Final metadata has one record per actual descriptor identity.");
+    (metadata ??= new Map()).set(key, projected);
+  }
+  let observationEvidence: Map<string, { readonly values: Map<NodeId, ObservationSourceEvidence>; readonly scopes: readonly BindingScope[] }> | null = null;
+  if (analysis.metadata.length !== 0) for (const original of analysis.observations.values()) {
+    const rowRead = chargeWork(account, 1);
+    if (rowRead !== null) return rowRead;
+    if (original.rows.length === 0) continue;
+    const mapped = image.observationsOf(original);
+    if (mapped === null) return fail("Final observation evidence requires its actual admitted observation owner.");
+    const keyRead = chargeWork(account, mapped.instance.body.length) ?? admitArtifactIdentity(mapped.instance.bindings, account);
+    if (keyRead !== null) return keyRead;
+    const sourceRead = chargeWork(account, original.instance.body.length) ?? admitArtifactIdentity(original.instance.bindings, account);
+    if (sourceRead !== null) return sourceRead;
+    const scopes = analysis.verification.sourceBindingScopesOf({ kind: "observations", instance: original.instance });
+    if (scopes === null || scopes.length !== original.rows.length) return fail("The actual observation binding scopes retain the original vector.");
+    const setup = admit(observationEvidence === null ? 4 : 3);
+    if (setup !== null) return setup;
+    const bodies = new Map<NodeId, ObservationSourceEvidence>();
+    (observationEvidence ??= new Map()).set(instanceKey(mapped.instance), { values: bodies, scopes });
+    for (let index = 0; index < original.rows.length; index += 1) {
+      const admission = admit(1);
+      if (admission !== null) return admission;
+      const row = original.rows[index];
+      if (row === undefined) return fail("The actual observation evidence vector is dense.");
+      const proof = analysis.verification.observationSourceOf(account, original.instance, row.node);
+      if (proof.kind !== "complete") return proof;
+      if (proof.value === null) return fail("An observation retains its independently completed source evidence.");
+      bodies.set(row.node, proof.value);
+    }
+  }
   const signatureIdOf = (definition: DefId, endpoint: SignatureRecord["kind"], ordinal: number, bindings: BodyInstance["bindings"]): SigId | null =>
     signatures.get(signatureRequestKey({ definition, endpoint, ordinal, bindings })) ?? null;
   return { kind: "complete", value: {
@@ -236,6 +282,13 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
     tirOf: module => tirInputs.get(module) ?? null,
     signatureIdOf,
     facts: { ...analysis.verification, types, nodeExists: reference => scopedNode(reference) !== null,
+      metadataOf: key => metadata?.get(layoutIdentity(key)) ?? null,
+      observationSourceOf: (meter, instance, node) => {
+        const paid = chargeWork(meter, instance.body.length) ?? admitArtifactIdentity(instance.bindings, meter);
+        return paid ?? { kind: "complete", value: observationEvidence?.get(instanceKey(instance))?.values.get(node) ?? null };
+      },
+      sourceBindingScopesOf: target => target.kind === "observations" ? observationEvidence?.get(instanceKey(target.instance))?.scopes ?? null
+        : analysis.verification.sourceBindingScopesOf(target),
       tirBody: instance => bodyOf(instance) ?? fail("An exact final Facts owner requires its actual typed body."),
       mirBody: instance => graphs.get(instanceKey(instance)) ?? null,
       signatureIdOf: request => signatureIdOf(request.definition, request.endpoint, request.ordinal, request.bindings),
@@ -335,7 +388,7 @@ export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourc
       return { module: module.module, package: decoded.value.package, items, exports: module.exports,
         bindings: module.bindings, checkerDiagnostics: module.checkerDiagnostics };
     }), types: viewTypes(source.types), signatures: [...signatures.values()],
-    bodies, dependencyInventory: analysis.inventory, metadata: [], constants: analysis.constants,
+    bodies, dependencyInventory: analysis.inventory, metadata: analysis.metadata, constants: analysis.constants,
     summaries: [],
     diagnostics: orderDiagnostics(typed.database.diagnostics()),
     initialization: analysis.initialization,
