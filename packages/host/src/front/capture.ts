@@ -1935,7 +1935,7 @@ function projectedConditional(scope: CaptureScope, type: Type, parent: RawCompon
   const operator = referenceTo(scope, scope.program, declaration);
   if (scope.meter.refusal !== null) return null;
   if (operator === null) return throwInvariant(invariant("A projected conditional requires its actual admitted operator."));
-  const inferParameters = conditionalBinder(scope, syntax.ExtendsType, answer.inferParameters);
+  const inferParameters = conditionalBinders(scope, syntax.ExtendsType, answer.inferParameters);
   if (inferParameters === null) return null;
   const check = selectedOperand(scope, parent, checkType, { kind: "projection-source" });
   if (check === null) return null;
@@ -1981,29 +1981,33 @@ function projectedConditional(scope: CaptureScope, type: Type, parent: RawCompon
   return { kind: "conditional", operator, check, extends: extended, whenTrue, whenFalse, distributive, inferParameters, application };
 }
 
-function conditionalBinder(scope: CaptureScope, pattern: Node | undefined, parameters: readonly Type[]): readonly RawNodeRef[] | null {
-  if (parameters.length === 0) return [];
-  if (parameters.length !== 1)
-    throw new TypeError("front: a direct conditional requires the actual correspondence of multiple inference binders");
-  if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
-  const symbol = scope.checker.getTypeSymbol(parameters[0]);
-  const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
-  const declaration = declarations[0];
+function conditionalBinders(scope: CaptureScope, pattern: Node | undefined, parameters: readonly Type[]): readonly RawNodeRef[] | null {
+  const result: RawNodeRef[] = [];
   const ast = scope.checked.ast;
-  const inference = ast.parent(declaration);
-  if (declarations.length !== 1 || declaration === undefined || ast.kindName(declaration) !== "KindTypeParameter" ||
-    inference === undefined || ast.as.AsInferTypeNode(inference)?.TypeParameter !== declaration || pattern === undefined)
-    return throwInvariant(invariant("A conditional binder requires its actual InferType parameter declaration."));
-  let owner: Node | undefined = inference;
-  while (owner !== undefined && owner !== pattern) {
-    if (!admit(scope, "edges")) return null;
-    owner = ast.parent(owner);
+  for (let index = 0; index < parameters.length; ++index) {
+    if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+    const parameter = parameters[index];
+    const symbol = parameter === undefined ? undefined : scope.checker.getTypeSymbol(parameter);
+    const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
+    const declaration = declarations[0];
+    const inference = ast.parent(declaration);
+    if (declarations.length !== 1 || declaration === undefined || ast.kindName(declaration) !== "KindTypeParameter"
+      || inference === undefined || ast.as.AsInferTypeNode(inference)?.TypeParameter !== declaration || pattern === undefined)
+      return throwInvariant(invariant("A conditional binder requires its actual InferType parameter declaration."));
+    let owner: Node | undefined = inference;
+    while (owner !== undefined && owner !== pattern) {
+      if (!admit(scope, "edges")) return null;
+      if (ast.kindName(owner) === "KindConditionalType")
+        return throwInvariant(invariant("A conditional binder belongs to its actual nearest extends pattern."));
+      owner = ast.parent(owner);
+    }
+    if (owner !== pattern) return throwInvariant(invariant("A direct conditional binder belongs to its actual extends pattern."));
+    const reference = referenceTo(scope, scope.program, declaration);
+    if (scope.meter.refusal !== null) return null;
+    if (reference === null) return throwInvariant(invariant("A conditional inference binder needs an admitted original declaration."));
+    result.push(reference);
   }
-  if (owner !== pattern) return throwInvariant(invariant("A direct conditional binder belongs to its actual extends pattern."));
-  const reference = referenceTo(scope, scope.program, declaration);
-  if (scope.meter.refusal !== null) return null;
-  if (reference === null) return throwInvariant(invariant("A conditional inference binder needs an admitted original declaration."));
-  return [reference];
+  return result;
 }
 
 function nativeInterfaceApplication(scope: CaptureScope, type: Type): TypeInterfaceApplication | null {
@@ -2345,7 +2349,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
       if (scope.meter.refusal !== null) return null;
       if (answer.declaration !== syntax || ast === undefined || operator === null || !authoredOperatorComponent(parent, operator, originalUse))
         throw new TypeError("front: a direct conditional requires its actual operator");
-      const inferParameters = conditionalBinder(scope, ast.ExtendsType, answer.inferParameters);
+      const inferParameters = conditionalBinders(scope, ast.ExtendsType, answer.inferParameters);
       if (inferParameters === null) return null;
       const check = authoredOperatorOperand(scope, ast.CheckType, answer.checkType);
       if (check === null) return null;

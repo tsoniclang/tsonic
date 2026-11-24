@@ -502,7 +502,7 @@ export function genericCarrierCase(fixture, kind) {
     case "projection-substitution": generic = { kind: "projection", source: 2, projection: { kind: "substitution", constraint: 3 } };
       concrete = { ...generic, source: 1, projection: { kind: "substitution", constraint: 1 } }; break;
     case "projection-conditional": generic = { kind: "projection", source: 2,
-      projection: { kind: "conditional", extends: 3, whenTrue: 2, whenFalse: 0, distributive: true, inferParameter: null } };
+      projection: { kind: "conditional", extends: 3, whenTrue: 2, whenFalse: 0, distributive: true, inferParameters: [] } };
       concrete = { ...generic, source: 1, projection: { ...generic.projection, extends: 1, whenTrue: 1 } }; break;
     case "projection-component": {
       const path = transportTypeTable(fixture).terms.find(value => value.kind === "projection" && value.projection.kind === "component").projection.component.path;

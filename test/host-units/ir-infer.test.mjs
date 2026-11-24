@@ -655,7 +655,7 @@ test("type and signature closure follows every actual arena edge without travers
     { kind: "open", group, variable: 0 }, { kind: "error" },
     { kind: "projection", source: 0, projection: { kind: "indexed", index: 19 } },
     ...["extends", "whenTrue", "whenFalse"].map((edge) => ({ kind: "projection", source: 0,
-      projection: { kind: "conditional", extends: 0, whenTrue: 0, whenFalse: 0, distributive: false, inferParameter: null, [edge]: 19 } })),
+      projection: { kind: "conditional", extends: 0, whenTrue: 0, whenFalse: 0, distributive: false, inferParameters: [], [edge]: 19 } })),
   ];
   const extra = { ...signature, id: 1, declaration: null, owner: null, kind: "construct",
     typeParameters: [{ declaration: parameterDeclaration, constraint: 0, default: 1 }],

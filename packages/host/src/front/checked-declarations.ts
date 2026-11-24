@@ -15,7 +15,7 @@ export interface DeclarationLowering {
   readonly definitions: ReadonlyMap<NodeId, DefId>;
   readonly resolution: (node: NodeId) => ConversionResult<Hir.HirResolution>;
   readonly memory: (node: NodeId) => Hir.CapturedFact<Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCapture | null>;
-  readonly checkedType: (node: Hir.TypeNode<Syntax>, inferParameter: NodeId | null) => ConversionResult<Hir.CapturedFact<TyId>>;
+  readonly checkedType: (node: Hir.TypeNode<Syntax>, inferParameters: readonly NodeId[]) => ConversionResult<Hir.CapturedFact<TyId>>;
   readonly numericLiteral: (type: Hir.CapturedFact<TyId>, spelling: RawNumericLiteral, kind: "number" | "bigint") =>
     ConversionResult<Extract<LiteralTypeValue, { readonly kind: "number" | "bigint" }>>;
   readonly numericOperand: (node: Hir.NumericLiteral<Syntax> | Hir.BigIntLiteral<Syntax>) => ConversionResult<Hir.CapturedFact<TyId>>;
@@ -62,7 +62,7 @@ function presentType(node: Hir.TypeNode<Checked>): TyId {
 
 function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syntax>, owner: DefId): ConversionResult<TypeReader> {
   const completed = new Map<NodeId, Hir.TypeNode<Checked>>();
-  const binders = new Map<NodeId, NodeId>();
+  const binders = new Map<NodeId, NodeId[]>();
   const child = (node: Hir.TypeNode<Syntax>): Hir.TypeNode<Checked> => completed.get(node.id)
     ?? fail("a type child must complete before its containing annotation");
   const typeOf: TypeReader = node => ({ kind: "complete", value: child(node) });
@@ -96,7 +96,7 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
         tsonic: { ...type.tsonic, core: context.core(node.id) } });
       continue;
     }
-    const type = context.checkedType(node, binders.get(node.id) ?? null);
+    const type = context.checkedType(node, binders.get(node.id) ?? []);
     if (type.kind !== "complete") return type;
     const tsonic: Hir.CheckedType = { core: context.core(node.id), type: type.value, referencedDefinitions: [] };
     let result: Hir.TypeNode<Checked>;
@@ -166,8 +166,9 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
       case "InferType": {
         if (frame.pattern === null && type.value.kind === "available") return fail("an inference parameter outside its actual extends pattern");
         if (frame.pattern !== null) {
-          if (binders.has(frame.pattern)) return fail("multiple inference binders for one actual extends pattern");
-          binders.set(frame.pattern, node.typeParameter.id);
+          const selected = binders.get(frame.pattern);
+          if (selected === undefined) binders.set(frame.pattern, [node.typeParameter.id]);
+          else selected.push(node.typeParameter.id);
         }
         const binder = typeParameter(context, node.typeParameter, frame.owner, typeOf);
         if (binder.kind !== "complete") return binder;

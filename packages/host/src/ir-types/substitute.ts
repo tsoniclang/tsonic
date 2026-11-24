@@ -190,8 +190,8 @@ function lexicalScopes() {
 
 function nestedPatternScope(graph: GraphValue, blocked: Scope, block: ReturnType<typeof lexicalScopes>["block"]): Scope | null {
   if (graph.kind !== "type" || graph.value.kind !== "projection" || graph.value.projection.kind !== "conditional") return null;
-  const binder = graph.value.projection.inferParameter;
-  return binder === null ? null : block(blocked, [parameterKey(binder)]);
+  const binders = graph.value.projection.inferParameters;
+  return binders.length === 0 ? null : block(blocked, binders.map(parameterKey));
 }
 
 function referenceScope(role: number, blocked: Scope, patternScope: Scope | null): Scope {
@@ -468,7 +468,7 @@ function transform<Stop extends TypeTableAdmissionStop>(
     const signatureOf = (signature: SigId): SigId => signatureIdentifier(edge(plan, "signature", signature).output);
     if (plan.kind === "type") {
       const value = plan.value;
-      typeRows.set(plan.output, value.kind === "projection" && value.projection.kind === "conditional" && value.projection.inferParameter !== null
+      typeRows.set(plan.output, value.kind === "projection" && value.projection.kind === "conditional" && value.projection.inferParameters.length !== 0
         ? remapConditional(value.source, value.projection, (_type, role) => typeIdentifier(target(required(plan.edges, role)).output))
         : remapTerm(value, typeOf, signatureOf));
     }

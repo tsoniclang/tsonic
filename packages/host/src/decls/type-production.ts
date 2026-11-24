@@ -226,7 +226,7 @@ export const produceType: ProduceType = (deps, request, operator, unit, match) =
   }
   if (projection.projection.kind === "conditional") {
     const conditional = projection.projection;
-    if (conditional.inferParameter !== null) return complete(site, type, { kind: "dynamic" });
+    if (conditional.inferParameters.length !== 0) return complete(site, type, { kind: "dynamic" });
     const check = readType(deps.types, projection.source);
     if (deferred(check)) return complete(site, type, { kind: "dynamic" });
     const pattern = readType(deps.types, conditional.extends);

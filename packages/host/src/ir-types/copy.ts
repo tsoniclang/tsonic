@@ -69,7 +69,9 @@ export function copyType(value: TypeTerm): TypeTerm {
     case "param": return { ...value };
   case "merged-parameter": return { ...value, parameters: [...value.parameters] };
     case "projection": return { ...value, projection: value.projection.kind === "component"
-      ? { ...value.projection, component: copyComponent(value.projection.component) } : { ...value.projection } };
+      ? { ...value.projection, component: copyComponent(value.projection.component) }
+      : value.projection.kind === "conditional" ? { ...value.projection, inferParameters: [...value.projection.inferParameters] }
+      : { ...value.projection } };
   }
 }
 

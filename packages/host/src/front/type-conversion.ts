@@ -409,18 +409,23 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       throw new TypeError("front: a lexical substitution requires its actual checked index occurrence");
     term = { kind: "projection", source: reference(form.base), projection: { kind: "substitution", constraint: reference(form.constraint) } };
   } else if (form.kind === "conditional") {
-    const binder = form.inferParameters[0];
-    if (form.inferParameters.length !== (binder === undefined ? 0 : 1))
-      throw new TypeError("front: a conditional projection requires its actual single inference parameter");
     const authored = authoredOperator(graph, row, component, form.operator, "ConditionalType", source);
     if (authored?.kind === "resource-limit") { graph.failure = authored; return authored; }
     if (form.application !== null || authored === null
       || form.whenTrue.kind !== "ready" || form.whenFalse.kind !== "ready")
       throw new TypeError("front: a conditional projection requires its actual checked operator component");
+    const binders = [];
+    for (let index = 0; index < form.inferParameters.length; ++index) {
+      const stopped = admitTypePublicationStep(graph.conversion.typeWork);
+      if (stopped !== null) { graph.failure = stopped; return stopped; }
+      const binder = form.inferParameters[index];
+      if (binder === undefined) throw new TypeError("front: a conditional projection requires dense actual inference parameters");
+      binders.push(deps.definitionOf(binder));
+    }
     term = { kind: "projection", source: reference(form.check), projection: { kind: "conditional",
       extends: reference(form.extends), whenTrue: reference(form.whenTrue.type), whenFalse: reference(form.whenFalse.type),
       distributive: form.distributive,
-      inferParameter: binder === undefined ? null : deps.definitionOf(binder) } };
+      inferParameters: binders } };
   } else if (form.kind === "merged-slot-parameter") {
     const parameters = [];
     for (let index = 0; index < form.declarations.length; ++index) {

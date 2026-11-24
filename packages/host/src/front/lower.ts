@@ -623,7 +623,7 @@ function declarationLowering(lowering: Lowering): DeclarationLowering {
   return {
     core: node => coreOf(lowering, node), definitions: lowering.definitionAt, memory: node => memoryOf(lowering, node),
     resolution: node => resolutionOf(lowering, node, "type"),
-    checkedType: (node, inferParameter) => {
+    checkedType: (node, inferParameters) => {
       const captured = lowering.authoredTypes.get(node.id);
       if (captured === undefined) return throwInvariant(invariant("Every checked type annotation retains its actual captured SDK type."));
       const form = lowering.raw.types.types[captured]?.form;
@@ -640,10 +640,17 @@ function declarationLowering(lowering: Lowering): DeclarationLowering {
         if (projection.kind === "conditional") {
           const stop = admitTypePublicationStep(lowering.typeWork);
           if (stop !== null) return stop;
-          const binder = projection.inferParameters[0];
-          if (inferParameter === null ? projection.inferParameters.length !== 0
-            : projection.inferParameters.length !== 1 || binder?.module !== lowering.raw.module || binder.node !== inferParameter)
-            return throwInvariant(invariant("A conditional projection must retain its actual extends inference parameter."));
+          if (projection.inferParameters.length !== inferParameters.length)
+            return throwInvariant(invariant("A conditional projection must retain all actual extends inference parameters."));
+          for (let index = 0; index < inferParameters.length; ++index) {
+            if (index !== 0) {
+              const charged = admitTypePublicationStep(lowering.typeWork);
+              if (charged !== null) return charged;
+            }
+            const binder = projection.inferParameters[index];
+            if (binder?.module !== lowering.raw.module || binder.node !== inferParameters[index])
+              return throwInvariant(invariant("A conditional projection must retain its actual ordered extends inference parameters."));
+          }
         }
         for (const [identity, operand] of operands) {
           const stop = admitTypePublicationStep(lowering.typeWork);

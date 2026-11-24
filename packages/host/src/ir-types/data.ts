@@ -229,7 +229,7 @@ export type TypeProjection =
   | { readonly kind: "indexed"; readonly index: TyId }
   | { readonly kind: "substitution"; readonly constraint: TyId }
   | { readonly kind: "conditional"; readonly extends: TyId; readonly whenTrue: TyId; readonly whenFalse: TyId;
-      readonly distributive: boolean; readonly inferParameter: DefId | null }
+      readonly distributive: boolean; readonly inferParameters: readonly DefId[] }
   | { readonly kind: "component"; readonly component: TypeComponent };
 
 export interface FixedExtent {

@@ -697,7 +697,7 @@ test("a conditional projection keeps the check, extends and two alternatives und
     const ids = [];
     for (const index of order) ids[index] = insertFixtureType(product, interner, terms[index]);
     const conditional = insertFixtureType(product, interner, { kind: "projection", source: ids[0], projection: {
-      kind: "conditional", extends: ids[1], whenTrue: ids[2], whenFalse: ids[3], distributive: true, inferParameter: null,
+      kind: "conditional", extends: ids[1], whenTrue: ids[2], whenFalse: ids[3], distributive: true, inferParameters: [],
     } });
     return { interner, ids, conditional };
   };
@@ -705,7 +705,7 @@ test("a conditional projection keeps the check, extends and two alternatives und
   const result = exportTypes(interner, publicationLimits);
   const { table, types } = completePublication(result);
   const expected = { kind: "projection", source: types[ids[0]], projection: {
-    kind: "conditional", extends: types[ids[1]], whenTrue: types[ids[2]], whenFalse: types[ids[3]], distributive: true, inferParameter: null,
+    kind: "conditional", extends: types[ids[1]], whenTrue: types[ids[2]], whenFalse: types[ids[3]], distributive: true, inferParameters: [],
   } };
   assert.deepEqual(table.terms[types[conditional]], expected);
   assert.deepEqual(parseTypes(printTypes(table)), { kind: "parsed", value: table });
@@ -728,7 +728,7 @@ test("conditional substitution protects only its extends and true edges even whe
   const parameter = insertFixtureType(product, interner, { kind: "param", parameter: binder });
   const value = insertFixtureType(product, interner, { kind: "primitive", primitive: "bool" });
   const projection = { kind: "conditional", extends: parameter, whenTrue: parameter, whenFalse: parameter,
-    distributive: false, inferParameter: binder };
+    distributive: false, inferParameters: [binder] };
   const conditional = insertFixtureType(product, interner, { kind: "projection", source: parameter, projection });
   const grounded = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter: binder, type: value }] };
   const result = substitute(interner, [conditional], grounded, limits(), fixtureTypeWork(product));
@@ -737,20 +737,45 @@ test("conditional substitution protects only its extends and true edges even whe
     { kind: "projection", source: value, projection: { ...projection, whenFalse: value } });
   assert.deepEqual(readType(interner, conditional), { kind: "projection", source: parameter, projection });
   const other = insertFixtureType(product, interner, { kind: "projection", source: parameter,
-    projection: { ...projection, inferParameter: definition("Other") } });
+    projection: { ...projection, inferParameters: [definition("Other")] } });
   assert.notEqual(other, conditional);
   const table = completePublication(exportTypes(interner, publicationLimits)).table;
   assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }), []);
   const printed = printTypes(table);
   assert.deepEqual(parseTypes(printed), { kind: "parsed", value: table });
-  const missingField = printed.replaceAll(/, inferParameter=def:"[^"]+"/gu, "");
+  const missingField = printed.replaceAll(/, inferParameters=\[[^\]]*\]/gu, "");
   assert.notEqual(missingField, printed);
   assert.notEqual(parseTypes(missingField).kind, "parsed");
-  for (const inferParameter of ["not-a-definition", undefined]) {
+  for (const inferParameters of [["not-a-definition"], undefined, [binder, binder]]) {
     const invalid = { ...table, terms: table.terms.map(term => term.kind === "projection" && term.projection.kind === "conditional"
-      ? { ...term, projection: { ...term.projection, inferParameter } } : term) };
+      ? { ...term, projection: { ...term.projection, inferParameters } } : term) };
     assert.equal(verifyTypes({ table: invalid, bindings: [], evidence: [] }).some(finding => finding.rule === "projection-owner"), true);
   }
+});
+
+test("each conditional binder protects only the extends pattern and true branch", () => {
+  const interner = createTypeInterner();
+  const first = definition("FirstBinder");
+  const second = definition("SecondBinder");
+  const firstType = product.internType(interner, { kind: "param", parameter: first });
+  const secondType = product.internType(interner, { kind: "param", parameter: second });
+  const checked = product.internType(interner, { kind: "primitive", primitive: "bool" });
+  const rejected = product.internType(interner, { kind: "string" });
+  const inferParameters = [first, second];
+  const term = { kind: "projection", source: firstType,
+    projection: { kind: "conditional", extends: firstType, whenTrue: secondType, whenFalse: secondType,
+      distributive: false, inferParameters } };
+  const conditional = insertFixtureType(product, interner, term);
+  const expected = { ...term, projection: { ...term.projection, inferParameters: [first, second] } };
+  inferParameters.reverse();
+  assert.deepEqual(readType(interner, conditional), expected);
+  assert.notEqual(insertFixtureType(product, interner, term), conditional);
+  const result = substitute(interner, [conditional], { ...emptyBindings(), classBindings: [
+    { kind: "bound", parameter: first, type: checked }, { kind: "bound", parameter: second, type: rejected },
+  ] }, limits(), fixtureTypeWork(product));
+  assert.equal(result.kind, "complete");
+  assert.deepEqual(readType(interner, result.value[0]), { ...expected, source: checked,
+    projection: { ...expected.projection, whenFalse: rejected } });
 });
 
 test("open key domains and substitution retain both independently bound and published operands", () => {

@@ -1,7 +1,7 @@
 import type { ComponentSelector, SumArmRole, SumFamily, TypeComponent, TypeProjection } from "./contract.js";
 import type { TypeTextValues } from "./text-values.js";
 import type { RecordReader } from "./text-readers.js";
-import { arrayReader, lazyReader, nullableReader, recordReader, unionReader } from "./text-readers.js";
+import { arrayReader, lazyReader, recordReader, unionReader } from "./text-readers.js";
 
 export function createTypeComponentReaders(values: TypeTextValues) {
   const reader_component = recordReader<TypeComponent>("TypeComponent", read => {
@@ -148,10 +148,10 @@ export function createTypeComponentReaders(values: TypeTextValues) {
       const whenTrue = read("whenTrue", lazyReader(() => values["type-id"]));
       const whenFalse = read("whenFalse", lazyReader(() => values["type-id"]));
       const distributive = read("distributive", lazyReader(() => values["boolean"]));
-      const inferParameter = read("inferParameter", nullableReader(() => values["definition-id"]));
-      return { fields: [extended, whenTrue, whenFalse, distributive, inferParameter], value: () => ({ kind: "conditional",
+      const inferParameters = read("inferParameters", arrayReader(() => values["definition-id"]));
+      return { fields: [extended, whenTrue, whenFalse, distributive, inferParameters], value: () => ({ kind: "conditional",
         extends: extended.value(), whenTrue: whenTrue.value(), whenFalse: whenFalse.value(), distributive: distributive.value(),
-        inferParameter: inferParameter.value() }) };
+        inferParameters: inferParameters.value() }) };
     });
     case "component": return recordReader<TypeProjection>("component", read => {
       const field_component = read("component", lazyReader(() => reader_component));

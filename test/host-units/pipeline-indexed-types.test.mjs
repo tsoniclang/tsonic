@@ -738,7 +738,7 @@ test("Stage 3 retains an authored infer binder while closed checker answers cros
   assert.equal(alias.type.trueType.tsonic.type.value, pattern.tsonic.type.value);
   assert.deepEqual(readType(checked.value.types, alias.type.tsonic.type.value).projection, {
     kind: "conditional", extends: alias.type.extendsType.tsonic.type.value, whenTrue: pattern.tsonic.type.value,
-    whenFalse: alias.type.falseType.tsonic.type.value, distributive: true, inferParameter: binder,
+    whenFalse: alias.type.falseType.tsonic.type.value, distributive: true, inferParameters: [binder],
   });
   const { modules, types, descriptions, typeWork } = checked.value;
   const instantiation = input.limits.instantiation;
@@ -760,7 +760,7 @@ test("Stage 3 retains an authored infer binder while closed checker answers cros
     assert.deepEqual(deferred.value.category, { kind: "dynamic" });
     const deferredType = readType(types, deferred.value.type);
     assert.equal(deferredType.source, argument);
-    assert.equal(deferredType.projection.inferParameter, binder);
+    assert.deepEqual(deferredType.projection.inferParameters, [binder]);
   } finally {
     pipelineWiring.rules.matchTypePattern = match;
   }
@@ -769,7 +769,7 @@ test("Stage 3 retains an authored infer binder while closed checker answers cros
   const [typedAlias, yes, no] = publishedStatements(moduleOf(result.value.modules));
   const { terms } = result.value.index.types;
   assert.equal(typedAlias.type.extendsType.type.elementType.type.typeParameter.tsonic.parameter.declaration, binder);
-  assert.equal(terms[typedAlias.tsonic.type].projection.inferParameter, binder);
+  assert.deepEqual(terms[typedAlias.tsonic.type].projection.inferParameters, [binder]);
   assert.deepEqual(terms[yes.tsonic.type], { kind: "primitive", primitive: "bool" });
   assert.deepEqual(terms[no.tsonic.type], { kind: "intrinsic", intrinsic: "never" });
 
@@ -788,11 +788,31 @@ test("Stage 3 retains an authored infer binder while closed checker answers cros
       });
       return { ...result, value: { ...module, types: { ...module.types, types: forms } } };
     };
-    assert.throws(() => captureSourceBarrier(input), /conditional projection must retain its actual extends inference parameter/u);
+    assert.throws(() => captureSourceBarrier(input), /conditional projection must retain its actual ordered extends inference parameters/u);
     assert.equal(crossed, true);
   } finally {
     pipelineWiring.front.captureModule = capture;
   }
+});
+
+test("independent multiple infer binders and a closed checker answer cross Program publication", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export type Choose<Shape> = Shape extends { left: infer Left; right: infer Right } ? Right : never;
+    export type Ready = Choose<{ left: boolean; right: string }>;
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const [template, ready] = publishedStatements(result.value.modules.find(row => row.module === input.snapshot.entryPoint));
+  const [left, right] = template.type.extendsType.members.nodes.map(member => member.type.typeParameter.tsonic.parameter.declaration);
+  assert.notEqual(left, right);
+  const { terms } = result.value.index.types;
+  const projection = terms[template.tsonic.type];
+  assert.equal(projection.kind, "projection");
+  assert.deepEqual(projection.projection.inferParameters, [left, right]);
+  assert.deepEqual(terms[projection.projection.whenTrue], { kind: "param", parameter: right });
+  assert.deepEqual(terms[ready.tsonic.type], { kind: "string" });
 });
 
 test("same-spelled conditional parameters keep their own definitions across true and false arms", async () => {
@@ -1121,7 +1141,7 @@ test("an actual direct conditional keeps all four operands without choosing a br
   const whenFalse = node.falseType.tsonic.type.value;
   const parameter = alias.typeParameters.nodes[0].tsonic.parameter.declaration;
   assert.deepEqual(readType(types, check), { kind: "param", parameter });
-  const projection = { kind: "conditional", extends: extended, whenTrue, whenFalse, distributive: true, inferParameter: null };
+  const projection = { kind: "conditional", extends: extended, whenTrue, whenFalse, distributive: true, inferParameters: [] };
   assert.deepEqual(readType(types, type), { kind: "projection", source: check, projection });
   assert.deepEqual(readType(types, closed.type.tsonic.type.value).value, { kind: "string", value: "done" });
   const bound = substitute(types, [type], {

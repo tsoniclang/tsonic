@@ -181,7 +181,7 @@ function term(value: TypeTerm): TextRecord {
           : projection.kind === "conditional" ? record("conditional", projection, ["extends", reference("t", projection.extends)],
             ["whenTrue", reference("t", projection.whenTrue)], ["whenFalse", reference("t", projection.whenFalse)],
             ["distributive", projection.distributive],
-            ["inferParameter", projection.inferParameter === null ? null : reference("def", projection.inferParameter)])
+            ["inferParameters", projection.inferParameters.map(parameter => reference("def", parameter))])
           : record("component", projection, ["component", deferred(() => component(projection.component))])]);
     }
     case "open": return record(value.kind, value, ["group", reference("group", value.group)], ["variable", value.variable]);

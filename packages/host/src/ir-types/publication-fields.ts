@@ -293,7 +293,8 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
     case "projection": {
       const value = selected.value;
       switch (value.kind) {
-        case "awaited": case "keyof": case "indexed": case "substitution": case "conditional": return { children: [] };
+        case "awaited": case "keyof": case "indexed": case "substitution": return { children: [] };
+        case "conditional": return { children: [{ kind: "group-definition-array", field: "inferParameters", value: value.inferParameters }] };
         case "component": return { children: [{ kind: "component", value: value.component }] };
       }
       return undefined;

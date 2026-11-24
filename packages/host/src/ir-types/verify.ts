@@ -187,9 +187,13 @@ function termReferences(value: TypeTerm, site: TypeSite, checks: Checks, path: I
         checks.type(value.projection.extends, site);
         checks.type(value.projection.whenTrue, site);
         checks.type(value.projection.whenFalse, site);
-        const binder = value.projection.inferParameter;
-        if (binder !== null && (typeof binder !== "string" || decodeDefId(binder).kind !== "decoded"))
-          checks.add("projection-owner", site, "projection.inferParameter");
+        const binders = value.projection.inferParameters;
+        if (!Array.isArray(binders) || new Set(binders).size !== binders.length)
+          checks.add("projection-owner", site, "projection.inferParameters");
+        else vector(binders, "projection-owner", site, "projection.inferParameters", checks, binder => {
+          if (typeof binder !== "string" || decodeDefId(binder).kind !== "decoded")
+            checks.add("projection-owner", site, "projection.inferParameters");
+        });
       }
       break;
     default: throw new TypeError("Types verification requires an actual canonical type term");
