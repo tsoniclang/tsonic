@@ -767,6 +767,12 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   const instance: BodyInstance = { body: body.body, bindings: body.bindings };
   const types = verifyTypePayload(input, { kind: "body", instance }, body, structure, declarationOf, emit, appendViolation, admit);
   if (types !== null) return { kind: "resource-stop", stop: types };
+  const aliasOf = input.layoutAliasOf;
+  if (aliasOf) {
+    const stopped = admit({ kind: "row" });
+    if (stopped !== null) return { kind: "resource-stop", stop: stopped };
+  }
+  const alias = aliasOf ? aliasOf(body.body) : null;
   const candidates = new Map<CandidateListId, readonly HirCandidate[]>();
   if (inventory.original !== undefined) for (const list of inventory.original.candidateLists) {
     if (list !== undefined) candidates.set(list.id, list.candidates);
@@ -783,6 +789,16 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     if (node.kind === "SwitchStatement") verifySwitchOperations(node, input.types, emit);
     const phase = node.tsonic;
     const checked = original?.tsonic;
+    const descriptor = phase !== null && "resolution" in phase && phase.resolution.kind === "layout-descriptor" ? phase.resolution : null;
+    if (descriptor !== null || alias !== null && alias.read.node === node.id) {
+      if (descriptor === null || alias === null || alias.read.body !== body.body || alias.read.node !== node.id ||
+        node.kind !== "Identifier" || node.tsonic.role !== "value" ||
+        original?.kind !== "Identifier" || original.tsonic.role !== "value" ||
+        original.tsonic.value.views.read.kind !== "available" ||
+        node.tsonic.type !== original.tsonic.value.views.read.value ||
+        !sameSourceReference(descriptor.descriptor, alias.descriptor))
+        emit("layout-call-exact", node, "a layout alias retains its actual checked immutable initializer and descriptor");
+    }
     const checkedIntrinsic = checked !== undefined && checked !== null && "resolution" in checked
       && checked.resolution.kind === "intrinsic-value";
     const typedIntrinsic = phase !== null && "resolution" in phase && phase.resolution.kind === "intrinsic-value";

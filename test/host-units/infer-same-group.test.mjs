@@ -429,7 +429,7 @@ test("unary elaboration retains the actual Rules decision and rejects a missing 
       return program.checked.checkerDiagnostics;
     } };
   const input = { instance: { body: body.body, bindings: { kind: "parametric" } },
-    scope: program.descriptions.get(body.owner).generics, body,
+    scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null,
     typing: { kind: "ready", constraints, solution: record.solution, template: null }, nestedBodies: [], initializers: [] };
   const result = wiring.elaborate.elaborate(deps, input);
   assert.equal(result.kind, "ok");
@@ -860,7 +860,7 @@ test("Elaborate replays the actual solved placed-body rows without selecting mod
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), nodeOf: program.domain.nodeOf,
     checkerDiagnosticsOf: () => [] };
   const input = { instance: { body: body.body, bindings: { kind: "parametric" } }, scope: program.descriptions.get(body.owner).generics,
-    body, typing: { kind: "ready", constraints, solution: record.solution, template: null }, nestedBodies: [], initializers: [] };
+    body, layoutAlias: null, typing: { kind: "ready", constraints, solution: record.solution, template: null }, nestedBodies: [], initializers: [] };
   const result = wiring.elaborate.elaborate(deps, input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.captures === typing.captures, true);

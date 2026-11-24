@@ -237,6 +237,10 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
         lazyReader(() => read.work_ArtifactBindings.reader))
       .field("aliases", "[SourceNodeRef]", value => sequenceWork("[SourceNodeRef]", value.aliases, actual => read.work_SourceNodeRef.write(actual)), sequenceReader("[SourceNodeRef]", lazyReader(() => read.work_SourceNodeRef.reader)))
       .finish((declaration, bindings, aliases) => ({ kind: "enum-member", declaration, bindings, aliases })));
+  const layoutReference = defineRecord<Extract<TirResolution, { readonly kind: "layout-descriptor" }>>(
+    "TirResolution#layout-descriptor", "TirResolution", { field: "kind", value: "layout-descriptor" }, "layout-descriptor", null, null, fields => fields
+      .field("descriptor", "SourceNodeRef", value => read.work_SourceNodeRef.write(value.descriptor), lazyReader(() => read.work_SourceNodeRef.reader))
+      .finish(descriptor => ({ kind: "layout-descriptor", descriptor })));
   const work_TirResolution_module: TirRecordCodec<TirResolution & { readonly kind: "module" }> = defineRecord<TirResolution & { readonly kind: "module" }>("TirResolution#module", "TirResolution", { field: "kind", value: "module" }, "module", null, null, fields => fields
     .field("target", "ImportTarget", value => read.work_ImportTarget.write(value.target), lazyReader(() => read.work_ImportTarget.reader))
     .finish((field_target) => ({ kind: "module", target: field_target })));
@@ -548,11 +552,12 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       case "definition": return work_TirResolution_definition.write(value);
       case "static": return staticResolution.write(value);
       case "enum-member": return enumResolution.write(value);
+      case "layout-descriptor": return layoutReference.write(value);
       case "module": return work_TirResolution_module.write(value);
       case "error": return work_TirResolution_error.write(value);
     }
   }, () => [work_TirResolution_local.reader, work_TirResolution_definition.reader, staticResolution.reader, enumResolution.reader,
-    work_TirResolution_module.reader, work_TirResolution_error.reader, intrinsicValue.reader]);
+    work_TirResolution_module.reader, work_TirResolution_error.reader, intrinsicValue.reader, layoutReference.reader]);
   const work_TirArgument: TirRecordCodec<TirArgument> = unionRecord<TirArgument>("TirArgument", (value: TirArgument): TirTypedRecordWork => {
     switch (value.kind) {
       case "provided": return work_TirArgument_provided.write(value);

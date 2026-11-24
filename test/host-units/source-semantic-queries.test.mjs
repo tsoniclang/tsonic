@@ -617,7 +617,7 @@ test("real bodyless call, method, construct and index formals retain definitions
   for (const source of orderedBodies) {
     const record = records.get(source.body);
     const answer = wiring.elaborate.elaborate(deps, { instance: { body: source.body, bindings: { kind: "parametric" } },
-      scope: program.descriptions.get(source.owner).generics, body: source, typing: readyTyping(record.constraints, record.solution),
+      scope: program.descriptions.get(source.owner).generics, body: source, layoutAlias: null, typing: readyTyping(record.constraints, record.solution),
       nestedBodies: source.nestedBodies.map(body => bodies.get(body)), initializers: [] });
     assert.equal(answer.kind, "ok");
     bodies.set(source.body, answer.value);
@@ -640,6 +640,7 @@ test("real bodyless call, method, construct and index formals retain definitions
     staticStorageOf: () => null,
     memberTableOf: () => null, bodyOf,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
+    layoutAliasOf: null,
     bindingScopesOf: visitBindingScopes(publication, bodyOf, owner => program.descriptions.get(owner).generics) };
   assert.equal(verifyChapter(verifier, publication).length, 0);
   assert.equal(verifyBody(verifier, module).length, 0);
@@ -696,7 +697,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     staticStorageOf: () => null,
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = (body, nestedBodies) => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
-    scope: program.descriptions.get(body.owner).generics, body,
+    scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null,
     typing: readyTyping(records.get(body.body).constraints, records.get(body.body).solution), nestedBodies, initializers: [] });
   const initializer = program.checked.bodies.find(body => body.root.kind === "TrueKeyword");
   const initialized = wiring.elaborate.elaborate(deps, inputOf(initializer, []));
@@ -1247,7 +1248,7 @@ test("real explicit and inferred calls retain their original endpoint, applied c
     staticStorageOf: () => null,
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const typed = wiring.elaborate.elaborate(deps, { instance: { body: body.body, bindings: { kind: "parametric" } },
-    scope: program.descriptions.get(body.owner).generics, body, typing: readyTyping(publication.constraints.constraints[0], publication.solution),
+    scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null, typing: readyTyping(publication.constraints.constraints[0], publication.solution),
     nestedBodies: [], initializers: [] });
   assert.equal(typed.kind, "ok");
   const [ordinary, returned] = typed.value.root.statements.nodes;
@@ -1263,7 +1264,7 @@ test("real explicit and inferred calls retain their original endpoint, applied c
   const moduleSolved = program.database.run(program.queries.solutionOf, moduleGroup.id);
   assert.equal(moduleSolved.kind, "completed");
   const moduleTyped = wiring.elaborate.elaborate(deps, { instance: { body: moduleSource.body, bindings: { kind: "parametric" } },
-    scope: program.descriptions.get(moduleSource.owner).generics, body: moduleSource,
+    scope: program.descriptions.get(moduleSource.owner).generics, body: moduleSource, layoutAlias: null,
     typing: readyTyping(moduleSolved.value.constraints.constraints[0], moduleSolved.value.solution), nestedBodies: [typed.value], initializers: [] });
   assert.equal(moduleTyped.kind, "ok");
   const { kind: role, node: declaration } = moduleTyped.value.root.statements.nodes[1];
@@ -1275,7 +1276,7 @@ test("real explicit and inferred calls retain their original endpoint, applied c
   const typedByBody = new Map([moduleTyped.value, typed.value].map(entry => [entry.body, entry]));
   const scope = program.descriptions.get(body.owner).generics;
   const bindings = { kind: "instantiated", bindings: fixture.types.rigidBindings(scope) };
-  const selected = wiring.elaborate.elaborate(deps, { instance: { body: body.body, bindings }, scope, body,
+  const selected = wiring.elaborate.elaborate(deps, { instance: { body: body.body, bindings }, scope, body, layoutAlias: null,
     typing: readyTyping(publication.constraints.constraints[0], publication.solution, typed.value), nestedBodies: [], initializers: [] });
   assert.equal(selected.kind, "ok");
   const typedModule = { module: program.checked.module, tree: { kind: "ready-root", root: moduleTyped.value.root },
@@ -1287,6 +1288,7 @@ test("real explicit and inferred calls retain their original endpoint, applied c
     staticStorageOf: () => null,
     memberTableOf: () => null, nominalOf: () => null, bodyOf, nodeOf: program.domain.nodeOf, localExists: program.domain.localExists,
     diagnostics: program.checked.checkerDiagnostics,
+    layoutAliasOf: null,
     bindingScopesOf: visitBindingScopes(typedModule, bodyOf, owner => program.descriptions.get(owner).generics) };
   assert.deepEqual(verifyChapter(verifier, typedModule), []);
   assert.deepEqual(verifyBody(verifier, typed.value), []);
@@ -1340,7 +1342,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
   const elaborate = source => {
     const record = records.get(source.body);
     const result = wiring.elaborate.elaborate(deps, { instance: { body: source.body, bindings: { kind: "parametric" } },
-      scope: program.descriptions.get(source.owner).generics, body: source, typing: readyTyping(record.constraints, record.solution),
+      scope: program.descriptions.get(source.owner).generics, body: source, layoutAlias: null, typing: readyTyping(record.constraints, record.solution),
       nestedBodies: source.nestedBodies.map(nested => typed.get(nested)), initializers: [] });
     assert.equal(result.kind, "ok");
     typed.set(source.body, result.value);
@@ -1355,7 +1357,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
   const scope = program.descriptions.get(initializer.owner).generics;
   assert.deepEqual(scope, { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
   const bindings = { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } };
-  const selected = wiring.elaborate.elaborate(deps, { instance: { body: initializer.body, bindings }, scope, body: initializer,
+  const selected = wiring.elaborate.elaborate(deps, { instance: { body: initializer.body, bindings }, scope, body: initializer, layoutAlias: null,
     typing: readyTyping(records.get(initializer.body).constraints, records.get(initializer.body).solution, template),
     nestedBodies: [], initializers: [] });
   assert.equal(selected.kind, "ok");
@@ -1372,7 +1374,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     const actualScope = program.descriptions.get(source.owner).generics;
     assert.deepEqual(actualScope, { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
     const record = records.get(source.body);
-    const replay = wiring.elaborate.elaborate(deps, { instance: { body: source.body, bindings }, scope: actualScope, body: source,
+    const replay = wiring.elaborate.elaborate(deps, { instance: { body: source.body, bindings }, scope: actualScope, body: source, layoutAlias: null,
       typing: readyTyping(record.constraints, record.solution, typed.get(source.body)),
       nestedBodies: source.nestedBodies.map(nested => selectedBodies.get(nested)), initializers: [] });
     assert.equal(replay.kind, "ok");
@@ -1390,6 +1392,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null
       : types.artifactBindingsKey(instance.bindings) === types.artifactBindingsKey(bindings) ? selectedBodies.get(instance.body) ?? null : null,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
+    layoutAliasOf: null,
     bindingScopesOf: suppliedTirScopes(target => {
       if (target.kind === "module") return target.module === program.checked.module ? [] : null;
       const source = program.domain.bodyOf.get(target.instance.body);
@@ -1452,7 +1455,7 @@ test("actual plain local assignment retains the RHS embedding and writable targe
     staticStorageOf: () => null,
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const input = { instance: { body: body.body, bindings: { kind: "parametric" } }, scope: program.descriptions.get(body.owner).generics,
-    body, typing: readyTyping(constraints, completed.value.solution), nestedBodies: [], initializers: [] };
+    body, layoutAlias: null, typing: readyTyping(constraints, completed.value.solution), nestedBodies: [], initializers: [] };
   const result = wiring.elaborate.elaborate(deps, input);
   assert.equal(result.kind, "ok");
   const actual = result.value.root.statements.nodes[0].expression;
@@ -1537,7 +1540,7 @@ test("throwing an actual string formal retains the value channel without a retur
     staticStorageOf: () => null,
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const input = { instance: { body: body.body, bindings: { kind: "parametric" } }, scope: program.descriptions.get(body.owner).generics,
-    body, typing: readyTyping(constraints, completed.value.solution), nestedBodies: [], initializers: [] };
+    body, layoutAlias: null, typing: readyTyping(constraints, completed.value.solution), nestedBodies: [], initializers: [] };
   const result = wiring.elaborate.elaborate(deps, input);
   assert.equal(result.kind, "ok");
   const statement = result.value.root.statements.nodes[0];
@@ -1626,7 +1629,7 @@ for (const [authored, annotation, kind, expected] of [
   const elaborate = body => {
     const record = records.get(body.body);
     const result = wiring.elaborate.elaborate(deps, { instance: { body: body.body, bindings: { kind: "parametric" } },
-      scope: program.descriptions.get(body.owner).generics, body, typing: readyTyping(record.constraints, record.solution),
+      scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null, typing: readyTyping(record.constraints, record.solution),
       nestedBodies: body.nestedBodies.map(nested => typed.get(nested)), initializers: [] });
     assert.equal(result.kind, "ok");
     typed.set(body.body, result.value);
@@ -1647,6 +1650,7 @@ for (const [authored, annotation, kind, expected] of [
     declarationOf: program.declarationOf, declarationSourceOf: program.domain.declarationSourceOf, memberTableOf: () => null, nominalOf: () => null,
     bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null : null,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
+    layoutAliasOf: null,
     bindingScopesOf: suppliedTirScopes(target => {
       if (target.kind === "module") return target.module === program.checked.module ? [] : null;
       const body = program.domain.bodyOf.get(target.instance.body);
@@ -1707,7 +1711,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
     staticStorageOf: () => null,
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = body => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
-    scope: program.descriptions.get(body.owner).generics, body,
+    scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null,
     typing: readyTyping(records.get(body.body).constraints, records.get(body.body).solution),
     nestedBodies: body.nestedBodies.map(nested => typed.get(nested)),
     initializers: body.params.filter(parameter => parameter.initializer !== null).map(parameter => typed.get(parameter.initializer)) });
@@ -1755,6 +1759,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
     declarationOf: program.declarationOf, declarationSourceOf: program.domain.declarationSourceOf, memberTableOf: () => null, nominalOf: () => null,
     bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null : null,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
+    layoutAliasOf: null,
     bindingScopesOf: suppliedTirScopes(target => {
       if (target.kind === "module") return target.module === program.checked.module ? [] : null;
       const body = program.domain.bodyOf.get(target.instance.body);
@@ -1792,6 +1797,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
       : instance.body === selectedInitializer.body ? selectedInitializer : instance.body === selectedCallable.body ? selectedCallable : null,
     requiredEntriesOf: instance => [selectedInitializer, selectedCallable].some(actual => actual.body === instance.body &&
       types.artifactBindingsKey(actual.bindings) === types.artifactBindingsKey(instance.bindings)) ? [0] : null,
+    layoutAliasOf: null,
     bindingScopesOf: (target, subject, visit) => target.kind === "body" && target.instance.bindings.kind === "instantiated"
       ? { kind: "complete", scopes: [program.descriptions.get(program.domain.bodyOf.get(target.instance.body).owner).generics,
         program.descriptions.get(program.domain.bodyOf.get(target.instance.body).owner).generics] }
@@ -1823,7 +1829,7 @@ test("an actual null return completes its inferred declaration and selected body
     staticStorageOf: () => null,
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = body => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
-    scope: program.descriptions.get(body.owner).generics, body,
+    scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null,
     typing: readyTyping(records.get(body.body).constraints, records.get(body.body).solution),
     nestedBodies: body.nestedBodies.map(nested => typed.get(nested)), initializers: [] });
   const callableSource = program.checked.bodies.find(body => body.root.kind === "Block");
@@ -1868,6 +1874,7 @@ test("an actual null return completes its inferred declaration and selected body
     bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null
       : instance.body === callable.body && types.artifactBindingsKey(instance.bindings) === types.artifactBindingsKey(bindings) ? selected.value : null,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
+    layoutAliasOf: null,
     bindingScopesOf: suppliedTirScopes(target => target.kind === "module" ? target.module === program.checked.module ? [] : null
       : target.instance.body === callable.body ? target.instance.bindings.kind === "parametric" ? [scope] : [scope, scope]
       : target.instance.body === moduleSource.body && target.instance.bindings.kind === "parametric"

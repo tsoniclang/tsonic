@@ -13,6 +13,8 @@ const missingChild: InvariantFailure = { owner: "ir-tir", query: null, origin: n
 export const layoutBindingOf: LayoutBindingOf = initializer => {
   if (initializer === null) return null;
   const expression = unparenthesizedExpression<TypedPhase>(initializer);
+  if (expression.kind === "Identifier" && expression.tsonic.role === "value" &&
+    expression.tsonic.resolution.kind === "layout-descriptor") return expression.tsonic.resolution;
   if (expression.kind !== "CallExpression" || !("layout" in expression.tsonic)) return null;
   const selected = expression.tsonic;
   return selected.layout === "value-layout" || selected.layout === "array-layout" || selected.layout === "field-layout" ? selected : null;

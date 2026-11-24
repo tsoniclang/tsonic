@@ -198,7 +198,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program", instanceB
   const tirInput = {
     source, module: { module: moduleId, tree: chapter, bodies: [tir] }, types,
     requiredEntriesOf: instance => lookup("requiredEntriesOf", instance),
-    bindingScopesOf: target => ({ kind: "complete", scopes: lookup("tirBindingScopesOf", target) }),
+    layoutAliasOf: null, bindingScopesOf: target => ({ kind: "complete", scopes: lookup("tirBindingScopesOf", target) }),
     declarationOf: definition => lookup("declarationOf", definition),
     declarationSourceOf: definition => {
       const entry = source.items.find(item => item.definition === definition);

@@ -80,6 +80,8 @@ export function textTirResolution(value: TirResolution): TextWork {
       case "enum-member":
         return record(value.kind, [field("declaration", textItemNodeRef(value.declaration)),
           field("bindings", textArtifactBindings(value.bindings)), field("aliases", sequence(value.aliases, textSourceNodeRef))]);
+      case "layout-descriptor":
+        return record(value.kind, [field("descriptor", textSourceNodeRef(value.descriptor))]);
       case "module":
         return record(value.kind, [
       field("target", textImportTarget(value.target)),

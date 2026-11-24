@@ -48,7 +48,7 @@ export function emptyVerificationInput(body, authoredNodes = [], scopeCount = 2)
     receiver: null, parameters: [], result: 0 }] };
   const declarations = new Map([[ownerId, { scope: emptyScope(), parameterCount: 0, endpoints: [] }]]);
   const originalNodes = new Map([[0, root], [1, end], ...authoredNodes.map(node => [node.id, node])]);
-  return { source, module, types, bindingScopesOf: bodyScopeReader(body, Array.from({ length: scopeCount }, emptyScope)),
+  return { source, module, types, layoutAliasOf: null, bindingScopesOf: bodyScopeReader(body, Array.from({ length: scopeCount }, emptyScope)),
     declarationOf: definition => declarations.get(definition) ?? null,
     declarationSourceOf: definition => {
       const entry = source.items.find(item => item.definition === definition);

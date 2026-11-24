@@ -1,7 +1,7 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { DefId, ModuleId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
 import type { ArtifactBindings, BindingScope, BodyInstance, SignatureOf, TypeOf, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
-import type { CheckedTypingCut, CheckedTypingCuts, HirBindingViews, HirBody, HirNode } from "../ir-hir/contract.js";
+import type { CheckedLayoutAlias, CheckedTypingCut, CheckedTypingCuts, HirBindingViews, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, ConstraintSet, RuleTable, Solution } from "../ir-infer/contract.js";
 import type { StaticStorageOf, TirApplication, TirBody, TirFormal, TirFormalInitializer } from "../ir-tir/contract.js";
 
@@ -40,6 +40,7 @@ export interface ElaborateInput {
   readonly instance: BodyInstance;
   readonly scope: BindingScope;
   readonly body: HirBody;
+  readonly layoutAlias: CheckedLayoutAlias | null;
   readonly typing: {
     readonly kind: "ready";
     readonly constraints: ConstraintSet;

@@ -730,12 +730,15 @@ test("field offsets follow the actual containing layout and publish the selected
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { printModuleBodies, parseModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
   const { create } = layoutInput(await loadFrontFixture());
-  const source = (fields, selected) => `interface Header { tag: boolean; payload: boolean }
+  const source = (fields, selected, aliased = false) => `interface Header { tag: boolean; payload: boolean }
     const word = make<boolean>({ datalayout: Abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
     const tag = field<Header, boolean>({ select: (value: Header) => value.tag, fieldlayout: word, byteoffset: 0, bytealignment: 8 });
     const payload = field<Header, boolean>({ select: (value: Header) => value.payload, fieldlayout: word, byteoffset: 8, bytealignment: 8 });
     const header = make<Header>({ datalayout: Abi, bytesize: 16, bytealignment: 8, stride: 16, fields: [${fields}] });
-    export const result = offset<Header, boolean>(header, (record: Header) => record.${selected});`;
+    ${aliased ? "const alias = (header); const second = alias;" : ""}
+    const first = true;
+    export const ordinary = first;
+    export const result = offset<Header, boolean>(${aliased ? "second" : "header"}, (record: Header) => record.${selected});`;
   const input = create(source("tag, payload", "payload"));
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -762,6 +765,51 @@ test("field offsets follow the actual containing layout and publish the selected
   assert.equal(ambiguous.kind, "refused");
   assert.equal(ambiguous.diagnostics.some(row => row.source === "metadata"
     && row.message === "A field offset cannot select more than one authored field descriptor."), true);
+
+  const aliased = create(source("tag, payload", "payload", true));
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { unparenthesizedExpression, resolveCheckedLayoutAlias } = await import("../../packages/host/dist/ir-hir/index.js");
+  const checked = captureSourceBarrier(aliased);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const typed = typeSourceBarrier(aliased, checked.value, createAccount(aliased.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const proof = typed.value.verifierOf(aliased.snapshot.entryPoint);
+  const aliases = proof.module.bodies.filter(body => body.bindings.kind === "parametric" && body.root.kind !== "SourceFile" && body.root.kind !== "Block" &&
+    unparenthesizedExpression(body.root).tsonic.resolution?.kind === "layout-descriptor");
+  assert.equal(aliases.length, 2);
+  const qualify = body => unparenthesizedExpression(body.root).tsonic.resolution.descriptor;
+  assert.deepEqual(qualify(aliases[0]), qualify(aliases[1]));
+  for (const body of aliases) {
+    assert.equal(typed.value.required.operations.some(operation => operation.kind === "body" &&
+      operation.execution.instance.body === body.body), false);
+    assert.deepEqual(proof.layoutAliasOf(body.body).descriptor, qualify(body));
+  }
+  const leaf = aliases.find(body => body.root.kind === "Identifier");
+  const crossed = { ...leaf, root: { ...leaf.root, tsonic: { ...leaf.root.tsonic, resolution: { kind: "layout-descriptor",
+    descriptor: { kind: "body", value: { body: leaf.body, node: leaf.root.id } } } } } };
+  const finding = verifyTir(proof, tirReadyReadAdmission(createAccount(aliased.limits.dataflow)))(crossed);
+  assert.equal(finding.kind, "complete");
+  assert.equal(finding.violations.some(row => row.rule === "layout-call-exact" && row.site.node === leaf.root.id), true);
+  const cut = { stage: "before checked alias root" };
+  assert.equal(resolveCheckedLayoutAlias({ ...checked.value.checked, bindingOf: checked.value.bindingOf, admit: () => cut },
+    { ...checked.value.checked.bodies.get(leaf.body), get root() { assert.fail("unadmitted alias root"); } }).stop === cut, true);
+  const published = analyzeHostProgram(aliased);
+  assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
+  const aliasModule = published.value.modules.find(row => row.module === aliased.snapshot.entryPoint);
+  const [observed] = aliasModule.bodies.flatMap(body => body.observations?.rows ?? []);
+  assert.equal(observed.value, 8n);
+  assert.deepEqual(observed.field, row.field);
+  assert.deepEqual(observed.layout, row.layout);
+  assert.equal(aliasModule.bodies.some(entry => entry.kind === "selected" && entry.tir.root.kind === "Identifier" &&
+    entry.tir.root.text === "first" && entry.tir.root.tsonic.resolution.kind === "static"), true);
+  const aliasWire = printModuleBodies(published.value.index, aliasModule);
+  const aliasDecode = parseModuleBodies(published.value.index, aliasWire);
+  assert.equal(aliasDecode.kind, "parsed");
+  assert.equal(printModuleBodies(published.value.index, aliasDecode.value), aliasWire);
 });
 
 test("selected native layout geometry reaches verified Program through the real constant and observation demands", async () => {

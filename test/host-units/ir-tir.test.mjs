@@ -336,7 +336,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   const scopes = new Map([[outer, [emptyScope(), emptyScope()]], [functionTemplate, [scope, scope]],
     ...instances.map(body => [body, [scope, scope, scope]])]);
   const scopeReaders = new Map([...scopes].map(([body, inventory]) => [body, bodyScopeReader(body, inventory)]));
-  const inputFor = selected => ({ source: initial.source, module, types, bindingScopesOf: scopeReaders.get(selected), diagnostics: [],
+  const inputFor = selected => ({ source: initial.source, module, types, bindingScopesOf: scopeReaders.get(selected), layoutAliasOf: null, diagnostics: [],
     declarationOf: selectedDefinition => declarations.get(selectedDefinition) ?? null,
     declarationSourceOf: selectedDefinition => {
       const entry = initial.source.items.find(item => item.definition === selectedDefinition);

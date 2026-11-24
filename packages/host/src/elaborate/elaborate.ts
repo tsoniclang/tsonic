@@ -520,6 +520,14 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const admitName = (node: Identifier<CheckedPhase>, position: number): void => {
     const checked = node.tsonic;
     if (checked.role !== "value" && checked.role !== "assignment-target") return notElaboratedYet(`a name of role ${checked.role}`, node.origin);
+    const alias = input.layoutAlias;
+    if (alias !== null && alias.read.body === body.body && alias.read.node === node.id) {
+      if (checked.role !== "value" || checked.value.views.read.kind !== "available")
+        return callerDefect("a descriptor alias must retain its actual checked read type", node.origin);
+      names[position] = { resolution: { kind: "layout-descriptor", descriptor: alias.descriptor },
+        storage: checked.value.views.read.value, role: "value" };
+      return;
+    }
     const binding = checked.resolution.kind === "binding" ? resolveModuleBinding(deps, checked.resolution.occurrence) : null;
     const resolution = binding === null ? checked.resolution : binding.target.kind === "available" ? binding.target.value
       : notElaboratedYet("a binding whose actual nearest target is unavailable (" + binding.target.reason + ")", node.origin);

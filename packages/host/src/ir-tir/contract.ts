@@ -3,7 +3,7 @@ import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { Block, CapturedFact, CheckedPhase, CheckedUnopenedDeclaration, DeclarationTarget, Expression, FunctionDeclaration, FunctionDeclarationHeader, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, NodeList, NonFunctionStatement, ParameterDeclaration, Phase, SourceFile, SourceFileHeader, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { ArrowFunction, LayoutCallRole, ObjectLiteralExpression, TextRange } from "../ir-hir/contract.js";
+import type { ArrowFunction, CheckedLayoutAlias, LayoutCallRole, ObjectLiteralExpression, TextRange } from "../ir-hir/contract.js";
 
 export interface TypedOperation {
   readonly decision: OperationDecision;
@@ -21,12 +21,18 @@ export interface TirEnumResolution {
   readonly aliases: readonly SourceNodeRef[];
 }
 
+export interface TirLayoutReference {
+  readonly kind: "layout-descriptor";
+  readonly descriptor: SourceNodeRef;
+}
+
 export type TirResolution =
   | { readonly kind: "local"; readonly local: LocalRef }
   | IntrinsicValueResolution
   | { readonly kind: "definition"; readonly definition: DefId; readonly aliases: readonly SourceNodeRef[] }
   | { readonly kind: "static"; readonly declaration: ItemNodeRef; readonly aliases: readonly SourceNodeRef[] }
   | TirEnumResolution
+  | TirLayoutReference
   | { readonly kind: "module"; readonly target: ImportTarget }
   | { readonly kind: "error"; readonly diagnostic: number };
 
@@ -236,7 +242,7 @@ export interface TirFieldOffsetArguments {
 
 export type TirCallArguments = NodeList<Expression<TypedPhase>> | TirLayoutArguments | TirFieldOffsetArguments;
 
-export type LayoutBindingOf = (initializer: Expression<TypedPhase> | null) => TypedLayoutApplication | null;
+export type LayoutBindingOf = (initializer: Expression<TypedPhase> | null) => TypedLayoutApplication | TirLayoutReference | null;
 export type LayoutObservationOf = (node: TirSyntaxOccurrence) => TypedLayoutApplication | null;
 export type RawValueTypeOf = (payload: TypedValue) => TyId;
 
@@ -786,6 +792,7 @@ export interface TirVerifierInput extends HirBindingViews {
   readonly requiredEntriesOf: (instance: BodyInstance) => readonly number[] | null;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;
   readonly layoutOperandOf: (instance: BodyInstance) => Expression<TypedPhase> | null;
+  readonly layoutAliasOf: ((body: BodyId) => CheckedLayoutAlias | null) | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
   readonly staticStorageOf: StaticStorageOf;

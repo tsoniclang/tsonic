@@ -76,7 +76,7 @@ export function readEnumResolutionText<Root>(cursor: Cursor, finish: (value: Tir
 }
 
 export function readTirResolutionText<Root>(cursor: Cursor, finish: (value: TirResolution) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["local","definition","static","enum-member","module","error","intrinsic-value"]), label =>
+  return atomicText(cursor, next => choice(next, ["local","definition","static","enum-member","layout-descriptor","module","error","intrinsic-value"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
@@ -100,6 +100,9 @@ export function readTirResolutionText<Root>(cursor: Cursor, finish: (value: TirR
                 atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, declaration, aliases }, finish))));
         case "enum-member":
           return readEnumResolutionFields(cursor, fields, finish);
+        case "layout-descriptor":
+          return fieldText<SourceNodeRef, Root>(cursor, fields, "descriptor", (next, done) => atomicText(next, readSourceNodeRef, done), descriptor =>
+            atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, descriptor }, finish)));
         case "module":
           return fieldText<ImportTarget, Root>(cursor, fields, "target", readImportTargetText, targetValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>

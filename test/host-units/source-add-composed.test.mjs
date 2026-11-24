@@ -398,7 +398,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
     const record = solved.get(body.body);
     const result = wiring.elaborate.elaborate(elaborateDeps, {
       instance: { body: body.body, bindings: { kind: "parametric" } }, scope: descriptions.get(body.owner).generics,
-      body, typing: { kind: "ready", constraints: record.constraints, solution: record.solution, template: null },
+      body, layoutAlias: null, typing: { kind: "ready", constraints: record.constraints, solution: record.solution, template: null },
       nestedBodies: body.nestedBodies.map(nested => typed.get(nested)), initializers: [],
     });
     assert.equal(result.kind, "ok");
@@ -434,6 +434,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   assert.deepEqual(types.readType(interner, actualModule.completion), { kind: "intrinsic", intrinsic: "void" });
   const publication = { module, tree: { kind: "ready-root", root: actualModule.root }, bodies: checked.bodies.map(body => typed.get(body.body)) };
   const verifier = { source: checked, module: publication, types: tableOf(), declarationOf, declarationSourceOf: domain.declarationSourceOf,
+    layoutAliasOf: null,
     bindingScopesOf: suppliedTirScopes(target => {
       if (target.kind === "module") return target.module === module ? [] : null;
       const body = domain.bodyOf.get(target.instance.body);
@@ -465,7 +466,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   assert.equal(selectedSignature.value.kind, "ok");
   assert.equal(selectedSignature.value.value.signature.id, actualFunction.signature, "actual selected empty-scope placement preserves the canonical signature");
   assert.equal(selectedSignature.value.value.request.bindings === selected.bindings, true, "the actual complete environment accompanies the answer");
-  const replay = template => wiring.elaborate.elaborate(elaborateDeps, { instance: selected, scope, body: functionBody,
+  const replay = template => wiring.elaborate.elaborate(elaborateDeps, { instance: selected, scope, body: functionBody, layoutAlias: null,
     typing: { kind: "ready", constraints: record.constraints, solution: record.solution, template }, nestedBodies: [], initializers: [] });
   assert.throws(() => replay(null), /without its template/u);
   assert.throws(() => replay({ ...actualFunction, owner: moduleBody.owner }), /actual parametric body template/u);
@@ -478,6 +479,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   const selectedPublication = { ...publication, bodies: [...publication.bodies, actualExecution] };
   const selectedVerifier = { ...verifier, module: selectedPublication, bodyOf: instance => instance.body === selected.body
     && types.artifactBindingsKey(instance.bindings) === types.artifactBindingsKey(selected.bindings) ? actualExecution : verifier.bodyOf(instance),
+    layoutAliasOf: null,
     bindingScopesOf: (target, subject, visit) => target.kind === "body" && target.instance.body === selected.body
       && target.instance.bindings.kind === "instantiated" ? { kind: "complete", scopes: [scope, scope] }
       : verifier.bindingScopesOf(target, subject, visit) };

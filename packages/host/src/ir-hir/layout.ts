@@ -1,6 +1,7 @@
 import type { NodeId, SourceNodeRef } from "../ids/contract.js";
-import type { CallExpression, CheckedLayoutConstructionOf, CheckedLayoutGeometryOperands, CheckedLayoutRoleOf, CheckedPhase, Expression, HirModuleBinding, HirNode,
-  LayoutDescriptorKind, LayoutDescriptorOperand, LayoutDescriptorSyntaxFault, Phase, ReadLayoutDescriptor, ReadLayoutSelector, ResolveCheckedLayout } from "./contract.js";
+import type { CallExpression, CheckedLayoutConstructionOf, CheckedLayoutGeometryOperands, CheckedLayoutRoleOf, CheckedLayoutSource, CheckedLayoutSourceDeps, CheckedPhase, Expression, HirModuleBinding, HirNode,
+  LayoutDescriptorKind, LayoutDescriptorOperand, LayoutDescriptorSyntaxFault, Phase, ReadLayoutDescriptor, ReadLayoutSelector, ResolveCheckedLayout,
+  ResolveCheckedLayoutAlias } from "./contract.js";
 
 const geometryNames: readonly LayoutDescriptorOperand[] = ["datalayout", "bytesize", "bytealignment", "stride"];
 function* descriptorNames(kind: LayoutDescriptorKind): Generator<LayoutDescriptorOperand> {
@@ -191,8 +192,44 @@ function absent(): { readonly kind: "complete"; readonly value: null } {
 export const resolveCheckedLayout: ResolveCheckedLayout = (deps, reference) => {
   const initial = deps.admit(1, 1);
   if (initial !== null) return { kind: "resource-stop", stop: initial };
+  return resolveLayout(deps, deps.nodeOf(reference));
+};
+
+export const resolveCheckedLayoutAlias: ResolveCheckedLayoutAlias = (deps, body) => {
+  const initial = deps.admit(1, 0);
+  if (initial !== null) return { kind: "resource-stop", stop: initial };
+  const root = body.root;
+  if (root.kind !== "Identifier" && root.kind !== "ParenthesizedExpression") return absent();
+  const qualify = deps.admit(2, 0);
+  if (qualify !== null) return { kind: "resource-stop", stop: qualify };
+  const declaration = deps.parentOf(root);
+  if (declaration?.kind !== "VariableDeclaration" || declaration.tsonic.initializer !== body.body ||
+    declaration.initializer !== root || deps.nodeOf({ kind: "body", value: { body: body.body, node: root.id } }) !== root)
+    return absent();
+  const list = deps.parentOf(declaration);
+  if (list?.kind !== "VariableDeclarationList" || !list.flags.includes("Const")) return absent();
+  let read = root;
+  while (read.kind === "ParenthesizedExpression") {
+    const stop = deps.admit(1, 0);
+    if (stop !== null) return { kind: "resource-stop", stop };
+    const child = read.expression;
+    if (child.kind !== "ParenthesizedExpression" && child.kind !== "Identifier") return absent();
+    read = child;
+  }
+  const prepare = deps.admit(1, 1);
+  if (prepare !== null) return { kind: "resource-stop", stop: prepare };
+  const resolved = resolveLayout(deps, read);
+  if (resolved.kind === "resource-stop") return resolved;
+  if (resolved.value === null) return absent();
+  const ready = deps.admit(2, 2);
+  return ready !== null ? { kind: "resource-stop", stop: ready }
+    : { kind: "complete", value: { read: { body: body.body, node: read.id }, descriptor: resolved.value.capture.occurrence } };
+};
+
+function resolveLayout<Stop extends object>(deps: CheckedLayoutSourceDeps<Stop>, root: HirNode | null):
+  { readonly kind: "complete"; readonly value: CheckedLayoutSource | null } | { readonly kind: "resource-stop"; readonly stop: Stop } {
   const visited = new Set<HirNode | HirModuleBinding>();
-  let node = deps.nodeOf(reference);
+  let node = root;
   while (node !== null) {
     const step = deps.admit(1, 1);
     if (step !== null) return { kind: "resource-stop", stop: step };
@@ -242,4 +279,4 @@ export const resolveCheckedLayout: ResolveCheckedLayout = (deps, reference) => {
     node = deps.nodeOf(owner);
   }
   return absent();
-};
+}

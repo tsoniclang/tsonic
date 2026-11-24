@@ -3,7 +3,8 @@ import { orderDiagnostics, resourceLimitDiagnostic, throwInvariant } from "../di
 import type { BodyId, DefId, ModuleId, SourceNodeRef } from "../ids/contract.js";
 import type { DataflowAccount, DataflowResult } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
-import type { CheckedPhase, CheckedTypingCut, Declaration, HirBody, HirNode, SourceFile } from "../ir-hir/contract.js";
+import type { CheckedLayoutAlias, CheckedPhase, CheckedTypingCut, Declaration, HirBody, HirNode, SourceFile } from "../ir-hir/contract.js";
+import { resolveCheckedLayoutAlias } from "../ir-hir/index.js";
 import type { InferenceDeclaration, InferenceGroup, InferSite, PlacedSignature } from "../ir-infer/contract.js";
 import { inferenceBindingSites, inferredPartKey } from "../ir-infer/index.js";
 import type { BindingScope, BodyInstance, Signature, SignatureRequest } from "../ir-types/contract.js";
@@ -253,6 +254,9 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         readonly scope: BindingScope; readonly publication: ScopedInferencePublication | QueryRefusal; readonly template: TirBody | null;
         readonly initializers: readonly BodyId[] };
   const unit = { query: "AnalyzeHostProgram", key: inputs.snapshot.source.input.packages.fingerprint };
+  let layoutAliases: Map<BodyId, CheckedLayoutAlias> | null = null;
+  const layoutsAvailable = source.layoutOperands !== null || inputs.snapshot.nativeFacts.geometry.layouts.length !== 0;
+  const aliasOf = (body: BodyId): CheckedLayoutAlias | null => layoutAliases?.get(body) ?? null;
   const exposure = selectExternalEntries(source, sources, inputs.snapshot.contributions.externalEntries, account);
   if (exposure.kind !== "complete") return analysisStop(exposure, unit);
   const initialization = planModuleInitialization(inputs.snapshot.entryPoint, source, exposure.value.selections, account);
@@ -337,8 +341,18 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
             : checkedChildOf(bodyOf(body), child, childKey);
         });
         const constraints = "kind" in publication ? undefined : publication.constraints.constraints.find(system => system.body === checked.body);
+        if (layoutsAvailable && mode === "parametric" && !("kind" in publication)) {
+          const alias = resolveCheckedLayoutAlias({ ...sources, bindingOf: source.bindingOf,
+            admit: (work, records) => chargeWork(account, work) ?? (records === 0 ? null : chargeResultEntries(account, records)) }, checked);
+          if (alias.kind !== "complete") return analysisStop(alias.stop, unit);
+          if (alias.value !== null) {
+            const keep = chargeResultEntries(account, layoutAliases === null ? 2 : 1);
+            if (keep !== null) return analysisStop(keep, unit);
+            (layoutAliases ??= new Map()).set(checked.body, alias.value);
+          }
+        }
         const result = pipelineWiring.elaborate.elaborate("kind" in publication ? elaboration : { ...elaboration, cuts: publication.checkedCuts },
-          { instance, scope, body: checked,
+          { instance, scope, body: checked, layoutAlias: aliasOf(checked.body),
           typing: "kind" in publication ? blocked(instance, publication) : {
             kind: "ready", constraints: constraints ?? fail("Elaboration requires the actual verified completed group solution."),
             solution: publication.solution, template,
@@ -569,6 +583,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       declarationOf, declarationSourceOf: sources.declarationSourceOf, nominalOf: source.nominalOf,
       nodeOf: sources.nodeOf, bindingOf: source.bindingOf, localExists: sources.localExists, staticStorageOf,
       diagnostics: original.checkerDiagnostics, bodyOf: instance => bodies.get(instanceKey(instance))?.body ?? null,
+      layoutAliasOf: layoutAliases === null ? null : aliasOf,
       layoutOperandOf: instance => {
         if (source.layoutOperands?.has(instance.body) !== true) return null;
         const root = bodies.get(instanceKey(instance))?.body.root;

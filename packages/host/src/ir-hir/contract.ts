@@ -4170,6 +4170,15 @@ export type ResolveCheckedLayout = <Stop extends object>(deps: CheckedLayoutSour
   | { readonly kind: "complete"; readonly value: CheckedLayoutSource | null }
   | { readonly kind: "resource-stop"; readonly stop: Stop };
 
+export interface CheckedLayoutAlias {
+  readonly read: NodeRef;
+  readonly descriptor: SourceNodeRef;
+}
+
+export type ResolveCheckedLayoutAlias = <Stop extends object>(deps: CheckedLayoutSourceDeps<Stop>, body: HirBody) =>
+  | { readonly kind: "complete"; readonly value: CheckedLayoutAlias | null }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+
 export type HirUnaryOperator = "+" | "-" | "!" | "~" | "++" | "--" | "typeof" | "void" | "delete";
 export type HirBinaryOperator = "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^"
   | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";
