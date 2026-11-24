@@ -198,6 +198,7 @@ function roleMatches(value: Constraint, key: ContributionKey): boolean {
 export function termReferences(term: TypeTerm, visitData: DataVisitor, path: string = "$"): { readonly types: readonly TyId[]; readonly signatures: readonly SigId[] } {
   switch (term.kind) {
     case "literal": return { types: [term.base], signatures: [] };
+    case "template-literal": return { types: term.spans.map(span => span.type), signatures: [] };
     case "union": case "intersection": return { types: term.members, signatures: [] };
     case "optional": return { types: [term.value], signatures: [] };
     case "array": case "fixed-array": return { types: [term.element], signatures: [] };
@@ -214,6 +215,7 @@ export function termReferences(term: TypeTerm, visitData: DataVisitor, path: str
       const types = [term.source];
       const signatures: SigId[] = [];
       if (term.projection.kind === "indexed") types.push(term.projection.index);
+      else if (term.projection.kind === "substitution") types.push(term.projection.constraint);
       else if (term.projection.kind === "conditional") types.push(term.projection.extends, term.projection.whenTrue, term.projection.whenFalse);
       else if (term.projection.kind === "component") visitData({ kind: "TypeComponent", value: term.projection.component }, reference => {
         if (reference.kind === "type") types.push(reference.value);

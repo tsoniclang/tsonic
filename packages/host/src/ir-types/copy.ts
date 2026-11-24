@@ -52,6 +52,7 @@ export function copyType(value: TypeTerm): TypeTerm {
     case "enum": case "self": case "open": case "error": return { ...value };
     case "literal": return { ...value, value: value.value.kind === "number"
       ? { ...value.value, value: { ...value.value.value } } : { ...value.value } };
+    case "template-literal": return { ...value, spans: value.spans.map(span => ({ ...span })) };
     case "union": case "intersection": return { ...value, members: [...value.members] };
     case "tuple": return { ...value, elements: value.elements.map(element => ({ ...element })) };
     case "fixed-array": return { ...value, extent: { ...value.extent } };

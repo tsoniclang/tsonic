@@ -148,6 +148,8 @@ function term(value: TypeTerm): TextRecord {
     case "string": case "error": return record(value.kind, value);
     case "intrinsic": return record(value.kind, value, ["intrinsic", value.intrinsic]);
     case "literal": return record(value.kind, value, ["value", literal(value.value)], ["base", reference("t", value.base)]);
+    case "template-literal": return record(value.kind, value, ["head", value.head],
+      ["spans", value.spans.map(span => record("template-span", span, ["type", reference("t", span.type)], ["tail", span.tail]))]);
     case "union": case "intersection": return record(value.kind, value, ["members", value.members.map(selected => reference("t", selected))]);
     case "optional": return record(value.kind, value, ["value", reference("t", value.value)]);
     case "array": return record(value.kind, value, ["element", reference("t", value.element)], ["readonly", value.readonly]);

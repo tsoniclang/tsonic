@@ -28,6 +28,15 @@ export function createTypeTextReaders() {
       const field_base = read("base", lazyReader(() => values["type-id"]));
       return { fields: [field_value, field_base], value: () => ({ kind: "literal", value: field_value.value(), base: field_base.value() }) };
     });
+    case "template-literal": return recordReader<TypeTerm>("template-literal", read => {
+      const head = read("head", lazyReader(() => values.string));
+      const spans = read("spans", arrayReader(() => recordReader("template-span", span => {
+        const type = span("type", lazyReader(() => values["type-id"]));
+        const tail = span("tail", lazyReader(() => values.string));
+        return { fields: [type, tail], value: () => ({ type: type.value(), tail: tail.value() }) };
+      })));
+      return { fields: [head, spans], value: () => ({ kind: "template-literal", head: head.value(), spans: spans.value() }) };
+    });
     case "union": return recordReader<TypeTerm>("union", read => {
       const field_members = read("members", arrayReader(() => values["type-id"]));
       return { fields: [field_members], value: () => ({ kind: "union", members: field_members.value() }) };

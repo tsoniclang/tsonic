@@ -132,7 +132,7 @@ function signatureReference(graph: TypeGraph, id: RawSignatureId, dependencies: 
   return handle.reference;
 }
 
-function isIndexedChild(parent: RawComponent, child: RawComponent | undefined, role: "tuple-element" | "argument-place", index: number,
+function isIndexedChild(parent: RawComponent, child: RawComponent | undefined, role: "tuple-element" | "argument-place" | "template-span", index: number,
   work: TypePublicationWork): boolean | TypePublicationStop {
   const path = child?.path;
   if (child === undefined || path === undefined || path === null || parent.id >= child.id || !sameSource(child.root, parent.root)
@@ -374,6 +374,21 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       members.push(reference(member));
     }
     term = { kind: form.kind, members };
+  } else if (form.kind === "template-literal") {
+    const spans = [];
+    for (let index = 0; index < form.spans.length; ++index) {
+      const stop = admitTypePublicationStep(graph.conversion.typeWork);
+      if (stop !== null) { graph.failure = stop; return stop; }
+      const span = form.spans[index];
+      const operand = span === undefined ? undefined : raw.types.types[span.type];
+      const child = operand === undefined ? undefined : raw.types.components[operand.component];
+      const related = isIndexedChild(component, child, "template-span", index, graph.conversion.typeWork);
+      if (typeof related !== "boolean") { graph.failure = related; return related; }
+      if (span === undefined || operand?.id !== span.type || !related)
+        throw new TypeError("front: a native template type must retain its actual ordered placeholder components");
+      spans.push({ type: reference(span.type), tail: span.tail });
+    }
+    term = { kind: "template-literal", head: form.head, spans };
   } else if (form.kind === "indexed-access") {
     if (row.alias.kind === "available" && row.alias.value !== null)
       throw new TypeError("front: checked selected indexed transport requires its retained application association");
@@ -397,25 +412,52 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
     const stop = admitTypePublicationStep(work);
     if (stop !== null) { graph.failure = stop; return stop; }
     const { module } = form.operator;
-    const conditional = sourceOccurrence(deps, form.operator)?.typeSyntax;
-    if (conditional?.kind !== "conditional" || module !== component.root.module || component.path !== null
-      || source.kind !== "TypeReference" || source.parent !== conditional.whenTrue || !sameSource(row.authoredTypeNode, component.root))
-      throw new TypeError("front: a lexical substitution requires its actual conditional and ordered checked operands");
-    const baseStop = admitTypePublicationStep(work);
-    if (baseStop !== null) { graph.failure = baseStop; return baseStop; }
-    const base = authoredOperandAt(raw, form.base, { module, node: conditional.check })?.form;
-    if (base?.kind !== "available" || base.value.kind !== "parameter")
-      throw new TypeError("front: a lexical substitution requires its actual conditional and ordered checked operands");
-    const constraintStop = admitTypePublicationStep(work);
-    if (constraintStop !== null) { graph.failure = constraintStop; return constraintStop; }
-    const constraint = authoredOperandAt(raw, form.constraint, { module, node: conditional.extends })?.form;
-    if (constraint?.kind !== "available" || constraint.value.kind !== "keyof")
-      throw new TypeError("front: a lexical substitution requires its actual conditional and ordered checked operands");
-    const indexedStop = admitTypePublicationStep(work);
-    if (indexedStop !== null) { graph.failure = indexedStop; return indexedStop; }
-    const indexed = sourceOccurrence(deps, { module, node: conditional.whenTrue })?.typeSyntax;
-    if (indexed?.kind !== "indexed" || indexed.index !== source.node)
-      throw new TypeError("front: a lexical substitution requires its actual checked index occurrence");
+    if (form.scope.kind === "mapped") {
+      const mapped = sourceOccurrence(deps, form.operator)?.typeSyntax;
+      if (mapped?.kind !== "mapped" || source.kind !== "TypeReference" || module !== component.root.module ||
+        component.path !== null || !sameSource(row.authoredTypeNode, component.root) ||
+        !sameSource(form.scope.parameter, { module, node: mapped.parameter }))
+        throw new TypeError("front: a mapped key requires its actual checked binder and use");
+      let current = source;
+      while (current.node !== mapped.value) {
+        const stop = admitTypePublicationStep(work);
+        if (stop !== null) { graph.failure = stop; return stop; }
+        const parent = current.parent === null ? null : sourceOccurrence(deps, { module, node: current.parent });
+        if (parent === null || parent.node >= current.node)
+          throw new TypeError("front: a mapped key use must belong to its actual checked value subtree");
+        current = parent;
+      }
+      for (const [id, role] of [[form.base, "projection-source"], [form.constraint, "projection-constraint"]] as const) {
+        const stop = admitTypePublicationStep(work);
+        if (stop !== null) { graph.failure = stop; return stop; }
+        const selected = raw.types.types[id];
+        const child = selected === undefined ? undefined : raw.types.components[selected.component];
+        if (selected?.id !== id || child?.path?.step.kind !== role || child.path.prefix !== null ||
+          !sameSource(child.root, component.root) || role === "projection-source" && (selected.form.kind !== "available" ||
+          selected.form.value.kind !== "parameter" || !sameSource(selected.form.value.parameter, form.scope.parameter)))
+          throw new TypeError("front: a mapped key requires its original native base and constraint");
+      }
+    } else {
+      const conditional = sourceOccurrence(deps, form.operator)?.typeSyntax;
+      if (conditional?.kind !== "conditional" || module !== component.root.module || component.path !== null
+        || source.kind !== "TypeReference" || source.parent !== conditional.whenTrue || !sameSource(row.authoredTypeNode, component.root))
+        throw new TypeError("front: a lexical substitution requires its actual conditional and ordered checked operands");
+      const baseStop = admitTypePublicationStep(work);
+      if (baseStop !== null) { graph.failure = baseStop; return baseStop; }
+      const base = authoredOperandAt(raw, form.base, { module, node: conditional.check })?.form;
+      if (base?.kind !== "available" || base.value.kind !== "parameter")
+        throw new TypeError("front: a lexical substitution requires its actual conditional and ordered checked operands");
+      const constraintStop = admitTypePublicationStep(work);
+      if (constraintStop !== null) { graph.failure = constraintStop; return constraintStop; }
+      const constraint = authoredOperandAt(raw, form.constraint, { module, node: conditional.extends })?.form;
+      if (constraint?.kind !== "available" || constraint.value.kind !== "keyof")
+        throw new TypeError("front: a lexical substitution requires its actual conditional and ordered checked operands");
+      const indexedStop = admitTypePublicationStep(work);
+      if (indexedStop !== null) { graph.failure = indexedStop; return indexedStop; }
+      const indexed = sourceOccurrence(deps, { module, node: conditional.whenTrue })?.typeSyntax;
+      if (indexed?.kind !== "indexed" || indexed.index !== source.node)
+        throw new TypeError("front: a lexical substitution requires its actual checked index occurrence");
+    }
     term = { kind: "projection", source: reference(form.base), projection: { kind: "substitution", constraint: reference(form.constraint) } };
   } else if (form.kind === "conditional") {
     const authored = authoredOperator(graph, row, component, form.operator, "ConditionalType", source);

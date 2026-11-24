@@ -160,6 +160,19 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
         result = { ...header(node), kind: node.kind, operator: node.operator, type: child(node.type), tsonic }; break;
       case "IndexedAccessType":
         result = { ...header(node), kind: node.kind, objectType: child(node.objectType), indexType: child(node.indexType), tsonic }; break;
+      case "MappedType": {
+        const parameter = typeParameter(context, node.typeParameter, frame.owner, typeOf);
+        if (parameter.kind !== "complete") return parameter;
+        const members = node.members === null ? null : typeElements(context, node.members.nodes, frame.owner, typeOf);
+        if (members !== null && members.kind !== "complete") return members;
+        result = { ...header(node), kind: node.kind,
+          readonlyToken: node.readonlyToken === null ? null : token(node.readonlyToken),
+          questionToken: node.questionToken === null ? null : token(node.questionToken),
+          typeParameter: parameter.value, nameType: node.nameType === null ? null : child(node.nameType),
+          type: node.type === null ? null : child(node.type),
+          members: node.members === null || members === null ? null : { loc: node.members.loc, nodes: members.value }, tsonic };
+        break;
+      }
       case "ConditionalType":
         result = { ...header(node), kind: node.kind, checkType: child(node.checkType), extendsType: child(node.extendsType),
           trueType: child(node.trueType), falseType: child(node.falseType), tsonic }; break;

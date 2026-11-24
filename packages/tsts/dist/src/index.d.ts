@@ -20,7 +20,7 @@ export type { NativeCheckerAdmission } from "./internal/checker/resource-admissi
 export type { CompletedTupleFormal, StructuredTypeInventory, TypeConditionalComponents, TypeConditionalBranch, TypeIndexInfo, TypeInterfaceApplication, TypeIntrinsicNullishFlags, TypeMappedPropertyInfo, TypePropertyHeader, TypePropertyHeaderInventory, TypePropertyInfo, TypePropertyInventory, TypePropertyRead, TypeReferenceArgumentInfo, TypeSignatureParameterInfo, TypeSignatureInfo, TypeSignatureThisParameterInfo, TypeShapeQueries, TypeTupleElementInfo, TypeTupleInfo, } from "./services/type-shape.js";
 export type { RetainedTypeAliasApplication, TypeAliasApplicationInfo, TypeAliasConditionalStep } from "./services/type-applications.js";
 export type { TypeIndexedAccessComponents, TypeIndexedAccessMember, TypeIndexedAccessSelection } from "./services/type-indexed-access.js";
-export type { TypeKeyOfComponents, TypeSubstitutionComponents } from "./services/type-dependent-operands.js";
+export type { TypeKeyOfComponents, TypeSubstitutionComponents, TypeTemplateLiteralComponents } from "./services/type-dependent-operands.js";
 export type { Node, SourceFile } from "./internal/ast/ast.js";
 export type { Diagnostic } from "./internal/ast/diagnostic.js";
 export type { Symbol } from "./internal/ast/symbol.js";

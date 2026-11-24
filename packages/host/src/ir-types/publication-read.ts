@@ -2,7 +2,7 @@ import type { TypeTerm, Signature, SignatureInput } from "./data.js";
 import type { LimitStop, TypePublicationWork, PublicationResult } from "./work.js";
 import { chargeWork, chargeCreated, workLimit, createdLimit } from "./work.js";
 import type { PublicationArray, PublicationNode, PublicationRecord, PublicationValue } from "./publication-fields.js";
-import { isPublicationArray, publicationArrayElement, publicationReferences, publicationScalarField, publicationShape, publicationWork } from "./publication-fields.js";
+import { isPublicationArray, publicationArrayElement, publicationReferences, publicationScalarField, publicationShape, publicationText, publicationWork } from "./publication-fields.js";
 
 type Phase = "read" | "emit" | "retain";
 interface InlinePath { readonly parent: InlinePath | null; readonly part: string }
@@ -78,6 +78,12 @@ function readPublication<Value, Stop extends LimitStop>(value: Value, root: Publ
     if (record !== null) return record;
     const malformed = publicationScalarField(task);
     if (malformed !== null) return malformedField(task.path, malformed);
+    const text = publicationText(task);
+    if (text !== null) {
+      if (typeof text.value !== "string") return malformedField(task.path, text.field);
+      const stop = work(text.value.length);
+      if (stop !== null) return stop;
+    }
     const references = publicationReferences(task);
     const recordReferences = (phase !== "read" ? work(references) : null) ?? (phase === "retain" ? retain(references) : null);
     if (recordReferences !== null) return recordReferences;

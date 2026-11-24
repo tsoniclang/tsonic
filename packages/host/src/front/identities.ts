@@ -78,6 +78,7 @@ function typeSyntax(node: Hir.SyntaxNode<Hir.SyntaxPhase>): Pick<ModuleDefinitio
   if (node.kind === "ConditionalType") return { typeSyntax: {
     kind: "conditional", check: node.checkType.id, extends: node.extendsType.id, whenTrue: node.trueType.id } };
   if (node.kind === "IndexedAccessType") return { typeSyntax: { kind: "indexed", index: node.indexType.id } };
+  if (node.kind === "MappedType") return { typeSyntax: { kind: "mapped", parameter: node.typeParameter.id, value: node.type?.id ?? null } };
   if (node.kind === "TypeReference") return { typeSyntax: { kind: "type-reference", arguments: node.typeArguments?.nodes.map(argument => argument.id) ?? [] } };
   if (node.kind === "UnionType") return { typeSyntax: { kind: "union", members: node.types.nodes.map(member => member.id) } };
   return {};
@@ -125,7 +126,7 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
     if (isModuleBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null)
       || node.kind === "IndexSignature" || node.kind === "MappedType") {
       if (inner === null) throw new TypeError("front: a binding has no genuine enclosing declaration identity");
-      sourceOccurrences.push({ node: node.id, parent: node.parent, kind: node.kind, origin: node.origin, occurrence: { kind: "item", value: {
+      sourceOccurrences.push({ node: node.id, parent: node.parent, kind: node.kind, origin: node.origin, ...typeSyntax(node), occurrence: { kind: "item", value: {
         owner: encodeDefId({ module, segments: inner.segments }), node: node.id } } });
     } else if (context !== null && requested.has(node.id)) {
       sourceOccurrences.push({ node: node.id, parent: node.parent, kind: node.kind, origin: node.origin, ...typeSyntax(node),

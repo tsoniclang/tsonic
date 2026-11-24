@@ -815,6 +815,42 @@ test("independent multiple infer binders and a closed checker answer cross Progr
   assert.deepEqual(terms[ready.tsonic.type], { kind: "string" });
 });
 
+test("a checked mapped tuple key retains its own native narrowing through Types publication", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export type Resolve<Values extends readonly unknown[]> = { [Key in keyof Values]: Values[Key] };
+  `);
+  const result = captureSourceBarrier(input);
+  assert.equal(result.kind, "ok");
+  assert.deepEqual(result.diagnostics, []);
+  const { module } = result.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+  const [alias] = module.tree.statements.nodes;
+  const mapped = alias.type;
+  assert.equal(mapped.kind, "MappedType");
+  assert.equal(mapped.type.kind, "IndexedAccessType");
+  const projection = mapped.type.indexType.tsonic.type;
+  assert.equal(projection.kind, "available");
+  const published = fixture.types.exportTypes(result.value.types, input.limits.instantiation);
+  assert.equal(published.kind, "complete");
+  const { table, types } = published.value;
+  const parsed = fixture.types.parseTypes(fixture.types.printTypes(table));
+  assert.equal(parsed.kind, "parsed");
+  assert.deepEqual(parsed.value, table);
+  const terms = table.terms;
+  const index = terms[types[projection.value]];
+  assert.equal(index.kind, "projection");
+  assert.equal(index.projection.kind, "substitution");
+  assert.deepEqual(terms[index.source], { kind: "param", parameter: mapped.typeParameter.tsonic.parameter.declaration });
+  const nativeConstraint = terms[index.projection.constraint];
+  assert.equal(nativeConstraint.kind, "union");
+  assert.equal(nativeConstraint.members.length, 2);
+  const numericText = nativeConstraint.members.find(member => terms[member].kind === "template-literal");
+  const number = nativeConstraint.members.find(member => member !== numericText);
+  assert.deepEqual(terms[numericText], { kind: "template-literal", head: "", spans: [{ type: number, tail: "" }] });
+  assert.deepEqual(terms[number], { kind: "primitive", primitive: "float64" });
+});
+
 test("an actual unreduced conditional alias keeps its original definition and separate operand", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

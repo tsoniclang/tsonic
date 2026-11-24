@@ -152,6 +152,15 @@ function termReferences(value: TypeTerm, site: TypeSite, checks: Checks, path: I
     case "literal": checks.type(value.base, site); break;
     case "union": case "intersection": types(value.members, "members"); break;
     case "optional": checks.type(value.value, site); break;
+    case "template-literal":
+      if (typeof value.head !== "string" || !Array.isArray(value.spans) || value.spans.length === 0) {
+        checks.add("type-reference", site, typeof value.head !== "string" ? "head" : "spans"); break;
+      }
+      vector(value.spans, "type-reference", site, "spans", checks, span => {
+        if (typeof span.tail !== "string") checks.add("type-reference", site, "spans.tail");
+        checks.type(span.type, site);
+      });
+      break;
     case "array": case "fixed-array": checks.type(value.element, site); break;
     case "tuple":
       for (const element of value.elements) if (element !== undefined) checks.type(element.type, site);

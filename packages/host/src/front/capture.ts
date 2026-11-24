@@ -2302,7 +2302,7 @@ function authoredOperatorComponent(scope: CaptureScope, component: RawComponent 
   return argument !== undefined && admittedTypeUse(scope, operator) === argument;
 }
 
-function lexicalSubstitution(scope: CaptureScope, type: Type, syntax: Node): RawTypeForm | undefined | null {
+function lexicalSubstitution(scope: CaptureScope, type: Type, syntax: Node, position: RawComponentId): RawTypeForm | undefined | null {
   const ast = scope.checked.ast;
   if (ast.kindName(syntax) !== "KindTypeReference") return undefined;
   const indexedNode = ast.parent(syntax);
@@ -2312,7 +2312,8 @@ function lexicalSubstitution(scope: CaptureScope, type: Type, syntax: Node): Raw
   const conditional = ast.kindName(conditionalNode) === "KindConditionalType" ? ast.as.AsConditionalTypeNode(conditionalNode) : undefined;
   if (conditionalNode === undefined || conditional === undefined || conditional.TrueType !== indexedNode
     || ast.kindName(conditional.ExtendsType) !== "KindTypeOperator"
-    || ast.operatorKindName(conditional.ExtendsType) !== "KindKeyOfKeyword") return undefined;
+    || ast.operatorKindName(conditional.ExtendsType) !== "KindKeyOfKeyword")
+    return mappedSubstitution(scope, type, syntax, position);
   if (!admit(scope, "edges")) return null;
   const substitution = scope.shape.getSubstitutionComponents(type);
   if (substitution === undefined) return undefined;
@@ -2327,7 +2328,69 @@ function lexicalSubstitution(scope: CaptureScope, type: Type, syntax: Node): Raw
   if (base === null) return null;
   const constraint = authoredOperatorOperand(scope, conditional.ExtendsType, substitution.constraint);
   if (constraint === null) return null;
-  return { kind: "substitution", operator, base, constraint };
+  return { kind: "substitution", operator, base, constraint, scope: { kind: "conditional" } };
+}
+
+function mappedSubstitution(scope: CaptureScope, type: Type, syntax: Node, position: RawComponentId): RawTypeForm | undefined | null {
+  const substitution = scope.shape.getSubstitutionComponents(type);
+  if (substitution === undefined) return undefined;
+  if (!admit(scope, "edges")) return null;
+  const ast = scope.checked.ast;
+  const baseSymbol = scope.checker.getTypeSymbol(substitution.base);
+  const declarations = scope.checker.getSymbolDeclarations(baseSymbol);
+  const declaration = declarations.length === 1 ? declarations[0] : undefined;
+  const owner = ast.parent(declaration);
+  if (declaration === undefined || owner === undefined || ast.kindName(owner) !== "KindMappedType") return undefined;
+  const mapped = ast.as.AsMappedTypeNode(owner);
+  const source = ast.as.AsTypeReferenceNode(syntax);
+  if (baseSymbol === undefined || mapped?.TypeParameter !== declaration || mapped.Type === undefined || mapped.NameType !== undefined ||
+    source === undefined || scope.checker.getSymbolAtLocation(source.TypeName) !== baseSymbol ||
+    scope.checker.getDeclaredTypeOfSymbol(baseSymbol) !== substitution.base) return undefined;
+  let child: Node | undefined = syntax;
+  while (child !== mapped.Type) {
+    if (!admit(scope, "edges")) return null;
+    if (child === undefined || child === owner) return undefined;
+    child = ast.parent(child);
+  }
+  const component = scope.tables.components[position];
+  if (component === undefined || component.id !== position)
+    return throwInvariant(invariant("A lexical mapped substitution requires its actual operand component."));
+  const operator = referenceTo(scope, scope.program, owner);
+  if (scope.meter.refusal !== null) return null;
+  const parameter = referenceTo(scope, scope.program, declaration);
+  if (scope.meter.refusal !== null) return null;
+  if (operator === null || parameter === null) return throwInvariant(invariant("A mapped key must retain its admitted binder and owner."));
+  const base = rawType(scope, () => withoutTypeCause(substitution.base),
+    appendComponent(scope, component, { kind: "projection-source" }), null);
+  if (base === null) return null;
+  const constraint = rawType(scope, () => withoutTypeCause(substitution.constraint),
+    appendComponent(scope, component, { kind: "projection-constraint" }), null);
+  return constraint === null ? null : { kind: "substitution", operator, base, constraint, scope: { kind: "mapped", parameter } };
+}
+
+function templateLiteral(scope: CaptureScope, position: RawComponentId, type: Type): RawTypeForm | null {
+  const template = scope.shape.getTemplateLiteralComponents(type);
+  if (template === undefined) return { kind: "scalar", scalar: "string" };
+  if (!admit(scope, "edges")) return null;
+  const parent = scope.tables.components[position];
+  const head = template.texts[0];
+  if (parent === undefined || head === undefined || template.types.length === 0)
+    return throwInvariant(invariant("A native template literal requires its actual texts and placeholders."));
+  if (!admit(scope, "edges", head.length) || !admit(scope, "facts")) return null;
+  const spans: { readonly type: RawTypeId; readonly tail: string }[] = [];
+  for (let index = 0; index < template.types.length; index += 1) {
+    if (!admit(scope, "edges", 2) || !admit(scope, "facts")) return null;
+    const operand = template.types[index];
+    const tail = template.texts[index + 1];
+    if (tail === undefined || operand === undefined)
+      return throwInvariant(invariant("A native template literal requires every actual placeholder and text."));
+    if (!admit(scope, "edges", tail.length)) return null;
+    const type = rawType(scope, () => withoutTypeCause(operand),
+      appendComponent(scope, parent, { kind: "template-span", index }), null);
+    if (type === null) return null;
+    spans.push({ type, tail });
+  }
+  return { kind: "template-literal", head, spans };
 }
 
 function sourceEnvironment(scope: CaptureScope, type: Type): RawTypeForm | null {
@@ -2397,7 +2460,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   const shape = scope.shape;
   const syntax = originalUse === null ? undefined : admittedTypeUse(scope, originalUse);
   if (syntax !== undefined) {
-    const substitution = lexicalSubstitution(scope, type, syntax);
+    const substitution = lexicalSubstitution(scope, type, syntax, position);
     if (substitution !== undefined) return substitution;
     if (scope.checked.ast.kindName(syntax) === "KindTypeOperator" && scope.checked.ast.operatorKindName(syntax) === "KindKeyOfKeyword") {
       if (!admit(scope, "edges")) return null;
@@ -2530,7 +2593,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   if (!literal && !shape.isIntersection(type) && shape.isBooleanLike(type)) return { kind: "scalar", scalar: "boolean" };
   if (!literal && !shape.isUnion(type) && !shape.isIntersection(type)) {
     if (shape.isNumberLike(type)) return { kind: "scalar", scalar: "number" };
-    if (shape.isStringLike(type)) return { kind: "scalar", scalar: "string" };
+    if (shape.isStringLike(type)) return templateLiteral(scope, position, type);
     if (shape.isBigIntLike(type)) return { kind: "scalar", scalar: "bigint" };
     if (shape.isSymbolLike(type)) return { kind: "scalar", scalar: "symbol" };
     if (shape.isAny(type)) return { kind: "scalar", scalar: "any" };

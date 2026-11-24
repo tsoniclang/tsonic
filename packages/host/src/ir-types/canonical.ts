@@ -71,7 +71,7 @@ export function normalizeType<Stop extends LimitStop>(term: TypeTerm, read: (typ
     case "source-environment": return emit({ ...term,
       members: [...term.members].sort((left, right) => compareMemberKeys(left.key, right.key)) });
     case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
-    case "literal": case "array": case "fixed-array": case "tuple": case "declared": case "merged-interface":
+    case "literal": case "template-literal": case "array": case "fixed-array": case "tuple": case "declared": case "merged-interface":
     case "merged-parameter": case "alias-application": case "construction-reference":
     case "projection": return emit(term);
   }
@@ -147,6 +147,7 @@ export function remapTerm(value: TypeTerm, typeOf: (value: TyId) => TyId, signat
     case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
     case "source-environment": case "merged-parameter": return value;
     case "literal": return { ...value, base: typeOf(value.base) };
+    case "template-literal": return { ...value, spans: value.spans.map(span => ({ ...span, type: typeOf(span.type) })) };
     case "union": case "intersection": return { ...value, members: value.members.map(typeOf) };
     case "optional": return { ...value, value: typeOf(value.value) };
     case "array": case "fixed-array": return { ...value, element: typeOf(value.element) };

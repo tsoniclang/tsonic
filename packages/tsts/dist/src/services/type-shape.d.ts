@@ -1,6 +1,6 @@
 import type { GoPtr } from "../go/compat.js";
 import type { TypeIndexedAccessComponents, TypeIndexedAccessSelection } from "./type-indexed-access.js";
-import type { TypeKeyOfComponents, TypeSubstitutionComponents } from "./type-dependent-operands.js";
+import type { TypeKeyOfComponents, TypeSubstitutionComponents, TypeTemplateLiteralComponents } from "./type-dependent-operands.js";
 import { type CompletedTupleFormal } from "./signature-formal-evidence.js";
 import { type RetainedTypeAliasApplication, type TypeAliasApplicationInfo } from "./type-applications.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
@@ -158,6 +158,7 @@ export interface TypeShapeQueries {
     readonly getInstantiatedBaseTypes: (type: GoPtr<Type>) => readonly Type[] | undefined;
     readonly getKeyOfComponents: (type: GoPtr<Type>) => TypeKeyOfComponents | undefined;
     readonly getSubstitutionComponents: (type: GoPtr<Type>) => TypeSubstitutionComponents | undefined;
+    readonly getTemplateLiteralComponents: (type: GoPtr<Type>) => TypeTemplateLiteralComponents | undefined;
     readonly getTupleInfo: (type: GoPtr<Type>) => TypeTupleInfo | undefined;
     readonly getObjectPropertyInfo: (type: GoPtr<Type>, name: string) => TypePropertyInfo | null | undefined;
     readonly getEnumOwnerDeclaration: (type: GoPtr<Type>) => GoPtr<Node>;

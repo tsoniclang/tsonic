@@ -123,7 +123,7 @@ export type RawComputedMemberKey =
 
 export type RawComponentStep =
   | { readonly kind: "class-value" | "element" | "optional-value" | "projection-source" | "projection-index"
-      | "projection-extends" | "projection-when-true" | "projection-when-false" }
+      | "projection-extends" | "projection-when-true" | "projection-when-false" | "projection-constraint" }
   | { readonly kind: "member"; readonly declaration: RawNodeRef; readonly access: "read" | "write" }
   | Extract<RawMemberOrigin, { readonly kind: "source-member" }>
   | { readonly kind: "intrinsic-member"; readonly symbol: IntrinsicMemberOrigin; readonly access: "read" | "write" }
@@ -133,7 +133,7 @@ export type RawComponentStep =
   | { readonly kind: "parameter"; readonly signature: RawSignatureId; readonly index: number }
   | { readonly kind: "receiver" | "result"; readonly signature: RawSignatureId }
   | { readonly kind: "type-argument"; readonly declaration: RawNodeRef; readonly index: number }
-  | { readonly kind: "projection-argument"; readonly index: number }
+  | { readonly kind: "projection-argument" | "template-span"; readonly index: number }
   | { readonly kind: "union-member" | "intersection-member" | "tuple-element" | "argument-place" | "parameter-place"; readonly index: number }
   | { readonly kind: "index-key" | "index-value"; readonly origin: RawNodeRef; readonly key: RawTypeId }
   | { readonly kind: "argument-tail" | "parameter-tail"; readonly start: number }
@@ -239,6 +239,8 @@ export type RawTypeForm =
   | { readonly kind: "scalar"; readonly scalar: "number" | "bigint" | "boolean" | "string" | "symbol"
       | "null" | "undefined" | "void" | "any" | "unknown" | "object" | "never" }
   | { readonly kind: "parameter"; readonly parameter: RawNodeRef; readonly constraint: RawTypeId | null; readonly default: RawTypeId | null }
+  | { readonly kind: "template-literal"; readonly head: string;
+      readonly spans: readonly { readonly type: RawTypeId; readonly tail: string }[] }
   | { readonly kind: "self"; readonly owner: RawNodeRef }
   | { readonly kind: "enum"; readonly declaration: RawNodeRef }
   | { readonly kind: "declared"; readonly declaration: RawNodeRef; readonly facet: "instance" | "value";
@@ -261,7 +263,8 @@ export type RawTypeForm =
       readonly whenTrue: RawConditionalBranch; readonly whenFalse: RawConditionalBranch; readonly distributive: boolean;
       readonly inferParameters: readonly RawNodeRef[];
       readonly application: readonly { readonly parameter: RawNodeRef; readonly type: RawTypeId }[] | null }
-  | { readonly kind: "substitution"; readonly operator: RawNodeRef; readonly base: RawTypeId; readonly constraint: RawTypeId };
+  | { readonly kind: "substitution"; readonly operator: RawNodeRef; readonly base: RawTypeId; readonly constraint: RawTypeId;
+      readonly scope: { readonly kind: "conditional" } | { readonly kind: "mapped"; readonly parameter: RawNodeRef } };
 
 export interface RawCheckedType {
   readonly id: RawTypeId;
@@ -887,6 +890,7 @@ export interface ModuleSourceOccurrence {
   readonly typeSyntax?: { readonly kind: "keyof"; readonly target: NodeId }
     | { readonly kind: "conditional"; readonly check: NodeId; readonly extends: NodeId; readonly whenTrue: NodeId }
     | { readonly kind: "indexed"; readonly index: NodeId }
+    | { readonly kind: "mapped"; readonly parameter: NodeId; readonly value: NodeId | null }
     | { readonly kind: "type-reference"; readonly arguments: readonly NodeId[] }
     | { readonly kind: "union"; readonly members: readonly NodeId[] };
 }

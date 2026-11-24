@@ -1,6 +1,6 @@
 import { readObjectPropertyInfo, readTypeIndexInfo, readTypePropertyInfo, readTypePropertyHeader } from "./type-members.js";
 import { readTypeIndexedAccessComponents, selectTypeIndexedAccess } from "./type-indexed-access.js";
-import { readTypeKeyOfComponents, readTypeSubstitutionComponents } from "./type-dependent-operands.js";
+import { readTypeKeyOfComponents, readTypeSubstitutionComponents, readTypeTemplateLiteralComponents } from "./type-dependent-operands.js";
 import { readCompletedTupleFormal } from "./signature-formal-evidence.js";
 import { readConditionalApplication, readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
 import { Node_Symbol, Node_Type, SourceFile_FileName } from "../internal/ast/ast.js";
@@ -147,6 +147,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
         },
         getKeyOfComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeKeyOfComponents(checker, type)),
         getSubstitutionComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeSubstitutionComponents(checker, type)),
+        getTemplateLiteralComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeTemplateLiteralComponents(checker, type)),
         getTupleInfo: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypeTupleInfo(checker, type)),
         getObjectPropertyInfo: (type, name) => withObject(type, (checker, object) => readObjectPropertyInfo(checker, object, name)),
         getEnumOwnerDeclaration: type => withCheckerForType(program, type, defaultOptions, () => enumOwnerDeclaration(type)),

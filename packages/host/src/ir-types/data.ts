@@ -239,6 +239,8 @@ export interface FixedExtent {
 
 export type TypeTerm =
   | { readonly kind: "primitive"; readonly primitive: NativePrimitive }
+  | { readonly kind: "template-literal"; readonly head: string;
+      readonly spans: readonly { readonly type: TyId; readonly tail: string }[] }
   | { readonly kind: "string" }
   | { readonly kind: "intrinsic"; readonly intrinsic: Intrinsic }
   | { readonly kind: "literal"; readonly value: LiteralTypeValue; readonly base: TyId }

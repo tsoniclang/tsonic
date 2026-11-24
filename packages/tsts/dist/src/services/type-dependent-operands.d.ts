@@ -9,6 +9,11 @@ export interface TypeSubstitutionComponents {
     readonly base: Type;
     readonly constraint: Type;
 }
+export interface TypeTemplateLiteralComponents {
+    readonly texts: readonly string[];
+    readonly types: readonly GoPtr<Type>[];
+}
 export declare function readTypeKeyOfComponents(checker: GoPtr<Checker>, type: GoPtr<Type>): TypeKeyOfComponents | undefined;
 export declare function readTypeSubstitutionComponents(checker: GoPtr<Checker>, type: GoPtr<Type>): TypeSubstitutionComponents | undefined;
+export declare function readTypeTemplateLiteralComponents(checker: GoPtr<Checker>, type: GoPtr<Type>): TypeTemplateLiteralComponents | undefined;
 //# sourceMappingURL=type-dependent-operands.d.ts.map

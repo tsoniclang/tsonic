@@ -24,6 +24,7 @@ export type PublicationRecord = { readonly field?: string } & (
   | { readonly kind: "type-parameter"; readonly value: TypeParameter }
   | { readonly kind: "signature-parameter"; readonly value: SignatureParameter }
   | { readonly kind: "tuple-element"; readonly value: TupleElement }
+  | { readonly kind: "template-span"; readonly value: Extract<TypeTerm, { readonly kind: "template-literal" }>["spans"][number] }
   | { readonly kind: "rational"; readonly value: ExactRational }
   | { readonly kind: "literal"; readonly value: LiteralTypeValue }
   | { readonly kind: "extent"; readonly value: FixedExtent }
@@ -36,6 +37,7 @@ export type PublicationValue = PublicationRecord | { readonly kind: "scalar" };
 export type PublicationArray = { readonly field: string } & (
   | { readonly kind: "type-id-array"; readonly value: readonly TyId[] }
   | { readonly kind: "tuple-element-array"; readonly value: readonly TupleElement[] }
+  | { readonly kind: "template-span-array"; readonly value: Extract<TypeTerm, { readonly kind: "template-literal" }>["spans"] }
   | { readonly kind: "member-array"; readonly value: readonly Member[] }
   | { readonly kind: "member-header-array"; readonly value: readonly MemberInventoryEntry[] }
   | { readonly kind: "index-signature-array"; readonly value: readonly IndexSignature[] }
@@ -60,7 +62,7 @@ export function publicationWork(selected: PublicationRecord): number | undefined
         case "primitive": case "intrinsic": case "union": case "intersection": case "optional":
         case "enum": case "param": case "merged-parameter": case "self": case "source-environment": return 2;
         case "string": case "error": return 1;
-        case "literal": case "array": case "tuple": case "fixed-array": case "callable":
+        case "literal": case "template-literal": case "array": case "tuple": case "fixed-array": case "callable":
         case "construction-reference": case "merged-interface": case "alias-application": case "projection": case "open": return 3;
         case "shape": case "declared": return 5;
       }
@@ -69,6 +71,7 @@ export function publicationWork(selected: PublicationRecord): number | undefined
     case "origin": return selected.value.kind === "mapped" ? 3 : 2;
     case "source": case "node": case "item-node": case "local": case "construction":
     case "component": case "extent": case "composition": return 2;
+    case "template-span": return 2;
     case "selector":
       switch (selected.value.kind) {
         case "class-value": case "optional-value": case "array-element": case "intersection-result":
@@ -99,6 +102,7 @@ export function publicationScalarField(selected: PublicationRecord): string | nu
       const value = selected.value;
       if (value.kind === "primitive" && !isNativePrimitive(value.primitive)) return "primitive";
       if (value.kind === "merged-interface" && (!Array.isArray(value.definitions) || value.definitions.length < 2)) return "definitions";
+      if (value.kind === "template-literal" && (!Array.isArray(value.spans) || value.spans.length === 0)) return "spans";
       return null;
     }
     case "signature": case "signature-input":
@@ -114,6 +118,12 @@ export function publicationScalarField(selected: PublicationRecord): string | nu
   }
 }
 
+export function publicationText(selected: PublicationRecord): { readonly value: string; readonly field: string } | null {
+  if (selected.kind === "type" && selected.value.kind === "template-literal") return { value: selected.value.head, field: "head" };
+  if (selected.kind === "template-span") return { value: selected.value.tail, field: "tail" };
+  return null;
+}
+
 export function publicationReferences(selected: PublicationRecord): number {
   switch (selected.kind) {
     case "type":
@@ -125,7 +135,7 @@ export function publicationReferences(selected: PublicationRecord): number {
     case "member": return Number(selected.value.read !== null) + Number(selected.value.write !== null);
     case "type-parameter": return Number(selected.value.constraint !== null) + Number(selected.value.default !== null);
     case "index-signature": return 2 + Number(selected.value.write !== null);
-    case "arm": case "signature-parameter": case "tuple-element": return 1;
+    case "arm": case "signature-parameter": case "tuple-element": case "template-span": return 1;
     case "projection": return selected.value.kind === "indexed" || selected.value.kind === "substitution" ? 1 : selected.value.kind === "conditional" ? 3 : 0;
     case "selector":
       switch (selected.value.kind) {
@@ -145,6 +155,7 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
         case "intrinsic": return { children: [] };
         case "string": return { children: [] };
         case "literal": return { children: [{ kind: "literal", field: "value", value: value.value }] };
+        case "template-literal": return { children: [{ kind: "template-span-array", field: "spans", value: value.spans }] };
         case "union": return { children: [{ kind: "type-id-array", field: "members", value: value.members }] };
         case "intersection": return { children: [{ kind: "type-id-array", field: "members", value: value.members }] };
         case "optional": return { children: [] };
@@ -291,6 +302,7 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
     case "extent": {
       return { children: [] };
     }
+    case "template-span": return { children: [] };
     case "projection": {
       const value = selected.value;
       switch (value.kind) {
@@ -323,6 +335,10 @@ export function publicationArrayElement(node: PublicationArray, position: number
     case "tuple-element-array": {
       const value = node.value[position];
       return value === undefined ? undefined : { kind: "tuple-element", value };
+    }
+    case "template-span-array": {
+      const value = node.value[position];
+      return value === undefined ? undefined : { kind: "template-span", value };
     }
     case "member-array": {
       const value = node.value[position];
@@ -376,6 +392,7 @@ export function isPublicationArray(node: PublicationNode): node is PublicationAr
   switch (node.kind) {
     case "type-id-array":
     case "tuple-element-array":
+    case "template-span-array":
     case "member-array":
     case "member-header-array":
     case "index-signature-array":

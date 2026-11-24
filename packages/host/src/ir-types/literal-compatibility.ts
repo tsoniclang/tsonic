@@ -91,6 +91,10 @@ export const literalCompatibilityOf: LiteralCompatibilityOf = (table, type, valu
             break;
           }
           case "string": result = { kind: value.kind === "string" ? "compatible" : "incompatible" }; break;
+          case "template-literal":
+            result = value.kind !== "string" ? { kind: "incompatible" }
+              : { kind: "needs-selected-evidence", type: base.type, primitive: null, requirement: "checked-association" };
+            break;
           case "intrinsic": {
             const compatible = term.intrinsic === "any" || term.intrinsic === "unknown"
               || term.intrinsic === "bigint" && value.kind === "bigint"
