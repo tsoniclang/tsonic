@@ -2463,7 +2463,17 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   const hasInventory = signatures.length !== 0 || selectedIndexes.length !== 0;
   const original = !hasInventory && declarations.length === 1 ? declarations[0] : undefined;
   const syntaxKind = original === undefined ? null : scope.checked.ast.kindName(original);
-  const authoredObject = syntaxKind === "KindObjectLiteralExpression" || syntaxKind === "KindTypeLiteral";
+  let authoredObject = syntaxKind === "KindObjectLiteralExpression" || syntaxKind === "KindTypeLiteral";
+  if (!hasInventory && !properties.mayHaveRows && !authoredObject && syntax !== undefined
+    && scope.checked.ast.kindName(syntax) === "KindTypeLiteral") {
+    if (!admit(scope, "edges")) return null;
+    const written = scope.checked.ast.as.AsTypeLiteralNode(syntax);
+    if (written?.Members?.Nodes.length === 0) {
+      const checked = sourceType(scope, { kind: "annotation", node: syntax });
+      if (scope.meter.refusal !== null) return null;
+      authoredObject = checked?.type === type && checked.causes.length === 0;
+    }
+  }
   if (hasInventory || properties.mayHaveRows || authoredObject) {
     if (!admit(scope, "facts")) return null;
     if (expandMerged !== undefined) scope.tables.pending.push({ kind: "merged-inventory-scope", symbol: expandMerged, type, enter: false });

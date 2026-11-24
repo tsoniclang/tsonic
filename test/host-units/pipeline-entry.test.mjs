@@ -24,6 +24,20 @@ test(`public Host analysis source barrier captures the complete actual ${library
   assert.equal(result.value.modules.some(module => module.module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts")), true);
 });
 
+test("a written type literal with no members is a complete empty structural type", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export type Empty = {};");
+  const result = captureSourceBarrier(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const module = result.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+  const [alias] = module.module.tree.statements.nodes;
+  assert.equal(alias.type.kind, "TypeLiteral");
+  assert.equal(alias.type.tsonic.type.kind, "available");
+  const table = fixture.types.viewTypes(result.value.types);
+  assert.deepEqual(table.terms[alias.type.tsonic.type.value], { kind: "shape", members: [], indexes: [], calls: [], constructs: [] });
+});
+
 test("two concrete uses of an executable foreign generic retain their own selected signatures and bodies", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
