@@ -1539,12 +1539,13 @@ function undefinedUnionArms(scope: CaptureScope, type: Type, reference?: Type):
   return value === undefined || absent === undefined || !matchedReference ? undefined : { value, valueIndex, absent };
 }
 
-function authoredOptionalFormalArms(scope: CaptureScope, type: Type, syntax: Node): AuthoredFormalArms | null {
+function authoredFormalArms(scope: CaptureScope, type: Type, syntax: Node, role: "optional" | "rest"): AuthoredFormalArms | null {
   const ast = scope.checked.ast;
   if (ast.kindName(syntax) !== "KindUnionType" || !scope.shape.isUnion(type) || !admit(scope, "edges")) return null;
   const written = ast.as.AsUnionTypeNode(syntax)?.Types?.Nodes;
   const native = scope.shape.getUnionOrIntersectionTypes(type);
-  if (written === undefined || written.length < 2 || native.length < written.length || native.length > written.length + 1) return null;
+  if (written === undefined || written.length < 2 || native.length < written.length
+    || native.length > written.length + Number(role === "optional")) return null;
   const unassigned = new Set<Type>();
   for (let index = 0; index < native.length; index += 1) {
     if (!admit(scope, "edges")) return null;
@@ -1556,7 +1557,7 @@ function authoredOptionalFormalArms(scope: CaptureScope, type: Type, syntax: Nod
   for (let index = 0; index < written.length; index += 1) {
     if (!admit(scope, "edges")) return null;
     const arm = written[index];
-    if (arm === undefined) return null;
+    if (arm === undefined || role === "rest" && tupleSyntax(scope, arm) === undefined) return null;
     const answer = sourceType(scope, { kind: "annotation", node: arm });
     if (answer === undefined || answer.causes.length !== 0 || !unassigned.delete(answer.type)) return null;
     sources.set(answer.type, arm);
@@ -1570,7 +1571,7 @@ function authoredOptionalFormalArms(scope: CaptureScope, type: Type, syntax: Nod
   return admit(scope, "facts") ? { kind: "authored-formal-arms", sources } : null;
 }
 
-function authoredOptionalAnnotation(scope: CaptureScope, task: Extract<CaptureTask, { readonly kind: "type" }>, type: Type): AuthoredFormalArms | null {
+function authoredFormalAnnotation(scope: CaptureScope, task: Extract<CaptureTask, { readonly kind: "type" }>, type: Type): AuthoredFormalArms | null {
   const use = task.originalUse;
   const position = scope.tables.components[task.position];
   if (use === null || !("module" in use) || position?.path !== null || !sameSource(use, position.root)) return null;
@@ -1581,13 +1582,15 @@ function authoredOptionalAnnotation(scope: CaptureScope, task: Extract<CaptureTa
   if (declaration === undefined || ast.kindName(declaration) !== "KindParameter") return null;
   const parameter = ast.as.AsParameterDeclaration(declaration);
   const owner = ast.parent(declaration);
-  if (owner === undefined || parameter?.Type !== syntax || parameter.QuestionToken === undefined ||
-    parameter.DotDotDotToken !== undefined || parameter.Initializer !== undefined || !admit(scope, "edges")) return null;
+  if (owner === undefined || parameter?.Type !== syntax || parameter.Initializer !== undefined) return null;
+  const role = parameter.QuestionToken !== undefined && parameter.DotDotDotToken === undefined ? "optional"
+    : parameter.QuestionToken === undefined && parameter.DotDotDotToken !== undefined ? "rest" : null;
+  if (role === null || !admit(scope, "edges")) return null;
   const signature = scope.checker.getSignatureFromDeclaration(owner);
   if (signature === undefined || signature.target !== undefined || signature.mapper !== undefined || signature.composite !== undefined ||
     scope.checker.getSignatureDeclaration(signature) !== owner || !admit(scope, "edges")) return null;
   const answer = sourceType(scope, { kind: "annotation", node: syntax });
-  return answer?.type === type && answer.causes.length === 0 ? authoredOptionalFormalArms(scope, type, syntax) : null;
+  return answer?.type === type && answer.causes.length === 0 ? authoredFormalArms(scope, type, syntax, role) : null;
 }
 
 function undefinedUnionSyntax(scope: CaptureScope, node: Node): UndefinedUnionSyntax | undefined {
@@ -3090,7 +3093,7 @@ function captureFacts(scope: CaptureScope): void {
         const projection = next.bindingUse?.kind === "projected-operand" ? next.bindingUse : null;
         if (scope.meter.refusal !== null) return;
         const use = bindingUse ?? (next.originalUse === null ? null : scope.shape.isUnion(base)
-          ? authoredOptionalAnnotation(scope, next, base) ?? (scope.meter.refusal !== null ? null :
+          ? authoredFormalAnnotation(scope, next, base) ?? (scope.meter.refusal !== null ? null :
             authoredComposedUnion(scope, base, next.originalUse) ?? (scope.meter.refusal === null ? unionArmUse(scope, base, next.originalUse, null) : null))
           : receiverBindingUse(scope, base, next.originalUse));
         if (scope.meter.refusal !== null) return;
@@ -3526,11 +3529,12 @@ function captureSignatureParameter(scope: CaptureScope, draft: SignatureDraft, i
       && draft.signature.mapper === undefined && draft.signature.composite === undefined ? parameterSyntax?.Type ?? null : null;
     const operator = signatureAnnotationOperator(scope, originalUse, parameter.typeSource);
     if (scope.meter.refusal !== null) return;
-    const authoredArms = originalUse !== null && parameterNode !== undefined && parameterSyntax?.QuestionToken !== undefined
-      && parameterSyntax.DotDotDotToken === undefined && parameterSyntax.Initializer === undefined &&
-      parameter.parameterKind === "optional" && parameter.acceptsOmission &&
-      scope.checker.getSignatureDeclaration(draft.signature) === scope.checked.ast.parent(parameterNode) &&
-      draft.signature.parameters[index] === symbol ? authoredOptionalFormalArms(scope, parameter.type, originalUse) : null;
+    const role = parameterSyntax?.QuestionToken !== undefined && parameterSyntax.DotDotDotToken === undefined
+      && parameter.parameterKind === "optional" && parameter.acceptsOmission ? "optional"
+      : parameterSyntax?.QuestionToken === undefined && parameterSyntax?.DotDotDotToken !== undefined && parameter.parameterKind === "rest" ? "rest" : null;
+    const authoredArms = originalUse !== null && parameterNode !== undefined && parameterSyntax?.Initializer === undefined
+      && role !== null && scope.checker.getSignatureDeclaration(draft.signature) === scope.checked.ast.parent(parameterNode) &&
+      draft.signature.parameters[index] === symbol ? authoredFormalArms(scope, parameter.type, originalUse, role) : null;
     if (scope.meter.refusal !== null) return;
     const use = draft.use?.formals?.get(index) ?? authoredArms ?? undefined;
     const type = rawType(scope, () => withoutTypeCause(parameter.type, parameter.typeSource), position,

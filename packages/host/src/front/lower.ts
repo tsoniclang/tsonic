@@ -106,9 +106,21 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
   }
 }
 
+function bodylessFormal(node: Hir.ParameterDeclaration<Syntax>, owner: Hir.SyntaxNode<Syntax> | undefined): boolean {
+  if (owner === undefined) return false;
+  switch (owner.kind) {
+    case "FunctionDeclaration": case "GetAccessor": case "SetAccessor":
+      return owner.body === null && owner.parameters.nodes.includes(node);
+    case "MethodSignature": case "CallSignature": case "ConstructSignature": case "IndexSignature":
+    case "FunctionType": case "ConstructorType":
+      return owner.parameters.nodes.includes(node);
+    default: return false;
+  }
+}
+
 /** The one check of lowering's development frontier; it names the first unwritten form in preorder. */
 function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>, layout: LayoutSourceRoles | null): void {
-  const pending: { readonly node: Hir.SyntaxNode<Syntax>; readonly declarationName: boolean;
+  const pending: { readonly node: Hir.SyntaxNode<Syntax>; readonly declarationName: boolean; readonly bodylessRest: boolean;
     readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined> }[] = [];
   let next: Hir.SyntaxNode<Syntax> | undefined = tree;
   while (next !== undefined) {
@@ -117,12 +129,15 @@ function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>, layout: LayoutSourceRoles
     const declarationName = enclosing?.declarationName === true || next.kind === "ComputedPropertyName"
       && (parent?.kind === "PropertySignature" || parent?.kind === "MethodSignature") && parent.name === next;
     const form = unwrittenForm(next, declarationName);
+    const bodylessRest: boolean = next.kind === "Parameter" && next.dotDotDotToken !== null && bodylessFormal(next, parent)
+      || enclosing?.bodylessRest === true && (parent?.kind === "Parameter" && (parent.name === next || parent.dotDotDotToken === next)
+        || parent?.kind === "ArrayBindingPattern" && next.kind === "BindingElement" && parent.elements.nodes.includes(next));
     const quoted = next.kind === "ArrayLiteralExpression" && layout?.quotes.has(next.id) === true
       || next.kind === "ArrowFunction" && layout?.selectors.has(next.id) === true
       || next.kind === "EqualsGreaterThanToken" && parent?.kind === "ArrowFunction" && layout?.selectors.has(parent.id) === true;
-    if (form !== null && !quoted)
+    if (form !== null && !quoted && !bodylessRest)
       throw new TypeError(`front: checked annotation not implemented: ${form}`);
-    if (next.kind !== "LiteralType") pending.push({ node: next, declarationName, children: iterateChildrenOfSyntax(next) });
+    if (next.kind !== "LiteralType") pending.push({ node: next, declarationName, bodylessRest, children: iterateChildrenOfSyntax(next) });
     next = undefined;
     while (pending.length !== 0) {
       const cursor = pending[pending.length - 1];

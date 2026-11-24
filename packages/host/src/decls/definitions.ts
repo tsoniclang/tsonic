@@ -83,6 +83,16 @@ export const describeDefinitions: DescribeDefinitions = (checked, scopes, export
       definitions.push(describe(item.definition, encodeDefId({ module, segments: segments.slice(0, -1) }), node));
       continue;
     }
+    if (node.kind === "BindingElement" && node.tsonic.declaration?.kind === "definition") {
+      const pattern = node.parent === null ? undefined : nodes[node.parent];
+      const formal = pattern?.kind === "ArrayBindingPattern" && pattern.parent !== null ? nodes[pattern.parent] : undefined;
+      if (node.tsonic.declaration.definition !== item.definition || pattern?.kind !== "ArrayBindingPattern"
+        || !pattern.elements.nodes.includes(node) || formal?.kind !== "Parameter" || formal.name !== pattern
+        || formal.dotDotDotToken === null || formal.tsonic.declaration.kind !== "definition")
+        return throwInvariant(defect("A definition binding element must belong to its actual checked rest header.", node));
+      definitions.push(describe(item.definition, formal.tsonic.declaration.definition, node));
+      continue;
+    }
     if (payload === null || !("parent" in payload))
       return throwInvariant(defect(`declaration entry ${item.definition} names a ${node.kind} node, which carries no checked declaration`, node));
     definitions.push(describe(item.definition, payload.parent, node));

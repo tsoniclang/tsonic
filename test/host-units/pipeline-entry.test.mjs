@@ -38,6 +38,38 @@ test("a written type literal with no members is a complete empty structural type
   assert.deepEqual(table.terms[alias.type.tsonic.type.value], { kind: "shape", members: [], indexes: [], calls: [], constructs: [] });
 });
 
+test("an original rest formal retains each authored tuple arm and its actual binder", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  for (const annotation of ["[] | [T]", "[T] | []"]) {
+    const input = analysisInput(fixture, "sdk-minimal",
+      `export interface Iterator<T> { next(...[value]: ${annotation}): T; }`);
+    const result = captureSourceBarrier(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const module = result.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+    const [declaration] = module.module.tree.statements.nodes;
+    const [method] = declaration.members.nodes;
+    const [formal] = method.parameters.nodes;
+    assert.equal(method.tsonic.body, null);
+    assert.equal(formal.name.kind, "ArrayBindingPattern");
+    const [binding] = formal.name.elements.nodes;
+    const description = result.value.descriptions.get(binding.tsonic.declaration.definition);
+    assert.equal(description.parent, formal.tsonic.declaration.definition);
+    assert.deepEqual(description.bodies, []);
+    const binder = declaration.typeParameters.nodes[0].tsonic.parameter.declaration;
+    const table = fixture.types.viewTypes(result.value.types);
+    assert.equal(formal.type.tsonic.type.kind, "available");
+    const union = table.terms[formal.type.tsonic.type.value];
+    assert.equal(union.kind, "union");
+    const tuples = union.members.map(type => table.terms[type]);
+    assert.equal(tuples.every(tuple => tuple.kind === "tuple" && !tuple.readonly), true);
+    assert.deepEqual(tuples.map(tuple => tuple.elements.length).sort(), [0, 1]);
+    const [element] = tuples.find(tuple => tuple.elements.length === 1).elements;
+    assert.equal(element.kind, "required");
+    assert.deepEqual(table.terms[element.type], { kind: "param", parameter: binder });
+  }
+});
+
 test("two concrete uses of an executable foreign generic retain their own selected signatures and bodies", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

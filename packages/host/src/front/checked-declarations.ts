@@ -238,17 +238,35 @@ function facts(context: DeclarationLowering, node: Hir.NodeHeader, owner: DefId)
   return { core: context.core(node.id), parent: owner, attributes: [], memory: context.memory(node.id) };
 }
 
+function bodylessBinding(context: DeclarationLowering, node: Hir.ParameterDeclaration<Syntax>, declaration: DefId): Hir.BindingName<Checked> {
+  const name = node.name;
+  if (name.kind === "Identifier") return declarationName(context, name, declaration);
+  if (name.kind !== "ArrayBindingPattern" || node.dotDotDotToken === null) return fail("bodyless parameter pattern");
+  const elements: Hir.BindingElement<Checked>[] = [];
+  for (const element of name.elements.nodes) {
+    if (element.dotDotDotToken !== null || element.propertyName !== null || element.initializer !== null
+      || element.name !== null && element.name.kind !== "Identifier") return fail("bodyless rest binding element");
+    const bound = element.name === null ? null : definitionOf(context, element.id);
+    elements.push({ ...header(element), kind: "BindingElement", dotDotDotToken: null, propertyName: null,
+      name: element.name !== null && bound !== null ? declarationName(context, element.name, bound) : null,
+      initializer: null, tsonic: { core: context.core(element.id), declaredType: { kind: "available", value: null },
+        declaration: bound === null ? null : { kind: "definition", definition: bound } } });
+  }
+  return { ...header(name), kind: "ArrayBindingPattern", elements: { loc: name.elements.loc, nodes: elements },
+    tsonic: { core: context.core(name.id), declaredType: { kind: "available", value: null }, declaration: null } };
+}
+
 export function lowerCheckedParameters(context: DeclarationLowering, source: Hir.ParameterList<Syntax>, owner: DefId,
   typeOf: TypeReader): ConversionResult<Hir.ParameterList<Checked>> {
   const nodes: Hir.ParameterDeclaration<Checked>[] = [];
   for (const node of source.nodes) {
-    if (node.name.kind !== "Identifier" || node.initializer !== null) return fail("bodyless parameter pattern or initializer");
+    if (node.initializer !== null) return fail("bodyless parameter initializer");
     const declaration = definitionOf(context, node.id);
     const type = node.type === null ? null : typeOf(node.type, declaration);
     if (type !== null && type.kind !== "complete") return type;
     nodes.push({ ...header(node), kind: "Parameter", modifiers: lowerCheckedModifiers(node.modifiers),
       dotDotDotToken: node.dotDotDotToken === null ? null : token(node.dotDotDotToken),
-      name: declarationName(context, node.name, declaration), questionToken: node.questionToken === null ? null : token(node.questionToken),
+      name: bodylessBinding(context, node, declaration), questionToken: node.questionToken === null ? null : token(node.questionToken),
       type: type === null ? null : type.value, initializer: null,
       tsonic: { ...facts(context, node, owner), declaration: { kind: "definition", definition: declaration },
         declaredType: type === null ? { kind: "available", value: null } : type.value.tsonic.type, inferredTypeBound: null, initializer: null } });
