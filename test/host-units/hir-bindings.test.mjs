@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { createModuleBindingViews, resolveModuleBinding, resolveModuleExport } from "../../packages/host/dist/ir-hir/index.js";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId, nodeId } from "../../packages/host/dist/ids/index.js";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { moduleFixture } from "./ir-program-fixtures.mjs";
 import { parseProgramIndex, printProgramIndex } from "../../packages/host/dist/ir-program/index.js";
 
@@ -157,9 +157,9 @@ test("real B1 capture retains local aliases as binding occurrences without fabri
   const fixture = await loadFrontFixture();
   const source = "function add(a:number,b:number):number { return a+b; } export { add, add as sum };";
   const opened = fixture.openedModule(source);
-  const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, opened.module);
   assert.equal(captured.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
+  const definitions = identifySingleModule(fixture.front, { module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   const exports = definitions.value.sourceOccurrences.filter(row => row.kind === "ExportSpecifier");
   assert.equal(exports.length, 2);
@@ -220,9 +220,9 @@ test("real raw B1 direct overload inventory retains every declaration in canonic
   const fixture = await loadFrontFixture();
   const source = "export function over(a:number):number; export function over(a:string):string; export function over(a:any):any { return a; }";
   const opened = fixture.openedModule(source);
-  const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, opened.module);
   assert.equal(captured.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
+  const definitions = identifySingleModule(fixture.front, { module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   const expected = definitions.value.rows.filter(row => row.kind === "FunctionDeclaration").map(row => row.definition);
   assert.equal(expected.length, 3);
@@ -250,9 +250,9 @@ test("real B1 cross-module aliases retain every nearest binding hop and star/mod
   for (const [name, text] of Object.entries(sourceFiles)) {
     const identity = fixture.moduleOf(fixture.packageOf("/project"), `src/${name}`);
     sourceModules.set(name, identity);
-    const raw = fixture.front.captureModule(opened.deps, opened.program, identity);
+    const raw = captureSingleModule(fixture.front, opened.deps, opened.program, identity);
     assert.equal(raw.kind, "ok");
-    const inventory = fixture.front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
+    const inventory = identifySingleModule(fixture.front, { module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
     assert.equal(inventory.kind, "ok");
     definitions.set(identity, new Map(inventory.value.rows.map(row => [row.node, row.definition])));
     bindings.set(identity, new Map(inventory.value.sourceOccurrences.map(row => [row.node, row])));
@@ -301,7 +301,7 @@ test("real B1 cross-module aliases retain every nearest binding hop and star/mod
   const selected = new Set(["a.ts", "star.ts", "namespace.ts"].map(name => sourceModules.get(name)));
   const texts = new Map(captured.map(entry => [entry.raw.module, entry.text]));
   const checked = captured.filter(entry => selected.has(entry.raw.module)).map(entry => {
-    const result = fixture.front.lowerModule({ ...deps, sourceTextOf: module => texts.get(module),
+    const result = lowerSingleCheckedModule(fixture.front, { ...deps, sourceTextOf: module => texts.get(module),
       exportsOf: module => lowered.find(value => value.module === module) ?? null }, entry.raw);
     assert.equal(result.kind, "ok");
     return result.value;

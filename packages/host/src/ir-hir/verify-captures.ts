@@ -292,7 +292,7 @@ export function createHirSchema(): HirSchema {
     CheckedKeyword: variants("CheckedKeyword", "role", [["value", [["value", "CheckedValue"]]],
       ["type-literal", [["type", captured("TyId")], ["literal", "LiteralTypeValue"]]]], core),
     CheckedInstantiation: variants("CheckedInstantiation", "role", [["value", [["value", "CheckedValue"]]],
-      ["heritage", [["type", captured("TyId")], ["definition", captured("DefId")]]]], core),
+      ["heritage", [["type", captured("TyId")], ["declarations", captured(hirArray("DefId"))]]]], core),
     CheckedAggregate: variants("CheckedAggregate", "role", [["value", [["value", "CheckedValue"]]], ["assignment-pattern", [["views", "HirCheckerViews"]]],
       ["layout-quote", [["call", "NodeRef"], ["views", "HirCheckerViews"]]]], core),
     CheckedApplication: hirRecord("CheckedApplication", [...checkedValue, ...core, ["application", captured("HirApplication")]]),

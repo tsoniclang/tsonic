@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 test("a real raw unique-symbol graph retains its exact F1 declaration independently of checked TypeOperator support", async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -9,10 +9,10 @@ test("a real raw unique-symbol graph retains its exact F1 declaration independen
   const opened = fixture.openAndCapture(fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] }));
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const captured = fixture.front.captureModule(opened.deps, opened.program, module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
-  const definitions = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
+  const definitions = identifySingleModule(fixture.front, { module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(definitions.kind, "ok");
   const row = raw.types.types.find(candidate => candidate.literal.kind === "available" && candidate.literal.value?.kind === "symbol");
   assert.equal(row !== undefined, true);
@@ -52,10 +52,10 @@ test("an actual ordinary symbol never gains a unique declaration literal", async
   const fixture = await loadFrontFixture();
   const source = "declare let key:symbol;export function read(){return key;}";
   const opened = fixture.openedModule(source);
-  const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, opened.module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
-  const identified = fixture.front.lowerModuleDefinitions({ module: raw,
+  const identified = identifySingleModule(fixture.front, { module: raw,
     componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(identified.kind, "ok");
   const rows = raw.types.types.filter(row => row.form.kind === "available" && row.form.value.kind === "scalar" && row.form.value.scalar === "symbol");

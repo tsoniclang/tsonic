@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture, observeSourceType } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, loadFrontFixture, observeSourceType } from "./fixtures/front/checked-module.mjs";
 import { checkedDomain } from "./fixtures/front/checked-domain.mjs";
 
 async function captured(source) {
@@ -10,11 +10,11 @@ async function captured(source) {
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const captured = fixture.front.captureModule({ ...opened.deps, navigationCapture: { ...opened.deps.navigationCapture,
+  const captured = captureSingleModule(fixture.front, { ...opened.deps, navigationCapture: { ...opened.deps.navigationCapture,
     maximumCapturedFactsPerModule: 512, maximumCapturedEdgesPerModule: 2048 } }, opened.program, module);
   assert.equal(captured.kind, "ok", "a finite declared recursion must not consume an unbounded captured component path");
   const raw = captured.value;
-  const definitions = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
+  const definitions = identifySingleModule(fixture.front, { module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(definitions.kind, "ok");
   return { fixture, source, module, raw, opened, definitions: definitions.value };
 }
@@ -67,7 +67,7 @@ test("a real recursive declared member lowers into the same populated canonical 
   const deps = fixture.lowerDepsFor(definitions, interner, source);
   const exports = fixture.front.lowerModuleExports(deps, raw);
   assert.equal(exports.kind, "ok");
-  const lowered = fixture.front.lowerModule({ ...deps, exportsOf: owner => owner === module ? exports.value : null }, raw);
+  const lowered = lowerSingleCheckedModule(fixture.front, { ...deps, exportsOf: owner => owner === module ? exports.value : null }, raw);
   assert.equal(lowered.kind, "ok");
   assert.equal(fixture.types.viewTypes(interner) === existing, true);
   assert.equal(existing.terms[boolean] === booleanRow && existing.terms[string] === stringRow, true);
@@ -170,12 +170,12 @@ test("finite raw graph capture admits the exact fact and edge counts including n
     ["maximumCapturedEdgesPerModule", frontEdges + capturedNativeEdges],
   ]) {
     for (let maximum = 0; maximum < exact; maximum += 1) {
-      const result = fixture.front.captureModule({ ...opened.deps,
+      const result = captureSingleModule(fixture.front, { ...opened.deps,
         navigationCapture: { ...opened.deps.navigationCapture, [dimension]: maximum } }, opened.program, module);
       assert.equal(result.kind, "refused", `${dimension} under ${maximum}`);
       assert.equal(result.diagnostics.at(-1).code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
     }
-    const result = fixture.front.captureModule({ ...opened.deps,
+    const result = captureSingleModule(fixture.front, { ...opened.deps,
       navigationCapture: { ...opened.deps.navigationCapture, [dimension]: exact } }, opened.program, module);
     assert.equal(result.kind, "ok", `${dimension} exact ${exact}`);
     assert.equal(result.value.types.types.length, raw.types.types.length);
@@ -201,7 +201,7 @@ test("finite raw graph capture returns the original limit before a later actual 
   } }, OpenedProgram.table(opened.program), OpenedProgram.modules(opened.program).modules.map(origin =>
     OpenedProgram.file(opened.program, origin.kind === "snapshot" ? origin.module : origin.document.module)),
   OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
-  const run = maximum => fixture.front.captureModule({ ...opened.deps, navigationCapture: {
+  const run = maximum => captureSingleModule(fixture.front, { ...opened.deps, navigationCapture: {
     ...opened.deps.navigationCapture, maximumCapturedFactsPerModule: maximum } }, guarded, module);
   const beforeLater = 35 + capturedNativeFacts;
   for (let maximum = 0; maximum < beforeLater; maximum += 1) {
@@ -226,7 +226,7 @@ test("recursive lowering returns the original publication dimensions without cha
     const deps = fixture.lowerDepsFor(definitions, interner, source, { [dimension]: 0 });
     const exported = fixture.front.lowerModuleExports(deps, raw);
     assert.equal(exported.kind, "ok");
-    const result = fixture.front.lowerModule({ ...deps,
+    const result = lowerSingleCheckedModule(fixture.front, { ...deps,
       exportsOf: owner => owner === module ? exported.value : null }, raw);
     assert.deepEqual(result, { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
       limit: `front.typePublication.${dimension}`, maximum: 0, site: { kind: "source", origin: raw.tree.origin },
@@ -247,7 +247,7 @@ test("all lazy type insertions in one actual module share the same publication a
     const deps = actual.fixture.lowerDepsFor(actual.definitions, interner, actual.source, { [dimension]: maximum });
     const exported = actual.fixture.front.lowerModuleExports(deps, actual.raw);
     assert.equal(exported.kind, "ok");
-    return actual.fixture.front.lowerModule({ ...deps,
+    return lowerSingleCheckedModule(actual.fixture.front, { ...deps,
       exportsOf: owner => owner === actual.module ? exported.value : null }, actual.raw);
   };
   for (const dimension of ["maximumWork", "maximumCreatedRecords"]) {

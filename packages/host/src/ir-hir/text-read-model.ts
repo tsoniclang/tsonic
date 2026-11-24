@@ -282,7 +282,7 @@ export interface HirReadGroup8 {
   readonly record_246: HirReader<Hir.CheckedExport>;
   readonly record_248: HirReader<{ readonly kind: "available"; readonly value: Hir.ImportTarget | null; }>;
   readonly record_249: HirReader<Hir.HirCoreCarrier & { readonly role: "value"; readonly value: Hir.CheckedValue; }>;
-  readonly record_250: HirReader<Hir.HirCoreCarrier & { readonly role: "heritage"; readonly type: Hir.CapturedFact<Ids.TyId>; readonly definition: Hir.CapturedFact<Ids.DefId>; }>;
+  readonly record_250: HirReader<Extract<Hir.CheckedInstantiation, { readonly role: "heritage" }>>;
   readonly record_251: HirReader<Hir.CheckedIteration>;
   readonly record_252: HirReader<{ readonly kind: "available"; readonly value: Hir.HirProtocolFact | null; }>;
   readonly record_253: HirReader<Hir.NodeList<Hir.ExpressionWithTypeArguments<Hir.CheckedPhase>>>;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { OpenedProgram } from "../../packages/host/dist/front/handles.js";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analyzeOptionalSource } from "./fixtures/optional-default.mjs";
 
 const nullable = "boolean | undefined";
@@ -77,7 +77,7 @@ test("a later required formal blocks omission, and supplied absence needs the re
   assert.equal(rejected.declarationOrder.value.length, 1);
   assert.equal(raw.types.signatures[rejected.declarationOrder.value[0]].parameters.length, 2);
   assert.deepEqual(raw.types.candidates[rejected.candidates].candidates, []);
-  const checked = fixture.front.lowerModule(deps, raw);
+  const checked = lowerSingleCheckedModule(fixture.front, deps, raw);
   assert.equal(checked.kind, "ok");
   const decoded = fixture.hir.parseHir(fixture.hir.printHir(checked.value));
   assert.equal(decoded.kind, "parsed");

@@ -91,7 +91,8 @@ export function publicationWork(selected: PublicationRecord): number | undefined
     case "arm": case "type-parameter": case "tuple-element": case "rational": return 3;
     case "signature-parameter": return 6;
     case "literal": return selected.value.kind === "absence" ? 1 : 2;
-    case "projection": return selected.value.kind === "awaited" || selected.value.kind === "keyof" ? 1 : selected.value.kind === "conditional" ? 6 : 2;
+    case "projection": return selected.value.kind === "awaited" || selected.value.kind === "keyof" ? 1
+      : selected.value.kind === "conditional" || selected.value.kind === "mapped" ? 6 : 2;
     case "index-signature": return 5;
   }
 }
@@ -136,7 +137,9 @@ export function publicationReferences(selected: PublicationRecord): number {
     case "type-parameter": return Number(selected.value.constraint !== null) + Number(selected.value.default !== null);
     case "index-signature": return 2 + Number(selected.value.write !== null);
     case "arm": case "signature-parameter": case "tuple-element": case "template-span": return 1;
-    case "projection": return selected.value.kind === "indexed" || selected.value.kind === "substitution" ? 1 : selected.value.kind === "conditional" ? 3 : 0;
+    case "projection": return selected.value.kind === "indexed" || selected.value.kind === "substitution" ? 1
+      : selected.value.kind === "conditional" ? 3
+      : selected.value.kind === "mapped" ? 1 + Number(selected.value.remap !== null) : 0;
     case "selector":
       switch (selected.value.kind) {
         case "index-key": case "index-value": case "parameter": case "receiver": case "result": case "signature-tail": return 1;
@@ -306,7 +309,7 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
     case "projection": {
       const value = selected.value;
       switch (value.kind) {
-        case "awaited": case "keyof": case "indexed": case "substitution": return { children: [] };
+        case "awaited": case "keyof": case "indexed": case "substitution": case "mapped": return { children: [] };
         case "conditional": return { children: [{ kind: "group-definition-array", field: "inferParameters", value: value.inferParameters }] };
         case "component": return { children: [{ kind: "component", value: value.component }] };
       }

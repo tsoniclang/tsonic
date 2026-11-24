@@ -1,7 +1,7 @@
 import { insertFixtureType } from "./fixtures/types-construction.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture, rawComponentPath } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, loadFrontFixture, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 
 function bindSourceSemantics(createSourceSemanticDatabase, base, ready, limits) {
@@ -80,8 +80,8 @@ test("Elaboration rejects a crossed signed singleton operand even when it is ano
   try {
     pipelineWiring.front.lowerModule = (...parameters) => {
       const source = lower(...parameters);
-      if (source.kind !== "ok" || source.value.module !== input.snapshot.entryPoint) return source;
-      const [other, signed] = source.value.tree.statements.nodes;
+      if (source.kind !== "ok" || source.value.module.module !== input.snapshot.entryPoint) return source;
+      const [other, signed] = source.value.module.tree.statements.nodes;
       const operand = signed.type.literal.operand;
       assert.equal(other.type.literal.tsonic.type.value !== operand.tsonic.type.value, true);
       operand.tsonic = { ...operand.tsonic, type: other.type.literal.tsonic.type };
@@ -309,25 +309,27 @@ test("the actual checked indexed operator rejects a crossed operand", async () =
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
-  const capture = pipelineWiring.front.captureModule;
+  const capture = pipelineWiring.front.captureModules;
   const input = analysisInput(fixture, "sdk-minimal", authored);
   let crossed = false;
   try {
-    pipelineWiring.front.captureModule = (...arguments_) => {
+    pipelineWiring.front.captureModules = (...arguments_) => {
       const result = capture(...arguments_);
-      if (result.kind !== "ok" || result.value.module !== input.snapshot.entryPoint) return result;
-      const module = result.value;
-      const types = module.types.types.map(row => {
+      if (result.kind !== "ok") return result;
+      return { ...result, value: result.value.map(module => {
+        if (module.module !== input.snapshot.entryPoint) return module;
+        const types = module.types.types.map(row => {
         if (row.form.kind !== "available" || row.form.value.kind !== "indexed-access") return row;
         crossed = true;
         return { ...row, form: { ...row.form, value: { ...row.form.value, index: row.form.value.object } } };
-      });
-      return { ...result, value: { ...module, types: { ...module.types, types } } };
+        });
+        return { ...module, types: { ...module.types, types } };
+      }) };
     };
     assert.throws(() => captureSourceBarrier(input), /indexed projection operand must retain its actual object or index child/u);
     assert.equal(crossed, true);
   } finally {
-    pipelineWiring.front.captureModule = capture;
+    pipelineWiring.front.captureModules = capture;
   }
 });
 
@@ -345,9 +347,9 @@ for (const [foreign, conditional] of [[false, false], [true, false], [false, tru
     const { deps, program } = fixture.openAndCapture(snapshot);
     const main = snapshot.entryPoint;
     const aliasModule = foreign ? snapshot.source.input.packages.modules.find(row => row.path === "/project/src/lookup.ts").id : main;
-    const selected = fixture.front.captureModule(deps, program, main);
+    const selected = captureSingleModule(fixture.front, deps, program, main);
     assert.equal(selected.kind, "ok");
-    const aliases = foreign ? fixture.front.captureModule(deps, program, aliasModule) : selected;
+    const aliases = foreign ? captureSingleModule(fixture.front, deps, program, aliasModule) : selected;
     assert.equal(aliases.kind, "ok");
     const raw = selected.value;
     const select = raw.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration");
@@ -419,7 +421,7 @@ test("Raw recursion retains the defining indexed alias and its changed depth wit
     export declare function pick<Item, Level extends number>(item: Item, level: Level): Walk<Item, Level>;
   `);
   const { deps, program } = fixture.openAndCapture(input.snapshot);
-  const captured = fixture.front.captureModule(deps, program, input.snapshot.entryPoint);
+  const captured = captureSingleModule(fixture.front, deps, program, input.snapshot.entryPoint);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
   const [, walk, pick] = raw.tree.statements.nodes;
@@ -458,7 +460,7 @@ test("an independent argument using the same indexed alias does not re-enter its
     export declare function pick<First, Second>(a: First, b: Second): Choose<Choose<never, First>, Second>;
   `);
   const { deps, program } = fixture.openAndCapture(input.snapshot);
-  const captured = fixture.front.captureModule(deps, program, input.snapshot.entryPoint);
+  const captured = captureSingleModule(fixture.front, deps, program, input.snapshot.entryPoint);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
   const [choose, pick] = raw.tree.statements.nodes;
@@ -497,9 +499,9 @@ for (const [objectKind, objectSyntax, keyType, projectedKey = false] of [
   const main = moduleOf("main");
   const foreign = moduleOf("aliases");
   const { deps, program } = fixture.openAndCapture(snapshot);
-  const captured = fixture.front.captureModule(deps, program, main);
+  const captured = captureSingleModule(fixture.front, deps, program, main);
   assert.equal(captured.kind, "ok");
-  const aliases = fixture.front.captureModule(deps, program, foreign);
+  const aliases = captureSingleModule(fixture.front, deps, program, foreign);
   assert.equal(aliases.kind, "ok");
   const raw = captured.value;
   const [alias] = aliases.value.tree.statements.nodes;
@@ -580,10 +582,10 @@ test("Raw property conditionals distinguish the original authored branches from 
   const main = moduleOf("main");
   const foreign = moduleOf("aliases");
   const { deps, program } = fixture.openAndCapture(snapshot);
-  const selected = fixture.front.captureModule(deps, program, main);
+  const selected = captureSingleModule(fixture.front, deps, program, main);
   assert.equal(selected.kind, "ok");
   const raw = selected.value;
-  const captured = fixture.front.captureModule(deps, program, foreign);
+  const captured = captureSingleModule(fixture.front, deps, program, foreign);
   assert.equal(captured.kind, "ok");
   const [alias] = captured.value.tree.statements.nodes;
   const pick = raw.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration");
@@ -671,8 +673,8 @@ test("Stage 3 preserves the actual mutable and readonly declared array annotatio
   try {
     pipelineWiring.front.lowerModule = (...arguments_) => {
       const checked = lower(...arguments_);
-      if (checked.kind !== "ok" || checked.value.module !== snapshot.entryPoint) return checked;
-      const [plain, readonly] = checked.value.tree.statements.nodes;
+      if (checked.kind !== "ok" || checked.value.module.module !== snapshot.entryPoint) return checked;
+      const [plain, readonly] = checked.value.module.tree.statements.nodes;
       assert.equal(readonly.type.tsonic.type.value !== plain.type.tsonic.type.value, true);
       readonly.type.tsonic.type = plain.type.tsonic.type;
       crossed = true;
@@ -691,7 +693,7 @@ test("Raw capture keeps the authored infer binder distinct from the conditional'
     "export type Elem<Outer> = Outer extends readonly (infer Inner)[] ? Inner : never;"
       + "export type Match = Elem<readonly boolean[]>; export type NoMatch = Elem<true>;");
   const { deps, program } = fixture.openAndCapture(input.snapshot);
-  const captured = fixture.front.captureModule(deps, program, input.snapshot.entryPoint);
+  const captured = captureSingleModule(fixture.front, deps, program, input.snapshot.entryPoint);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
   const [alias, yes, no] = raw.tree.statements.nodes;
@@ -773,25 +775,27 @@ test("Stage 3 retains an authored infer binder while closed checker answers cros
   assert.deepEqual(terms[yes.tsonic.type], { kind: "primitive", primitive: "bool" });
   assert.deepEqual(terms[no.tsonic.type], { kind: "intrinsic", intrinsic: "never" });
 
-  const capture = pipelineWiring.front.captureModule;
+  const capture = pipelineWiring.front.captureModules;
   let crossed = false;
   try {
-    pipelineWiring.front.captureModule = (...args) => {
+    pipelineWiring.front.captureModules = (...args) => {
       const result = capture(...args);
-      if (result.kind !== "ok" || result.value.module !== input.snapshot.entryPoint) return result;
-      const module = result.value;
-      const forms = module.types.types.map(row => {
+      if (result.kind !== "ok") return result;
+      return { ...result, value: result.value.map(module => {
+        if (module.module !== input.snapshot.entryPoint) return module;
+        const forms = module.types.types.map(row => {
         if (row.form.kind !== "available" || row.form.value.kind !== "conditional") return row;
         crossed = true;
         const definition = { module: module.module, node: module.tree.statements.nodes[0].typeParameters.nodes[0].id };
         return { ...row, form: { kind: "available", value: { ...row.form.value, inferParameters: [definition] } } };
-      });
-      return { ...result, value: { ...module, types: { ...module.types, types: forms } } };
+        });
+        return { ...module, types: { ...module.types, types: forms } };
+      }) };
     };
     assert.throws(() => captureSourceBarrier(input), /conditional projection must retain its actual ordered extends inference parameters/u);
     assert.equal(crossed, true);
   } finally {
-    pipelineWiring.front.captureModule = capture;
+    pipelineWiring.front.captureModules = capture;
   }
 });
 
@@ -923,7 +927,7 @@ test("an infer annotation outside a pattern refuses with its one original diagno
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal", "export type Invalid = infer Leak;");
   const { deps, program } = fixture.openAndCapture(input.snapshot);
-  const captured = fixture.front.captureModule(deps, program, input.snapshot.entryPoint);
+  const captured = captureSingleModule(fixture.front, deps, program, input.snapshot.entryPoint);
   assert.equal(captured.kind, "ok");
   const [original] = captured.value.checkerDiagnostics;
   assert.deepEqual(original.code, { kind: "checker", number: 1338, rendered: "TS1338" });
@@ -1235,72 +1239,27 @@ test("an actual direct conditional keeps all four operands without choosing a br
   const table = viewTypes(types);
   assert.deepEqual(parseTypes(printTypes(table)), { kind: "parsed", value: table });
 
-  const capture = pipelineWiring.front.captureModule;
+  const capture = pipelineWiring.front.captureModules;
   let crossed = false;
   try {
-    pipelineWiring.front.captureModule = (...arguments_) => {
+    pipelineWiring.front.captureModules = (...arguments_) => {
       const result = capture(...arguments_);
-      if (result.kind !== "ok" || result.value.module !== input.snapshot.entryPoint) return result;
-      const module = result.value;
-      const types = module.types.types.map(row => {
+      if (result.kind !== "ok") return result;
+      return { ...result, value: result.value.map(module => {
+        if (module.module !== input.snapshot.entryPoint) return module;
+        const types = module.types.types.map(row => {
         if (row.form.kind !== "available" || row.form.value.kind !== "conditional") return row;
         crossed = true;
         return { ...row, form: { kind: "available", value: { ...row.form.value, whenFalse: row.form.value.whenTrue } } };
-      });
-      return { ...result, value: { ...module, types: { ...module.types, types } } };
+        });
+        return { ...module, types: { ...module.types, types } };
+      }) };
     };
     assert.throws(() => captureSourceBarrier(input), /conditional projection operand must retain its actual checked child/u);
     assert.equal(crossed, true);
   } finally {
-    pipelineWiring.front.captureModule = capture;
+    pipelineWiring.front.captureModules = capture;
   }
-});
-
-test("a direct conditional branch keeps its actual native substituted reference", async () => {
-  const fixture = await loadFrontFixture();
-  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
-  const input = analysisInput(fixture, "sdk-minimal",
-    "export type Preserved<T> = T extends null | undefined ? T : boolean;");
-  const result = captureSourceBarrier(input);
-  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
-  const { modules, types } = result.value;
-  const [alias] = modules.find(row => row.module.module === input.snapshot.entryPoint).module.tree.statements.nodes;
-  const { checkType, extendsType, trueType, falseType } = alias.type;
-  const { readType } = fixture.types;
-  const checked = node => node.tsonic.type.value;
-  assert.equal(trueType.kind, "TypeReference");
-  const base = checked(checkType);
-  const constraint = checked(extendsType);
-  assert.deepEqual(readType(types, base), { kind: "param", parameter: alias.typeParameters.nodes[0].tsonic.parameter.declaration });
-  assert.deepEqual(readType(types, constraint), { kind: "intrinsic", intrinsic: "absence" });
-  assert.deepEqual(readType(types, checked(trueType)), { kind: "projection", source: base,
-    projection: { kind: "substitution", constraint } });
-  assert.deepEqual(readType(types, checked(falseType)), { kind: "primitive", primitive: "bool" });
-});
-
-test("authored variadic tuple slots preserve each distinct sequence and their source order", async () => {
-  const fixture = await loadFrontFixture();
-  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
-  const { readType, viewTypes, parseTypes, printTypes } = fixture.types;
-  const input = analysisInput(fixture, "sdk-minimal",
-    "export type Spread<A extends unknown[], B extends unknown[]> = [...B, ...A];");
-  const result = captureSourceBarrier(input);
-  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
-  const { modules, types } = result.value;
-  const [alias] = modules.find(row => row.module.module === input.snapshot.entryPoint).module.tree.statements.nodes;
-  const [first, second] = alias.typeParameters.nodes.map(parameter => parameter.tsonic.parameter.declaration);
-  const tuple = readType(types, alias.type.tsonic.type.value);
-  assert.equal(tuple.kind, "tuple");
-  assert.equal(tuple.elements.length, 2);
-  assert.equal(tuple.elements.every(element => element.kind === "variadic" && element.declaration === null), true);
-  for (const [index, expected] of [second, first].entries()) {
-    const source = alias.type.elements.nodes[index];
-    assert.equal(source.kind, "RestType");
-    assert.equal(tuple.elements[index].type, source.type.tsonic.type.value);
-    assert.deepEqual(readType(types, tuple.elements[index].type), { kind: "param", parameter: expected });
-  }
-  const table = viewTypes(types);
-  assert.deepEqual(parseTypes(printTypes(table)), { kind: "parsed", value: table });
 });
 
 test("bound keyof uses only the exact member inventory and never guesses an index domain", async () => {

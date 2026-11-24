@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readyModuleRoot, readyModuleStatements } from "./chapter-syntax.mjs";
 import { analysisInput } from "./front/analysis-input.mjs";
-import { loadFrontFixture } from "./front/checked-module.mjs";
+import { captureSingleModule, loadFrontFixture } from "./front/checked-module.mjs";
 
 export async function checkComputedDeclarationNames() {
   const front = await loadFrontFixture();
@@ -211,7 +211,7 @@ export async function checkCallShapedComputedDeclarationName() {
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent + '\ndeclare function pick(name: string): "picked";' }] });
   const input = { ...analysisInput(fixture, "sdk-minimal", source), snapshot };
   const { deps, program } = fixture.openAndCapture(snapshot);
-  const captured = fixture.front.captureModule(deps, program, snapshot.entryPoint);
+  const captured = captureSingleModule(fixture.front, deps, program, snapshot.entryPoint);
   assert.equal(captured.kind, "ok");
   const [rawBox, , rawInvoke] = captured.value.tree.statements.nodes;
   const rawName = rawBox.members.nodes[0].name;

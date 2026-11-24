@@ -1,7 +1,7 @@
 import type { Cause, Diagnostic, Result } from "../diag/contract.js";
 import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, SourceNodeRef, RawCandidateListId, RawComponentId,
   RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
-import type { IntrinsicMemberOrigin, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
+import type { InterfaceDescriptionRecipe, IntrinsicMemberOrigin, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import type { HirModule, HirModuleBinding, HirModuleExport, IntrinsicValueResolution, ModuleEvaluation, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryModuleModel, WellKnownSymbol } from "../libraries/contract.js";
 import type { ExtensionReferenceEntry, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
@@ -237,7 +237,7 @@ export type RawNumericUnionOrigin =
 
 export type RawTypeForm =
   | { readonly kind: "scalar"; readonly scalar: "number" | "bigint" | "boolean" | "string" | "symbol"
-      | "null" | "undefined" | "void" | "any" | "unknown" | "object" | "never" }
+      | "null" | "undefined" | "void" | "any" | "unknown" | "object" | "never" | "alias-marker" }
   | { readonly kind: "parameter"; readonly parameter: RawNodeRef; readonly constraint: RawTypeId | null; readonly default: RawTypeId | null }
   | { readonly kind: "template-literal"; readonly head: string;
       readonly spans: readonly { readonly type: RawTypeId; readonly tail: string }[] }
@@ -254,7 +254,8 @@ export type RawTypeForm =
   | { readonly kind: "structure"; readonly inventory: RawMemberTableId }
   | { readonly kind: "source-environment"; readonly members: readonly RawMemberHeader[] }
   | { readonly kind: "merged-interface-dependency"; readonly group: RawInterfaceGroup; readonly arguments: readonly RawTypeId[] }
-  | { readonly kind: "conditional-alias-application"; readonly declaration: RawNodeRef; readonly arguments: readonly RawTypeId[] }
+  | { readonly kind: "merged-interface-backedge"; readonly group: RawInterfaceGroup; readonly application: RawTypeId }
+  | { readonly kind: "alias-application"; readonly declaration: RawNodeRef; readonly arguments: readonly RawTypeId[] }
   | { readonly kind: "merged-slot-parameter"; readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]] }
   | { readonly kind: "indexed-access"; readonly operator: RawNodeRef | null; readonly object: RawTypeId; readonly index: RawTypeId }
   | { readonly kind: "keyof"; readonly operator: RawNodeRef; readonly target: RawTypeId }
@@ -263,6 +264,9 @@ export type RawTypeForm =
       readonly whenTrue: RawConditionalBranch; readonly whenFalse: RawConditionalBranch; readonly distributive: boolean;
       readonly inferParameters: readonly RawNodeRef[];
       readonly application: readonly { readonly parameter: RawNodeRef; readonly type: RawTypeId }[] | null }
+  | { readonly kind: "mapped-projection"; readonly operator: RawNodeRef; readonly parameter: RawNodeRef;
+      readonly domain: RawTypeId; readonly remap: RawTypeId | null; readonly value: RawTypeId;
+      readonly readonly: "preserve" | "add" | "remove"; readonly optional: "preserve" | "add" | "remove" }
   | { readonly kind: "substitution"; readonly operator: RawNodeRef; readonly base: RawTypeId; readonly constraint: RawTypeId;
       readonly scope: { readonly kind: "conditional" } | { readonly kind: "mapped"; readonly parameter: RawNodeRef } };
 
@@ -293,6 +297,12 @@ export interface RawTypeTable {
   readonly dataLayouts: readonly RawDataLayout[];
   readonly memoryDescriptors: readonly RawLayoutConstruction[];
   readonly interfaceGroups: readonly RawInterfaceGroup[];
+  readonly interfaceDescriptions: readonly RawInterfaceDescription[];
+}
+
+export interface RawInterfaceDescription {
+  readonly group: RawInterfaceGroup;
+  readonly shape: RawTypeId;
 }
 
 export interface RawInterfaceGroup {
@@ -826,6 +836,7 @@ export interface RawModule {
   readonly module: ModuleId;
   readonly types: RawTypeTable;
   readonly tree: SourceFile<SyntaxPhase>;
+  readonly annotations: readonly { readonly node: NodeId; readonly type: RawTypeId }[];
   readonly checkerViews: readonly RawCheckerViews[];
   readonly calls: readonly RawCallSelection[];
   readonly callableAssociations: readonly RawCallableAssociation[];
@@ -860,18 +871,23 @@ export type OpenCheckedProgram = (
   snapshot: ProjectSnapshot,
 ) => Result<CheckedProgram>;
 
-export type CaptureModule = (
+export type CaptureModules = (
   deps: CaptureDeps,
   program: CheckedProgram,
-  module: ModuleId,
-) => Result<RawModule>;
+  modules: readonly ModuleId[],
+) => Result<readonly RawModule[]>;
 
 export type CaptureProgramModules = (deps: CaptureDeps, program: CheckedProgram) => ProgramModuleSet;
+
+export interface LoweredModule {
+  readonly module: HirModule;
+  readonly interfaceDescriptions: readonly { readonly ordinal: number; readonly recipe: InterfaceDescriptionRecipe }[];
+}
 
 export type LowerModule = (
   deps: LowerDeps,
   module: RawModule,
-) => Result<HirModule>;
+) => Result<LoweredModule>;
 
 /** The definition identity of one declaration node of a module (F-1 with K-3236, K-3250, K-3268, K-3273). */
 export interface ModuleDefinitionRow {
@@ -887,14 +903,18 @@ export interface ModuleSourceOccurrence {
   readonly kind: SyntaxKind;
   readonly origin: Origin;
   readonly occurrence: SourceNodeRef;
+  readonly explicitReceiver?: true;
   readonly typeSyntax?: { readonly kind: "keyof"; readonly target: NodeId }
-    | { readonly kind: "conditional"; readonly check: NodeId; readonly extends: NodeId; readonly whenTrue: NodeId }
+    | { readonly kind: "conditional"; readonly check: NodeId; readonly extends: NodeId; readonly whenTrue: NodeId; readonly whenFalse: NodeId }
+    | { readonly kind: "property-annotation"; readonly type: NodeId }
     | { readonly kind: "indexed"; readonly index: NodeId }
-    | { readonly kind: "mapped"; readonly parameter: NodeId; readonly value: NodeId | null }
+    | { readonly kind: "alias"; readonly result: NodeId; readonly parameters: readonly NodeId[] }
+    | { readonly kind: "mapped"; readonly parameter: NodeId; readonly domain: NodeId | null; readonly remap: NodeId | null;
+        readonly value: NodeId | null; readonly readonly: "preserve" | "add" | "remove"; readonly optional: "preserve" | "add" | "remove" }
     | { readonly kind: "type-reference"; readonly arguments: readonly NodeId[] }
     | { readonly kind: "tuple"; readonly spreadOperands: readonly (NodeId | null)[] }
     | { readonly kind: "tuple-wrapper"; readonly target: NodeId }
-    | { readonly kind: "union"; readonly members: readonly NodeId[] };
+    | { readonly kind: "union" | "intersection"; readonly members: readonly NodeId[] };
 }
 
 /** Every definition identity of one module, in the syntax tree's preorder; the module's own row first. */
@@ -904,12 +924,11 @@ export interface ModuleDefinitions {
   readonly sourceOccurrences: readonly ModuleSourceOccurrence[];
 }
 
-export interface ModuleDefinitionsInput {
-  readonly module: RawModule;
-  readonly componentRoots: readonly RawNodeRef[];
+export interface LowerModuleDefinitionsDeps {
+  readonly componentRootsOf: (module: ModuleId) => readonly RawNodeRef[];
 }
 
-export type LowerModuleDefinitions = (input: ModuleDefinitionsInput) => Result<ModuleDefinitions>;
+export type LowerModuleDefinitions = (deps: LowerModuleDefinitionsDeps, modules: readonly RawModule[]) => Result<readonly ModuleDefinitions[]>;
 
 /** The export entries of one module, in ascending order of name. */
 export interface ModuleExports {

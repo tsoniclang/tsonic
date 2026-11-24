@@ -177,6 +177,11 @@ function termReferences(term: TypeTerm, path: TextPath, meter: WorkMeter, missin
       if (term.projection.kind === "component") {
         componentReferences(term.projection.component, childPath(path, ".projection.component"), meter, references);
         if (meter.exhausted) return [];
+      } else if (term.projection.kind === "mapped") {
+        if (term.projection.remap !== null) appendType(term.projection.remap);
+        if (meter.exhausted) return [];
+        appendType(term.projection.value);
+        if (meter.exhausted) return [];
       }
       break;
     case "primitive": case "string": case "intrinsic": case "enum": case "param": case "merged-parameter":
@@ -249,7 +254,7 @@ export function verifyTypeReferences(
     if (reference.kind === "type") {
       const term = densePosition(reference.value, types.terms.length) ? types.terms[reference.value] : undefined;
       if (term === undefined) { node.unresolved = true; continue; }
-      node.open = term.kind === "open" || term.kind === "error";
+      node.open = term.kind === "open" || term.kind === "error" || term.kind === "intrinsic" && term.intrinsic === "alias-marker";
       children = termReferences(term, childPath(rootPath, `.types.terms[${reference.value}]`), meter,
         () => { node.unresolved = true; }, () => { node.open = true; });
       if (meter.exhausted) return [];

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 async function captured(source, sourceFiles = { "main.ts": source }) {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -8,9 +8,9 @@ async function captured(source, sourceFiles = { "main.ts": source }) {
   const opened = fixture.openAndCapture(fixture.projectSnapshot({ sourceFiles,
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] }));
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const result = fixture.front.captureModule(opened.deps, opened.program, module);
+  const result = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(result.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions({ module: result.value, componentRoots: result.value.types.components.map(component => component.root).filter(root => root.module === result.value.module) });
+  const definitions = identifySingleModule(fixture.front, { module: result.value, componentRoots: result.value.types.components.map(component => component.root).filter(root => root.module === result.value.module) });
   assert.equal(definitions.kind, "ok");
   const conversion = await import("../../packages/host/dist/front/type-conversion.js");
   return { fixture, raw: result.value, definitions: definitions.value, source, conversion, opened };
@@ -441,7 +441,7 @@ test("a foreign captured component cannot borrow the current module's same-numbe
   const source = "export type Flag=boolean;";
   const actual = await captured(source, { "main.ts": source, "other.ts": source });
   const module = actual.fixture.moduleOf(actual.fixture.packageOf("/project"), "src/other.ts");
-  const foreign = actual.fixture.front.captureModule(actual.opened.deps, actual.opened.program, module);
+  const foreign = captureSingleModule(actual.fixture.front, actual.opened.deps, actual.opened.program, module);
   assert.equal(foreign.kind, "ok");
   const node = actual.raw.tree.statements.nodes[0].type;
   const row = actual.raw.types.types.find(candidate => candidate.authoredTypeNode?.node === node.id);
@@ -462,7 +462,7 @@ test("a callable default cannot borrow an initializer occurrence from another ac
   const source = "export function value(input:boolean=true):boolean{return input;}";
   const actual = await captured(source, { "main.ts": source, "other.ts": source });
   const module = actual.fixture.moduleOf(actual.fixture.packageOf("/project"), "src/other.ts");
-  const foreign = actual.fixture.front.captureModule(actual.opened.deps, actual.opened.program, module);
+  const foreign = captureSingleModule(actual.fixture.front, actual.opened.deps, actual.opened.program, module);
   assert.equal(foreign.kind, "ok");
   const owner = actual.raw.tree.statements.nodes[0].id;
   const signature = actual.raw.types.signatures.find(candidate => candidate.declaration?.node === owner);

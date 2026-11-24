@@ -82,7 +82,8 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   const project = new Set(inputs.snapshot.source.input.packages.modules.filter(module => module.package === inputs.snapshot.source.input.packages.rootPackage)
     .map(module => module.id));
   const base: SourceSemanticInputs = { declarations: { modules: source.modules, types: source.types, typeWork: source.typeWork,
-    typeExpansion: inputs.limits.instantiation.typeExpansion }, instantiation: inputs.limits.instantiation };
+    typeExpansion: inputs.limits.instantiation.typeExpansion, interfaceDescriptionOf: source.interfaceDescriptionOf },
+    instantiation: inputs.limits.instantiation };
   const { database, bind } = createSourceSemanticDatabase(base, inputs.limits.query);
   const checkedModules = new Map<ModuleId, SourceModule>();
   for (const module of roots) checkedModules.set(module.module.module, module);

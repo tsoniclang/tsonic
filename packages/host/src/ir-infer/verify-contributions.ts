@@ -216,6 +216,10 @@ export function termReferences(term: TypeTerm, visitData: DataVisitor, path: str
       const signatures: SigId[] = [];
       if (term.projection.kind === "indexed") types.push(term.projection.index);
       else if (term.projection.kind === "substitution") types.push(term.projection.constraint);
+      else if (term.projection.kind === "mapped") {
+        if (term.projection.remap !== null) types.push(term.projection.remap);
+        types.push(term.projection.value);
+      }
       else if (term.projection.kind === "conditional") types.push(term.projection.extends, term.projection.whenTrue, term.projection.whenFalse);
       else if (term.projection.kind === "component") visitData({ kind: "TypeComponent", value: term.projection.component }, reference => {
         if (reference.kind === "type") types.push(reference.value);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 test("actual global augmentation retains its original module keyword and genuine declaration identity", async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -10,12 +10,12 @@ test("actual global augmentation retains its original module keyword and genuine
   }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const captured = fixture.front.captureModule(opened.deps, opened.program, module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
   const declaration = captured.value.tree.statements.nodes.find(node => node.kind === "ModuleDeclaration");
   assert.equal(declaration !== undefined, true);
   assert.equal(declaration.keyword, "GlobalKeyword");
-  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value,
+  const definitions = identifySingleModule(fixture.front, { module: captured.value,
     componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   assert.equal(definitions.value.rows.some(row => row.node === declaration.id && row.kind === "ModuleDeclaration"), true);
@@ -29,10 +29,10 @@ test("actual namespace-valued members retain their genuine module declaration or
   }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const captured = fixture.front.captureModule(opened.deps, opened.program, module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
-  const definitions = fixture.front.lowerModuleDefinitions({ module: raw,
+  const definitions = identifySingleModule(fixture.front, { module: raw,
     componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(definitions.kind, "ok");
   const rows = new Map(definitions.value.rows.map(row => [row.node, row]));
@@ -58,10 +58,10 @@ test("actual declared structural members retain their genuine keys, origins and 
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const result = fixture.front.captureModule(opened.deps, opened.program, module);
+  const result = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(result.kind, "ok");
   const raw = result.value;
-  const definitions = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
+  const definitions = identifySingleModule(fixture.front, { module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(definitions.kind, "ok");
   const byNode = new Map(definitions.value.rows.map(row => [row.node, row]));
   const table = raw.types.members.find(table => table.members.length === 4);
@@ -105,10 +105,10 @@ test("actual overloaded, readonly and nonidentifier member keys retain every sel
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const result = fixture.front.captureModule(opened.deps, opened.program, module);
+  const result = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(result.kind, "ok");
   const raw = result.value;
-  const identified = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
+  const identified = identifySingleModule(fixture.front, { module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(identified.kind, "ok");
   const definitions = new Map(identified.value.rows.map(row => [row.node, row]));
   const table = raw.types.members.find(table => table.members.length === 5);

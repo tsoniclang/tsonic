@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 async function captured(source) {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -9,16 +9,16 @@ async function captured(source) {
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const result = fixture.front.captureModule(opened.deps, opened.program, module);
+  const result = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(result.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions({ module: result.value, componentRoots: result.value.types.components.map(component => component.root).filter(root => root.module === result.value.module) });
+  const definitions = identifySingleModule(fixture.front, { module: result.value, componentRoots: result.value.types.components.map(component => component.root).filter(root => root.module === result.value.module) });
   assert.equal(definitions.kind, "ok");
   const lower = (raw = result.value) => {
     const interner = fixture.types.createTypeInterner();
     const deps = fixture.lowerDepsFor(definitions.value, interner, source);
     const exports = fixture.front.lowerModuleExports(deps, raw);
     assert.equal(exports.kind, "ok");
-    const checked = fixture.front.lowerModule({ ...deps, exportsOf: owner => owner === module ? exports.value : null }, raw);
+    const checked = lowerSingleCheckedModule(fixture.front, { ...deps, exportsOf: owner => owner === module ? exports.value : null }, raw);
     assert.equal(checked.kind, "ok");
     return { checked: checked.value, interner };
   };

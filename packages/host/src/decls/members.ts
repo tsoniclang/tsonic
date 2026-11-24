@@ -1,10 +1,77 @@
-import type { UnitRequest } from "../diag/contract.js";
-import type { DefId, SigId } from "../ids/contract.js";
-import { internType, readSignature, readType } from "../ir-types/index.js";
-import type { AccessorCorrespondence, ConstructorCorrespondence, MemberInventory, MemberUnavailableReason } from "../ir-types/contract.js";
+import type { Result, UnitRequest, UnitResult } from "../diag/contract.js";
+import type { DefId, SigId, TyId } from "../ids/contract.js";
+import { admitTypePublicationStep, compareIndexSignatures, internType, readSignature, readType, refuseTypeConstruction,
+  substitute, substituteSignature } from "../ir-types/index.js";
+import type { AccessorCorrespondence, BindingVector, ConstructorCorrespondence, InterfaceDescriptionInventory, InterfaceDescriptionRecipe,
+  MemberInventory, MemberTypes, MemberUnavailableReason, TypeBinding, TypeTerm } from "../ir-types/contract.js";
 import type { HirNode } from "../ir-hir/contract.js";
 import type { DeclsDeps, MembersOf, MemberTypeOf } from "./contract.js";
-import { findAscending, moduleOf } from "./signatures.js";
+import { findAscending, finishTypeTransform, moduleOf } from "./signatures.js";
+
+type MergedType = Extract<TypeTerm, { readonly kind: "merged-interface" }>;
+
+function ready<Value>(value: Value): Result<Value> { return { kind: "ok", value, diagnostics: [] }; }
+
+function settle<Value>(result: Result<Value>): { readonly kind: "done"; readonly value: UnitResult<Value> } {
+  return { kind: "done", value: result.kind === "refused" ? result : { ...result,
+    positions: [{ position: { kind: "result" }, error: null }], emissions: [] } };
+}
+
+function mergedBindings(deps: DeclsDeps, term: MergedType, unit: UnitRequest): Result<{
+  readonly recipe: InterfaceDescriptionRecipe; readonly bindings: BindingVector;
+}> {
+  const first = term.definitions[0];
+  const selected = first === undefined ? null : deps.interfaceDescriptionOf(first);
+  if (selected === null) throw new TypeError("decls: a merged interface must retain its actual checked description");
+  const { group, recipe } = selected;
+  const admit = (): Result<never> | null => {
+    const stop = admitTypePublicationStep(deps.typeWork);
+    return stop === null ? null : refuseTypeConstruction(deps.typeWork, stop, recipe.origin, unit);
+  };
+  if (group.definitions.length !== term.definitions.length || group.slots.length !== term.arguments.length)
+    throw new TypeError("decls: a merged application must match its complete declaration and slot inventory");
+  for (let position = 0; position < group.definitions.length; ++position) {
+    const stop = admit();
+    if (stop !== null) return stop;
+    if (term.definitions[position] !== group.definitions[position])
+      throw new TypeError("decls: a merged application cannot borrow a different declaration group");
+  }
+  const classBindings: TypeBinding[] = [];
+  const capturedBindings: TypeBinding[] = [];
+  for (let position = 0; position < group.slots.length; ++position) {
+    const stop = admit();
+    if (stop !== null) return stop;
+    const slot = group.slots[position];
+    const type = term.arguments[position];
+    if (slot === undefined || type === undefined) throw new TypeError("decls: a merged application retains each actual binding slot");
+    const bindings = slot.scope === "local" ? classBindings : capturedBindings;
+    for (let index = 0; index < slot.parameters.length; ++index) {
+      const paid = admit();
+      if (paid !== null) return paid;
+      const parameter = slot.parameters[index];
+      if (parameter === undefined) throw new TypeError("decls: each merged binding slot retains every actual parameter");
+      bindings.push({ kind: "bound", parameter, type });
+    }
+  }
+  return ready({ recipe, bindings: { classBindings, capturedBindings, methodBindings: [], selfBindings: [] } });
+}
+
+function bindMemberValues(deps: DeclsDeps, values: MemberTypes, selected: { readonly recipe: InterfaceDescriptionRecipe; readonly bindings: BindingVector },
+  unit: UnitRequest): Result<MemberTypes> {
+  const roots: TyId[] = [];
+  if (values.read !== null) roots.push(values.read);
+  if (values.write !== null && values.write !== values.read) roots.push(values.write);
+  const result = finishTypeTransform(deps, substitute(deps.types, roots, selected.bindings, deps.typeExpansion, deps.typeWork),
+    selected.recipe.origin, unit);
+  if (result.kind === "refused") return result;
+  const at = (position: number): TyId => {
+    const value = result.value[position];
+    if (value === undefined) throw new TypeError("decls: an actual member value must retain its bound type");
+    return value;
+  };
+  return ready({ read: values.read === null ? null : at(0),
+    write: values.write === null ? null : at(values.read === null || values.read === values.write ? 0 : 1) });
+}
 
 function declarationNode(deps: DeclsDeps, declaration: DefId, unit: UnitRequest): HirNode {
   const checked = moduleOf(deps, declaration, unit);
@@ -29,8 +96,57 @@ function constructorOf(deps: DeclsDeps, identity: SigId, unit: UnitRequest): Con
   return { signature: identity, declaration: signature.declaration, body: first.body };
 }
 
+function describeInventory(deps: DeclsDeps, receiver: TyId, term: InterfaceDescriptionInventory,
+  unit: UnitRequest, constructors: readonly ConstructorCorrespondence[]): MemberInventory {
+  const accessors: AccessorCorrespondence[] = [];
+  for (const member of term.members) {
+    if (member.kind !== "accessor") continue;
+    for (const origin of member.origins) {
+      if (origin.kind !== "declared")
+        throw new TypeError("decls: an accessor inventory requires its actual checked origin correspondence");
+      const node = declarationNode(deps, origin.declaration, unit);
+      if (node.kind !== "GetAccessor" && node.kind !== "SetAccessor")
+        throw new TypeError("decls: an accessor origin must name its actual getter or setter declaration");
+      accessors.push({ origin, getter: node.kind === "GetAccessor" ? origin.declaration : null,
+        setter: node.kind === "SetAccessor" ? origin.declaration : null });
+    }
+  }
+  return { ...term, receiver, accessors, constructors, completeness: { kind: "complete" } };
+}
+
+function mergedInventory(deps: DeclsDeps, receiver: TyId, term: MergedType, unit: UnitRequest): Result<MemberInventory> {
+  const selected = mergedBindings(deps, term, unit);
+  if (selected.kind === "refused") return selected;
+  const { recipe, bindings } = selected.value;
+  const rows = recipe.inventory(unit);
+  if (rows.kind === "refused") return rows;
+  const row = rows.value;
+  const keyRoots = row.indexes.map(index => index.key);
+  const keys = finishTypeTransform(deps, substitute(deps.types, keyRoots, bindings, deps.typeExpansion, deps.typeWork), recipe.origin, unit);
+  if (keys.kind === "refused") return keys;
+  const endpoints = finishTypeTransform(deps,
+    substituteSignature(deps.types, [...row.calls, ...row.constructs], bindings, deps.typeExpansion, "lexical", deps.typeWork), recipe.origin, unit);
+  if (endpoints.kind === "refused") return endpoints;
+  const indexes = row.indexes.map((index, position) => {
+    const key = keys.value[position];
+    if (key === undefined) throw new TypeError("decls: each actual index must retain its bound key");
+    return { ...index, key };
+  }).sort(compareIndexSignatures);
+  const boundAt = (position: number): SigId => {
+    const signature = endpoints.value[position];
+    if (signature === undefined) throw new TypeError("decls: each actual interface endpoint must retain its bound signature");
+    return signature;
+  };
+  const calls = [...new Set(row.calls.map((_, position) => boundAt(position)))].sort((first, second) => first - second);
+  const constructors = row.constructs.map((identity, position) => ({ ...constructorOf(deps, identity, unit),
+    signature: boundAt(row.calls.length + position) })).sort((first, second) => first.signature - second.signature);
+  const constructs = [...new Set(constructors.map(row => row.signature))];
+  return ready(describeInventory(deps, receiver, { members: row.members, indexes, calls, constructs }, unit, constructors));
+}
+
 export const membersOf: MembersOf = (deps, receiver) => {
   const term = readType(deps.types, receiver);
+  const unit: UnitRequest = { query: "membersOf", key: receiver };
   const open = (reason: MemberUnavailableReason): MemberInventory => ({ receiver, members: [], indexes: [], calls: [],
     constructs: [], accessors: [], constructors: [], completeness: { kind: "open", reasons: [reason] } });
   let inventory: MemberInventory;
@@ -39,28 +155,15 @@ export const membersOf: MembersOf = (deps, receiver) => {
     inventory = open({ kind: "dynamic" });
   else if (term.kind === "source-environment") inventory = { receiver, members: term.members, indexes: [], calls: [],
     constructs: [], accessors: [], constructors: [], completeness: { kind: "complete" } };
+  else if (term.kind === "merged-interface") return settle(mergedInventory(deps, receiver, term, unit));
   else if (term.kind === "shape" || term.kind === "callable") {
-    const unit: UnitRequest = { query: "membersOf", key: receiver };
     const members = term.kind === "shape" ? term.members.map(member => ({ key: member.key, origins: member.origins,
       readOrigins: member.readOrigins, writeOrigins: member.writeOrigins, kind: member.kind,
       optional: member.optional, readonly: member.readonly })) : [];
     const indexes = term.kind === "shape" ? term.indexes.map(index => ({ origin: index.origin, key: index.key,
       readonly: index.readonly })) : [];
-    const accessors: AccessorCorrespondence[] = [];
-    for (const member of members) {
-      if (member.kind !== "accessor") continue;
-      for (const origin of member.origins) {
-        if (origin.kind !== "declared")
-          throw new TypeError("decls: an accessor inventory requires its actual checked origin correspondence");
-        const node = declarationNode(deps, origin.declaration, unit);
-        if (node.kind !== "GetAccessor" && node.kind !== "SetAccessor")
-          throw new TypeError("decls: an accessor origin must name its actual getter or setter declaration");
-        accessors.push({ origin, getter: node.kind === "GetAccessor" ? origin.declaration : null,
-          setter: node.kind === "SetAccessor" ? origin.declaration : null });
-      }
-    }
-    inventory = { receiver, members, indexes, calls: term.calls, constructs: term.constructs, accessors,
-      constructors: term.constructs.map(signature => constructorOf(deps, signature, unit)), completeness: { kind: "complete" } };
+    inventory = describeInventory(deps, receiver, { members, indexes, calls: term.calls, constructs: term.constructs }, unit,
+      term.constructs.map(signature => constructorOf(deps, signature, unit)));
   } else throw new TypeError(`decls: membersOf requires the actual retained checker inventory for ${term.kind}`);
   return { kind: "done", value: { kind: "ok", value: inventory, positions: [{ position: { kind: "result" }, error: null }],
     diagnostics: [], emissions: [] } };
@@ -68,6 +171,13 @@ export const membersOf: MembersOf = (deps, receiver) => {
 
 export const memberTypeOf: MemberTypeOf = (deps, request) => {
   const receiver = readType(deps.types, request.receiver);
+  const unit: UnitRequest = { query: "memberTypeOf", key: [request.receiver, request.member] };
+  if (receiver.kind === "merged-interface") {
+    const selected = mergedBindings(deps, receiver, unit);
+    if (selected.kind === "refused") return settle(selected);
+    const values = selected.value.recipe.member(unit, request.member);
+    return settle(values.kind === "refused" ? values : bindMemberValues(deps, values.value, selected.value, unit));
+  }
   if (receiver.kind !== "shape" && receiver.kind !== "source-environment")
     throw new TypeError("decls: memberTypeOf requires an actual retained typed member inventory");
   const ordinal = request.member;
@@ -77,7 +187,6 @@ export const memberTypeOf: MemberTypeOf = (deps, request) => {
   if (member === undefined) throw new TypeError("decls: the requested member is missing from its canonical inventory");
   if (member.kind !== "property" || member.origins.length === 0)
     throw new TypeError("decls: memberTypeOf requires the retained type producer for this member kind");
-  const unit: UnitRequest = { query: "memberTypeOf", key: [request.receiver, ordinal] };
   if (receiver.kind === "source-environment") {
     const origin = member.readOrigins.length === 1 ? member.readOrigins[0] : undefined;
     let read;

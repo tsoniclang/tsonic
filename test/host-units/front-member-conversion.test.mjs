@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { propertyRows, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, propertyRows, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { insertFixtureType, insertFixtureSignature } from "./fixtures/types-construction.mjs";
 
 const runtime = fileURLToPath(new URL("../../packages/host/dist/front/lower-members.js", import.meta.url));
@@ -388,7 +388,8 @@ test("mapped properties retain the native key and the actual foreign mapping own
 test("a remapped property cannot use its input key as the selected output key", async () => {
   const fixture = await loadFrontFixture();
   const snapshot = fixture.projectSnapshot({ sourceFiles: {
-    "main.ts": 'interface Input { length: number; } export type Flags = { [K in keyof Input as "renamed"]?: boolean };',
+    "main.ts": 'interface Input { length: number; } export type Flags = { [K in keyof Input as "renamed"]?: boolean };'
+      + " export function read(value: Flags): boolean | undefined { return value.renamed; }",
   }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const { deps, program } = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
@@ -402,7 +403,7 @@ test("a remapped property cannot use its input key as the selected output key", 
   assert.equal(selected.name, "renamed");
   assert.equal(selected.mapped.declaration === syntax, true);
   assert.equal(typeShape.getStringLiteralTypeValue(selected.mapped.keyType), "length");
-  assert.throws(() => fixture.front.captureModule(deps, program, module), /mapped property origin transport requires its actual selected mapped component/u);
+  assert.throws(() => captureSingleModule(fixture.front, deps, program, module), /mapped property origin transport requires its actual selected mapped component/u);
 });
 
 test("captured data-property origins demand their genuine body occurrence without assigning a definition", async () => {
@@ -414,7 +415,7 @@ test("captured data-property origins demand their genuine body occurrence withou
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const capture = fixture.front.captureModule(opened.deps, opened.program, module);
+  const capture = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(capture.kind, "ok");
   const raw = capture.value;
   assert.deepEqual(raw.checkerDiagnostics, []);
@@ -431,7 +432,7 @@ test("captured data-property origins demand their genuine body occurrence withou
   const use = raw.memberUses.find(row => row.occurrence.node === callable.body.statements.nodes[0].expression.id);
   assert.deepEqual(use.selectedDeclaration, { module, node: plain.type.members.nodes[0].id });
   assert.notEqual(use.selectedDeclaration.node, node.id);
-  const definitions = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: [
+  const definitions = identifySingleModule(fixture.front, { module: raw, componentRoots: [
     ...raw.types.components.map(component => component.root).filter(root => root.module === module), ...property.origins.map(origin => origin.occurrence),
   ] });
   assert.equal(definitions.kind, "ok");
@@ -449,12 +450,12 @@ test("object property lowering selects by the full checked occurrence, not shape
   const source = "export const shape: { z: boolean; a: boolean } = { z: true, a: false };";
   const opened = fixture.openedModule(source);
   const { module, program } = opened;
-  const captured = fixture.front.captureModule(opened.deps, program, module);
+  const captured = captureSingleModule(fixture.front, opened.deps, program, module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
   const enclosing = raw.tree.statements.nodes[0].declarationList.declarations.nodes[0];
   const literal = enclosing.initializer;
-  const declarations = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: [
+  const declarations = identifySingleModule(fixture.front, { module: raw, componentRoots: [
     ...raw.types.components.map(component => component.root).filter(reference => reference.module === module),
     ...literal.properties.nodes.map(property => ({ module, node: property.id })),
   ] });
@@ -463,7 +464,7 @@ test("object property lowering selects by the full checked occurrence, not shape
   const deps = fixture.lowerDepsFor(declarations.value, interner, source);
   const exported = fixture.front.lowerModuleExports(deps, raw);
   assert.equal(exported.kind, "ok");
-  const checked = fixture.front.lowerModule({ ...deps, exportsOf: () => exported.value }, raw);
+  const checked = lowerSingleCheckedModule(fixture.front, { ...deps, exportsOf: () => exported.value }, raw);
   assert.equal(checked.kind, "ok");
   const body = checked.value.bodies.find(entry => entry.root.id === literal.id);
   const sourceShape = fixture.types.readType(interner, body.root.tsonic.value.views.read.value);
@@ -508,7 +509,7 @@ test("an imported data property's source occurrence stays in its own module even
   const owner = fixture.packageOf("/project");
   const modules = ["main", "origin", "other"].map(name => fixture.moduleOf(owner, `src/${name}.ts`));
   const [main, origin, other] = modules.map(module => {
-    const capture = fixture.front.captureModule(opened.deps, opened.program, module);
+    const capture = captureSingleModule(fixture.front, opened.deps, opened.program, module);
     assert.equal(capture.kind, "ok");
     assert.deepEqual(capture.value.checkerDiagnostics, []);
     return capture.value;
@@ -525,10 +526,10 @@ test("an imported data property's source occurrence stays in its own module even
   assert.equal(main.memberUses.length, 1);
   assert.deepEqual(main.memberUses[0].selectedDeclaration, occurrence);
   assert.deepEqual(main.memberUses[0].readDeclarations, [occurrence]);
-  const definition = fixture.front.lowerModuleDefinitions({ module: origin, componentRoots: [occurrence] });
+  const definition = identifySingleModule(fixture.front, { module: origin, componentRoots: [occurrence] });
   assert.equal(definition.kind, "ok");
   const ready = definition.value.sourceOccurrences.find(row => row.node === occurrence.node);
-  const otherDefinitions = fixture.front.lowerModuleDefinitions({ module: other, componentRoots: [{ module: other.module, node: occurrence.node }] });
+  const otherDefinitions = identifySingleModule(fixture.front, { module: other, componentRoots: [{ module: other.module, node: occurrence.node }] });
   assert.equal(otherDefinitions.kind, "ok");
   const crossed = otherDefinitions.value.sourceOccurrences.find(row => row.node === occurrence.node);
   assert.equal(ready.kind, "PropertyAssignment");
@@ -536,10 +537,10 @@ test("an imported data property's source occurrence stays in its own module even
   assert.equal(path.kind, "decoded");
   assert.equal(path.value.owner, definition.value.rows.find(row => row.node === originVariable.id).definition);
   assert.equal(path.value.role, "initializer");
-  assert.throws(() => fixture.front.lowerModuleDefinitions({ module: other, componentRoots: [occurrence] }),
+  assert.throws(() => identifySingleModule(fixture.front, { module: other, componentRoots: [occurrence] }),
     /component root request must retain its actual captured module/);
 
-  const mainDefinitions = fixture.front.lowerModuleDefinitions({ module: main, componentRoots: main.types.components
+  const mainDefinitions = identifySingleModule(fixture.front, { module: main, componentRoots: main.types.components
     .map(component => component.root).filter(root => root.module === main.module) });
   assert.equal(mainDefinitions.kind, "ok");
   const local = fixture.lowerDepsFor(mainDefinitions.value, fixture.types.createTypeInterner(), snapshot.source.input.packages.files

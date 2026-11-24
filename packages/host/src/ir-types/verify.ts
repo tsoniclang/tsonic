@@ -192,6 +192,18 @@ function termReferences(value: TypeTerm, site: TypeSite, checks: Checks, path: I
         { parent: path, part: ".projection.component" });
       else if (value.projection.kind === "indexed") checks.type(value.projection.index, site);
       else if (value.projection.kind === "substitution") checks.type(value.projection.constraint, site);
+      else if (value.projection.kind === "mapped") {
+        const selected = value.projection;
+        if (typeof selected.parameter !== "string" || decodeDefId(selected.parameter).kind !== "decoded")
+          checks.add("projection-owner", site, "projection.parameter");
+        if (selected.remap !== null) checks.type(selected.remap, site);
+        checks.type(selected.value, site);
+        const fields: readonly ("readonly" | "optional")[] = ["readonly", "optional"];
+        for (const field of fields) {
+          const mode = selected[field];
+          if (mode !== "preserve" && mode !== "add" && mode !== "remove") checks.add("projection-owner", site, "projection." + field);
+        }
+      }
       else if (value.projection.kind === "conditional") {
         checks.type(value.projection.extends, site);
         checks.type(value.projection.whenTrue, site);

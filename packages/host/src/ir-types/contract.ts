@@ -1,6 +1,6 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef, Origin } from "../ids/contract.js";
 import type { Result, TextParseResult, UnitRequest, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BodyInstance, CategoryEvidence, ConstantReference, ExactRational, Execution, IndexInventoryEntry, LiteralTypeValue, MemberKey, MemberStorageSelection, NativeBinaryFloatPrimitive, NativeIntegerPrimitive, NativeSignedIntegerPrimitive, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeEvidence, TypeProductionRequest } from "./data.js";
+import type { ArtifactBindings, BodyInstance, CategoryEvidence, ConstantReference, ExactRational, Execution, IndexInventoryEntry, LiteralTypeValue, MemberInventoryEntry, MemberKey, MemberStorageSelection, MemberTypes, NativeBinaryFloatPrimitive, NativeIntegerPrimitive, NativeSignedIntegerPrimitive, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeEvidence, TypeProductionRequest } from "./data.js";
 import type { TypeArena } from "./arena.js";
 import type { LimitStop, PublicationAccount, TypePublicationLimits, TypePublicationStop } from "./work.js";
 export type { TypePublicationLimits, TypePublicationStop } from "./work.js";
@@ -239,6 +239,24 @@ export type NominalDefinition =
   | { readonly kind: "alias"; readonly parameterCount: number }
   | { readonly kind: "merged-interface"; readonly definitions: readonly DefId[];
       readonly slots: readonly { readonly scope: "outer" | "local"; readonly parameters: readonly DefId[] }[] };
+
+export interface InterfaceDescriptionInventory {
+  readonly members: readonly MemberInventoryEntry[];
+  readonly indexes: readonly IndexInventoryEntry[];
+  readonly calls: readonly SigId[];
+  readonly constructs: readonly SigId[];
+}
+
+export interface InterfaceDescriptionRecipe {
+  readonly origin: Origin;
+  readonly inventory: (unit: UnitRequest) => Result<InterfaceDescriptionInventory>;
+  readonly member: (unit: UnitRequest, ordinal: number) => Result<MemberTypes>;
+}
+
+export interface CheckedInterfaceDescription {
+  readonly group: Extract<NominalDefinition, { readonly kind: "merged-interface" }>;
+  readonly recipe: InterfaceDescriptionRecipe;
+}
 
 export interface TypeVerificationInput {
   readonly table: TypeTable;

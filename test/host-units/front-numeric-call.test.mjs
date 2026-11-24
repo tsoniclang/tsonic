@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { OpenedProgram } from "../../packages/host/dist/front/handles.js";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 test("numeric declaration bounds keep the exact checker value apart from the authored rational", async () => {
   const fixture = await loadFrontFixture();
@@ -57,7 +57,7 @@ test("numeric declaration bounds keep the exact checker value apart from the aut
     return { ...source, origin: { ...source.origin, module: otherModule } };
   } }, raw);
   assert.throws(() => convertRawType(crossed, read(fraction)), /checked numeric component requires its actual source origin/u);
-  const lowered = fixture.front.lowerModule(deps, raw);
+  const lowered = lowerSingleCheckedModule(fixture.front, deps, raw);
   assert.equal(lowered.kind, "ok");
   for (const [index, authored] of [[0, { numerator: 1n, denominator: 10n, negativeZero: false }],
     [1, { numerator: 9007199254740993n, denominator: 1n, negativeZero: false }]]) {
@@ -162,7 +162,7 @@ test("raw optional-number calls retain the numeric source token, selected argume
     assert.equal(typeShape.getUnionOrIntersectionTypes(context.type).includes(base), true);
     assert.equal(snapshot.nativeFacts.floatingFormats.find(format => format.carrier === "float64").interchange, "ieee754-binary64");
 
-    const result = fixture.front.captureModule(deps, program, snapshot.entryPoint);
+    const result = captureSingleModule(fixture.front, deps, program, snapshot.entryPoint);
     assert.equal(result.kind, "ok");
     const raw = result.value;
     const argument = raw.tree.statements.nodes.at(-1).body.statements.nodes[0].expression.arguments.nodes[0];
@@ -219,7 +219,7 @@ test("lowerModule admits authored numeric work and sizes the canonical rational 
   };
   const base = { maximumIntermediateBits: 256, maximumResultBits: 128, maximumArithmeticWork: 4096 };
   const refused = (entry, limits, field) => {
-    const result = fixture.front.lowerModule({ ...entry.deps, literalCapture: limits }, entry.raw);
+    const result = lowerSingleCheckedModule(fixture.front, { ...entry.deps, literalCapture: limits }, entry.raw);
     assert.equal(result.kind, "refused", `${entry.syntax.text}: ${field}`);
     assert.deepEqual(result.diagnostics, [
       resourceLimitDiagnostic({ owner: "front", limit: `front.literalCapture.${field}`, maximum: limits[field],
@@ -228,7 +228,7 @@ test("lowerModule admits authored numeric work and sizes the canonical rational 
     ]);
   };
   const accepted = (entry, limits, numerator, denominator = 1n) => {
-    const lower = fixture.front.lowerModule({ ...entry.deps, literalCapture: limits }, entry.raw);
+    const lower = lowerSingleCheckedModule(fixture.front, { ...entry.deps, literalCapture: limits }, entry.raw);
     assert.equal(lower.kind, "ok", entry.syntax.text);
     const selected = lower.value.tree.statements.nodes.at(-1).body.statements.nodes[0].expression.arguments.nodes[0];
     assert.deepEqual(selected.tsonic.literal, { kind: "number", token: entry.syntax.text,

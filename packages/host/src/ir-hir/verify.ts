@@ -169,6 +169,7 @@ function syntaxViolations(module: HirModule, inventory: HirInventory, report: Hi
 function declarationViolations(module: HirModule, inventory: HirInventory, paths: HirIdentityPaths, report: HirReport): void {
   const seen = new Set<string>();
   const definitions = new Set<DefId>([module.tree.tsonic.definition, ...module.items.map(item => item.definition)]);
+  let namespaceDefinitions: ReadonlyMap<NodeId, DefId> | null = null;
   let layoutParents: Set<DefId> | null = null;
   let previous: string | null = null;
   for (const item of module.items) {
@@ -182,6 +183,22 @@ function declarationViolations(module: HirModule, inventory: HirInventory, paths
     const node = inventory.nodesById.get(item.node);
     if (node === undefined) { report("node-reference", site, "definition node does not exist"); continue; }
     const metadata = node.tsonic;
+    if (node.kind === "ModuleDeclaration") {
+      namespaceDefinitions ??= new Map(module.items.map(member => [member.node, member.definition]));
+      const selected: DefId[] = [];
+      const member = (child: HirNode): void => {
+        const identity = namespaceDefinitions?.get(child.id);
+        if (identity !== undefined) selected.push(identity);
+      };
+      const body = node.body;
+      if (body?.kind === "ModuleDeclaration") member(body);
+      else if (body?.kind === "ModuleBlock") for (const statement of body.statements.nodes) {
+        if (statement.kind === "VariableStatement") for (const declaration of statement.declarationList.declarations.nodes) member(declaration);
+        else member(statement);
+      }
+      if (selected.length !== node.tsonic.members.length || selected.some((definition, position) => node.tsonic.members[position] !== definition))
+        report("definition-reference", site, "a namespace must retain exactly its own ordered checked declarations");
+    }
     if (node.kind === "CallExpression") {
       const capture = checkedLayoutConstructionOf(node);
       const actual = inventory.entriesById.get(item.node);

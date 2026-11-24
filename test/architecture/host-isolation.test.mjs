@@ -529,7 +529,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts"].map(name => `${host}/step/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),
     ...["bindings.ts", "capture.ts", "checker.ts", "diagnostics.ts", "handles.ts", "identities.ts", "index.ts",
-      "literals.ts", "lower.ts", "lower-calls.ts", "lower-exports.ts", "lower-imports.ts", "lower-layout.ts", "lower-members.ts", "checked-declarations.ts", "source-bodies.ts",
+      "interface-description.ts", "literals.ts", "lower.ts", "lower-calls.ts", "lower-exports.ts", "lower-imports.ts", "lower-layout.ts", "lower-members.ts", "checked-declarations.ts", "source-bodies.ts",
       "type-conversion.ts", "options.ts", "program-data.ts", "provider-model.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
     ...["definitions.ts", "index.ts", "placement.ts", "signatures.ts", "cycles.ts", "enums.ts", "members.ts", "type-production.ts"].map(name => `${host}/decls/${name}`),
     ...["embed.ts", "errors.ts", "frontier.ts", "index.ts", "literal-default.ts", "literal-fit.ts", "member-pause.ts", "operators.ts", "schemes.ts", "variables.ts",

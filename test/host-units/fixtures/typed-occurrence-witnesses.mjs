@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readyModuleRoot, readyModuleStatements } from "./chapter-syntax.mjs";
 import { createAccount } from "../../../packages/host/dist/dataflow/index.js";
-import { loadFrontFixture } from "./front/checked-module.mjs";
+import { captureSingleModule, loadFrontFixture } from "./front/checked-module.mjs";
 import { analysisInput } from "./front/analysis-input.mjs";
 
 export async function tirFixtureAdmission() {
@@ -352,7 +352,7 @@ export async function checkLabelledTransfers() {
   const frontDeps = { extensions: input.extensions, navigationCapture: input.limits.navigationCapture };
   const opened = fixture.front.openCheckedProgram(frontDeps, input.snapshot);
   assert.equal(opened.kind, "ok");
-  const captured = fixture.front.captureModule(frontDeps, opened.value, module.module);
+  const captured = captureSingleModule(fixture.front, frontDeps, opened.value, module.module);
   assert.equal(captured.kind, "ok");
   const routes = new Map([
     ["advance", (flag, second, keep) => flag && second ? !keep : keep],

@@ -1,6 +1,6 @@
 import type { Cause, Diagnostic, Result, UnitDiagnostic, UnitRef, UnitRequest, UnitResult, UnitValue } from "../diag/contract.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { BindingScope, BodyInstance, ConstantReference, ConstValue, MemberInventory, MemberKey, MemberTypeRequest, MemberTypes, SelectedNativeFacts, Signature, SignatureRequest, TypeEvidence, TypeExpansionLimits, TypeInterner, TypeProductionRequest, TypePublicationWork, TypeTable, TypeTerm } from "../ir-types/contract.js";
+import type { BindingScope, BodyInstance, CheckedInterfaceDescription, ConstantReference, ConstValue, MemberInventory, MemberKey, MemberTypeRequest, MemberTypes, SelectedNativeFacts, Signature, SignatureRequest, TypeEvidence, TypeExpansionLimits, TypeInterner, TypeProductionRequest, TypePublicationWork, TypeTable, TypeTerm } from "../ir-types/contract.js";
 import type { CheckedPhase, CheckedTypingCuts, EnumDeclaration, HirDeclarationScopes, HirModule, HirNode, SyntaxKind } from "../ir-hir/contract.js";
 import type { InferenceGroup, InferredPartRequest, InferredPartType, MemberRuleAnswer, MemberRuleNeed, PlacedSignature, SignaturePlacement, TypePatternMatchOutcome,
   TypeProductionAnswer, TypeProductionNeed } from "../ir-infer/contract.js";
@@ -114,6 +114,7 @@ export interface DeclsDeps {
   readonly types: TypeInterner;
   readonly typeWork: TypePublicationWork;
   readonly typeExpansion: TypeExpansionLimits;
+  readonly interfaceDescriptionOf: (definition: DefId) => CheckedInterfaceDescription | null;
 }
 
 /** Part 1, `describeDefinitions`: one verified checked module and its ready scope and export projections. */

@@ -2451,7 +2451,7 @@ test("canonical publication does not identify different nominal payloads or read
 test("every native primitive and intrinsic arm is interned, read, printed and parsed through the public index", () => {
   const natives = ["bool", "char", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int128", "uint128",
     "native-int", "native-uint", "float16", "float32", "float64", "decimal"];
-  const intrinsics = ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol"];
+  const intrinsics = ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol", "alias-marker"];
   const rows = [...natives.map(primitive => ({ kind: "primitive", primitive })), ...intrinsics.map(intrinsic => ({ kind: "intrinsic", intrinsic }))];
   const interner = createTypeInterner();
   assert.deepEqual(rows.map(row => readType(interner, product.internType(interner, row))), rows);
@@ -2645,7 +2645,7 @@ function invalidText(text, offset, expected) {
   const repeatedPrototype = 'TypeTable("__proto__"=string(), "__proto__"=string(), terms=[], signatures=[])';
   const extra = [
     ["impossible intrinsic prefix before its escape", badString, badString.indexOf('"bad'),
-      ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol"]],
+      ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol", "alias-marker"]],
     ["multiline tail", newline, newline.length - 1, ["end of document"]],
     ["unterminated string", quote, quote.length, ['"']],
     ["extra prototype field", prototypeField, prototypeField.indexOf('"__proto__"') + 1, ["end of record"]],
@@ -2681,7 +2681,7 @@ test("string decoding checks each JSON escape directly and retains exact UTF16 u
 {
   const native = ["bool", "char", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int128", "uint128",
     "native-int", "native-uint", "float16", "float32", "float64", "decimal"];
-  const intrinsic = ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol"];
+  const intrinsic = ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol", "alias-marker"];
   const literal = value => `TypeTable(terms=[literal(value=${value}, base=t:0)], signatures=[])`;
   const malformed = [
     ["TypeTable(terms=123, signatures=[])", "123", ["array"]],
@@ -3508,7 +3508,7 @@ test("balanced recursive equalities compress multi-level aliases without changin
     [memberPrefix, 'foreign()', memberSuffix, ["text", "number", "symbol"]],
     [memberPrefix + 'text(value="x"), origins=[', 'foreign()', '], readOrigins=[], writeOrigins=[], kind="property", read=t:0, write=null, optional=false, readonly=true)], indexes=[], calls=[], constructs=[])], signatures=[])', ["declared", "class-prototype", "intrinsic", "source-member", "mapped"]],
     [signaturePrefix + 'null, composition=', 'foreign()', ', kind="call", typeParameters=[], receiver=null, parameters=[], result=t:0)])', ["union", "intersection"]],
-    ['TypeTable(terms=[projection(source=t:0, projection=', 'foreign()', ')], signatures=[])', ["awaited", "keyof", "indexed", "substitution", "conditional", "component"]],
+    ['TypeTable(terms=[projection(source=t:0, projection=', 'foreign()', ')], signatures=[])', ["awaited", "keyof", "indexed", "substitution", "conditional", "mapped", "component"]],
     [selectorPrefix, 'foreign()', selectorSuffix, ["component selector"]],
     ['TypeTable(terms=[literal(value=', 'foreign()', ', base=t:0)], signatures=[])', ["literal value"]],
     ['TypeTable(', '"\\q"', '=[], signatures=[])', ["JSON string"]],
@@ -3883,7 +3883,7 @@ test("a changed callable compacts an unchanged existing signature alongside a ge
     ["earlier wrong scalar type before its own escape failure", "TypeTable(terms=[array(element=t:0, readonly=", '"bad\\q"',
       ")], signatures=[])", ["boolean"]],
     ["earlier impossible intrinsic prefix before later boolean", 'TypeTable(terms=[intrinsic(intrinsic=', '"bad\\q"',
-      "), array(element=t:0, readonly=0)], signatures=[])", ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol"]],
+      "), array(element=t:0, readonly=0)], signatures=[])", ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol", "alias-marker"]],
     ["earlier assignment punctuation before later value", "TypeTable(terms", "[]", ", signatures=0)", ["="]],
     ["earlier array comma before later wrong type", "TypeTable(terms=[string() ", "array", "(element=t:0, readonly=0)], signatures=[])", [",", "]"]],
     ["earlier missing record close before later root field", "TypeTable(terms=[array(element=t:0, readonly=false", "]",
@@ -4050,7 +4050,7 @@ test("a changed callable compacts an unchanged existing signature alongside a ge
         "int128", "uint128", "native-int", "native-uint", "float16", "float32", "float64", "decimal"],
       { terms: [{ kind: "primitive", primitive: "bool" }], signatures: [] }],
     ["intrinsic", "TypeTable(terms=[intrinsic(intrinsic=", ")], signatures=[])",
-      ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol"],
+      ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol", "alias-marker"],
       { terms: [{ kind: "intrinsic", intrinsic: "any" }], signatures: [] }],
     ["member kind", 'TypeTable(terms=[shape(members=[Member(key=text(value="x"), origins=[], readOrigins=[], writeOrigins=[], kind=',
       ", read=null, write=null, optional=false, readonly=false)], indexes=[], calls=[], constructs=[])], signatures=[])",

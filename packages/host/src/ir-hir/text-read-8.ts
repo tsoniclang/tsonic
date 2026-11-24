@@ -96,12 +96,17 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
       const field_value = read("value", readers().record_140);
       return { fields: [field_core, field_role, field_value], value: () => ({ core: field_core.value(), role: field_role.value(), value: field_value.value() }) };
     });
-  const record_250 = recordReader<Hir.HirCoreCarrier & { readonly role: "heritage"; readonly type: Hir.CapturedFact<Ids.TyId>; readonly definition: Hir.CapturedFact<Ids.DefId>; }>("CheckedInstantiation", read => {
+  const heritageDeclarations = recordReader<{ readonly kind: "available"; readonly value: readonly Ids.DefId[] }>("available", read => {
+    const field_value = read("value", sequenceReader(readers().identity_def));
+    return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
+  });
+  const record_250 = recordReader<Extract<Hir.CheckedInstantiation, { readonly role: "heritage" }>>("CheckedInstantiation", read => {
       const field_core = read("core", readers().record_84);
       const field_role = read("role", readers().literal_116);
       const field_type = read("type", unionReader<Hir.CapturedFact<Ids.TyId>>(() => [readers().record_9, readers().record_10]));
-      const field_definition = read("definition", unionReader<Hir.CapturedFact<Ids.DefId>>(() => [readers().record_165, readers().record_10]));
-      return { fields: [field_core, field_role, field_type, field_definition], value: () => ({ core: field_core.value(), role: field_role.value(), type: field_type.value(), definition: field_definition.value() }) };
+      const field_declarations = read("declarations", unionReader<Hir.CapturedFact<readonly Ids.DefId[]>>(() => [heritageDeclarations, readers().record_10]));
+      return { fields: [field_core, field_role, field_type, field_declarations], value: () => ({
+        core: field_core.value(), role: field_role.value(), type: field_type.value(), declarations: field_declarations.value() }) };
     });
   const record_251 = recordReader<Hir.CheckedIteration>("CheckedIteration", read => {
       const field_core = read("core", readers().record_84);

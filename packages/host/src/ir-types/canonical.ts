@@ -145,6 +145,13 @@ export function remapConditional(source: TyId, projection: Extract<TypeProjectio
     extends: typeOf(projection.extends, 1), whenTrue: typeOf(projection.whenTrue, 2), whenFalse: typeOf(projection.whenFalse, 3) } };
 }
 
+export function remapMapped(source: TyId, projection: Extract<TypeProjection, { readonly kind: "mapped" }>,
+  typeOf: (value: TyId, role: 0 | 1 | 2) => TyId): TypeTerm {
+  return { kind: "projection", source: typeOf(source, 0), projection: { ...projection,
+    remap: projection.remap === null ? null : typeOf(projection.remap, 1),
+    value: typeOf(projection.value, projection.remap === null ? 1 : 2) } };
+}
+
 export function remapTerm(value: TypeTerm, typeOf: (value: TyId) => TyId, signatureOf: (value: SigId) => SigId): TypeTerm {
   const member = (selected: Member): Member => ({ ...selected,
     read: selected.read === null ? null : typeOf(selected.read), write: selected.write === null ? null : typeOf(selected.write) });
@@ -167,6 +174,7 @@ export function remapTerm(value: TypeTerm, typeOf: (value: TyId) => TyId, signat
     case "projection": {
       const projection = value.projection;
       if (projection.kind === "conditional") return remapConditional(value.source, projection, typeOf);
+      if (projection.kind === "mapped") return remapMapped(value.source, projection, typeOf);
       const source = typeOf(value.source);
       switch (projection.kind) {
         case "awaited": case "keyof": return { ...value, source, projection };

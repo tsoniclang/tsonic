@@ -14,6 +14,8 @@ export interface DeclarationLowering {
   readonly core: (node: NodeId) => Hir.HirCoreCapture;
   readonly definitions: ReadonlyMap<NodeId, DefId>;
   readonly resolution: (node: NodeId) => ConversionResult<Hir.HirResolution>;
+  readonly heritage: (node: NodeId) => ConversionResult<Pick<Extract<Hir.CheckedInstantiation, { readonly role: "heritage" }>,
+    "type" | "declarations">>;
   readonly memory: (node: NodeId) => Hir.CapturedFact<Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCapture | null>;
   readonly checkedType: (node: Hir.TypeNode<Syntax>, inferParameters: readonly NodeId[]) => ConversionResult<Hir.CapturedFact<TyId>>;
   readonly numericLiteral: (type: Hir.CapturedFact<TyId>, spelling: RawNumericLiteral, kind: "number" | "bigint") =>
@@ -51,6 +53,30 @@ export function declarationName(context: DeclarationLowering, node: Hir.Identifi
 
 function definitionOf(context: DeclarationLowering, node: NodeId): DefId {
   return context.definitions.get(node) ?? fail("a declaration must retain its actual F1 identity");
+}
+
+function checkedTypeIdentifier(context: DeclarationLowering, node: Hir.Identifier<Syntax>): ConversionResult<Hir.Identifier<Checked>> {
+  const resolved = context.resolution(node.id);
+  return resolved.kind !== "complete" ? resolved : { kind: "complete", value: { ...header(node), kind: node.kind, text: node.text,
+    tsonic: { core: context.core(node.id), role: "type-name", resolution: resolved.value } } };
+}
+
+function checkedEntityName(context: DeclarationLowering, original: Hir.EntityName<Syntax>): ConversionResult<Hir.EntityName<Checked>> {
+  const qualifiers: Hir.QualifiedName<Syntax>[] = [];
+  let source = original;
+  while (source.kind === "QualifiedName") { qualifiers.push(source); source = source.left; }
+  const head = checkedTypeIdentifier(context, source);
+  if (head.kind !== "complete") return head;
+  let name: Hir.EntityName<Checked> = head.value;
+  for (let next = qualifiers.pop(); next !== undefined; next = qualifiers.pop()) {
+    const right = checkedTypeIdentifier(context, next.right);
+    if (right.kind !== "complete") return right;
+    const selected = context.resolution(next.id);
+    if (selected.kind !== "complete") return selected;
+    name = { ...header(next), kind: next.kind, left: name, right: right.value,
+      tsonic: { core: context.core(next.id), role: "type-name", resolution: selected.value } };
+  }
+  return { kind: "complete", value: name };
 }
 
 export type TypeReader = (node: Hir.TypeNode<Syntax>, owner: DefId) => ConversionResult<Hir.TypeNode<Checked>>;
@@ -102,7 +128,7 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
     let result: Hir.TypeNode<Checked>;
     switch (node.kind) {
       case "NumberKeyword": case "StringKeyword": case "BooleanKeyword": case "BigIntKeyword": case "SymbolKeyword":
-      case "AnyKeyword": case "UnknownKeyword": case "NeverKeyword": case "ObjectKeyword": case "UndefinedKeyword": case "VoidKeyword": case "ThisType":
+      case "AnyKeyword": case "IntrinsicKeyword": case "UnknownKeyword": case "NeverKeyword": case "ObjectKeyword": case "UndefinedKeyword": case "VoidKeyword": case "ThisType":
         result = { ...header(node), kind: node.kind, tsonic }; break;
       case "UnionType": case "IntersectionType":
         result = { ...header(node), kind: node.kind, types: { loc: node.types.loc, nodes: node.types.nodes.map(child) }, tsonic }; break;
@@ -158,6 +184,27 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
         result = { ...header(node), kind: node.kind, elements: { loc: node.elements.loc, nodes: node.elements.nodes.map(child) }, tsonic }; break;
       case "TypeOperator":
         result = { ...header(node), kind: node.kind, operator: node.operator, type: child(node.type), tsonic }; break;
+      case "TypePredicate": {
+        const name = node.parameterName;
+        let parameterName: Hir.TypePredicateParameterName<Checked>;
+        let referencedDefinitions: readonly DefId[] = [];
+        if (name.kind === "ThisType") {
+          const selected = child(name);
+          if (selected.kind !== "ThisType") return fail("the actual predicate self target");
+          parameterName = selected;
+        } else {
+          const resolved = context.resolution(name.id);
+          if (resolved.kind !== "complete") return resolved;
+          const resolution = resolved.value;
+          if (resolution.kind === "declarations") referencedDefinitions = resolution.definitions;
+          parameterName = { ...header(name), kind: name.kind, text: name.text,
+            tsonic: { core: context.core(name.id), role: "type-name", resolution } };
+        }
+        result = { ...header(node), kind: node.kind, parameterName, type: node.type === null ? null : child(node.type),
+          assertsModifier: node.assertsModifier === null ? null : token(node.assertsModifier),
+          tsonic: { ...tsonic, referencedDefinitions } };
+        break;
+      }
       case "IndexedAccessType":
         result = { ...header(node), kind: node.kind, objectType: child(node.objectType), indexType: child(node.indexType), tsonic }; break;
       case "MappedType": {
@@ -200,25 +247,24 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
         result = { ...header(node), kind: node.kind, members: { loc: node.members.loc, nodes: members.value }, tsonic }; break;
       }
       case "TypeReference": {
-        const name = node.typeName;
-        if (name.kind !== "Identifier") return fail("qualified type reference");
-        const resolved = context.resolution(name.id);
+        const resolved = checkedEntityName(context, node.typeName);
         if (resolved.kind !== "complete") return resolved;
-        const resolution = resolved.value;
+        const name = resolved.value;
+        const resolution = name.tsonic.role === "type-name" ? name.tsonic.resolution : fail("the actual checked type name role");
         result = { ...header(node), kind: node.kind,
-          typeName: { ...header(name), kind: "Identifier", text: name.text, tsonic: { core: context.core(name.id), role: "type-name", resolution } },
+          typeName: name,
           typeArguments: node.typeArguments === null ? null : { loc: node.typeArguments.loc, nodes: node.typeArguments.nodes.map(child) },
           tsonic: { ...tsonic, referencedDefinitions: resolution.kind === "declarations" ? resolution.definitions : [] } };
         break;
       }
       case "TypeQuery": {
-        const name = node.exprName;
-        if (name.kind !== "Identifier" || node.typeArguments !== null) return fail("qualified or applied type query");
-        const resolved = context.resolution(name.id);
+        if (node.typeArguments !== null) return fail("applied type query");
+        const resolved = checkedEntityName(context, node.exprName);
         if (resolved.kind !== "complete") return resolved;
-        const resolution = resolved.value;
+        const name = resolved.value;
+        const resolution = name.tsonic.role === "type-name" ? name.tsonic.resolution : fail("the actual checked query name role");
         result = { ...header(node), kind: node.kind, typeArguments: null,
-          exprName: { ...header(name), kind: "Identifier", text: name.text, tsonic: { core: context.core(name.id), role: "type-name", resolution } },
+          exprName: name,
           tsonic: { ...tsonic, referencedDefinitions: resolution.kind === "declarations" ? resolution.definitions : [] } };
         break;
       }
@@ -400,7 +446,6 @@ function typeElements(context: DeclarationLowering, source: readonly Hir.TypeEle
 }
 
 export function lowerCheckedInterface(context: DeclarationLowering, source: Hir.InterfaceDeclaration<Syntax>, owner: DefId): ConversionResult<Hir.InterfaceDeclaration<Checked>> {
-  if (source.heritageClauses !== null) return fail("interface heritage");
   const definition = definitionOf(context, source.id);
   const annotations = lowerAnnotations(context, source, owner);
   if (annotations.kind !== "complete") return annotations;
@@ -409,11 +454,42 @@ export function lowerCheckedInterface(context: DeclarationLowering, source: Hir.
   if (formals.kind !== "complete") return formals;
   const members = typeElements(context, source.members.nodes, definition, typeOf);
   if (members.kind !== "complete") return members;
+  const clauses: Hir.HeritageClause<Checked>[] = [];
+  const heritage: Hir.HirHeritage[] = [];
+  for (const clause of source.heritageClauses?.nodes ?? []) {
+    if (clause.token !== "ExtendsKeyword") return fail("an interface base must be an extends clause");
+    const bases: Hir.ExpressionWithTypeArguments<Checked>[] = [];
+    for (const base of clause.types.nodes) {
+      if (base.expression.kind !== "Identifier") return fail("a qualified interface base");
+      const name = checkedTypeIdentifier(context, base.expression);
+      if (name.kind !== "complete") return name;
+      const checked = context.heritage(base.id);
+      if (checked.kind !== "complete") return checked;
+      const { type, declarations } = checked.value;
+      const resolution = name.value.tsonic.role === "type-name" ? name.value.tsonic.resolution : fail("the actual checked base name role");
+      if (declarations.kind === "available" && (resolution.kind !== "declarations"
+        || declarations.value.some(declaration => !resolution.definitions.includes(declaration))))
+        return fail("the checked base declaration group and source binding must agree");
+      const arguments_: Hir.TypeNode<Checked>[] = [];
+      for (const argument of base.typeArguments?.nodes ?? []) {
+        const selected = typeOf(argument, definition);
+        if (selected.kind !== "complete") return selected;
+        arguments_.push(selected.value);
+      }
+      bases.push({ ...header(base), kind: base.kind, expression: name.value,
+        typeArguments: base.typeArguments === null ? null : { loc: base.typeArguments.loc, nodes: arguments_ },
+        tsonic: { core: context.core(base.id), role: "heritage", type, declarations } });
+      if (type.kind === "available") heritage.push({ role: "extends", type: type.value });
+    }
+    clauses.push({ ...header(clause), kind: clause.kind, token: clause.token,
+      types: { loc: clause.types.loc, nodes: bases }, tsonic: null });
+  }
   return { kind: "complete", value: { ...header(source), kind: "InterfaceDeclaration", name: declarationName(context, source.name, definition),
-    modifiers: lowerCheckedModifiers(source.modifiers), typeParameters: formals.value, heritageClauses: null,
+    modifiers: lowerCheckedModifiers(source.modifiers), typeParameters: formals.value,
+    heritageClauses: source.heritageClauses === null ? null : { loc: source.heritageClauses.loc, nodes: clauses },
     members: { loc: source.members.loc, nodes: members.value },
     tsonic: { ...facts(context, source, owner), definition, parameters: formals.value?.nodes.map(parameter => parameter.tsonic.parameter) ?? [],
-      heritage: [], members: source.members.nodes.map(node => definitionOf(context, node.id)) } } };
+      heritage, members: source.members.nodes.map(node => definitionOf(context, node.id)) } } };
 }
 
 export function lowerCheckedAlias(context: DeclarationLowering, source: Hir.TypeAliasDeclaration<Syntax>,

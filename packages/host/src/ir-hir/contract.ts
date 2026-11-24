@@ -4389,7 +4389,7 @@ export type CheckedKeyword = HirCoreCarrier & (
 
 export type CheckedInstantiation = HirCoreCarrier & (
   | { readonly role: "value"; readonly value: CheckedValue }
-  | { readonly role: "heritage"; readonly type: CapturedFact<TyId>; readonly definition: CapturedFact<DefId> }
+  | { readonly role: "heritage"; readonly type: CapturedFact<TyId>; readonly declarations: CapturedFact<readonly DefId[]> }
 );
 
 export type CheckedAggregate = HirCoreCarrier & (

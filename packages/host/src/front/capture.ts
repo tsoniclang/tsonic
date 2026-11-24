@@ -11,7 +11,9 @@ import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../
 import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
-import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawInterfaceGroup, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawLayoutSelector, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
+import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember,
+  RawFieldMarker, RawInterfaceDescription, RawInterfaceGroup, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawLayoutSelector,
+  RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { projectProviderModel } from "./provider-model.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -49,6 +51,12 @@ function wellKnownSymbol(kind: NonNullable<ReturnType<TypeCheckerQueries["getRes
   }
 }
 
+interface InterfaceCaptureSession {
+  descriptions: Set<Type> | null;
+  declarations: Map<Type, readonly [Node, ...Node[]]> | null;
+  applications: Map<Type, TypeInterfaceApplication> | null;
+}
+
 /**
  * The tables of one capture, built while the module's nodes are read. Each table's identities are positions in it,
  * assigned in the order the module's nodes are visited, so that a capture of equal inputs gives equal tables.
@@ -63,8 +71,10 @@ interface CaptureTables {
   readonly memoryDescriptors: RawLayoutConstruction[];
   readonly symbols: RawSymbol[];
   readonly completedSourceReferences: Map<Node, RawNodeRef>;
+  authoredSourceTypes: Map<Node, ResolvedSourceTypeInfo> | null;
   readonly interfaceGroups: { readonly byTarget: Map<Type, RawInterfaceGroup>; readonly rows: RawInterfaceGroup[] };
-  nativeInterfaceDeclarations: Map<Type, readonly [Node, ...Node[]]> | null;
+  readonly interfaceCapture: InterfaceCaptureSession;
+  readonly interfaceDescriptions: Map<Type, RawInterfaceDescription>;
   readonly symbolIds: Map<CheckerSymbol, RawSymbolId>;
   readonly signatureIds: Map<Signature, RawSignatureId>;
   readonly qualifiedSignatures: Map<Signature, Map<Node, Map<Type, Map<Node, Map<string, RawSignatureId>>>>>;
@@ -89,6 +99,7 @@ interface ReceiverUse {
   readonly target: CheckerSymbol;
   readonly nativeTarget: Type;
   readonly application: Node;
+  readonly forwardedAlias: CheckerSymbol | null;
   readonly slots: ReadonlyMap<Type, ReceiverSlotUse>;
 }
 
@@ -141,7 +152,12 @@ interface CallbackInputUse {
 }
 
 type CallableUse = MemberBindingUse | CallbackBindingUse;
-type BindingUse = ReceiverUse | CallableUse | UnionArmUse | AuthoredFormalArms | DeclaredArgumentsUse | TupleProjectionUse | TupleInitializerUse | DirectResultUse | ComposedUnionUse | DeclaredRestUse;
+interface InterfaceDescriptionUse {
+  readonly kind: "interface-description";
+  readonly target: Type;
+}
+type BindingUse = ReceiverUse | CallableUse | UnionArmUse | AuthoredFormalArms | DeclaredArgumentsUse | TupleProjectionUse
+  | TupleInitializerUse | DirectResultUse | ComposedUnionUse | DeclaredRestUse | InterfaceDescriptionUse;
 type FormalUse = Node | CallbackInputUse | ReceiverProjectionUse | RestInput | ComposedUnionUse;
 
 interface ReceiverProjectionUse {
@@ -447,9 +463,10 @@ function nativeCaptureAdmission(scope: CaptureAdmission): NativeCheckerAdmission
     scope.meter.refusal ?? throwInvariant(invariant("Native acquisition retains its actual first capture refusal."));
 }
 
-function nativeAliasApplication(scope: CaptureScope, type: Type): RetainedTypeAliasApplication | undefined {
+function nativeAliasApplication(scope: CaptureScope, type: Type, acquire: TypeShapeQueries["acquireTypeAliasApplication"]):
+  RetainedTypeAliasApplication | undefined {
   if (scope.meter.refusal !== null) return undefined;
-  const result = scope.shape.acquireTypeAliasApplication(type, nativeCaptureAdmission(scope));
+  const result = acquire(type, nativeCaptureAdmission(scope));
   if (result.kind === "refused" && result.stop !== scope.meter.refusal)
     return throwInvariant(invariant("Native alias acquisition must retain its actual first capture refusal."));
   return result.kind === "complete" ? result.value : undefined;
@@ -457,10 +474,21 @@ function nativeAliasApplication(scope: CaptureScope, type: Type): RetainedTypeAl
 
 function sourceType(scope: CaptureScope, request: SourceTypeRequest): ResolvedSourceTypeInfo | undefined {
   if (scope.meter.refusal !== null) return undefined;
+  const annotation = request.kind === "annotation" ? request.node : undefined;
+  if (annotation !== undefined) {
+    if (!admit(scope, "edges")) return undefined;
+    const known = scope.tables.authoredSourceTypes?.get(annotation);
+    if (known !== undefined) return known;
+  }
   const result = scope.checker.acquireSourceType(request, nativeCaptureAdmission(scope));
   if (result.kind === "refused" && result.stop !== scope.meter.refusal)
     return throwInvariant(invariant("A source-type acquisition must retain its actual first capture refusal."));
-  return result.kind === "complete" ? result.value : undefined;
+  if (result.kind !== "complete") return undefined;
+  if (annotation !== undefined) {
+    if (!admit(scope, "facts", scope.tables.authoredSourceTypes === null ? 2 : 1)) return undefined;
+    (scope.tables.authoredSourceTypes ??= new Map()).set(annotation, result.value);
+  }
+  return result.value;
 }
 
 function signatureParameters(scope: CaptureScope, signature: Signature): SignatureDraft["parameterInfos"] | null {
@@ -482,6 +510,26 @@ function moduleSpecifier(ast: OpenedProgramView["ast"], node: Node, parent: Node
     case "KindExportDeclaration": return ast.as.AsExportDeclaration(parent)?.ModuleSpecifier === node;
     default: return false;
   }
+}
+
+function annotationName(ast: OpenedProgramView["ast"], node: Node, parent: Node | undefined): boolean {
+  const kind = ast.kindName(node);
+  if (kind !== "KindIdentifier" && kind !== "KindQualifiedName") return false;
+  switch (ast.kindName(parent)) {
+    case "KindTypeReference": return ast.as.AsTypeReferenceNode(parent)?.TypeName === node;
+    case "KindTypeQuery": return ast.as.AsTypeQueryNode(parent)?.ExprName === node;
+    case "KindQualifiedName": {
+      const qualified = ast.as.AsQualifiedName(parent);
+      return qualified?.Left === node || qualified?.Right === node;
+    }
+    default: return false;
+  }
+}
+
+function interfaceHeritage(ast: OpenedProgramView["ast"], node: Node | undefined): boolean {
+  if (ast.kindName(node) !== "KindExpressionWithTypeArguments") return false;
+  const clause = ast.parent(node);
+  return ast.kindName(clause) === "KindHeritageClause" && ast.kindName(ast.parent(clause)) === "KindInterfaceDeclaration";
 }
 
 function referenceTo(scope: CaptureScope, program: CheckedProgram, declaration: Node): RawNodeRef | null {
@@ -895,6 +943,26 @@ function unaryTypeReference(scope: CaptureScope, source: Node): { readonly name:
   return argument === undefined || reference?.TypeName === undefined ? undefined : { name: reference.TypeName, argument };
 }
 
+function writtenApplication(scope: CaptureScope, source: Node | undefined):
+  { readonly name: Node | null; readonly arguments: readonly (Node | undefined)[] } | null {
+  const ast = scope.checked.ast;
+  switch (ast.kindName(source)) {
+    case "KindTypeReference": {
+      const node = ast.as.AsTypeReferenceNode(source);
+      return node?.TypeName === undefined ? null : { name: node.TypeName, arguments: node.TypeArguments?.Nodes ?? [] };
+    }
+    case "KindExpressionWithTypeArguments": {
+      const node = ast.as.AsExpressionWithTypeArguments(source);
+      return node?.Expression === undefined ? null : { name: node.Expression, arguments: node.TypeArguments?.Nodes ?? [] };
+    }
+    case "KindArrayType": {
+      const element = ast.as.AsArrayTypeNode(source)?.ElementType;
+      return element === undefined ? null : { name: null, arguments: [element] };
+    }
+    default: return null;
+  }
+}
+
 function parameterReferenceName(scope: CaptureScope, source: Node): Node | undefined {
   const ast = scope.checked.ast;
   const reference = ast.kindName(source) === "KindTypeReference" ? ast.as.AsTypeReferenceNode(source) : undefined;
@@ -1018,7 +1086,7 @@ function authoredTupleReceiver(scope: CaptureScope, type: Type, source: Node): R
   if (slot === undefined || !scope.shape.isTuple(slot.argument) || !admit(scope, "edges")) return null;
   const selected = sourceType(scope, { kind: "annotation", node: element });
   if (selected?.type !== slot.argument || selected.causes.length !== 0 || !admit(scope, "facts")) return null;
-  return { kind: "receiver", type, target: symbol, nativeTarget: target, application: source,
+  return { kind: "receiver", type, target: symbol, nativeTarget: target, application: source, forwardedAlias: null,
     slots: new Map([[slot.parameter, { parameter: slot.parameter, argument: slot.argument, source: element, declaration: null }]]) };
 }
 
@@ -1164,7 +1232,7 @@ function restBindingUse(scope: CaptureScope, syntax: ComposedRestSyntax | Declar
   if (symbol === undefined) return null;
   const composition = composedUnionUse(scope, syntax, input.argument, output.argument, receiver);
   if (composition === null || !admit(scope, "facts")) return null;
-  return { kind: "receiver", type: selected, target: symbol, nativeTarget: target, application: syntax.array,
+  return { kind: "receiver", type: selected, target: symbol, nativeTarget: target, application: syntax.array, forwardedAlias: null,
     slots: new Map([[output.parameter, { source: composition.source, declaration: composition.declaration,
       parameter: output.parameter, argument: output.argument, composition }]]) };
 }
@@ -1217,10 +1285,15 @@ function receiverBindingUse(scope: CaptureScope, type: Type, use: OriginalTypeUs
     const answer = sourceType(scope, { kind: "annotation", node: source });
     if (answer?.type !== type || answer.causes.length !== 0) return null;
   }
+  let forwardedAlias: CheckerSymbol | null = null;
   if (syntax.name !== undefined) {
     const selected = scope.checker.getSymbolAtLocation(syntax.name);
-    if (selected === undefined || (selected !== targetSymbol && (infos.length !== 1 || input?.scope !== "local" ||
-      !forwardsReceiverArgument(scope, type, selected, targetSymbol, input.argument)))) return null;
+    if (selected === undefined) return null;
+    if (selected !== targetSymbol) {
+      if (infos.length !== 1 || input?.scope !== "local" ||
+        !forwardsReceiverArgument(scope, type, selected, targetSymbol, input.argument)) return null;
+      forwardedAlias = selected;
+    }
   }
   const slots = new Map<Type, ReceiverSlotUse>();
   for (let index = 0; index < infos.length; index += 1) {
@@ -1237,7 +1310,7 @@ function receiverBindingUse(scope: CaptureScope, type: Type, use: OriginalTypeUs
     if (declaration === undefined || slots.has(selected.parameter)) return null;
     slots.set(selected.parameter, { parameter: selected.parameter, argument: selected.argument, source: written, declaration });
   }
-  return { kind: "receiver", type, target: targetSymbol, nativeTarget: target, application: source, slots };
+  return { kind: "receiver", type, target: targetSymbol, nativeTarget: target, application: source, forwardedAlias, slots };
 }
 
 function directReceiverSource(scope: CaptureScope, receiver: ReceiverUse, typeNode: Node): Type | undefined {
@@ -1334,7 +1407,7 @@ function projectedTupleReceiver(scope: CaptureScope, receiver: ReceiverUse, synt
   if (scope.meter.refusal !== null) return null;
   const symbol = scope.checker.getTypeSymbol(target);
   if (selected?.type !== slot.parameter || selected.causes.length !== 0 || symbol === undefined || !admit(scope, "facts")) return null;
-  return { kind: "receiver", type, target: symbol, nativeTarget: target, application: syntax,
+  return { kind: "receiver", type, target: symbol, nativeTarget: target, application: syntax, forwardedAlias: null,
     slots: new Map([[output.parameter, { ...slot, parameter: output.parameter }]]) };
 }
 
@@ -1843,18 +1916,23 @@ function selectMergedParameter(scope: CaptureScope, symbol: CheckerSymbol, decla
   return selected;
 }
 
+function captureAuthoredAnnotation(scope: CaptureScope, node: Node, source: RawNodeRef,
+  selected?: Type): RawTypeId | null {
+  return rawType(scope, () => {
+    const authored = sourceType(scope, { kind: "annotation", node });
+    if (scope.meter.refusal !== null) return undefined;
+    if (authored === undefined || selected !== undefined && authored.type !== selected)
+      return throwInvariant(invariant("An authored annotation must agree with its actual checked answer."));
+    return authored;
+  }, component(scope, source, null), source, null, scope.numericLiterals.has(node) ? node : null);
+}
+
 function authoredOperatorOperand(scope: CaptureScope, child: Node | undefined, selected: Type | undefined): RawTypeId | null {
   if (!admit(scope, "edges")) return null;
   const source = child === undefined ? null : referenceTo(scope, scope.program, child);
   if (scope.meter.refusal !== null) return null;
-  if (source === null) return throwInvariant(invariant("A dependent operator requires its actual admitted operand syntax."));
-  return rawType(scope, () => {
-    const authored = sourceType(scope, { kind: "annotation", node: child });
-    if (scope.meter.refusal !== null) return undefined;
-    if (authored === undefined || selected !== undefined && authored.type !== selected)
-      return throwInvariant(invariant("A direct dependent operand must agree with its actual checked answer."));
-    return authored;
-  }, component(scope, source, null), source);
+  if (child === undefined || source === null) return throwInvariant(invariant("A dependent operator requires its actual admitted operand syntax."));
+  return captureAuthoredAnnotation(scope, child, source, selected);
 }
 
 type SelectedIndex = {
@@ -1883,7 +1961,7 @@ function selectedIndexedType(scope: CaptureScope, type: Type, componentId: RawCo
   if (!admit(scope, "edges")) return null;
   const componentRoot = scope.tables.components[componentId];
   if (componentRoot === undefined) return throwInvariant(invariant("A selected indexed answer requires its actual result component."));
-  const application = type.alias === undefined ? undefined : nativeAliasApplication(scope, type);
+  const application = type.alias === undefined ? undefined : nativeAliasApplication(scope, type, scope.shape.acquireTypeAliasApplication);
   if (scope.meter.refusal !== null) return null;
   let selected: { readonly declaration: RawNodeRef; readonly operator: RawNodeRef;
     readonly recursive: boolean; readonly native: RetainedTypeAliasApplication } | null = null;
@@ -1965,13 +2043,16 @@ function projectedConditional(scope: CaptureScope, type: Type, parent: RawCompon
   if (operator === null) return throwInvariant(invariant("A projected conditional requires its actual admitted operator."));
   const inferParameters = conditionalBinders(scope, syntax.ExtendsType, answer.inferParameters);
   if (inferParameters === null) return null;
-  const check = selectedOperand(scope, parent, checkType, { kind: "projection-source" });
+  const authored = member !== null && answer.application === null;
+  const check = authored ? authoredOperatorOperand(scope, syntax.CheckType, checkType)
+    : selectedOperand(scope, parent, checkType, { kind: "projection-source" });
   if (check === null) return null;
-  const extended = selectedOperand(scope, parent, extendsType, { kind: "projection-extends" });
+  const extended = authored ? authoredOperatorOperand(scope, syntax.ExtendsType, extendsType)
+    : selectedOperand(scope, parent, extendsType, { kind: "projection-extends" });
   if (extended === null) return null;
   const branch = (child: Node | undefined, selected: Type | undefined, step: "projection-when-true" | "projection-when-false"):
     RawConditionalBranch | null => {
-    if (member !== null && answer.application === null) {
+    if (authored) {
       const authored = authoredOperatorOperand(scope, child, selected);
       return authored === null ? null : { kind: "ready", type: authored };
     }
@@ -2038,64 +2119,110 @@ function conditionalBinders(scope: CaptureScope, pattern: Node | undefined, para
   return result;
 }
 
-function conditionalAliasApplication(scope: CaptureScope, type: Type, parent: RawComponent,
+function deferredAliasApplication(scope: CaptureScope, type: Type, parent: RawComponent,
   syntax: Node | undefined): RawTypeForm | null {
   const ast = scope.checked.ast;
   const reference = ast.kindName(syntax) === "KindTypeReference" ? ast.as.AsTypeReferenceNode(syntax) : undefined;
   if (syntax !== undefined && reference === undefined || syntax === undefined && type.alias === undefined) return null;
   if (!admit(scope, "edges")) return null;
-  const answer = scope.shape.getConditionalComponents(type);
-  if (answer === undefined) return null;
-  const owner = ast.parent(answer.declaration);
-  if (owner === undefined || ast.kindName(owner) !== "KindTypeAliasDeclaration" || ast.typeNode(owner) !== answer.declaration)
+  const authoredParent = reference === undefined ? undefined : ast.parent(syntax);
+  const enclosing = ast.kindName(authoredParent) === "KindTypeAliasDeclaration" && ast.typeNode(authoredParent) === syntax
+    ? scope.checker.getSymbolAtLocation(ast.name(authoredParent)) : undefined;
+  const written = reference === undefined ? undefined : scope.checker.getSymbolAtLocation(reference.TypeName);
+  let forwarding: { readonly owner: Node; readonly arguments: readonly { readonly source: Node; readonly argument: Type }[] } | null = null;
+  if (reference !== undefined && written !== undefined && enclosing !== undefined && enclosing !== written
+    && type.alias?.symbol === enclosing && ast.typeParameters(authoredParent).length !== 0) {
+    if (!admit(scope, "edges")) return null;
+    const declarations = scope.checker.getSymbolDeclarations(written);
+    const candidate = declarations[0];
+    const operands = reference.TypeArguments?.Nodes;
+    if (declarations.length === 1 && candidate !== undefined && ast.kindName(candidate) === "KindTypeAliasDeclaration" &&
+      operands !== undefined && operands.length === ast.typeParameters(candidate).length) {
+      const actual = sourceType(scope, { kind: "annotation", node: syntax });
+      if (scope.meter.refusal !== null) return null;
+      if (actual?.type === type && actual.causes.length === 0) {
+        if (!admit(scope, "facts")) return null;
+        const inputs: { source: Node; argument: Type }[] = [];
+        let open = false;
+        for (let index = 0; index < operands.length; ++index) {
+          if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+          const source = operands[index];
+          if (source === undefined) return null;
+          const checked = sourceType(scope, { kind: "annotation", node: source });
+          if (checked === undefined || checked.causes.length !== 0) return null;
+          if (!open) {
+            if (!admit(scope, "edges")) return null;
+            const owners = scope.checker.getSymbolDeclarations(scope.checker.getTypeSymbol(checked.type));
+            open = (checked.type.flags & (TypeFlagsConditional | TypeFlagsIndexedAccess)) !== 0
+              || owners.length === 1 && ast.kindName(owners[0]) === "KindTypeParameter";
+          }
+          inputs.push({ source, argument: checked.type });
+        }
+        if (open) forwarding = { owner: candidate, arguments: inputs };
+      }
+    }
+  }
+  const conditional = forwarding === null && (type.flags & TypeFlagsConditional) !== 0;
+  const answer = conditional ? scope.shape.getConditionalComponents(type) : undefined;
+  const nativeAcquisition = reference !== undefined && (type.flags & TypeFlagsIndexedAccess) !== 0
+    ? scope.shape.acquireTypeAliasApplication : scope.shape.acquireDeferredTypeAliasApplication;
+  const retained = conditional || forwarding !== null ? undefined
+    : nativeAliasApplication(scope, type, nativeAcquisition);
+  if (scope.meter.refusal !== null) return null;
+  const definition = forwarding === null ? answer?.declaration ?? retained?.typeNode : ast.typeNode(forwarding.owner);
+  const owner = forwarding?.owner ?? retained?.declaration ?? ast.parent(definition);
+  if (owner === undefined || definition === undefined || ast.kindName(owner) !== "KindTypeAliasDeclaration" || ast.typeNode(owner) !== definition)
     return null;
   if (reference !== undefined) {
     if (!admit(scope, "edges")) return null;
-    const written = scope.checker.getSymbolAtLocation(reference.TypeName);
     const declared = scope.checker.getSymbolAtLocation(ast.name(owner));
     if (written === undefined || declared === undefined || written !== declared) return null;
-    const actual = sourceType(scope, { kind: "annotation", node: syntax });
-    if (actual?.type !== type || actual.causes.length !== 0) return null;
+    if (forwarding === null) {
+      const actual = sourceType(scope, { kind: "annotation", node: syntax });
+      if (actual?.type !== type || actual.causes.length !== 0) return null;
+    }
   }
-  let native = answer.application;
-  if (reference === undefined || native === null) {
+  let native = answer?.application ?? retained?.bindings ?? null;
+  if (forwarding === null && (reference === undefined || native === null)) {
     if (!admit(scope, "edges")) return null;
-    const actual = nativeAliasApplication(scope, type);
+    const actual = retained ?? nativeAliasApplication(scope, type, scope.shape.acquireTypeAliasApplication);
     if (scope.meter.refusal !== null) return null;
-    if (actual?.result !== type || actual.declaration !== owner || actual.typeNode !== answer.declaration) return null;
+    if (actual?.result !== type || actual.declaration !== owner || actual.typeNode !== definition) return null;
     native = actual.bindings;
   }
   const parameters = ast.typeParameters(owner);
-  if (native === null || native.length !== parameters.length) return null;
+  if ((forwarding?.arguments.length ?? native?.length) !== parameters.length) return null;
   const declaration = referenceTo(scope, scope.program, owner);
   if (scope.meter.refusal !== null) return null;
-  if (declaration === null) return throwInvariant(invariant("An open conditional alias must retain its actual admitted declaration."));
+  if (declaration === null) return throwInvariant(invariant("An open alias must retain its actual admitted declaration."));
   const arguments_: RawTypeId[] = [];
-  const written = reference?.TypeArguments?.Nodes;
-  for (let index = 0; index < native.length; ++index) {
+  const annotations = reference?.TypeArguments?.Nodes;
+  for (let index = 0; index < parameters.length; ++index) {
     if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
-    const row = native[index];
-    if (row === undefined || row.declaration !== parameters[index])
-      return throwInvariant(invariant("A conditional alias application must pair its actual ordered formal declarations."));
-    const source = written === undefined || index >= written.length ? undefined : written[index];
-    if (source !== undefined) {
+    const row = native?.[index];
+    const authoredInput = forwarding?.arguments[index];
+    const argument = authoredInput?.argument ?? row?.argument;
+    if (argument === undefined || authoredInput === undefined && (row === undefined || row.declaration !== parameters[index]))
+      return throwInvariant(invariant("An open alias application must pair its actual ordered formal declarations."));
+    const source = authoredInput?.source ?? annotations?.[index];
+    if (source !== undefined && authoredInput === undefined) {
       const actual = sourceType(scope, { kind: "annotation", node: source });
       if (scope.meter.refusal !== null) return null;
-      if (actual?.type !== row.argument || actual.causes.length !== 0) return null;
+      if (actual?.type !== argument || actual.causes.length !== 0) return null;
     }
     const step: RawComponentStep = { kind: "argument-place", index };
     let captured: RawTypeId | null;
-    if (source === undefined) captured = selectedOperand(scope, parent, row.argument, step);
+    if (source === undefined) captured = selectedOperand(scope, parent, argument, step);
     else {
       const authored = referenceTo(scope, scope.program, source);
       if (scope.meter.refusal !== null) return null;
-      if (authored === null) return throwInvariant(invariant("A written conditional alias argument requires its actual numbered operand."));
-      captured = rawType(scope, () => withoutTypeCause(row.argument), appendComponent(scope, parent, step), authored);
+      if (authored === null) return throwInvariant(invariant("A written alias argument requires its actual numbered operand."));
+      captured = rawType(scope, () => withoutTypeCause(argument), appendComponent(scope, parent, step), authored);
     }
     if (captured === null) return null;
     arguments_.push(captured);
   }
-  return { kind: "conditional-alias-application", declaration, arguments: arguments_ };
+  return { kind: "alias-application", declaration, arguments: arguments_ };
 }
 
 interface TypeInterfaceApplication {
@@ -2104,44 +2231,39 @@ interface TypeInterfaceApplication {
   readonly arguments: readonly TypeReferenceArgumentInfo[];
 }
 
-function nativeInterfaceApplication(scope: CaptureScope, type: Type): TypeInterfaceApplication | null {
+function nativeInterfaceDeclarations(scope: CaptureScope, target: Type): readonly [Node, ...Node[]] | undefined | null {
   if (!admit(scope, "edges")) return null;
-  const target = scope.shape.getTypeReferenceTarget(type) ?? type;
-  const admission = nativeCaptureAdmission(scope);
-  let declarations = scope.tables.nativeInterfaceDeclarations?.get(target);
-  if (declarations === undefined) {
-    const result = scope.shape.acquireInterfaceDeclarations(target, admission);
-    if (result.kind === "refused" && result.stop === scope.meter.refusal) return null;
-    if (result.kind !== "complete")
-      return throwInvariant(invariant("A merged interface must borrow its actual native declaration target."));
-    if (!admit(scope, "facts", scope.tables.nativeInterfaceDeclarations === null ? 2 : 1)) return null;
-    (scope.tables.nativeInterfaceDeclarations ??= new Map()).set(target, declarations = result.value);
-  }
-  const result = scope.shape.acquireInterfaceArguments(type, target, admission);
-  if (result.kind === "complete")
-    return admit(scope, "facts") ? { target, declarations, arguments: result.value } : null;
+  const capture = scope.tables.interfaceCapture;
+  const known = capture.declarations?.get(target);
+  if (known !== undefined) return known;
+  const result = scope.shape.acquireInterfaceDeclarations(target, nativeCaptureAdmission(scope));
   if (result.kind === "refused" && result.stop === scope.meter.refusal) return null;
-  return throwInvariant(invariant("A merged interface must borrow its actual native declaration application."));
+  if (result.kind === "unavailable") return undefined;
+  if (result.kind !== "complete") return throwInvariant(invariant("A declaration acquisition must retain its actual refusal."));
+  if (!admit(scope, "facts", capture.declarations === null ? 2 : 1)) return null;
+  (capture.declarations ??= new Map()).set(target, result.value);
+  return result.value;
 }
 
-function changedMergedApplication(scope: CaptureScope, active: Type, current: Type): TypeInterfaceApplication | null {
-  if (active === current) return null;
-  const selected = nativeInterfaceApplication(scope, current);
-  if (selected === null || selected.arguments.length === 0) return null;
-  const source = nativeInterfaceApplication(scope, active);
-  if (source === null || source.target !== selected.target) return null;
-  if (source.arguments.length !== selected.arguments.length)
-    return throwInvariant(invariant("A merged inventory target must retain its actual ordered parameter vector."));
-  let changed = false;
-  for (let index = 0; index < selected.arguments.length; index += 1) {
-    if (!admit(scope, "edges")) return null;
-    const previous = source.arguments[index];
-    const argument = selected.arguments[index];
-    if (previous === undefined || argument === undefined || previous.parameter !== argument.parameter || previous.scope !== argument.scope)
-      return throwInvariant(invariant("A merged inventory target must retain its actual ordered parameter associations."));
-    if (previous.argument !== argument.argument) changed = true;
+function nativeInterfaceApplication(scope: CaptureScope, type: Type): TypeInterfaceApplication | null {
+  if (!admit(scope, "edges")) return null;
+  const capture = scope.tables.interfaceCapture;
+  const known = capture.applications?.get(type);
+  if (known !== undefined) return known;
+  const target = scope.shape.getTypeReferenceTarget(type) ?? type;
+  const declarations = nativeInterfaceDeclarations(scope, target);
+  if (declarations === null) return null;
+  if (declarations === undefined)
+    return throwInvariant(invariant("A merged interface must borrow its actual native declaration target."));
+  const result = scope.shape.acquireInterfaceArguments(type, target, nativeCaptureAdmission(scope));
+  if (result.kind === "complete") {
+    if (!admit(scope, "facts", capture.applications === null ? 3 : 2)) return null;
+    const value = { target, declarations, arguments: result.value };
+    (capture.applications ??= new Map()).set(type, value);
+    return value;
   }
-  return changed ? selected : null;
+  if (result.kind === "refused" && result.stop === scope.meter.refusal) return null;
+  return throwInvariant(invariant("A merged interface must borrow its actual native declaration application."));
 }
 
 function mergedArgumentGroup(scope: CaptureScope, argument: Type): readonly [RawNodeRef, ...RawNodeRef[]] | null {
@@ -2272,25 +2394,50 @@ function captureMergedParameter(scope: CaptureScope, declarations: readonly [Raw
   return throwInvariant(invariant("A symbolic merged parameter must match a complete independently declared native slot."));
 }
 
+function bindsWrittenTypeTarget(scope: CaptureScope, name: Node, target: CheckerSymbol | undefined): boolean {
+  if (target === undefined) return false;
+  let selected = scope.checker.getSymbolAtLocation(name);
+  let visited: Set<CheckerSymbol> | null = null;
+  while (selected !== undefined && selected !== target) {
+    if (!admit(scope, "edges") || visited?.has(selected) === true) return false;
+    const step = scope.checker.getAliasStep(selected);
+    if (step?.kind !== "symbol") return false;
+    if (!admit(scope, "facts", visited === null ? 2 : 1)) return false;
+    (visited ??= new Set()).add(selected);
+    selected = step.symbol;
+  }
+  return selected === target;
+}
+
 function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId, application: TypeInterfaceApplication,
   rest: ReceiverUse | DeclaredRestUse | null, source: OriginalTypeUse | null, selectedType: Type): RawTypeForm | null {
   if (!admit(scope, "facts")) return null;
   const group = retainInterfaceGroup(scope, application);
   if (group === null) return null;
+  if (!admit(scope, "edges")) return null;
+  if (scope.tables.interfaceCapture.descriptions?.has(application.target) !== true &&
+    !scope.tables.interfaceDescriptions.has(application.target)) {
+    if (!admit(scope, "facts", 3)) return null;
+    const anchor = component(scope, group.declarations[0], null);
+    const description = rawType(scope, () => withoutTypeCause(application.target), anchor, null,
+      { kind: "interface-description", target: application.target });
+    if (description === null) return null;
+    scope.tables.interfaceDescriptions.set(application.target, { group, shape: description });
+  }
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A recursive merged interface needs its actual captured position."));
   const sourceNode = source === null ? undefined : admittedTypeUse(scope, source);
-  const ast = scope.checked.ast;
-  const written = ast.kindName(sourceNode) === "KindTypeReference" ? ast.as.AsTypeReferenceNode(sourceNode) : undefined;
+  const written = writtenApplication(scope, sourceNode);
   let direct: readonly (Node | undefined)[] = [];
-  if (written?.TypeName !== undefined && written.TypeArguments !== undefined) {
+  if (written !== null && written.arguments.length !== 0) {
     if (!admit(scope, "edges")) return null;
-    const selected = scope.checker.getSymbolAtLocation(written.TypeName);
-    if (selected !== undefined && selected === scope.checker.getTypeSymbol(application.target)) {
+    if (written.name === null ? application.arguments.length === 1
+      : bindsWrittenTypeTarget(scope, written.name, scope.checker.getTypeSymbol(application.target))) {
       const actual = sourceType(scope, { kind: "annotation", node: sourceNode });
       if (scope.meter.refusal !== null) return null;
-      if (actual?.type === selectedType && actual.causes.length === 0) direct = written.TypeArguments.Nodes;
+      if (actual?.type === selectedType && actual.causes.length === 0) direct = written.arguments;
     }
+    if (scope.meter.refusal !== null) return null;
   }
   let local = 0;
   const arguments_: RawTypeId[] = [];
@@ -2318,9 +2465,11 @@ function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId
       if (group !== null) use = { kind: "merged-slot", type: selected.argument, declarations: group };
     }
     const step: RawComponentStep = { kind: "argument-place", index };
+    const operation = authored === null ? null : signatureAnnotationOperator(scope, authored, authored);
+    if (scope.meter.refusal !== null) return null;
     const argument = authored === null || use !== null
       ? selectedOperand(scope, parent, selected.argument, step, false, use)
-      : rawType(scope, () => withoutTypeCause(selected.argument), appendComponent(scope, parent, step), authored);
+      : rawType(scope, () => withoutTypeCause(selected.argument), appendComponent(scope, parent, step), operation ?? authored);
     if (argument === null) return null;
     arguments_.push(argument);
   }
@@ -2331,15 +2480,46 @@ function authoredOperatorComponent(scope: CaptureScope, component: RawComponent 
   source: OriginalTypeUse | null): boolean {
   if (component === undefined) return false;
   if (component.path === null) return sameSource(component.root, operator);
-  if (source === null || !("module" in source) || !sameSource(source, operator) || component.path.prefix !== null) return false;
-  const step = component.path.step;
-  if (step.kind === "parameter" || step.kind === "result") return true;
-  if (step.kind !== "argument-place" || !admit(scope, "edges")) return false;
-  const root = admittedTypeUse(scope, component.root);
+  if (source === null || !("module" in source) || !sameSource(source, operator)) return false;
   const ast = scope.checked.ast;
-  if (ast.kindName(root) !== "KindTypeReference") return false;
-  const argument = ast.as.AsTypeReferenceNode(root)?.TypeArguments?.Nodes[step.index];
-  return argument !== undefined && admittedTypeUse(scope, operator) === argument;
+  let current = admittedTypeUse(scope, operator);
+  let cursor = component;
+  while (cursor.path?.step.kind === "argument-place" || cursor.path?.step.kind === "union-member" ||
+    cursor.path?.step.kind === "intersection-member") {
+    if (!admit(scope, "edges")) return false;
+    const parent = ast.parent(current);
+    const step = cursor.path.step;
+    if (step.kind === "argument-place") {
+      const argument = writtenApplication(scope, parent)?.arguments[step.index];
+      if (argument === undefined || argument !== current) return false;
+    } else {
+      const members = (step.kind === "union-member" ? ast.as.AsUnionTypeNode(parent) : ast.as.AsIntersectionTypeNode(parent))?.Types?.Nodes;
+      if (members === undefined) return false;
+      let matched = false;
+      for (let index = 0; index < members.length; ++index) {
+        if (!admit(scope, "edges")) return false;
+        if (members[index] === current) { matched = true; break; }
+      }
+      if (!matched) return false;
+    }
+    const prefix = cursor.path.prefix;
+    if (prefix === null) return parent === admittedTypeUse(scope, component.root);
+    const previous = scope.tables.components[prefix];
+    if (previous?.id !== prefix || previous.id >= cursor.id || !sameSource(previous.root, component.root)) return false;
+    current = parent;
+    cursor = previous;
+  }
+  if (cursor.path?.prefix !== null) return false;
+  const step = cursor.path.step;
+  if (step.kind !== "parameter" && step.kind !== "result") return false;
+  if (cursor === component) return true;
+  if (!admit(scope, "edges")) return false;
+  const signature = scope.tables.signatures[step.signature];
+  if (signature?.id !== step.signature || signature.target !== null || signature.composition !== null ||
+    !sameSource(signature.owner, component.root)) return false;
+  const reference = step.kind === "parameter" ? signature.parameters[step.index]?.declaration ?? null : signature.declaration;
+  const declaration = reference === null ? undefined : admittedTypeUse(scope, reference);
+  return current !== undefined && ast.typeNode(declaration) === current;
 }
 
 function lexicalSubstitution(scope: CaptureScope, type: Type, syntax: Node, position: RawComponentId): RawTypeForm | undefined | null {
@@ -2404,6 +2584,40 @@ function mappedSubstitution(scope: CaptureScope, type: Type, syntax: Node, posit
   const constraint = rawType(scope, () => withoutTypeCause(substitution.constraint),
     appendComponent(scope, component, { kind: "projection-constraint" }), null);
   return constraint === null ? null : { kind: "substitution", operator, base, constraint, scope: { kind: "mapped", parameter } };
+}
+
+function mappedProjection(scope: CaptureScope, type: Type, position: RawComponentId, syntax: Node,
+  source: OriginalTypeUse | null): RawTypeForm | undefined | null {
+  if (!admit(scope, "edges")) return null;
+  const ast = scope.checked.ast;
+  const declarations = scope.checker.getSymbolDeclarations(scope.checker.getTypeSymbol(type));
+  if (declarations.length !== 1 || declarations[0] !== syntax) return undefined;
+  const written = ast.as.AsMappedTypeNode(syntax);
+  const parameter = written?.TypeParameter;
+  const binder = ast.as.AsTypeParameterDeclaration(parameter);
+  if (written === undefined || parameter === undefined || binder?.Constraint === undefined ||
+    ast.parent(parameter) !== syntax || written.Type === undefined) return undefined;
+  const actual = sourceType(scope, { kind: "annotation", node: syntax });
+  if (scope.meter.refusal !== null) return null;
+  if (actual?.type !== type || actual.causes.length !== 0) return undefined;
+  const operator = referenceTo(scope, scope.program, syntax);
+  if (scope.meter.refusal !== null) return null;
+  const declaration = referenceTo(scope, scope.program, parameter);
+  if (scope.meter.refusal !== null) return null;
+  const qualified = operator !== null && authoredOperatorComponent(scope, scope.tables.components[position], operator, source);
+  if (scope.meter.refusal !== null) return null;
+  if (operator === null || declaration === null || !qualified)
+    return throwInvariant(invariant("A mapped formula requires its actual admitted defining component and binder."));
+  const domain = authoredOperatorOperand(scope, binder.Constraint, undefined);
+  if (domain === null) return null;
+  const remap = written.NameType === undefined ? null : authoredOperatorOperand(scope, written.NameType, undefined);
+  if (written.NameType !== undefined && remap === null) return null;
+  const value = authoredOperatorOperand(scope, written.Type, undefined);
+  if (value === null) return null;
+  const modification = (token: Node | undefined) => token === undefined ? "preserve"
+    : ast.kindName(token) === "KindMinusToken" ? "remove" : "add";
+  return { kind: "mapped-projection", operator, parameter: declaration, domain, remap, value,
+    readonly: modification(written.ReadonlyToken), optional: modification(written.QuestionToken) };
 }
 
 function templateLiteral(scope: CaptureScope, position: RawComponentId, type: Type): RawTypeForm | null {
@@ -2498,6 +2712,10 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   const shape = scope.shape;
   const syntax = originalUse === null ? undefined : admittedTypeUse(scope, originalUse);
   if (syntax !== undefined) {
+    if (scope.checked.ast.kindName(syntax) === "KindMappedType") {
+      const mapped = mappedProjection(scope, type, position, syntax, originalUse);
+      if (mapped !== undefined) return mapped;
+    }
     const substitution = lexicalSubstitution(scope, type, syntax, position);
     if (substitution !== undefined) return substitution;
     if (scope.checked.ast.kindName(syntax) === "KindTypeOperator" && scope.checked.ast.operatorKindName(syntax) === "KindKeyOfKeyword") {
@@ -2568,8 +2786,8 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     if (endpoint?.kind === "projection-index") return projectedConditional(scope, type, selected, null);
     if (endpoint?.kind === "member") return projectedConditional(scope, type, selected, endpoint.declaration);
   }
-  if ((type.flags & TypeFlagsConditional) !== 0 && selected !== undefined) {
-    const alias = conditionalAliasApplication(scope, type, selected, syntax);
+  if (selected !== undefined && ((type.flags & TypeFlagsConditional) !== 0 || type.alias !== undefined)) {
+    const alias = deferredAliasApplication(scope, type, selected, syntax);
     if (alias !== null || scope.meter.refusal !== null) return alias;
   }
   if (syntax !== undefined && scope.checked.ast.kindName(syntax) === "KindThisType") {
@@ -2590,13 +2808,14 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
   if (symbol !== undefined && declarations.length === 0 && shape.isGlobalScopeObject(type)) return sourceEnvironment(scope, type);
   let interfaceFragments = 0;
+  let interfaceFragment: Node | undefined;
   let valueFragment: Node | undefined;
   for (let index = 0; index < declarations.length; index += 1) {
     if (!admit(scope, "edges")) return null;
     const candidate = declarations[index];
     if (candidate === undefined) return throwInvariant(invariant("A type's declaration inventory cannot contain an absent row."));
     const kind = scope.checked.ast.kindName(candidate);
-    if (kind === "KindInterfaceDeclaration") interfaceFragments += 1;
+    if (kind === "KindInterfaceDeclaration") { interfaceFragments += 1; interfaceFragment = candidate; }
     if (active !== null && kind === "KindVariableDeclaration") valueFragment = candidate;
     if (kind !== "KindTypeParameter") continue;
     const declaration = declarations.length === 1 ? candidate : symbol === undefined ? undefined : selectMergedParameter(scope, symbol, declarations, originalUse);
@@ -2634,7 +2853,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     if (shape.isStringLike(type)) return templateLiteral(scope, position, type);
     if (shape.isBigIntLike(type)) return { kind: "scalar", scalar: "bigint" };
     if (shape.isSymbolLike(type)) return { kind: "scalar", scalar: "symbol" };
-    if (shape.isAny(type)) return { kind: "scalar", scalar: "any" };
+    if (shape.isAny(type)) return { kind: "scalar", scalar: shape.isIntrinsicAliasMarker(type) ? "alias-marker" : "any" };
     if (shape.isUnknown(type)) return { kind: "scalar", scalar: "unknown" };
     if (shape.isNever(type)) return { kind: "scalar", scalar: "never" };
     if (shape.isNullish(type)) {
@@ -2672,7 +2891,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
         : composed?.reference === member ? composed.argument : null;
       const source = bindingUse?.kind === "union-arm" && bindingUse.type === member ? bindingUse.source
         : written?.sources.get(member) ?? (composed?.bare === member ? composed.source : null);
-      const captured = rawType(scope, () => withoutTypeCause(member), position, source, association);
+      const operator = source === null || source === undefined ? null : signatureAnnotationOperator(scope, source, source);
+      if (scope.meter.refusal !== null) return null;
+      const captured = rawType(scope, () => withoutTypeCause(member), position, operator ?? source, association);
       if (captured === null) return null;
       members.push(captured);
     }
@@ -2680,9 +2901,13 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   }
   if (shape.isTuple(type)) return captureTuple(scope, type, position, originalUse,
     bindingUse?.kind === "tuple-projection" || bindingUse?.kind === "tuple-initializer" ? bindingUse : null, projection);
-  if (symbol !== undefined && declarations.length === 1) {
-    const declaration = declarations[0];
-    if (declaration !== undefined && scope.checked.ast.kindName(declaration) === "KindInterfaceDeclaration") {
+  if (symbol !== undefined && interfaceFragments === 1 && interfaceFragment !== undefined) {
+    const native = declarations.length === 1 ? undefined : nativeInterfaceDeclarations(scope, shape.getTypeReferenceTarget(type) ?? type);
+    if (native === null) return null;
+    if (native !== undefined && (native.length !== 1 || native[0] !== interfaceFragment))
+      return throwInvariant(invariant("A native instance must retain its actual interface facet declaration."));
+    if (declarations.length === 1 || native !== undefined) {
+      const declaration = interfaceFragment;
       const source = referenceTo(scope, scope.program, declaration);
       if (scope.meter.refusal !== null) return null;
       if (source === null) return throwInvariant(invariant("A declared interface type requires its actual admitted declaration."));
@@ -2704,7 +2929,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
             if (!admit(scope, "edges")) return false;
             const actual = sourceType(scope, { kind: "annotation", node: syntax });
             return actual?.type === type && actual.causes.length === 0;
-          }) : null;
+          }, true) : null;
       if (scope.meter.refusal !== null) return null;
       const parent = scope.tables.components[position];
       if (parent === undefined) return throwInvariant(invariant("A declared type requires its actual captured component."));
@@ -2738,11 +2963,13 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
         const position = appendComponent(scope, parent, { kind: "argument-place", index });
         if (position === null) return null;
         const selected = sourceUse?.selected;
+        const operand = selected != null && "Kind" in selected ? signatureAnnotationOperator(scope, selected, selected) : null;
+        if (scope.meter.refusal !== null) return null;
         const tupleArgument: ProjectedOperandUse | null = selected === undefined && originalUse === null
           && parent.path?.step.kind === "result" && shape.isTuple(info.argument)
           ? { kind: "projected-operand", type: info.argument, role: "declared-tuple-argument" } : null;
         const argument = rawType(scope, () => withoutTypeCause(info.argument), position,
-          selected != null && "Kind" in selected ? selected : null,
+          operand ?? (selected != null && "Kind" in selected ? selected : null),
           selected != null && !("Kind" in selected) ? selected : restArgument ?? tupleArgument);
         if (argument === null) return null;
         arguments_.push({ parameter, declaration: null, argument: available(argument), explicitTypeNode, defaultTypeNode: null, scope: info.scope });
@@ -2761,17 +2988,20 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     }
   }
   const merged = interfaceFragments > 1 ? symbol : undefined;
-  const activeMerged = merged === undefined ? undefined : scope.tables.activeMergedInventories.get(merged);
-  if (merged !== undefined && activeMerged !== undefined) {
-    const changed = changedMergedApplication(scope, activeMerged, type);
-    if (changed !== null) {
-      const rest = (bindingUse?.kind === "declared-rest" || bindingUse?.kind === "receiver" && bindingUse.target === merged) &&
-        bindingUse.type === type && bindingUse.nativeTarget === changed.target && type.alias === undefined ? bindingUse : null;
-      return mergedInterfaceDependency(scope, position, changed, rest, originalUse, type);
-    }
+  const preparing = bindingUse?.kind === "interface-description";
+  if (preparing && (merged === undefined || bindingUse.target !== type))
+    return throwInvariant(invariant("An interface description requires its actual neutral target."));
+  if (merged !== undefined && !preparing) {
+    const application = nativeInterfaceApplication(scope, type);
+    if (application === null) return null;
+    const alias = type.alias?.symbol;
+    const qualified = (bindingUse?.kind === "declared-rest" && alias === undefined ||
+      bindingUse?.kind === "receiver" && bindingUse.target === merged && (alias === undefined || bindingUse.forwardedAlias === alias)) &&
+      bindingUse.type === type && bindingUse.nativeTarget === application.target ? bindingUse : null;
+    return mergedInterfaceDependency(scope, position, application, qualified, originalUse, type);
   }
   if (scope.meter.refusal !== null) return null;
-  const expandMerged = activeMerged === undefined ? merged : undefined;
+  const expandMerged = preparing ? merged : undefined;
   if (!admit(scope, "edges")) return null;
   const structured = shape.getStructuredInventory(type, nativeCaptureAdmission(scope));
   if (structured.kind === "refused") return null;
@@ -2791,7 +3021,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
       authoredObject = checked?.type === type && checked.causes.length === 0;
     }
   }
-  if (hasInventory || properties.mayHaveRows || authoredObject) {
+  if (hasInventory || properties.mayHaveRows || authoredObject || preparing) {
     if (!admit(scope, "facts")) return null;
     if (expandMerged !== undefined) scope.tables.pending.push({ kind: "merged-inventory-scope", symbol: expandMerged, type, enter: false });
     const inventory = rawMemberTableId(scope.tables.nextMember++);
@@ -2845,7 +3075,15 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
       if (capturedKey === null) return null;
       if (capturedKey !== key) return throwInvariant(invariant("An index selector must retain its actual captured row key."));
       let source: Node | undefined;
-      if (receiver !== null && tupleSlot?.declaration === null && selected.valueType === tupleSlot.argument) {
+      if (selected.declaration === declaration && scope.checked.ast.kindName(declaration) === "KindIndexSignature" &&
+        (selected.components.length === 0 || selected.components.length === 1 && selected.components[0] === declaration)) {
+        if (!admit(scope, "edges")) return null;
+        const written = scope.checked.ast.typeNode(declaration);
+        const actual = written === undefined ? undefined : sourceType(scope, { kind: "annotation", node: written });
+        if (scope.meter.refusal !== null) return null;
+        if (actual?.type === selected.valueType && actual.causes.length === 0) source = written;
+      }
+      if (source === undefined && receiver !== null && tupleSlot?.declaration === null && selected.valueType === tupleSlot.argument) {
         if (originalIndexes === undefined) {
           if (!admit(scope, "edges")) return null;
           originalIndexes = shape.getTypeReferenceTarget(type) === receiver.nativeTarget
@@ -2863,7 +3101,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     }
     const members = capturedMembers(scope, type, properties, position, bindingUse?.kind === "receiver" ? bindingUse : null, active);
     if (members === null) return null;
-    if (!hasInventory && !authoredObject && members.length === 0)
+    if (!hasInventory && !authoredObject && members.length === 0 && !preparing)
       throw new TypeError(`front: the captured form of the checker type ${scope.checker.typeToString(type)} is not implemented`);
     scope.tables.members[inventory] = { id: inventory, component: position, members, indexes, elementBinders: available([]),
       calls: callSignatures, constructs: constructSignatures };
@@ -3424,15 +3662,24 @@ function captureFacts(scope: CaptureScope): void {
           const exit: Extract<CaptureTask, { readonly kind: "leave-type" }> = { kind: "leave-type", id: next.id, type, key: use };
           scope.tables.pending.push(exit);
           const source = use?.kind === "direct-result" ? use.source ?? next.originalUse : next.originalUse;
+          const indexed = (base.flags & TypeFlagsIndexedAccess) !== 0;
+          const written = indexed && source !== null && "module" in source ? admittedTypeUse(scope, source) : undefined;
+          const writtenKind = scope.checked.ast.kindName(written);
           if (next.bindingUse?.kind === "merged-slot") {
             if (next.bindingUse.type !== base) return throwInvariant(invariant("A merged slot argument must retain its actual native parameter."));
             captured = captureMergedParameter(scope, next.bindingUse.declarations);
-          } else if ((base.flags & TypeFlagsIndexedAccess) !== 0 && (source === null || !("module" in source)
-            || scope.checked.ast.kindName(admittedTypeUse(scope, source)) !== "KindIndexedAccessType")) {
-            const selected = selectedIndexedType(scope, base, next.position, projection);
-            if (selected === null) return;
-            alias = available(selected.alias);
-            captured = selected.form;
+          } else if (indexed && writtenKind !== "KindIndexedAccessType") {
+            const position = scope.tables.components[next.position];
+            if (position === undefined) return throwInvariant(invariant("An indexed answer must retain its actual component."));
+            captured = position.path === null && writtenKind === "KindTypeReference" && base.alias !== undefined
+              ? deferredAliasApplication(scope, base, position, written) : null;
+            if (scope.meter.refusal !== null) return;
+            if (captured === null) {
+              const selected = selectedIndexedType(scope, base, next.position, projection);
+              if (selected === null) return;
+              alias = available(selected.alias);
+              captured = selected.form;
+            }
           } else captured = typeForm(scope, base, next.position, source, use, projection, candidate);
           if (captured === null) return;
           if (candidate !== null) {
@@ -3445,7 +3692,8 @@ function captureFacts(scope: CaptureScope): void {
             if (active === undefined) scope.tables.activeQualifiedTypes.set(exit.key, new Map([[type, next.id]]));
             else active.set(type, next.id);
           }
-          if (captured?.kind === "merged-interface-dependency") scope.tables.activeMergedArguments.add(next.id);
+          if (captured?.kind === "merged-interface-dependency" || next.bindingUse?.kind === "interface-description")
+            scope.tables.activeMergedArguments.add(next.id);
         } else {
           const original = scope.tables.types[ancestor];
           if (original?.form.kind !== "available")
@@ -3455,6 +3703,9 @@ function captureFacts(scope: CaptureScope): void {
             if (retained === null) return;
             alias = available(retained.alias);
             captured = retained.form;
+          } else if (original.form.value.kind === "merged-interface-dependency") {
+            if (!admit(scope, "edges")) return;
+            captured = { kind: "merged-interface-backedge", group: original.form.value.group, application: original.id };
           } else captured = original.form.value;
         }
         if (captured === null) return;
@@ -3811,7 +4062,7 @@ function captureSignature(scope: CaptureScope, id: RawSignatureId, signature: Si
 function signatureAnnotationOperator(scope: CaptureScope, annotation: Node | null | undefined, checkedSource: Node | undefined): RawNodeRef | null {
   if (annotation === null || annotation === undefined || checkedSource !== annotation) return null;
   const kind = scope.checked.ast.kindName(annotation);
-  if (kind !== "KindConditionalType" && kind !== "KindIndexedAccessType"
+  if (kind !== "KindConditionalType" && kind !== "KindIndexedAccessType" && kind !== "KindMappedType"
     && (kind !== "KindTypeOperator" || scope.checked.ast.operatorKindName(annotation) !== "KindKeyOfKeyword")) return null;
   if (!admit(scope, "edges")) return null;
   const source = referenceTo(scope, scope.program, annotation);
@@ -3896,7 +4147,7 @@ function isMergedBinderArgument(scope: CaptureScope, node: Node, type: Type): bo
 }
 
 function authoredArgumentSources(scope: CaptureScope, annotation: Node, target: CheckerSymbol,
-  inputs: readonly TypeReferenceArgumentInfo[], authorizes: () => boolean): DeclaredArgumentsUse | null {
+  inputs: readonly TypeReferenceArgumentInfo[], authorizes: () => boolean, direct: boolean): DeclaredArgumentsUse | null {
   const ast = scope.checked.ast;
   const syntax = ast.kindName(annotation) === "KindTypeReference" ? ast.as.AsTypeReferenceNode(annotation) : undefined;
   const arguments_ = syntax?.TypeArguments?.Nodes;
@@ -3912,7 +4163,10 @@ function authoredArgumentSources(scope: CaptureScope, annotation: Node, target: 
     if (input.scope !== "local") continue;
     const authored = arguments_[local++];
     if (authored === undefined) return null;
-    if (!isMergedBinderArgument(scope, authored, input.argument)) {
+    const kind = ast.kindName(authored);
+    const dependent = direct && ((input.argument.flags & TypeFlagsConditional) !== 0 && kind === "KindConditionalType" ||
+      (input.argument.flags & TypeFlagsIndexedAccess) !== 0 && kind === "KindIndexedAccessType");
+    if (!dependent && !isMergedBinderArgument(scope, authored, input.argument)) {
       if (scope.meter.refusal !== null) return null;
       continue;
     }
@@ -3946,7 +4200,7 @@ function unchangedResultArguments(scope: CaptureScope, signature: Signature, typ
     if (!admit(scope, "edges")) return false;
     const answer = sourceType(scope, { kind: "signature-return", signature: original });
     return answer?.type === type && answer.typeSource === annotation && answer.causes.length === 0;
-  });
+  }, false);
 }
 
 function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void {
@@ -4019,7 +4273,13 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
       if (declarations !== null) use = { kind: "merged-slot", type: projected.selected, declarations };
     }
   }
-  const result = enqueueRawType(scope, answer, resultPosition, operator ?? originalUse ?? direct, use, null);
+  const resultKind = scope.checked.ast.kindName(resultSyntax);
+  const authored = resultSyntax !== undefined && answer?.typeSource === resultSyntax &&
+    (resultKind === "KindArrayType" || resultKind === "KindUnionType" || resultKind === "KindIntersectionType" ||
+      resultKind === "KindTypeReference" || resultKind === "KindMappedType")
+    ? referenceTo(scope, program, resultSyntax) : null;
+  if (scope.meter.refusal !== null) return;
+  const result = enqueueRawType(scope, answer, resultPosition, operator ?? authored ?? originalUse ?? direct, use, null);
   scope.tables.signatures[id] = {
     id, target, owner, declaration, kind, typeParameters: available(typeParameters), receiver: available(receiver), parameters,
     result: available(result), composition: null,
@@ -4058,7 +4318,7 @@ function inferredStorageAlias(scope: CaptureScope, node: Node, answer: ResolvedS
     || answer.causes.length !== 0 || !admit(scope, "edges")) return null;
   const type = answer.type;
   if (type.alias === undefined || !admit(scope, "edges")) return null;
-  const application = nativeAliasApplication(scope, type);
+  const application = nativeAliasApplication(scope, type, scope.shape.acquireTypeAliasApplication);
   if (scope.meter.refusal !== null) return null;
   if (application === undefined || application.result !== type || application.bindings.length !== 0
     || ast.kindName(application.declaration) !== "KindTypeAliasDeclaration" || ast.kindName(application.typeNode) !== "KindTypeLiteral"
@@ -4512,7 +4772,8 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
  * callable associations, callable inventories and selected calls, and the module's export entries; remaining tables are empty, and
  * lowering refuses a module that holds a kind whose checked annotation is not written (one check, in lowerModule).
  */
-export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: ModuleId): Result<RawModule> {
+function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: ModuleId,
+  interfaceCapture: InterfaceCaptureSession): Result<RawModule> {
   if (OpenedProgram.table(program) !== deps.extensions) throw new TypeError("front: the extension table is not the one the program was opened with");
   const checked = OpenedProgram.checked(program);
   const ast = checked.ast;
@@ -4540,7 +4801,9 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
     fieldSelectors: null, invalidLayout: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
-      interfaceGroups: { byTarget: new Map(), rows: [] }, nativeInterfaceDeclarations: null,
+      authoredSourceTypes: null,
+      interfaceGroups: { byTarget: new Map(), rows: [] }, interfaceCapture,
+      interfaceDescriptions: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),
       qualifiedSignatures: new Map(), activeTypes: new Map(), activeQualifiedTypes: new Map(), activeReceiverKeys: null,
       activeIndexedAliases: new Set(),
@@ -4549,6 +4812,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       nextType: 0, nextSignature: 0, nextMember: 0, pending: [], globalEnvironment: null } };
   const checkerDiagnostics = captureFileDiagnostics(program, module, input, ownNodes, scope.diagnosticRoots, () => admit(scope, "facts"));
   if (scope.meter.refusal !== null) return { kind: "refused", diagnostics: captureRefusal(scope.meter.refusal, checkerDiagnostics) };
+  const annotations: RawModule["annotations"][number][] = [];
   const views: RawCheckerViews[] = [];
   const references: RawReference[] = [];
   const links: RawModuleLink[] = [];
@@ -4660,6 +4924,9 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
     let failedSelection = false;
     const numericAnnotationLiteral = parent !== undefined && scope.numericLiterals.has(parent) && ast.kindName(parent) === "KindLiteralType";
+    const heritage = interfaceHeritage(ast, node);
+    const heritageName = kind === "KindIdentifier" && interfaceHeritage(ast, parent) &&
+      ast.as.AsExpressionWithTypeArguments(parent)?.Expression === node;
     if (isEnumQualifier(reference.node)) {
       if (!admit(scope, "facts") || !admit(scope, "edges")) break;
       const symbol = scope.checker.getSymbolAtLocation(node);
@@ -4670,8 +4937,19 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       const captured = scope.tables.symbols[symbolId];
       if (captured === undefined) return throwInvariant(invariant("An enum qualifier requires its captured symbol."));
       references.push({ occurrence: reference, meaning: "value", target: captured.target });
+    } else if (heritageName || annotationName(ast, node, parent)) {
+      if (!admit(scope, "edges")) break;
+      const selected = scope.checker.getSymbolAtLocation(node);
+      if (selected !== undefined) {
+        if (!admit(scope, "facts")) break;
+        const id = rawSymbol(scope, selected);
+        if (id === null) break;
+        const proof = scope.tables.symbols[id];
+        if (proof === undefined) return throwInvariant(invariant("An annotation name must retain its actual checked symbol."));
+        references.push({ occurrence: reference, meaning: "type", target: proof.target });
+      }
     } else if (expressionKinds.includes(kind.replace(/^Kind/u, "")) && !declarationName && !bindingName && !moduleExpression && !labelName
-      && !numericAnnotationLiteral) {
+      && !numericAnnotationLiteral && !heritage) {
       const readPosition = component(scope, reference, null);
       if (readPosition === null || !admit(scope, "facts")) break;
       const answer = sourceType(scope, { kind: "expression", node });
@@ -4707,9 +4985,11 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       }
     }
     // An authored type annotation (the type child of its declaration): the type the checker gives that type node.
-    if (kind !== "KindTemplateLiteralTypeSpan" && typeNodeKinds.includes(kind.replace(/^Kind/u, "")) &&
-      rawType(scope, () => sourceType(scope, { kind: "annotation", node }), component(scope, reference, null), reference, null,
-        kind === "KindLiteralType" && scope.numericLiterals.has(node) ? node : null) === null) break;
+    if (heritage || kind !== "KindTemplateLiteralTypeSpan" && typeNodeKinds.includes(kind.replace(/^Kind/u, ""))) {
+      const type = captureAuthoredAnnotation(scope, node, reference);
+      if (type === null || !admit(scope, "facts")) break;
+      annotations.push({ node: reference.node, type });
+    }
     if (callableKinds.includes(kind)) {
       const signature = scope.checker.getSignatureFromDeclaration(node);
       if (signature === undefined) return throwInvariant(invariant("The checker gave no signature for a callable declaration."));
@@ -4839,16 +5119,36 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       ?? throwInvariant(invariant("Provider model projection must retain its first resource refusal.")), checkerDiagnostics) };
     publicLibraryModule = projected.module;
   }
+  if (scope.tables.interfaceDescriptions.size !== 0) {
+    const retained = scope.tables.interfaceDescriptions.size + (interfaceCapture.descriptions === null ? 1 : 0);
+    if (!admit(scope, "facts", retained)) return { kind: "refused", diagnostics: captureRefusal(scope.meter.refusal
+      ?? throwInvariant(invariant("Retaining complete interface descriptions must preserve its actual first refusal.")), checkerDiagnostics) };
+    const descriptions = interfaceCapture.descriptions ??= new Set();
+    for (const target of scope.tables.interfaceDescriptions.keys()) descriptions.add(target);
+  }
   const raw: RawModule = {
     module, tree,
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
       symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts, memoryDescriptors: scope.tables.memoryDescriptors,
-      interfaceGroups: scope.tables.interfaceGroups.rows },
-    checkerViews: views, calls, callableAssociations: associations, providerDeclarations, publicLibraryModule, references, links, exports, bindings,
+      interfaceGroups: scope.tables.interfaceGroups.rows, interfaceDescriptions: [...scope.tables.interfaceDescriptions.values()] },
+    annotations, checkerViews: views, calls, callableAssociations: associations, providerDeclarations, publicLibraryModule, references, links, exports, bindings,
     implementations: [], heritage: [], constructors: [], enums, propertyNames, memberUses, protocols: [], storage, core,
     checkerDiagnostics, diagnosticCoverage,
   };
   return { kind: "ok", value: raw, diagnostics: checkerDiagnostics };
+}
+
+export function captureRawModules(deps: CaptureDeps, program: CheckedProgram, modules: readonly ModuleId[]): Result<readonly RawModule[]> {
+  const prepared: RawModule[] = [];
+  const diagnostics: Diagnostic[] = [];
+  const interfaceCapture: InterfaceCaptureSession = { descriptions: null, declarations: null, applications: null };
+  for (const module of modules) {
+    const captured = captureRawModule(deps, program, module, interfaceCapture);
+    if (captured.kind === "refused") return captured;
+    prepared.push(captured.value);
+    for (const diagnostic of captured.diagnostics) diagnostics.push(diagnostic);
+  }
+  return { kind: "ok", value: prepared, diagnostics };
 }
 
 function captureRefusal(refusal: Diagnostic, earned: readonly Diagnostic[]): readonly [Diagnostic, ...Diagnostic[]] {

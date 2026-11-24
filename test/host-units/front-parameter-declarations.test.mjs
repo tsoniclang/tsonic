@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 async function capture(source) {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -9,9 +9,9 @@ async function capture(source) {
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const captured = fixture.front.captureModule(opened.deps, opened.program, module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok", "actual SDK capture completes");
-  const identified = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
+  const identified = identifySingleModule(fixture.front, { module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(identified.kind, "ok", "actual F1 declaration inventory completes");
   return { fixture, source, raw: captured.value, definitions: identified.value };
 }
@@ -47,7 +47,7 @@ test("actual checked generic formals and converted parameter types share the sam
   const deps = fixture.lowerDepsFor(definitions, interner, source);
   const exported = fixture.front.lowerModuleExports(deps, raw);
   assert.equal(exported.kind, "ok");
-  const checked = fixture.front.lowerModule({ ...deps, exportsOf: module => module === raw.module ? exported.value : null }, raw);
+  const checked = lowerSingleCheckedModule(fixture.front, { ...deps, exportsOf: module => module === raw.module ? exported.value : null }, raw);
   assert.equal(checked.kind, "ok");
   const declaration = definitions.rows.find(row => row.kind === "TypeParameter");
   assert.notEqual(declaration, undefined);
@@ -63,7 +63,7 @@ test("actual checked generic formals and converted parameter types share the sam
     `TypeParameter(identity=${retired}, declaration=`)).kind, "invalid-text");
   const parameters = fixture.types.viewTypes(interner).terms.filter(term => term.kind === "param");
   assert.deepEqual(parameters, [{ kind: "param", parameter: declaration.definition }]);
-  assert.throws(() => fixture.front.lowerModule({ ...deps,
+  assert.throws(() => lowerSingleCheckedModule(fixture.front, { ...deps,
     definitionOf: reference => {
       assert.notEqual(reference.node, declaration.node, "missing genuine parameter declaration is not an owner/index fallback");
       return deps.definitionOf(reference);

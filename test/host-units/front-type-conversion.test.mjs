@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 test("actual generic declarations, composites and indexes retain their checked graph references", async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -12,15 +12,15 @@ test("actual generic declarations, composites and indexes retain their checked g
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const captured = fixture.front.captureModule(opened.deps, opened.program, module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
+  const definitions = identifySingleModule(fixture.front, { module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   const types = fixture.types.createTypeInterner();
   const deps = fixture.lowerDepsFor(definitions.value, types, source);
   const exported = fixture.front.lowerModuleExports(deps, captured.value);
   assert.equal(exported.kind, "ok");
-  const result = fixture.front.lowerModule({ ...deps, exportsOf: owner => owner === module ? exported.value : null }, captured.value);
+  const result = lowerSingleCheckedModule(fixture.front, { ...deps, exportsOf: owner => owner === module ? exported.value : null }, captured.value);
   assert.equal(result.kind, "ok");
   assert.equal(fixture.verifyChecked(result.value, types).length, 0);
   const declarations = new Map(result.value.tree.statements.nodes.map(node => [node.name.text, node]));
@@ -53,9 +53,9 @@ test("an index origin cannot borrow a same-numbered occurrence from another actu
   const actual = [];
   for (const name of ["left.ts", "right.ts"]) {
     const module = fixture.moduleOf(fixture.packageOf("/project"), `src/${name}`);
-    const captured = fixture.front.captureModule(opened.deps, opened.program, module);
+    const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
     assert.equal(captured.kind, "ok");
-    const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
+    const definitions = identifySingleModule(fixture.front, { module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
     assert.equal(definitions.kind, "ok");
     actual.push({ raw: captured.value, definitions: definitions.value,
       index: definitions.value.sourceOccurrences.find(row => row.kind === "IndexSignature") });
@@ -65,7 +65,7 @@ test("an index origin cannot borrow a same-numbered occurrence from another actu
   const deps = fixture.lowerDepsFor(actual[0].definitions, fixture.types.createTypeInterner(), source);
   const exported = fixture.front.lowerModuleExports(deps, actual[0].raw);
   assert.equal(exported.kind, "ok");
-  assert.throws(() => fixture.front.lowerModule({ ...deps,
+  assert.throws(() => lowerSingleCheckedModule(fixture.front, { ...deps,
     exportsOf: owner => owner === actual[0].raw.module ? exported.value : null,
     sourceOccurrenceOf: reference => reference.node === actual[0].index.node ? actual[1].index : deps.sourceOccurrenceOf(reference) },
   actual[0].raw), /actual captured module/u);

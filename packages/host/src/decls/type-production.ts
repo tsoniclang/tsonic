@@ -72,10 +72,10 @@ function exactMemberKey(term: TypeTerm): MemberKey {
 function indexedSelection(deps: DeclsDeps, site: Site, deferredType: TyId, receiver: TyId, index: TypeTerm): TypeProductionStep {
   const object = readType(deps.types, receiver);
   if (deferred(index) || deferred(object)) return complete(site, deferredType, { kind: "dynamic" });
-  if (object.kind !== "shape" || object.indexes.length !== 0)
+  if (object.kind !== "shape" && object.kind !== "merged-interface")
     return fail("Indexed production requires the actual exact finite property-domain producer.");
   const maximum = deps.typeExpansion.maximumUnionMembers;
-  if (object.members.length > maximum || (index.kind === "union" ? index.members.length : 1) > maximum)
+  if (object.kind === "shape" && object.members.length > maximum || (index.kind === "union" ? index.members.length : 1) > maximum)
     return exhausted(site, "union-members", maximum);
   const keys: MemberKey[] = [];
   if (index.kind === "union") for (const member of index.members) {
@@ -108,9 +108,9 @@ function indexedMembers(site: Site, inventory: MemberInventory, keys: readonly M
     previous = key;
     for (;;) {
       const entry = inventory.members[member];
-      if (entry === undefined) return unavailable(site, "The indexed property key is absent from its complete inventory.");
+      if (entry === undefined) return unavailable(site, noIndexedMember(inventory));
       const comparison = compareMemberKeys(entry.key, key);
-      if (comparison > 0) return unavailable(site, "The indexed property key is absent from its complete inventory.");
+      if (comparison > 0) return unavailable(site, noIndexedMember(inventory));
       if (comparison === 0) {
         requests.push({ receiver: inventory.receiver, member });
         member += 1;
@@ -120,6 +120,11 @@ function indexedMembers(site: Site, inventory: MemberInventory, keys: readonly M
     }
   }
   return indexedMember(site, requests, 0, null);
+}
+
+function noIndexedMember(inventory: MemberInventory): string {
+  return inventory.indexes.length === 0 ? "The indexed property key is absent from its complete inventory."
+    : "The indexed key has no exact named member; index-signature selection requires its own producer.";
 }
 
 type KeyCategory = Extract<SourceCategory, "number" | "string" | "symbol">;

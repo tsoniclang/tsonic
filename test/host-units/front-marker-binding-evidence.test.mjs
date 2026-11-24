@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { OpenedProgram } from "../../packages/host/dist/front/handles.js";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 for (const fixed of [false, true]) test(`declared extent retains the actual ${fixed ? "fixed-array" : "unrelated call"} marker producer boundary`, async () => {
   const fixture = await loadFrontFixture();
@@ -20,7 +20,7 @@ for (const fixed of [false, true]) test(`declared extent retains the actual ${fi
     } }] });
   const opened = fixture.openAndCapture(snapshot, [{ reference: registration, value: { kind: "semantics-module", value: manifest } }]);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const captured = fixture.front.captureModule(opened.deps, opened.program, module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
   assert.deepEqual(captured.value.checkerDiagnostics, []);
   const alias = captured.value.tree.statements.nodes.find(statement => statement.kind === "TypeAliasDeclaration");
@@ -57,7 +57,8 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
   otherPackages: [{ root: markerRoot, name: "binding-markers", modules: {
     "index.d.ts": ["declaration", "export declare function struct<T>(value:T):T; export declare function field<T>():T;", true],
   } }] });
-  const opened = fixture.openAndCapture(snapshot, [{ reference: registration, value: { kind: "semantics-module", value: manifest } }]);
+  const open = () => fixture.openAndCapture(snapshot, [{ reference: registration, value: { kind: "semantics-module", value: manifest } }]);
+  const opened = open();
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const modelModule = fixture.moduleOf(fixture.packageOf("/project"), "src/model.ts");
   const provider = fixture.moduleOf(fixture.packageOf(markerRoot), "index.d.ts");
@@ -65,9 +66,12 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
   const { ast, sourceFacts } = checked;
   const file = identity => OpenedProgram.file(opened.program, identity).file;
   const { checker } = checked.getSourceFileQueries(file(module));
-  const statement = ast.statements(file(module)).find(node => ast.kindName(node) === "KindVariableStatement");
-  const declarationList = ast.as.AsVariableStatement(statement).DeclarationList;
-  const owner = ast.children(declarationList).find(node => ast.kindName(node) === "KindVariableDeclaration");
+  const markedOwner = (syntax, sourceFile) => {
+    const statement = syntax.statements(sourceFile).find(node => syntax.kindName(node) === "KindVariableStatement");
+    const list = syntax.as.AsVariableStatement(statement).DeclarationList;
+    return syntax.children(list).find(node => syntax.kindName(node) === "KindVariableDeclaration");
+  };
+  const owner = markedOwner(ast, file(module));
   const structCall = ast.as.AsVariableDeclaration(owner).Initializer;
   const [object] = ast.arguments(structCall);
   const properties = ast.properties(object);
@@ -162,9 +166,9 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
   assert.equal(explicit[1].binding.checkedArgument === explicit[2].binding.checkedArgument, true);
   assert.equal(explicit[3].binding.checkedArgument !== explicit[2].binding.checkedArgument, true);
 
-  const raw = fixture.front.captureModule(opened.deps, opened.program, provider);
+  const raw = captureSingleModule(fixture.front, opened.deps, opened.program, provider);
   assert.equal(raw.kind, "ok");
-  const identities = fixture.front.lowerModuleDefinitions({ module: raw.value, componentRoots: [] });
+  const identities = identifySingleModule(fixture.front, { module: raw.value, componentRoots: [] });
   assert.equal(identities.kind, "ok");
   const parameterRows = raw.value.tree.statements.nodes.map((declaration, index) => {
     const parameter = declaration.typeParameters.nodes[0];
@@ -180,7 +184,7 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
   assert.equal(parameterRows.every(row => row !== undefined), true);
   assert.notEqual(parameterRows[0].definition, parameterRows[1].definition);
 
-  const consumerCapture = fixture.front.captureModule(opened.deps, opened.program, module);
+  const consumerCapture = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(consumerCapture.kind, "ok");
   const consumer = consumerCapture.value;
   const variable = consumer.tree.statements.nodes.find(statement => statement.kind === "VariableStatement").declarationList.declarations.nodes[0];
@@ -264,24 +268,26 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
     assert.deepEqual(captured.appliedResult.form, form);
   }
 
-  const captureWith = (adapt, navigationCapture = opened.deps.navigationCapture) => {
-    const program = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
-      const queries = checked.getSourceFileQueries(sourceFile);
-      if (sourceFile !== file(module)) return queries;
+  const captureWith = (session, adapt, navigationCapture = session.deps.navigationCapture) => {
+    const source = OpenedProgram.checked(session.program);
+    const fileEntry = identity => OpenedProgram.file(session.program, identity);
+    const selectedFile = fileEntry(module).file;
+    const program = OpenedProgram.create({ ...source, getSourceFileQueries(sourceFile) {
+      const queries = source.getSourceFileQueries(sourceFile);
+      if (sourceFile !== selectedFile) return queries;
       return { ...queries, checker: { ...queries.checker,
         acquireResolvedCall(call, admit) {
           const result = queries.checker.acquireResolvedCall(call, admit);
           return result.kind === "complete" ? { kind: "complete", value: adapt(call, result.value) } : result;
         } } };
-    } }, OpenedProgram.table(opened.program), OpenedProgram.modules(opened.program).modules.map(entry =>
+    } }, OpenedProgram.table(session.program), OpenedProgram.modules(session.program).modules.map(entry =>
       fileEntry(entry.kind === "snapshot" ? entry.module : entry.document.module)),
-    OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
-    return fixture.front.captureModule({ ...opened.deps, navigationCapture }, program, module);
+    OpenedProgram.libraryData(session.program), OpenedProgram.contributions(session.program));
+    return captureSingleModule(fixture.front, { ...session.deps, navigationCapture }, program, module);
   };
-  const fileEntry = identity => OpenedProgram.file(opened.program, identity);
   const fieldCall = ast.as.AsPropertyAssignment(properties[1]).Initializer;
   for (const crossed of [{ declaration: inferred.binding.declaration }, { explicitTypeNode: explicit[2].typeNode }]) {
-    assert.throws(() => captureWith((call, info) => {
+    assert.throws(() => captureWith(opened, (call, info) => {
       if (call !== fieldCall) return info;
       const { selection } = info;
       return { ...info, selection: { ...selection, application: { ...selection.application,
@@ -291,9 +297,14 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
   }
 
   const readBindingsAt = (dimension, maximum, originalStop) => {
+    const session = open();
+    const { ast: syntax } = OpenedProgram.checked(session.program);
+    const actualFile = OpenedProgram.file(session.program, module).file;
+    const actualCall = syntax.as.AsVariableDeclaration(markedOwner(syntax, actualFile)).Initializer;
+    assert.equal(captureSingleModule(fixture.front, session.deps, session.program, module).kind, "ok");
     let reads = 0;
-    const capture = captureWith((call, info) => {
-      if (call !== structCall) return info;
+    const capture = captureWith(session, (call, info) => {
+      if (call !== actualCall) return info;
       const { selection } = info;
       const native = selection.application.signatureTypeArguments;
       return { ...info, selection: { ...selection, application: { ...selection.application,
@@ -305,10 +316,10 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
           return Reflect.get(target, key, receiver);
         } }),
       } } };
-    }, { ...opened.deps.navigationCapture, [dimension]: maximum });
+    }, { ...session.deps.navigationCapture, [dimension]: maximum });
     return { reads, capture };
   };
-  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 246], ["maximumCapturedEdgesPerModule", 245]]) {
+  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 257], ["maximumCapturedEdgesPerModule", 250]]) {
     const originalStop = new Error("the first actual checked binding read");
     const unread = readBindingsAt(dimension, firstRead - 1, originalStop);
     assert.equal(unread.reads, 0);

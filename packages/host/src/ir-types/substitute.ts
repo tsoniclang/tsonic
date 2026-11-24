@@ -4,7 +4,7 @@ import type { Substitute, SubstituteSignature, ProjectBindingValues, HasLexicalT
   SelfBinding, TypeExpansionLimits, TypeTableAdmissionWork, TypeTableAdmissionStop } from "./contract.js";
 import { storedType, storedSignature } from "./interner.js";
 import { TypeArena, type GraphIdentity } from "./arena.js";
-import { remapTerm, remapConditional, remapSignature, orderedSignature, graphReferences, type GraphValue } from "./canonical.js";
+import { remapTerm, remapConditional, remapMapped, remapSignature, orderedSignature, graphReferences, type GraphValue } from "./canonical.js";
 import { stageGraph } from "./graph-stage.js";
 import { readBindingKey, readBindingRows, typeIdentifier, signatureIdentifier, required, type BindingReader } from "./value.js";
 import type { ExpansionResult, ExpansionStop, TypePublicationStop, TypePublicationWork } from "./work.js";
@@ -189,7 +189,9 @@ function lexicalScopes() {
 }
 
 function nestedPatternScope(graph: GraphValue, blocked: Scope, block: ReturnType<typeof lexicalScopes>["block"]): Scope | null {
-  if (graph.kind !== "type" || graph.value.kind !== "projection" || graph.value.projection.kind !== "conditional") return null;
+  if (graph.kind !== "type" || graph.value.kind !== "projection") return null;
+  if (graph.value.projection.kind === "mapped") return block(blocked, [parameterKey(graph.value.projection.parameter)]);
+  if (graph.value.projection.kind !== "conditional") return null;
   const binders = graph.value.projection.inferParameters;
   return binders.length === 0 ? null : block(blocked, binders.map(parameterKey));
 }
@@ -470,6 +472,8 @@ function transform<Stop extends TypeTableAdmissionStop>(
       const value = plan.value;
       typeRows.set(plan.output, value.kind === "projection" && value.projection.kind === "conditional" && value.projection.inferParameters.length !== 0
         ? remapConditional(value.source, value.projection, (_type, role) => typeIdentifier(target(required(plan.edges, role)).output))
+        : value.kind === "projection" && value.projection.kind === "mapped"
+          ? remapMapped(value.source, value.projection, (_type, role) => typeIdentifier(target(required(plan.edges, role)).output))
         : remapTerm(value, typeOf, signatureOf));
     }
     else signatureRows.set(plan.output, orderedSignature(remapSignature(plan.value, typeOf, signatureOf)));

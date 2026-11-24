@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 async function sourceViews(fixture, modules) {
   const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
@@ -46,7 +46,7 @@ test("actual foreign default and constraint requests close before F1 even when r
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] }));
   const captures = Object.keys(texts).map(name => {
     const module = fixture.moduleOf(fixture.packageOf("/project"), `src/${name}`);
-    const result = fixture.front.captureModule(opened.deps, opened.program, module);
+    const result = captureSingleModule(fixture.front, opened.deps, opened.program, module);
     assert.equal(result.kind, "ok");
     return result.value;
   });
@@ -54,8 +54,8 @@ test("actual foreign default and constraint requests close before F1 even when r
   const parameter = foreign.tree.statements.nodes[0].typeParameters.nodes[0];
   const roots = captures[0].types.components.filter(component => component.root.module === foreign.module).map(component => component.root);
   assert.deepEqual([...new Set(roots.map(root => root.node))], [parameter.constraint.id, parameter.defaultType.id, parameter.id]);
-  const baseline = fixture.front.lowerModuleDefinitions({ module: foreign, componentRoots: [] });
-  const requested = fixture.front.lowerModuleDefinitions({ module: foreign, componentRoots: roots });
+  const baseline = identifySingleModule(fixture.front, { module: foreign, componentRoots: [] });
+  const requested = identifySingleModule(fixture.front, { module: foreign, componentRoots: roots });
   assert.equal(baseline.kind, "ok");
   assert.equal(requested.kind, "ok");
   assert.deepEqual(requested.value.rows, baseline.value.rows, "actual component demands never create a declaration identity");
@@ -71,7 +71,7 @@ test("actual foreign default and constraint requests close before F1 even when r
     assert.equal(owner.value.module, foreign.module);
     assert.equal(baseline.value.sourceOccurrences.some(source => source.node === root.node), false);
   }
-  const mainDefinitions = fixture.front.lowerModuleDefinitions({ module: captures[0],
+  const mainDefinitions = identifySingleModule(fixture.front, { module: captures[0],
     componentRoots: captures[0].types.components.filter(component => component.root.module === captures[0].module).map(component => component.root) });
   assert.equal(mainDefinitions.kind, "ok");
   const modules = new Map([[foreign.module, requested.value], [captures[0].module, mainDefinitions.value]]);
@@ -98,10 +98,10 @@ test("actual foreign default and constraint requests close before F1 even when r
     assert.equal(localResult.kind, "complete");
     assert.deepEqual(result.value, localResult.value, "local and foreign conversion consume the same qualified ready relation");
   }
-  assert.throws(() => fixture.front.lowerModuleDefinitions({ module: captures[0], componentRoots: roots }), /actual captured module/u);
-  assert.throws(() => fixture.front.lowerModuleDefinitions({ module: foreign,
+  assert.throws(() => identifySingleModule(fixture.front, { module: captures[0], componentRoots: roots }), /actual captured module/u);
+  assert.throws(() => identifySingleModule(fixture.front, { module: foreign,
     componentRoots: [{ module: foreign.module, node: fixture.hir.indexSyntaxTree(foreign.tree).length }] }), /actual captured syntax node/u);
-  assert.throws(() => fixture.front.lowerModuleDefinitions(foreign), TypeError, "the retired raw-module-only signature is rejected");
+  assert.throws(() => identifySingleModule(fixture.front, foreign), TypeError, "the retired raw-module-only signature is rejected");
 });
 
 test("local component roots retain the same ready header, function and separately executing initializer scopes", async () => {
@@ -127,10 +127,10 @@ test("local component roots retain the same ready header, function and separatel
 test("an actual bodyless declaration component never gains an invented execution header body", async () => {
   const fixture = await loadFrontFixture();
   const opened = fixture.openedModule("export declare function value(input:boolean):boolean;");
-  const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, opened.module);
   assert.equal(captured.kind, "ok");
   const parameter = captured.value.tree.statements.nodes[0].parameters.nodes[0];
-  const identified = fixture.front.lowerModuleDefinitions({ module: captured.value,
+  const identified = identifySingleModule(fixture.front, { module: captured.value,
     componentRoots: [{ module: opened.module, node: parameter.type.id }] });
   assert.equal(identified.kind, "ok");
   const selected = identified.value.sourceOccurrences.find(row => row.node === parameter.type.id);
@@ -152,10 +152,10 @@ test("F1 identities remain independent of Lower frontiers for every actual close
     "export class Value{set value(input:boolean){}}",
   ]) {
     const opened = fixture.openedModule(source);
-    const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
+    const captured = captureSingleModule(fixture.front, opened.deps, opened.program, opened.module);
     assert.equal(captured.kind, "ok");
     const raw = captured.value;
-    const baseline = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: [] });
+    const baseline = identifySingleModule(fixture.front, { module: raw, componentRoots: [] });
     assert.equal(baseline.kind, "ok");
     const nodes = fixture.hir.indexSyntaxTree(raw.tree);
     const callable = nodes.find(node => ["FunctionDeclaration", "FunctionExpression", "ArrowFunction", "Constructor", "MethodDeclaration", "GetAccessor", "SetAccessor"].includes(node.kind));
@@ -167,7 +167,7 @@ test("F1 identities remain independent of Lower frontiers for every actual close
       if (parameter.type !== null) roots.push({ module: raw.module, node: parameter.type.id });
       if (parameter.initializer !== null) roots.push({ module: raw.module, node: parameter.initializer.id });
     }
-    const identified = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: roots });
+    const identified = identifySingleModule(fixture.front, { module: raw, componentRoots: roots });
     assert.equal(identified.kind, "ok");
     assert.deepEqual(identified.value.rows, baseline.value.rows);
     const body = identified.value.sourceOccurrences.find(row => row.node === callable.body.id);
@@ -194,15 +194,15 @@ test("component root demands preserve B1 and index item authority without emitti
   for (const [expression, kind] of [["{[key:string]:boolean}", "IndexSignature"], ["{[K in string]:boolean}", "MappedType"]]) {
     const source = `type Indexed=${expression};export{Indexed};export function value(input:boolean):boolean{return input;}`;
     const opened = fixture.openedModule(source);
-    const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
+    const captured = captureSingleModule(fixture.front, opened.deps, opened.program, opened.module);
     assert.equal(captured.kind, "ok");
     const raw = captured.value;
-    const baseline = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: [] });
+    const baseline = identifySingleModule(fixture.front, { module: raw, componentRoots: [] });
     assert.equal(baseline.kind, "ok");
     const index = baseline.value.sourceOccurrences.find(row => row.kind === kind);
     assert.equal(index !== undefined, true);
     assert.equal(baseline.value.sourceOccurrences.some(row => row.kind === "ExportSpecifier"), true);
-    const requested = fixture.front.lowerModuleDefinitions({ module: raw,
+    const requested = identifySingleModule(fixture.front, { module: raw,
       componentRoots: [...raw.types.components.map(component => component.root), { module: raw.module, node: index.node }] });
     assert.equal(requested.kind, "ok");
     assert.deepEqual(requested.value.rows, baseline.value.rows);

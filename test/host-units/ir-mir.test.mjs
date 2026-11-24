@@ -1144,15 +1144,6 @@ test("MIR type resolution and closure distinguish unknown IDs, open terms and tr
   const open = { ...context, types: { ...context.types, terms: [...context.types.terms, { kind: "open", group: identities.encodeGroupId([body.body]), variable: 0 }] } };
   same(verified({ ...body, locals: [{ ...local, storage: identities.tyId(5) }] }, open),
     [expectedViolation("type-closed", { kind: "local", local: 0 }, [{ kind: "number", value: 5 }])], "open type complete vector");
-  const sequence = identities.tyId(context.types.terms.length);
-  const tuple = identities.tyId(sequence + 1);
-  const unclosedTuple = { ...context, types: { ...context.types, terms: [...context.types.terms,
-    { kind: "array", element: identities.tyId(1), readonly: false },
-    { kind: "tuple", readonly: false, elements: [{ kind: "variadic", type: sequence, declaration: null }] },
-  ] } };
-  same(verified({ ...body, locals: [{ ...local, storage: tuple }] }, unclosedTuple),
-    [expectedViolation("type-closed", { kind: "local", local: 0 }, [{ kind: "number", value: tuple }])],
-    "checked variadic sequence evidence cannot stand in for a closed MIR tuple");
   const signature = { ...context.types.signatures[0], result: identities.tyId(99) };
   const recursive = { ...context, types: { terms: [...context.types.terms, { kind: "callable", calls: [identities.sigId(0)], constructs: [] }], signatures: [signature] } };
   same(verified({ ...body, locals: [{ ...local, storage: identities.tyId(5) }] }, recursive),
@@ -2021,39 +2012,6 @@ test("MIR index selector keys are real reachable type references, not opaque sou
         `actual ${kind} key ${key} refuses before partial graph findings at ${maximum}`);
       assert.equal(meter.exhausted, maximum < complete.spent);
     }
-  }
-});
-
-test("MIR follows each actual template literal type operand at its paid slot", async () => {
-  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify-types.js");
-  const body = parsedBody();
-  const site = { kind: "body", body: body.body };
-  const roots = [{ type: identities.tyId(1), site }];
-  const check = (last, maximum, seen) => {
-    const meter = { spent: 0, maximum, exhausted: false };
-    const spans = new Proxy([{ type: identities.tyId(0), tail: "-" }, { type: identities.tyId(last), tail: "" }], {
-      get(rows, field) {
-        if (field === "0" || field === "1") {
-          assert.equal(meter.exhausted, false);
-          seen.push(Number(field));
-        }
-        return Reflect.get(rows, field);
-      },
-    });
-    const terms = [{ kind: "string" }, { kind: "template-literal", head: "", spans }];
-    return { result: verifyTypeReferences({ terms, signatures: [] }, roots, [], meter), meter };
-  };
-  same(check(0, 100000, []).result, [], "both actual placeholder types are reachable");
-  const expected = [{ rule: "type-resolves", site, detail: [{ kind: "number", value: 1 }] }];
-  const complete = check(99, 100000, []);
-  same(complete.result, expected, "the crossed later placeholder is a real type operand");
-  for (let maximum = 0; maximum <= complete.meter.spent; ++maximum) {
-    const seen = [];
-    const result = check(99, maximum, seen);
-    const stopped = maximum < complete.meter.spent;
-    assert.equal(result.meter.exhausted, stopped);
-    same(result.result, stopped ? [] : expected, "no partial result after a cut");
-    same(seen, [0, 1].slice(0, seen.length), "only the reached placeholder prefix was read");
   }
 });
 

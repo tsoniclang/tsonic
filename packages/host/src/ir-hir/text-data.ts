@@ -570,7 +570,8 @@ function instantiationData(value: Hir.CheckedInstantiation): HirDataWork {
   switch (value.role) {
     case "value": return recordData("CheckedInstantiation", value, () => [...coreFields(value), fieldData("role", scalarData(value.role)), fieldData("value", valueData(value.value))]);
     case "heritage": return recordData("CheckedInstantiation", value, () => [...coreFields(value), fieldData("role", scalarData(value.role)),
-      fieldData("type", capturedData(value.type, typeData)), fieldData("definition", capturedData(value.definition, definitionData))]);
+      fieldData("type", capturedData(value.type, typeData)),
+      fieldData("declarations", capturedData(value.declarations, ids => arrayData(ids, definitionData)))]);
   }
 }
 

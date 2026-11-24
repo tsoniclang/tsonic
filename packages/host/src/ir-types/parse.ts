@@ -25,7 +25,7 @@ function scalarExpected(rule: ScalarRule): readonly string[] {
     case "group-id": return ["canonical inference-group identity"];
     case "native": return ["bool", "char", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
       "int128", "uint128", "native-int", "native-uint", "float16", "float32", "float64", "decimal"];
-    case "intrinsic": return ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol"];
+    case "intrinsic": return ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol", "alias-marker"];
     case "intrinsic-member-symbol": return ["global-this", "undefined"];
     case "member-kind": return ["property", "method", "accessor"];
     case "signature-kind": return ["call", "construct"];

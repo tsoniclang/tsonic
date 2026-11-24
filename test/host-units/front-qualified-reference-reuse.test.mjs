@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 test("one capture reuses completed source references without conflating identical foreign node numbers", async () => {
   const fixture = await loadFrontFixture();
@@ -37,7 +37,7 @@ test("one capture reuses completed source references without conflating identica
   } } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  const capture = () => fixture.front.captureModule(deps, observed, snapshot.entryPoint);
+  const capture = () => captureSingleModule(fixture.front, deps, observed, snapshot.entryPoint);
   const first = capture();
   assert.equal(first.kind, "ok");
   assert.deepEqual(watched.map(node => reads.get(node)), [1, 1, 1, 1]);

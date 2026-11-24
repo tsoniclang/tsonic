@@ -1,16 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 test("actual declared and mapped indexes retain source origin and row key without becoming bindings", async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
   const fixture = await loadFrontFixture();
-  const source = "export type Mapped = { [key in string]: unknown }; export type Indexed = { [key: string]: unknown; }; export { Indexed as Renamed };";
+  const source = "export type Mapped = { [key in string]: unknown }; export type Indexed = { [key: string]: unknown; };"
+    + " export { Indexed as Renamed }; function borrow(input: Mapped): unknown { return input; }";
   const opened = fixture.openedModule(source);
-  const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, opened.module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
-  const identified = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
+  const identified = identifySingleModule(fixture.front, { module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(identified.kind, "ok");
   assert.equal("bindingSources" in identified.value, false);
   const rows = identified.value.sourceOccurrences;
@@ -52,7 +53,7 @@ test("actual declared and mapped indexes retain source origin and row key withou
 test("actual Record mapped domains share their real source but retain distinct selected keys", async () => {
   const fixture = await loadFrontFixture();
   const opened = fixture.openedModule("export function value(input: Record<PropertyKey, unknown>): unknown { return input; }");
-  const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, opened.module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
   const indexed = raw.types.members.filter(table => table.indexes.length === 3);

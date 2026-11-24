@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 async function captured(source) {
   const fixture = await loadFrontFixture();
@@ -8,10 +8,10 @@ async function captured(source) {
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const result = fixture.front.captureModule(opened.deps, opened.program, module);
+  const result = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(result.kind, "ok");
   const raw = result.value;
-  const definitions = fixture.front.lowerModuleDefinitions({ module: raw,
+  const definitions = identifySingleModule(fixture.front, { module: raw,
     componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === module) });
   assert.equal(definitions.kind, "ok");
   const types = fixture.types.createTypeInterner();
@@ -19,7 +19,7 @@ async function captured(source) {
   return { fixture, raw, types, deps, opened, lower() {
     const exports = fixture.front.lowerModuleExports(deps, raw);
     assert.equal(exports.kind, "ok");
-    return fixture.front.lowerModule({ ...deps, exportsOf: owner => owner === module ? exports.value : null }, raw);
+    return lowerSingleCheckedModule(fixture.front, { ...deps, exportsOf: owner => owner === module ? exports.value : null }, raw);
   } };
 }
 
@@ -196,8 +196,8 @@ test("a direct imported alias and forward use retain the actual defining file di
   }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] }));
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const leaf = fixture.moduleOf(fixture.packageOf("/project"), "src/leaf.ts");
-  const use = fixture.front.captureModule(opened.deps, opened.program, main);
-  const definition = fixture.front.captureModule(opened.deps, opened.program, leaf);
+  const use = captureSingleModule(fixture.front, opened.deps, opened.program, main);
+  const definition = captureSingleModule(fixture.front, opened.deps, opened.program, leaf);
   assert.equal(use.kind, "ok");
   assert.equal(definition.kind, "ok");
   assert.equal(use.value.checkerDiagnostics.length, 0);
@@ -218,8 +218,8 @@ test("an actual foreign constraint answer names the original foreign module's pu
   }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] }));
   const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const leaf = fixture.moduleOf(fixture.packageOf("/project"), "src/leaf.ts");
-  const capturedMain = fixture.front.captureModule(opened.deps, opened.program, main);
-  const capturedLeaf = fixture.front.captureModule(opened.deps, opened.program, leaf);
+  const capturedMain = captureSingleModule(fixture.front, opened.deps, opened.program, main);
+  const capturedLeaf = captureSingleModule(fixture.front, opened.deps, opened.program, leaf);
   assert.equal(capturedMain.kind, "ok");
   assert.equal(capturedLeaf.kind, "ok");
   const failures = capturedMain.value.types.types.filter(row => row.authoredTypeNode?.module === leaf && row.form.reason === "checker-error");
@@ -299,7 +299,7 @@ test("backing capture pays the SDK read and the complete evidence before publish
     ["maximumCapturedFactsPerModule", 35, 41], ["maximumCapturedEdgesPerModule", 24, 30],
   ]) for (let maximum = beforeRead; maximum <= exact; maximum += 1) {
     reads = 0;
-    const outcome = fixture.front.captureModule({ ...opened.deps,
+    const outcome = captureSingleModule(fixture.front, { ...opened.deps,
       navigationCapture: { ...opened.deps.navigationCapture, [dimension]: maximum } }, program, raw.module);
     assert.equal(reads, maximum === beforeRead ? 0 : 1, dimension + " " + maximum);
     if (maximum === exact) {

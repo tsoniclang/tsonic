@@ -5,7 +5,7 @@ import { decodeDefId, encodeKey } from "../ids/index.js";
 import type { CheckedTypingCuts, HirCallableEndpoint, HirNode } from "../ir-hir/contract.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import type { InferredPartRequest, InferredPartType } from "../ir-infer/contract.js";
-import type { ArtifactBindings, Signature, SignatureInput, SignatureRequest } from "../ir-types/contract.js";
+import type { ArtifactBindings, Signature, SignatureInput, SignatureRequest, TypePublicationStop, TypeTransform } from "../ir-types/contract.js";
 import { admitTypePublicationStep, encodeSelectorPath, internType, internTypeGraph, readSignature, readType, refuseTypeConstruction,
   signatureRequestData, signatureRequestKey, substituteSignature, viewTypes } from "../ir-types/index.js";
 import type { DeclaredSignatureErrorData, DeclaredSignaturePause, DeclsDeps, DeclsModule, DeclsStep } from "./contract.js";
@@ -172,9 +172,8 @@ export function errorSignature(inputs: DeclsDeps, request: SignatureRequest, cau
   return signatureValue(inputs, unit, data.signature, errors);
 }
 
-export function bindSignature(inputs: DeclsDeps, bindings: ArtifactBindings, signature: Signature, origin: Origin, unit: UnitRequest): Result<Signature> {
-  if (bindings.kind === "parametric") return { kind: "ok", value: signature, diagnostics: [] };
-  const transformed = substituteSignature(inputs.types, [signature.id], bindings.bindings, inputs.typeExpansion, "selected", inputs.typeWork);
+export function finishTypeTransform<Value>(inputs: DeclsDeps, transformed: TypeTransform<Value> | TypePublicationStop,
+  origin: Origin, unit: UnitRequest): Result<Value> {
   if (transformed.kind === "resource-limit") {
     if (transformed.dimension === "work" || transformed.dimension === "created-records")
       return refuseTypeConstruction(inputs.typeWork, transformed, origin, unit);
@@ -183,6 +182,14 @@ export function bindSignature(inputs: DeclsDeps, bindings: ArtifactBindings, sig
       unit: { request: unit, position: { kind: "result" } } });
     return { kind: "refused", diagnostics: [diagnostic] };
   }
+  return { kind: "ok", value: transformed.value, diagnostics: [] };
+}
+
+export function bindSignature(inputs: DeclsDeps, bindings: ArtifactBindings, signature: Signature, origin: Origin, unit: UnitRequest): Result<Signature> {
+  if (bindings.kind === "parametric") return { kind: "ok", value: signature, diagnostics: [] };
+  const transformed = finishTypeTransform(inputs,
+    substituteSignature(inputs.types, [signature.id], bindings.bindings, inputs.typeExpansion, "selected", inputs.typeWork), origin, unit);
+  if (transformed.kind === "refused") return transformed;
   const substituted = requirePresent(transformed.value[0], { owner: "decls", query: { name: unit.query, encodedKey: encodeKey(unit.key) }, origin,
     message: "substitution returned no signature for one signature" });
   return { kind: "ok", value: readSignature(inputs.types, substituted), diagnostics: [] };

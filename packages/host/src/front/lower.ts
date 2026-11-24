@@ -7,8 +7,8 @@ import { binaryOperatorOf, collectInferredStorageSources, iterateChildrenOfSynta
 import type { BindingVector, MemberKey, MemberOrigin, TypeBinding } from "../ir-types/contract.js";
 import type { PassingMode } from "../ir-types/contract.js";
 import { admitTypePublicationStep, readSignature, readType } from "../ir-types/index.js";
-import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawEnum, RawFact, RawMemberUse, RawModule, RawModuleLink, RawNodeRef, RawNumericLiteral, RawPropertyName, RawPropertyUse, RawReference, RawStorageCapture } from "./contract.js";
-import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
+import type { LowerDeps, LoweredModule, LowerModuleDefinitions, ModuleExports, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawEnum, RawFact, RawMemberUse, RawModule, RawModuleLink, RawNodeRef, RawNumericLiteral, RawPropertyName, RawPropertyUse, RawReference, RawStorageCapture } from "./contract.js";
+import { programIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
 import { bindingOccurrence, lowerBindingFact, lowerBindingTarget, lowerBindings, lowerMemberKey, lowerMemberOrigin, sameSource, sourceOccurrence } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
 import { childSourceBody, enterSourceBody, layoutSourceRoles } from "./source-bodies.js";
@@ -20,6 +20,7 @@ import { lowerLayoutApplication } from "./lower-layout.js";
 import { lowerObjectProperties } from "./lower-members.js";
 import { convertRawType, createTypeConversion, signatureOf } from "./type-conversion.js";
 import type { ConversionResult, ConversionStop, TypeConversion } from "./type-conversion.js";
+import { interfaceDescriptionRecipe } from "./interface-description.js";
 import { captureBigintLiteral, captureNumericLiteral } from "./literals.js";
 import type { LiteralResult } from "./literals.js";
 import { expressionKinds, typeNodeKinds } from "./syntax-capture.js";
@@ -50,11 +51,13 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "AmpersandToken", "BarToken", "CaretToken", "LessThanLessThanToken", "GreaterThanGreaterThanToken", "GreaterThanGreaterThanGreaterThanToken",
   "AmpersandAmpersandToken", "BarBarToken", "QuestionQuestionToken", "CommaToken",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "NumericLiteral", "BigIntLiteral", "StringLiteral", "NoSubstitutionTemplateLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
-  "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
-  "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
+  "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport", "QualifiedName",
+  "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "HeritageClause", "ExpressionWithTypeArguments",
+  "ModuleDeclaration", "ModuleBlock",
+  "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
   "EnumDeclaration", "EnumMember", "ConstKeyword",
   "CallSignature", "ConstructSignature", "FunctionType", "ConstructorType", "MethodSignature", "IndexSignature", "GetAccessor", "SetAccessor", "TypeReference", "TypeQuery", "UnionType", "IntersectionType",
-  "ArrayType", "TupleType", "OptionalType", "RestType", "TypeOperator", "IndexedAccessType", "ConditionalType", "InferType", "ThisType", "LiteralType", "ParenthesizedType", "MappedType",
+  "ArrayType", "TupleType", "OptionalType", "RestType", "TypeOperator", "IndexedAccessType", "ConditionalType", "InferType", "ThisType", "TypePredicate", "LiteralType", "ParenthesizedType", "MappedType",
   "TemplateLiteralType", "TemplateLiteralTypeSpan", "TemplateHead", "TemplateMiddle", "TemplateTail",
   "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "QuestionToken",
   "ObjectLiteralExpression", "PropertyAssignment"];
@@ -64,8 +67,12 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
   if (!writtenKinds.includes(node.kind) && !writtenCompoundAssignmentKinds.includes(node.kind)) return node.kind;
   switch (node.kind) {
     case "FunctionDeclaration":
-      return node.body === null ? node.modifiers?.nodes.some(modifier => modifier.kind === "DeclareKeyword") === true
+      return node.body === null ? node.flags.includes("Ambient") || node.modifiers?.nodes.some(modifier => modifier.kind === "DeclareKeyword") === true
         ? null : "FunctionDeclaration without a body or explicit declaration" : null;
+    case "ModuleDeclaration":
+      return node.flags.includes("Ambient") && node.name.kind === "Identifier" && node.asteriskToken === null
+        && node.keyword !== "GlobalKeyword" && (node.body?.kind === "ModuleBlock" || node.body?.kind === "ModuleDeclaration")
+        ? null : "ModuleDeclaration without a nonexecuting identifier namespace body";
     case "Parameter": return node.dotDotDotToken !== null ? "rest Parameter" : null;
     case "GetAccessor": case "SetAccessor": return node.body !== null || node.asteriskToken !== null ? `${node.kind} with an execution body or generator marker` : null;
     case "LiteralType":
@@ -135,8 +142,13 @@ function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>, layout: LayoutSourceRoles
     const quoted = next.kind === "ArrayLiteralExpression" && layout?.quotes.has(next.id) === true
       || next.kind === "ArrowFunction" && layout?.selectors.has(next.id) === true
       || next.kind === "EqualsGreaterThanToken" && parent?.kind === "ArrowFunction" && layout?.selectors.has(parent.id) === true;
-    if (form !== null && !quoted && !bodylessRest)
-      throw new TypeError(`front: checked annotation not implemented: ${form}`);
+    const abstractType = next.kind === "AbstractKeyword" && parent?.kind === "ConstructorType"
+      && parent.modifiers?.nodes.some(modifier => modifier === next) === true;
+    const assertion = next.kind === "AssertsKeyword" && parent?.kind === "TypePredicate" && parent.assertsModifier === next;
+    const intrinsicAlias = next.kind === "IntrinsicKeyword" && parent?.kind === "TypeAliasDeclaration" && parent.type === next;
+    const namespaceBody = next.kind !== "ModuleBlock" || parent?.kind === "ModuleDeclaration" && parent.body === next;
+    if (!namespaceBody || form !== null && !quoted && !bodylessRest && !abstractType && !assertion && !intrinsicAlias)
+      throw new TypeError(`front: checked annotation not implemented: ${form ?? next.kind}`);
     if (next.kind !== "LiteralType") pending.push({ node: next, declarationName, bodylessRest, children: iterateChildrenOfSyntax(next) });
     next = undefined;
     while (pending.length !== 0) {
@@ -242,10 +254,8 @@ function memoryOf(lowering: Lowering, node: NodeId): Hir.CapturedFact<Hir.HirMem
 }
 
 /** The definition identities of one module, read from its raw tree alone. */
-export function lowerDefinitions(input: ModuleDefinitionsInput): Result<ModuleDefinitions> {
-  const raw = input.module;
-  return { kind: "ok", diagnostics: [], value: moduleIdentities(raw.module, raw.tree, raw.propertyNames, input.componentRoots, layoutSourceRoles(raw)) };
-}
+export const lowerDefinitions: LowerModuleDefinitions = (deps, modules) =>
+  ({ kind: "ok", diagnostics: [], value: programIdentities(deps, modules) });
 
 /** The export entries of one module: per exported name its declaration group, in canonical declaration order. */
 export function lowerExports(deps: LowerDeps, raw: RawModule): Result<ModuleExports> {
@@ -324,7 +334,7 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
   type Frame = { readonly node: Hir.SyntaxNode<Syntax>; readonly context: SourceBodyTransition;
     readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly mutable: boolean; readonly label: LabelBinding | null };
   const enter = (node: Hir.SyntaxNode<Syntax>, scope: SourceBodyScope, mutable: boolean, blockVariable: boolean): Frame => {
-    if (!definitionAt.has(node.id) && sourceIdentityName(node, raw.module, properties, definitionAt, layout) !== null)
+    if (!definitionAt.has(node.id) && sourceIdentityName(node, properties, layout) !== null)
       definitionAt.set(node.id, deps.definitionOf({ module: raw.module, node: node.id }));
     const body = scope.body;
     let label: LabelBinding | null = null;
@@ -623,11 +633,42 @@ function declarationLowering(lowering: Lowering): DeclarationLowering {
   return {
     core: node => coreOf(lowering, node), definitions: lowering.definitionAt, memory: node => memoryOf(lowering, node),
     resolution: node => resolutionOf(lowering, node, "type"),
+    heritage: node => {
+      const captured = lowering.authoredTypes.get(node);
+      if (captured === undefined)
+        return throwInvariant(invariant("A heritage annotation must retain its actual checked base type."));
+      const base = typeFactOf(lowering, { kind: "available", value: captured });
+      if (base.kind !== "complete") return base;
+      const type = base.value;
+      if (type.kind === "unavailable") return { kind: "complete", value: { type, declarations: type } };
+      const term = readType(lowering.deps.types, type.value);
+      const declarations = term.kind === "merged-interface" ? term.definitions
+        : term.kind === "declared" && term.facet === "instance" ? [term.definition]
+        : term.kind === "alias-application" ? [term.declaration] : null;
+      if (declarations === null || declarations.length === 0)
+        return throwInvariant(invariant("An interface base must retain its actual checked declaration group."));
+      return { kind: "complete", value: { type, declarations: { kind: "available", value: declarations } } };
+    },
     checkedType: (node, inferParameters) => {
       const captured = lowering.authoredTypes.get(node.id);
       if (captured === undefined) return throwInvariant(invariant("Every checked type annotation retains its actual captured SDK type."));
-      const form = lowering.raw.types.types[captured]?.form;
-      if (form?.kind === "available" && (form.value.kind === "indexed-access" || form.value.kind === "conditional")) {
+      const row = lowering.raw.types.types[captured];
+      const form = row?.form;
+      if (node.kind === "IntrinsicKeyword" && form?.kind === "available"
+        && (form.value.kind !== "scalar" || form.value.scalar !== "alias-marker"))
+        return throwInvariant(invariant("An intrinsic alias body must retain its actual checker marker."));
+      const indexedAlias = form?.kind === "available"
+        && (form.value.kind === "indexed-access" || form.value.kind === "indexed-alias-dependency")
+        && row?.alias.kind === "available" && row.alias.value !== null;
+      if (indexedAlias) {
+        const stop = admitTypePublicationStep(lowering.typeWork);
+        if (stop !== null) return stop;
+        const authored = { module: lowering.raw.module, node: node.id };
+        const component = row === undefined ? undefined : lowering.raw.types.components[row.component];
+        if (node.kind !== "TypeReference" || !sameSource(row?.authoredTypeNode ?? null, authored)
+          || component?.path !== null || !sameSource(component.root, authored))
+          return throwInvariant(invariant("A written indexed alias application must retain its actual reference occurrence."));
+      } else if (form?.kind === "available" && (form.value.kind === "indexed-access" || form.value.kind === "conditional")) {
         const projection = form.value;
         const operands: readonly (readonly [RawTypeId, Hir.TypeNode<Syntax>])[] | null =
           projection.kind === "indexed-access" && node.kind === "IndexedAccessType"
@@ -1231,6 +1272,30 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
       : functionDeclaration(lowering, node, owner);
     case "InterfaceDeclaration": return lowerCheckedInterface(declarationLowering(lowering), node, owner);
     case "TypeAliasDeclaration": return lowerCheckedAlias(declarationLowering(lowering), node, owner);
+    case "ModuleBlock": return { kind: "complete", value: { ...headerOf(node), kind: node.kind,
+      statements: { loc: node.statements.loc, nodes: node.statements.nodes.map(child => statement(lowering, child)) }, tsonic: null } };
+    case "ModuleDeclaration": {
+      const authored = node.body;
+      if (node.name.kind !== "Identifier" || authored?.kind !== "ModuleBlock" && authored?.kind !== "ModuleDeclaration")
+        return throwInvariant(invariant("An ambient namespace must retain its original identifier and declaration body."));
+      const body = statement(lowering, authored);
+      if (body.kind !== authored.kind || body.kind !== "ModuleBlock" && body.kind !== "ModuleDeclaration")
+        return throwInvariant(invariant("An ambient namespace must retain its own checked declaration body."));
+      const definition = definitionOf(lowering, node.id);
+      const members: DefId[] = [];
+      const record = (member: NodeId): void => {
+        const definition = lowering.definitionAt.get(member);
+        if (definition !== undefined) members.push(definition);
+      };
+      if (body.kind === "ModuleDeclaration") record(body.id);
+      else for (const child of body.statements.nodes) {
+        if (child.kind === "VariableStatement") for (const declaration of child.declarationList.declarations.nodes) record(declaration.id);
+        else record(child.id);
+      }
+      return { kind: "complete", value: { ...headerOf(node), kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers),
+        keyword: node.keyword, asteriskToken: null, name: declarationName(declarationLowering(lowering), node.name, definition), body,
+        tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: memoryOf(lowering, node.id), definition, members } } };
+    }
     case "EnumDeclaration": return enumDeclaration(lowering, node, owner);
     case "ExportDeclaration": case "ImportDeclaration": {
       const inputs = {
@@ -1340,12 +1405,15 @@ function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undef
         yield { kind: "expression", node: child.initializer, owner };
       else if (isExpression(child) && !(node.kind === "PropertyAccessExpression" && child === node.name))
         yield { kind: "expression", node: child, owner };
-    } else if (node.kind === "Block") {
+    } else if (node.kind === "Block" || node.kind === "ModuleBlock") {
       const statement = node.statements.nodes[statementIndex++];
       if (statement === undefined || statement !== child) return throwInvariant(invariant("A block child is not its canonical statement occurrence."));
       yield { kind: "statement", node: statement, owner };
     } else if (node.kind === "LabeledStatement") {
       if (child === node.statement) yield { kind: "statement", node: node.statement, owner };
+    } else if (node.kind === "ModuleDeclaration") {
+      if (child === node.body && (child.kind === "ModuleBlock" || child.kind === "ModuleDeclaration"))
+        yield { kind: "statement", node: child, owner };
     } else if (node.kind === "ReturnStatement" || node.kind === "ThrowStatement" || node.kind === "ExpressionStatement") {
       if (child === node.expression && node.expression !== null) yield { kind: "expression", node: node.expression, owner };
     } else if (node.kind === "IfStatement") {
@@ -1395,7 +1463,7 @@ function lowerStatements(lowering: Lowering, owner: DefId): ConversionResult<voi
   const pending: Frame[] = [];
   const enter = (work: CheckedWork): Frame => {
     const node = work.node;
-    if (work.kind === "statement" && node.kind === "FunctionDeclaration") {
+    if (work.kind === "statement" && (node.kind === "FunctionDeclaration" || node.kind === "ModuleDeclaration")) {
       const definition = definitionOf(lowering, node.id);
       return { work, children: checkedChildren({ ...work, owner: definition }), context: "execution" };
     }
@@ -1562,7 +1630,23 @@ function moduleLinks(raw: RawModule): ReadonlyMap<NodeId, RawModuleLink> {
   return links;
 }
 
-export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirModule> {
+function authoredAnnotations(raw: RawModule): ReadonlyMap<NodeId, RawTypeId> {
+  const selected = new Map<NodeId, RawTypeId>();
+  let previous = -1;
+  for (const { node, type } of raw.annotations) {
+    const row = raw.types.types[type];
+    const source = { module: raw.module, node };
+    const component = row === undefined ? undefined : raw.types.components[row.component];
+    if (node <= previous || row?.id !== type || !sameSource(row.authoredTypeNode, source)
+      || component?.path !== null || !sameSource(component.root, source))
+      return throwInvariant(invariant("Each authored annotation must name its own captured source root and answer."));
+    selected.set(node, type);
+    previous = node;
+  }
+  return selected;
+}
+
+export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<LoweredModule> {
   const layout = layoutSourceRoles(raw);
   refuseUnwritten(raw.tree, layout);
   const exported = deps.exportsOf(raw.module);
@@ -1574,8 +1658,9 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   const structure = nodeBodies(raw, moduleBody, moduleDefinition, deps, propertyNames, layout);
   const definitionAt = structure.definitions;
   const variableLocals = new Map<BodyId, Hir.HirLocal[]>();
+  const conversion = createTypeConversion(deps, raw);
   const lowering: Lowering = {
-    ...createTypeConversion(deps, raw), bodyOf: structure.bodyOf, definitionAt, captureParent: structure.captureParent, captures: new Map(),
+    ...conversion, bodyOf: structure.bodyOf, definitionAt, captureParent: structure.captureParent, captures: new Map(),
     enums: new Map(raw.enums.map(row => [row.declaration.node, row])),
     assignmentTargets: structure.assignmentTargets,
     labelTargets: structure.labelTargets,
@@ -1589,7 +1674,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     locals: new Map(structure.locals), variableLocals, inferredStorage: new Map(), bodies: [], expressions: new Map(), statements: new Map(),
     calls: new Map(raw.calls.filter(call => call.invocation.module === raw.module).map(call => [call.invocation.node, call])), candidateLists: new Map(),
     associations: new Map(raw.callableAssociations.filter(entry => entry.declaration.module === raw.module).map(entry => [entry.declaration.node, entry])),
-    authoredTypes: new Map(raw.types.types.flatMap((row): [NodeId, RawTypeId][] => row.authoredTypeNode !== null && row.authoredTypeNode.module === raw.module ? [[row.authoredTypeNode.node, row.id]] : [])),
+    authoredTypes: authoredAnnotations(raw),
   };
   for (const { node, mutable, local } of structure.variables) {
     if (node.name.kind !== "Identifier") return throwInvariant(invariant("A variable of a written form has no identifier name."));
@@ -1659,8 +1744,27 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
       return throwInvariant(invariant("The checked module edge must retain its own authored declaration."));
     links.push({ declaration: statement.id, evaluation: link.evaluation });
   }
-  return { kind: "ok", diagnostics: [], value: { module: raw.module, tree, items, bodies, exports: exported.entries,
-    bindings: exported.bindings, moduleLinks: links, checkerDiagnostics: raw.checkerDiagnostics, obligations: [] } };
+  const interfaceDescriptions: LoweredModule["interfaceDescriptions"][number][] = [];
+  for (let index = 0; index < raw.types.interfaceDescriptions.length; ++index) {
+    const stop = admitTypePublicationStep(deps.typeWork);
+    if (stop !== null) return publicationRefusal(raw, stop);
+    const row = raw.types.interfaceDescriptions[index];
+    if (row === undefined || raw.types.interfaceGroups[row.group.ordinal] !== row.group)
+      return throwInvariant(invariant("A neutral description must belong to its actual native declaration group."));
+    const shape = raw.types.types[row.shape];
+    if (shape?.id !== row.shape || shape.form.kind !== "available" || shape.form.value.kind !== "structure")
+      return throwInvariant(invariant("A neutral interface description must retain its actual complete structure."));
+    const inventory = raw.types.members[shape.form.value.inventory];
+    if (inventory?.id !== shape.form.value.inventory || inventory.component !== shape.component)
+      return throwInvariant(invariant("A neutral description must retain its actual captured member inventory."));
+    const root = raw.types.components[shape.component]?.root;
+    const origin = root === undefined ? null : sourceOccurrence(deps, root)?.origin;
+    if (origin == null) return throwInvariant(invariant("A neutral description must retain its actual source origin."));
+    interfaceDescriptions.push({ ordinal: row.group.ordinal, recipe: interfaceDescriptionRecipe(conversion, inventory, origin) });
+  }
+  return { kind: "ok", diagnostics: [], value: { interfaceDescriptions, module: {
+    module: raw.module, tree, items, bodies, exports: exported.entries,
+    bindings: exported.bindings, moduleLinks: links, checkerDiagnostics: raw.checkerDiagnostics, obligations: [] } } };
 }
 
 function publicationRefusal(raw: RawModule, stop: ConversionStop): Result<never> {

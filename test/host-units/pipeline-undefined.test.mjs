@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { tirFixtureBodyVerifier } from "./fixtures/typed-occurrence-witnesses.mjs";
 import { test } from "node:test";
-import { loadFrontFixture, navigationCapture } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, loadFrontFixture, navigationCapture } from "./fixtures/front/checked-module.mjs";
 import { createAccount } from "../../packages/host/dist/dataflow/index.js";
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { OpenedProgram } from "../../packages/host/dist/front/handles.js";
@@ -226,7 +226,7 @@ export function shadow(undefined: undefined): undefined { return undefined; }` }
     OpenedProgram.file(opened.program, origin.kind === "snapshot" ? origin.module : origin.document.module)),
   OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
   const capture = (program, navigationCapture = opened.deps.navigationCapture) =>
-    fixture.front.captureModule({ ...opened.deps, navigationCapture }, program, module);
+    captureSingleModule(fixture.front, { ...opened.deps, navigationCapture }, program, module);
   const stop = new Error("the actual intrinsic reference reader stopped");
   let reads = 0;
   const guarded = programWith(() => { reads += 1; throw stop; });

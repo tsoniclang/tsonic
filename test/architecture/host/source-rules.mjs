@@ -11,7 +11,7 @@ const readyPortSignatures = ({
   front: {
     CreateCheckerExtensions: ["readonly front.CheckerRegistration[]", "front.CheckerExtensions"],
     ExtensionReferencesOf: ["front.CheckerExtensions", "readonly snapshot.ExtensionReferenceEntry[]"],
-    LowerModuleDefinitions: ["front.ModuleDefinitionsInput", "diag.Result<front.ModuleDefinitions>"],
+    LowerModuleDefinitions: ["front.LowerModuleDefinitionsDeps", "readonly front.RawModule[]", "diag.Result<readonly front.ModuleDefinitions[]>"],
   },
   decls: { DescribeDefinitions: ["decls.DeclsModule", "ir-hir.HirDeclarationScopes", "readonly decls.DefinitionExports[]", "decls.DefinitionTable"] },
   rules: {

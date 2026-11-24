@@ -72,7 +72,7 @@ export function createTypeTextValues(): TypeTextValues {
     return decoded.kind === "decoded" ? encodeGroupId([decoded.value]) : undefined;
   });
   const reader_native: TextReader<NativePrimitive> = enumReader<NativePrimitive>("native", ["bool", "char", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int128", "uint128", "native-int", "native-uint", "float16", "float32", "float64", "decimal"]);
-  const reader_intrinsic: TextReader<Intrinsic> = enumReader<Intrinsic>("intrinsic", ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol"]);
+  const reader_intrinsic: TextReader<Intrinsic> = enumReader<Intrinsic>("intrinsic", ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol", "alias-marker"]);
   const reader_member_kind: TextReader<"property" | "method" | "accessor"> = enumReader("member-kind", ["property", "method", "accessor"]);
   const reader_signature_kind: TextReader<"call" | "construct"> = enumReader("signature-kind", ["call", "construct"]);
   const reader_parameter_kind: TextReader<"required" | "optional" | "default" | "rest"> = enumReader("parameter-kind", ["required", "optional", "default", "rest"]);

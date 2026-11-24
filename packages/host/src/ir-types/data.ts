@@ -6,7 +6,7 @@ export type NativeIntegerPrimitive = NativeSignedIntegerPrimitive | NativeUnsign
 export type NativeBinaryFloatPrimitive = "float16" | "float32" | "float64";
 export type NativePrimitive = "bool" | "char" | NativeIntegerPrimitive | NativeBinaryFloatPrimitive | "decimal";
 
-export type Intrinsic = "any" | "unknown" | "object" | "void" | "never" | "absence" | "bigint" | "symbol";
+export type Intrinsic = "any" | "unknown" | "object" | "void" | "never" | "absence" | "bigint" | "symbol" | "alias-marker";
 
 export interface TypeParameter {
   readonly declaration: DefId;
@@ -230,6 +230,8 @@ export type TypeProjection =
   | { readonly kind: "substitution"; readonly constraint: TyId }
   | { readonly kind: "conditional"; readonly extends: TyId; readonly whenTrue: TyId; readonly whenFalse: TyId;
       readonly distributive: boolean; readonly inferParameters: readonly DefId[] }
+  | { readonly kind: "mapped"; readonly parameter: DefId; readonly remap: TyId | null; readonly value: TyId;
+      readonly readonly: "preserve" | "add" | "remove"; readonly optional: "preserve" | "add" | "remove" }
   | { readonly kind: "component"; readonly component: TypeComponent };
 
 export interface FixedExtent {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 test("a supplied defaulted argument names its authored formal rather than the checker's synthetic absence shell", async () => {
   const fixture = await loadFrontFixture();
@@ -25,7 +25,7 @@ test("a supplied defaulted argument names its authored formal rather than the ch
     [["parameter", 1]]);
   const authoredUnion = source.replace("other:T=first):T { return other;", "other:T|undefined=first):T { return first;");
   const { program, deps, module } = fixture.openedModule(authoredUnion);
-  assert.throws(() => fixture.front.captureModule(deps, program, module),
+  assert.throws(() => captureSingleModule(fixture.front, deps, program, module),
     /projected, tail or receiver inference contribution capture is not implemented/u);
 });
 
@@ -52,7 +52,7 @@ export function fromType(): boolean { return select<Flag>(); }
   const [consumer, endpoints] = captured;
   assert.deepEqual(consumer.raw.checkerDiagnostics, []);
   assert.deepEqual(endpoints.raw.checkerDiagnostics, []);
-  const checked = fixture.front.lowerModule(deps, consumer.raw);
+  const checked = lowerSingleCheckedModule(fixture.front, deps, consumer.raw);
   assert.equal(checked.kind, "ok");
   const { hir, types } = fixture;
   const calls = hir.indexSyntaxTree(checked.value.tree).filter(node => node.kind === "CallExpression");
@@ -127,7 +127,7 @@ export function fromType(): boolean { return select<Flag>(); }
         ...list, candidates: [transform(list.candidates[0])],
       }),
     } };
-    assert.throws(() => fixture.front.lowerModule({ ...deps, types: types.createTypeInterner() }, raw), reason);
+    assert.throws(() => lowerSingleCheckedModule(fixture.front, { ...deps, types: types.createTypeInterner() }, raw), reason);
   };
   assertRejected(candidate => ({ ...candidate, application: { ...candidate.application,
     signature: inferred.declarationOrder.value[0],
@@ -144,7 +144,7 @@ export function fromType(): boolean { return select<Flag>(); }
   assertRejected(candidate => ({ ...candidate,
     inferenceContributions: { kind: "available", value: [{ ...argument, formal: context.formal }, context] },
   }), /actual argument and original parameter selector/);
-  assert.throws(() => fixture.front.lowerModule({ ...deps, types: types.createTypeInterner(),
+  assert.throws(() => lowerSingleCheckedModule(fixture.front, { ...deps, types: types.createTypeInterner(),
     sourceOccurrenceOf: reference => reference.module === argument.origin.subject.module
       && reference.node === argument.origin.subject.node ? null : deps.sourceOccurrenceOf(reference),
   }, consumer.raw), /actual qualified source/);

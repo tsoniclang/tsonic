@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readyDefaultRoot, readyModuleRoot, readyModuleStatements } from "./fixtures/chapter-syntax.mjs";
 import { createAccount as createDataflowAccount } from "../../packages/host/dist/dataflow/index.js";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { captureCheckedMarkers } from "./fixtures/front/checked-markers.mjs";
 import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
@@ -1419,7 +1419,7 @@ test("public Host analysis retains authored optional dots in declaration-only ke
     text: fixture.sdk.barebonesLibContent + '\ndeclare const keys: { readonly key: "chosen"; readonly nested: { readonly key: "deep" } };' }] });
   const input = { ...analysisInput(fixture, "sdk-minimal", source), snapshot };
   const { deps, program } = fixture.openAndCapture(snapshot);
-  const raw = fixture.front.captureModule(deps, program, snapshot.entryPoint);
+  const raw = captureSingleModule(fixture.front, deps, program, snapshot.entryPoint);
   assert.equal(raw.kind, "ok");
   assert.deepEqual(raw.value.checkerDiagnostics, []);
   assert.deepEqual(raw.value.memberUses, []);
@@ -5641,7 +5641,7 @@ test("an out-of-scope lexical value read publishes its own original checker diag
   const lexical = "export function read(gate: boolean): boolean { for (let held = gate; gate; ) break; return held; }";
   const bounded = analysisInput(fixture, "sdk-minimal", lexical);
   const { deps: captureDeps, program } = fixture.openAndCapture(bounded.snapshot);
-  const captured = fixture.front.captureModule(captureDeps, program, bounded.snapshot.entryPoint);
+  const captured = captureSingleModule(fixture.front, captureDeps, program, bounded.snapshot.entryPoint);
   assert.equal(captured.kind, "ok");
   const [outside] = captured.value.checkerDiagnostics.filter(row => row.code.kind === "checker" && row.code.number === 2304);
   assert.equal(outside?.site.kind, "source");

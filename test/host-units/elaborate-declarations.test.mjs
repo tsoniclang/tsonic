@@ -1,7 +1,7 @@
 import { fixtureTypeWork, admitFixtureTable } from "./fixtures/types-construction.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 async function checked(source) {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -10,15 +10,15 @@ async function checked(source) {
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const opened = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const captured = fixture.front.captureModule(opened.deps, opened.program, module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
+  const definitions = identifySingleModule(fixture.front, { module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   const interner = fixture.types.createTypeInterner();
   const deps = fixture.lowerDepsFor(definitions.value, interner, source);
   const exported = fixture.front.lowerModuleExports(deps, captured.value);
   assert.equal(exported.kind, "ok");
-  const result = fixture.front.lowerModule({ ...deps, exportsOf: owner => owner === module ? exported.value : null }, captured.value);
+  const result = lowerSingleCheckedModule(fixture.front, { ...deps, exportsOf: owner => owner === module ? exported.value : null }, captured.value);
   assert.equal(result.kind, "ok");
   assert.equal(fixture.verifyChecked(result.value, interner).length, 0);
   const table = fixture.types.viewTypes(interner);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
 async function captured(source = "export function choose(a:boolean,b:boolean=(a=true)):boolean{return a;}") {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -8,10 +8,10 @@ async function captured(source = "export function choose(a:boolean,b:boolean=(a=
   const opened = fixture.openAndCapture(fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] }));
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const result = fixture.front.captureModule(opened.deps, opened.program, module);
+  const result = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(result.kind, "ok");
   const raw = result.value;
-  const definitions = fixture.front.lowerModuleDefinitions({ module: raw,
+  const definitions = identifySingleModule(fixture.front, { module: raw,
     componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === module) });
   assert.equal(definitions.kind, "ok");
   const lower = (input = raw) => {
@@ -19,7 +19,7 @@ async function captured(source = "export function choose(a:boolean,b:boolean=(a=
     const deps = fixture.lowerDepsFor(definitions.value, types, source);
     const exports = fixture.front.lowerModuleExports(deps, input);
     assert.equal(exports.kind, "ok");
-    const checked = fixture.front.lowerModule({ ...deps, exportsOf: owner => owner === module ? exports.value : null }, input);
+    const checked = lowerSingleCheckedModule(fixture.front, { ...deps, exportsOf: owner => owner === module ? exports.value : null }, input);
     assert.equal(checked.kind, "ok");
     return { checked: checked.value, types };
   };
@@ -112,7 +112,7 @@ test("an absent actual storage answer stays unavailable rather than gaining writ
   const { fixture, opened, module, lower } = await captured();
   let reads = 0;
   const guarded = await withStorageReader(opened, () => { reads += 1; return { kind: "unavailable" }; });
-  const result = fixture.front.captureModule(opened.deps, guarded, module);
+  const result = captureSingleModule(fixture.front, opened.deps, guarded, module);
   assert.equal(result.kind, "ok");
   assert.equal(reads, 1);
   assert.deepEqual(result.value.storage.map(row => row.fact), [{ kind: "unavailable", reason: "not-provided", causes: [] }]);
@@ -125,7 +125,7 @@ test("a declaration-only computed name does not acquire executing assignment sto
   const { fixture, opened, module } = await captured('declare let key:"flag";export interface Shape{[key=key]:boolean}');
   let reads = 0;
   const guarded = await withStorageReader(opened, () => { reads += 1; assert.fail("a declaration name is not an executing storage query"); });
-  const result = fixture.front.captureModule(opened.deps, guarded, module);
+  const result = captureSingleModule(fixture.front, opened.deps, guarded, module);
   assert.equal(result.kind, "ok");
   assert.equal(reads, 0);
   assert.deepEqual(result.value.storage, []);
@@ -159,10 +159,11 @@ test("plain assignment capture admits every fact and edge before publishing its 
   const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
   const run = async (dimension, maximum) => {
     const { fixture, opened, module } = await captured();
-    return { module, result: fixture.front.captureModule({ ...opened.deps, navigationCapture: {
+    return { module, result: captureSingleModule(fixture.front, { ...opened.deps, navigationCapture: {
       ...opened.deps.navigationCapture, [dimension]: maximum } }, opened.program, module) };
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 73], ["maximumCapturedEdgesPerModule", 67]]) {
+  const authored = 3;
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 73 + 1 + 2 * authored], ["maximumCapturedEdgesPerModule", 67 + authored]]) {
     for (let maximum = 0; maximum < exact; maximum += 1) {
       const { module, result } = await run(dimension, maximum);
       assert.deepEqual(result, { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
@@ -173,6 +174,11 @@ test("plain assignment capture admits every fact and edge before publishing its 
     assert.equal(result.kind, "ok");
     assert.equal(result.value.storage.length, 1);
     assert.equal(result.value.storage[0].fact.kind, "available");
+    const callable = result.value.tree.statements.nodes[0];
+    assert.deepEqual(result.value.annotations.map(row => row.node),
+      [...callable.parameters.nodes.map(formal => formal.type.id), callable.type.id]);
+    for (const row of result.value.annotations)
+      assert.deepEqual(result.value.types.types[row.type].authoredTypeNode, { module: result.value.module, node: row.node });
   }
 });
 
@@ -183,10 +189,12 @@ test("capture refuses before the actual storage query and preserves an original 
   const run = async (dimension, maximum) => {
     const { fixture, opened, module } = await captured();
     const guarded = await withStorageReader(opened, () => { reads += 1; throw original; });
-    return { module, result: fixture.front.captureModule({ ...opened.deps, navigationCapture: {
+    return { module, result: captureSingleModule(fixture.front, { ...opened.deps, navigationCapture: {
       ...opened.deps.navigationCapture, [dimension]: maximum } }, guarded, module) };
   };
-  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 36], ["maximumCapturedEdgesPerModule", 43]]) {
+  const authoredBeforeStorage = 2;
+  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 36 + 1 + 2 * authoredBeforeStorage],
+    ["maximumCapturedEdgesPerModule", 43 + authoredBeforeStorage]]) {
     for (let maximum = 0; maximum < firstRead; maximum += 1) {
       reads = 0;
       const { module, result } = await run(dimension, maximum);

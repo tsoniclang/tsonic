@@ -1,4 +1,4 @@
-import type { RawSignatureId, RawTypeId, SigId, TyId } from "../ids/contract.js";
+import type { NodeId, RawSignatureId, RawTypeId, SigId, TyId } from "../ids/contract.js";
 import { encodeBodyId, sigId, tyId } from "../ids/index.js";
 import type { LiteralTypeValue, SignatureInput, SignatureParameter, TypeEvidence, TypeGraphMapping, TypeGraphResult, TypePublicationStop, TypePublicationWork, TypeTerm } from "../ir-types/contract.js";
 import { admitTypePublicationStep, compareIndexSignatures, internTypeGraph, viewTypes } from "../ir-types/index.js";
@@ -132,7 +132,8 @@ function signatureReference(graph: TypeGraph, id: RawSignatureId, dependencies: 
   return handle.reference;
 }
 
-function isIndexedChild(parent: RawComponent, child: RawComponent | undefined, role: "tuple-element" | "argument-place" | "template-span", index: number,
+function isIndexedChild(parent: RawComponent, child: RawComponent | undefined,
+  role: "tuple-element" | "argument-place" | "template-span" | "type-argument", index: number,
   work: TypePublicationWork): boolean | TypePublicationStop {
   const path = child?.path;
   if (child === undefined || path === undefined || path === null || parent.id >= child.id || !sameSource(child.root, parent.root)
@@ -141,38 +142,111 @@ function isIndexedChild(parent: RawComponent, child: RawComponent | undefined, r
   return admitTypePublicationStep(work) ?? (path.prefix === parent.id);
 }
 
+type SelectedIndexedAlias = NonNullable<Extract<RawCheckedType["alias"], { readonly kind: "available" }>["value"]>;
+
+function indexedAliasDependency(graph: TypeGraph, component: RawComponent, alias: SelectedIndexedAlias,
+  form: Extract<RawTypeForm, { readonly kind: "indexed-access" | "indexed-alias-dependency" }>,
+  dependencies: Dependency[]): TypeTerm | TypePublicationStop {
+  const { deps, raw, typeWork } = graph.conversion;
+  const admitted = admitTypePublicationStep(typeWork);
+  if (admitted !== null) return admitted;
+  const declaration = sourceOccurrence(deps, alias.declaration);
+  if (form.operator?.module !== alias.declaration.module || declaration?.typeSyntax?.kind !== "alias"
+    || declaration.typeSyntax.result !== form.operator.node || alias.arguments.length !== declaration.typeSyntax.parameters.length
+    || sourceOccurrence(deps, form.operator)?.kind !== "IndexedAccessType")
+    throw new TypeError("front: a selected indexed alias requires its actual declaration, operator and ordered parameter inventory");
+  const arguments_: TyId[] = [];
+  for (let index = 0; index < alias.arguments.length; ++index) {
+    const stop = admitTypePublicationStep(typeWork);
+    if (stop !== null) return stop;
+    const binding = alias.arguments[index];
+    const operand = binding === undefined ? undefined : raw.types.types[binding.type];
+    const child = operand === undefined ? undefined : raw.types.components[operand.component];
+    const related = isIndexedChild(component, child, "type-argument", index, typeWork);
+    if (typeof related !== "boolean") return related;
+    if (!related || binding === undefined || binding.parameter.module !== alias.declaration.module
+      || binding.parameter.node !== declaration.typeSyntax.parameters[index] || operand?.id !== binding.type
+      || child?.path?.step.kind !== "type-argument" || !sameSource(child.path.step.declaration, alias.declaration))
+      throw new TypeError("front: a selected indexed alias argument must retain its actual declaration and component slot");
+    arguments_.push(typeReference(graph, binding.type, dependencies));
+  }
+  if (form.kind === "indexed-access") {
+    const operands: readonly { readonly id: RawTypeId; readonly role: "projection-source" | "projection-index" }[] =
+      [{ id: form.object, role: "projection-source" }, { id: form.index, role: "projection-index" }];
+    for (const selected of operands) {
+      const stop = admitTypePublicationStep(typeWork);
+      if (stop !== null) return stop;
+      const node = raw.types.types[selected.id];
+      const child = node === undefined ? undefined : raw.types.components[node.component];
+      if (node?.id !== selected.id || child === undefined || component.id >= child.id || !sameSource(child.root, component.root)
+        || child.path?.prefix !== (component.path === null ? null : component.id) || child.path.step.kind !== selected.role)
+        throw new TypeError("front: selected indexed operands must retain their own object and index components");
+    }
+  }
+  return { kind: "alias-application", declaration: deps.definitionOf(alias.declaration), arguments: arguments_ };
+}
+
 function authoredOperator(graph: TypeGraph, row: RawCheckedType, component: RawComponent,
-  operator: RawNodeRef | null, kind: "IndexedAccessType" | "ConditionalType" | "TypeOperator",
+  operator: RawNodeRef | null, kind: "IndexedAccessType" | "ConditionalType" | "TypeOperator" | "MappedType",
   root: ModuleSourceOccurrence): ModuleSourceOccurrence | TypePublicationStop | null {
   if (operator === null || !sameSource(row.authoredTypeNode, operator)) return null;
   const { deps, raw, typeWork } = graph.conversion;
   if (component.path === null) return root.kind === kind && sameSource(component.root, operator) ? root : null;
-  const { prefix, step } = component.path;
-  if (prefix !== null) return null;
+  const original = sourceOccurrence(deps, operator);
+  if (original?.kind !== kind) return null;
+  let syntax = original;
+  let cursor = component;
+  while (cursor.path?.step.kind === "argument-place" || cursor.path?.step.kind === "union-member" || cursor.path?.step.kind === "intersection-member") {
+    const stop = admitTypePublicationStep(typeWork);
+    if (stop !== null) return stop;
+    if (syntax.parent === null) return null;
+    const parent = operator.module === component.root.module && syntax.parent === root.node ? root
+      : sourceOccurrence(deps, { module: operator.module, node: syntax.parent });
+    const role = cursor.path.step;
+    if (role.kind === "argument-place") {
+      if (parent?.typeSyntax?.kind !== "type-reference" || parent.typeSyntax.arguments[role.index] !== syntax.node) return null;
+    } else {
+      const compound = role.kind === "union-member" ? "union" : "intersection";
+      if (parent?.typeSyntax?.kind !== compound) return null;
+      let matched = false;
+      for (let index = 0; index < parent.typeSyntax.members.length; ++index) {
+        const stop = admitTypePublicationStep(typeWork);
+        if (stop !== null) return stop;
+        if (parent.typeSyntax.members[index] === syntax.node) { matched = true; break; }
+      }
+      if (!matched) return null;
+    }
+    if (parent === null) return null;
+    const prefix = cursor.path.prefix;
+    if (prefix === null) return parent === root && operator.module === component.root.module ? original : null;
+    const previous = raw.types.components[prefix];
+    if (previous?.id !== prefix || previous.id >= cursor.id || !sameSource(previous.root, component.root)) return null;
+    syntax = parent;
+    cursor = previous;
+  }
+  if (cursor.path?.prefix !== null) return null;
   const stop = admitTypePublicationStep(typeWork);
   if (stop !== null) return stop;
-  if (step.kind === "argument-place") {
-    if (component.root.module !== operator.module || root.typeSyntax?.kind !== "type-reference"
-      || root.typeSyntax.arguments[step.index] !== operator.node) return null;
-    const source = sourceOccurrence(deps, operator);
-    return source?.kind === kind && source.parent === component.root.node ? source : null;
-  }
+  const { step } = cursor.path;
   if (step.kind !== "parameter" && step.kind !== "result") return null;
   const signature = raw.types.signatures[step.signature];
   if (signature?.id !== step.signature || signature.target !== null || signature.composition !== null
     || !sameSource(signature.owner, component.root)) return null;
   let declaration: RawNodeRef | null;
+  let endpoint: RawCheckedType | undefined;
   if (step.kind === "parameter") {
     const parameter = signature.parameters[step.index];
-    if (parameter?.type !== row.id || parameter.component !== component.id || parameter.kind !== "required") return null;
+    if (parameter?.component !== cursor.id || parameter.kind !== "required") return null;
+    endpoint = raw.types.types[parameter.type];
     declaration = parameter.declaration;
   } else {
-    if (signature.result.kind !== "available" || signature.result.value !== row.id) return null;
+    if (signature.result.kind !== "available") return null;
+    endpoint = raw.types.types[signature.result.value];
     declaration = signature.declaration;
   }
-  if (declaration === null || declaration.module !== operator.module) return null;
-  const source = sourceOccurrence(deps, operator);
-  return source?.kind === kind && source.parent === declaration.node ? source : null;
+  if (declaration === null || declaration.module !== operator.module || endpoint?.component !== cursor.id ||
+    !sameSource(endpoint.authoredTypeNode, { module: operator.module, node: syntax.node })) return null;
+  return syntax.parent === declaration.node ? original : null;
 }
 
 function authoredOperandAt(raw: RawModule, id: RawTypeId, expected: RawNodeRef): RawCheckedType | null {
@@ -180,6 +254,43 @@ function authoredOperandAt(raw: RawModule, id: RawTypeId, expected: RawNodeRef):
   if (operand?.id !== id || !sameSource(operand.authoredTypeNode, expected)) return null;
   const component = raw.types.components[operand.component];
   return component?.path === null && sameSource(component.root, expected) ? operand : null;
+}
+
+function authoredConditionalMember(graph: TypeGraph, component: RawComponent, root: ModuleSourceOccurrence,
+  form: Extract<RawTypeForm, { readonly kind: "conditional" }>): ModuleSourceOccurrence | TypePublicationStop | null {
+  const path = component.path;
+  if (root.kind !== "TypeLiteral" || path?.prefix !== null || path.step.kind !== "member"
+    || form.application !== null || form.whenTrue.kind !== "ready" || form.whenFalse.kind !== "ready") return null;
+  const { deps, raw, typeWork } = graph.conversion;
+  const setup = admitTypePublicationStep(typeWork);
+  if (setup !== null) return setup;
+  const member = path.step.declaration;
+  const operator = form.operator;
+  if (member.module !== component.root.module || member.module !== operator.module) return null;
+  const declaration = sourceOccurrence(deps, member);
+  const selected = sourceOccurrence(deps, operator);
+  if (declaration?.kind !== "PropertySignature" || declaration.parent !== root.node
+    || declaration.typeSyntax?.kind !== "property-annotation" || selected?.typeSyntax?.kind !== "conditional") return null;
+  let current = selected;
+  while (current.parent !== member.node) {
+    const stop = admitTypePublicationStep(typeWork);
+    if (stop !== null) return stop;
+    if (current.parent === null || current.parent >= current.node) return null;
+    const parent = sourceOccurrence(deps, { module: member.module, node: current.parent });
+    if (parent?.kind !== "ParenthesizedType" || parent.typeSyntax?.kind !== "tuple-wrapper"
+      || parent.typeSyntax.target !== current.node) return null;
+    current = parent;
+  }
+  if (declaration.typeSyntax.type !== current.node) return null;
+  const syntax = selected.typeSyntax;
+  const operands = [[form.check, syntax.check], [form.extends, syntax.extends], [form.whenTrue.type, syntax.whenTrue],
+    [form.whenFalse.type, syntax.whenFalse]] satisfies readonly (readonly [RawTypeId, NodeId])[];
+  for (const [identity, node] of operands) {
+    const stop = admitTypePublicationStep(typeWork);
+    if (stop !== null) return stop;
+    if (authoredOperandAt(raw, identity, { module: operator.module, node }) === null) return null;
+  }
+  return selected;
 }
 
 function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | GraphFailure {
@@ -283,26 +394,42 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
         }).sort(compareIndexSignatures) };
     }
     scheduleDependencies(graph, memberDependencies);
-  } else if (form.kind === "merged-interface-dependency" || form.kind === "conditional-alias-application") {
-    if (form.kind === "merged-interface-dependency" &&
-      (raw.types.interfaceGroups[form.group.ordinal] !== form.group || form.group.slots.length !== form.arguments.length))
-      throw new TypeError("front: a merged application requires its independently retained declaration and slot group");
-    const argumentsOf: TyId[] = [];
-    for (let index = 0; index < form.arguments.length; ++index) {
+  } else if (form.kind === "merged-interface-dependency" || form.kind === "merged-interface-backedge" || form.kind === "alias-application") {
+    let applied: Extract<RawTypeForm, { readonly kind: "merged-interface-dependency" | "alias-application" }>;
+    let owner = component;
+    if (form.kind === "merged-interface-backedge") {
       const stop = admitTypePublicationStep(graph.conversion.typeWork);
       if (stop !== null) { graph.failure = stop; return stop; }
-      const argument = form.arguments[index];
+      const target = raw.types.types[form.application];
+      if (target === undefined || target.id !== form.application || target.id >= row.id
+        || target.form.kind !== "available" || target.form.value.kind !== "merged-interface-dependency"
+        || target.form.value.group !== form.group)
+        throw new TypeError("front: a merged interface backedge must name its actual earlier application");
+      const source = raw.types.components[target.component];
+      if (source === undefined || source.id !== target.component)
+        throw new TypeError("front: a merged interface backedge must retain its application's own component");
+      applied = target.form.value;
+      owner = source;
+    } else applied = form;
+    if (applied.kind !== "alias-application" &&
+      (raw.types.interfaceGroups[applied.group.ordinal] !== applied.group || applied.group.slots.length !== applied.arguments.length))
+      throw new TypeError("front: a merged application requires its independently retained declaration and slot group");
+    const argumentsOf: TyId[] = [];
+    for (let index = 0; index < applied.arguments.length; ++index) {
+      const stop = admitTypePublicationStep(graph.conversion.typeWork);
+      if (stop !== null) { graph.failure = stop; return stop; }
+      const argument = applied.arguments[index];
       if (argument === undefined) throw new TypeError("front: a deferred application must retain its actual ordered argument slots");
       const child = raw.types.types[argument];
       const position = child === undefined ? undefined : raw.types.components[child.component];
-      const matched = child?.id === argument && isIndexedChild(component, position, "argument-place", index, graph.conversion.typeWork);
+      const matched = child?.id === argument && isIndexedChild(owner, position, "argument-place", index, graph.conversion.typeWork);
       if (typeof matched !== "boolean") { graph.failure = matched; return matched; }
       if (!matched) throw new TypeError("front: a deferred argument must retain its own actual qualified type occurrence");
       argumentsOf.push(reference(argument));
     }
-    term = form.kind === "merged-interface-dependency"
-      ? { kind: "merged-interface", definitions: form.group.declarations.map(deps.definitionOf), arguments: argumentsOf }
-      : { kind: "alias-application", declaration: deps.definitionOf(form.declaration), arguments: argumentsOf };
+    term = applied.kind === "merged-interface-dependency"
+      ? { kind: "merged-interface", definitions: applied.group.declarations.map(deps.definitionOf), arguments: argumentsOf }
+      : { kind: "alias-application", declaration: deps.definitionOf(applied.declaration), arguments: argumentsOf };
   } else if (form.kind === "declared") {
     if (form.arguments.length !== form.parameters.length)
       throw new TypeError("front: declared arguments must retain their actual ordered parameter associations");
@@ -406,14 +533,23 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       spans.push({ type: reference(span.type), tail: span.tail });
     }
     term = { kind: "template-literal", head: form.head, spans };
-  } else if (form.kind === "indexed-access") {
-    if (row.alias.kind === "available" && row.alias.value !== null)
-      throw new TypeError("front: checked selected indexed transport requires its retained application association");
-    const authored = authoredOperator(graph, row, component, form.operator, "IndexedAccessType", source);
-    if (authored?.kind === "resource-limit") { graph.failure = authored; return authored; }
-    if (authored === null)
-      throw new TypeError("front: an indexed projection requires its actual checked operator component");
-    term = { kind: "projection", source: reference(form.object), projection: { kind: "indexed", index: reference(form.index) } };
+  } else if (form.kind === "indexed-access" || form.kind === "indexed-alias-dependency") {
+    if (row.alias.kind !== "available")
+      throw new TypeError("front: an indexed result requires its actual alias association answer");
+    const alias = row.alias.value;
+    if (alias !== null) {
+      const selected = indexedAliasDependency(graph, component, alias, form, dependencies);
+      if (selected.kind === "resource-limit") { graph.failure = selected; return selected; }
+      term = selected;
+    } else {
+      if (form.kind !== "indexed-access")
+        throw new TypeError("front: an indexed alias dependency requires its actual retained application");
+      const authored = authoredOperator(graph, row, component, form.operator, "IndexedAccessType", source);
+      if (authored?.kind === "resource-limit") { graph.failure = authored; return authored; }
+      if (authored === null)
+        throw new TypeError("front: an indexed projection requires its actual checked operator component");
+      term = { kind: "projection", source: reference(form.object), projection: { kind: "indexed", index: reference(form.index) } };
+    }
   } else if (form.kind === "keyof") {
     const authored = authoredOperator(graph, row, component, form.operator, "TypeOperator", source);
     if (authored?.kind === "resource-limit") { graph.failure = authored; return authored; }
@@ -483,8 +619,28 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       }
     }
     term = { kind: "projection", source: reference(form.base), projection: { kind: "substitution", constraint: reference(form.constraint) } };
+  } else if (form.kind === "mapped-projection") {
+    const authored = authoredOperator(graph, row, component, form.operator, "MappedType", source);
+    if (authored?.kind === "resource-limit") { graph.failure = authored; return authored; }
+    const { module } = form.operator;
+    const syntax = authored?.typeSyntax;
+    if (syntax?.kind !== "mapped" || syntax.domain === null || syntax.value === null ||
+      !sameSource(form.parameter, { module, node: syntax.parameter }) || form.optional !== syntax.optional || form.readonly !== syntax.readonly)
+      throw new TypeError("front: a mapped projection requires its actual checked producer and binder");
+    const operands: readonly { readonly id: RawTypeId | null; readonly node: NodeId | null }[] =
+      [{ id: form.domain, node: syntax.domain }, { id: form.remap, node: syntax.remap }, { id: form.value, node: syntax.value }];
+    for (const operand of operands) {
+      const stop = admitTypePublicationStep(graph.conversion.typeWork);
+      if (stop !== null) { graph.failure = stop; return stop; }
+      if (operand.node === null ? operand.id !== null : operand.id === null ||
+        authoredOperandAt(raw, operand.id, { module, node: operand.node }) === null)
+        throw new TypeError("front: a mapped projection requires each of its actual checked operands");
+    }
+    term = { kind: "projection", source: reference(form.domain), projection: { kind: "mapped", parameter: deps.definitionOf(form.parameter),
+      remap: form.remap === null ? null : reference(form.remap), value: reference(form.value), readonly: form.readonly, optional: form.optional } };
   } else if (form.kind === "conditional") {
-    const authored = authoredOperator(graph, row, component, form.operator, "ConditionalType", source);
+    const authored = row.authoredTypeNode === null ? authoredConditionalMember(graph, component, source, form)
+      : authoredOperator(graph, row, component, form.operator, "ConditionalType", source);
     if (authored?.kind === "resource-limit") { graph.failure = authored; return authored; }
     if (form.application !== null || authored === null
       || form.whenTrue.kind !== "ready" || form.whenFalse.kind !== "ready")
@@ -546,10 +702,10 @@ function prepareSignature(graph: TypeGraph, handle: SignatureHandle): void {
   const signature = graph.conversion.raw.types.signatures[handle.id];
   if (signature === undefined) throw new TypeError("front: a callable inventory must name its captured signature");
   if (signature.result.kind !== "available") throw new TypeError("front: unavailable callable result conversion is not implemented");
-  for (let index = signature.parameters.length - 1; index >= 0; index -= 1)
-    if (signature.parameters[index] === undefined) throw new TypeError("front: a captured parameter inventory must be dense");
   const dependencies: Dependency[] = [];
-  graph.signatureInputs[handle.position] = signatureInput(graph, signature, signature.result.value, dependencies);
+  const prepared = signatureInput(graph, signature, signature.result.value, dependencies);
+  if (prepared.kind === "resource-limit") { graph.failure = prepared; return; }
+  graph.signatureInputs[handle.position] = prepared;
   handle.prepared = true;
   scheduleDependencies(graph, dependencies);
 }
@@ -600,20 +756,41 @@ export function rawSignatureParameter(raw: RawModule, id: RawTypeId): Extract<Ra
   return parameter;
 }
 
-function signatureInput(graph: TypeGraph, signature: RawSignature, result: RawTypeId, dependencies: Dependency[]): SignatureInput {
-  if (signature.typeParameters.kind !== "available" || signature.receiver.kind !== "available" || signature.receiver.value !== null)
-    throw new TypeError("front: incomplete or receiver-bearing callable type conversion is not implemented");
+function signatureInput(graph: TypeGraph, signature: RawSignature, result: RawTypeId, dependencies: Dependency[]): SignatureInput | TypePublicationStop {
+  if (signature.typeParameters.kind !== "available" || signature.receiver.kind !== "available")
+    throw new TypeError("front: a callable type requires its actual type-parameter and receiver answers");
   if (signature.composition !== null) throw new TypeError("front: composed callable signature conversion is not implemented");
   const declaration = signature.declaration;
   if (declaration === null) throw new TypeError("front: declarationless callable signature conversion is not implemented");
   const definition = graph.conversion.deps.definitionOf(declaration);
+  let receiver: TyId | null = null;
+  const selected = signature.receiver.value;
+  if (selected !== null) {
+    const stop = admitTypePublicationStep(graph.conversion.typeWork);
+    if (stop !== null) return stop;
+    const source = selected.declaration;
+    const authored = source === null ? null : sourceOccurrence(graph.conversion.deps, source);
+    const table = graph.conversion.raw.types;
+    const component = table.components[selected.component];
+    const checked = table.types[selected.type];
+    if (source?.module !== declaration.module || authored?.explicitReceiver !== true || authored.parent !== declaration.node
+      || selected.kind !== "required" || selected.acceptsOmission || selected.initializer !== null
+      || component?.id !== selected.component || signature.owner === null || !sameSource(component.root, signature.owner)
+      || component.path?.prefix !== null || component.path.step.kind !== "receiver" || component.path.step.signature !== signature.id
+      || checked?.id !== selected.type || checked.component !== selected.component)
+      throw new TypeError("front: a callable receiver requires its actual qualified signature component and authored declaration");
+    receiver = typeReference(graph, selected.type, dependencies);
+  }
   const typeParameters = signature.typeParameters.value.map(id => {
     const parameter = rawSignatureParameter(graph.conversion.raw, id);
     return { declaration: graph.conversion.deps.definitionOf(parameter.parameter),
       constraint: parameter.constraint === null ? null : typeReference(graph, parameter.constraint, dependencies),
       default: parameter.default === null ? null : typeReference(graph, parameter.default, dependencies) };
   });
-  const parameters = signature.parameters.map((parameter): SignatureParameter => {
+  const parameters: SignatureParameter[] = [];
+  for (let index = 0; index < signature.parameters.length; ++index) {
+    const parameter = signature.parameters[index];
+    if (parameter === undefined) throw new TypeError("front: a captured parameter inventory must be dense");
     const declared = parameter.declaration;
     if (declared === null) throw new TypeError("front: declarationless callable parameter conversion is not implemented");
     if (parameter.initializer !== null && parameter.initializer.module !== declared.module)
@@ -622,11 +799,11 @@ function signatureInput(graph: TypeGraph, signature: RawSignature, result: RawTy
     const parameterDefinition = graph.conversion.deps.definitionOf(declared);
     if (parameter.passing.kind !== "available")
       throw new TypeError("front: a callable parameter whose captured passing mode is unavailable is not implemented (" + parameter.passing.reason + ")");
-    return { declaration: parameterDefinition, kind: parameter.initializer === null ? parameter.kind : "default",
+    parameters.push({ declaration: parameterDefinition, kind: parameter.initializer === null ? parameter.kind : "default",
       type: typeReference(graph, parameter.type, dependencies), passing: parameter.passing.value,
       initializer: parameter.initializer === null ? null : encodeBodyId({ owner: parameterDefinition, role: "default-argument", ordinal: 0 }),
-      acceptsOmission: parameter.acceptsOmission };
-  });
+      acceptsOmission: parameter.acceptsOmission });
+  }
   return { declaration: definition, owner: { kind: "item", value: { owner: definition, node: declaration.node } }, composition: null,
-    kind: signature.kind, typeParameters, receiver: null, parameters, result: typeReference(graph, result, dependencies) };
+    kind: signature.kind, typeParameters, receiver, parameters, result: typeReference(graph, result, dependencies) };
 }

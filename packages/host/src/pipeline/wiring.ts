@@ -1,6 +1,6 @@
-import type { CaptureModule, CaptureProgramModules, CreateCheckerExtensions, ExtensionReferencesOf, LowerModule, LowerModuleDefinitions,
+import type { CaptureModules, CaptureProgramModules, CreateCheckerExtensions, ExtensionReferencesOf, LowerModule, LowerModuleDefinitions,
   LowerModuleExports, OpenCheckedProgram } from "../front/contract.js";
-import { captureModule, captureProgramModules, createCheckerExtensions, extensionReferencesOf, lowerModule, lowerModuleDefinitions,
+import { captureModules, captureProgramModules, createCheckerExtensions, extensionReferencesOf, lowerModule, lowerModuleDefinitions,
   lowerModuleExports, openCheckedProgram } from "../front/index.js";
 import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, EnumOf, ErrorSignature, MembersOf, MemberTypeOf, PlaceSignature, ProduceType,
   ResumeDeclaredSignatureOf, ResumeEnumOf, ResumeProduceType } from "../decls/contract.js";
@@ -75,7 +75,7 @@ export interface FrontWiring {
   readonly extensionReferencesOf: ExtensionReferencesOf;
   readonly openCheckedProgram: OpenCheckedProgram;
   readonly captureProgramModules: CaptureProgramModules;
-  readonly captureModule: CaptureModule;
+  readonly captureModules: CaptureModules;
   readonly lowerModuleDefinitions: LowerModuleDefinitions;
   readonly lowerModuleExports: LowerModuleExports;
   readonly lowerModule: LowerModule;
@@ -83,7 +83,7 @@ export interface FrontWiring {
 
 /** The one wiring of the Host: each member is the component's own public operation. */
 export const pipelineWiring: PipelineWiring = {
-  front: { createCheckerExtensions, extensionReferencesOf, openCheckedProgram, captureProgramModules, captureModule, lowerModuleDefinitions,
+  front: { createCheckerExtensions, extensionReferencesOf, openCheckedProgram, captureProgramModules, captureModules, lowerModuleDefinitions,
     lowerModuleExports, lowerModule },
   decls: { classifyCycle, describeDefinitions, declaredSignatureOf, resumeDeclaredSignatureOf, errorSignature, placeSignature, membersOf, memberTypeOf,
     produceType, resumeProduceType, enumOf, resumeEnumOf },

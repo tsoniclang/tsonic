@@ -1,17 +1,37 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { primeCaptureReader, propertyRows, loadFrontFixture, observeSourceType, rawComponentPath } from "./fixtures/front/checked-module.mjs";
+import { captureSingleModule, identifySingleModule, primeCaptureReader, propertyRows, loadFrontFixture, observeSourceType, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
-test("the checked source barrier preserves a recursive merged application", async () => {
+test("the checked source barrier preserves a recursive merged application", async tester => {
   const fixture = await loadFrontFixture();
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { membersOf, memberTypeOf } = await import("../../packages/host/dist/decls/index.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
   const input = analysisInput(fixture, "sdk-minimal",
     "interface Chain<T>{ next():Chain<string> } interface Chain<T>{flag:boolean} export type Ready=Chain<boolean>;");
+  let reject = false;
+  let backedges = 0;
+  const capture = pipelineWiring.front.captureModules;
+  tester.mock.method(pipelineWiring.front, "captureModules", (...arguments_) => {
+    const result = capture(...arguments_);
+    if (result.kind !== "ok") return result;
+    for (const raw of result.value) if (raw.module === input.snapshot.entryPoint) {
+      for (const row of raw.types.types) if (row.form.kind === "available" && row.form.value.kind === "merged-interface-backedge") {
+        const target = raw.types.types[row.form.value.application];
+        assert.equal(target.id < row.id, true);
+        assert.equal(target.form.value.kind, "merged-interface-dependency");
+        assert.equal(row.component === target.component, false);
+        backedges += 1;
+        if (reject) row.form = { ...row.form, value: { ...row.form.value, application: row.id } };
+      }
+    }
+    return result;
+  });
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
   const source = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
-  const [first, second] = source.module.tree.statements.nodes;
+  const [first, second, ready] = source.module.tree.statements.nodes;
   const definitions = [first.tsonic.definition, second.tsonic.definition];
   const group = checked.value.nominalOf(definitions[0]);
   assert.equal(group.kind, "merged-interface");
@@ -19,10 +39,36 @@ test("the checked source barrier preserves a recursive merged application", asyn
   assert.deepEqual(group.definitions, definitions);
   assert.deepEqual(group.slots.map(slot => slot.parameters),
     [[first.typeParameters.nodes[0].tsonic.definition, second.typeParameters.nodes[0].tsonic.definition]]);
-  const types = fixture.types.viewTypes(checked.value.types);
-  const recursive = types.terms.filter(row => row.kind === "merged-interface" && row.definitions[0] === definitions[0]);
-  assert.ok(recursive.length > 0);
-  assert.equal(recursive.every(row => types.terms[row.arguments[0]].kind === "string"), true);
+  const { modules, types, typeWork, interfaceDescriptionOf } = checked.value;
+  const deps = { modules, types, typeWork, interfaceDescriptionOf, typeExpansion: input.limits.instantiation.typeExpansion };
+  const receiver = ready.type.tsonic.type.value;
+  const answer = membersOf(deps, receiver).value;
+  assert.equal(answer.kind, "ok");
+  const member = answer.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "next");
+  assert.ok(member >= 0);
+  const selected = memberTypeOf(deps, { receiver, member }).value;
+  assert.equal(selected.kind, "ok");
+  const callable = fixture.types.readType(types, selected.value.read);
+  assert.equal(callable.kind, "callable");
+  assert.equal(callable.calls.length, 1);
+  const signature = fixture.types.readSignature(types, callable.calls[0]);
+  const recursive = fixture.types.readType(types, signature.result);
+  assert.equal(recursive.kind, "merged-interface");
+  assert.deepEqual(recursive.definitions, definitions);
+  assert.deepEqual(recursive.arguments.map(argument => fixture.types.readType(types, argument)), [{ kind: "string" }]);
+  const applied = fixture.types.readType(types, receiver);
+  assert.deepEqual(applied.arguments.map(argument => fixture.types.readType(types, argument)), [{ kind: "primitive", primitive: "bool" }]);
+  assert.ok(backedges > 0);
+  const originalCount = backedges;
+  reject = true;
+  const crossed = captureSourceBarrier(input);
+  assert.equal(crossed.kind, "ok");
+  assert.equal(backedges, 2 * originalCount);
+  const crossedSource = crossed.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+  const crossedReceiver = crossedSource.module.tree.statements.nodes[2].type.tsonic.type.value;
+  assert.throws(() => memberTypeOf({ ...deps, modules: crossed.value.modules, types: crossed.value.types, typeWork: crossed.value.typeWork,
+    interfaceDescriptionOf: crossed.value.interfaceDescriptionOf }, { receiver: crossedReceiver, member }),
+  /a merged interface backedge must name its actual earlier application/u);
 });
 
 test("a mapped index value retains the actual different merged parameter group", async () => {
@@ -34,7 +80,7 @@ test("a mapped index value retains the actual different merged parameter group",
     interface Holder<Value> { other: boolean; }
   ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const { deps, program } = fixture.openAndCapture(snapshot);
-  const captured = fixture.front.captureModule(deps, program, snapshot.entryPoint);
+  const captured = captureSingleModule(fixture.front, deps, program, snapshot.entryPoint);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
   const { types, tree, module } = captured.value;
   const [matrix, otherMatrix, holder, otherHolder] = tree.statements.nodes;
@@ -62,15 +108,26 @@ test("the checked symbolic slot verifies against its own declared group, not its
     interface Matrix<Item> { marker: boolean; }
     interface Holder<Value> { selected: Matrix<Value>; }
     interface Holder<Value> { other: boolean; }
+    export type Use = Holder<boolean>;
   `);
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
   const source = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
   const [matrix, otherMatrix, holder, otherHolder] = source.module.tree.statements.nodes;
   const parameters = fragments => fragments.map(fragment => fragment.typeParameters.nodes[0].tsonic.definition);
+  const description = checked.value.interfaceDescriptionOf(holder.tsonic.definition);
+  assert.ok(description);
+  const unit = { query: "memberTypeOf", key: [holder.tsonic.definition, "selected"] };
+  const inventory = description.recipe.inventory(unit);
+  assert.equal(inventory.kind, "ok");
+  const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "selected");
+  assert.ok(member >= 0);
+  const properties = description.recipe.member(unit, member);
+  assert.equal(properties.kind, "ok");
   const table = fixture.types.viewTypes(checked.value.types);
-  const position = table.terms.findIndex(row => row.kind === "merged-parameter");
-  assert.ok(position >= 0);
+  const application = table.terms[properties.value.read];
+  assert.equal(application.kind, "merged-interface");
+  const [position] = application.arguments;
   assert.deepEqual(table.terms[position], { kind: "merged-parameter", parameters: parameters([holder, otherHolder]) });
   const verify = nominalOf => fixture.types.verifyTypes({ table, bindings: [], evidence: [], nominalOf,
     nodeExists: node => checked.value.checked.nodeOf(node) !== null, localExists: checked.value.checked.localExists });
@@ -90,7 +147,9 @@ test("unchanged selected signature arguments retain their actual foreign lexical
   const fixture = await loadFrontFixture();
   const collection = fixture.moduleOf(fixture.packageOf("/checker"), "lib.es5.d.ts");
   const library = fixture.moduleOf(fixture.packageOf("/checker"), "lib.es2023.array.d.ts");
-  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": "export type Bound = Batch<boolean, string>;" }, libraries: [
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": "export type Bound = Batch<boolean, string>;"
+    + " function observeValues(batch: Bound): unknown { return batch.values; }"
+    + " function observeEntries(batch: Bound): unknown { return batch.entries; }" }, libraries: [
     { name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent
       + "\ninterface Batch<K,V> { inspect(callback: (map: Batch<K,V>) => void): void; }" },
     { name: "lib.es2023.array.d.ts", text:
@@ -102,26 +161,14 @@ test("unchanged selected signature arguments retain their actual foreign lexical
   const [pair, , batch] = foreign.tree.statements.nodes;
   const [method, entries, set] = batch.members.nodes;
   const source = node => ({ module: library, node: node.id });
-  const inspect = captured.find(entry => entry.module === collection).raw.tree.statements.nodes
-    .find(node => node.name?.text === "Batch");
-  const [first] = inspect.members.nodes;
   const receivers = pair.typeParameters.nodes;
   const binders = [batch.typeParameters.nodes[1], batch.typeParameters.nodes[0]];
   const args = method.type.typeArguments.nodes;
   let originalCount = 0;
   let changedCount = 0;
   let tuples = 0;
-  let formals = 0;
   for (const { raw } of captured) for (const signature of raw.types.signatures) {
     if (signature.target === null || signature.declaration?.module !== library) continue;
-    if (signature.declaration.node === set.id && signature.owner?.module === collection && signature.owner.node === first.id) {
-      const values = signature.parameters.map(parameter => raw.types.types[parameter.type]);
-      assert.equal(values.every(row => row.authoredTypeNode === null && row.form.value.kind === "parameter"), true);
-      assert.deepEqual(values.map(row => row.form.value.parameter), [1, 0].map(index =>
-        ({ module: collection, node: inspect.typeParameters.nodes[index].id })));
-      formals += 1;
-      continue;
-    }
     if (signature.declaration.node === entries.id) {
       const row = raw.types.types[signature.result.value];
       const argument = row.form.value.arguments[0];
@@ -157,7 +204,31 @@ test("unchanged selected signature arguments retain their actual foreign lexical
   assert.equal(originalCount > 0, true, "actual foreign unchanged selected signature");
   assert.equal(changedCount > 0, true, "actual instantiated changed signature opposite");
   assert.equal(tuples > 0, true, "actual unchanged selected tuple slots");
-  assert.equal(formals > 0, true, "selected formals from both actual receiver slots");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { membersOf, memberTypeOf } = await import("../../packages/host/dist/decls/index.js");
+  const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok");
+  const { types, typeWork, interfaceDescriptionOf, modules } = checked.value;
+  const deps = { types, typeWork, interfaceDescriptionOf, modules, typeExpansion: input.limits.instantiation.typeExpansion };
+  const nodeIn = (module, node) => modules.find(entry => entry.module.module === module).nodes[node];
+  const original = modules.find(entry => entry.module.module === collection).module.tree.statements.nodes.find(node => node.name?.text === "Batch");
+  const lexical = original.members.nodes[0].parameters.nodes[0].type.parameters.nodes[0].type;
+  const receiver = lexical.tsonic.type.value;
+  const answer = membersOf(deps, receiver).value;
+  assert.equal(answer.kind, "ok");
+  const member = answer.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "set");
+  assert.ok(member >= 0);
+  const selectedMember = memberTypeOf(deps, { receiver, member }).value;
+  assert.equal(selectedMember.kind, "ok");
+  const methodType = fixture.types.readType(types, selectedMember.value.read);
+  assert.equal(methodType.kind, "callable");
+  assert.equal(methodType.calls.length, 1);
+  const signature = fixture.types.readSignature(types, methodType.calls[0]);
+  assert.equal(signature.declaration, nodeIn(library, set.id).tsonic.definition);
+  assert.deepEqual(signature.parameters.map(formal => fixture.types.readType(types, formal.type)),
+    [1, 0].map(index => ({ kind: "param", parameter: original.typeParameters.nodes[index].tsonic.definition })));
 });
 
 test("a genuine first receiver slot does not authorize an alias-wrapped second slot", async () => {
@@ -178,7 +249,7 @@ test("a genuine first receiver slot does not authorize an alias-wrapped second s
   const original = checker.getTypeFromTypeNode(ast.typeNode(direct));
   const opposite = checker.getTypeFromTypeNode(ast.typeNode(wrapped));
   assert.equal(original !== undefined && original.type === opposite?.type, true, "the whole native receiver is genuinely shared");
-  assert.throws(() => fixture.front.captureModule(deps, program, module),
+  assert.throws(() => captureSingleModule(fixture.front, deps, program, module),
     /a merged type parameter requires its actual selected declaration association/u);
 });
 
@@ -191,20 +262,28 @@ test("a recursively re-entered merged interface retains its changed argument and
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const { deps, program } = fixture.openAndCapture(snapshot);
   const module = snapshot.entryPoint;
-  const result = fixture.front.captureModule(deps, program, module);
+  const result = captureSingleModule(fixture.front, deps, program, module);
   assert.equal(result.kind, "ok");
   const raw = result.value;
   const [first, second, ready, independent] = raw.tree.statements.nodes;
   const qualified = node => ({ module, node: node.id });
-  const roots = [ready, independent].map(node => raw.types.types.find(row => row.authoredTypeNode?.module === module
-    && row.authoredTypeNode.node === node.type.id));
-  assert.equal(roots.every(root => root?.form.value?.kind === "structure"), true);
-  const recurrences = raw.types.types.filter(row => row.form.value?.kind === "merged-interface-dependency"
-    && raw.types.components[row.component].root.node === ready.type.id);
-  assert.ok(recurrences.length > 0);
-  for (const row of recurrences) {
+  const [firstProperty] = first.members.nodes;
+  const applicationOf = annotation => raw.types.types[raw.annotations.find(row => row.node === annotation.id).type];
+  const group = applicationOf(ready.type).form.value.group;
+  const descriptions = raw.types.interfaceDescriptions.filter(row => row.group === group);
+  assert.equal(descriptions.length, 1);
+  const shape = raw.types.types[descriptions[0].shape];
+  assert.equal(shape.form.value.kind, "structure");
+  const next = raw.types.members[shape.form.value.inventory].members.find(row => row.name === "next");
+  const reached = raw.types.types[next.read.value];
+  assert.equal(reached.form.value.kind === "merged-interface-dependency" || reached.form.value.kind === "merged-interface-backedge", true);
+  const selected = reached.form.value.kind === "merged-interface-dependency" ? reached : raw.types.types[reached.form.value.application];
+  for (const [row, scalar] of [[applicationOf(ready.type), "boolean"], [applicationOf(independent.type), "string"],
+    [applicationOf(firstProperty.type), "string"], [selected, "string"]]) {
     const form = row.form.value;
     const position = raw.types.components[row.component];
+    assert.equal(form.kind, "merged-interface-dependency");
+    assert.equal(form.group === group, true);
     assert.equal(raw.types.interfaceGroups[form.group.ordinal] === form.group, true);
     assert.deepEqual(form.group.declarations, [qualified(first), qualified(second)]);
     assert.equal(form.arguments.length, 1);
@@ -212,10 +291,11 @@ test("a recursively re-entered merged interface retains its changed argument and
     assert.equal(form.group.slots[0].scope, "local");
     assert.deepEqual(form.group.slots[0].parameters, [qualified(first.typeParameters.nodes[0]), qualified(second.typeParameters.nodes[0])]);
     const captured = raw.types.types[argument];
-    assert.deepEqual(captured.form, { kind: "available", value: { kind: "scalar", scalar: "string" } });
+    assert.deepEqual(captured.form, { kind: "available", value: { kind: "scalar", scalar } });
     assert.deepEqual(raw.types.components[captured.component].path,
       { prefix: position.path === null ? null : position.id, step: { kind: "argument-place", index: 0 } });
   }
+  assert.equal(applicationOf(ready.type).id !== applicationOf(independent.type).id, true);
 });
 
 test("nested native arguments retain the actual merged slot without assigning either authored parameter", async () => {
@@ -226,7 +306,7 @@ test("nested native arguments retain the actual merged slot without assigning ei
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": "export type Root = Chain<string>;" },
     libraries: [{ name: library, text: source }] });
   const { deps, program } = fixture.openAndCapture(snapshot);
-  const result = fixture.front.captureModule(deps, program, snapshot.entryPoint);
+  const result = captureSingleModule(fixture.front, deps, program, snapshot.entryPoint);
   assert.equal(result.kind, "ok");
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const module = fixture.moduleOf(fixture.packageOf("/checker"), library);
@@ -253,14 +333,17 @@ test("a selected declared signature result retains its native tuple argument wit
   const fixture = await loadFrontFixture();
   const source = "export interface Result<Slot> { readonly slot: Slot; }"
     + " export interface Chain<Item> { entries(): Result<[number, Item]>; }"
-    + " export interface Chain<Item> { status: boolean; } export type Ready = Chain<string>;";
+    + " export interface Chain<Item> { status: boolean; } export type Ready = Chain<string>;"
+    + " function observe(value: Ready): unknown { return value.entries; }";
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const { deps, program } = fixture.openAndCapture(snapshot);
-  const result = fixture.front.captureModule(deps, program, snapshot.entryPoint);
+  const result = captureSingleModule(fixture.front, deps, program, snapshot.entryPoint);
   assert.equal(result.kind, "ok");
   const { types } = result.value;
+  const methodUse = result.value.tree.statements.nodes.at(-1).body.statements.nodes[0].expression;
   const selected = types.types.find(row => row.form.value?.kind === "tuple" && row.authoredTypeNode === null
+    && types.components[row.component].root.node === methodUse.id && types.components[row.component].root.module === snapshot.entryPoint
     && types.components[types.components[row.component].path?.prefix]?.path?.step.kind === "result"
     && types.components[row.component].path?.step.kind === "argument-place"
     && types.types[row.form.value.elements[1]?.type]?.form.value?.scalar === "string");
@@ -280,7 +363,10 @@ test("captured constraints retain each merged interface fragment's actual type p
       "\ninterface Array<T> { first<S extends T>(input: S): S; }\ndeclare var items: Array<boolean>;\n" },
     { name: "lib.es2023.array.d.ts", text: "interface Array<T> { second<S extends T>(input: S): S; }\n" },
   ];
-  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": "export type Selected = typeof items;\n" }, libraries });
+  const snapshot = fixture.projectSnapshot({ sourceFiles: {
+    "main.ts": "export type Selected = typeof items; function chooseFirst():unknown { return items.first; }"
+      + " function chooseSecond():unknown { return items.second; }",
+  }, libraries });
   const { captured, deps, opened } = fixture.captureModulesOf(snapshot);
   const { program } = opened;
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
@@ -331,7 +417,7 @@ test("captured constraints retain each merged interface fragment's actual type p
   } } }, OpenedProgram.table(program), OpenedProgram.modules(program).modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  const repeated = fixture.front.captureModule(opened.deps, observed, main);
+  const repeated = captureSingleModule(fixture.front, opened.deps, observed, main);
   assert.equal(repeated.kind, "ok");
   assert.equal(reads.length, declarations.size, "one owner-index read per actual merged declaration, not per use");
   assert.equal(new Set(reads).size, declarations.size);
@@ -346,7 +432,9 @@ test("signature formals select the original merged interface fragment without tu
     { name: "lib.es2023.array.d.ts", text: "interface Array<T> { second(value: T): boolean; }\n" },
   ];
   const snapshot = fixture.projectSnapshot({ sourceFiles: {
-    "main.ts": "export type Environment = typeof globalThis; export type Selected = Array<boolean>;",
+    "main.ts": "export type Environment = typeof globalThis; export type Selected = Array<boolean>;"
+      + " function chooseFirst(values:Array<boolean>):unknown { return values.first; }"
+      + " function chooseSecond(values:Array<boolean>):unknown { return values.second; }",
   }, libraries });
   const { captured, opened } = fixture.captureModulesOf(snapshot);
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
@@ -377,14 +465,18 @@ test("signature formals select the original merged interface fragment without tu
 
     const slots = captured.flatMap(entry => entry.raw.types.signatures.flatMap(row =>
       row.declaration?.module === declaration.module && row.declaration.node === declaration.node
-        ? [{ signature: row, type: entry.raw.types.types[row.parameters[0].type] }] : []));
+        ? [{ module: entry.module, signature: row, type: entry.raw.types.types[row.parameters[0].type], components: entry.raw.types.components }] : []));
     const originals = slots.filter(slot => slot.signature.target === null);
     assert.ok(originals.length > 0);
     for (const { type } of originals) {
       assert.equal(type.authoredTypeNode, null);
       assert.deepEqual(type.form, { kind: "available", value: { kind: "parameter", parameter, constraint: null, default: null } });
     }
-    const applied = slots.filter(slot => slot.signature.target !== null);
+    const project = captured.find(entry => entry.module === snapshot.entryPoint).raw;
+    const methodUse = project.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration"
+      && node.name.text === (index === 0 ? "chooseFirst" : "chooseSecond")).body.statements.nodes[0].expression;
+    const applied = slots.filter(slot => slot.signature.target !== null && slot.module === project.module
+      && slot.components[slot.type.component].root.node === methodUse.id && slot.components[slot.type.component].root.module === project.module);
     assert.ok(applied.length > 0);
     for (const { type } of applied) {
       assert.equal(type.authoredTypeNode, null);
@@ -397,6 +489,9 @@ test("signature formals select the original merged interface fragment without tu
 
 test("applied method formals follow the authored receiver argument even when native signatures are shared", async () => {
   const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { membersOf, memberTypeOf } = await import("../../packages/host/dist/decls/index.js");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
     export interface Box<T> { first(value: T): boolean; loop(value: T): Box<T>; left: Box<T>; }
     export interface Box<T> { right: Box<T>; again: Box<T>; }
@@ -406,7 +501,7 @@ test("applied method formals follow the authored receiver argument even when nat
     export interface AliasTarget<V> {}
     export type Alias<U> = AliasTarget<U>;
   ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const { captured, deps, opened } = fixture.captureModulesOf(snapshot);
+  const { captured, opened } = fixture.captureModulesOf(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const { raw } = captured.find(entry => entry.module === module);
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
@@ -416,6 +511,29 @@ test("applied method formals follow the authored receiver argument even when nat
   const [left, right, , aliasHost, aliasTarget] = raw.tree.statements.nodes;
   const original = checker.getSignatureFromDeclaration(numbered.nodes[left.members.nodes[0].id]);
   const aliasOriginal = checker.getSignatureFromDeclaration(numbered.nodes[aliasTarget.members.nodes[0].id]);
+  const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
+  const result = captureSourceBarrier(input);
+  assert.equal(result.kind, "ok");
+  const { modules, types, typeWork, interfaceDescriptionOf } = result.value;
+  const nodes = modules.find(entry => entry.module.module === module).nodes;
+  const deps = { modules, types, typeWork, interfaceDescriptionOf, typeExpansion: input.limits.instantiation.typeExpansion };
+  const typeOf = type => fixture.types.readType(types, type);
+  const signatureOf = signature => fixture.types.readSignature(types, signature);
+  const readMember = (receiver, name) => {
+    const inventory = membersOf(deps, receiver).value;
+    assert.equal(inventory.kind, "ok");
+    const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === name);
+    assert.ok(member >= 0);
+    const selected = memberTypeOf(deps, { receiver, member }).value;
+    assert.equal(selected.kind, "ok");
+    return selected.value;
+  };
+  const methodOf = (receiver, name) => {
+    const method = typeOf(readMember(receiver, name).read);
+    assert.equal(method.kind, "callable");
+    assert.equal(method.calls.length, 1);
+    return signatureOf(method.calls[0]);
+  };
   const capturedRows = [];
   const native = [];
   for (const [fragment, name] of [[left, "left"], [right, "right"], [right, "again"], [aliasHost, "aliased"]]) {
@@ -428,33 +546,30 @@ test("applied method formals follow the authored receiver argument even when nat
     assert.equal(signature.target === (fragment === aliasHost ? aliasOriginal : original), true);
     assert.equal(typeShape.getSignatureParameterInfos(signature)[0].type === checker.getTypeFromTypeNode(argument).type, true);
     native.push({ receiver, signature });
-    const authored = raw.types.types.find(entry => entry.authoredTypeNode?.node === numbered.ids.get(syntax));
-    const inventory = raw.types.members[authored.form.value.inventory];
-    const method = inventory.members.find(entry => entry.name === "first");
-    const callable = raw.types.types[method.read.value];
-    const [id] = raw.types.members[callable.form.value.inventory].calls;
-    const row = raw.types.signatures[id];
-    const slot = raw.types.types[row.parameters[0].type];
-    const parameter = { module, node: fragment.typeParameters.nodes[0].id };
-    assert.notEqual(row.target, null);
-    assert.equal(slot.authoredTypeNode, null);
-    assert.deepEqual(slot.form, { kind: "available", value: { kind: "parameter", parameter, constraint: null, default: null } });
-    assert.equal(deps.definitionOf(slot.form.value.parameter), deps.definitionOf(parameter));
+    const checkedType = nodes[property.type.id].tsonic;
+    const checkedReceiver = checkedType.type.value;
+    const parameter = nodes[fragment.typeParameters.nodes[0].id].tsonic.definition;
+    if (fragment === aliasHost) {
+      const applied = typeOf(checkedReceiver);
+      const alias = nodes[raw.tree.statements.nodes.at(-1).id];
+      assert.deepEqual(checkedType.referencedDefinitions, [alias.tsonic.definition]);
+      assert.equal(applied.kind, "merged-interface");
+      assert.equal(applied.definitions[0], nodes[aliasTarget.id].tsonic.definition);
+      assert.deepEqual(applied.arguments.map(typeOf), [{ kind: "param", parameter }]);
+    }
+    const row = methodOf(checkedReceiver, "first");
+    assert.deepEqual(typeOf(row.parameters[0].type), { kind: "param", parameter });
     capturedRows.push(row);
     if (fragment !== aliasHost) {
-      const forward = inventory.members.find(entry => entry.name === "left");
       assert.equal(propertyRows(typeShape, receiver).find(entry => entry.name === "left").type === receiver, true);
-      assert.equal(raw.types.types[forward.read.value].form.value.inventory, inventory.id);
-      assert.equal(raw.types.types[forward.write.value].form.value.inventory, inventory.id);
+      assert.deepEqual(readMember(checkedReceiver, "left"), { read: checkedReceiver, write: checkedReceiver });
 
-      const loop = inventory.members.find(entry => entry.name === "loop");
       const [nativeLoop] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(entry => entry.name === "loop").type);
       assert.equal(checker.getReturnTypeOfSignature(nativeLoop)?.type === receiver, true);
-      const call = entry => raw.types.members[raw.types.types[entry.read.value].form.value.inventory].calls[0];
-      const loopSignature = raw.types.signatures[call(loop)];
-      assert.deepEqual(raw.types.types[loopSignature.parameters[0].type].form.value.parameter, parameter);
-      const returned = raw.types.members[raw.types.types[loopSignature.result.value].form.value.inventory];
-      assert.equal(call(returned.members.find(entry => entry.name === "loop")), loopSignature.id);
+      const loopSignature = methodOf(checkedReceiver, "loop");
+      assert.deepEqual(typeOf(loopSignature.parameters[0].type), { kind: "param", parameter });
+      assert.equal(loopSignature.result, checkedReceiver);
+      assert.equal(methodOf(loopSignature.result, "loop").id, loopSignature.id);
     }
   }
   assert.equal(native[0].receiver === native[1].receiver, true);
@@ -462,8 +577,8 @@ test("applied method formals follow the authored receiver argument even when nat
   assert.equal(native[1].signature === native[2].signature, true);
   assert.notEqual(capturedRows[0].id, capturedRows[1].id);
   assert.equal(capturedRows[1].id, capturedRows[2].id);
-  assert.equal(capturedRows[0].target, capturedRows[1].target);
-  assert.notEqual(capturedRows[1].target, capturedRows[3].target);
+  assert.equal(capturedRows[0].declaration, capturedRows[1].declaration);
+  assert.notEqual(capturedRows[1].declaration, capturedRows[3].declaration);
 });
 
 test("an unproved alias chain cannot borrow another applied formal's declaration", async () => {
@@ -476,9 +591,25 @@ test("an unproved alias chain cannot borrow another applied formal's declaration
     export interface Inputs<T> {}
     export interface Inputs<T> { direct: Direct<T>; unproved: Indirect<T>; }
   ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  assert.throws(() => fixture.captureModulesOf(snapshot), {
-    name: "TypeError", message: "front: a merged type parameter requires its actual selected declaration association",
-  });
+  const { captured } = fixture.captureModulesOf(snapshot);
+  const { raw } = captured.find(entry => entry.module === snapshot.entryPoint);
+  const [first, second] = raw.tree.statements.nodes.filter(node => node.kind === "InterfaceDeclaration" && node.name.text === "Inputs");
+  const [direct, unproved] = second.members.nodes;
+  const argumentOf = property => {
+    const row = raw.types.types[raw.annotations.find(annotation => annotation.node === property.type.id).type];
+    assert.equal(row.form.value.kind, "merged-interface-dependency");
+    assert.equal(row.form.value.arguments.length, 1);
+    return raw.types.types[row.form.value.arguments[0]];
+  };
+  const parameter = fragment => ({ module: raw.module, node: fragment.typeParameters.nodes[0].id });
+  assert.deepEqual(argumentOf(direct).form, { kind: "available", value: {
+    kind: "parameter", parameter: parameter(second), constraint: null, default: null,
+  } });
+  const deferred = argumentOf(unproved);
+  assert.equal(deferred.authoredTypeNode, null);
+  assert.deepEqual(deferred.form, { kind: "available", value: {
+    kind: "merged-slot-parameter", declarations: [parameter(first), parameter(second)],
+  } });
 });
 
 for (const nested of ["(Box<T>)", "Identity<Box<T>>", "Box<Identity<T>>"]) {
@@ -488,7 +619,7 @@ for (const nested of ["(Box<T>)", "Identity<Box<T>>", "Box<Identity<T>>"]) {
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
       export type Identity<X> = X;
       export interface Box<T> { first(value: T): boolean; direct: Box<T>; checkpoint: boolean; }
-      export interface Box<T> { unproved: ${nested}; }
+      export interface Box<T> { unproved: ${nested}; tail: boolean; }
     ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
     const { deps, program, set } = fixture.openAndCapture(snapshot);
     const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
@@ -498,9 +629,9 @@ for (const nested of ["(Box<T>)", "Identity<Box<T>>", "Box<Identity<T>>"]) {
     const { checker, typeShape } = checked.getSourceFileQueries(file);
     const [first, second] = ast.children(file).filter(node => ast.kindName(node) === "KindInterfaceDeclaration");
     const firstProperties = ast.children(first).filter(node => ast.kindName(node) === "KindPropertySignature");
-    const [direct, checkpoint] = firstProperties.map(node => ast.typeNode(node));
-    const nestedProperty = ast.children(second).find(node => ast.kindName(node) === "KindPropertySignature");
-    const unproved = ast.typeNode(nestedProperty);
+    const [direct] = firstProperties.map(node => ast.typeNode(node));
+    const [unproved, tail] = ast.children(second).filter(node => ast.kindName(node) === "KindPropertySignature")
+      .map(node => ast.typeNode(node));
     const receiver = checker.getTypeFromTypeNode(direct).type;
     assert.equal(checker.getTypeFromTypeNode(unproved).type === receiver, true, nested);
     const actual = propertyRows(typeShape, receiver);
@@ -511,16 +642,35 @@ for (const nested of ["(Box<T>)", "Identity<Box<T>>", "Box<Identity<T>>"]) {
       const views = checked.getSourceFileQueries(sourceFile);
       if (sourceFile !== file) return views;
       return { ...views, checker: { ...checker, acquireSourceType(request, admit) {
-        if (request.kind === "annotation" && request.node === checkpoint) reachedLater = true;
+        if (request.kind === "annotation" && request.node === tail) reachedLater = true;
         return checker.acquireSourceType(request, admit);
       } } };
     } }, OpenedProgram.table(program), set.modules.map(entry =>
       OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
     OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-    assert.throws(() => fixture.front.captureModule(deps, observed, module), {
-      name: "TypeError", message: "front: a merged type parameter requires its actual selected declaration association",
-    });
-    assert.equal(reachedLater, false, nested);
+    const run = () => captureSingleModule(fixture.front, deps, observed, module);
+    if (nested === "Box<Identity<T>>") {
+      assert.throws(run, { name: "TypeError", message: "front: a merged type parameter requires its actual selected declaration association" });
+      assert.equal(reachedLater, false);
+      return;
+    }
+    const result = run();
+    assert.equal(result.kind, "ok");
+    const raw = result.value;
+    const numbering = OpenedProgram.syntax(observed).get("/project/src/main.ts").outcome.numbering;
+    const typeOf = syntax => raw.types.types[raw.annotations.find(row => row.node === numbering.ids.get(syntax)).type].form.value;
+    const proved = typeOf(direct);
+    const wrapped = typeOf(unproved);
+    assert.equal(proved.kind, "merged-interface-dependency");
+    assert.equal(wrapped.kind, "merged-interface-dependency");
+    assert.strictEqual(proved.group, wrapped.group);
+    const parameters = [first, second].map(fragment => ({ module, node: numbering.ids.get(ast.typeParameters(fragment)[0]) }));
+    assert.deepEqual(raw.types.types[proved.arguments[0]].form.value,
+      { kind: "parameter", parameter: parameters[0], constraint: null, default: null });
+    const retained = raw.types.types[wrapped.arguments[0]];
+    assert.equal(retained.authoredTypeNode, null);
+    assert.deepEqual(retained.form.value, { kind: "merged-slot-parameter", declarations: parameters });
+    assert.equal(reachedLater, true);
   });
 }
 
@@ -529,7 +679,7 @@ test("recursive receiver admission preserves the actual source-reader stop befor
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
     export interface Box<T> { first(value: T): boolean; direct: Box<T>; checkpoint: boolean; }
-    export interface Box<T> { recursive: Box<T>; }
+    export interface Box<T> { recursive: Box<T>; tail: boolean; }
   ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const { deps, program, set } = fixture.openAndCapture(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
@@ -538,8 +688,8 @@ test("recursive receiver admission preserves the actual source-reader stop befor
   const { ast } = checked;
   const { checker, typeShape } = checked.getSourceFileQueries(file);
   const [left, right] = ast.children(file).filter(node => ast.kindName(node) === "KindInterfaceDeclaration");
-  const [direct, checkpoint] = ast.children(left).filter(node => ast.kindName(node) === "KindPropertySignature").map(node => ast.typeNode(node));
-  const recursive = ast.typeNode(ast.children(right).find(node => ast.kindName(node) === "KindPropertySignature"));
+  const direct = ast.typeNode(ast.children(left).find(node => ast.kindName(node) === "KindPropertySignature"));
+  const [recursive, tail] = ast.children(right).filter(node => ast.kindName(node) === "KindPropertySignature").map(node => ast.typeNode(node));
   const receiver = checker.getTypeFromTypeNode(direct).type;
   assert.equal(checker.getTypeFromTypeNode(recursive).type === receiver, true);
   assert.equal(propertyRows(typeShape, receiver).find(entry => entry.name === "recursive").type === receiver, true);
@@ -550,7 +700,7 @@ test("recursive receiver admission preserves the actual source-reader stop befor
     const views = checked.getSourceFileQueries(sourceFile);
     if (sourceFile !== file) return views;
     return { ...views, checker: { ...checker, acquireSourceType(request, admit) {
-      if (request.kind === "annotation" && request.node === checkpoint) reachedLater = true;
+      if (request.kind === "annotation" && request.node === tail) reachedLater = true;
       const acquired = checker.acquireSourceType(request, admit);
       if (request.kind === "annotation" && request.node === recursive && acquired.kind === "complete") {
         assert.equal(acquired.value.type === receiver, true);
@@ -562,8 +712,8 @@ test("recursive receiver admission preserves the actual source-reader stop befor
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 69], ["maximumCapturedEdgesPerModule", 124]]) {
-    const captureAt = maximum => fixture.front.captureModule({ ...deps,
+  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 170], ["maximumCapturedEdgesPerModule", 231]]) {
+    const captureAt = maximum => captureSingleModule(fixture.front, { ...deps,
       navigationCapture: { ...deps.navigationCapture, [limit]: maximum } }, observed, module);
     primeCaptureReader(captureAt, deps.navigationCapture[limit], stop);
     attempts = 0;
@@ -670,7 +820,7 @@ test("an alias-wrapped callback cannot borrow its inner FunctionType by native p
   assert.equal(checker.getTypeFromTypeNode(wrapped).type === checker.getTypeFromTypeNode(inner).type, true);
   const selectedType = typeShape.getUnionOrIntersectionTypes(typeShape.getSignatureParameterInfos(selected)[0].type).find(arm => !typeShape.isNullish(arm));
   assert.equal(typeShape.getCallSignatures(selectedType)[0].target === checker.getSignatureFromDeclaration(inner), true);
-  assert.throws(() => fixture.front.captureModule(deps, program, module), /a merged type parameter requires its actual selected declaration association/);
+  assert.throws(() => captureSingleModule(fixture.front, deps, program, module), /a merged type parameter requires its actual selected declaration association/);
 });
 
 test("the exact callback evidence limits preserve the actual annotation reader stop", async () => {
@@ -717,7 +867,7 @@ test("the exact callback evidence limits preserve the actual annotation reader s
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
   for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 61], ["maximumCapturedEdgesPerModule", 92]]) {
-    const run = cap => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
+    const run = cap => captureSingleModule(fixture.front, { ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
     primeCaptureReader(run, deps.navigationCapture[limit], stop);
     reads = 0;
     const refused = run(maximum - 1);
@@ -784,10 +934,10 @@ for (const [scenario, annotation, optional, admitted] of [
     if (scenario === "required union") assert.equal(typeShape.isUnion(applied.type), true);
 
     if (!admitted) {
-      assert.throws(() => fixture.front.captureModule(deps, program, module), /a merged type parameter requires its actual selected declaration association/);
+      assert.throws(() => captureSingleModule(fixture.front, deps, program, module), /a merged type parameter requires its actual selected declaration association/);
       return;
     }
-    const captured = fixture.front.captureModule(deps, program, module);
+    const captured = captureSingleModule(fixture.front, deps, program, module);
     assert.equal(captured.kind, "ok");
     const raw = captured.value;
     const ids = OpenedProgram.syntax(program).get("/project/src/main.ts").outcome.numbering.ids;
@@ -853,11 +1003,11 @@ for (const annotation of ["T[]", "Identity<T[]>"]) {
       } }, OpenedProgram.table(program), set.modules.map(entry =>
         OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
       OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-      assert.throws(() => fixture.front.captureModule(deps, observed, module), /a merged type parameter requires its actual selected declaration association/);
+      assert.throws(() => captureSingleModule(fixture.front, deps, observed, module), /a merged type parameter requires its actual selected declaration association/);
       assert.equal(readLater, false);
       return;
     }
-    const captured = fixture.front.captureModule(deps, program, module);
+    const captured = captureSingleModule(fixture.front, deps, program, module);
     assert.equal(captured.kind, "ok");
     const raw = captured.value;
     const ids = OpenedProgram.syntax(program).get("/checker/lib.es2023.array.d.ts").outcome.numbering.ids;
@@ -999,7 +1149,7 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped callback r
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  const run = (limit, maximum) => fixture.front.captureModule(limit === undefined ? deps
+  const run = (limit, maximum) => captureSingleModule(fixture.front, limit === undefined ? deps
     : { ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: maximum } }, observed, module);
   if (wrapped) {
     assert.throws(() => run(), /a merged type parameter requires its actual selected declaration association/u);
@@ -1225,17 +1375,17 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped self resul
     } }, OpenedProgram.table(opened.program), opened.set.modules.map(entry =>
       OpenedProgram.file(opened.program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
     OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
-    assert.throws(() => fixture.front.captureModule(opened.deps, program, module),
+    assert.throws(() => captureSingleModule(fixture.front, opened.deps, program, module),
       /a merged type parameter requires its actual selected declaration association/u);
     assert.equal(sourceReads, 0);
     assert.equal(selectedReads, 1);
     return;
   }
-  const captured = fixture.front.captureModule(opened.deps, opened.program, module);
+  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
   const numbered = OpenedProgram.syntax(opened.program).get("/project/src/main.ts").outcome.numbering;
-  const definitions = fixture.front.lowerModuleDefinitions({ module: raw,
+  const definitions = identifySingleModule(fixture.front, { module: raw,
     componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === module) });
   assert.equal(definitions.kind, "ok");
   const interner = fixture.types.createTypeInterner();
@@ -1273,7 +1423,7 @@ test("a nested callback annotation keeps the self owner of its actual interface"
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const { deps, program } = fixture.openAndCapture(snapshot);
   const module = snapshot.entryPoint;
-  const result = fixture.front.captureModule(deps, program, module);
+  const result = captureSingleModule(fixture.front, deps, program, module);
   assert.equal(result.kind, "ok");
   const { tree, types } = result.value;
   const owners = tree.statements.nodes.map(declaration => {
@@ -1343,7 +1493,7 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer wrapped rest
   assert.equal(checker.getTypeFromTypeNode(annotation).type === receiver && appliedRest.type === receiver && originalRest.type === receiver, true);
   assert.equal(ast.kindName(annotation), wrapped ? "KindTypeReference" : "KindArrayType");
   assert.equal(ast.as.AsParameterDeclaration(originalRest.declaration).DotDotDotToken !== undefined, true);
-  const run = () => fixture.front.captureModule(deps, program, module);
+  const run = () => captureSingleModule(fixture.front, deps, program, module);
   if (wrapped) {
     assert.throws(run, /a merged type parameter requires its actual selected declaration association/u);
     return;
@@ -1505,7 +1655,7 @@ test("a crossed rest arm cannot borrow the same native declared reference throug
   const [element] = typeShape.getTypeReferenceArgumentInfos(applied.type);
   assert.equal(typeShape.getUnionOrIntersectionTypes(element.argument).includes(fromOtherUse), true);
   assert.equal(checker.getSymbolAtLocation(ast.as.AsTypeReferenceNode(crossed).TypeName) === checker.getTypeSymbol(fromOtherUse), false);
-  assert.throws(() => fixture.front.captureModule(deps, program, module), /a merged type parameter requires its actual selected declaration association/u);
+  assert.throws(() => captureSingleModule(fixture.front, deps, program, module), /a merged type parameter requires its actual selected declaration association/u);
 });
 
 test("the composed rest preserves the original authored argument reader stop", async () => {
@@ -1548,7 +1698,7 @@ test("the composed rest preserves the original authored argument reader stop", a
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  assert.throws(() => fixture.front.captureModule(deps, observed, module), error => error === stop);
+  assert.throws(() => captureSingleModule(fixture.front, deps, observed, module), error => error === stop);
   assert.equal(reads.length === 2 && reads[0] === bare && reads[1] === argument, true);
 });
 
@@ -1625,7 +1775,7 @@ for (const scenario of ["direct", "crossed", "stop"]) test("a composed receiver 
     } }, OpenedProgram.table(program), set.modules.map(entry =>
       OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
     OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-    const run = () => fixture.front.captureModule(deps, observed, module);
+    const run = () => captureSingleModule(fixture.front, deps, observed, module);
     if (scenario === "stop") {
       assert.throws(run, error => error === stop);
       assert.equal(reads.length === 2 && reads[0] === selected && reads[1] === original, true);
@@ -1635,7 +1785,7 @@ for (const scenario of ["direct", "crossed", "stop"]) test("a composed receiver 
     }
     return;
   }
-  const captured = fixture.front.captureModule(deps, program, module);
+  const captured = captureSingleModule(fixture.front, deps, program, module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
   const numbered = OpenedProgram.syntax(program).get("/project/src/main.ts").outcome.numbering;
@@ -1799,10 +1949,9 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
   assert.notDeepEqual(originalComponent.path, appliedComponent.path);
   assert.notDeepEqual(raw.types.components[foreign.component].root, raw.types.components[tuple.component].root);
   for (const [owner, elements, error] of [
-    [tuple, [undefined, second], /actual ordered unlabelled slots/u],
-    [tuple, [{ ...first, kind: "optional" }, second], /actual ordered unlabelled slots/u],
-    [tuple, [{ ...first, acceptsOmission: true }, second], /actual ordered unlabelled slots/u],
-    [tuple, [{ ...first, kind: "variadic" }, second], /actual authored spread at its ordinal/u],
+    [tuple, [undefined, second], /actual required or optional unlabelled slots/u],
+    [tuple, [{ ...first, kind: "optional" }, second], /actual required or optional unlabelled slots/u],
+    [tuple, [{ ...first, acceptsOmission: true }, second], /actual required or optional unlabelled slots/u],
     [tuple, [{ ...first, type: second.type }, second], /actual type component/u],
     [tuple, [second, first], /actual type component/u],
     [tuple, foreign.form.value.elements, /actual type component/u],
@@ -1921,7 +2070,7 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  const run = (limit, maximum) => fixture.front.captureModule(limit === undefined ? deps
+  const run = (limit, maximum) => captureSingleModule(fixture.front, limit === undefined ? deps
     : { ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: maximum } }, observed, module);
   if (wrapped) {
     assert.throws(() => run(), /projected tuple slot requires its actual authored binder/u);
@@ -1990,7 +2139,7 @@ test("a natively flattened tuple cannot stand in for the authored slot vector", 
   assert.equal(typeShape.isTuple(tuple), true);
   assert.equal(ast.as.AsTupleTypeNode(syntax).Elements.Nodes.length, 2);
   assert.equal(typeShape.getTupleInfo(tuple).elements.length, 3);
-  assert.throws(() => fixture.front.captureModule(deps, program, module), /actual unflattened authored slots/u);
+  assert.throws(() => captureSingleModule(fixture.front, deps, program, module), /actual unflattened authored slots/u);
 });
 
 for (const forged of [false, true]) test(forged ? "an alias result cannot borrow the same native declared result" :
@@ -2043,7 +2192,7 @@ for (const forged of [false, true]) test(forged ? "an alias result cannot borrow
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
   if (forged) {
-    assert.throws(() => fixture.front.captureModule(deps, observed, module),
+    assert.throws(() => captureSingleModule(fixture.front, deps, observed, module),
       /a merged type parameter requires its actual selected declaration association/u);
     assert.equal(selectedReads, 1);
     assert.equal(originalReads, 0);
@@ -2051,7 +2200,7 @@ for (const forged of [false, true]) test(forged ? "an alias result cannot borrow
     return;
   }
   for (const [limit, exact] of [["maximumCapturedFactsPerModule", 53], ["maximumCapturedEdgesPerModule", 84]]) {
-    const run = maximum => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: maximum } },
+    const run = maximum => captureSingleModule(fixture.front, { ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: maximum } },
       observed, module);
     primeCaptureReader(run, deps.navigationCapture[limit], stop);
     originalReads = 0;
@@ -2111,7 +2260,7 @@ test("an alias-wrapped result cannot borrow a matching inner union by native poi
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  assert.throws(() => fixture.front.captureModule(deps, observed, module), /a merged type parameter requires its actual selected declaration association/);
+  assert.throws(() => captureSingleModule(fixture.front, deps, observed, module), /a merged type parameter requires its actual selected declaration association/);
   assert.equal(selectedReads, 1);
   assert.equal(originalReads, 0);
 });
@@ -2157,7 +2306,7 @@ test("the exact union result limits preserve the original signature reader stop"
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
   for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 63], ["maximumCapturedEdgesPerModule", 91]]) {
-    const run = cap => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
+    const run = cap => captureSingleModule(fixture.front, { ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
     primeCaptureReader(run, deps.navigationCapture[limit], stop);
     reads = 0;
     selectedReads = 0;
@@ -2213,7 +2362,7 @@ test("a union arm cannot classify a mixed declaration inventory from its first n
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  assert.throws(() => fixture.front.captureModule(deps, observed, module), /a merged type parameter requires its actual selected declaration association/);
+  assert.throws(() => captureSingleModule(fixture.front, deps, observed, module), /a merged type parameter requires its actual selected declaration association/);
   assert.equal(checkedSecond, 1);
   assert.equal(readArm, 0);
 });

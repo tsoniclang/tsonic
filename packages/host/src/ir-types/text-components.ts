@@ -1,7 +1,7 @@
 import type { ComponentSelector, SumArmRole, SumFamily, TypeComponent, TypeProjection } from "./contract.js";
 import type { TypeTextValues } from "./text-values.js";
 import type { RecordReader } from "./text-readers.js";
-import { arrayReader, lazyReader, recordReader, unionReader } from "./text-readers.js";
+import { arrayReader, enumReader, lazyReader, nullableReader, recordReader, unionReader } from "./text-readers.js";
 
 export function createTypeComponentReaders(values: TypeTextValues) {
   const reader_component = recordReader<TypeComponent>("TypeComponent", read => {
@@ -127,7 +127,8 @@ export function createTypeComponentReaders(values: TypeTextValues) {
     default: return null;
     }
   });
-  const reader_projection: RecordReader<TypeProjection> = unionReader(["awaited","keyof","indexed","substitution","conditional","component"], label => {
+  const mappedModifier = enumReader<"preserve" | "add" | "remove">("string", ["preserve", "add", "remove"]);
+  const reader_projection: RecordReader<TypeProjection> = unionReader(["awaited","keyof","indexed","substitution","conditional","mapped","component"], label => {
     switch (label) {
     case "awaited": return recordReader<TypeProjection>("awaited", () => {
       return { fields: [], value: () => ({ kind: "awaited" }) };
@@ -152,6 +153,15 @@ export function createTypeComponentReaders(values: TypeTextValues) {
       return { fields: [extended, whenTrue, whenFalse, distributive, inferParameters], value: () => ({ kind: "conditional",
         extends: extended.value(), whenTrue: whenTrue.value(), whenFalse: whenFalse.value(), distributive: distributive.value(),
         inferParameters: inferParameters.value() }) };
+    });
+    case "mapped": return recordReader<TypeProjection>("mapped", read => {
+      const parameter = read("parameter", lazyReader(() => values["definition-id"]));
+      const remap = read("remap", nullableReader(() => values["type-id"]));
+      const value = read("value", lazyReader(() => values["type-id"]));
+      const readonly = read("readonly", mappedModifier);
+      const optional = read("optional", mappedModifier);
+      return { fields: [parameter, remap, value, readonly, optional], value: () => ({ kind: "mapped",
+        parameter: parameter.value(), remap: remap.value(), value: value.value(), readonly: readonly.value(), optional: optional.value() }) };
     });
     case "component": return recordReader<TypeProjection>("component", read => {
       const field_component = read("component", lazyReader(() => reader_component));

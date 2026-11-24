@@ -12,7 +12,7 @@ import { compileIsolated, isolationDeps } from "../architecture/host/isolation.m
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { runCase } from "../host-cases/case.mjs";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { syntaxConstructorInputs } from "./fixtures/hir-syntax.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
@@ -4731,7 +4731,7 @@ test("HIR return write-fit must retain the actual annotated completion, not anot
   const coverage = raw.diagnosticCoverage[0];
   assert.equal(coverage.kind, "complete");
   assert.equal(coverage.obligations[0].kind, "write-fit");
-  const definitions = front.front.lowerModuleDefinitions({ module: raw,
+  const definitions = identifySingleModule(front.front, { module: raw,
     componentRoots: [first.type, second.type].map(node => ({ module: raw.module, node: node.id })) });
   assert.equal(definitions.kind, "ok");
   const referenceOf = node => definitions.value.sourceOccurrences.find(row => row.node === node.id).occurrence;
@@ -4804,7 +4804,7 @@ test("HIR default write-fit uses the callable's checked header and the separate 
   const { raw, checked, interner } = front.checkedModuleOf(source);
   const [callable] = checked.tree.statements.nodes;
   const [, parameter] = callable.parameters.nodes;
-  const definitions = front.front.lowerModuleDefinitions({ module: raw,
+  const definitions = identifySingleModule(front.front, { module: raw,
     componentRoots: [parameter, parameter.type, parameter.initializer].map(node => ({ module: raw.module, node: node.id })) });
   assert.equal(definitions.kind, "ok");
   const sourceOf = node => definitions.value.sourceOccurrences.find(row => row.node === node.id).occurrence;

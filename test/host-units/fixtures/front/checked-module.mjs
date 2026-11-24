@@ -1,5 +1,5 @@
 // The one test path from source text to a checked module: a verifier-valid snapshot, the checker opened by Front, and Front's
-// production operations (captureModule, lowerModuleDefinitions, lowerModuleExports, lowerModule). Cases of Front, Decls and the
+// production operations (captureModules, lowerModuleDefinitions, lowerModuleExports, lowerModule). Cases of Front, Decls and the
 // composed pipeline import it, so there is one copy of the path. The built modules are imported when loadFrontFixture is called,
 // so a case that measures coverage starts its measurement first.
 import assert from "node:assert/strict";
@@ -11,6 +11,32 @@ export const navigationCapture = { maximumCallableExpressionDepth: 64, maximumCa
   maximumCapturedEdgesPerModule: 100000 };
 const literalCapture = { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 };
 const byId = (left, right) => left.id < right.id ? -1 : 1;
+
+export function captureSingleModule(front, deps, program, module) {
+  const result = front.captureModules(deps, program, [module]);
+  if (result.kind !== "ok") return result;
+  assert.equal(result.value.length, 1);
+  assert.equal(result.value[0].module, module);
+  return { ...result, value: result.value[0] };
+}
+
+export function identifySingleModule(front, { module, componentRoots }) {
+  const result = front.lowerModuleDefinitions({ componentRootsOf: requested => {
+    assert.equal(requested, module.module);
+    return componentRoots;
+  } }, [module]);
+  if (result.kind !== "ok") return result;
+  assert.equal(result.value.length, 1);
+  assert.equal(result.value[0].module, module.module);
+  return { ...result, value: result.value[0] };
+}
+
+export function lowerSingleCheckedModule(front, deps, raw) {
+  const result = front.lowerModule(deps, raw);
+  if (result.kind !== "ok") return result;
+  assert.equal(result.value.module.module, raw.module);
+  return { ...result, value: result.value.module };
+}
 
 export function rawComponentPath(components, component) {
   const path = [];
@@ -164,6 +190,24 @@ export async function loadFrontFixture() {
 
   function* occurrenceRoots(raw) {
     for (const component of raw.types.components) yield component.root;
+    for (const row of raw.types.types) {
+      if (row.form.kind !== "available") continue;
+      const form = row.form.value;
+      const step = raw.types.components[row.component]?.path?.step;
+      if (form.kind === "conditional" && form.application === null && step?.kind === "member") {
+        yield step.declaration;
+        yield form.operator;
+      }
+      if (row.alias.kind === "available" && row.alias.value !== null
+        && (form.kind === "indexed-access" || form.kind === "indexed-alias-dependency")) {
+        yield row.alias.value.declaration;
+        if (form.operator !== null) yield form.operator;
+      }
+    }
+    for (const signature of raw.types.signatures) {
+      const receiver = signature.receiver.kind === "available" ? signature.receiver.value?.declaration : null;
+      if (receiver != null) yield receiver;
+    }
     for (const entry of raw.exports) if (entry.typeOnlyStar !== null) yield entry.typeOnlyStar;
     for (const table of raw.types.members) for (const member of table.members) {
       for (const origin of member.origins) if (origin.kind === "source-member") yield origin.occurrence;
@@ -176,15 +220,15 @@ export async function loadFrontFixture() {
    */
   function checkedModuleOf(sourceText) {
     const { deps, program, snapshot, module } = openedModule(sourceText);
-    const raw = front.captureModule(deps, program, module);
-    assert.equal(raw.kind, "ok", "captureModule");
-    const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: [...occurrenceRoots(raw.value)].filter(root => root.module === raw.value.module) });
+    const raw = captureSingleModule(front, deps, program, module);
+    assert.equal(raw.kind, "ok", "captureModules");
+    const definitions = identifySingleModule(front, { module: raw.value, componentRoots: [...occurrenceRoots(raw.value)].filter(root => root.module === raw.value.module) });
     assert.equal(definitions.kind, "ok", "lowerModuleDefinitions");
     const interner = types.createTypeInterner();
     const lowerDeps = lowerDepsFor(definitions.value, interner, sourceText);
     const exported = front.lowerModuleExports(lowerDeps, raw.value);
     assert.equal(exported.kind, "ok", "lowerModuleExports");
-    const checked = front.lowerModule({ ...lowerDeps, exportsOf: actual => actual === module ? exported.value : null }, raw.value);
+    const checked = lowerSingleCheckedModule(front, { ...lowerDeps, exportsOf: actual => actual === module ? exported.value : null }, raw.value);
     assert.equal(checked.kind, "ok", "lowerModule");
     return { module, snapshot, raw: raw.value, definitions: definitions.value, interner, typeWork: lowerDeps.typeWork,
       exports: exported.value, checked: checked.value };
@@ -194,12 +238,13 @@ export async function loadFrontFixture() {
     const opened = openAndCapture(snapshot);
     const interner = types.createTypeInterner();
     const fileTexts = new Map(snapshot.source.input.packages.files.map(file => [file.path, file.text]));
-    const captures = modules.map(({ id: module, path }) => {
-      const raw = front.captureModule(opened.deps, opened.program, module);
-      assert.equal(raw.kind, "ok");
+    const raw = front.captureModules(opened.deps, opened.program, modules.map(row => row.id));
+    assert.equal(raw.kind, "ok");
+    const captures = modules.map(({ id: module, path }, position) => {
       const text = fileTexts.get(path);
       assert.equal(typeof text, "string", "the captured module has its original snapshot text");
-      return { module, text, raw: raw.value };
+      assert.equal(raw.value[position]?.module, module);
+      return { module, text, raw: raw.value[position] };
     });
     const requests = new Map();
     for (const entry of captures) for (const occurrence of occurrenceRoots(entry.raw)) {
@@ -207,10 +252,11 @@ export async function loadFrontFixture() {
       roots.push(occurrence);
       requests.set(occurrence.module, roots);
     }
-    const captured = captures.map(entry => {
-      const definitions = front.lowerModuleDefinitions({ module: entry.raw, componentRoots: requests.get(entry.module) ?? [] });
-      assert.equal(definitions.kind, "ok");
-      return { ...entry, definitions: definitions.value };
+    const identified = front.lowerModuleDefinitions({ componentRootsOf: module => requests.get(module) ?? [] }, raw.value);
+    assert.equal(identified.kind, "ok");
+    const captured = captures.map((entry, position) => {
+      assert.equal(identified.value[position]?.module, entry.module);
+      return { ...entry, definitions: identified.value[position] };
     });
     const definitions = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.rows.map(row => [row.node, row.definition]))]));
     const occurrences = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.sourceOccurrences.map(row => [row.node, row]))]));
@@ -237,7 +283,7 @@ export async function loadFrontFixture() {
     const requested = Object.keys(sourceFiles).map(name => available.get(moduleOf(packageOf("/project"), "src/" + name)));
     const { interner, captured, deps } = captureModulesOf(snapshot, requested);
     const modules = captured.map(entry => {
-      const result = front.lowerModule(deps, entry.raw);
+      const result = lowerSingleCheckedModule(front, deps, entry.raw);
       assert.equal(result.kind, "ok");
       return result.value;
     });

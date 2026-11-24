@@ -3,12 +3,12 @@ import type { Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, NodeId } from "../ids/contract.js";
 import { decodeBodyId, decodeModuleId } from "../ids/index.js";
-import type { LowerDeps, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawModule, RawNodeRef } from "../front/contract.js";
+import type { LowerDeps, LoweredModule, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawModule, RawNodeRef } from "../front/contract.js";
 import type { CheckedPhase, EnumDeclaration, HirBindingViews, HirDeclarationScopes, HirModule } from "../ir-hir/contract.js";
 import { createModuleBindingViews, deriveDeclarationScopes, indexSyntaxTree, resolveModuleExport, verifyHir } from "../ir-hir/index.js";
 import type { AdmittedNativeGuarantee, Libraries, ProviderLibraryModel, ProviderLibraryOrigin, ProviderLibraryText } from "../libraries/contract.js";
 import { bindProviderLibraries } from "../libraries/index.js";
-import type { NominalDefinition, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
+import type { CheckedInterfaceDescription, InterfaceDescriptionRecipe, NominalDefinition, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import { admitTypePublicationStep, createTypeInterner, createTypePublicationWork, refuseTypeConstruction, viewTypes } from "../ir-types/index.js";
 import type { PackageModule } from "../snapshot/contract.js";
 import type { HostAnalysisInputs } from "./contract.js";
@@ -40,6 +40,7 @@ export interface SourceBarrier extends HirBindingViews {
   readonly layoutOperands: ReadonlySet<BodyId> | null;
   readonly definitionPaths: ReadonlyMap<DefId, DefinitionPath>;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+  readonly interfaceDescriptionOf: (definition: DefId) => CheckedInterfaceDescription | null;
   readonly libraries: Libraries;
   readonly nativeGuaranteeOf: (declaration: DefId) => AdmittedNativeGuarantee | null;
 }
@@ -69,12 +70,17 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
   const documents = new Map<ModuleId, { readonly text: string; readonly role: PackageModule["role"] }>();
   const fileText = new Map(inputs.snapshot.source.input.packages.files.map(file => [file.path, file.text]));
   const snapshotModules = new Map(inputs.snapshot.source.input.packages.modules.map(module => [module.id, module]));
-  for (const entry of set.modules) {
+  const captured = front.captureModules(capture, opened.value, set.modules.map(entry =>
+    entry.kind === "snapshot" ? entry.module : entry.document.module));
+  if (captured.kind === "refused") return captured;
+  for (let position = 0; position < set.modules.length; ++position) {
+    const entry = set.modules[position];
+    if (entry === undefined) return fail("The actual opened module inventory must be dense.");
     const module = entry.kind === "snapshot" ? entry.module : entry.document.module;
-    const captured = front.captureModule(capture, opened.value, module);
-    if (captured.kind === "refused") return captured;
+    const moduleCapture = captured.value[position];
+    if (moduleCapture?.module !== module) return fail("Raw capture must retain the actual opened module at its position.");
     if (raw.has(module)) return fail("The actual opened module inventory cannot repeat a module identity.");
-    raw.set(module, captured.value);
+    raw.set(module, moduleCapture);
     if (entry.kind === "session-document") documents.set(module, { text: entry.document.text, role: "declaration" });
     else {
       const receipt = snapshotModules.get(module);
@@ -92,16 +98,33 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
   };
   for (const captured of raw.values()) {
     for (const component of captured.types.components) request(component.root);
+    for (const row of captured.types.types) {
+      if (row.form.kind !== "available") continue;
+      const form = row.form.value;
+      const path = captured.types.components[row.component]?.path;
+      if (form.kind === "conditional" && form.application === null && path?.step.kind === "member") {
+        request(path.step.declaration);
+        request(form.operator);
+      }
+      if (row.alias.kind !== "available" || row.alias.value === null) continue;
+      if (form.kind !== "indexed-access" && form.kind !== "indexed-alias-dependency") continue;
+      request(row.alias.value.declaration);
+      if (form.operator !== null) request(form.operator);
+    }
+    for (const signature of captured.types.signatures) {
+      const receiver = signature.receiver.kind === "available" ? signature.receiver.value?.declaration : null;
+      if (receiver != null) request(receiver);
+    }
     for (const entry of captured.exports) if (entry.typeOnlyStar !== null) request(entry.typeOnlyStar);
     for (const table of captured.types.members) for (const member of table.members) {
       for (const origin of member.origins) if (origin.kind === "source-member") request(origin.occurrence);
     }
   }
-  for (const [module, captured] of raw) {
-    const identified = front.lowerModuleDefinitions({ module: captured, componentRoots: componentRoots.get(module) ?? [] });
-    if (identified.kind === "refused") return identified;
-    definitions.set(module, identified.value);
-    for (const row of identified.value.rows) paths.set(row.definition, { module, segments: row.segments });
+  const identified = front.lowerModuleDefinitions({ componentRootsOf: module => componentRoots.get(module) ?? [] }, [...raw.values()]);
+  if (identified.kind === "refused") return identified;
+  for (const inventory of identified.value) {
+    definitions.set(inventory.module, inventory);
+    for (const row of inventory.rows) paths.set(row.definition, { module: inventory.module, segments: row.segments });
   }
   const defined = new Map<ModuleId, ReadonlyMap<NodeId, DefId>>();
   const occurrences = new Map<ModuleId, ReadonlyMap<NodeId, ModuleSourceOccurrence>>();
@@ -129,14 +152,16 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     exported.set(module, result.value);
   }
   const checked = new Map<ModuleId, HirModule>();
+  const descriptionsByModule = new Map<ModuleId, LoweredModule["interfaceDescriptions"]>();
   const modules: SourceModule[] = [];
   for (const [module, captured] of raw) {
     const result = front.lowerModule(lowering, captured);
     if (result.kind === "refused") return result;
-    checked.set(module, result.value);
+    checked.set(module, result.value.module);
+    descriptionsByModule.set(module, result.value.interfaceDescriptions);
     const document = documents.get(module);
     if (document === undefined) return fail("A checked module retains its actual captured document and role.");
-    modules.push({ module: result.value, nodes: indexSyntaxTree(result.value.tree), role: document.role });
+    modules.push({ module: result.value.module, nodes: indexSyntaxTree(result.value.module.tree), role: document.role });
   }
   const sources = checkedSourceViews(modules);
   const scopes = new Map<ModuleId, HirDeclarationScopes>();
@@ -147,8 +172,18 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
   };
   const bindingScopeOf = (definition: DefId) => scopesOf(definition)?.bindingScopeOf(definition) ?? null;
   const groups = new Map<DefId, InterfaceGroup>();
+  const interfaceDescriptions = new Map<InterfaceGroup, CheckedInterfaceDescription>();
   for (const captured of raw.values()) {
     const groupRows = captured.types.interfaceGroups;
+    const completed = descriptionsByModule.get(captured.module) ?? fail("A captured module must have its actual lowered descriptions.");
+    const localDescriptions = new Map<number, InterfaceDescriptionRecipe>();
+    for (const row of completed) {
+      const stop = admitTypePublicationStep(typeWork);
+      if (stop !== null) return refuseTypeConstruction(typeWork, stop, captured.tree.origin,
+        { query: "checkedInterfaceGroups", key: [captured.module, row.ordinal] });
+      if (localDescriptions.has(row.ordinal)) return fail("A completed neutral description cannot be repeated in its own source.");
+      localDescriptions.set(row.ordinal, row.recipe);
+    }
     for (let position = 0; position < groupRows.length; ++position) {
       const admit = (count = 1) => {
         const stopped = admitTypePublicationStep(typeWork, count);
@@ -230,9 +265,21 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
         if (step !== null) return step;
         if (!sameGroup(prior, result)) return fail("Repeated capture must retain one exact checked declaration group.");
       } else for (const definition of definitionsInGroup) groups.set(definition, result);
+      const recipe = localDescriptions.get(position);
+      if (recipe !== undefined) {
+        const authority = prior ?? result;
+        const priorDescription = interfaceDescriptions.get(authority);
+        if (priorDescription !== undefined && priorDescription.recipe !== recipe)
+          return fail("One checked declaration group cannot supply different neutral descriptions.");
+        if (priorDescription === undefined) interfaceDescriptions.set(authority, { group: authority, recipe });
+      }
     }
   }
   const nominalOf = (definition: DefId) => groups.get(definition) ?? scopesOf(definition)?.nominalOf(definition) ?? null;
+  const interfaceDescriptionOf = (definition: DefId): CheckedInterfaceDescription | null => {
+    const group = groups.get(definition);
+    return group === undefined ? null : interfaceDescriptions.get(group) ?? null;
+  };
   const table = viewTypes(types);
   for (const { module } of modules) {
     const violations = verifyHir(module, {
@@ -343,6 +390,6 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     nativeGuarantees.set(guarantee.declaration, guarantee);
   }
   return { kind: "ok", diagnostics: opened.diagnostics,
-    value: { checked: sources, modules, types, typeWork, descriptions, enums, enumInitializers, layoutOperands, definitionPaths: paths, nominalOf, libraries: admitted.value,
+    value: { checked: sources, modules, types, typeWork, descriptions, enums, enumInitializers, layoutOperands, definitionPaths: paths, nominalOf, interfaceDescriptionOf, libraries: admitted.value,
       nativeGuaranteeOf: declaration => nativeGuarantees?.get(declaration) ?? null, bindingOf: views.bindingOf } };
 }
