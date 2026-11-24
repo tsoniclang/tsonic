@@ -567,10 +567,11 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       const structured = shape.getStructuredInventory(type, () => null);
       if (structured.kind !== "complete") throw new TypeError("Mutable property inspection requires the actual owning checker.");
       const inventory = structured.value.properties;
-      for (let index = 0; index < inventory.length; index += 1) {
-        const row = inventory.read(index, () => null);
+      for (;;) {
+        const row = inventory.next();
         if (row.kind !== "complete") throw new TypeError("An admitted inspection requires the actual effective property.");
         const property = row.value;
+        if (property === null) break;
         const declarations = property.rootSymbols.flatMap(root => queries.getSymbolDeclarations(root));
         const method = declarations.length > 0 && declarations.every(declaration => declaration !== undefined &&
           (ast.is.IsMethodSignatureDeclaration(declaration) || ast.is.IsMethodDeclaration(declaration)));

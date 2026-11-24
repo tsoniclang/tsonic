@@ -21,7 +21,7 @@ import { querySourceType, resolveSourceTypeAnswer } from "./source-type-answer.j
 import { Background } from "../go/context.js";
 import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetIndexInfosOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
 import { Checker_getTypeOfSymbol, Checker_getInstantiatedBaseTypes, Checker_resolveStructuredTypeMembers, } from "../internal/checker/checker/symbols.js";
-import { Checker_getBaseTypeOfLiteralType, Checker_getPropertiesOfObjectType, Checker_getPropertiesOfUnionOrIntersectionType, Checker_getReducedApparentType, Checker_GetNonNullableType } from "../internal/checker/checker/types.js";
+import { Checker_getBaseTypeOfLiteralType, Checker_getPropertiesOfObjectType, Checker_iteratePropertiesOfUnionOrIntersectionType, Checker_getReducedApparentType, Checker_GetNonNullableType } from "../internal/checker/checker/types.js";
 import { Checker_isOptionalParameter } from "../internal/checker/utilities.js";
 import { Checker_getSignatureFromDeclaration } from "../internal/checker/checker/signatures.js";
 import { getBigIntLiteralValue, getNumberLiteralValue, getStringLiteralValue, signatureHasRestParameter, } from "../internal/checker/checker/state.js";
@@ -29,7 +29,7 @@ import { PseudoBigInt_String } from "../internal/jsnum/pseudobigint.js";
 import { Checker_getMinArgumentCount, Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
 import { Checker_GetConstantValue, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
-import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, StructuredType_Properties, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNonPrimitive, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsStructuredType, TypeFlagsStructuredOrInstantiable, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsConditionalType, Type_AsInterfaceType, Type_AsTypeReference, Type_AsLiteralType, LiteralType_Value, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
+import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, StructuredType_Properties, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNonPrimitive, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsStructuredType, TypeFlagsStructuredOrInstantiable, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsConditionalType, Type_AsInterfaceType, Type_AsTypeReference, Type_AsUnionOrIntersectionType, Type_AsLiteralType, LiteralType_Value, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
 export function createTypeShapeQueries(program, defaultOptions) {
     if (program === undefined || defaultOptions.sourceFile === undefined) {
         throw new Error("Type-shape queries require one source file from the compiler program.");
@@ -307,11 +307,50 @@ function getStructuredTypeInventory(program, type, options, admit) {
             admitNativeChecker(checker, "retained");
             indexes.push(readTypeIndexInfo(checker, type, info));
         }
-        const properties = (effective.flags & (TypeFlagsUnion | TypeFlagsIntersection)) !== 0
-            ? Checker_getPropertiesOfUnionOrIntersectionType(checker, effective)
-            : (effective.flags & TypeFlagsObject) !== 0 ? StructuredType_Properties(structured) ?? [] : [];
         admitNativeChecker(checker, "retained", 2);
-        const inventory = propertyInventory(program, source, checker, context, properties, (current, symbol) => readTypePropertyInfo(current, type, symbol));
+        const composite = Type_AsUnionOrIntersectionType(effective);
+        const direct = composite === undefined
+            ? (effective.flags & TypeFlagsObject) !== 0 ? StructuredType_Properties(structured) ?? [] : []
+            : composite.resolvedProperties;
+        if (direct === undefined)
+            admitNativeChecker(checker, "retained");
+        const pending = composite !== undefined && direct === undefined
+            ? Checker_iteratePropertiesOfUnionOrIntersectionType(checker, effective, composite) : null;
+        let position = 0;
+        let ended = false;
+        let stopped = null;
+        const inventory = Object.freeze({
+            mayHaveRows: direct === undefined || direct.length !== 0,
+            next: () => {
+                if (stopped !== null)
+                    return { kind: "refused", stop: stopped };
+                if (ended || direct !== undefined && position === direct.length)
+                    return { kind: "complete", value: null };
+                const read = withOwnedCheckerAcquisition(program, source, checker, context, admit, owner => {
+                    let symbol;
+                    if (direct !== undefined) {
+                        admitNativeChecker(owner, "work");
+                        symbol = direct[position];
+                    }
+                    else {
+                        if (pending === null)
+                            throw new Error("A cold composite requires its actual native property traversal.");
+                        const reached = pending.next();
+                        if (reached.done)
+                            return null;
+                        symbol = reached.value;
+                    }
+                    const value = readTypePropertyInfo(owner, type, symbol);
+                    position += 1;
+                    return value;
+                });
+                if (read.kind === "complete" && read.value === null)
+                    ended = true;
+                if (read.kind === "refused")
+                    stopped = read.stop;
+                return read;
+            },
+        });
         return Object.freeze({ signatures: structured?.signatures ?? [], callSignatureCount: structured?.callSignatureCount ?? 0,
             indexes: Object.freeze(indexes), properties: inventory });
     });

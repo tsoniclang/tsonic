@@ -15,7 +15,7 @@ import type { PseudoBigInt } from "../../jsnum/pseudobigint.js";
 import type { ResolvedModule } from "../../module/types.js";
 import type { TypeMapper } from "../mapper.js";
 import type { ExtensionConditionalCapture } from "../../../extensions/conditional-type-evidence.js";
-import type { ConditionalRoot, ContextFlags, ElementFlags, IndexInfo, ObjectFlags, Signature, StructuredType, TupleElementInfo, Type, TypeAlias, TypeData, TypeFlags } from "../types.js";
+import type { ConditionalRoot, ContextFlags, ElementFlags, IndexInfo, ObjectFlags, Signature, StructuredType, TupleElementInfo, Type, TypeAlias, TypeData, TypeFlags, UnionOrIntersectionType } from "../types.js";
 import type { orderedSet } from "../utilities.js";
 import type { Checker, CheckMode, InferenceContext, IntersectionFlags, IterationTypeKind, IterationTypes, IterationTypesResolver, IterationUse, keyBuilder, ObjectLiteralDiscriminator, PredicateSemantics, TupleNormalizer, TypeFacts, TypeSystemEntity, TypeSystemPropertyName, UnionReduction, WideningContext, WideningKind } from "./state.js";
 /**
@@ -3336,6 +3336,7 @@ export declare function Checker_getPropertiesOfObjectType(receiver: GoPtr<Checke
  * }
  */
 export declare function Checker_getPropertiesOfUnionOrIntersectionType(receiver: GoPtr<Checker>, t: GoPtr<Type>): GoSlice<GoPtr<Symbol>>;
+export declare function Checker_iteratePropertiesOfUnionOrIntersectionType(receiver: GoPtr<Checker>, type: GoPtr<Type>, composite: UnionOrIntersectionType): Generator<Symbol, void>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getBaseTypes","kind":"method","status":"implemented","sigHash":"da46159c9b6629014ce54b325b877f2e4fbb41933cf5c0dfdd4fb432fc8fe034","bodyHash":"f3cb5d4de03cdf0aae7f05f7edc7527160508a72418f3b510de88b6d0247d2c9"}
  *

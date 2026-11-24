@@ -59,18 +59,21 @@ export interface TypePropertyInfo extends TypePropertyHeader {
     };
     readonly mapped?: TypeMappedPropertyInfo;
 }
-export type TypePropertyRead<Stop extends object> = NativeCheckerResult<TypePropertyInfo, Stop>;
+export type TypePropertyRead<Stop extends object> = NativeCheckerResult<TypePropertyInfo | null, Stop>;
 interface NativePropertyInventory<Value> {
     readonly length: number;
     readonly read: <Stop extends object>(index: number, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<Value, Stop>;
 }
-export type TypePropertyInventory = NativePropertyInventory<TypePropertyInfo>;
+export interface TypePropertyInventory<Stop extends object> {
+    readonly mayHaveRows: boolean;
+    readonly next: () => TypePropertyRead<Stop>;
+}
 export type TypePropertyHeaderInventory = NativePropertyInventory<TypePropertyHeader>;
-export interface StructuredTypeInventory {
+export interface StructuredTypeInventory<Stop extends object> {
     readonly signatures: readonly GoPtr<Signature>[];
     readonly callSignatureCount: number;
     readonly indexes: readonly TypeIndexInfo[];
-    readonly properties: TypePropertyInventory;
+    readonly properties: TypePropertyInventory<Stop>;
 }
 export interface TypeTupleElementInfo {
     readonly type: Type;
@@ -151,7 +154,7 @@ export interface TypeShapeQueries {
     readonly getObjectPropertyInfo: (type: GoPtr<Type>, name: string) => TypePropertyInfo | null | undefined;
     readonly getEnumOwnerDeclaration: (type: GoPtr<Type>) => GoPtr<Node>;
     readonly getObjectPropertyHeaders: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<TypePropertyHeaderInventory, Stop>;
-    readonly getStructuredInventory: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<StructuredTypeInventory, Stop>;
+    readonly getStructuredInventory: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<StructuredTypeInventory<Stop>, Stop>;
     readonly getCallSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getSignatureInfos: (type: GoPtr<Type>, kind: "call" | "construct") => readonly TypeSignatureInfo[];

@@ -718,19 +718,23 @@ function capturedDeclaredMember(scope: CaptureScope, property: TypePropertyHeade
     readKind: getters.length !== 0 || setters.length !== 0 ? "accessor" : method ? "method" : "property" } };
 }
 
-function capturedMembers(scope: CaptureScope, type: Type, properties: TypePropertyInventory,
+function capturedMembers(scope: CaptureScope, type: Type, properties: TypePropertyInventory<Diagnostic>,
   position: RawComponentId, receiver: ReceiverUse | null, active: ActiveReceiverCandidate | null): readonly RawMember[] | null {
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A member inventory requires its actual captured source component."));
   const members: RawMember[] = [];
   let mapped: MappedOwner | null = null;
-  const admitProperty = nativeCaptureAdmission(scope);
-  for (let index = 0; index < properties.length; index += 1) {
-    if (!admit(scope, "facts")) return null;
-    const selected = properties.read(index, admitProperty);
-    if (selected.kind === "refused") return null;
+  while (true) {
+    const selected = properties.next();
+    if (selected.kind === "refused") {
+      if (selected.stop !== scope.meter.refusal)
+        return throwInvariant(invariant("An admitted property scan retains its actual first capture refusal."));
+      return null;
+    }
     if (selected.kind === "unavailable") return throwInvariant(invariant("An admitted property retains its actual owning checker."));
     const property = selected.value;
+    if (property === null) break;
+    if (!admit(scope, "facts")) return null;
     const readType = (type: Type, step: RawComponentStep, use: BindingUse | null = null, typeSource?: Node): RawTypeId | null =>
       rawType(scope, () => withoutTypeCause(type, typeSource), appendComponent(scope, parent, step), null, use);
     if (property.mapped !== undefined) {
@@ -2456,10 +2460,11 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   if (structured.kind === "refused") return null;
   if (structured.kind === "unavailable") return throwInvariant(invariant("A checked type retains its actual owning structured inventory."));
   const { signatures, callSignatureCount, indexes: selectedIndexes, properties } = structured.value;
-  const hasInventory = signatures.length !== 0 || selectedIndexes.length !== 0 || properties.length !== 0;
+  const hasInventory = signatures.length !== 0 || selectedIndexes.length !== 0;
   const original = !hasInventory && declarations.length === 1 ? declarations[0] : undefined;
   const syntaxKind = original === undefined ? null : scope.checked.ast.kindName(original);
-  if (hasInventory || syntaxKind === "KindObjectLiteralExpression" || syntaxKind === "KindTypeLiteral") {
+  const authoredObject = syntaxKind === "KindObjectLiteralExpression" || syntaxKind === "KindTypeLiteral";
+  if (hasInventory || properties.mayHaveRows || authoredObject) {
     if (!admit(scope, "facts")) return null;
     if (expandMerged !== undefined) scope.tables.pending.push({ kind: "merged-inventory-scope", symbol: expandMerged, type, enter: false });
     const inventory = rawMemberTableId(scope.tables.nextMember++);
@@ -2531,6 +2536,8 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     }
     const members = capturedMembers(scope, type, properties, position, bindingUse?.kind === "receiver" ? bindingUse : null, active);
     if (members === null) return null;
+    if (!hasInventory && !authoredObject && members.length === 0)
+      throw new TypeError(`front: the captured form of the checker type ${scope.checker.typeToString(type)} is not implemented`);
     scope.tables.members[inventory] = { id: inventory, component: position, members, indexes, elementBinders: available([]),
       calls: callSignatures, constructs: constructSignatures };
     if (expandMerged !== undefined) scope.tables.pending.push({ kind: "merged-inventory-scope", symbol: expandMerged, type, enter: true });

@@ -31,11 +31,13 @@ export function propertyRows(shape, type) {
   const selected = shape.getStructuredInventory(type, () => null);
   assert.equal(selected.kind, "complete", "An actual native property inventory retains its checker.");
   const inventory = selected.value.properties;
-  return Array.from({ length: inventory.length }, (_, index) => {
-    const row = inventory.read(index, () => null);
+  const rows = [];
+  while (true) {
+    const row = inventory.next();
     assert.equal(row.kind, "complete");
-    return row.value;
-  });
+    if (row.value === null) return rows;
+    rows.push(row.value);
+  }
 }
 
 export function primeCaptureReader(run, maximum, stop) {

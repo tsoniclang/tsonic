@@ -40,12 +40,12 @@ const kindsOfType = type => {
   const structured = shape.getStructuredInventory(nonNull, () => null);
   if (structured.kind !== "complete") throw new TypeError("A generation target requires its actual owning property inventory.");
   const inventory = structured.value.properties;
-  for (let index = 0; index < inventory.length; index += 1) {
-    const row = inventory.read(index, () => null);
+  for (;;) {
+    const row = inventory.next();
     if (row.kind !== "complete") throw new TypeError("An admitted generation field requires its actual effective property.");
+    if (row.value === null) return [];
     if (row.value.name === "kind") return literalValues(row.value.type);
   }
-  return [];
 };
 const unionNode = ast.typeNode(decls.get("SyntaxNode"));
 const members = ast.children(unionNode).filter(Boolean);
