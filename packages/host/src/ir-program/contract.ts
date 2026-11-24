@@ -3,9 +3,9 @@ import type { DefId, DefinitionPath, ItemNodeRef, ModuleId, ModulePath, SigId, T
 import type {
   ArtifactBindings, BindingVector, BodyInstance, MemberInventory, SelectedNativeFacts, SignatureEndpoint, SignatureRequest, TypeInterner, TypePublication, TypeTable,
 } from "../ir-types/contract.js";
-import type { CheckedModuleImage, HirModule } from "../ir-hir/contract.js";
+import type { CheckedModuleImage, Expression, HirModule } from "../ir-hir/contract.js";
 import type { CandidateInput, PlacedSignature } from "../ir-infer/contract.js";
-import type { TirApplication, TirBody, TirChapterTree, TirMemberOccurrence, TirReadyReadAdmission, TirVerifierInput } from "../ir-tir/contract.js";
+import type { TirApplication, TirBody, TirChapterTree, TirMemberOccurrence, TirReadyReadAdmission, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
 import type { BodyFacts, BodyObservations, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
 import type { InstantiationAllocationStop, InstantiationStop, ProgramWork } from "./work.js";
@@ -89,11 +89,21 @@ export interface ProgramStaticStorageEvidence {
   readonly storage: TyId | null;
 }
 
+export interface ProgramLayoutOperand {
+  readonly instance: BodyInstance;
+  readonly root: Expression<TypedPhase>;
+}
+
+export interface ProgramLayoutOperandInput extends ProgramLayoutOperand {
+  readonly tree: TirChapterTree;
+}
+
 export interface ProgramEvidenceInput {
   readonly checked: readonly HirModule[];
   readonly members: readonly ProgramMemberEvidence[];
   readonly signatures: readonly PlacedSignature[];
   readonly storage: readonly ProgramStaticStorageEvidence[];
+  readonly layoutOperands: readonly ProgramLayoutOperandInput[] | null;
 }
 
 export interface ProgramEvidence {
@@ -101,6 +111,7 @@ export interface ProgramEvidence {
   readonly members: readonly ProgramMemberEvidence[];
   readonly signatures: readonly { readonly request: SignatureRequest | null; readonly signature: SigId }[];
   readonly storage: readonly ProgramStaticStorageEvidence[];
+  readonly layoutOperands: readonly ProgramLayoutOperand[] | null;
 }
 
 export type PrintProgramIndex = (index: ProgramIndex) => string;

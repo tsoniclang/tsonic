@@ -726,10 +726,29 @@ export type RawMemoryMetadata =
   | { readonly kind: "data-layout"; readonly occurrence: RawNodeRef; readonly dataLayout: RawDataLayoutId }
   | RawLayoutConstruction;
 
-export interface RawLayoutConstruction extends RawLayoutApplication {
-  readonly kind: "layout-construction";
-  readonly construction: "value" | "array" | "field";
+export interface RawLayoutOperand {
+  readonly expression: RawNodeRef;
+  readonly parent: NodeId;
 }
+
+interface RawLayoutGeometry {
+  readonly dataLayout: RawLayoutOperand;
+  readonly byteSize: RawLayoutOperand;
+  readonly byteAlignment: RawLayoutOperand;
+  readonly stride: RawLayoutOperand;
+}
+
+export type RawLayoutConstruction = {
+  readonly kind: "layout-construction";
+  readonly application: RawApplication;
+  readonly declaration: RawNodeRef;
+  readonly descriptor: RawNodeRef;
+} & (
+  | { readonly construction: "value"; readonly geometry: RawLayoutGeometry; readonly fieldList: RawNodeRef; readonly fields: readonly RawLayoutOperand[] }
+  | { readonly construction: "array"; readonly geometry: RawLayoutGeometry; readonly element: RawLayoutOperand; readonly length: RawLayoutOperand }
+  | { readonly construction: "field"; readonly selector: RawLayoutOperand; readonly byteOffset: RawLayoutOperand;
+      readonly byteAlignment: RawLayoutOperand; readonly fieldLayout: RawLayoutOperand }
+);
 
 export interface RawLayoutApplication {
   readonly application: RawApplication;

@@ -344,6 +344,14 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       exactPhasePort(ast.typeNode(input[1]), "SyntaxExpressionImage", formals[0]) &&
       selectsParameter(ast.typeNode(input[2]), formals[1]);
   };
+  const phaseCallArgumentsSelection = node => {
+    const declaration = ast.parent(node);
+    if (!canonicalSyntax(node) || !ast.is.IsTypeAliasDeclaration(declaration) ||
+      ast.typeNode(declaration) !== node || ast.text(ast.name(declaration)) !== "SyntaxCallArguments") return false;
+    const parameters = ast.typeParameters(declaration);
+    const selected = phaseAccessData(node, declaration);
+    return selected !== false && parameters.length === 1 && selected.parameter === parameters[0] && selected.key === "CallArguments";
+  };
   const ordinaryUnaryParameter = signature => {
     const parameters = ast.parameters(signature);
     if (ast.typeParameters(signature).length !== 0 || parameters.length !== 1) return undefined;
@@ -859,7 +867,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       }
       if (isContract && (ast.is.IsMappedTypeNode(current) || ast.is.IsConditionalTypeNode(current) ||
         ast.is.IsIndexedAccessTypeNode(current) && !phaseSlotSelection(current) && !phaseCopySelection(current) &&
-        !phaseInitializerSelection(current)))
+        !phaseInitializerSelection(current) && !phaseCallArgumentsSelection(current)))
         add("contract-shape", file, current);
       if (isContract && ["KindUnknownKeyword", "KindObjectKeyword"].includes(kind)) {
         const parent = ast.parent(current);

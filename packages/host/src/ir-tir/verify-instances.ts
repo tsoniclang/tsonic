@@ -12,7 +12,7 @@ import type { TirBody, TirFormal, TirModule, TirNode, TirReadyReadAdmission, Tir
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 import type { TirSemanticInventory, TirStructure } from "./verify-occurrences.js";
 import { sameLocalReference, sameSourceReference, typedValueOf } from "./verify-occurrences.js";
-import { chapterSyntaxSlots, indexChapterSyntax, readChapterSyntaxSlot, tirBodySyntaxOf } from "./chapter-syntax.js";
+import { chapterSyntaxSlots, indexChapterSyntax, isLayoutOperandBody, readChapterSyntaxSlot, tirBodySyntaxOf } from "./chapter-syntax.js";
 
 function* typedSyntaxChildren(node: TirNode): Generator<TirNode> {
   for (const slot of chapterSyntaxSlots({ kind: "ordinary", node })) {
@@ -202,7 +202,7 @@ export const verifyCanonicalTemplates = (
     else previous = position;
     const source = originals.get(candidate.body);
     if (source === undefined || source.root.id !== candidate.root.id || source.owner !== candidate.owner ||
-      module.tree.kind === "ready-root" && moduleNodes.get(candidate.root.id) !== candidate.root) {
+      module.tree.kind === "ready-root" && !isLayoutOperandBody(candidate.body) && moduleNodes.get(candidate.root.id) !== candidate.root) {
       emit("nested-template-identity", null, "published template is not the authentic body's canonical shared module subtree");
     }
   }

@@ -12,6 +12,7 @@ import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./ide
 import { bindingOccurrence, lowerBindingFact, lowerBindingTarget, lowerBindings, lowerMemberKey, lowerMemberOrigin, sameSource, sourceOccurrence } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
 import { childSourceBody, enterSourceBody, layoutSourceRoles } from "./source-bodies.js";
+import type { LayoutSourceRoles } from "./source-bodies.js";
 import type { SourceBodyScope, SourceBodyTransition } from "./source-bodies.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
 import { lowerCall } from "./lower-calls.js";
@@ -106,7 +107,7 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
 }
 
 /** The one check of lowering's development frontier; it names the first unwritten form in preorder. */
-function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>): void {
+function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>, quotes: ReadonlyMap<NodeId, NodeId> | null): void {
   const pending: { readonly node: Hir.SyntaxNode<Syntax>; readonly declarationName: boolean;
     readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined> }[] = [];
   let next: Hir.SyntaxNode<Syntax> | undefined = tree;
@@ -116,7 +117,8 @@ function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>): void {
     const declarationName = enclosing?.declarationName === true || next.kind === "ComputedPropertyName"
       && (parent?.kind === "PropertySignature" || parent?.kind === "MethodSignature") && parent.name === next;
     const form = unwrittenForm(next, declarationName);
-    if (form !== null) throw new TypeError(`front: checked annotation not implemented: ${form}`);
+    if (form !== null && !(next.kind === "ArrayLiteralExpression" && quotes?.has(next.id) === true))
+      throw new TypeError(`front: checked annotation not implemented: ${form}`);
     if (next.kind !== "LiteralType") pending.push({ node: next, declarationName, children: iterateChildrenOfSyntax(next) });
     next = undefined;
     while (pending.length !== 0) {
@@ -264,6 +266,7 @@ interface Lowering extends TypeConversion {
   readonly statements: Map<NodeId, Hir.Statement<Checked>>;
   readonly assignmentTargets: ReadonlyMap<NodeId, "write" | "read-write">;
   readonly labelTargets: ReadonlyMap<NodeId, NodeRef>;
+  readonly layoutQuotes: ReadonlyMap<NodeId, NodeId> | null;
 }
 
 interface NodeBodies {
@@ -280,7 +283,7 @@ interface NodeBodies {
 }
 
 function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId, deps: LowerDeps,
-  properties: ReadonlyMap<NodeId, RawPropertyName>): NodeBodies {
+  properties: ReadonlyMap<NodeId, RawPropertyName>, layout: LayoutSourceRoles | null): NodeBodies {
   const definitionAt = new Map<NodeId, DefId>([[raw.tree.id, moduleDefinition]]);
   const bodies = new Map<NodeId, BodyId>();
   const captureParent = new Map<BodyId, BodyId>();
@@ -290,7 +293,6 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
   const variables: NodeBodies["variables"][number][] = [];
   const assignmentTargets = new Map<NodeId, "write" | "read-write">();
   const labelTargets = new Map<NodeId, NodeRef>();
-  const layout = layoutSourceRoles(raw);
   const layoutOperands = layout?.operands ?? null;
   const layoutRoots: NodeBodies["layoutRoots"][number][] = [];
   interface LabelBinding {
@@ -490,8 +492,14 @@ function valueOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.Checked
     if (stop !== null) return stop;
     const call = lowering.calls.get(node);
     const candidate = call?.kind === "applicable" ? lowering.raw.types.candidates[call.candidates]?.candidates[0] : undefined;
-    if (candidate?.application !== request.application || candidate.sourceArguments !== request.operands)
+    if (candidate?.application !== request.application)
       return throwInvariant(invariant("A checked layout role must retain its actual selected application and original operands."));
+    if ("construction" in request) {
+      const authored = candidate.sourceArguments[0];
+      if (candidate.sourceArguments.length !== 1 || authored?.kind !== "value" || !sameSource(authored.expression, request.descriptor))
+        return throwInvariant(invariant("A checked layout descriptor must retain its actual single authored argument."));
+    } else if (candidate.sourceArguments !== request.operands)
+      return throwInvariant(invariant("A checked layout query must retain its actual authored argument vector."));
   }
   const layout = request === null ? null : lowerLayoutApplication({
     admit: () => admitTypePublicationStep(lowering.typeWork),
@@ -904,15 +912,29 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
         tsonic: { core: coreOf(lowering, node.id), ...value.value, application: application === null
           ? failure ?? { kind: "unavailable", reason: "not-provided", causes: [] } : { kind: "available", value: application } } } };
     }
-    case "ObjectLiteralExpression": {
+    case "ObjectLiteralExpression": case "ArrayLiteralExpression": {
       const own = value.value.views.read;
       const body = lowering.bodyOf.get(node.id);
+      const quote = lowering.layoutQuotes?.get(node.id);
+      const core = coreOf(lowering, node.id);
+      let aggregate: Hir.CheckedAggregate = { core, role: "value", value: value.value };
+      if (quote !== undefined) {
+        const owner = lowering.bodyOf.get(quote);
+        if (owner === undefined || owner !== body)
+          return throwInvariant(invariant("A layout quote must retain its actual checked call scope."));
+        aggregate = { core, role: "layout-quote", call: { body: owner, node: quote }, views: value.value.views };
+      }
+      if (node.kind === "ArrayLiteralExpression") {
+        if (aggregate.role !== "layout-quote") throw new TypeError("front: a runtime array expression requires its own construction.");
+        return { kind: "complete", value: { ...headerOf(node), kind: node.kind, multiLine: node.multiLine,
+          elements: { loc: node.elements.loc, nodes: node.elements.nodes.map(operand => expression(lowering, operand)) }, tsonic: aggregate } };
+      }
       const shape = own.kind === "available" ? readType(lowering.deps.types, own.value) : null;
       if (body === undefined || shape?.kind !== "shape")
         throw new TypeError("front: an object literal requires its actual checked member shape and source body");
       return { kind: "complete", value: { ...headerOf(node), kind: node.kind, multiLine: node.multiLine,
         properties: lowerObjectProperties(node, body, shape.members, property => coreOf(lowering, property), child => expression(lowering, child)),
-        tsonic: { core: coreOf(lowering, node.id), role: "value", value: value.value } } };
+        tsonic: aggregate } };
     }
     case "PropertyAccessExpression": {
       if (node.name.kind !== "Identifier" || context === "execution" && node.questionDotToken !== null)
@@ -1408,14 +1430,15 @@ function moduleLinks(raw: RawModule): ReadonlyMap<NodeId, RawModuleLink> {
 }
 
 export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirModule> {
-  refuseUnwritten(raw.tree);
+  const layout = layoutSourceRoles(raw);
+  refuseUnwritten(raw.tree, layout?.quotes ?? null);
   const exported = deps.exportsOf(raw.module);
   if (exported === null || exported.module !== raw.module)
     return throwInvariant(invariant("Checked lowering requires the actual completed B1 module export and binding inventory."));
   const propertyNames = sourcePropertyNames(raw.module, raw.propertyNames);
   const moduleDefinition = deps.definitionOf({ module: raw.module, node: raw.tree.id });
   const moduleBody: BodyId = encodeBodyId({ owner: moduleDefinition, role: "module", ordinal: 0 });
-  const structure = nodeBodies(raw, moduleBody, moduleDefinition, deps, propertyNames);
+  const structure = nodeBodies(raw, moduleBody, moduleDefinition, deps, propertyNames, layout);
   const definitionAt = structure.definitions;
   const variableLocals = new Map<BodyId, Hir.HirLocal[]>();
   const lowering: Lowering = {
@@ -1423,6 +1446,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     enums: new Map(raw.enums.map(row => [row.declaration.node, row])),
     assignmentTargets: structure.assignmentTargets,
     labelTargets: structure.labelTargets,
+    layoutQuotes: layout?.quotes ?? null,
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     storage: storageCaptures(raw),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),

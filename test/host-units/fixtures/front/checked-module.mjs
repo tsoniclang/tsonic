@@ -259,5 +259,33 @@ export async function loadFrontFixture() {
     });
   }
 
-  return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, preparedSource, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, captureModulesOf, checkedModulesOf, verifyChecked };
+  async function captureSyntaxOf(sourceText, module) {
+    const { captureNode } = await import("../../../../packages/host/dist/front/syntax-capture.js");
+    const { capturePragmas } = await import("../../../../packages/host/dist/front/syntax-support.js");
+    const session = sdk.createCompilerSessionFromFiles({ currentDirectory: "/project", files: new Map([["/project/src/main.ts", sourceText]]),
+      rootFiles: ["/project/src/main.ts"], compilerOptions: { noLib: true, noEmit: true }, useCaseSensitiveFileNames: true });
+    const checked = session.checkSource();
+    const file = checked.getSourceFile("/project/src/main.ts");
+    const nodes = [];
+    const numbers = new Map();
+    const parents = new Map();
+    const pending = [{ node: file, parent: null }];
+    for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
+      const id = ids.nodeId(nodes.length);
+      nodes.push(current.node);
+      numbers.set(current.node, id);
+      parents.set(current.node, current.parent);
+      const children = [];
+      checked.ast.forEachChild(current.node, child => { if (child !== undefined) children.push(child); });
+      for (let index = children.length - 1; index >= 0; index -= 1) pending.push({ node: children[index], parent: id });
+    }
+    const ranges = { ast: checked.ast, file, displacement: 0 };
+    const pragmas = capturePragmas(ranges, () => true);
+    assert.ok(pragmas);
+    return captureNode({ ...ranges, ...pragmas, module, sourceText, numericLiterals: new Map(),
+      numbering: { nodes, ids: numbers, parents } }, file, null).tree;
+  }
+
+  return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, preparedSource, openAndCapture,
+    openedModule, lowerDepsFor, checkedModuleOf, captureModulesOf, checkedModulesOf, verifyChecked, captureSyntaxOf };
 }

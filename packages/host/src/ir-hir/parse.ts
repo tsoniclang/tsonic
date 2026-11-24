@@ -783,6 +783,7 @@ function finishCheckedDeclarations(reader: TextReader, readers: ReturnType<typeo
   const files = new Map<number, SourceFile<CheckedPhase>>();
   const declarations = new Map<number, CheckedUnopenedDeclaration>();
   const expressions = new Map<number, Expression<CheckedPhase>>();
+  const layouts = new Map<number, Extract<Expression<CheckedPhase>, { readonly kind: "ObjectLiteralExpression" }>>();
   const ready: (() => void)[] = [];
   const root = <Value extends HirNode>(request: CheckedWireRequest, shape: HirShape, select: HirReader<Value>, image: Map<number, Value>): void => {
     const source = select.requests(value => { ready.push(() => {
@@ -791,15 +792,18 @@ function finishCheckedDeclarations(reader: TextReader, readers: ReturnType<typeo
     syntaxReference(reader, domain, shape, request.ordinal, request.offset, null, source);
   };
   const declaration = syntaxReader<CheckedUnopenedDeclaration>(unopenedKinds);
+  const layout = syntaxReader<Extract<Expression<CheckedPhase>, { readonly kind: "ObjectLiteralExpression" }>>(["ObjectLiteralExpression"]);
   for (const request of requests) {
     if (request.role === "source-file") root(request, "SourceFile", readers.syntax_0, files);
     else if (request.role === "expression") root(request, "Expression", readers.syntax_2, expressions);
+    else if (request.role === "layout-descriptor") root(request, "ObjectLiteralExpression", layout, layouts);
     else root(request, hirChoice(...unopenedKinds), declaration, declarations);
     if (reader.failed) return reader.failure;
   }
   if (!closeHirWire(reader, domain)) return reader.failure;
   const image: CheckedWireImage = { sourceFileOf: ordinal => files.get(ordinal) ?? null,
-    declarationOf: ordinal => declarations.get(ordinal) ?? null, expressionOf: ordinal => expressions.get(ordinal) ?? null };
+    declarationOf: ordinal => declarations.get(ordinal) ?? null, expressionOf: ordinal => expressions.get(ordinal) ?? null,
+    layoutDescriptorOf: ordinal => layouts.get(ordinal) ?? null };
   let next = 0;
   return { kind: "parsed", value: { materialize: () => {
     for (; next < ready.length; next += 1) requirePresent(ready[next], constructionFailure)();

@@ -6,7 +6,8 @@ import { readString, readBoolean, readNull, readStringChoice, atomicText, fieldT
 import { readTypedValueText } from "./parse-tir.js";
 import { readTypedCallText, readTypedValueOccurrenceText } from "./parse-phase.js";
 import { readTypedNameText, readTypedPropertyKeyText, readTypedDecoratorText, readTypedOmissionText, readTypedKeywordText, readTypedStringText, readTypedNumberText, readTypedBigIntText, readTypedBinaryText, readTypedPrefixText, readTypedUpdateText, readTypedProtocolValueText, readTypedClosureText, readTypedConditionalText, readTypedMemberText, readTypedApplicationText, readTypedSpreadText, readTypedTemplateText, readTypedConstructionText, readTypedObjectSpreadText, readTypedPropertyText, readTypedShorthandText, readTypedUnaryText, readTypedInstantiationText } from "./parse-phase.js";
-import { resolveSyntaxValue, syntaxAlternatives, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readNullableSyntax, readSyntaxList } from "./parse-syntax-values.js";
+import { resolveSyntaxValue, syntaxAlternatives, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readNullableSyntax, readSyntaxList, readCallArgumentList } from "./parse-syntax-values.js";
+import type { TirCallArguments } from "../ir-tir/contract.js";
 
 export function readIdentifierSyntax<Root>(cursor: Cursor, _ports: SyntaxReadPorts, kind: "Identifier", finish: (value: SyntaxValue<Identifier<TypedPhase>>) => TextStep<Root>): TextStep<Root> {
   return readSyntaxRecord(cursor, (fields, header) =>
@@ -257,7 +258,7 @@ export function readCallExpressionSyntax<Root>(cursor: Cursor, ports: SyntaxRead
     fieldText<SyntaxValue<Expression<TypedPhase>>, Root>(cursor, fields, "expression", (next, done) => readSyntaxReference(next, ports.Expression, done), expressionValue =>
     fieldText<SyntaxValue<QuestionDotToken<TypedPhase> | null>, Root>(cursor, fields, "questionDotToken", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.QuestionDotToken, done), done), questionDotTokenValue =>
     fieldText<SyntaxValue<NodeList<TypeNode<TypedPhase>> | null>, Root>(cursor, fields, "typeArguments", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.TypeNode, done), "NodeList", done), done), typeArgumentsValue =>
-    fieldText<SyntaxValue<NodeList<Expression<TypedPhase>>>, Root>(cursor, fields, "arguments", (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.Expression, done), "NodeList", done), argumentsValue =>
+    fieldText<SyntaxValue<TirCallArguments>, Root>(cursor, fields, "arguments", (next, done) => readCallArgumentList(next, ports, done), argumentsValue =>
     fieldText<TypedPhase["CallExpression"], Root>(cursor, fields, "tsonic", readTypedCallText, tsonicValue =>
     finishSyntaxRecord<CallExpression<TypedPhase>, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(expressionValue, expressionResolved => resolveSyntaxValue(questionDotTokenValue, questionDotTokenResolved => resolveSyntaxValue(typeArgumentsValue, typeArgumentsResolved => resolveSyntaxValue(argumentsValue, argumentsResolved => ({ ...header, kind, expression: expressionResolved, questionDotToken: questionDotTokenResolved, typeArguments: typeArgumentsResolved, arguments: argumentsResolved, tsonic: tsonicValue }))))),

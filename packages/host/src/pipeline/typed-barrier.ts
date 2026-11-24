@@ -569,6 +569,11 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       declarationOf, declarationSourceOf: sources.declarationSourceOf, nominalOf: source.nominalOf,
       nodeOf: sources.nodeOf, bindingOf: source.bindingOf, localExists: sources.localExists, staticStorageOf,
       diagnostics: original.checkerDiagnostics, bodyOf: instance => bodies.get(instanceKey(instance))?.body ?? null,
+      layoutOperandOf: instance => {
+        if (source.layoutOperands?.has(instance.body) !== true) return null;
+        const root = bodies.get(instanceKey(instance))?.body.root;
+        return root === undefined || root.kind === "Block" || root.kind === "SourceFile" ? null : root;
+      },
       requiredEntriesOf: instance => {
         const key = instanceKey(instance);
         const runtime = required.value.provided.get(key);
@@ -625,6 +630,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     const members: ProgramMemberEvidence[] = [];
     const signatures: PlacedSignature[] = [];
     const storage: ProgramStaticStorageEvidence[] = [];
+    let layoutOperands: NonNullable<ProgramEvidenceInput["layoutOperands"]>[number][] | null = null;
     for (let position = 0; position < source.modules.length; position += 1) {
       const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
       if (stop !== null) return stop;
@@ -640,6 +646,14 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       if (row.done) return fail("The completed placed body evidence retains every original row.");
       const { body, placed } = row.value;
       signatures.push(placed);
+      if (source.layoutOperands?.has(body.body) === true) {
+        const retained = chargeWork(account, 1) ?? chargeResultEntries(account, layoutOperands === null ? 3 : 2);
+        if (retained !== null) return retained;
+        const view = modules.get(body.root.origin.module);
+        if (view === undefined || body.root.kind === "SourceFile" || body.root.kind === "Block")
+          return fail("A geometry operand retains its verified expression and actual module.");
+        (layoutOperands ??= []).push({ tree: view.tree, instance: { body: body.body, bindings: body.bindings }, root: body.root });
+      }
       const inventory = memberInventoriesOf(body.body);
       if (inventory === undefined) continue;
       const entries = inventory.entries();
@@ -676,7 +690,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       const declaration = { owner, node: node.id };
       storage.push({ declaration, storage: staticStorageOf(declaration) });
     }
-    return { kind: "complete", value: { checked, members, signatures, storage } };
+    return { kind: "complete", value: { checked, members, signatures, storage, layoutOperands } };
   };
   return { kind: "ok", diagnostics, value: { source, modules, verifierOf, sourceNodeOf: sources.nodeOf, declarationOf, database, staticStorageOf, constantEntriesOf, layoutOnly,
     bodies: { get: key => bodies.get(key)?.body, *values() { for (const entry of bodies.values()) yield entry.body; } },

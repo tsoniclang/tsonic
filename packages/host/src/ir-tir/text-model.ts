@@ -151,6 +151,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_SourceNodeRef: lazyRecord(() => type_values.work_SourceNodeRef)
   });
   const syntax_values = createSyntaxValuesText(kernel, {
+    work_NodeRef: lazyRecord(() => type_values.work_NodeRef),
     work_L_TypeNode_: lazyRecord(() => syntax_types.work_L_TypeNode_),
     work_ModifierList: lazyRecord(() => type_values.work_ModifierList),
     work_Origin: lazyRecord(() => type_values.work_Origin),

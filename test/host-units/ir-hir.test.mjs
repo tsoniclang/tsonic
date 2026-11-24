@@ -51,6 +51,44 @@ before(async () => {
   ({ childrenOfSyntax, indexSyntaxTree, walkSyntaxTree } = product);
 });
 
+test("layout descriptors retain actual authored operands and admit each field before reading it", async () => {
+  const fixture = await loadFrontFixture();
+  const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const source = async (initializer) => {
+    const tree = await fixture.captureSyntaxOf(`const datalayout = true; export const descriptor = ${initializer};`, module);
+    return tree.statements.nodes[1].declarationList.declarations.nodes[0].initializer;
+  };
+  const descriptor = await source('{ fields: [true, false], "stride": 16, datalayout, bytealignment: 8, bytesize: 12 }');
+  const rows = descriptor.properties.nodes;
+  const [fields, stride, abi, alignment, size] = rows;
+  const fieldOperands = [];
+  const result = product.readLayoutDescriptor(descriptor, "value", () => null, operand => { fieldOperands.push(operand); return null; });
+  assert.equal(result.kind, "complete");
+  assert.equal(result.value.descriptor === descriptor, true);
+  assert.equal(result.value.fields === fields.initializer && result.value.stride === stride.initializer, true);
+  assert.equal(result.value.datalayout === abi.name && result.value.bytealignment === alignment.initializer
+    && result.value.bytesize === size.initializer, true);
+  assert.deepEqual(result.value.fields.elements.nodes.map(node => node.kind), ["TrueKeyword", "FalseKeyword"]);
+  assert.equal(fieldOperands.every((operand, index) => operand === fields.initializer.elements.nodes[index]), true);
+  let reached = 0;
+  Object.defineProperty(rows, "0", { configurable: true, get() { reached += 1; return fields; } });
+  const original = { reason: "layout admission" };
+  for (const allowance of [0, 1, 2]) {
+    let paid = 0;
+    const stopped = product.readLayoutDescriptor(descriptor, "value", work => {
+      if (paid + work > allowance) return original;
+      paid += work;
+      return null;
+    }, () => assert.fail("a stopped descriptor cannot yield a field"));
+    assert.equal(stopped.kind === "resource-stop" && stopped.stop === original, true);
+    assert.equal(reached, 0);
+  }
+  const invalid = await source('{ fields: [], unexpected: 1, bytesize: 2 }');
+  assert.deepEqual(product.readLayoutDescriptor(invalid, "value", () => null, () => null), { kind: "invalid", fault: {
+    kind: "unknown-property", name: "unexpected", at: invalid.properties.nodes[1].name.id,
+  } });
+});
+
 after(async () => {
   try {
     const capture = await post("Profiler.takePreciseCoverage");
@@ -1238,10 +1276,10 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
   assert.deepStrictEqual(Object.keys(product).sort(), [
-    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutOperandOf", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceObjectFieldOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
+    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceObjectFieldOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
-    "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
-    "projectCheckedContent", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
+    "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxArgumentList", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
+    "projectCheckedContent", "readLayoutDescriptor", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
     "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
   ]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
@@ -2853,14 +2891,14 @@ test("HIR fresh actual declarations retain generic phases, all seven ports and e
   }
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
   const positive = `import { callableEndpointKey, checkedParameterHeadersOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, iterateChildrenOfSyntax, orderPragmaArguments, parseHir, printHir, selectedEndpointRoleFaults, unparenthesizedExpression, verifyHir, walkSyntaxForest, walkSyntaxTree } from "./ir-hir/index.js";
-import type { CallableEndpointKey, CheckedParameterHeadersOf, EndpointRoleFaults, Expression, HasOverloadEndpoints, HirBody, HirCallableEndpoint, HirNode, SelectedEndpointRoleFaults, HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, IterateChildrenOfSyntax, NullableInitializerPhase, OrderPragmaArguments, ParseHir, PrintHir, UnparenthesizedExpression, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./ir-hir/contract.js";
+import type { CallableEndpointKey, CheckedParameterHeadersOf, EndpointRoleFaults, Expression, HasOverloadEndpoints, HirBody, HirCallableEndpoint, HirNode, SelectedEndpointRoleFaults, HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, IterateChildrenOfSyntax, OrdinarySyntaxPhase, OrderPragmaArguments, ParseHir, PrintHir, UnparenthesizedExpression, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./ir-hir/contract.js";
 import type { BodyId, DefId, ModuleId, NodeId } from "./ids/contract.js";
 import type { SourceNodeRef } from "./ids/contract.js";
 import { nodeId as issueNode, localId as issueLocal, tyId as issueType, sigId as issueSignature, candidateListId as issueCandidates, expansionId as issueExpansion } from "./ids/index.js";
 import { hostDiagnosticCode } from "./diag/index.js";
 import type { HostDiagnosticCode } from "./diag/contract.js";
 import type { ComponentSelector, TypeComponent } from "./ir-types/contract.js";
-export function generic<P extends NullableInitializerPhase<P>>(root: SourceFile<P>, node: SyntaxNode<P>, stop: readonly NodeId[]) {
+export function generic<P extends OrdinarySyntaxPhase<P>>(root: SourceFile<P>, node: SyntaxNode<P>, stop: readonly NodeId[]) {
 const children: ChildrenOfSyntax = childrenOfSyntax; const index: IndexSyntaxTree = indexSyntaxTree; const walk: WalkSyntaxTree = walkSyntaxTree;
 const iterate: IterateChildrenOfSyntax = iterateChildrenOfSyntax;
 const cursor: Generator<SyntaxNode<P>, void, undefined> = iterate(node);

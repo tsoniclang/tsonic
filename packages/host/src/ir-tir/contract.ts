@@ -3,7 +3,7 @@ import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { Block, CapturedFact, CheckedPhase, CheckedUnopenedDeclaration, DeclarationTarget, Expression, FunctionDeclaration, FunctionDeclarationHeader, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, NodeList, NonFunctionStatement, ParameterDeclaration, Phase, SourceFile, SourceFileHeader, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { LayoutCallRole } from "../ir-hir/contract.js";
+import type { LayoutCallRole, ObjectLiteralExpression, TextRange } from "../ir-hir/contract.js";
 
 export interface TypedOperation {
   readonly decision: OperationDecision;
@@ -214,6 +214,20 @@ export interface TypedLayoutApplication extends SelectedApplication {
 }
 
 export type TypedCall = TypedApplication | TypedLayoutApplication | DeclarationNameExpression;
+
+export interface TirLayoutOperand {
+  readonly source: NodeRef;
+  readonly root: Expression<TypedPhase>;
+}
+
+export interface TirLayoutArguments {
+  readonly kind: "layout-quote";
+  readonly loc: TextRange;
+  readonly descriptor: ObjectLiteralExpression<CheckedPhase>;
+  readonly operands: readonly TirLayoutOperand[];
+}
+
+export type TirCallArguments = NodeList<Expression<TypedPhase>> | TirLayoutArguments;
 
 export type LayoutBindingOf = (initializer: Expression<TypedPhase> | null) => TypedLayoutApplication | null;
 export type LayoutObservationOf = (node: TirSyntaxOccurrence) => TypedLayoutApplication | null;
@@ -427,6 +441,7 @@ export interface TypedSourceFile {
 }
 
 export interface TypedPhase extends Phase {
+  readonly CallArguments: TirCallArguments;
   readonly Token: null;
   readonly ParameterInitializer: TirFormalInitializer;
   readonly Identifier: TypedName;
@@ -671,12 +686,19 @@ export interface TirFormalInitializerSlot {
   readonly read: () => TirFormalInitializerRead;
 }
 
+export type TirLayoutArgumentSlot =
+  | { readonly kind: "layout-descriptor"; readonly fields: readonly (string | number)[];
+      readonly read: () => ObjectLiteralExpression<CheckedPhase> }
+  | { readonly kind: "layout-operand"; readonly fields: readonly (string | number)[]; readonly read: () => TirLayoutOperand };
+
 export type TirChapterSyntaxSlot =
   | { readonly kind: "syntax"; readonly fields: readonly (string | number)[]; readonly read: () => TirChapterSyntax | null }
   | { readonly kind: "statement"; readonly fields: readonly (string | number)[]; readonly read: () => TirModuleStatement }
-  | TirFormalInitializerSlot;
+  | TirFormalInitializerSlot | TirLayoutArgumentSlot;
 
+export type LayoutArgumentSlots = (arguments_: TirLayoutArguments) => Iterable<TirLayoutArgumentSlot>;
 export type ChapterSyntaxSlots = (subject: TirTypedSyntax) => Iterable<TirChapterSyntaxSlot>;
+export type IsLayoutOperandBody = (body: BodyId) => boolean;
 export type ReadChapterSyntaxSlot = (slot: TirChapterSyntaxSlot) => TirChapterSyntax | null;
 export type ChapterStatementSyntax = (statement: TirModuleStatement) => TirChapterSyntax;
 export type FormalInitializerSyntax = (initializer: TirFormalInitializer) => TirChapterSyntax | null;
@@ -752,6 +774,7 @@ export interface TirVerifierInput extends HirBindingViews {
   readonly memberTableOf: (instance: BodyInstance, occurrence: TirMemberOccurrence) => MemberInventory | null;
   readonly requiredEntriesOf: (instance: BodyInstance) => readonly number[] | null;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;
+  readonly layoutOperandOf: (instance: BodyInstance) => Expression<TypedPhase> | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
   readonly staticStorageOf: StaticStorageOf;

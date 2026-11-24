@@ -133,6 +133,13 @@ export function createReadGroup2(readers: () => HirTextReaders): HirReadGroup2 {
       const field_value = read("value", readers().record_140);
       return { fields: [field_core, field_role, field_value], value: () => ({ core: field_core.value(), role: field_role.value(), value: field_value.value() }) };
     });
+  const record_layout_quote = recordReader<Extract<Hir.CheckedAggregate, { readonly role: "layout-quote" }>>("CheckedAggregate", read => {
+    const core = read("core", readers().record_84);
+    const role = read("role", literalReader<"layout-quote">(["layout-quote"]));
+    const call = read("call", readers().record_6);
+    const views = read("views", readers().record_141);
+    return { fields: [core, role, call, views], value: () => ({ core: core.value(), role: role.value(), call: call.value(), views: views.value() }) };
+  });
   const record_84 = recordReader<Hir.HirCoreCapture>("HirCoreCapture", read => {
       const field_provider = read("provider", unionReader<Hir.CapturedFact<Ids.DefId | null>>(() => [readers().record_85, readers().record_10]));
       const field_markers = read("markers", unionReader<Hir.CapturedFact<Hir.HirMarkersCapture>>(() => [readers().record_86, readers().record_10]));
@@ -181,5 +188,5 @@ export function createReadGroup2(readers: () => HirTextReaders): HirReadGroup2 {
       const field_value = read("value", sequenceReader(readers().record_90));
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
-  return { record_60, record_61, record_62, record_63, record_64, record_65, record_66, record_67, record_68, record_69, record_70, record_71, record_72, record_73, record_74, record_75, record_76, record_77, record_78, record_79, record_80, record_81, record_82, record_83, record_84, record_85, record_86, record_87, record_88, record_89 };
+  return { record_60, record_61, record_62, record_63, record_64, record_65, record_66, record_67, record_68, record_69, record_70, record_71, record_72, record_73, record_74, record_75, record_76, record_77, record_78, record_79, record_80, record_81, record_82, record_83, record_84, record_85, record_86, record_87, record_88, record_89, record_layout_quote };
 }

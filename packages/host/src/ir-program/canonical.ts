@@ -25,6 +25,7 @@ import {
 import { publicationRewrite, rewriteConstant } from "./canonical-types.js";
 import { projectExecution, projectInstance, projectMetadata, projectSummary, projectSummaryKey } from "./canonical-facts.js";
 import { prepareModuleSyntax } from "./canonical-syntax.js";
+import type { PreparedModuleSyntax } from "./canonical-syntax.js";
 import type { RememberProgramBody } from "./canonical-syntax.js";
 import type { CheckedChapterImage } from "./syntax-arena.js";
 import { admitCheckedProjection, chargeInstantiationWork, ProgramWork } from "./work.js";
@@ -198,7 +199,7 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication, r
   const rewrite = publicationRewrite(publication);
   const scan = createProjectionInventory(ProgramWork.state(resources), rewrite, inlineCycle);
   const setup = projectRecord(scan, 7, () => copiedProjection({
-    trees: new Map<TirModule["tree"], TirModule["tree"]>(),
+    trees: new Map<TirModule["tree"], PreparedModuleSyntax>(),
     tir: new Map<TirBody, TirBody>(), mir: new Map<MirBody, MirBody>(), facts: new Map<BodyFacts, BodyFacts>(),
     observations: new Map<BodyObservations, BodyObservations>(), summaries: new Map<Summary, Summary>(), metadata: new Map<MetadataRecord, MetadataRecord>(),
   }));
@@ -247,7 +248,7 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication, r
     for (const row of preparedModules) {
       const selected = row.module.materialize(checked, row.bodies);
       if (selected.kind === "refused") return selected;
-      ready.trees.set(row.module.originalTree, selected.value.tree);
+      ready.trees.set(row.module.originalTree, row.module);
       finalModules.push(selected.value);
     }
     if (mode.kind !== "with-evidence") return copiedProjection(null);
@@ -267,7 +268,7 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication, r
   if (settlement.kind === "refused") return settlement.stop;
   const value = { index: index.value, modules: finalModules };
   const image: ProgramIdentityImage = {
-    treeOf: source => ready.trees.get(source) ?? null,
+    treeOf: source => ready.trees.get(source)?.tree() ?? null,
     tirOf: source => ready.tir.get(source) ?? null, mirOf: source => ready.mir.get(source) ?? null,
     factsOf: source => ready.facts.get(source) ?? null, observationsOf: source => ready.observations.get(source) ?? null,
     summaryOf: source => ready.summaries.get(source) ?? null, metadataOf: source => ready.metadata.get(source) ?? null,
@@ -275,7 +276,7 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication, r
   };
   const originals = suppliedEvidence();
   if (originals === null) return { kind: "complete", mode: "data-only", value, image };
-  const evidence = projectEvidence(scan, rewrite, originals, settlement.value);
+  const evidence = projectEvidence(scan, rewrite, originals, settlement.value, ready.trees);
   if (evidence.kind === "refused") return evidence.stop;
   return { kind: "complete", mode: "with-evidence", value, image, evidence: evidence.value };
 };
@@ -372,7 +373,8 @@ function memberImage(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, r
 }
 
 function projectEvidence(scan: ProjectionInventory, rewrite: TypeReferenceRewrite, input: ProgramEvidenceInput,
-  content: CheckedContentImage<InstantiationStop> | null): ProjectionResult<ProgramEvidence> {
+  content: CheckedContentImage<InstantiationStop> | null,
+  trees: ReadonlyMap<TirModule["tree"], PreparedModuleSyntax>): ProjectionResult<ProgramEvidence> {
   const checked = projectRows(scan, input.checked, read => projectRead(scan, () => requirePresent(content ?? undefined, dense).projectModule(read())));
   if (checked.kind === "refused") return checked;
   const members = projectRows(scan, input.members, read => memberImage(scan, rewrite, read));
@@ -392,5 +394,20 @@ function projectEvidence(scan: ProjectionInventory, rewrite: TypeReferenceRewrit
     return copiedProjection({ declaration, storage: storage === null ? null : rewrite.type(storage) });
   }));
   if (storage.kind === "refused") return storage;
-  return copiedProjection({ checked: checked.value, members: members.value, signatures: signatures.value, storage: storage.value });
+  let layoutOperands: NonNullable<ProgramEvidence["layoutOperands"]>[number][] | null = null;
+  const operands = input.layoutOperands;
+  if (operands !== null) for (let index = 0; index < operands.length; index += 1) {
+    const read = chargeWork(scan.meter.account, 1);
+    if (read !== null) return { kind: "refused", stop: read };
+    const row = requirePresent(operands[index], dense);
+    const root = trees.get(row.tree)?.layoutRootOf(row.root) ?? null;
+    if (root === null) continue;
+    const retained = inventoryRecord(scan, 2) ?? (layoutOperands === null ? inventoryRecord(scan, 0) : null);
+    if (retained !== null) return { kind: "refused", stop: retained };
+    const instance = projectInstance(scan, rewrite, row.instance);
+    if (instance.kind === "refused") return instance;
+    (layoutOperands ??= []).push({ instance: instance.value, root });
+  }
+  return copiedProjection({ checked: checked.value, members: members.value, signatures: signatures.value,
+    storage: storage.value, layoutOperands });
 }

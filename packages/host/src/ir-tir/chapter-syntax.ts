@@ -1,8 +1,10 @@
 import { requirePresent } from "../diag/index.js";
+import { decodeBodyId } from "../ids/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { NodeList, SyntaxChildSlot } from "../ir-hir/contract.js";
 import { iterateFunctionHeaderSlots, iterateSourceFileHeaderSlots, iterateSyntaxChildSlots, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { LayoutBindingOf, LayoutObservationOf, RawValueTypeOf } from "./contract.js";
+import type { IsLayoutOperandBody, LayoutArgumentSlots, TirLayoutArguments, TirLayoutArgumentSlot, TirTypedSyntax } from "./contract.js";
 import type { AdmitFormalInitializer, BodyOccurrenceSlots, ChapterStatementSyntax, ChapterSyntaxSlots, FormalInitializerSlot, FormalInitializerSyntax, IndexChapterSyntax, ReadChapterSyntaxSlot, TirBodySyntaxOf, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirFormalInitializerRead, TirModuleStatement, TypedPhase } from "./contract.js";
 
 const missingChild: InvariantFailure = { owner: "ir-tir", query: null, origin: null,
@@ -25,6 +27,11 @@ export const layoutObservationOf: LayoutObservationOf = node => {
 
 export const rawValueTypeOf: RawValueTypeOf = payload =>
   payload.narrowing !== null && payload.narrowing.kind === "narrowed" ? payload.narrowing.source : payload.type;
+
+export const isLayoutOperandBody: IsLayoutOperandBody = body => {
+  const decoded = decodeBodyId(body);
+  return decoded.kind === "decoded" && decoded.value.role === "layout-operand";
+};
 
 function ordinarySlot(slot: SyntaxChildSlot<TypedPhase>): TirChapterSyntaxSlot {
   return { kind: "syntax", fields: slot.fields, read: () => {
@@ -90,19 +97,39 @@ export const formalInitializerSyntax: FormalInitializerSyntax = initializer => {
   }
 };
 
+function layoutDescriptorSlot(arguments_: TirLayoutArguments): TirLayoutArgumentSlot {
+  return { kind: "layout-descriptor", fields: ["arguments", "descriptor"], read: () => arguments_.descriptor };
+}
+
+export const layoutArgumentSlots: LayoutArgumentSlots = function* (arguments_) {
+  yield layoutDescriptorSlot(arguments_);
+  const operands = arguments_.operands;
+  for (let position = 0; position < operands.length; position += 1) {
+    const index = position;
+    yield { kind: "layout-operand", fields: ["arguments", "operands", index],
+      read: () => requirePresent(operands[index], missingChild) };
+  }
+};
+
 export const readChapterSyntaxSlot: ReadChapterSyntaxSlot = slot => {
   switch (slot.kind) {
     case "syntax": return slot.read();
     case "statement": return chapterStatementSyntax(slot.read());
     case "formal-initializer": return formalInitializerSyntax(readInitializer(slot.read()));
+    case "layout-descriptor": return { kind: "checked", node: slot.read() };
+    case "layout-operand": return { kind: "ordinary", node: slot.read().root };
   }
 };
 
-export const chapterSyntaxSlots: ChapterSyntaxSlots = function* (subject) {
+function* syntaxSlots(subject: TirTypedSyntax, layout: LayoutArgumentSlots): Generator<TirChapterSyntaxSlot> {
   switch (subject.kind) {
     case "ordinary":
     case "formal":
-      yield* iterateSyntaxChildSlots<TypedPhase, TirChapterSyntaxSlot>(subject.node, ordinarySlot, parameter => [formalInitializerSlot(parameter)]);
+      yield* iterateSyntaxChildSlots<TypedPhase, TirChapterSyntaxSlot>(subject.node, ordinarySlot,
+        parameter => [formalInitializerSlot(parameter)], (call, field) => {
+          const arguments_ = call.arguments;
+          return "kind" in arguments_ ? layout(arguments_) : listSlots(field, arguments_, node => ({ kind: "ordinary", node }));
+        });
       return;
     case "module-root":
       yield* iterateSourceFileHeaderSlots<TypedPhase, TirChapterSyntaxSlot>(subject.node, ordinarySlot,
@@ -114,7 +141,10 @@ export const chapterSyntaxSlots: ChapterSyntaxSlots = function* (subject) {
         field => [{ kind: "syntax", fields: [field], read: () => ({ kind: "ordinary", node: subject.node.body }) }]);
       return;
   }
-};
+}
+
+export const chapterSyntaxSlots: ChapterSyntaxSlots = subject => syntaxSlots(subject, args => [layoutDescriptorSlot(args)]);
+export const chapterTransportSlots: ChapterSyntaxSlots = subject => syntaxSlots(subject, layoutArgumentSlots);
 
 export const tirBodySyntaxOf: TirBodySyntaxOf = node =>
   node.kind === "SourceFile" ? { kind: "module-root", node } : { kind: "ordinary", node };

@@ -2,7 +2,7 @@ import { ProgramWork } from "./work.js";
 import type { ProgramVerificationResult, ProgramSite, ModuleBodies, ProgramIndex, ProgramVerificationContext, PublishedBody, VerifyModuleBodies } from "./contract.js";
 import type { ArgumentTransport, MetadataKey, ObservationsVerification, RelationalOwner, SummaryKey } from "../ir-facts/contract.js";
 import type { MemberSelection, ResolvedCallee, TirChapterSyntax, TirSyntaxOccurrence, TirTypedSyntax, TirVerifierInput } from "../ir-tir/contract.js";
-import { chapterSyntaxSlots, indexChapterSyntax, readChapterSyntaxSlot, verifyTir, verifyTirModule } from "../ir-tir/index.js";
+import { chapterSyntaxSlots, indexChapterSyntax, isLayoutOperandBody, readChapterSyntaxSlot, verifyTir, verifyTirModule } from "../ir-tir/index.js";
 import { summaryKey, verifyFacts, verifyObservations } from "../ir-facts/index.js";
 import { verifyMir } from "../ir-mir/index.js";
 import { constantReferenceKey, executionKey, instanceKey } from "../ir-types/index.js";
@@ -161,6 +161,10 @@ function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | 
     });
     position += 1;
   }
+  function anchor(node: TirSyntaxOccurrence): void {
+    const key = encodeKey([node.id]);
+    anchors.set(key, anchors.has(key) ? null : node);
+  }
   const tree = module.tree;
   const chapter: TirChapterSyntax = tree.kind === "checked-root" ? { kind: "checked", node: tree.root } : { kind: "module-root", node: tree.root };
   for (const subject of indexChapterSyntax([chapter], chapterSyntaxSlots)) {
@@ -168,8 +172,7 @@ function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | 
       for (const node of walkSyntaxTree(subject.node, [])) admitNode(node);
     } else {
       const node = subject.node;
-      const key = encodeKey([node.id]);
-      anchors.set(key, anchors.has(key) ? null : node);
+      anchor(node);
       admitNode(node);
     }
   }
@@ -196,8 +199,8 @@ function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | 
     }
   }
   inventoryChapterSyntax<never>(moduleChapterRoots(module, "ModuleBodies"),
-    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null,
-      close: completed });
+    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null, layout: () => null,
+      close: completed }, chapterSyntaxSlots);
   for (const published of module.bodies) {
     const site: ProgramSite = { kind: "body", instance: published.instance };
     const root = published.tir.root;
@@ -212,7 +215,8 @@ function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | 
       });
     }
     const anchor = anchors.get(encodeKey([root.id]));
-    if (module.tree.kind === "ready-root" && published.instance.bindings.kind === "parametric" && anchor !== root) violations.push({
+    if (module.tree.kind === "ready-root" && published.instance.bindings.kind === "parametric" &&
+      !isLayoutOperandBody(published.instance.body) && anchor !== root) violations.push({
       rule: "template-body-shared", site, detail: [numberDetail(root.id)],
     });
   }

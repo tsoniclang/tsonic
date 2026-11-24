@@ -485,7 +485,12 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
     const application = phase !== null && "application" in phase && phase.application.kind === "decided" ? phase.application.decision : null;
     const authored = new Map<NodeId, number>();
     if (syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression") {
-      for (const [index, argument] of (syntax.arguments?.nodes ?? []).entries()) {
+      const args = syntax.arguments;
+      if (args !== null && "kind" in args) {
+        const stop = report("cross-owner-qualified", site, "A layout quotation is not a runtime invocation.");
+        if (stop !== null) return stop;
+      }
+      for (const [index, argument] of (args === null || "kind" in args ? [] : args.nodes).entries()) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
 

@@ -1,4 +1,4 @@
-import type { SyntaxCopyResult, SyntaxNode, SyntaxPhaseCopy, SyntaxStructureReceipt } from "../ir-hir/contract.js";
+import type { Expression, SyntaxCopyResult, SyntaxNode, SyntaxPhaseCopy, SyntaxStructureReceipt } from "../ir-hir/contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import { prepareSyntaxStructure } from "../ir-hir/index.js";
 import type { TirChapterSyntax, TypedPhase } from "../ir-tir/contract.js";
@@ -23,6 +23,7 @@ const missingImage: InvariantFailure = { owner: "ir-program", query: null, origi
 export interface ProjectedChapter {
   readonly bodyRootOf: (source: TirBodyRoot) => TirBodyRoot;
   readonly formalOf: (source: AdmittedTirSyntax["params"][number]) => AdmittedTirSyntax["params"][number];
+  readonly layoutRootOf: (source: Expression<TypedPhase>) => Expression<TypedPhase> | null;
 }
 
 export interface PreparedTypedSyntax {
@@ -61,6 +62,10 @@ export function prepareTypedChapter(scan: ProjectionInventory, roots: Iterable<C
         return root !== null && root.kind !== "SourceFile" ? root : throwInvariant(missingImage);
       },
       formalOf: source => requirePresent(typed.parameterOf(source) ?? undefined, missingImage),
+      layoutRootOf: source => {
+        const target = typed.bodyRootOf(source);
+        return target === null || target.kind === "SourceFile" || target.kind === "Block" ? null : target;
+      },
     } };
   } } };
 }
@@ -472,8 +477,10 @@ export function prepareTypedNodeCopy(scan: ProjectionInventory, roots: Iterable<
     return null;
   }, {
     root: () => null,
-    edge: (_path, slot) => slot.kind === "statement" ? inventoryRecord(scan, 2) : chargeInstantiationWork(scan.meter),
+    edge: (_path, slot) => slot.kind === "statement" || slot.kind === "layout-operand"
+      ? inventoryRecord(scan, 2) : chargeInstantiationWork(scan.meter),
     formal: () => inventoryRecord(scan, 0),
+    layout: () => inventoryRecord(scan, 2) ?? inventoryRecord(scan, 0),
     prepare: (subject, ordinal, copy) => {
       position = ordinal;
       shape = null;

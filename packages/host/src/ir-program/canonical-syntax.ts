@@ -1,5 +1,5 @@
-import type { HirNode, SyntaxCopyResult } from "../ir-hir/contract.js";
-import type { TirBody, TirChapterTree } from "../ir-tir/contract.js";
+import type { Expression, HirNode, SyntaxCopyResult } from "../ir-hir/contract.js";
+import type { TirBody, TirChapterTree, TypedPhase } from "../ir-tir/contract.js";
 import type { InstantiationStop } from "./work.js";
 import type { PreparedTypedSyntax, ProjectedChapter } from "./instantiate-syntax.js";
 import { prepareTypedChapter } from "./instantiate-syntax.js";
@@ -41,6 +41,8 @@ export interface PreparedModuleSyntax {
   readonly checkedRoots: readonly HirNode[];
   readonly originalTree: TirChapterTree;
   readonly bodies: PreparedPublishedBody[];
+  readonly tree: () => TirChapterTree | null;
+  readonly layoutRootOf: (source: Expression<TypedPhase>) => Expression<TypedPhase> | null;
   readonly materialize: (checked: CheckedChapterImage, bodies: readonly PreparedPublishedBody[]) => ProjectionResult<ModuleBodies>;
 }
 
@@ -102,7 +104,10 @@ export function prepareModuleSyntax(scan: ProjectionInventory, rewrite: TypeRefe
         return arm === null ? { kind: "template", instance, tir } : { ...arm, tir };
       } });
     }
+    let projectedChapter: ProjectedChapter | null = null;
+    let projectedTree: TirChapterTree | null = null;
     return copiedProjection({ checkedRoots: syntax.value.checkedRoots, originalTree, bodies,
+      tree: () => projectedTree, layoutRootOf: source => projectedChapter?.layoutRootOf(source) ?? null,
       materialize: (checked, ranked) => {
         const projected = syntax.value.materialize(rewrite, checked);
         if (projected.kind === "refused") return projected;
@@ -111,7 +116,10 @@ export function prepareModuleSyntax(scan: ProjectionInventory, rewrite: TypeRefe
         const tree: TirChapterTree = sourceTree.kind === "checked-root"
           ? { kind: "checked-root", root: checked.sourceFileOf(sourceTree.root) }
           : { kind: "ready-root", root: requirePresent(root?.kind === "SourceFile" ? root : undefined, missingSyntax) };
-        return copiedProjection({ module: moduleId, tree, bodies: ranked.map(body => body.materialize(image)) });
+        const rows = ranked.map(body => body.materialize(image));
+        projectedChapter = image;
+        projectedTree = tree;
+        return copiedProjection({ module: moduleId, tree, bodies: rows });
       },
     });
   });

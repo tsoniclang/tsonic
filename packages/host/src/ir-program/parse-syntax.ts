@@ -208,7 +208,8 @@ export function parseSyntaxDocument(
   let dependencies = roots;
   let checkedImage: CheckedWireImage | undefined;
   const track = (dependency: SyntaxDependency): void => { dependencies.push(dependency); };
-  const ports = createSyntaxReadPorts(nodes.ordinary, nodes.formals, track);
+  const checkedWire = () => requirePresent(checkedImage, missingCheckedWire);
+  const ports = createSyntaxReadPorts(nodes.ordinary, nodes.formals, track, request => checkedRoots.push(request), checkedWire);
   const chapter = createChapterReadPorts(ports, nodes.modules, nodes.callables, track, request => checkedRoots.push(request),
     () => requirePresent(checkedImage, missingCheckedWire));
   const header = evaluateText(readHeader(chapter));

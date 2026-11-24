@@ -3,8 +3,8 @@ import {
 } from "../diag/index.js";
 import type {
   CaseClause, ChildrenOfSyntax, DefaultClause, IterateChildrenOfSyntax, IterateSyntaxChildEdges,
-  IterateSyntaxChildSlots, NullableInitializerPhase, Phase, PrepareSyntaxStructure, RetainedSyntaxNode,
-  SyntaxChild, SyntaxChildListField, SyntaxChildSlot, SyntaxNode,
+  IterateSyntaxChildSlots, OrdinarySyntaxPhase, Phase, PrepareSyntaxStructure, RetainedSyntaxNode,
+  SyntaxChild, SyntaxChildListField, SyntaxChildSlot, SyntaxNode, NodeList, Expression, CallExpression, ParameterDeclaration,
 } from "./contract.js";
 import {
   children, emptyChildren, missingStructure, prependSlots, sameSlot,
@@ -138,45 +138,52 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
   return { kind: "copied", value: prepareSingleExpression<P>(node, ordinal) };
 };
 
-export const iterateChildrenOfSyntax: IterateChildrenOfSyntax = function* <PhaseType extends NullableInitializerPhase<PhaseType>>(
+export const iterateChildrenOfSyntax: IterateChildrenOfSyntax = function* <PhaseType extends OrdinarySyntaxPhase<PhaseType>>(
   node: SyntaxNode<PhaseType>,
 ): Generator<SyntaxNode<PhaseType>, void, undefined> {
   for (const slot of iterateNullableSyntaxSlots(node)) yield slot.read();
 };
 
-export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends NullableInitializerPhase<PhaseType>>(
+export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends OrdinarySyntaxPhase<PhaseType>>(
   node: SyntaxNode<PhaseType>,
 ): readonly SyntaxNode<PhaseType>[] => [...iterateChildrenOfSyntax(node)];
 
-export function syntaxChildEdges<PhaseType extends NullableInitializerPhase<PhaseType>>(
+export function syntaxChildEdges<PhaseType extends OrdinarySyntaxPhase<PhaseType>>(
   node: SyntaxNode<PhaseType>,
 ): readonly SyntaxChild<PhaseType>[] {
   return [...iterateSyntaxChildEdges(node)];
 }
 
-export const iterateSyntaxChildEdges: IterateSyntaxChildEdges = function* <PhaseType extends NullableInitializerPhase<PhaseType>>(
+export const iterateSyntaxChildEdges: IterateSyntaxChildEdges = function* <PhaseType extends OrdinarySyntaxPhase<PhaseType>>(
   node: SyntaxNode<PhaseType>,
 ): Generator<SyntaxChild<PhaseType>, void, undefined> {
   for (const slot of iterateNullableSyntaxSlots(node)) yield { node: slot.read(), fields: slot.fields };
 };
 
-export function iterateNullableSyntaxSlots<P extends NullableInitializerPhase<P>>(node: SyntaxNode<P>): Iterable<SyntaxChildSlot<P>> {
+export function iterateNullableSyntaxSlots<P extends OrdinarySyntaxPhase<P>>(node: SyntaxNode<P>): Iterable<SyntaxChildSlot<P>> {
   return iterateSyntaxChildSlots<P, SyntaxChildSlot<P>>(node, sameSlot, function* (parameter, field) {
     const initializer = parameter.initializer;
     if (initializer !== null) yield { fields: [field], read: () => initializer };
-  });
+  }, call => children<P, { readonly arguments: NodeList<Expression<P>> }>(["arguments", "list", () => call.arguments]));
 }
 
-export const iterateSyntaxChildSlots: IterateSyntaxChildSlots = function* (node, ordinary, initializer) {
+export const iterateSyntaxChildSlots: IterateSyntaxChildSlots = function* <P extends Phase, Slot>(node: SyntaxNode<P>,
+  ordinary: (slot: SyntaxChildSlot<P>) => Slot,
+  initializer: (node: ParameterDeclaration<P>, field: "initializer") => Iterable<Slot>,
+  argumentsOf: (node: CallExpression<P>, field: "arguments") => Iterable<Slot>,
+) {
   if (node.kind === "Parameter") {
     yield* iterateParameterHeaderSlots(node, ordinary, field => initializer(node, field));
+  } else if (node.kind === "CallExpression") {
+    yield* applicationSlots<P, Slot>(node, value => value, value => value,
+      () => children<P, typeof node>(["typeArguments", "list", () => node.typeArguments]), ordinary, () => argumentsOf(node, "arguments"));
   } else {
     for (const slot of ordinarySlots(node)) yield ordinary(slot);
   }
 };
 
 function ordinarySlots<PhaseType extends Phase>(
-  node: Exclude<SyntaxNode<PhaseType>, { readonly kind: "Parameter" }>,
+  node: Exclude<SyntaxNode<PhaseType>, { readonly kind: "Parameter" | "CallExpression" }>,
 ): Iterable<SyntaxChildSlot<PhaseType>> {
   if (isSingleExpressionSyntax<PhaseType>(node)) return singleExpressionSlots<PhaseType>(node, child => child);
   switch (node.kind) {
@@ -338,11 +345,10 @@ function ordinarySlots<PhaseType extends Phase>(
       return propertySlots<PhaseType>({ expression: () => node.expression, questionDotToken: () => node.questionDotToken }, () => node.name);
     case "ElementAccessExpression":
       return elementSlots<PhaseType>({ expression: () => node.expression, questionDotToken: () => node.questionDotToken }, () => node.argumentExpression);
-    case "CallExpression":
     case "NewExpression":
-      return applicationSlots<PhaseType>(node, value => value, value => value,
+      return applicationSlots<PhaseType, SyntaxChildSlot<PhaseType>>(node, value => value, value => value,
         () => children<PhaseType, typeof node>(["typeArguments", "list", () => node.typeArguments]),
-        () => children<PhaseType, typeof node>(["arguments", "list", () => node.arguments]));
+        sameSlot, () => children<PhaseType, typeof node>(["arguments", "list", () => node.arguments]));
     case "MetaProperty":
       return metaPropertySlots<PhaseType>(() => node.name);
     case "TemplateExpression":

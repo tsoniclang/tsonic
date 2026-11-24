@@ -1,7 +1,7 @@
 import type { BodyRoot, CopySyntaxForest, FunctionDeclaration, FunctionExpression, ModifierLike, Statement, TypeNode,
   RetainedSyntaxNode, SingleExpressionSyntax, SyntaxStructureReceipt,
   FinishSyntaxCopy, Phase, PrepareSyntaxCopy, SyntaxCopyResult, SyntaxForest, SyntaxImage,
-  SyntaxInitializerImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy } from "./contract.js";
+  SyntaxCallArgumentsImage, SyntaxInitializerImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy } from "./contract.js";
 import type {
   EntityName, Expression, LeftHandSideExpression, ForInitializer, CaseOrDefaultClause, BindingName,
   PropertyName, BlockOrExpression, ClassElement, TypeElement, ModuleExportName, MemberName,
@@ -336,6 +336,7 @@ function namedImportBindingsRole<P extends Phase>(_candidate: SyntaxNode<P>, kin
 
 function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   initializer: SyntaxInitializerImage<P, Image>,
+  callArguments: SyntaxCallArgumentsImage<P>,
   structure: (node: RetainedSyntaxNode<P>) => SyntaxStructureReceipt<P>,
   readSyntax: (node: SyntaxNode<P>) => SyntaxNode<P>,
   readRole: <Value extends SyntaxNode<P>>(node: Value, role: SyntaxRole<P, Value>) => Value): SyntaxCopyPorts<P, Stop, Image> {
@@ -381,7 +382,7 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
   }, expressionOf, node => {
     const receipt = structure(node);
     return receipt.kind === "application" ? receipt : throwInvariant(missingPreparation);
-  }, functionOf, node => {
+  }, callArguments, functionOf, node => {
     const receipt = structure(node);
     return receipt.kind === "unary" ? receipt : throwInvariant(missingPreparation);
   }, node => {
@@ -464,7 +465,7 @@ export function createSyntaxCopyState<P extends Phase, Stop, Image>(
       return stop;
     }
     if (!Number.isSafeInteger(ordinal) || ordinal < 0 || plans.has(ordinal)) return throwInvariant(missingPreparation);
-    ports ??= createSyntaxPlans(phase, source.copyInitializer, source.structure, readSyntax, readRole);
+    ports ??= createSyntaxPlans(phase, source.copyInitializer, source.copyCallArguments, source.structure, readSyntax, readRole);
     let kind: SyntaxNode<P>["kind"] | undefined;
     const plan = planSyntaxNode(ports, node, selected => { kind = selected; });
     failure = plan.prepare();
@@ -520,6 +521,7 @@ export const prepareSyntaxCopy: PrepareSyntaxCopy = <P extends Phase, Stop, Imag
   const state = createSyntaxCopyState<P, Stop, Image>(phase, beforeNode, {
     wireOf: node => requirePresent(supplied, missingPreparation).wireOf(node),
     copyInitializer: (node, expression, image) => requirePresent(supplied, missingPreparation).copyInitializer(node, expression, image),
+    copyCallArguments: (node, expression) => requirePresent(supplied, missingPreparation).copyCallArguments(node, expression),
     structure: node => requirePresent(supplied, missingPreparation).structure(node),
   });
   const prepare = (node: SyntaxNode<P>, ordinal: number): Stop | null => discovering ? state.prepare(node, ordinal) : throwInvariant(consumedPreparation);
@@ -541,7 +543,7 @@ export const prepareSyntaxCopy: PrepareSyntaxCopy = <P extends Phase, Stop, Imag
 export function bindSyntaxForest<P extends Phase>(nodes: readonly SyntaxNode<P>[],
   postorder: readonly SyntaxNode<P>[], wireOf: (node: SyntaxNode<P>) => number | undefined,
   structure: (node: RetainedSyntaxNode<P>) => SyntaxStructureReceipt<P>,
-  copyInitializer: SyntaxInitializerImage<P, unknown>): SyntaxForest<P>["copy"] {
+  copyInitializer: SyntaxInitializerImage<P, unknown>, copyCallArguments: SyntaxCallArgumentsImage<P>): SyntaxForest<P>["copy"] {
   let claimed = false;
   return <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
     beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => {
@@ -554,7 +556,7 @@ export function bindSyntaxForest<P extends Phase>(nodes: readonly SyntaxNode<P>[
         const stop = prepare(node, requirePresent(wireOf(node), missingPreparation));
         if (stop !== null) return { kind: "refused", stop };
       }
-      return copied({ postorder, wireOf, structure, copyInitializer });
+      return copied({ postorder, wireOf, structure, copyInitializer, copyCallArguments });
     });
     return prepared.kind === "refused" ? prepared : prepared.value(image);
   };

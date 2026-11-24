@@ -1,11 +1,12 @@
 import type { BinaryOperatorOf, CallableEndpointKey, CheckedGroupingFrontierOf, CheckedParameterHeadersOf, ChildrenOfSyntax, CompoundAssignmentOperatorOf, HasOverloadEndpoints, IndexSyntaxTree, IterateChildrenOfSyntax, IterateSyntaxChildEdges, OrderPragmaArguments, ParseHir, PrefixOperatorOf, PrintHir, SelectedEndpointRoleFaults, ShortCircuitOperatorOf, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import { childrenOfSyntax as children, iterateChildrenOfSyntax as iterateChildren, iterateSyntaxChildEdges as iterateEdges } from "./children.js";
 import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSourceFileHeaderSlots, IterateSyntaxChildSlots,
-  PrepareFunctionHeader, PrepareSourceFileHeader, PrepareSyntaxStructure } from "./contract.js";
+  PrepareFunctionHeader, PrepareSourceFileHeader, PrepareSyntaxArgumentList, PrepareSyntaxStructure } from "./contract.js";
 import { iterateFunctionHeaderSlots as functionSlots, iterateParameterHeaderSlots as parameterSlots,
   iterateSourceFileHeaderSlots as sourceFileSlots, iterateSyntaxChildSlots as childSlots,
   prepareFunctionHeader as functionShape, prepareSourceFileHeader as sourceFileShape, prepareSyntaxStructure as structure } from "./children.js";
 import { indexSyntaxTree as index, unparenthesizedExpression as unparenthesized, walkSyntaxForest as walkForest, walkSyntaxTree as walk } from "./walk.js";
+import { prepareSyntaxArgumentList as argumentList } from "./control-slots.js";
 import type { UnparenthesizedExpression } from "./contract.js";
 import type { CopyCheckedContent, CopyCheckedModule, CopySyntaxForest, PrepareSyntaxCopy, ProjectCheckedContent } from "./contract.js";
 import { copySyntaxForest as copyForest, prepareSyntaxCopy as prepareCopy } from "./copy-syntax.js";
@@ -26,14 +27,15 @@ import { checkedMemberStorageOf as memberStorage, checkedSourceObjectHoldingOf a
 import { checkedGroupingFrontierOf as groupingFrontier } from "./grouping-frontier.js";
 import type { CollectInferredStorageSources } from "./contract.js";
 import { collectInferredStorageSources as storageSources } from "./storage-inputs.js";
-import type { CheckedLayoutConstructionOf, CheckedLayoutOperandOf, CheckedLayoutRoleOf, ResolveCheckedLayout } from "./contract.js";
-import { checkedLayoutConstructionOf as layoutConstruction, checkedLayoutOperandOf as layoutOperand, checkedLayoutRoleOf as layoutRole,
-  resolveCheckedLayout as layoutSource } from "./layout.js";
+import type { CheckedLayoutConstructionOf, CheckedLayoutGeometryOperands, CheckedLayoutRoleOf, ReadLayoutDescriptor, ResolveCheckedLayout } from "./contract.js";
+import { checkedLayoutConstructionOf as layoutConstruction, checkedLayoutGeometryOperands as layoutGeometryOperands, checkedLayoutRoleOf as layoutRole,
+  readLayoutDescriptor as layoutDescriptor, resolveCheckedLayout as layoutSource } from "./layout.js";
 
 export const collectInferredStorageSources: CollectInferredStorageSources = storageSources;
-export const checkedLayoutOperandOf: CheckedLayoutOperandOf = layoutOperand;
 export const checkedLayoutRoleOf: CheckedLayoutRoleOf = layoutRole;
 export const checkedLayoutConstructionOf: CheckedLayoutConstructionOf = layoutConstruction;
+export const checkedLayoutGeometryOperands: CheckedLayoutGeometryOperands = layoutGeometryOperands;
+export const readLayoutDescriptor: ReadLayoutDescriptor = layoutDescriptor;
 export const resolveCheckedLayout: ResolveCheckedLayout = layoutSource;
 
 export const resolveModuleBinding: ResolveModuleBinding = resolveBinding;
@@ -58,6 +60,7 @@ export const iterateFunctionHeaderSlots: IterateFunctionHeaderSlots = functionSl
 export const iterateParameterHeaderSlots: IterateParameterHeaderSlots = parameterSlots;
 export const iterateSourceFileHeaderSlots: IterateSourceFileHeaderSlots = sourceFileSlots;
 export const prepareSyntaxStructure: PrepareSyntaxStructure = structure;
+export const prepareSyntaxArgumentList: PrepareSyntaxArgumentList = argumentList;
 export const prepareFunctionHeader: PrepareFunctionHeader = functionShape;
 export const prepareSourceFileHeader: PrepareSourceFileHeader = sourceFileShape;
 export const indexSyntaxTree: IndexSyntaxTree = index;

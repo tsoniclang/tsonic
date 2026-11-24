@@ -154,7 +154,7 @@ test("Program final member projection uses inventory-only indexes in final ident
     get write() { assert.fail("Inventory has no typed write"); } }));
   const member = { instance: fixture.instance, occurrence: { kind: "selection", ordinal: 0, node: 0 },
     inventory: { receiver: 0, members: [], indexes, calls: [0], constructs: [], accessors: [], constructors: [], completeness: { kind: "complete" } } };
-  const run = (maximumWork = 100000, maximumCreatedRecords = 100000, input = { checked: [], members: [member], signatures: [], storage: [] }) => {
+  const run = (maximumWork = 100000, maximumCreatedRecords = 100000, input = { checked: [], members: [member], signatures: [], storage: [], layoutOperands: null }) => {
     const account = createAccount({ maximumWork, maximumResultEntries: 100000 });
     const resources = createProgramVerificationWork({ ...ProgramWork.state(fixture.context.resources).limits, maximumCreatedRecords }, account);
     const result = canonicalizeProgram(programForEvidence(fixture.index), publication, resources,

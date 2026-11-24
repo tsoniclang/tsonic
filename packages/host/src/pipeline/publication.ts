@@ -13,6 +13,8 @@ import type { BindingScope, BodyInstance, MemberInventory } from "../ir-types/co
 import { executionKey, exportTypes, instanceKey, nativeFactsKey, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import type { InferenceDeclaration } from "../ir-infer/contract.js";
 import type { TirBody, TirMemberOccurrence, TirVerifierInput } from "../ir-tir/contract.js";
+import type { Expression } from "../ir-hir/contract.js";
+import type { TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { HostAnalysisInputs } from "./contract.js";
 import type { TypedSourceBarrier } from "./typed-barrier.js";
@@ -50,6 +52,7 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
   const storage = new Map<string, TyId | null>();
   const members = new Map<string, MemberInventory | null>();
   const typedBodies = new Map<string, TirBody>();
+  let layoutOperands: Map<string, Expression<TypedPhase>> | null = null;
   const requiredEntries = new Map<string, readonly number[]>();
   const graphs = new Map<string, MirBody>();
   const arenas = new Map<string, RelationalArena>();
@@ -97,6 +100,19 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
     if (identity !== null) return identity;
     const key = memberKey(row.instance, row.occurrence);
     if (key !== null) members.set(key, row.inventory);
+  }
+  const operands = evidence.layoutOperands;
+  if (operands !== null) for (let position = 0; position < operands.length; position += 1) {
+    const read = admit(layoutOperands === null ? 2 : 1);
+    if (read !== null) return read;
+    const row = operands[position];
+    if (row === undefined) return fail("The final verified geometry inventory is dense.");
+    const { instance, root } = row;
+    const identity = chargeWork(account, instance.body.length) ?? admitArtifactIdentity(instance.bindings, account);
+    if (identity !== null) return identity;
+    const key = instanceKey(instance);
+    if (layoutOperands?.has(key) === true) return fail("A geometry instance retains one verified ready root.");
+    (layoutOperands ??= new Map()).set(key, root);
   }
   const scopedNode = (reference: SourceNodeRef) => {
     const source = typed.sourceNodeOf(reference);
@@ -166,6 +182,7 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
     }
     tirInputs.set(module, { ...originalTir, source: checkedImage.module, module: { module, tree, bodies }, types,
       declarationOf, nodeOf: scopedNode, bodyOf, requiredEntriesOf: instance => requiredEntries.get(instanceKey(instance)) ?? null,
+      layoutOperandOf: instance => layoutOperands?.get(instanceKey(instance)) ?? null,
       bindingScopesOf: target => ({ kind: "complete", scopes: target.kind === "module"
         ? moduleScopes.get(target.module) ?? null : scopes.get(instanceKey(target.instance)) ?? null }),
       staticStorageOf: declaration => storage.get(storageKey(declaration)) ?? null,

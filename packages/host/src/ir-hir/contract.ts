@@ -477,6 +477,7 @@ export interface ModifierList<P extends Phase> extends NodeList<ModifierLike<P>>
 export interface Phase {
   readonly Token: object | null;
   readonly ParameterInitializer: object | null;
+  readonly CallArguments: { readonly loc: TextRange };
   readonly Identifier: object | null;
   readonly PrivateIdentifier: object | null;
   readonly QualifiedName: object | null;
@@ -672,6 +673,7 @@ export interface Phase {
 export interface SyntaxPhase extends Phase {
   readonly Token: null;
   readonly ParameterInitializer: Expression<SyntaxPhase> | null;
+  readonly CallArguments: NodeList<Expression<SyntaxPhase>>;
   readonly Identifier: null;
   readonly PrivateIdentifier: null;
   readonly QualifiedName: null;
@@ -1543,12 +1545,14 @@ export interface ElementAccessExpression<P extends Phase> extends NodeHeader {
   readonly tsonic: P["ElementAccessExpression"];
 }
 
+export type SyntaxCallArguments<P extends Phase> = P["CallArguments"];
+
 export interface CallExpression<P extends Phase> extends NodeHeader {
   readonly kind: "CallExpression";
   readonly expression: Expression<P>;
   readonly questionDotToken: QuestionDotToken<P> | null;
   readonly typeArguments: NodeList<TypeNode<P>> | null;
-  readonly arguments: NodeList<Expression<P>>;
+  readonly arguments: SyntaxCallArguments<P>;
   readonly tsonic: P["CallExpression"];
 }
 
@@ -4107,11 +4111,35 @@ export interface HirObservationCapture {
   readonly value: CapturedFact<bigint>;
 }
 
-export type CheckedLayoutOperandOf = (call: CallExpression<CheckedPhase>, position: number) => SourceNodeRef | null;
-
 export type LayoutCallRole = "value-layout" | "array-layout" | "field-layout" | "size" | "alignment" | "stride" | "field-offset";
 
+export type LayoutDescriptorKind = "value" | "array" | "field";
+export type LayoutDescriptorOperand = "datalayout" | "bytesize" | "bytealignment" | "stride" | "fields" |
+  "elementlayout" | "length" | "select" | "byteoffset" | "fieldlayout";
+interface LayoutGeometrySyntax<P extends Phase> {
+  readonly datalayout: Expression<P>;
+  readonly bytesize: Expression<P>;
+  readonly bytealignment: Expression<P>;
+  readonly stride: Expression<P>;
+}
+export type LayoutDescriptorSyntax<P extends Phase> = { readonly descriptor: ObjectLiteralExpression<P> } & (
+  | ({ readonly kind: "value"; readonly fields: ArrayLiteralExpression<P> } & LayoutGeometrySyntax<P>)
+  | ({ readonly kind: "array"; readonly elementlayout: Expression<P>; readonly length: Expression<P> } & LayoutGeometrySyntax<P>)
+  | { readonly kind: "field"; readonly select: Expression<P>; readonly byteoffset: Expression<P>;
+      readonly bytealignment: Expression<P>; readonly fieldlayout: Expression<P> }
+);
+export type LayoutDescriptorSyntaxFault =
+  | { readonly kind: "not-inline" | "invalid-property" | "not-inline-fields" | "invalid-field-entry"; readonly at: NodeId }
+  | { readonly kind: "unknown-property"; readonly at: NodeId; readonly name: string }
+  | { readonly kind: "duplicate-property" | "missing-property"; readonly at: NodeId; readonly name: LayoutDescriptorOperand };
+export type ReadLayoutDescriptor = <P extends Phase, Stop extends object>(input: Expression<P>, kind: LayoutDescriptorKind,
+  admit: (work: number, created: number) => Stop | null, field: (operand: Expression<P>) => Stop | null) =>
+  { readonly kind: "complete"; readonly value: LayoutDescriptorSyntax<P> }
+  | { readonly kind: "invalid"; readonly fault: LayoutDescriptorSyntaxFault }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+
 export type CheckedLayoutRoleOf = (call: CallExpression<CheckedPhase>) => LayoutCallRole | null;
+export type CheckedLayoutGeometryOperands = (capture: HirAuthoredMemoryLayoutCapture | HirMemoryFieldCapture) => readonly SourceNodeRef[];
 
 export type CheckedLayoutConstructionOf = (node: HirNode) =>
   HirAuthoredMemoryLayoutCapture | HirMemoryFieldCapture | null;
@@ -4351,6 +4379,7 @@ export type CheckedInstantiation = HirCoreCarrier & (
 export type CheckedAggregate = HirCoreCarrier & (
   | { readonly role: "value"; readonly value: CheckedValue }
   | { readonly role: "assignment-pattern"; readonly views: HirCheckerViews }
+  | { readonly role: "layout-quote"; readonly call: NodeRef; readonly views: HirCheckerViews }
 );
 
 export interface CheckedApplication extends CheckedValue, HirCoreCarrier {
@@ -4516,6 +4545,7 @@ export interface CheckedTypeParameter extends CheckedDeclaration {
 export interface CheckedPhase extends Phase {
   readonly Token: null;
   readonly ParameterInitializer: Expression<CheckedPhase> | null;
+  readonly CallArguments: NodeList<Expression<CheckedPhase>>;
   readonly Identifier: CheckedName;
   readonly PrivateIdentifier: CheckedName;
   readonly QualifiedName: CheckedName;
@@ -4815,7 +4845,7 @@ export type CheckedUnopenedDeclaration =
   | FunctionDeclaration<CheckedPhase> | InterfaceDeclaration<CheckedPhase> | TypeAliasDeclaration<CheckedPhase>;
 
 export interface CheckedWireRequest {
-  readonly role: "source-file" | "unopened-declaration" | "expression";
+  readonly role: "source-file" | "unopened-declaration" | "expression" | "layout-descriptor";
   readonly ordinal: number;
   readonly offset: number;
 }
@@ -4824,6 +4854,7 @@ export interface CheckedWireImage {
   readonly sourceFileOf: (ordinal: number) => SourceFile<CheckedPhase> | null;
   readonly declarationOf: (ordinal: number) => CheckedUnopenedDeclaration | null;
   readonly expressionOf: (ordinal: number) => Expression<CheckedPhase> | null;
+  readonly layoutDescriptorOf: (ordinal: number) => ObjectLiteralExpression<CheckedPhase> | null;
 }
 
 export interface ParsedCheckedDeclarations {
@@ -4861,24 +4892,27 @@ export interface HirVerificationContext {
   readonly localExists: (local: LocalRef) => boolean;
 }
 export type VerifyHir = (module: HirModule, context: HirVerificationContext) => readonly Violation<HirRule, HirSite>[];
-export type NullableInitializerPhase<P extends Phase> = Phase & { readonly ParameterInitializer: Expression<P> | null };
+export type OrdinarySyntaxPhase<P extends Phase> = Phase & {
+  readonly ParameterInitializer: Expression<P> | null;
+  readonly CallArguments: NodeList<Expression<P>>;
+};
 
-export type WalkSyntaxTree = <P extends NullableInitializerPhase<P>>(
+export type WalkSyntaxTree = <P extends OrdinarySyntaxPhase<P>>(
   root: SyntaxNode<P>,
   stopBefore: readonly NodeId[],
 ) => readonly SyntaxNode<P>[];
 
-export type IndexSyntaxTree = <P extends NullableInitializerPhase<P>>(
+export type IndexSyntaxTree = <P extends OrdinarySyntaxPhase<P>>(
   root: SourceFile<P>,
 ) => readonly SyntaxNode<P>[];
 
 export type UnparenthesizedExpression = <P extends Phase>(node: Expression<P>) => Expression<P>;
 
-export type ChildrenOfSyntax = <P extends NullableInitializerPhase<P>>(
+export type ChildrenOfSyntax = <P extends OrdinarySyntaxPhase<P>>(
   node: SyntaxNode<P>,
 ) => readonly SyntaxNode<P>[];
 
-export type IterateChildrenOfSyntax = <P extends NullableInitializerPhase<P>>(
+export type IterateChildrenOfSyntax = <P extends OrdinarySyntaxPhase<P>>(
   node: SyntaxNode<P>,
 ) => Generator<SyntaxNode<P>, void, undefined>;
 
@@ -4887,7 +4921,7 @@ export interface SyntaxChild<P extends Phase> {
   readonly fields: readonly (string | number)[];
 }
 
-export type IterateSyntaxChildEdges = <P extends NullableInitializerPhase<P>>(node: SyntaxNode<P>) => Generator<SyntaxChild<P>, void, undefined>;
+export type IterateSyntaxChildEdges = <P extends OrdinarySyntaxPhase<P>>(node: SyntaxNode<P>) => Generator<SyntaxChild<P>, void, undefined>;
 
 export interface SyntaxChildSlot<P extends Phase> {
   readonly fields: readonly (string | number)[];
@@ -4896,7 +4930,8 @@ export interface SyntaxChildSlot<P extends Phase> {
 
 export type IterateSyntaxChildSlots = <P extends Phase, Slot>(node: SyntaxNode<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot,
-  initializer: (node: ParameterDeclaration<P>, field: "initializer") => Iterable<Slot>) => Iterable<Slot>;
+  initializer: (node: ParameterDeclaration<P>, field: "initializer") => Iterable<Slot>,
+  argumentsOf: (node: CallExpression<P>, field: "arguments") => Iterable<Slot>) => Iterable<Slot>;
 
 export type IterateSourceFileHeaderSlots = <P extends Phase, Slot>(node: SourceFileHeader<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot, statements: (field: "statements") => Iterable<Slot>) => Iterable<Slot>;
@@ -5332,7 +5367,7 @@ export type DocumentationStructureReceipt<P extends Phase> = {
   | ({ readonly kind: "doc-parameter"; readonly name: () => EntityName<P>; readonly type: () => TypeNode<P> | null } & DocTagSyntaxFields<P>)
 );
 
-export interface ApplicationSyntaxReceipt<P extends Phase> {
+interface ApplicationSyntaxHeader<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
   readonly header: NodeHeader;
@@ -5340,8 +5375,19 @@ export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly expression: () => Expression<P>;
   readonly questionDotToken: () => QuestionDotToken<P> | null;
   readonly typeArguments: (read: (node: TypeNode<P>) => TypeNode<P>) => NodeList<TypeNode<P>> | null;
-  readonly arguments: (read: (node: Expression<P>) => Expression<P>) => NodeList<Expression<P>> | null;
 }
+
+export type ApplicationSyntaxReceipt<P extends Phase> = ApplicationSyntaxHeader<P> & (
+  | { readonly form: "call"; readonly arguments: () => SyntaxCallArguments<P> }
+  | { readonly form: "new"; readonly arguments: (read: SyntaxExpressionImage<P>) => NodeList<Expression<P>> | null }
+);
+
+export interface SyntaxArgumentListReceipt<P extends Phase> {
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly copy: (read: SyntaxExpressionImage<P>) => NodeList<Expression<P>>;
+}
+
+export type PrepareSyntaxArgumentList = <P extends Phase>(value: NodeList<Expression<P>>) => SyntaxArgumentListReceipt<P>;
 
 export interface ParameterSyntaxReceipt<P extends Phase> {
   readonly kind: "formal-header";
@@ -5563,10 +5609,15 @@ export type SyntaxInitializerImage<P extends Phase, Image> = (
   parameter: ParameterDeclaration<P>, expression: SyntaxExpressionImage<P>, image: Image,
 ) => P["ParameterInitializer"];
 
+export type SyntaxCallArgumentsImage<P extends Phase> = (
+  call: CallExpression<P>, expression: SyntaxExpressionImage<P>,
+) => SyntaxCallArguments<P>;
+
 export interface SyntaxMaterialization<P extends Phase, Image> {
   readonly postorder: Iterable<SyntaxNode<P>>;
   readonly wireOf: (node: SyntaxNode<P>) => number | undefined;
   readonly copyInitializer: SyntaxInitializerImage<P, Image>;
+  readonly copyCallArguments: SyntaxCallArgumentsImage<P>;
   readonly structure: (node: RetainedSyntaxNode<P>) => SyntaxStructureReceipt<P>;
 }
 
@@ -5627,7 +5678,7 @@ export interface SyntaxWalkAdmission<P extends Phase, Stop> {
   readonly list: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null;
 }
 
-export type WalkSyntaxForest = <P extends NullableInitializerPhase<P>, Stop>(
+export type WalkSyntaxForest = <P extends OrdinarySyntaxPhase<P>, Stop>(
   roots: Iterable<SyntaxRootSlot<P>>,
   admission: SyntaxWalkAdmission<P, Stop>,
 ) => { readonly kind: "complete"; readonly value: SyntaxForest<P> } | Stop;

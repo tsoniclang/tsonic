@@ -3,7 +3,7 @@ import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, Resolve
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
-import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
+import { hostDiagnosticCode, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
 import { nodeId, rawCandidateListId, rawComponentId, rawDataLayoutId, rawMemberTableId, rawSignatureId, rawSymbolId, rawTypeId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
@@ -11,14 +11,14 @@ import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../
 import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
-import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawLayoutConstruction, RawLayoutQuery, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
+import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { projectProviderModel } from "./provider-model.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
 import { captureNode, expressionKinds, typeNodeKinds } from "./syntax-capture.js";
 import type { SyntaxCaptureContext } from "./syntax-support.js";
 import { authoredNumericType, capturePragmas, originOf, writtenCompoundAssignmentKinds } from "./syntax-support.js";
-import { isModuleBindingKind } from "../ir-hir/index.js";
+import { isModuleBindingKind, readLayoutDescriptor } from "../ir-hir/index.js";
 import { captureFileDiagnostics } from "./diagnostics.js";
 import { sameSource } from "./bindings.js";
 
@@ -314,6 +314,7 @@ interface CaptureScope extends CaptureAdmission {
   readonly program: CheckedProgram;
   readonly file: SourceFile;
   readonly numericLiterals: Map<Node, RawNumericLiteral>;
+  readonly syntaxOf: ReturnType<typeof captureNode>["syntaxOf"];
   readonly checked: OpenedProgramView;
   readonly checker: Omit<TypeCheckerQueries, "getTypeAtLocation" | "getTypeFromTypeNode" | "getContextualType" |
     "getReturnTypeOfSignature" | "getResolvedCallInfo" | "getResolvedStorageInfo">;
@@ -327,6 +328,7 @@ interface CaptureScope extends CaptureAdmission {
   readonly diagnosticRoots: Map<CheckerDiagnostic, CheckerDiagnosticRef>;
   readonly callCore: Map<NodeId, CallCore>;
   readonly tables: CaptureTables;
+  invalidLayout: Diagnostic | null;
 }
 
 type CallCore = NonNullable<Extract<RawMarkers["application"], { readonly kind: "available" }>["value"]>
@@ -2387,8 +2389,16 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
         arguments_.push({ parameter, declaration: null, argument: available(argument), explicitTypeNode, defaultTypeNode: null, scope: info.scope });
       }
       if (arguments_.length !== parameters.length) return throwInvariant(invariant("Every selected interface parameter requires its actual checked argument."));
-      return { kind: "declared", declaration: source, facet: "instance", parameters, arguments: arguments_, definition: null,
-        extent: scope.closedOrdinaryExtent && snapshotDeclaration(scope.program, source) ? available(null) : notProvided() };
+      let extent: RawFact<null> = notProvided();
+      if (scope.closedOrdinaryExtent) {
+        if (snapshotDeclaration(scope.program, source)) extent = available(null);
+        else {
+          const provider = providerDeclaration(scope, declaration, source);
+          if (provider === null) return null;
+          if (provider !== undefined) extent = available(null);
+        }
+      }
+      return { kind: "declared", declaration: source, facet: "instance", parameters, arguments: arguments_, definition: null, extent };
     }
   }
   const merged = interfaceFragments > 1 ? symbol : undefined;
@@ -3782,6 +3792,82 @@ function captureCallOrder(scope: CaptureScope, invocation: RawNodeRef, signature
   return { order, position };
 }
 
+function layoutSyntaxFault(scope: CaptureScope, at: Hir.SyntaxNode<Hir.SyntaxPhase>, detail: string): null {
+  const name = hostDiagnosticCode("TSONIC_LAYOUT_DESCRIPTOR_SYNTAX");
+  scope.invalidLayout = { code: { kind: "host", name, rendered: name }, source: "front", severity: "error",
+    site: { kind: "source", origin: at.origin }, message: detail, evidence: [], arguments: [], related: [], fix: null };
+  return null;
+}
+
+function layoutCaptureAdmission(scope: CaptureScope, work: number, created: number): Diagnostic | null {
+  return admit(scope, "edges", work) && admit(scope, "facts", created) ? null :
+      scope.meter.refusal ?? throwInvariant(invariant("Layout descriptor admission retains its actual first refusal."));
+}
+
+function captureLayoutSyntax(scope: CaptureScope, input: Hir.Expression<Hir.SyntaxPhase>,
+  kind: RawLayoutConstruction["construction"], retainField: (operand: Hir.Expression<Hir.SyntaxPhase>) => Diagnostic | null,
+): Hir.LayoutDescriptorSyntax<Hir.SyntaxPhase> | null {
+  const selected = readLayoutDescriptor<Hir.SyntaxPhase, Diagnostic>(input, kind,
+    (work, created) => layoutCaptureAdmission(scope, work, created), retainField);
+  if (selected.kind === "resource-stop") return null;
+  if (selected.kind === "invalid") {
+    const at = scope.syntaxOf(selected.fault.at);
+    if (at === undefined) return throwInvariant(invariant("A layout descriptor fault retains its exact authored site."));
+    const problem = selected.fault;
+    const detail = "name" in problem ? `Layout descriptor property ${problem.name} is ${problem.kind.replace("-property", "")}.`
+      : problem.kind === "not-inline" ? "A layout descriptor must be an inline object."
+      : problem.kind === "not-inline-fields" ? "Layout fields must be an inline array."
+      : problem.kind === "invalid-field-entry" ? "Each layout field must be a non-spread descriptor expression."
+      : "A layout descriptor accepts only ordinary data properties.";
+    return layoutSyntaxFault(scope, at, detail);
+  }
+  return selected.value;
+}
+
+function capturedLayoutConstruction(scope: CaptureScope, application: RawApplication, declaration: RawNodeRef,
+  kind: RawLayoutConstruction["construction"], sourceArguments: readonly RawAuthoredArgument[]): RawLayoutConstruction | null {
+  if (!admit(scope, "edges")) return null;
+  const invocation = scope.syntaxOf(application.invocation.node);
+  if (invocation?.kind !== "CallExpression")
+    return throwInvariant(invariant("A selected layout constructor must retain its actual authored call syntax."));
+  if (sourceArguments.length !== 1 || invocation.arguments.nodes.length !== 1)
+    return layoutSyntaxFault(scope, invocation, "A layout constructor requires exactly one inline descriptor.");
+  const authored = sourceArguments[0];
+  const input = invocation.arguments.nodes[0];
+  if (authored?.kind !== "value" || input === undefined)
+    return layoutSyntaxFault(scope, invocation, "A layout constructor requires its actual non-spread inline descriptor.");
+  if (authored.expression.module !== scope.module || authored.expression.node !== input.id || input.parent !== invocation.id)
+    return throwInvariant(invariant("A layout descriptor must be the actually selected authored argument."));
+  const occurrence = (node: Hir.SyntaxNode<Hir.SyntaxPhase>): RawLayoutOperand => {
+    if (node.parent === null || scope.syntaxOf(node.id) !== node)
+      return throwInvariant(invariant("A layout operand belongs to its actual admitted source occurrence."));
+    return { expression: { module: scope.module, node: node.id }, parent: node.parent };
+  };
+  if (kind === "value" && layoutCaptureAdmission(scope, 0, 1) !== null) return null;
+  const fields: RawLayoutOperand[] | null = kind === "value" ? [] : null;
+  const value = captureLayoutSyntax(scope, input, kind, operand => {
+    if (fields === null) return throwInvariant(invariant("Only a value layout has authored field operands."));
+    const stopped = layoutCaptureAdmission(scope, 1, 3);
+    if (stopped !== null) return stopped;
+    fields.push(occurrence(operand));
+    return null;
+  });
+  if (value === null) return null;
+  const count = value.kind === "array" ? 6 : 4;
+  if (layoutCaptureAdmission(scope, count + 1, 2 * count + (value.kind === "value" ? 4 : value.kind === "array" ? 3 : 2)) !== null) return null;
+  const descriptor = { module: scope.module, node: input.id };
+  if (value.kind === "field") return { kind: "layout-construction", construction: "field", application, declaration, descriptor,
+    selector: occurrence(value.select), byteOffset: occurrence(value.byteoffset), byteAlignment: occurrence(value.bytealignment),
+    fieldLayout: occurrence(value.fieldlayout) };
+  const geometry = { dataLayout: occurrence(value.datalayout), byteSize: occurrence(value.bytesize),
+    byteAlignment: occurrence(value.bytealignment), stride: occurrence(value.stride) };
+  if (value.kind === "array") return { kind: "layout-construction", construction: "array", application, declaration, descriptor,
+    geometry, element: occurrence(value.elementlayout), length: occurrence(value.length) };
+  if (fields === null) return throwInvariant(invariant("A selected value layout must retain its own authored field vector."));
+  return { kind: "layout-construction", construction: "value", application, declaration, descriptor, geometry, fields,
+    fieldList: { module: scope.module, node: value.fields.id } };
+}
+
 function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): RawCallSelection | null {
   if (!admit(scope, "facts")) return null;
   const captured = scope.checker.acquireResolvedCall(node, nativeCaptureAdmission(scope));
@@ -3793,6 +3879,26 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
   if (captured.kind === "unavailable") return throwInvariant(invariant("The checker gave no completed evidence for a captured call."));
   const info = captured.value;
   if (info.call !== node) return throwInvariant(invariant("Call evidence must retain its actual source invocation."));
+  if (!scope.emptyCoreInventory && info.kind === "conditional-candidates" && !info.optionalChain &&
+      info.candidates.length === 1 && info.diagnostics.length !== 0) {
+    if (!admit(scope, "edges")) return null;
+    const candidate = info.candidates[0];
+    if (candidate === undefined) return throwInvariant(invariant("A single checked candidate must be present."));
+    const callee = candidate.application.callee.expression;
+    const role = layoutRole(scope.checked.sourceFacts.getFact(callee, sourceMarkerFactKey));
+    if (role?.kind === "construction" && candidate.application.invocation === node &&
+        scope.checked.ast.as.AsCallExpression(node)?.Expression === callee) {
+      const authored = scope.syntaxOf(invocation.node);
+      if (authored?.kind !== "CallExpression") return throwInvariant(invariant("A rejected quoted call retains its original written syntax."));
+      if (candidate.sourceArguments.length !== 1 || authored.arguments.nodes.length !== 1)
+        return layoutSyntaxFault(scope, authored, "A layout constructor requires exactly one inline descriptor.");
+      const native = candidate.sourceArguments[0];
+      const input = authored.arguments.nodes[0];
+      if (native === undefined || input === undefined || scope.ownNodes.get(native) !== input.id)
+        return throwInvariant(invariant("A rejected quoted argument must retain its exact authored occurrence."));
+      if (captureLayoutSyntax(scope, input, role.construction, () => null) === null) return null;
+    }
+  }
   if (info.kind === "conditional-candidates" && !info.optionalChain && info.candidates.length === 0
     && info.declarationOrder.kind === "available" && info.declarationOrder.signatures.length !== 0 && info.diagnostics.length === 1) {
     if (!admit(scope, "edges")) return null;
@@ -3895,12 +4001,13 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       if (provider !== undefined && provider.identity.signatureId === null)
         return throwInvariant(invariant("A provider layout operation must retain its actual selected signature receipt."));
       if (!admit(scope, "facts", layout.kind === "construction" ? 3 : 2)) return null;
-      const selectedLayout = { application: rawApplication, declaration, operands: sourceArguments };
       if (layout.kind === "construction") {
-        const capture: RawLayoutConstruction = { ...selectedLayout, kind: "layout-construction", construction: layout.construction };
+        const capture = capturedLayoutConstruction(scope, rawApplication, declaration, layout.construction, sourceArguments);
+        if (capture === null) return null;
         scope.tables.memoryDescriptors.push(capture);
         scope.callCore.set(invocation.node, { role: "layout-construction", capture, provider });
-      } else scope.callCore.set(invocation.node, { role: "layout-query", capture: { ...selectedLayout, operation: layout.operation }, provider });
+      } else scope.callCore.set(invocation.node, { role: "layout-query", capture: { application: rawApplication,
+        declaration, operands: sourceArguments, operation: layout.operation }, provider });
     } else if (marker?.kind === "call-marker" && (marker.marker === "struct" || marker.marker === "field")) {
       if (!admit(scope, "edges")) return null;
       const declaration = scope.tables.signatures[original]?.declaration;
@@ -3967,11 +4074,12 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   // The syntax capture takes each node's identity from the numbering, and must reach the nodes in its order.
   const numericLiterals = new Map<Node, RawNumericLiteral>();
   const context: SyntaxCaptureContext = { ...ranges, ...pragmas, module, sourceText: input.text, numericLiterals, numbering: own.numbering };
-  const tree = captureNode(context, file, null);
+  const syntax = captureNode(context, file, null);
+  const { tree } = syntax;
   if (tree.kind !== "SourceFile") return throwInvariant(invariant("A module's captured tree is not a source file."));
   const queries = checked.getSourceFileQueries(file);
-  const scope: CaptureScope = { ...admission, program, file, numericLiterals, checked, checker: queries.checker,
-    shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
+  const scope: CaptureScope = { ...admission, program, file, numericLiterals, syntaxOf: syntax.syntaxOf, checked, checker: queries.checker,
+    shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(), invalidLayout: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),
       qualifiedSignatures: new Map(), activeTypes: new Map(), activeQualifiedTypes: new Map(), activeReceiverKeys: null,
@@ -4180,6 +4288,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       calls.push(call);
     }
   }
+  if (scope.invalidLayout !== null) return { kind: "refused", diagnostics: captureRefusal(scope.invalidLayout, checkerDiagnostics) };
   const core: RawCoreCapture[] = [];
   const providerDeclarations: RawProviderDeclaration[] = [];
   const dataLayouts: RawDataLayout[] = [];

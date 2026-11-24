@@ -13,7 +13,7 @@ export function createSyntaxGroup0(readers: () => HirTextReaders): ReadonlyMap<s
       const field_loc = read("loc", readers().record_81);
       const field_elements = read("elements", readers().record_82);
       const field_multiLine = read("multiLine", readers().scalar_boolean);
-      const field_tsonic = read("tsonic", unionReader<Hir.CheckedAggregate>(() => [readers().record_83, readers().record_177]));
+      const field_tsonic = read("tsonic", unionReader<Hir.CheckedAggregate>(() => [readers().record_83, readers().record_177, readers().record_layout_quote]));
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_elements, field_multiLine, field_tsonic], value: () => ({ kind: "ArrayLiteralExpression", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), elements: field_elements.value(), multiLine: field_multiLine.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "ArrayLiteralExpression", value }), accept)],
     ["ArrayType", accept => syntaxRecord<Hir.ArrayTypeNode<Hir.CheckedPhase>>(read => {

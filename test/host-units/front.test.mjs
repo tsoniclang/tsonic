@@ -33,6 +33,7 @@ let lowerDepsFor;
 let checkedModuleOf;
 let checkedModulesOf;
 let verifyChecked;
+let captureSyntaxOf;
 
 function lowerWithReadyExports(deps, raw) {
   const exported = front.lowerModuleExports(deps, raw);
@@ -95,7 +96,8 @@ before(async () => {
   sdk = await import("@tsonic/tsts");
   ids = await import("../../packages/host/dist/ids/index.js");
   snapshots = await import("../../packages/host/dist/snapshot/index.js");
-  ({ packageOf, moduleOf, bundled, projectSnapshot, preparedSource, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, checkedModulesOf, verifyChecked } = await loadFrontFixture());
+  ({ packageOf, moduleOf, bundled, projectSnapshot, preparedSource, openAndCapture, openedModule, lowerDepsFor,
+    checkedModuleOf, checkedModulesOf, verifyChecked, captureSyntaxOf } = await loadFrontFixture());
 });
 
 after(async () => {
@@ -403,51 +405,36 @@ const reference = (root, exportId = "provider") => ({ package: packageOf(root), 
 const providerRegistration = (root, provider) => ({ reference: reference(root), value: { kind: "declaration-provider", value: provider } });
 
 test("layout capture retains the same selected application and authored operands without computing geometry", async () => {
-  const specifier = "native:layout";
-  const providerModuleId = "native.layout";
-  const native = { ...declarationProvider("test.layout", specifier, providerModuleId),
-    getDeclarationModel: () => ({ moduleSpecifier: specifier, providerModuleId, exports: [
-      { id: "layout", name: "layout", kind: "function", signatures: [{ id: "layout.call",
-        parameters: [{ name: "abi", type: { kind: "boolean" } }, ...["size", "alignment", "stride"].map(name => ({ name, type: { kind: "number" } }))],
-        returnType: { kind: "number" } }] },
-      { id: "size", name: "size", kind: "function", signatures: [{ id: "size.call",
-        parameters: [{ name: "descriptor", type: { kind: "number" } }], returnType: { kind: "number" } }] },
-    ] }) };
-  const nativeRegistration = providerRegistration("/layout-provider", native);
-  const roles = { reference: reference("/layout-provider", "roles"), value: { kind: "semantics-module",
-    value: { moduleSpecifier: specifier, exports: [
-      { kind: "call-marker", exportName: "layout", marker: "memory-value-layout" },
-      { kind: "call-marker", exportName: "size", marker: "memory-size" },
-    ] } } };
-  const source = 'import { layout as make, size as measure } from "native:layout"; '
-    + "export const descriptor = make(true, 8, 8, 8); export const width = measure(descriptor);";
-  const snapshot = projectSnapshot({ sourceFiles: { "main.ts": source },
-    libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }],
-    providerPackages: [{ root: "/layout-provider", name: "layout-provider" }],
-    declarationProviders: [nativeRegistration.reference], semanticModules: [roles.reference] });
-  const { deps, program } = openAndCapture(snapshot, [nativeRegistration, roles]);
-  const result = front.captureModule(deps, program, snapshot.entryPoint);
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
+  const { create } = layoutInput(await loadFrontFixture());
+  const input = create("export const descriptor = make<boolean>({ stride: 8, fields: [], bytesize: 8, bytealignment: 8, datalayout: Abi }); export const width = measure(descriptor);");
+  const { snapshot, extensions, limits } = input;
+  const deps = { extensions, navigationCapture: limits.navigationCapture, literalCapture: limits.evaluation };
+  const opened = front.openCheckedProgram(deps, snapshot);
+  assert.equal(opened.kind, "ok", JSON.stringify(opened.diagnostics));
+  const result = front.captureModule(deps, opened.value, snapshot.entryPoint);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const raw = result.value;
-  const [create, observe] = raw.calls;
-  const [make, measure] = [create, observe].map(call => raw.types.candidates[call.candidates].candidates[0]);
-  const construction = raw.core[create.invocation.node].metadata.value;
+  const [construct, observe] = raw.calls;
+  const [make, measure] = [construct, observe].map(call => raw.types.candidates[call.candidates].candidates[0]);
+  const construction = raw.core[construct.invocation.node].metadata.value;
   const query = raw.core[observe.invocation.node].layoutQuery.value;
   assert.deepEqual([construction.kind, construction.construction, query.operation], ["layout-construction", "value", "size"]);
   assert.equal(raw.types.memoryDescriptors[0] === construction, true);
-  assert.deepEqual(raw.core[create.invocation.node].provider.value.node, construction.declaration);
+  assert.deepEqual(raw.core[construct.invocation.node].provider.value.node, construction.declaration);
   assert.deepEqual(raw.core[observe.invocation.node].provider.value.node, query.declaration);
   assert.equal(construction.application === make.application && query.application === measure.application, true);
-  assert.equal(construction.operands === make.sourceArguments && query.operands === measure.sourceArguments, true);
-  assert.deepEqual(construction.operands.map(row => row.expression.node),
-    raw.tree.statements.nodes[1].declarationList.declarations.nodes[0].initializer.arguments.nodes.map(node => node.id));
+  assert.equal(query.operands === measure.sourceArguments, true);
+  const rawDescriptor = raw.tree.statements.nodes[1].declarationList.declarations.nodes[0].initializer.arguments.nodes[0];
+  assert.equal(construction.descriptor.node, rawDescriptor.id);
+  assert.equal(make.sourceArguments[0].expression.node, rawDescriptor.id);
+  assert.deepEqual(Object.values(construction.geometry).map(row => row.expression.node),
+    [4, 2, 3, 0].map(index => rawDescriptor.properties.nodes[index].initializer.id));
   assert.equal(Object.hasOwn(construction, "byteSize"), false);
   assert.equal(Object.hasOwn(query, "value"), false);
-  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
   const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
-  const input = { ...analysisInput(await loadFrontFixture(), "sdk-minimal"), snapshot, extensions: deps.extensions };
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
   const tree = checked.value.modules.find(row => row.module.module === snapshot.entryPoint).module.tree;
@@ -456,9 +443,11 @@ test("layout capture retains the same selected application and authored operands
   const capture = layout.tsonic.memory.value;
   assert.equal(capture.kind, "value");
   const body = checked.value.checked;
+  const descriptor = layout.arguments.nodes[0];
+  const namedOperands = new Map(descriptor.properties.nodes.map(property => [property.name.text, property.initializer]));
   for (const [position, reference] of [capture.geometry.dataLayoutExpression, capture.geometry.byteSizeExpression,
     capture.geometry.byteAlignmentExpression, capture.geometry.strideExpression].entries())
-    assert.equal(body.nodeOf(reference) === layout.arguments.nodes[position], true);
+    assert.equal(body.nodeOf(reference) === namedOperands.get(["datalayout", "bytesize", "bytealignment", "stride"][position]), true);
   const checkedModule = checked.value.modules.find(row => row.module.module === snapshot.entryPoint).module;
   const descriptorItem = checkedModule.items.find(row => row.node === layout.id);
   assert.equal(body.nodeOf({ kind: "item", value: { owner: descriptorItem.definition, node: descriptorItem.node } }) === layout, true);
@@ -470,7 +459,7 @@ test("layout capture retains the same selected application and authored operands
   assert.equal(actualBodies.length, 3);
   for (const candidate of actualBodies) {
     const identity = ids.decodeBodyId(candidate.body).value;
-    assert.equal(candidate.root === layout.arguments.nodes.find(operand => operand.id === identity.ordinal), true);
+    assert.equal(candidate.root === [...namedOperands.values()].find(operand => operand.id === identity.ordinal), true);
     assert.equal(candidate.owner, tree.statements.nodes[1].declarationList.declarations.nodes[0].tsonic.declaration.definition);
   }
   const selectedObservation = observation.tsonic.observation.value;
@@ -505,9 +494,11 @@ test("layout capture retains the same selected application and authored operands
   const parametric = chapter.bodies.filter(candidate => candidate.bindings.kind === "parametric");
   const actualCall = parametric.find(candidate => candidate.root.id === layout.id).root;
   assert.equal(actualCall.tsonic.layout, "value-layout");
+  assert.equal(actualCall.arguments.kind, "layout-quote");
+  assert.equal(actualCall.arguments.descriptor === descriptor, true);
   for (const operand of actualBodies) {
     const placed = parametric.find(candidate => candidate.body === operand.body);
-    assert.equal(actualCall.arguments.nodes.find(argument => argument.id === placed.root.id) === placed.root, true);
+    assert.equal(actualCall.arguments.operands.find(argument => argument.source.body === placed.body)?.root === placed.root, true);
   }
   const { printTir, parseTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
   const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
@@ -519,6 +510,45 @@ test("layout capture retains the same selected application and authored operands
   assert.equal(printTir(parsed.value), typedText);
   const proof = typed.value.verifierOf(chapter.module);
   const bound = verifyTir(proof, tirReadyReadAdmission(createAccount(input.limits.dataflow)));
+  const template = parametric.find(candidate => candidate.root === actualCall);
+  assert.deepEqual(bound(template), { kind: "complete", violations: [] });
+  const originalOperands = actualCall.arguments.operands;
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const values = originalOperands.slice();
+  const value = values[0];
+  let operandMeter;
+  const reached = [];
+  Object.defineProperty(values, 0, { get() {
+    reached.push(InvocationAccount.stateOf(operandMeter).work);
+    return value;
+  } });
+  const traced = { ...template, root: { ...actualCall, arguments: { ...actualCall.arguments, operands: values } } };
+  function verifyTraced(maximumWork) {
+    operandMeter = createAccount({ ...input.limits.dataflow, maximumWork });
+    return verifyTir(proof, tirReadyReadAdmission(operandMeter))(traced);
+  }
+  assert.equal(verifyTraced(input.limits.dataflow.maximumWork).kind, "complete");
+  assert.equal(reached.length, 1, "authored and semantic scans must not pull a geometry overlay");
+  const firstRead = reached.pop();
+  const cut = verifyTraced(firstRead - 1);
+  assert.equal(cut.kind, "resource-stop");
+  assert.equal(cut.stop === accountFailure(operandMeter), true);
+  assert.deepEqual(reached, []);
+  const direct = bound({ ...template, root: { ...actualCall,
+    arguments: { ...actualCall.arguments, descriptor: { ...descriptor } } } });
+  assert.equal(direct.kind, "complete");
+  assert.equal(direct.violations.some(row => row.rule === "module-node-identity" && row.site.node === descriptor.id), true);
+  const extra = bound({ ...template, root: { ...actualCall,
+    arguments: { ...actualCall.arguments, operands: [{ ...originalOperands[0], root: originalOperands[1].root }, ...originalOperands.slice(1)] } } });
+  assert.equal(extra.kind, "complete");
+  assert.equal(extra.violations.some(row => row.rule === "module-node-identity" && row.site.node === actualCall.id), true);
+  const quoteWire = printTir(template);
+  const restored = parseTir(quoteWire);
+  assert.equal(restored.kind, "parsed");
+  assert.equal(printTir(restored.value), quoteWire);
+  const crossedWire = quoteWire.replace(/descriptor=(c:\d+)/u, (_, wire) => "descriptor=n:" + wire.slice(2));
+  assert.notEqual(crossedWire, quoteWire);
+  assert.equal(parseTir(crossedWire).kind, "invalid-text");
   const changed = { ...selected, root: { ...selected.root, tsonic: { ...selected.root.tsonic, layout: "alignment" } } };
   const refused = bound(changed);
   assert.equal(refused.kind, "complete");
@@ -544,12 +574,10 @@ test("layout capture retains the same selected application and authored operands
     bodyOwner: body => checked.value.checked.bodies.get(body)?.owner ?? null, requiredEntries: [0] });
   assert.deepEqual(verified.violations, []);
 
-  const paired = projectSnapshot({ sourceFiles: { "main.ts": 'import { layout as make, size as measure } from "native:layout"; '
-    + "export const width = measure(make(true, 8, 8, 8)) + measure(make(true, 16, 8, 16));" },
-  libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }],
-  providerPackages: [{ root: "/layout-provider", name: "layout-provider" }],
-  declarationProviders: [nativeRegistration.reference], semanticModules: [roles.reference] });
-  const pair = captureSourceBarrier({ ...input, snapshot: paired });
+  const pairedInput = create("export const width = measure(make<boolean>({ datalayout: Abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] }))"
+    + " + measure(make<boolean>({ datalayout: Abi, bytesize: 16, bytealignment: 8, stride: 16, fields: [] }));");
+  const paired = pairedInput.snapshot;
+  const pair = captureSourceBarrier(pairedInput);
   assert.equal(pair.kind, "ok", JSON.stringify(pair.diagnostics));
   const pairedModule = pair.value.modules.find(row => row.module.module === paired.entryPoint);
   const constructors = pairedModule.module.items.filter(item => pairedModule.nodes[item.node].kind === "CallExpression")
@@ -577,9 +605,11 @@ test("selected native layout geometry reaches verified Program through the real 
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { printProgramIndex, parseProgramIndex, printModuleBodies, parseModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
   const { create: makeInput, native, baseline } = layoutInput(await loadFrontFixture());
-  const named = "const descriptor = make<boolean>(Abi, 8, 8, 8); export const width = measure(descriptor);";
-  const inline = "export const width = measure(make<boolean>(Abi, 8, 8, 8));";
-  const dependent = "const inner = make<boolean>(Abi, 8, 8, 8); export const width = measure(make<boolean>(Abi, measure(inner), 8, 8));";
+  const descriptor = (byteSize, dataLayout = "Abi") =>
+    `make<boolean>({ stride: 8, fields: [], bytesize: ${byteSize}, bytealignment: 8, datalayout: ${dataLayout} })`;
+  const named = `const descriptor = ${descriptor("8")}; export const width = measure(descriptor);`;
+  const inline = `export const width = measure(${descriptor("8")});`;
+  const dependent = `const inner = ${descriptor("8")}; export const width = measure(${descriptor("measure(inner)")});`;
   for (const [text, expectedLayouts, expectedConstants] of [[named, 1, 3], [inline, 1, 3], [dependent, 2, 6]]) {
     const input = makeInput(text, baseline);
     const result = analyzeHostProgram(input);
@@ -616,17 +646,17 @@ test("selected native layout geometry reaches verified Program through the real 
       assert.equal(print(decoded.value), wire);
     }
   }
-  const opaque = analyzeHostProgram(makeInput(inline.replace("(Abi,", "(false,"), baseline));
+  const opaque = analyzeHostProgram(makeInput(`export const width = measure(${descriptor("8", "false")});`, baseline));
   assert.equal(opaque.kind, "refused");
   assert.match(opaque.diagnostics[0].message, /immutable checked descriptor/u);
-  const fractional = analyzeHostProgram(makeInput(inline.replace("Abi, 8,", "Abi, 7.5,"), baseline));
+  const fractional = analyzeHostProgram(makeInput(`export const width = measure(${descriptor("7.5")});`, baseline));
   assert.equal(fractional.kind, "refused");
   assert.match(fractional.diagnostics[0].message, /exact nonnegative integer/u);
   const cycle = analyzeHostProgram(makeInput(
-    "const descriptor: boolean = make<boolean>(Abi, measure(descriptor), 8, 8); export const width = measure(descriptor);", baseline));
+    `const descriptor: boolean = ${descriptor("measure(descriptor)")}; export const width = measure(descriptor);`, baseline));
   assert.equal(cycle.kind, "refused");
   assert.deepEqual(cycle.diagnostics.map(row => row.message), ["The constant value depends on its own completion."]);
-  const undemanded = analyzeHostProgram(makeInput("const descriptor = make<boolean>(Abi, 7.5, 8, 8); export const width = 42;", baseline));
+  const undemanded = analyzeHostProgram(makeInput(`const descriptor = ${descriptor("7.5")}; export const width = 42;`, baseline));
   assert.equal(undemanded.kind, "ok");
   assert.deepEqual(undemanded.value.index.metadata, []);
   assert.deepEqual(undemanded.value.index.constants, []);
@@ -636,6 +666,11 @@ test("selected native layout geometry reaches verified Program through the real 
   assert.equal(limited.kind, "refused");
   assert.equal(limited.diagnostics[0].source, "evaluate");
   assert.deepEqual(limited.diagnostics[0].arguments, [{ kind: "text", value: "evaluation.maximumSteps" }, { kind: "number", value: 0 }]);
+  const malformed = analyzeHostProgram(makeInput(inline.replace("datalayout:", "unknown:"), baseline));
+  assert.equal(malformed.kind, "refused");
+  assert.equal(malformed.diagnostics.some(row => row.code.rendered === "TS2353" && row.site.kind === "source"), true);
+  assert.equal(malformed.diagnostics.some(row => row.code.rendered === "TSONIC_LAYOUT_DESCRIPTOR_SYNTAX" &&
+    row.site.kind === "source" && row.message.includes("unknown")), true);
 });
 
 const plainSources = { "main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\n",
@@ -2534,7 +2569,7 @@ test("syntax assembly consumes an admitted 20000-expression numbering iterativel
     authoredRange: () => ({ kind: "authored", start: 0, end: 0 }), sourceRange: () => ({ kind: "source", start: 0, end: 0 }),
     pos: () => 0, end: () => 0 };
   const context = { ast, file: null, module, sourceText: "", numericLiterals: new Map(), displacement: 0, pragmas: [], checkJsDirective: null, numbering: { nodes, ids: numbers, parents } };
-  const result = captureNode(context, root, null);
+  const result = captureNode(context, root, null).tree;
   let count = 0;
   for (let node = result; node !== undefined; node = node.expression) {
     assert.equal(node.id, count);
@@ -3166,33 +3201,6 @@ test("K-3341 many parameters preserve the exact fact boundary before their last 
 // K-3343: identity counters belong to the owner itself. The raw modules are constructed (K-3343 allows it): the syntax tree comes
 // from the checker through Front's own syntax capture, the rest of the raw module from add's capture, because the full capture of
 // these object and union types meets the checker-type frontier. Expectations written before the run.
-async function captureSyntaxOf(sourceText, module) {
-  const { captureNode } = await import("../../packages/host/dist/front/syntax-capture.js");
-  const { capturePragmas } = await import("../../packages/host/dist/front/syntax-support.js");
-  const session = sdk.createCompilerSessionFromFiles({ currentDirectory: "/project", files: new Map([["/project/src/main.ts", sourceText]]),
-    rootFiles: ["/project/src/main.ts"], compilerOptions: { noLib: true, noEmit: true }, useCaseSensitiveFileNames: true });
-  const checked = session.checkSource();
-  const file = checked.getSourceFile("/project/src/main.ts");
-  const nodes = [];
-  const numbers = new Map();
-  const parents = new Map();
-  const pending = [{ node: file, parent: null }];
-  for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
-    const id = ids.nodeId(nodes.length);
-    nodes.push(current.node);
-    numbers.set(current.node, id);
-    parents.set(current.node, current.parent);
-    const children = [];
-    checked.ast.forEachChild(current.node, child => { if (child !== undefined) children.push(child); });
-    for (let index = children.length - 1; index >= 0; index -= 1) pending.push({ node: children[index], parent: id });
-  }
-  const ranges = { ast: checked.ast, file, displacement: 0 };
-  const pragmas = capturePragmas(ranges, () => true);
-  assert.ok(pragmas);
-  return captureNode({ ...ranges, ...pragmas, module, sourceText, numericLiterals: new Map(),
-    numbering: { nodes, ids: numbers, parents } }, file, null);
-}
-
 test("the captured syntax retains the actual non-node heritage, import-attribute and meta keywords", async () => {
   const hir = await import("../../packages/host/dist/ir-hir/index.js");
   const module = moduleOf(packageOf("/project"), "src/main.ts");

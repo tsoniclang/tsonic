@@ -1,5 +1,110 @@
 import type { SourceNodeRef } from "../ids/contract.js";
-import type { CheckedLayoutConstructionOf, CheckedLayoutOperandOf, CheckedLayoutRoleOf, HirModuleBinding, HirNode, ResolveCheckedLayout } from "./contract.js";
+import type { CallExpression, CheckedLayoutConstructionOf, CheckedLayoutGeometryOperands, CheckedLayoutRoleOf, CheckedPhase, Expression, HirModuleBinding, HirNode,
+  LayoutDescriptorKind, LayoutDescriptorOperand, LayoutDescriptorSyntaxFault, Phase, ReadLayoutDescriptor, ResolveCheckedLayout } from "./contract.js";
+
+const geometryNames: readonly LayoutDescriptorOperand[] = ["datalayout", "bytesize", "bytealignment", "stride"];
+function* descriptorNames(kind: LayoutDescriptorKind): Generator<LayoutDescriptorOperand> {
+  if (kind === "field") {
+    yield "select";
+    yield "byteoffset";
+    yield "bytealignment";
+    yield "fieldlayout";
+    return;
+  }
+  yield* geometryNames;
+  if (kind === "value") yield "fields";
+  else {
+    yield "elementlayout";
+    yield "length";
+  }
+}
+
+function invalidDescriptor(fault: LayoutDescriptorSyntaxFault): { readonly kind: "invalid"; readonly fault: LayoutDescriptorSyntaxFault } {
+  return { kind: "invalid", fault };
+}
+
+export const readLayoutDescriptor: ReadLayoutDescriptor = <P extends Phase, Stop extends object>(
+  input: Expression<P>, kind: LayoutDescriptorKind, admit: (work: number, created: number) => Stop | null,
+  retainField: (operand: Expression<P>) => Stop | null,
+) => {
+  const initial = admit(1, 0);
+  if (initial !== null) return { kind: "resource-stop", stop: initial };
+  if (input.kind !== "ObjectLiteralExpression") return invalidDescriptor({ kind: "not-inline", at: input.id });
+  const reserve = admit(1, 1);
+  if (reserve !== null) return { kind: "resource-stop", stop: reserve };
+  const fields = input.properties.nodes;
+  const found = new Map<LayoutDescriptorOperand, Expression<P>>();
+  for (let position = 0; position < fields.length; position += 1) {
+    const at = admit(1, 0);
+    if (at !== null) return { kind: "resource-stop", stop: at };
+    const property = fields[position];
+    if (property === undefined) return invalidDescriptor({ kind: "invalid-property", at: input.id });
+    if (property.kind !== "PropertyAssignment" && property.kind !== "ShorthandPropertyAssignment")
+      return invalidDescriptor({ kind: "invalid-property", at: property.id });
+    const name = property.name;
+    if (name.kind !== "Identifier" && name.kind !== "StringLiteral")
+      return invalidDescriptor({ kind: "invalid-property", at: property.id });
+    const text = name.text;
+    let key: LayoutDescriptorOperand | undefined;
+    for (const candidate of descriptorNames(kind)) {
+      const compare = admit(1, 0);
+      if (compare !== null) return { kind: "resource-stop", stop: compare };
+      if (text !== candidate) continue;
+      key = candidate;
+      break;
+    }
+    if (key === undefined) return invalidDescriptor({ kind: "unknown-property", at: name.id, name: text });
+    if (found.has(key)) return invalidDescriptor({ kind: "duplicate-property", at: name.id, name: key });
+    const read = admit(1, 1);
+    if (read !== null) return { kind: "resource-stop", stop: read };
+    if (property.modifiers !== null || property.postfixToken !== null || property.type !== null)
+      return invalidDescriptor({ kind: "invalid-property", at: property.id });
+    if (property.kind === "PropertyAssignment") found.set(key, property.initializer);
+    else {
+      if (name.kind !== "Identifier" || property.objectAssignmentInitializer !== null || property.equalsToken !== null)
+        return invalidDescriptor({ kind: "invalid-property", at: property.id });
+      found.set(key, name);
+    }
+  }
+  for (const name of descriptorNames(kind)) {
+    const at = admit(1, 0);
+    if (at !== null) return { kind: "resource-stop", stop: at };
+    if (!found.has(name)) return invalidDescriptor({ kind: "missing-property", at: input.id, name });
+  }
+  const lookup = (name: LayoutDescriptorOperand): Expression<P> => {
+    const value = found.get(name);
+    if (value === undefined) throw new Error("A completed layout descriptor retains every required operand.");
+    return value;
+  };
+  const entries = kind === "value" ? lookup("fields") : null;
+  if (entries !== null && entries.kind !== "ArrayLiteralExpression")
+    return invalidDescriptor({ kind: "not-inline-fields", at: entries.id });
+  if (entries !== null) {
+    const at = admit(1, 0);
+    if (at !== null) return { kind: "resource-stop", stop: at };
+    const list = entries.elements.nodes;
+    for (let position = 0; position < list.length; position += 1) {
+      const at = admit(1, 0);
+      if (at !== null) return { kind: "resource-stop", stop: at };
+      const field = list[position];
+      if (field === undefined || field.kind === "OmittedExpression" || field.kind === "SpreadElement")
+        return invalidDescriptor({ kind: "invalid-field-entry", at: field?.id ?? entries.id });
+      const retained = retainField(field);
+      if (retained !== null) return { kind: "resource-stop", stop: retained };
+    }
+  }
+  const result = admit(found.size, 1);
+  if (result !== null) return { kind: "resource-stop", stop: result };
+  if (kind === "field") return { kind: "complete", value: { kind, descriptor: input, select: lookup("select"),
+    byteoffset: lookup("byteoffset"), bytealignment: lookup("bytealignment"), fieldlayout: lookup("fieldlayout") } };
+  if (kind === "array") return { kind: "complete", value: {
+    kind, descriptor: input, datalayout: lookup("datalayout"), bytesize: lookup("bytesize"), bytealignment: lookup("bytealignment"),
+    stride: lookup("stride"), elementlayout: lookup("elementlayout"), length: lookup("length"),
+  } };
+  if (entries === null) throw new Error("A completed value descriptor retains its actual field array.");
+  return { kind: "complete", value: { kind, descriptor: input, datalayout: lookup("datalayout"), bytesize: lookup("bytesize"),
+    bytealignment: lookup("bytealignment"), stride: lookup("stride"), fields: entries } };
+};
 
 export const checkedLayoutConstructionOf: CheckedLayoutConstructionOf = node => {
   if (node.kind !== "CallExpression") return null;
@@ -19,18 +124,25 @@ export const checkedLayoutRoleOf: CheckedLayoutRoleOf = call => {
   }
 };
 
-export const checkedLayoutOperandOf: CheckedLayoutOperandOf = (call, position) => {
-  const descriptor = checkedLayoutConstructionOf(call);
-  switch (descriptor?.kind) {
-    case "field": return position === 1 ? descriptor.byteOffsetExpression : position === 2 ? descriptor.byteAlignmentExpression : null;
-    case "value": case "array":
-      if (position === 1) return descriptor.geometry.byteSizeExpression;
-      if (position === 2) return descriptor.geometry.byteAlignmentExpression;
-      if (position === 3) return descriptor.geometry.strideExpression;
-      return descriptor.kind === "array" && position === 5 ? descriptor.extentExpression : null;
-    default: return null;
-  }
+export const checkedLayoutGeometryOperands: CheckedLayoutGeometryOperands = capture => {
+  const geometry = capture.kind === "field" ? [capture.byteOffsetExpression, capture.byteAlignmentExpression]
+    : [capture.geometry.byteSizeExpression, capture.geometry.byteAlignmentExpression, capture.geometry.strideExpression];
+  if (capture.kind === "array") geometry.push(capture.extentExpression);
+  return geometry.filter(operand => operand !== null).sort((left, right) => left.value.node - right.value.node);
 };
+
+export function checkedLayoutGeometryOf(call: CallExpression<CheckedPhase>, name: string): SourceNodeRef | null {
+  const layout = checkedLayoutConstructionOf(call);
+  if (layout === null) return null;
+  if (layout.kind === "field") {
+    if (name === "byteoffset") return layout.byteOffsetExpression;
+    return name === "bytealignment" ? layout.byteAlignmentExpression : null;
+  }
+  if (name === "bytesize") return layout.geometry.byteSizeExpression;
+  if (name === "bytealignment") return layout.geometry.byteAlignmentExpression;
+  if (name === "stride") return layout.geometry.strideExpression;
+  return name === "length" && layout.kind === "array" ? layout.extentExpression : null;
+}
 
 function sameOccurrence(left: SourceNodeRef, right: SourceNodeRef): boolean {
   if (left.value.node !== right.value.node) return false;

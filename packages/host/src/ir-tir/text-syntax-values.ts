@@ -1,12 +1,13 @@
 import { constructKeywordExpression, constructToken } from "./text-syntax-construction.js";
-import { lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
+import { checkedSyntaxReader, lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
+import { checkedSyntaxReference, unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
-import type { TypedCall, TypedValueOccurrence } from "./contract.js";
+import type { TirCallArguments, TirLayoutArguments, TirLayoutOperand, TypedCall, TypedValueOccurrence } from "./contract.js";
 import type {
   TypedApplication, TypedBigInt, TypedBinary, TypedConditional, TypedConstruction, TypedDecorator, TypedInstantiation, TypedKeyword, TypedMember, TypedModuleReference, TypedName, TypedNumber, TypedObjectSpread, TypedOmission, TypedPhase, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue, TypedShorthand, TypedSpread, TypedString, TypedTemplate, TypedType, TypedUnary, TypedUpdate, TypedValue
 } from "./contract.js";
 import type {
-  Origin
+  NodeRef, Origin
 } from "../ids/contract.js";
 import type {
   ArrayLiteralExpression, AsExpression, AwaitExpression, BigIntLiteral, BinaryExpression, CallExpression, ComputedPropertyName, ConditionalExpression, Decorator, DeleteExpression, ElementAccessExpression, EnumMember, ExportSpecifier, Expression, ExpressionWithTypeArguments, ExternalModuleReference, Identifier, ImportAttribute, ImportSpecifier, KeywordExpression, MetaProperty, ModifierList, NewExpression, NoSubstitutionTemplateLiteral, NodeList, NonNullExpression, NotEmittedTypeElement, NumericLiteral, ObjectLiteralElementLike, ObjectLiteralExpression, OmittedExpression, ParenthesizedExpression, PartiallyEmittedExpression, PostfixUnaryExpression, PrefixUnaryExpression, PrivateIdentifier, PropertyAccessExpression, PropertyAssignment, QualifiedName, RegularExpressionLiteral, SatisfiesExpression, ShorthandPropertyAssignment, SpreadAssignment, SpreadElement, StringLiteral, SyntaxList, SyntheticReferenceExpression, TaggedTemplateExpression, TemplateExpression, TemplateHead, TemplateLiteralTypeSpan, TemplateMiddle, TemplateSpan, TemplateTail, TextRange, Token, TypeNode, TypeOfExpression, VoidExpression, YieldExpression
@@ -15,6 +16,7 @@ import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, syntaxReference, nullableWork, sequenceWork } from "./text-layouts.js";
 
 export interface SyntaxValuesTextReads {
+  readonly work_NodeRef: TirRecordCodec<NodeRef>;
   readonly work_L_TypeNode_: TirRecordCodec<NodeList<TypeNode<TypedPhase>>>;
   readonly work_ModifierList: TirRecordCodec<ModifierList<TypedPhase>>;
   readonly work_Origin: TirRecordCodec<Origin>;
@@ -324,13 +326,27 @@ export const createSyntaxValuesText = (kernel: TirTextKernel, read: SyntaxValues
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, expression: field_expression, questionDotToken: field_questionDotToken,
       argumentExpression: field_argumentExpression, tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind),
     })));
+  const layoutOperand = defineRecord<TirLayoutOperand>("TirLayoutOperand", "TirLayoutOperand", null, "TirLayoutOperand", null, null, fields => fields
+    .field("source", "NodeRef", value => read.work_NodeRef.write(value.source), lazyReader(() => read.work_NodeRef.reader))
+    .field("root", "$Expression", value => syntaxReference("$Expression", value.root), syntaxReads.Expression)
+    .finish((source, root) => ({ source, root })));
+  const layoutArguments = defineRecord<TirLayoutArguments>("layout-quote", "TirCallArguments", null, "layout-quote", null, null, fields => fields
+    .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
+    .field("descriptor", "$CheckedLayoutDescriptor", value => checkedSyntaxReference("$CheckedLayoutDescriptor", value.descriptor),
+      checkedSyntaxReader("$CheckedLayoutDescriptor", "layout-descriptor", (image, ordinal) => image.layoutDescriptorOf(ordinal)))
+    .field("operands", "[TirLayoutOperand]", value => sequenceWork("[TirLayoutOperand]", value.operands, layoutOperand.write),
+      sequenceReader("[TirLayoutOperand]", layoutOperand.reader))
+    .finish((loc, descriptor, operands) => ({ kind: "layout-quote", loc, descriptor, operands })));
+  const callArguments = unionRecord<TirCallArguments>("TirCallArguments",
+    value => "kind" in value ? layoutArguments.write(value) : work_L_Expression_.write(value),
+    () => [layoutArguments.reader, work_L_Expression_.reader]);
   const work_CallExpression: (value: CallExpression<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<CallExpression<TypedPhase>>("CallExpression", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'CallExpression", literalReader<(CallExpression<TypedPhase>)["kind"]>("'CallExpression", ["CallExpression"]))
     .field("expression", "$Expression", value => syntaxReference("$Expression", value.expression), syntaxReads.Expression)
     .field("questionDotToken", "?$QuestionDotToken", value => nullableWork(value.questionDotToken, actual => syntaxReference("$QuestionDotToken", actual)), nullableReader(syntaxReads.QuestionDotToken))
     .field("typeArguments", "?L<TypeNode>", value => nullableWork(value.typeArguments, actual => read.work_L_TypeNode_.write(actual)), nullableReader(lazyReader(() => read.work_L_TypeNode_.reader)))
-    .field("arguments", "L<Expression>", value => work_L_Expression_.write(value.arguments), lazyReader(() => work_L_Expression_.reader))
+    .field("arguments", "TirCallArguments", value => callArguments.write(value.arguments), lazyReader(() => callArguments.reader))
     .field("tsonic", "TypedCall", value => read.work_TypedCall.write(value.tsonic), lazyReader(() => read.work_TypedCall.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_expression, field_questionDotToken, field_typeArguments, field_arguments, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, expression: field_expression, questionDotToken: field_questionDotToken,

@@ -42,7 +42,7 @@ export function createSyntaxGroup6(readers: () => HirTextReaders): ReadonlyMap<s
       const field_loc = read("loc", readers().record_81);
       const field_properties = read("properties", readers().record_275);
       const field_multiLine = read("multiLine", readers().scalar_boolean);
-      const field_tsonic = read("tsonic", unionReader<Hir.CheckedAggregate>(() => [readers().record_83, readers().record_177]));
+      const field_tsonic = read("tsonic", unionReader<Hir.CheckedAggregate>(() => [readers().record_83, readers().record_177, readers().record_layout_quote]));
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_properties, field_multiLine, field_tsonic], value: () => ({ kind: "ObjectLiteralExpression", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), properties: field_properties.value(), multiLine: field_multiLine.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "ObjectLiteralExpression", value }), accept)],
     ["OmittedExpression", accept => syntaxRecord<Hir.OmittedExpression<Hir.CheckedPhase>>(read => {

@@ -166,6 +166,7 @@ export const inspectTirStructure = (
                 source: part.source, destination: part.destination, part: part.part } });
           }
         }
+        if (value.label === "layout-quote") break;
         const fields = value.fields();
         for (let position = fields.length - 1, field = fields[position]; field !== undefined; field = fields[--position]) {
           pending.push({ kind: "value", value: field.work, node, phase: work.phase || field.name === "tsonic",

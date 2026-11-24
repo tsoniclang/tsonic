@@ -581,6 +581,8 @@ function aggregateData(value: Hir.CheckedAggregate): HirDataWork {
   switch (value.role) {
     case "value": return recordData("CheckedAggregate", value, () => [...coreFields(value), fieldData("role", scalarData(value.role)), fieldData("value", valueData(value.value))]);
     case "assignment-pattern": return recordData("CheckedAggregate", value, () => [...coreFields(value), fieldData("role", scalarData(value.role)), fieldData("views", viewsData(value.views))]);
+    case "layout-quote": return recordData("CheckedAggregate", value, () => [...coreFields(value), fieldData("role", scalarData(value.role)),
+      fieldData("call", nodeRefData(value.call)), fieldData("views", viewsData(value.views))]);
   }
 }
 

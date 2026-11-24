@@ -17,7 +17,7 @@ import { hirChildPath, hirDataPathText } from "./walk.js";
 import type { HirDataPath } from "./walk.js";
 import type { InferredStorageBound, InferredStorageCandidate } from "./contract.js";
 import { collectInferredStorageSources } from "./storage-inputs.js";
-import { checkedLayoutConstructionOf, checkedLayoutOperandOf } from "./layout.js";
+import { checkedLayoutConstructionOf, checkedLayoutGeometryOf } from "./layout.js";
 
 type NodeFrame = (
   | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null; readonly path: HirDataPath; readonly member: boolean }
@@ -249,6 +249,27 @@ interface HirCandidateArena {
   readonly lists: readonly HirCandidateList[];
 }
 
+function quotedLayoutCall(inventory: HirInventory, quote: HirNode): Extract<HirNode, { readonly kind: "CallExpression" }> | null {
+  if (quote.kind !== "ObjectLiteralExpression" && quote.kind !== "ArrayLiteralExpression" || quote.tsonic.role !== "layout-quote")
+    return null;
+  const admitted = inventory.entriesById.get(quote.tsonic.call.node);
+  const source = inventory.entriesById.get(quote.id);
+  if (admitted === undefined || source?.node !== quote || source.sourceBody !== admitted.sourceBody
+    || admitted.sourceBody?.body !== quote.tsonic.call.body) return null;
+  const call = admitted.node;
+  if (call.kind !== "CallExpression" || call.arguments.nodes.length !== 1) return null;
+  const descriptor = call.arguments.nodes[0];
+  const captured = checkedLayoutConstructionOf(call);
+  if (captured === null || descriptor?.kind !== "ObjectLiteralExpression" ||
+    inventory.parents.get(descriptor) !== call || descriptor.tsonic.role !== "layout-quote" ||
+    descriptor.tsonic.call.body !== quote.tsonic.call.body || descriptor.tsonic.call.node !== call.id) return null;
+  if (quote.kind === "ObjectLiteralExpression") return descriptor === quote ? call : null;
+  const property = inventory.parents.get(quote);
+  return captured.kind === "value" && property?.kind === "PropertyAssignment" && property.initializer === quote
+    && (property.name.kind === "Identifier" || property.name.kind === "StringLiteral") && property.name.text === "fields"
+    && inventory.parents.get(property) === descriptor ? call : null;
+}
+
 function bodyViolations(module: HirModule, inventory: HirInventory, paths: HirIdentityPaths, report: HirReport): readonly HirCandidateArena[] {
   const arenas: HirCandidateArena[] = [];
   const lexicalRanges = hirLexicalBodyRanges(module, inventory, paths);
@@ -277,12 +298,17 @@ function bodyViolations(module: HirModule, inventory: HirInventory, paths: HirId
       report("body-owner", site, "body identity, owner and actual module subtree must agree");
     if (path.kind === "known" && path.value.role === "layout-operand") {
       const parent = inventory.parents.get(body.root);
-      const position = parent?.kind === "CallExpression" ? parent.arguments.nodes.findIndex(argument => argument === body.root) : -1;
-      const operand = parent?.kind === "CallExpression" ? checkedLayoutOperandOf(parent, position) : null;
+      const property = parent?.kind === "PropertyAssignment" && parent.initializer === body.root
+        || parent?.kind === "ShorthandPropertyAssignment" && parent.name === body.root ? parent : null;
+      const descriptor = property === null ? undefined : inventory.parents.get(property);
+      const call = descriptor == null ? null : quotedLayoutCall(inventory, descriptor);
+      const name = property?.name;
+      const operand = call === null || name?.kind !== "Identifier" && name?.kind !== "StringLiteral"
+        ? null : checkedLayoutGeometryOf(call, name.text);
       if (operand?.kind !== "body" || operand.value.body !== body.body || operand.value.node !== body.root.id ||
         path.value.ordinal !== body.root.id || inventory.bodyParents.get(body)?.owner !== body.owner ||
         body.params.length !== 0 || body.asynchronous || body.generator)
-        report("body-owner", site, "a private layout operand must retain the exact typed argument and enclosing declaration");
+        report("body-owner", site, "a private layout operand must retain the actual named geometry slot and enclosing declaration");
     }
     const nested = actualNested.get(body) ?? [];
     if (body.nestedBodies.length !== nested.length || body.nestedBodies.some((identity, ordinal) => identity !== nested[ordinal]))
@@ -484,17 +510,16 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
         const captured = application.arguments[index];
         const expected = argument?.kind === "SpreadElement" ? argument.expression : argument;
         const actual = captured === undefined ? undefined : inventory.entriesById.get(captured.expression);
-        const layout = actual?.sourceBody === entry.sourceBody ? null : checkedLayoutOperandOf(node, index);
-        const sourceMatches = actual?.sourceBody === entry.sourceBody || layout?.kind === "body" &&
-          actual?.source.kind === "body" && actual.source.value.body === layout.value.body && actual.node.id === layout.value.node &&
-          actual.sourceBody !== null && actual.sourceBody.root === expected && inventory.bodyParents.get(actual.sourceBody) === entry.sourceBody;
-        if (entry.sourceBody === null || expected === undefined || actual?.node !== expected || !sourceMatches
+        if (entry.sourceBody === null || expected === undefined || actual?.node !== expected || actual.sourceBody !== entry.sourceBody
           || captured?.kind !== (argument?.kind === "SpreadElement" ? "spread" : "value")) {
           report("node-reference", site, "application arguments must retain their exact authored roles in this execution");
           break;
         }
       }
     }
+    if ((node.kind === "ObjectLiteralExpression" || node.kind === "ArrayLiteralExpression") &&
+      node.tsonic.role === "layout-quote" && quotedLayoutCall(inventory, node) === null)
+      report("node-reference", site, "a layout quotation belongs to the exact checked argument or its authored field list");
     const capturedMarkers = metadata?.core.markers;
     if (capturedMarkers?.kind === "available" && capturedMarkers.value.application.kind === "available"
       && capturedMarkers.value.application.value !== null) {

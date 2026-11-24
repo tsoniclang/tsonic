@@ -2,10 +2,13 @@ import type { BodyId, CandidateListId, DefId, ItemNodeRef, NodeId, SourceNodeRef
 import { encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
-import { checkedMemberStorageOf, checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedMemberStorageOf,
+  checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
+  readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
+import type { CallExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
 import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
@@ -14,7 +17,7 @@ import { publicationMembership, sameBindingScope, sameParameterSelection, verify
 import { sameSyntaxFields } from "./syntax-compare.js";
 import { sameSourceFileHeader } from "./syntax-compare-values.js";
 import { sameTextRange1, sameVector } from "./syntax-compare-common.js";
-import { chapterSyntaxSlots, indexChapterSyntax, readChapterSyntaxSlot, tirBodySyntaxOf } from "./chapter-syntax.js";
+import { chapterSyntaxSlots, indexChapterSyntax, isLayoutOperandBody, readChapterSyntaxSlot, tirBodySyntaxOf } from "./chapter-syntax.js";
 import { createTirLayouts } from "./text-model.js";
 
 export interface TirSourceInventory {
@@ -213,7 +216,8 @@ export const verifySourcePreservation = (
     emit("body-owner", null, "body identity and owner do not retain the actual original body");
   }
   if (module.module !== source.module || body.root.origin.module !== source.module ||
-    body.bindings.kind === "parametric" && module.tree.kind === "ready-root" && typedNodes.get(body.root.id) !== body.root) {
+    body.bindings.kind === "parametric" && module.tree.kind === "ready-root" && !isLayoutOperandBody(body.body) &&
+    typedNodes.get(body.root.id) !== body.root) {
     emit("module-node-identity", body.root, "body does not retain its module identity and canonical parametric subtree");
   }
   interface TransferScope { readonly breakTo: NodeId | null; readonly continueTo: NodeId | null }
@@ -651,6 +655,53 @@ function verifyPlacedDefaults<Stop extends object>(input: TirVerifierInput, body
   return null;
 }
 
+function verifyLayoutArguments<Stop extends object>(node: CallExpression<TypedPhase>, original: HirNode | undefined, body: TirBody,
+  input: TirVerifierInput, sourceBodies: TirSourceBoundary["bodies"], admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit,
+): Stop | null {
+  const capture = original?.kind === "CallExpression" ? checkedLayoutConstructionOf(original) : null;
+  const args = node.arguments;
+  if ((capture !== null) !== ("kind" in args))
+    emit("kind-children-shape", node, "a layout quotation belongs only to its actual checked construction");
+  if (capture === null || !("kind" in args)) return null;
+  const expected = checkedLayoutGeometryOperands(capture);
+  if (args.operands.length !== expected.length || expected.length !== (capture.kind === "field" ? 2 : capture.kind === "array" ? 4 : 3)) {
+    emit("kind-children-shape", node, "a layout quote must retain its complete checked geometry operand inventory");
+    return null;
+  }
+  for (let position = 0; position < expected.length; position += 1) {
+    const stopped = admit({ kind: "row" });
+    if (stopped !== null) return stopped;
+    const checked = expected[position];
+    const operand = args.operands[position];
+    if (checked?.kind !== "body" || operand === undefined ||
+      operand.source.body !== checked.value.body || operand.source.node !== checked.value.node) {
+      emit("node-reference", node, "a layout operand must retain its exact checked source occurrence");
+      continue;
+    }
+    const instance = { body: checked.value.body, bindings: body.bindings };
+    const paid = admit({ kind: "artifact", instance });
+    if (paid !== null) return paid;
+    const source = sourceBodies.get(instance.body);
+    const ready = input.layoutOperandOf(instance);
+    if (source === undefined || source.root.id !== checked.value.node || operand.root.id !== checked.value.node ||
+      input.nodeOf(checked) !== source.root ||
+      ready !== operand.root)
+      emit("module-node-identity", node, "a layout operand must share its exact independently required ready body root");
+  }
+  return null;
+}
+
+function verifyLayoutBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
+  admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  if (!isLayoutOperandBody(body.body)) return null;
+  const instance: BodyInstance = { body: body.body, bindings: body.bindings };
+  const paid = admit({ kind: "artifact", instance });
+  if (paid !== null) return paid;
+  if (input.layoutOperandOf(instance) !== body.root)
+    emit("module-node-identity", body.root, "layout body does not retain its actual independently owned geometry root");
+  return null;
+}
+
 function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody, admit: TirReadyReadAdmission<Stop>,
   membership: (selected: TirBody, emit: TirOccurrenceEmit) => Stop | null,
 ): TirVerificationResult<TirSite, Stop> {
@@ -681,6 +732,8 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   verifyQualifiedReferences(input, body, structure, emit);
   const publication = membership(body, emit);
   if (publication !== null) return { kind: "resource-stop", stop: publication };
+  const geometry = verifyLayoutBody(input, body, admit, emit);
+  if (geometry !== null) return { kind: "resource-stop", stop: geometry };
   const defaults = verifyPlacedDefaults(input, body, boundary, admit, emit);
   if (defaults !== null) return { kind: "resource-stop", stop: defaults };
   const ownNodeIds = verifyNestedPublication(input, body, semantics, inventory.original, inventory.typedNodes, inventory.ownNodes, boundary.headers, emit);
@@ -700,6 +753,10 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   }
   for (const node of structure.nodes) {
     const original = inventory.sourceNodes.get(node.id);
+    if (node.kind === "CallExpression") {
+      const layout = verifyLayoutArguments(node, original, body, input, boundary.bodies, admit, emit);
+      if (layout !== null) return { kind: "resource-stop", stop: layout };
+    }
     verifyOccurrenceRole(node, original, emit);
     verifyValueEndpoints(body, node, emit);
     verifyOccurrenceOperation(node, input.types, emit);
@@ -1022,6 +1079,8 @@ export const verifyTypedModule: VerifyTirModule = (input, module, admit) => {
     if (body === undefined) throw new TypeError(`ir-tir: sparse vector at $module["bodies"][${position}]`);
     const member = membership(body, emit);
     if (member !== null) return { kind: "resource-stop", stop: member };
+    const geometry = verifyLayoutBody(input, body, admit, emit);
+    if (geometry !== null) return { kind: "resource-stop", stop: geometry };
     if (found.has(body)) emit("template-shared-once", null, "chapter repeats an independently required body");
     else {
       const retain = admit({ kind: "retain-publication-entry" });

@@ -73,6 +73,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
   ports: () => SyntaxCopyPorts<P, Stop, Image>, binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>,
   expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
   applicationOf: (node: CallOrNewExpression<P>) => ApplicationSyntaxReceipt<P>,
+  callArguments: import("./contract.js").SyntaxCallArgumentsImage<P>,
   functionOf: (node: FunctionExpression<P>) => FunctionSyntaxReceipt<P>,
   unaryOf: (node: UnarySyntax<P>) => UnarySyntaxReceipt<P>,
   annotatedOf: (node: AnnotatedExpressionSyntax<P>) => AnnotatedExpressionSyntaxReceipt<P>,
@@ -386,14 +387,14 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       const shape = applicationOf(node);
       const expression = ports().Expression(shape.expression());
       const typeArguments = shape.typeArguments(item => ports().TypeNode(item));
-      const args = shape.arguments(item => ports().Expression(item));
-      if (args === null) return throwInvariant({
-        owner: "ir-hir", query: null, origin: shape.header.origin, message: "A call requires its admitted argument list.",
-      });
+      const args = callArguments(node, item => ports().Expression(item));
       return { ...shape.header, kind: "CallExpression", expression, questionDotToken: shape.questionDotToken(), typeArguments, arguments: args, tsonic };
     })),
     NewExpression: node => memoSyntaxPlan(NewExpression, node, () => withSyntaxPayload(phase.NewExpression, node.tsonic, () => tsonic => {
       const shape = applicationOf(node);
+      if (shape.form !== "new") return throwInvariant({
+        owner: "ir-hir", query: null, origin: shape.header.origin, message: "A construction requires its admitted argument list.",
+      });
       return { ...shape.header, kind: "NewExpression", expression: ports().Expression(shape.expression()),
         typeArguments: shape.typeArguments(item => ports().TypeNode(item)),
         arguments: shape.arguments(item => ports().Expression(item)), tsonic };

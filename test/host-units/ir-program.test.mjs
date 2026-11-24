@@ -3431,7 +3431,7 @@ export const storage: boolean = true;`);
     const usage = () => ({ work: maximumWork - remainingWork(account), records: meter.created });
     const traced = { ...inventory, get constructors() { beforeConstructors = usage(); return authors; } };
     const evidence = { checked: [module], members: [{ instance, occurrence, inventory: traced }],
-      get signatures() { afterConstructors = usage(); return [placed]; }, storage: [{ declaration, storage }] };
+      get signatures() { afterConstructors = usage(); return [placed]; }, storage: [{ declaration, storage }], layoutOperands: null };
     const result = product.canonicalizeProgram(programForEvidence(publicationFixture().index), publication, resources,
       { kind: "with-evidence", read: actual => {
         assert.equal(actual === account, true);
@@ -3733,7 +3733,7 @@ test("Program transports the exact verified construction-part and its independen
     const projected = product.canonicalizeProgram(programForEvidence(publicationFixture().index), publication.value, resources,
       { kind: "with-evidence", read: actual => {
         assert.equal(actual === account, true);
-        return { kind: "complete", value: { checked: [], members, signatures: [], storage: [] } };
+        return { kind: "complete", value: { checked: [], members, signatures: [], storage: [], layoutOperands: null } };
       } });
     return { verified, retained, projected, reads, verifiedWork, work: InvocationAccount.stateOf(account).work,
       created: meter.created, stop: meter.failure ?? accountFailure(account) };

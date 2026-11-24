@@ -3,9 +3,10 @@ import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeBodyId } from "../ids/index.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
-import { checkedLayoutOperandOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirLayoutOperand,
+  TirLocal, TirResolution, TirSelection, TypedBinary, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { TirEnumResolution } from "../ir-tir/contract.js";
 import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
 import { artifactBindingsKey, optionalValueDomainOf, readType, rigidBindings } from "../ir-types/index.js";
@@ -1072,6 +1073,29 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
             : { kind: "decided", decision: elaborateSelectedCall(deps, application.decision, instance.bindings,
               { provided: node.arguments.nodes.length, argumentAt: at => node.arguments.nodes[at]?.id }, node.origin) };
           const layout = checkedLayoutRoleOf(node);
+          const construction = checkedLayoutConstructionOf(node);
+          let arguments_: TirCallArguments;
+          if (construction === null) {
+            arguments_ = { loc: node.arguments.loc, nodes: node.arguments.nodes.map(expressionOf) };
+          } else {
+            const descriptor = node.arguments.nodes[0];
+            if (node.arguments.nodes.length !== 1 || descriptor?.kind !== "ObjectLiteralExpression" ||
+              descriptor.tsonic.role !== "layout-quote" || descriptor.tsonic.call.body !== body.body || descriptor.tsonic.call.node !== node.id)
+              return callerDefect("a layout construction requires its actual checked descriptor quotation", node.origin);
+            const geometry = checkedLayoutGeometryOperands(construction);
+            if (geometry.length !== (construction.kind === "field" ? 2 : construction.kind === "array" ? 4 : 3))
+              return callerDefect("a layout construction requires its full checked geometry operand inventory", node.origin);
+            const operands: TirLayoutOperand[] = [];
+            for (const reference of geometry) {
+              if (reference.kind !== "body")
+                return callerDefect("a checked layout operand must retain its actual qualified source", node.origin);
+              const root = children.get(reference.value.body)?.root;
+              if (root === undefined || root.id !== reference.value.node || root.kind === "Block" || root.kind === "SourceFile")
+                return callerDefect("a checked layout operand must borrow its own ready expression body", node.origin);
+              operands.push({ source: reference.value, root });
+            }
+            arguments_ = { kind: "layout-quote", loc: node.arguments.loc, descriptor, operands };
+          }
           read.applications.add(position);
           let typeArguments: TypeArgumentList<TypedPhase> | null = null;
           if (node.typeArguments !== null) {
@@ -1084,27 +1108,11 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
             typeArguments = { ...node.typeArguments, nodes: typedArguments };
           }
           expressions[position] = { ...header(node), kind: "CallExpression", expression: expressionOf(node.expression),
-            arguments: { ...node.arguments, nodes: node.arguments.nodes.map((argument, index): Expression<TypedPhase> => {
-              const reference = checkedLayoutOperandOf(node, index);
-              if (reference === null) return expressionOf(argument);
-              if (reference.kind !== "body" || reference.value.node !== argument.id)
-                return callerDefect("a checked layout operand must retain its actual argument occurrence", argument.origin);
-              const operand = children.get(reference.value.body)?.root;
-              if (operand === undefined || operand.id !== argument.id || operand.kind === "Block" || operand.kind === "SourceFile")
-                return callerDefect("a checked layout operand must borrow its own ready expression body", argument.origin);
-              return operand;
-            }) }, typeArguments, questionDotToken: null,
+            arguments: arguments_, typeArguments, questionDotToken: null,
             tsonic: layout === null ? { ...valueOf(position, result, node.origin), operation: null, application: selected }
               : { ...valueOf(position, result, node.origin), layout, application: selected } };
         } else {
-          if (node.tsonic.memory.kind !== "available" || node.tsonic.memory.value === null)
-            visitList(node.arguments.nodes, node.origin);
-          else for (let index = node.arguments.nodes.length - 1; index >= 0; index -= 1) {
-            if (checkedLayoutOperandOf(node, index) !== null) continue;
-            const argument = node.arguments.nodes[index];
-            if (argument === undefined) return callerDefect("a checked layout argument vector must be dense", node.origin);
-            visit(argument);
-          }
+          if (checkedLayoutConstructionOf(node) === null) visitList(node.arguments.nodes, node.origin);
           visit(node.expression);
         }
         return;

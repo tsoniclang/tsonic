@@ -1,15 +1,16 @@
 import type { Identifier, CaseBlock, CatchClause, Block, VariableDeclaration, VariableDeclarationList, ParameterDeclaration, BindingElement, HeritageClause, EnumMember, ExportSpecifier, TemplateSpan, ExpressionWithTypeArguments, ImportAttribute, ImportAttributes, TemplateHead, TemplateLiteralTypeSpan, JsxAttributes, JsxOpeningElement, JsxOpeningFragment, JsxClosingFragment, JsxClosingElement, SourceFile, ImportClause, ImportSpecifier, TypeParameterDeclaration, EntityName, Expression, LeftHandSideExpression, Statement, ForInitializer, CaseOrDefaultClause, BindingName, TypeNode, PropertyName, BlockOrExpression, ClassElement, TypeElement, ModuleExportName, MemberName, TemplateMiddleOrTail, TemplateLiteral, ObjectLiteralElementLike, LiteralTypeChild, TypePredicateParameterName, ImportAttributeName, JsxChild, JsxAttributeLike, JsxTagNameExpression, JsxAttributeName, JsxAttributeValue, JSDocComment, JSDocTag, JSDocFullName, NodeBody, ModuleName, ModuleReference, NamedExportBindings, NamedImportBindings, ModifierLike, BodyRoot, AwaitKeyword, ExclamationToken, DotDotDotToken, QuestionToken, AsteriskToken, BinaryOperatorToken, EqualsGreaterThanToken, ColonToken, QuestionDotToken, EqualsToken, AssertsKeyword, ReadonlyKeyword, PlusToken, MinusToken, EndOfFile, SyntaxNode, NodeHeader, NodeList, SyntaxFlag, TextRange } from "../ir-hir/contract.js";
-import type { TirBodyRoot, TirFormal, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedPhase } from "../ir-tir/contract.js";
+import type { TirBodyRoot, TirCallArguments, TirFormal, TirFormalInitializer, TirLayoutOperand, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedPhase } from "../ir-tir/contract.js";
+import type { ObjectLiteralExpression } from "../ir-hir/contract.js";
 import type { TextParseResult } from "../diag/contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
-import type { NodeId, Origin } from "../ids/contract.js";
+import type { NodeId, NodeRef, Origin } from "../ids/contract.js";
 import type { CheckJsDirective, CheckedPhase, CheckedUnopenedDeclaration, CheckedWireRequest, CommentDirective, CommentRange, Pragma, PragmaArgument, PragmaArgumentEntry, PragmaArguments } from "../ir-hir/contract.js";
 import type { SyntaxKind } from "../ir-hir/contract.js";
 import type { Cursor, RecordFields, TextReader, TextStep } from "./parse-values.js";
 import type { DecodedName } from "./parse-values.js";
 import { acceptText, arrayText, atomicText, closeRecord, delimiter, fieldText, invalid, nullable, nullableText, openRecord, readField, readNodeId, readNumber, readStringChoice, whitespace } from "./parse-values.js";
-import { readOrigin } from "./parse-diagnostics.js";
+import { readNodeRef, readOrigin } from "./parse-diagnostics.js";
 import { choice, namePart, nameStart, quoted, readBoolean, readString } from "./parse-values.js";
 
 export interface SyntaxWire {
@@ -57,6 +58,7 @@ export interface ChapterReadPorts {
 }
 
 export interface SyntaxReadPorts {
+  readonly layoutDescriptor: CheckedSyntaxPort<ObjectLiteralExpression<CheckedPhase>>;
   readonly Identifier: SyntaxPort<Identifier<TypedPhase>>;
   readonly CaseBlock: SyntaxPort<CaseBlock<TypedPhase>>;
   readonly CatchClause: SyntaxPort<CatchClause<TypedPhase>>;
@@ -295,11 +297,38 @@ export function readSyntaxList<Value, Root>(
   label: "NodeList" | "ModifierList",
   finish: (value: SyntaxValue<NodeList<Value>>) => TextStep<Root>,
 ): TextStep<Root> {
-  return atomicText(cursor, next => openRecord(next, label), fields =>
-    fieldText<TextRange, Root>(cursor, fields, "loc", (next, done) => atomicText(next, readTextRange, done), loc =>
-      fieldText<SyntaxValue<readonly Value[]>, Root>(cursor, fields, "nodes", (next, done) => readSyntaxArray(next, readValue, done), nodes =>
-        atomicText(cursor, next => closeRecord(next, fields), () =>
-          acceptText(mapSyntaxValue(nodes, values => ({ loc, nodes: values })), finish)))));
+  return atomicText(cursor, next => openRecord(next, label), fields => readSyntaxListFields(cursor, fields, readValue, finish));
+}
+
+function readSyntaxListFields<Value, Root>(cursor: Cursor, fields: RecordFields, readValue: TextReader<SyntaxValue<Value>>,
+  finish: (value: SyntaxValue<NodeList<Value>>) => TextStep<Root>,
+): TextStep<Root> {
+  return fieldText<TextRange, Root>(cursor, fields, "loc", (next, done) => atomicText(next, readTextRange, done), loc =>
+    fieldText<SyntaxValue<readonly Value[]>, Root>(cursor, fields, "nodes", (next, done) => readSyntaxArray(next, readValue, done), nodes =>
+      finishSyntaxRecord(cursor, fields, mapSyntaxValue(nodes, values => ({ loc, nodes: values })), finish)));
+}
+
+export function readCallArgumentList<Root>(cursor: Cursor, ports: SyntaxReadPorts,
+  finish: (value: SyntaxValue<TirCallArguments>) => TextStep<Root>,
+): TextStep<Root> {
+  const expression: TextReader<SyntaxValue<Expression<TypedPhase>>> = (next, done) => readSyntaxReference(next, ports.Expression, done);
+  const operand: TextReader<SyntaxValue<TirLayoutOperand>> = <Output>(next: Cursor,
+    done: (value: SyntaxValue<TirLayoutOperand>) => TextStep<Output>): TextStep<Output> =>
+    atomicText<RecordFields, Output>(next, entry => openRecord(entry, "TirLayoutOperand"), fields =>
+      fieldText<NodeRef, Output>(next, fields, "source", (entry, accept) => atomicText(entry, readNodeRef, accept), source =>
+        fieldText<SyntaxValue<Expression<TypedPhase>>, Output>(next, fields, "root", expression, root =>
+          finishSyntaxRecord(next, fields, mapSyntaxValue(root, actual => ({ source, root: actual })), done))));
+  return atomicText(cursor, next => choice(next, ["NodeList", "layout-quote"]), kind =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set() };
+      if (kind === "NodeList") return readSyntaxListFields(cursor, fields, expression, finish);
+      return fieldText<TextRange, Root>(cursor, fields, "loc", (next, done) => atomicText(next, readTextRange, done), loc =>
+        fieldText<SyntaxValue<ObjectLiteralExpression<CheckedPhase>>, Root>(cursor, fields, "descriptor",
+          (next, done) => readCheckedReference(next, ports.layoutDescriptor, done), descriptor =>
+            fieldText<SyntaxValue<readonly TirLayoutOperand[]>, Root>(cursor, fields, "operands",
+              (next, done) => readSyntaxArray(next, operand, done), operands =>
+                finishSyntaxRecord(cursor, fields, { resolve: () => ({ kind, loc, descriptor: descriptor.resolve(), operands: operands.resolve() }) }, finish))));
+    }));
 }
 
 export function readTextRange(cursor: Cursor): TextParseResult<TextRange> {

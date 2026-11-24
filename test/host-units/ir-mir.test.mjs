@@ -1939,7 +1939,7 @@ test("MIR observation constants require their actual verified layout query, raw 
   const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
   const { instanceKey, viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
   const { create } = layoutInput(await loadFrontFixture());
-  const input = create("const descriptor = make<boolean>(Abi, 8, 8, 8); export const width = measure(descriptor);");
+  const input = create("const descriptor = make<boolean>({ datalayout: Abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] }); export const width = measure(descriptor);");
   const account = createAccount(input.limits.dataflow);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));

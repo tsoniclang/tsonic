@@ -13,8 +13,13 @@ export function layoutInput(fixture) {
     resolveModule: requested => ({ kind: "virtual", moduleSpecifier: requested, virtualFileName: "/provider/native/layout.d.ts", providerModuleId }),
     getDeclarationModel: () => ({ moduleSpecifier: specifier, providerModuleId, exports: [
       { id: "Abi", name: "Abi", kind: "value", type: { kind: "boolean" } },
+      { id: "ValueLayoutDescriptor", name: "ValueLayoutDescriptor", kind: "interface", members: [
+        { id: "descriptor.abi", name: "datalayout", kind: "property", type: { kind: "boolean" } },
+        ...["bytesize", "bytealignment", "stride"].map(name => ({ id: `descriptor.${name}`, name, kind: "property", type: { kind: "number" } })),
+        { id: "descriptor.fields", name: "fields", kind: "property", type: { kind: "array", elementType: { kind: "boolean" } } },
+      ] },
       { id: "layout", name: "layout", kind: "function", signatures: [{ id: "layout.call", typeParameters: [{ name: "T" }],
-        parameters: [{ name: "abi", type: { kind: "boolean" } }, ...["size", "alignment", "stride"].map(name => ({ name, type: { kind: "number" } }))],
+        parameters: [{ name: "descriptor", type: { kind: "provider-ref", moduleSpecifier: specifier, exportName: "ValueLayoutDescriptor" } }],
         returnType: { kind: "boolean" } }] },
       { id: "size", name: "size", kind: "function", signatures: [{ id: "size.call",
         parameters: [{ name: "descriptor", type: { kind: "boolean" } }], returnType: { kind: "number" } }] },

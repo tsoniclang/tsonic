@@ -10,29 +10,38 @@ type Guard<T extends Hir.SyntaxNode<Hir.SyntaxPhase>> = (node: Hir.SyntaxNode<Hi
 
 interface SyntaxBuildContext extends SyntaxCaptureContext {
   readonly next: (node: SyntaxNodeOf) => NodeId;
-  readonly completed: ReadonlyMap<SyntaxNodeOf, Hir.SyntaxNode<Hir.SyntaxPhase>>;
+  readonly completed: readonly (Hir.SyntaxNode<Hir.SyntaxPhase> | undefined)[];
   previousChild: number;
 }
 
-export function captureNode(context: SyntaxCaptureContext, root: SyntaxNodeOf, parent: NodeId | null): Hir.SyntaxNode<Hir.SyntaxPhase> {
+interface CapturedSyntax {
+  readonly tree: Hir.SyntaxNode<Hir.SyntaxPhase>;
+  readonly syntaxOf: (id: NodeId) => Hir.SyntaxNode<Hir.SyntaxPhase> | undefined;
+}
+
+export function captureNode(context: SyntaxCaptureContext, root: SyntaxNodeOf, parent: NodeId | null): CapturedSyntax {
   const { nodes, ids, parents } = context.numbering;
   if (nodes[0] !== root) return defect("syntax assembly requires the actual numbered root");
-  const completed = new Map<SyntaxNodeOf, Hir.SyntaxNode<Hir.SyntaxPhase>>();
-  const next = (node: SyntaxNodeOf): NodeId => ids.get(node) ?? defect("a syntax node has no admitted identity");
+  const completed: (Hir.SyntaxNode<Hir.SyntaxPhase> | undefined)[] = new Array(nodes.length);
+  const next = (node: SyntaxNodeOf): NodeId => {
+    const id = ids.get(node);
+    return id !== undefined && nodes[id] === node ? id : defect("a syntax node has no admitted identity");
+  };
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
     const node = nodes[index];
     if (node === undefined) return defect("the admitted syntax inventory has a hole");
     const id = next(node);
     const owner = node === root ? parent : parents.get(node);
     if (owner === undefined) return defect("a syntax node has no admitted parent");
-    completed.set(node, buildNode({ ...context, next, completed, previousChild: id }, node, owner));
+    completed[id] = buildNode({ ...context, next, completed, previousChild: id }, node, owner);
   }
-  return completed.get(root) ?? defect("syntax assembly did not complete its numbered root");
+  const tree = completed[next(root)] ?? defect("syntax assembly did not complete its numbered root");
+  return { tree, syntaxOf: id => completed[id] };
 }
 
 function one<T extends Hir.SyntaxNode<Hir.SyntaxPhase>>(context: SyntaxBuildContext, child: SyntaxNodeOf | undefined, parent: NodeId, guard: Guard<T>): T {
   if (child === undefined) return defect("the checker's tree lacks a child that HIR's schema requires");
-  const node = context.completed.get(child) ?? defect("a syntax child is not completed before its containing node");
+  const node = context.completed[context.next(child)] ?? defect("a syntax child is not completed before its containing node");
   if (node.parent !== parent || node.id <= context.previousChild) return defect("syntax children disagree with the admitted parent or preorder");
   context.previousChild = node.id;
   return guard(node) ? node : defect(`a ${node.kind} node stands where HIR's schema does not admit it`);

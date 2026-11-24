@@ -195,8 +195,12 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
   }
 
   function aggregate(row: CheckedAggregate): SyntaxCopyResult<CheckedAggregate, Stop> {
-    return admit<CheckedAggregate>(1, 0, () => row.role === "value" ? valueRole(row, 3) : admit(5, 1, () =>
-      following(project.core(row.core), core => following(views(row.views), views => copied({ role: "assignment-pattern", core, views })))));
+    return admit<CheckedAggregate>(1, 0, () => {
+      if (row.role === "value") return valueRole(row, 3);
+      return admit(row.role === "assignment-pattern" ? 5 : 6, 1, () =>
+        following(project.core(row.core), core => following(views(row.views), mapped => copied(row.role === "assignment-pattern"
+          ? { role: row.role, core, views: mapped } : { role: row.role, core, call: row.call, views: mapped }))));
+    });
   }
 
   function application(row: HirApplication): SyntaxCopyResult<HirApplication, Stop> {

@@ -8,7 +8,7 @@ import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { binaryOperatorOf, checkedLayoutOperandOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
+import { binaryOperatorOf, checkedLayoutConstructionOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { checkedVoidCompletion, isLayoutOperand, layoutOperandType, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
@@ -443,11 +443,14 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
     case "ConditionalExpression": yield node.condition; yield node.whenTrue; yield node.whenFalse; return;
     case "CallExpression":
       yield node.expression;
-      if (node.tsonic.memory.kind !== "available" || node.tsonic.memory.value === null) yield* node.arguments.nodes;
-      else for (const [position, argument] of node.arguments.nodes.entries())
-          if (checkedLayoutOperandOf(node, position) === null) yield argument;
+      yield* node.arguments.nodes;
       return;
-    case "ObjectLiteralExpression": yield* node.properties.nodes; return;
+    case "ObjectLiteralExpression":
+      if (node.tsonic.role !== "layout-quote") yield* node.properties.nodes;
+      return;
+    case "ArrayLiteralExpression":
+      if (node.tsonic.role === "layout-quote") return;
+      return notInferredYet(PORT, "an executable ArrayLiteralExpression", node.origin);
     case "PropertyAssignment": yield node.initializer; return;
     case "PropertyAccessExpression": if (node.tsonic.role !== "enum-member") yield node.expression; return;
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "StringLiteral":
@@ -505,9 +508,8 @@ function resolvedValueName(deps: InferenceInputs, resolution: HirResolution): Hi
 
 function* checkerCallChildren(deps: InferenceInputs, body: BodyId, call: CallExpression<CheckedPhase>, application: HirApplication): Generator<HirNode> {
   yield call.expression;
-  for (const [position, argument] of application.arguments.entries()) {
-    const qualified = checkedLayoutOperandOf(call, position) ?? { kind: "body", value: { body, node: argument.expression } };
-    const actual = deps.checkedNodeOf(qualified);
+  for (const argument of application.arguments) {
+    const actual = deps.checkedNodeOf({ kind: "body", value: { body, node: argument.expression } });
     if (actual === null || actual.id !== argument.expression)
       return callerDefect(PORT, "checker evidence requires its verified qualified application argument");
     yield actual;
@@ -667,6 +669,12 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     if (result.kind !== "available") return notInferredYet(PORT, "a conditional expression without its actual checked result", node.origin);
     walk.typeOf.set(node.id, result.value);
   }
+  else if ((node.kind === "ObjectLiteralExpression" || node.kind === "ArrayLiteralExpression") && node.tsonic.role === "layout-quote") {
+    const type = node.tsonic.views.contextual;
+    if (type.kind !== "available" || type.value === null)
+      return notInferredYet(PORT, "the exact contextual formal of a layout quotation", node.origin);
+    walk.typeOf.set(node.id, type.value);
+  }
   else if (node.kind === "ObjectLiteralExpression") objectConstruction(walk, node);
   else if (node.kind === "PropertyAccessExpression") {
     if (node.tsonic.role === "enum-member") {
@@ -811,12 +819,17 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       const source = node.arguments.nodes[index];
       if (source === undefined || argument.kind !== "value" || argument.expression !== source.id)
         return notInferredYet(PORT, "the actual selected source transport of a spread call argument", node.origin);
-      const layout = checkedLayoutOperandOf(node, index);
-      if (layout !== null && layout.kind !== "body") return callerDefect(PORT, "a private layout operand must retain a body-qualified occurrence");
-      const type = layout === null ? typeAt(walk, source) : layoutOperandType(source, "read");
-      if (type === null) return notInferredYet(PORT, "a layout operand's actual checked source type", source.origin);
-      return { occurrence: layout === null ? refOf(walk, source) : layout.value, kind: argument.kind,
-        type, tuple: null, closure: null };
+      const type = typeAt(walk, source);
+      if (source.kind === "ObjectLiteralExpression" && source.tsonic.role === "layout-quote") {
+        const capturedSignature = captured.value.resolvedSignature;
+        const selected = capturedSignature.kind === "available" && capturedSignature.value !== null
+          ? readSignature(walk.generation.deps.types, capturedSignature.value) : null;
+        if (source.tsonic.call.body !== walk.draft.body.body || source.tsonic.call.node !== node.id
+          || index !== 0 || captured.value.arguments.length !== 1 || checkedLayoutConstructionOf(node) === null
+          || selected?.kind !== "call" || selected.parameters.length !== 1 || selected.parameters[0]?.type !== type)
+          return callerDefect(PORT, "a layout quote must retain the actual selected signature's contextual formal");
+      }
+      return { occurrence: refOf(walk, source), kind: argument.kind, type, tuple: null, closure: null };
     });
     const result = present(walk.operators.get(node.id), "the actual application result position");
     const callee = typeAt(walk, node.expression);
@@ -842,7 +855,6 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     }
     if (signature !== null && signature.kind === "call" && signature.receiver === null && signature.typeParameters.length === 0
       && arguments_.length <= signature.parameters.length) for (const [index, argument] of arguments_.entries()) {
-      if (checkedLayoutOperandOf(node, index) !== null) continue;
       const formal = signature.parameters[index];
       const actual = readySlotType(walk.generation, argument.type);
       if (formal === undefined || formal.kind === "rest" || formal.passing !== "by-value"
@@ -850,6 +862,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       const originalType = readType(walk.generation.deps.types, actual);
       if (originalType.kind === "open" || originalType.kind === "error") continue;
       const source = present(node.arguments.nodes[index], "the actual argument requiring a flow");
+      if (source.kind === "ObjectLiteralExpression" && source.tsonic.role === "layout-quote") continue;
       if (formal.kind === "optional" && candidate?.endpoints.kind === "available" && candidate.endpoints.value.api.body !== null) {
         const selected = candidate.endpoints.value.api.body;
         const body = walk.generation.deps.hirBody(selected);
@@ -1125,6 +1138,9 @@ function evidenceOf(deps: InferenceInputs, group: InferenceGroup, type: TyId, no
   const term = readType(deps.types, type);
   if ((term.kind === "error") !== (error !== null))
     return notInferredYet(PORT, "the actual checked error association of a constraint type position", node.origin);
+  if (node.kind === "ObjectLiteralExpression" && node.tsonic.role === "layout-quote" &&
+    node.tsonic.views.contextual.kind === "available" && node.tsonic.views.contextual.value === type)
+    return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error };
   if (term.kind === "open" || term.kind === "error" || term.kind === "shape" || term.kind === "param")
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error };
   if (term.kind === "callable") return { value: { type, component, category: { kind: "known", category: "callable" },

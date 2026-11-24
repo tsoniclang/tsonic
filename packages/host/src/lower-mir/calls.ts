@@ -27,7 +27,9 @@ export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> |
       return callerDefect("a direct call target differs from its selected declaration", node.origin);
   }
   lowering.work.push({ kind: "call", node, application, direct });
-  const arguments_ = node.arguments?.nodes;
+  const list = node.arguments;
+  if (list !== null && "kind" in list) return callerDefect("a layout quotation is not a runtime call argument", node.origin);
+  const arguments_ = list?.nodes;
   for (let position = (arguments_?.length ?? 0) - 1; position >= 0; position -= 1) {
     const argument = requirePresent(arguments_?.[position], failure("a call argument list contains a hole", node.origin));
     if (argument.kind === "SpreadElement") return notLoweredYet("a spread call argument", argument.origin);
@@ -71,7 +73,9 @@ export function argumentPlace(lowering: Lowering, node: Expression<TypedPhase>):
 export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly kind: "call" }>): boolean {
   const { node, application } = pending;
   const decision = application.callee.decision;
-  const sourceArguments = node.arguments?.nodes;
+  const list = node.arguments;
+  if (list !== null && "kind" in list) return callerDefect("a layout quotation is not a runtime call argument", node.origin);
+  const sourceArguments = list?.nodes;
   const sourceCount = sourceArguments?.length ?? 0;
   if (application.arguments.length < sourceCount || decision.parameters.length !== application.arguments.length)
     return notLoweredYet("a call with unmatched argument and parameter inventories", node.origin);

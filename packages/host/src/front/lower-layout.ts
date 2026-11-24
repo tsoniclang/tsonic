@@ -2,9 +2,8 @@ import type { BodyId, NodeRef, RawTypeId, SourceNodeRef, TyId } from "../ids/con
 import type { CapturedFact, CheckedValue, HirMemoryGeometryCapture } from "../ir-hir/contract.js";
 import type { TypePublicationStop } from "../ir-types/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { RawFact, RawLayoutApplication, RawLayoutQuery, RawMemoryMetadata, RawNodeRef } from "./contract.js";
+import type { RawFact, RawLayoutApplication, RawLayoutOperand, RawLayoutQuery, RawMemoryMetadata, RawNodeRef } from "./contract.js";
 import type { ConversionResult } from "./type-conversion.js";
-import { layoutConstructionArity } from "./source-bodies.js";
 
 type RawConstruction = Extract<RawMemoryMetadata, { readonly kind: "layout-construction" }>;
 interface LayoutProjectionDeps {
@@ -39,14 +38,11 @@ function operands(deps: LayoutProjectionDeps, selected: RawLayoutApplication): C
 }
 
 function construct(deps: LayoutProjectionDeps, selected: RawConstruction): ConversionResult<Projection> {
-  const inputs = operands(deps, selected);
-  if (inputs.kind !== "complete") return inputs;
-  const [first, second, third, fourth, fifth, sixth] = inputs.value;
+  const prepaid = deps.admit();
+  if (prepaid !== null) return prepaid;
   const absent = available(null);
-  if (first === undefined || second === undefined || third === undefined || fourth === undefined ||
-    !layoutConstructionArity(selected.construction, inputs.value.length))
-    return { kind: "complete", value: { memory: missing("incomplete-association"), observation: absent } };
   const unavailable = missing("not-provided");
+  const qualify = (operand: RawLayoutOperand): SourceNodeRef => ({ kind: "body", value: occurrence(deps, operand.expression) });
   const site: SourceNodeRef = { kind: "body", value: occurrence(deps, selected.application.invocation) };
   const typeArgument = selected.application.signatureArguments[0];
   const type: ConversionResult<CapturedFact<TyId>> = typeArgument === undefined || selected.construction === "array"
@@ -59,21 +55,32 @@ function construct(deps: LayoutProjectionDeps, selected: RawConstruction): Conve
       ? { kind: "complete", value: unavailable } : deps.typeOf(valueArgument.argument);
     if (value.kind !== "complete") return value;
     return { kind: "complete", value: { observation: absent, memory: available({
-      kind: "field", occurrence: site, bindings: unavailable, source: type.value, selector: first, selection: unavailable,
+      kind: "field", occurrence: site, bindings: unavailable, source: type.value, selector: qualify(selected.selector), selection: unavailable,
       key: unavailable, origins: unavailable, selectedDeclarations: unavailable, primary: unavailable, value: value.value,
-      fieldLayoutExpression: fourth, fieldLayout: unavailable, byteOffsetExpression: second, byteOffset: unavailable,
-      byteAlignmentExpression: third, byteAlignment: unavailable,
+      fieldLayoutExpression: qualify(selected.fieldLayout), fieldLayout: unavailable, byteOffsetExpression: qualify(selected.byteOffset), byteOffset: unavailable,
+      byteAlignmentExpression: qualify(selected.byteAlignment), byteAlignment: unavailable,
     }) } };
   }
-  const geometry: HirMemoryGeometryCapture = { source: type.value, dataLayoutExpression: first, dataLayout: unavailable,
-    byteSizeExpression: second, byteSize: unavailable, byteAlignmentExpression: third, byteAlignment: unavailable,
-    strideExpression: fourth, stride: unavailable };
-  return { kind: "complete", value: { observation: absent, memory: selected.construction === "array"
-    ? available({ kind: "array", occurrence: site, bindings: unavailable, geometry,
-      extentExpression: sixth ?? null, length: unavailable, runtimeBase: unavailable,
-      elementExpression: fifth ?? null, element: unavailable })
-    : available({ kind: "value", occurrence: site, bindings: unavailable, geometry,
-      fieldExpressions: inputs.value.slice(4), fields: unavailable }) } };
+  const actual = selected.geometry;
+  const geometry: HirMemoryGeometryCapture = { source: type.value, dataLayoutExpression: qualify(actual.dataLayout), dataLayout: unavailable,
+    byteSizeExpression: qualify(actual.byteSize), byteSize: unavailable, byteAlignmentExpression: qualify(actual.byteAlignment), byteAlignment: unavailable,
+    strideExpression: qualify(actual.stride), stride: unavailable };
+  if (selected.construction === "array") return { kind: "complete", value: { observation: absent, memory:
+    available({ kind: "array", occurrence: site, bindings: unavailable, geometry,
+      extentExpression: qualify(selected.length), length: unavailable, runtimeBase: unavailable,
+      elementExpression: qualify(selected.element), element: unavailable }) } };
+  const fieldExpressions: SourceNodeRef[] = [];
+  for (let index = 0; index < selected.fields.length; index += 1) {
+    const stop = deps.admit();
+    if (stop !== null) return stop;
+    const field = selected.fields[index];
+    if (field === undefined) return throwInvariant({ owner: "front", query: null, origin: null,
+      message: "A checked value layout retains its dense authored field operand inventory." });
+    fieldExpressions.push(qualify(field));
+  }
+  return { kind: "complete", value: { observation: absent, memory: available({
+    kind: "value", occurrence: site, bindings: unavailable, geometry, fieldExpressions, fields: unavailable,
+  }) } };
 }
 
 function observe(deps: LayoutProjectionDeps, selected: RawLayoutQuery, result: CapturedFact<TyId>): ConversionResult<Projection> {

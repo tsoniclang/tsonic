@@ -5,6 +5,7 @@ import { requirePresent, throwInvariant } from "../diag/index.js";
 import { encodeKey } from "../ids/index.js";
 import { inventoryChapterSyntax, moduleChapterRoots } from "./syntax-arena.js";
 import type { TirBodyRoot, TirChapterTree, TirFormal, TirTypedSyntax, TypedPhase } from "../ir-tir/contract.js";
+import { chapterTransportSlots } from "../ir-tir/index.js";
 import type { ModuleBodies } from "./contract.js";
 import type { SyntaxTextContext, TextWork } from "./text-values.js";
 import { field, record, textNodeListWith, textSyntaxHeader, token } from "./text-values.js";
@@ -572,8 +573,8 @@ export interface ChapterTextContext {
 
 export function createSyntaxText(module: ModuleBodies) {
   const inventory = inventoryChapterSyntax<never>(moduleChapterRoots(module, "ModuleBodies"),
-    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null,
-      close: () => {} }).value;
+    { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null, layout: () => null,
+      close: () => {} }, chapterTransportSlots).value;
   const checked = printCheckedDeclarations(inventory.checkedRoots);
   const missingWire: InvariantFailure = {
     owner: "ir-program",
@@ -583,7 +584,7 @@ export function createSyntaxText(module: ModuleBodies) {
   };
   const typed = (node: TirTypedSyntax["node"]): TextWork => token(`n:${requirePresent(inventory.wireOf(node), missingWire)}`);
   const checkedNode = (node: HirNode): TextWork => token(`c:${requirePresent(checked.wireOf(node), missingWire)}`);
-  const ordinary: SyntaxTextContext = { reference: typed };
+  const ordinary: SyntaxTextContext = { reference: typed, checked: checkedNode };
   const context: ChapterTextContext = {
     tree: value => record(value.kind, [field("root", value.kind === "checked-root" ? checkedNode(value.root) : typed(value.root))]),
     bodyRoot: typed,

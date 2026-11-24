@@ -9,9 +9,9 @@ import type {
   CatchClause, ColonToken, ConditionalExpression, ConditionalSyntaxReceipt, ControlSyntax, ControlSyntaxReceipt,
   DoStatement, ElementAccessExpression, ElementSyntaxReceipt, Expression, ForInOrOfStatement, ForInitializer,
   ForStatement, Identifier, IfStatement, IfSyntaxReceipt, LabeledStatement, MemberName, ModifierLike, ModifierList,
-  NodeList, ObjectLiteralElementLike, ObjectLiteralExpression, ObjectSyntaxReceipt, Phase,
+  NodeList, ObjectLiteralElementLike, ObjectLiteralExpression, ObjectSyntaxReceipt, Phase, PrepareSyntaxArgumentList,
   PropertyAccessExpression, PropertySyntaxReceipt, QuestionDotToken, QuestionToken, ReturnStatement,
-  ReturnSyntaxReceipt, SingleExpressionReceipt, SingleExpressionSyntax, Statement, SwitchStatement,
+  ReturnSyntaxReceipt, SingleExpressionReceipt, SingleExpressionSyntax, Statement, SwitchStatement, SyntaxArgumentListReceipt,
   SyntaxChildSlot, SyntaxCopyResult, SyntaxNode, TryStatement, TypeNode, UnarySyntax, UnarySyntaxReceipt,
   VariableDeclaration, VariableDeclarationList, VariableDeclarationSyntaxFields, VariableDeclarationSyntaxReceipt,
   VariableListSyntaxReceipt, VariableStatement, VariableStatementSyntaxReceipt, WhileStatement, WithStatement,
@@ -449,18 +449,30 @@ export function prepareBindingElement<P extends Phase>(node: BindingElement<P>, 
   }), dotDotDotToken: dotDotDotToken.read, propertyName: propertyName.read, name: name.read, initializer: initializer.read };
 }
 
-export function* applicationSlots<P extends Phase>(node: CallOrNewExpression<P>,
+export function* applicationSlots<P extends Phase, Slot>(node: CallOrNewExpression<P>,
   expression: (value: Expression<P>) => Expression<P>,
   questionDot: (value: QuestionDotToken<P> | null) => QuestionDotToken<P> | null,
-  typeArguments: () => Iterable<SyntaxChildSlot<P>>, callArguments: () => Iterable<SyntaxChildSlot<P>>,
-): Generator<SyntaxChildSlot<P>> {
-  yield* children<P, typeof node>(["expression", "required", () => expression(node.expression)]);
+  typeArguments: () => Iterable<SyntaxChildSlot<P>>, ordinary: (slot: SyntaxChildSlot<P>) => Slot,
+  callArguments: () => Iterable<Slot>,
+): Generator<Slot> {
+  for (const slot of children<P, typeof node>(["expression", "required", () => expression(node.expression)])) yield ordinary(slot);
   if (node.kind === "CallExpression") {
-    yield* children<P, typeof node>(["questionDotToken", "nullable", () => questionDot(node.questionDotToken)]);
+    for (const slot of children<P, typeof node>(["questionDotToken", "nullable", () => questionDot(node.questionDotToken)]))
+      yield ordinary(slot);
   }
-  yield* typeArguments();
+  for (const slot of typeArguments()) yield ordinary(slot);
   yield* callArguments();
 }
+
+export const prepareSyntaxArgumentList: PrepareSyntaxArgumentList = <P extends Phase>(value: NodeList<Expression<P>>): SyntaxArgumentListReceipt<P> => {
+  let retained: RetainedSyntaxList<Expression<P>> | undefined;
+  let count = 0;
+  const slots = readRetainedList<P, Expression<P>>("arguments", value, (list, length) => {
+    retained = list;
+    count = length;
+  });
+  return { slots, copy: read => materializeList<Expression<P>>(requirePresent(retained, missingStructure), count, read) };
+};
 
 export function prepareApplicationStructure<P extends Phase, Stop>(node: CallOrNewExpression<P>, ordinal: number,
   admitList: (field: "typeArguments" | "arguments") => Stop | null,
@@ -470,36 +482,34 @@ export function prepareApplicationStructure<P extends Phase, Stop>(node: CallOrN
     const stop = admitList("typeArguments");
     if (stop !== null) return { kind: "refused", stop };
   }
-  let callArguments: NodeList<Expression<P>> | null;
   if (node.kind === "CallExpression") {
     const stop = admitList("arguments");
     if (stop !== null) return { kind: "refused", stop };
-    callArguments = node.arguments;
-  } else {
-    callArguments = node.arguments;
-    if (callArguments !== null) {
-      const stop = admitList("arguments");
-      if (stop !== null) return { kind: "refused", stop };
-    }
   }
+  const newArguments = node.kind === "NewExpression" ? node.arguments : null;
+  if (newArguments !== null) {
+    const stop = admitList("arguments");
+    if (stop !== null) return { kind: "refused", stop };
+  }
+  const values = newArguments === null ? null : prepareSyntaxArgumentList<P>(newArguments);
   let expression: Expression<P> | undefined;
   let questionDot: QuestionDotToken<P> | null = null;
   let types: RetainedSyntaxList<TypeNode<P>> | undefined;
-  let values: RetainedSyntaxList<Expression<P>> | undefined;
   let typeCount = 0;
-  let valueCount = 0;
-  const slots = applicationSlots<P>(node, value => (expression = value), value => (questionDot = value),
+  const slots = applicationSlots<P, SyntaxChildSlot<P>>(node, value => (expression = value), value => (questionDot = value),
     () => typeArguments === null ? [] : readRetainedList<P, TypeNode<P>>("typeArguments", typeArguments, (list, count) => {
       types = list;
       typeCount = count;
-    }),
-    () => callArguments === null ? [] : readRetainedList<P, Expression<P>>("arguments", callArguments, (list, count) => {
-      values = list;
-      valueCount = count;
-    }));
-  return { kind: "copied", value: { kind: "application", ordinal, header: syntaxHeader(node), slots,
+    }), slot => slot, () => values === null ? [] : values.slots);
+  const header = { ordinal, header: syntaxHeader(node), slots,
     expression: () => requirePresent(expression, missingStructure), questionDotToken: () => questionDot,
-    typeArguments: read => typeArguments === null ? null : materializeList(requirePresent(types, missingStructure), typeCount, read),
-    arguments: read => callArguments === null ? null : materializeList(requirePresent(values, missingStructure), valueCount, read),
-  } };
+    typeArguments: (read: (item: TypeNode<P>) => TypeNode<P>) =>
+      typeArguments === null ? null : materializeList(requirePresent(types, missingStructure), typeCount, read),
+  };
+  if (node.kind === "CallExpression") {
+    const arguments_ = node.arguments;
+    return { kind: "copied", value: { ...header, kind: "application", form: "call", arguments: () => arguments_ } };
+  }
+  return { kind: "copied", value: { ...header, kind: "application", form: "new",
+    arguments: read => values === null ? null : values.copy(read) } };
 }

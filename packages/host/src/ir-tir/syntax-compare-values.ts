@@ -1,4 +1,6 @@
 import type * as Hir from "../ir-hir/contract.js";
+import type { TypedPhase } from "./contract.js";
+import { sameTextRange1 } from "./syntax-compare-common.js";
 import { sameVector, sameNodeKind, sameNodeList, sameCommentDirective22, samePragma23, sameCheckJsDirective24 } from "./syntax-compare-common.js";
 
 export function sameArrayLiteralExpression(left: Hir.ArrayLiteralExpression<Hir.Phase>, right: Hir.ArrayLiteralExpression<Hir.Phase>): boolean {
@@ -43,11 +45,16 @@ export function sameBlock(left: Hir.Block<Hir.Phase>, right: Hir.Block<Hir.Phase
     Object.is(left.multiLine, right.multiLine);
 }
 
-export function sameCallExpression(left: Hir.CallExpression<Hir.Phase>, right: Hir.CallExpression<Hir.Phase>): boolean {
+export function sameCallExpression(left: Hir.CallExpression<TypedPhase>, right: Hir.CallExpression<Hir.CheckedPhase>): boolean {
+  const args = left.arguments;
+  const sameArguments = "kind" in args
+    ? right.arguments.nodes.length === 1 && args.descriptor === right.arguments.nodes[0] &&
+      sameTextRange1(args.loc, right.arguments.loc)
+    : sameNodeList(args, right.arguments);
   return sameNodeKind(left.expression, right.expression) &&
     ((left.questionDotToken === null) === (right.questionDotToken === null)) &&
     (left.typeArguments === null ? right.typeArguments === null : right.typeArguments !== null && sameNodeList(left.typeArguments, right.typeArguments)) &&
-    sameNodeList(left.arguments, right.arguments);
+    sameArguments;
 }
 
 export function sameClassDeclaration(left: Hir.ClassDeclaration<Hir.Phase>, right: Hir.ClassDeclaration<Hir.Phase>): boolean {

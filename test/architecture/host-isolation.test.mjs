@@ -309,6 +309,36 @@ test("HIR admits only its own exact Parameter initializer field and ready-expres
   }
 });
 
+test("HIR CallArguments selects only the exact closed phase slot", async () => {
+  const phase = 'export interface Phase { readonly CallArguments: { readonly loc: number }; readonly Other: null; }';
+  const argumentsOf = 'export type SyntaxCallArguments<P extends Phase> = P["CallArguments"];';
+  const contract = path("ir-hir");
+  const entry = path("ir-hir", "index.ts");
+  await fixture([[contract, `${phase}\n${argumentsOf}\nexport type Borrow = <P extends Phase>(value: SyntaxCallArguments<P>) => SyntaxCallArguments<P>;`],
+    [entry, 'import type { Borrow } from "./contract.js"; export const borrow: Borrow = value => value;']],
+    async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module("ir-hir"), { root, sourceFiles: [contract, entry], interfaceSources: [],
+        declarationSources: [], outputDirectory: ".temp/isolation" });
+      assert.equal(report.status, "passed", label(report));
+    });
+  for (const [description, owner, alias] of [
+    ["foreign owner", "ir-tir", argumentsOf],
+    ["wrong name", "ir-hir", argumentsOf.replace("SyntaxCallArguments", "OtherArguments")],
+    ["wrong key", "ir-hir", argumentsOf.replace('["CallArguments"]', '["Other"]')],
+    ["runtime key", "ir-hir", argumentsOf.replace("P extends Phase>", "P extends Phase, Key extends keyof Phase>").replace('["CallArguments"]', "[Key]")],
+    ["crossed phase", "ir-hir", argumentsOf.replace("P extends Phase>", "P extends Phase, Other extends Phase>").replace('= P[', '= Other[')],
+  ]) {
+    const invalid = path(owner);
+    await fixture([[invalid, `${phase}\n${alias}`]], async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module(owner), { root, sourceFiles: [invalid], interfaceSources: [],
+        declarationSources: [], outputDirectory: ".temp/isolation" });
+      assert.equal(report.status, "failed", description);
+      assert.equal(report.findings.some(finding => finding.code === "contract-shape" && finding.path === invalid && finding.line === 2),
+        true, `${description}: ${label(report)}`);
+    });
+  }
+});
+
 test("HIR named headers require the matching same-Phase syntax owner", async () => {
   const phase = 'export interface Phase { readonly SourceFile: null; readonly FunctionDeclaration: null; }';
   const source = 'export interface SourceFileHeader<P extends Phase> { readonly kind: "SourceFile"; readonly tsonic: P["SourceFile"]; }';

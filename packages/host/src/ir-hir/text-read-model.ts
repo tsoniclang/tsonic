@@ -106,6 +106,7 @@ export interface HirReadGroup2 {
   readonly record_81: HirReader<Hir.TextRange>;
   readonly record_82: HirReader<Hir.NodeList<Hir.Expression<Hir.CheckedPhase>>>;
   readonly record_83: HirReader<Hir.HirCoreCarrier & { readonly role: "value"; readonly value: Hir.CheckedValue; }>;
+  readonly record_layout_quote: HirReader<Extract<Hir.CheckedAggregate, { readonly role: "layout-quote" }>>;
   readonly record_84: HirReader<Hir.HirCoreCapture>;
   readonly record_85: HirReader<{ readonly kind: "available"; readonly value: Ids.DefId | null; }>;
   readonly record_86: HirReader<{ readonly kind: "available"; readonly value: Hir.HirMarkersCapture; }>;
