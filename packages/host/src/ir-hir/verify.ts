@@ -1,8 +1,9 @@
 import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
-import { encodeDefId } from "../ids/index.js";
-import type { AwaitExpression, BinaryOperatorOf, CheckedPhase, CompoundAssignmentOperatorOf, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirCandidateList, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, PrefixOperatorOf, ShortCircuitOperatorOf, SpreadElement, TypeNode, VerifyHir, YieldExpression } from "./contract.js";
+import { encodeDefId, encodeKey } from "../ids/index.js";
+import { memberStorageData } from "../ir-types/index.js";
+import type { ArrowFunction, AwaitExpression, BinaryOperatorOf, CheckedFieldSelector, CheckedPhase, CompoundAssignmentOperatorOf, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirCandidateList, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, PrefixOperatorOf, ShortCircuitOperatorOf, SpreadElement, TypeNode, VerifyHir, YieldExpression } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
 import { walkHirData } from "./verify-syntax.js";
 import { hirBodyData, hirDiagnosticsData, hirItemsData, hirModuleBindingData, hirModuleExportData, hirNodeData, hirObligationsData } from "./text-data.js";
@@ -17,7 +18,7 @@ import { hirChildPath, hirDataPathText } from "./walk.js";
 import type { HirDataPath } from "./walk.js";
 import type { InferredStorageBound, InferredStorageCandidate } from "./contract.js";
 import { collectInferredStorageSources } from "./storage-inputs.js";
-import { checkedLayoutConstructionOf, checkedLayoutGeometryOf } from "./layout.js";
+import { checkedLayoutConstructionOf, checkedLayoutGeometryOf, readLayoutSelector } from "./layout.js";
 
 type NodeFrame = (
   | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null; readonly path: HirDataPath; readonly member: boolean }
@@ -270,6 +271,42 @@ function quotedLayoutCall(inventory: HirInventory, quote: HirNode): Extract<HirN
     && inventory.parents.get(property) === descriptor ? call : null;
 }
 
+function checkedFieldSelectorOwnsSyntax(inventory: HirInventory, arrow: ArrowFunction<CheckedPhase>, selector: CheckedFieldSelector): boolean {
+  const authored = readLayoutSelector<CheckedPhase, never>(arrow, () => null);
+  if (authored.kind !== "complete") return false;
+  const at = inventory.entriesById.get(arrow.id);
+  const call = inventory.entriesById.get(selector.call.node);
+  const { formal, access, receiver } = authored.value;
+  if (call?.node.kind !== "CallExpression" || at?.node !== arrow || at.sourceBody === null || call.sourceBody !== at.sourceBody
+    || selector.call.body !== at.sourceBody.body || selector.selection.body !== at.sourceBody.body || selector.selection.node !== access.id
+    || formal.id !== selector.formal.node || inventory.entriesById.get(formal.id)?.item !== selector.formal.owner
+    || formal.tsonic.declaration.kind !== "definition" || formal.tsonic.declaration.definition !== selector.formal.owner
+    || formal.tsonic.parent !== selector.definition || receiver.tsonic.role !== "value" || access.tsonic.role !== "value"
+    || receiver.tsonic.resolution.kind !== "declarations" || receiver.tsonic.resolution.definitions.length !== 1
+    || receiver.tsonic.resolution.definitions[0] !== selector.formal.owner
+    || receiver.tsonic.value.views.read.kind !== "available" || receiver.tsonic.value.views.read.value !== selector.ownerType
+    || access.tsonic.value.views.read.kind !== "available" || access.tsonic.value.views.read.value !== selector.valueType
+    || access.tsonic.accessor.kind !== "available" || access.tsonic.accessor.value !== null
+    || access.name.kind !== "Identifier" || access.name.tsonic.role !== "property-name" || access.name.tsonic.key.kind !== "available"
+    || access.tsonic.origins.kind !== "available" || selector.member.primary === null
+    || !selector.member.selectedDeclarations.includes(selector.member.primary)
+    || !access.tsonic.origins.value.some(origin => origin.kind === "declared" && origin.declaration === selector.member.primary)
+    || encodeKey(memberStorageData(selector.member)) !== encodeKey(memberStorageData({ ...selector.member,
+      key: access.name.tsonic.key.value, origins: access.tsonic.origins.value }))) return false;
+  const observation = call.node.tsonic.observation;
+  if (observation.kind === "available" && observation.value?.operation === "field-offset") {
+    const selected = observation.value.selector;
+    return call.node.arguments.nodes.length === 2 && call.node.arguments.nodes[1] === arrow
+      && selected?.kind === "body" && selected.value.body === at.sourceBody.body && selected.value.node === arrow.id;
+  }
+  const capture = checkedLayoutConstructionOf(call.node);
+  const property = inventory.parents.get(arrow);
+  return capture?.kind === "field" && capture.selector.kind === "body" && capture.selector.value.body === at.sourceBody.body
+    && capture.selector.value.node === arrow.id && property?.kind === "PropertyAssignment" && property.initializer === arrow
+    && (property.name.kind === "Identifier" || property.name.kind === "StringLiteral") && property.name.text === "select"
+    && call.node.arguments.nodes.length === 1 && inventory.parents.get(property) === call.node.arguments.nodes[0];
+}
+
 function bodyViolations(module: HirModule, inventory: HirInventory, paths: HirIdentityPaths, report: HirReport): readonly HirCandidateArena[] {
   const arenas: HirCandidateArena[] = [];
   const lexicalRanges = hirLexicalBodyRanges(module, inventory, paths);
@@ -520,6 +557,12 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
     if ((node.kind === "ObjectLiteralExpression" || node.kind === "ArrayLiteralExpression") &&
       node.tsonic.role === "layout-quote" && quotedLayoutCall(inventory, node) === null)
       report("node-reference", site, "a layout quotation belongs to the exact checked argument or its authored field list");
+    if (node.kind === "ArrowFunction" && "role" in node.tsonic) {
+      const selector = node.tsonic;
+      if (!checkedFieldSelectorOwnsSyntax(inventory, node, selector) || selector.member.primary === null)
+        report("node-reference", site, "a layout selector retains its actual call, formal and checked storage selection");
+      else requests.push({ kind: "definition", definition: selector.member.primary, vector: selector.member.bindings, site });
+    }
     const capturedMarkers = metadata?.core.markers;
     if (capturedMarkers?.kind === "available" && capturedMarkers.value.application.kind === "available"
       && capturedMarkers.value.application.value !== null) {
@@ -742,7 +785,7 @@ function authoredReturnType(body: HirBody | null, inventory: HirInventory): Type
   const callable = inventory.parents.get(body.root);
   switch (callable?.kind) {
     case "FunctionDeclaration": case "FunctionExpression": case "ArrowFunction": case "MethodDeclaration": case "GetAccessor":
-      return callable.tsonic.body === body.body ? callable.type : null;
+      return "body" in callable.tsonic && callable.tsonic.body === body.body ? callable.type : null;
     default: return null;
   }
 }

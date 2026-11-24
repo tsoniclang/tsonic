@@ -1,6 +1,6 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, ItemNodeRef, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, Signature, SignatureEndpoint, SourceObjectHolding, SourceObjectField, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NominalDefinition, PassingMode, Signature, SignatureEndpoint, SourceObjectHolding, SourceObjectField, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirBindingResolution } from "./binding-data.js";
 export type * from "./binding-data.js";
 import type { CapturedFact } from "./capture-data.js";
@@ -4439,6 +4439,17 @@ export interface CheckedDeclaration extends CheckedDeclarationFacts {
 
 export interface CheckedCallableType extends CheckedType, CheckedDeclaration {}
 
+export interface CheckedFieldSelector extends CheckedDeclaration {
+  readonly role: "layout-selector";
+  readonly call: NodeRef;
+  readonly views: HirCheckerViews;
+  readonly formal: ItemNodeRef;
+  readonly selection: NodeRef;
+  readonly ownerType: TyId;
+  readonly valueType: TyId;
+  readonly member: MemberStorageSelection;
+}
+
 export interface CheckedCallable extends CheckedDeclaration {
   readonly parameters: readonly TypeParameter[];
   readonly signatures: readonly HirCallableEndpoint[];
@@ -4635,7 +4646,7 @@ export interface CheckedPhase extends Phase {
   readonly PrefixUnaryExpression: CheckedUnary;
   readonly PostfixUnaryExpression: CheckedUnary;
   readonly YieldExpression: CheckedProtocol;
-  readonly ArrowFunction: CheckedClosure;
+  readonly ArrowFunction: CheckedClosure | CheckedFieldSelector;
   readonly FunctionExpression: CheckedClosure;
   readonly AsExpression: CheckedExpression;
   readonly SatisfiesExpression: CheckedExpression;

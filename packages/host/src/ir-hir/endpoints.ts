@@ -19,7 +19,7 @@ export const checkedParameterHeadersOf: CheckedParameterHeadersOf = (callable, b
     default: return null;
   }
   const headers = callable.parameters.nodes;
-  if (definitionAt(callable.id) !== body.owner
+  if (!("body" in callable.tsonic) || definitionAt(callable.id) !== body.owner
     || "definition" in callable.tsonic && callable.tsonic.definition !== body.owner
     || callable.tsonic.body !== body.body || callable !== body.root && callable.body !== body.root
     || headers.length !== body.params.length) return null;

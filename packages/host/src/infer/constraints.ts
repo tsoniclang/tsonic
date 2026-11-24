@@ -8,7 +8,7 @@ import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { binaryOperatorOf, checkedLayoutConstructionOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
+import { binaryOperatorOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { checkedVoidCompletion, isLayoutOperand, layoutOperandType, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
@@ -21,6 +21,13 @@ type Output = InferStep<GroupConstraints, ConstraintsRequest, ConstraintsPaused>
 type FormCutRequest = Extract<ConstraintsRequest, { readonly kind: "form-cut" }>;
 type Slot = TyId | { readonly part: InferredSignaturePart };
 type Refusal = Extract<Result<never>, { readonly kind: "refused" }>;
+
+function layoutQuotation(node: HirNode) {
+  if ((node.kind === "ObjectLiteralExpression" || node.kind === "ArrayLiteralExpression") && node.tsonic.role === "layout-quote")
+    return node.tsonic;
+  return node.kind === "ArrowFunction" && "role" in node.tsonic ? node.tsonic : null;
+}
+
 interface ParameterPosition {
   readonly parameter: HirParam;
   readonly index: number;
@@ -218,6 +225,8 @@ function ownedParts(deps: InferenceInputs, group: InferenceGroup): ReadonlyMap<B
     switch (owner.kind) {
       case "FunctionDeclaration": case "FunctionExpression": case "ArrowFunction":
       case "MethodDeclaration": case "GetAccessor": case "SetAccessor": case "Constructor": {
+        if (!("body" in owner.tsonic))
+          return callerDefect(PORT, "a nonexecuting field selector cannot produce an inferred part");
         if (part.part.kind === "parameter-initializer") {
           const first = owner.parameters.nodes[0];
           const receiver = first?.name.kind === "Identifier" && first.name.text === "this" ? 1 : 0;
@@ -451,6 +460,9 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
     case "ArrayLiteralExpression":
       if (node.tsonic.role === "layout-quote") return;
       return notInferredYet(PORT, "an executable ArrayLiteralExpression", node.origin);
+    case "ArrowFunction":
+      if ("role" in node.tsonic) return;
+      return notInferredYet(PORT, "an executable ArrowFunction", node.origin);
     case "PropertyAssignment": yield node.initializer; return;
     case "PropertyAccessExpression": if (node.tsonic.role !== "enum-member") yield node.expression; return;
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "BigIntLiteral": case "StringLiteral":
@@ -626,6 +638,7 @@ function unaryConstraint(walk: Walk, node: HirNode, source: Expression<CheckedPh
 }
 
 function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?: Expression<CheckedPhase>): Refusal | undefined {
+  const quotation = layoutQuotation(node);
   if (node.kind === "Identifier") {
     const result = localType(walk, node, readWriteTarget);
     if (typeof result === "object" && "kind" in result) return result;
@@ -669,8 +682,8 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     if (result.kind !== "available") return notInferredYet(PORT, "a conditional expression without its actual checked result", node.origin);
     walk.typeOf.set(node.id, result.value);
   }
-  else if ((node.kind === "ObjectLiteralExpression" || node.kind === "ArrayLiteralExpression") && node.tsonic.role === "layout-quote") {
-    const type = node.tsonic.views.contextual;
+  else if (quotation !== null) {
+    const type = quotation.views.contextual;
     if (type.kind !== "available" || type.value === null)
       return notInferredYet(PORT, "the exact contextual formal of a layout quotation", node.origin);
     walk.typeOf.set(node.id, type.value);
@@ -820,13 +833,17 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       if (source === undefined || argument.kind !== "value" || argument.expression !== source.id)
         return notInferredYet(PORT, "the actual selected source transport of a spread call argument", node.origin);
       const type = typeAt(walk, source);
-      if (source.kind === "ObjectLiteralExpression" && source.tsonic.role === "layout-quote") {
+      const quote = layoutQuotation(source);
+      if (quote !== null) {
         const capturedSignature = captured.value.resolvedSignature;
         const selected = capturedSignature.kind === "available" && capturedSignature.value !== null
           ? readSignature(walk.generation.deps.types, capturedSignature.value) : null;
-        if (source.tsonic.call.body !== walk.draft.body.body || source.tsonic.call.node !== node.id
-          || index !== 0 || captured.value.arguments.length !== 1 || checkedLayoutConstructionOf(node) === null
-          || selected?.kind !== "call" || selected.parameters.length !== 1 || selected.parameters[0]?.type !== type)
+        const descriptor = quote.role === "layout-quote";
+        const expected = descriptor ? 1 : 2;
+        if (quote.call.body !== walk.draft.body.body || quote.call.node !== node.id
+          || index !== (descriptor ? 0 : 1) || captured.value.arguments.length !== expected
+          || (descriptor ? checkedLayoutConstructionOf(node) === null : checkedLayoutRoleOf(node) !== "field-offset")
+          || selected?.kind !== "call" || selected.parameters.length !== expected || selected.parameters[index]?.type !== type)
           return callerDefect(PORT, "a layout quote must retain the actual selected signature's contextual formal");
       }
       return { occurrence: refOf(walk, source), kind: argument.kind, type, tuple: null, closure: null };
@@ -862,7 +879,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       const originalType = readType(walk.generation.deps.types, actual);
       if (originalType.kind === "open" || originalType.kind === "error") continue;
       const source = present(node.arguments.nodes[index], "the actual argument requiring a flow");
-      if (source.kind === "ObjectLiteralExpression" && source.tsonic.role === "layout-quote") continue;
+      if (layoutQuotation(source) !== null) continue;
       if (formal.kind === "optional" && candidate?.endpoints.kind === "available" && candidate.endpoints.value.api.body !== null) {
         const selected = candidate.endpoints.value.api.body;
         const body = walk.generation.deps.hirBody(selected);
@@ -1138,11 +1155,14 @@ function evidenceOf(deps: InferenceInputs, group: InferenceGroup, type: TyId, no
   const term = readType(deps.types, type);
   if ((term.kind === "error") !== (error !== null))
     return notInferredYet(PORT, "the actual checked error association of a constraint type position", node.origin);
-  if (node.kind === "ObjectLiteralExpression" && node.tsonic.role === "layout-quote" &&
-    node.tsonic.views.contextual.kind === "available" && node.tsonic.views.contextual.value === type)
+  const quotation = layoutQuotation(node);
+  if (quotation?.views.contextual.kind === "available" && quotation.views.contextual.value === type)
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error };
   if (term.kind === "open" || term.kind === "error" || term.kind === "shape" || term.kind === "param")
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error };
+  if (term.kind === "declared" && node.tsonic !== null && "referencedDefinitions" in node.tsonic
+    && node.tsonic.type.kind === "available" && node.tsonic.type.value === type)
+    return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: term.definition, pointer: null }, error };
   if (term.kind === "callable") return { value: { type, component, category: { kind: "known", category: "callable" },
     numeric: null, sum: null, nominal: null, pointer: null }, error: null };
   if (term.kind === "intrinsic" && term.intrinsic === "absence")

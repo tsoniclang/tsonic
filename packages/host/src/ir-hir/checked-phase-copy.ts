@@ -2,7 +2,7 @@ import type { LocalId, TyId } from "../ids/contract.js";
 import type {
   CapturedFact, CheckedClosure, CheckedContentImage, CheckedEnum, CheckedEnumMember, CheckedExport, CheckedExportAssignment, CheckedExportBinding, CheckedImport, CheckedModule,
   CheckedNamespace, CheckedNamespaceExport, CheckedProperty, CheckedStaticBlock, CheckedAggregate, CheckedApplication, CheckedBinary, CheckedBinding, CheckedBindingList, CheckedCallable,
-  CheckedCallableType, CheckedClass, CheckedClassExpression, CheckedDeclarationFacts, CheckedExpression, CheckedInstantiation, CheckedIteration,
+  CheckedCallableType, CheckedClass, CheckedClassExpression, CheckedDeclarationFacts, CheckedExpression, CheckedFieldSelector, CheckedInstantiation, CheckedIteration,
   CheckedKeyword, CheckedLiteral, CheckedMember, CheckedName, CheckedPhase, CheckedProjection, CheckedProtocol, CheckedType,
   CheckedTypeAlias, CheckedTypeParameter, CheckedUnary, CheckedValue, CheckedVariable, CopyCheckedContent, CopyCheckedModule, HirApplication,
   HirArgument, HirBody, HirCandidate, HirCandidateList, HirCheckerViews, HirCoreCarrier, HirDiagnosticRoot, HirHeritage,
@@ -282,6 +282,18 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
         type, referencedDefinitions: row.referencedDefinitions }))));
   }
 
+  function arrow(row: CheckedClosure | CheckedFieldSelector): SyntaxCopyResult<CheckedClosure | CheckedFieldSelector, Stop> {
+    return admit<CheckedClosure | CheckedFieldSelector>(1, 0, () => {
+      if (!("role" in row)) return expression<CheckedClosure>(6)(row);
+      return admit(9, 1, () => following(declarationPart(row), ready => following(views(row.views), selectedViews =>
+        following(project.type(row.ownerType), ownerType => following(project.type(row.valueType), valueType =>
+          admit(5, 1, () => following(project.bindings(row.member.bindings), bindings => copied({
+            ...ready, definition: row.definition, role: row.role, call: row.call, views: selectedViews, formal: row.formal, selection: row.selection,
+            ownerType, valueType, member: { ...row.member, bindings },
+          }))))))));
+    });
+  }
+
   function declaration<Value extends CheckedDeclarationFacts>(fields: number): (row: Value) => SyntaxCopyResult<Value, Stop> {
     return row => admit(fields, 1, () => following(declarationPart(row), ready => copied({ ...row, ...ready })));
   }
@@ -413,7 +425,7 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
   const phase: SyntaxPhaseCopy<CheckedPhase, Stop, null> = {
     ArrayLiteralExpression: ready(aggregate),
     ArrayTypeNode: ready(typeSyntax),
-    ArrowFunction: ready(expression<CheckedClosure>(7)),
+    ArrowFunction: ready(arrow),
     AsExpression: ready(expression<CheckedExpression>(5)),
     AwaitExpression: ready(protocolValue),
     BigIntLiteral: ready(literal),

@@ -1,7 +1,7 @@
 import type * as Hir from "./contract.js";
 import type * as Ids from "../ids/contract.js";
 import type * as Types from "../ir-types/contract.js";
-import { recordReader, sequenceReader, unionReader } from "./text-construction.js";
+import { literalReader, recordReader, sequenceReader, unionReader } from "./text-construction.js";
 import type { HirTextReaders, HirReadGroup6 } from "./text-read-model.js";
 export function createReadGroup6(readers: () => HirTextReaders): HirReadGroup6 {
   const record_180 = recordReader<Hir.NodeList<Hir.TypeParameterDeclaration<Hir.CheckedPhase>>>("NodeList", read => {
@@ -32,6 +32,36 @@ export function createReadGroup6(readers: () => HirTextReaders): HirReadGroup6 {
       const field_core = read("core", readers().record_84);
       return { fields: [field_views, field_place, field_memory, field_observation, field_core], value: () => ({ views: field_views.value(), place: field_place.value(), memory: field_memory.value(), observation: field_observation.value(), core: field_core.value() }) };
     });
+  const memberStorageSelection = recordReader<Types.MemberStorageSelection>("MemberStorageSelection", read => {
+    const key = read("key", unionReader<Types.MemberKey>(() => [readers().record_35, readers().record_61, readers().record_63]));
+    const origins = read("origins", sequenceReader(unionReader<Types.MemberOrigin>(() =>
+      [readers().record_58, readers().record_59, readers().intrinsicMemberOrigin, readers().sourceMemberOrigin, readers().record_60])));
+    const selectedDeclarations = read("selectedDeclarations", sequenceReader(readers().identity_def));
+    const primary = read("primary", unionReader<Ids.DefId | null>(() => [readers().scalar_null, readers().identity_def]));
+    const bindings = read("bindings", readers().record_18);
+    return { fields: [key, origins, selectedDeclarations, primary, bindings],
+      value: () => ({ key: key.value(), origins: origins.value(), selectedDeclarations: selectedDeclarations.value(),
+        primary: primary.value(), bindings: bindings.value() }) };
+  });
+  const record_fieldSelector = recordReader<Hir.CheckedFieldSelector>("CheckedFieldSelector", read => {
+    const core = read("core", readers().record_84);
+    const parent = read("parent", unionReader<Ids.DefId | null>(() => [readers().scalar_null, readers().identity_def]));
+    const attributes = read("attributes", sequenceReader(readers().record_13));
+    const memory = read("memory", unionReader<Hir.CapturedFact<Hir.HirMemoryFieldCapture | Hir.HirMemoryLayoutCapture | null>>(() => [readers().record_157, readers().record_10]));
+    const definition = read("definition", readers().identity_def);
+    const role = read("role", literalReader<"layout-selector">(["layout-selector"]));
+    const call = read("call", readers().record_6);
+    const views = read("views", readers().record_141);
+    const formal = read("formal", readers().record_8);
+    const selection = read("selection", readers().record_6);
+    const ownerType = read("ownerType", readers().identity_t);
+    const valueType = read("valueType", readers().identity_t);
+    const member = read("member", memberStorageSelection);
+    return { fields: [core, parent, attributes, memory, definition, role, call, views, formal, selection, ownerType, valueType, member],
+      value: () => ({ core: core.value(), parent: parent.value(), attributes: attributes.value(), memory: memory.value(),
+        definition: definition.value(), role: role.value(), call: call.value(), views: views.value(), formal: formal.value(), selection: selection.value(),
+        ownerType: ownerType.value(), valueType: valueType.value(), member: member.value() }) };
+  });
   const record_184 = recordReader<Hir.CheckedProtocol>("CheckedProtocol", read => {
       const field_views = read("views", readers().record_141);
       const field_place = read("place", unionReader<Hir.CapturedFact<Hir.HirStoragePlace | null>>(() => [readers().record_143, readers().record_10]));
@@ -189,5 +219,5 @@ export function createReadGroup6(readers: () => HirTextReaders): HirReadGroup6 {
       const field_value = read("value", readers().record_140);
       return { fields: [field_core, field_role, field_value], value: () => ({ core: field_core.value(), role: field_role.value(), value: field_value.value() }) };
     });
-  return { record_180, record_181, record_182, record_183, record_184, record_185, record_186, record_187, record_188, record_189, record_190, record_191, record_192, record_193, record_194, record_195, record_196, record_197, record_198, record_199, record_200, record_201, record_202, record_203, record_204, record_205, record_206, record_207, record_208, record_209 };
+  return { record_180, record_181, record_182, record_fieldSelector, record_183, record_184, record_185, record_186, record_187, record_188, record_189, record_190, record_191, record_192, record_193, record_194, record_195, record_196, record_197, record_198, record_199, record_200, record_201, record_202, record_203, record_204, record_205, record_206, record_207, record_208, record_209 };
 }

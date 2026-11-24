@@ -120,7 +120,7 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
       definitions.set(node.id, encodeDefId({ module, segments }));
       inner = { node: node.id, segments };
     }
-    const context = requested.size === 0 ? null : enterSourceBody(node, next.scope, definitions);
+    const context = requested.size === 0 ? null : enterSourceBody(node, next.scope, definitions, layout);
     if (isModuleBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null)
       || node.kind === "IndexSignature" || node.kind === "MappedType") {
       if (inner === null) throw new TypeError("front: a binding has no genuine enclosing declaration identity");

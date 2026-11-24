@@ -127,7 +127,7 @@ type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" |
   | "HirArgumentPassingCapture" | "HirCoreCapture" | "CheckedValue" | "CheckedExpression" | "CheckedLiteral"
   | "CheckedName" | "CheckedBinary" | "CheckedUnary" | "CheckedKeyword" | "CheckedInstantiation"
   | "CheckedAggregate" | "CheckedApplication" | "CheckedMember" | "CheckedProtocol" | "CheckedClosure"
-  | "CheckedType" | "CheckedCallableType" | "DeclarationTarget" | "CheckedCallable" | "CheckedClass" | "CheckedClassExpression"
+  | "CheckedType" | "CheckedCallableType" | "CheckedFieldSelector" | "MemberStorageSelection" | "DeclarationTarget" | "CheckedCallable" | "CheckedClass" | "CheckedClassExpression"
   | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "InferredStorageBound" | "CheckedEnumMember" | "EnumValueSource" | "CheckedEnum" | "CheckedNamespace"
   | "CheckedImport" | "CheckedExport" | "CheckedExportBinding" | "CheckedNamespaceExport" | "CheckedExportAssignment" | "CheckedStaticBlock"
   | "CheckedProperty" | "CheckedBinding" | "CheckedBindingList" | "CheckedIteration" | "CheckedModule"
@@ -634,6 +634,8 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly CheckedClosure: HirShapeBody;
   readonly CheckedType: HirShapeBody;
   readonly CheckedCallableType: HirShapeBody;
+  readonly CheckedFieldSelector: HirShapeBody;
+  readonly MemberStorageSelection: HirShapeBody;
   readonly DeclarationTarget: HirShapeBody;
   readonly CheckedCallable: HirShapeBody;
   readonly CheckedClass: HirShapeBody;
@@ -840,7 +842,7 @@ export function createSyntaxSchema(): HirSyntaxSchema {
     PrefixUnaryExpression: node("PrefixUnaryExpression", "CheckedUnary", [["operator", hirLiteral("PlusToken", "MinusToken", "TildeToken", "ExclamationToken", "PlusPlusToken", "MinusMinusToken")], ["operand", "Expression"]]),
     PostfixUnaryExpression: node("PostfixUnaryExpression", "CheckedUnary", [["operand", "Expression"], ["operator", hirLiteral("PlusPlusToken", "MinusMinusToken")]]),
     YieldExpression: node("YieldExpression", "CheckedProtocol", [["asteriskToken", hirNullable("AsteriskToken")], ["expression", initializer]]),
-    ArrowFunction: node("ArrowFunction", "CheckedClosure", [["modifiers", modifiers], ...callable, ["asteriskToken", hirNullable("AsteriskToken")], ["body", hirNullable("BlockOrExpression")], ["equalsGreaterThanToken", "EqualsGreaterThanToken"]]),
+    ArrowFunction: node("ArrowFunction", hirChoice("CheckedClosure", "CheckedFieldSelector"), [["modifiers", modifiers], ...callable, ["asteriskToken", hirNullable("AsteriskToken")], ["body", hirNullable("BlockOrExpression")], ["equalsGreaterThanToken", "EqualsGreaterThanToken"]]),
     FunctionExpression: node("FunctionExpression", "CheckedClosure", functionFields),
     AsExpression: node("AsExpression", "CheckedExpression", [["expression", "Expression"], ["type", "TypeNode"]]),
     SatisfiesExpression: node("SatisfiesExpression", "CheckedExpression", [["expression", "Expression"], ["type", "TypeNode"]]),

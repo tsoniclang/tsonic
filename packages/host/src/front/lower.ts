@@ -1,18 +1,18 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, LocalRef, NodeId, NodeRef, RawTypeId, SourceNodeRef, TyId } from "../ids/contract.js";
-import { candidateListId, decodeBodyId, encodeBodyId, localId } from "../ids/index.js";
+import { candidateListId, decodeBodyId, decodeDefId, encodeBodyId, encodeDefId, localId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
-import { binaryOperatorOf, collectInferredStorageSources, iterateChildrenOfSyntax, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
-import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
+import { binaryOperatorOf, collectInferredStorageSources, iterateChildrenOfSyntax, prefixOperatorOf, readLayoutSelector, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
+import type { BindingVector, MemberKey, MemberOrigin, TypeBinding } from "../ir-types/contract.js";
 import type { PassingMode } from "../ir-types/contract.js";
 import { admitTypePublicationStep, readSignature, readType } from "../ir-types/index.js";
-import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawEnum, RawFact, RawMemberUse, RawModule, RawModuleLink, RawNodeRef, RawNumericLiteral, RawPropertyName, RawReference, RawStorageCapture } from "./contract.js";
+import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawEnum, RawFact, RawMemberUse, RawModule, RawModuleLink, RawNodeRef, RawNumericLiteral, RawPropertyName, RawPropertyUse, RawReference, RawStorageCapture } from "./contract.js";
 import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
 import { bindingOccurrence, lowerBindingFact, lowerBindingTarget, lowerBindings, lowerMemberKey, lowerMemberOrigin, sameSource, sourceOccurrence } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
 import { childSourceBody, enterSourceBody, layoutSourceRoles } from "./source-bodies.js";
-import type { LayoutSourceRoles } from "./source-bodies.js";
+import type { LayoutSelectorRole, LayoutSourceRoles } from "./source-bodies.js";
 import type { SourceBodyScope, SourceBodyTransition } from "./source-bodies.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
 import { lowerCall } from "./lower-calls.js";
@@ -24,7 +24,7 @@ import { captureBigintLiteral, captureNumericLiteral } from "./literals.js";
 import type { LiteralResult } from "./literals.js";
 import { expressionKinds, typeNodeKinds } from "./syntax-capture.js";
 import { numericTypeSpelling, writtenCompoundAssignmentKinds } from "./syntax-support.js";
-import { declarationName, lowerCheckedAlias, lowerCheckedBodylessFunction, lowerCheckedInterface, lowerCheckedModifiers, lowerCheckedType, propertyName, typeParameters } from "./checked-declarations.js";
+import { declarationName, lowerCheckedAlias, lowerCheckedBodylessFunction, lowerCheckedInterface, lowerCheckedModifiers, lowerCheckedParameters, lowerCheckedType, propertyName, typeParameters } from "./checked-declarations.js";
 import type { DeclarationLowering, TypeReader } from "./checked-declarations.js";
 
 type Syntax = Hir.SyntaxPhase;
@@ -107,7 +107,7 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
 }
 
 /** The one check of lowering's development frontier; it names the first unwritten form in preorder. */
-function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>, quotes: ReadonlyMap<NodeId, NodeId> | null): void {
+function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>, layout: LayoutSourceRoles | null): void {
   const pending: { readonly node: Hir.SyntaxNode<Syntax>; readonly declarationName: boolean;
     readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined> }[] = [];
   let next: Hir.SyntaxNode<Syntax> | undefined = tree;
@@ -117,7 +117,10 @@ function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>, quotes: ReadonlyMap<NodeI
     const declarationName = enclosing?.declarationName === true || next.kind === "ComputedPropertyName"
       && (parent?.kind === "PropertySignature" || parent?.kind === "MethodSignature") && parent.name === next;
     const form = unwrittenForm(next, declarationName);
-    if (form !== null && !(next.kind === "ArrayLiteralExpression" && quotes?.has(next.id) === true))
+    const quoted = next.kind === "ArrayLiteralExpression" && layout?.quotes.has(next.id) === true
+      || next.kind === "ArrowFunction" && layout?.selectors.has(next.id) === true
+      || next.kind === "EqualsGreaterThanToken" && parent?.kind === "ArrowFunction" && layout?.selectors.has(parent.id) === true;
+    if (form !== null && !quoted)
       throw new TypeError(`front: checked annotation not implemented: ${form}`);
     if (next.kind !== "LiteralType") pending.push({ node: next, declarationName, children: iterateChildrenOfSyntax(next) });
     next = undefined;
@@ -267,6 +270,7 @@ interface Lowering extends TypeConversion {
   readonly assignmentTargets: ReadonlyMap<NodeId, "write" | "read-write">;
   readonly labelTargets: ReadonlyMap<NodeId, NodeRef>;
   readonly layoutQuotes: ReadonlyMap<NodeId, NodeId> | null;
+  readonly layoutSelectors: ReadonlyMap<NodeId, LayoutSelectorRole> | null;
 }
 
 interface NodeBodies {
@@ -327,7 +331,7 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
       && (node.operator === "PlusPlusToken" || node.operator === "MinusMinusToken"))
       assignmentTargets.set(unparenthesizedExpression(node.operand).id, "read-write");
     bodies.set(node.id, body);
-    const context = enterSourceBody(node, scope, definitionAt);
+    const context = enterSourceBody(node, scope, definitionAt, layout);
     const boundary = context.boundary;
     if (node.kind === "FunctionDeclaration" && boundary !== null) {
       for (const [index, parameter] of node.parameters.nodes.entries()) locals.set(parameter.id, { body: boundary.body, local: localId(index) });
@@ -473,16 +477,23 @@ function definitionOf(lowering: Lowering, node: NodeId): DefId {
  * An expression's checked value (K-3340): each view as captured (availability and reason kept), its storage place from
  * its storage row (no row: not provided, never a proven absence), its memory and layout observation from its core facts.
  */
-function valueOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.CheckedValue> {
+function checkerViewsOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.HirCheckerViews> {
   const views = lowering.views.get(node);
-  const core = lowering.core.get(node);
-  if (views === undefined || core === undefined) return throwInvariant(invariant("An expression of a written kind has no checker views or core facts."));
+  if (views === undefined) return throwInvariant(invariant("An expression of a written kind has no checker views."));
   const read = typeFactOf(lowering, views.read);
   if (read.kind !== "complete") return read;
   const declared = typeFactOf(lowering, views.declared);
   if (declared.kind !== "complete") return declared;
   const contextual = typeFactOf(lowering, views.contextual);
   if (contextual.kind !== "complete") return contextual;
+  return { kind: "complete", value: { read: read.value, declared: declared.value, contextual: contextual.value } };
+}
+
+function valueOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.CheckedValue> {
+  const views = checkerViewsOf(lowering, node);
+  if (views.kind !== "complete") return views;
+  const core = lowering.core.get(node);
+  if (core === undefined) return throwInvariant(invariant("An expression of a written kind has no core facts."));
   const place = storageOf(lowering, node);
   if (place.kind !== "complete") return place;
   const metadata = core.metadata.kind === "available" ? core.metadata.value : null;
@@ -506,10 +517,10 @@ function valueOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.Checked
     admit: () => admitTypePublicationStep(lowering.typeWork),
     bodyOf: reference => reference.module === lowering.raw.module ? lowering.bodyOf.get(reference.node) ?? null : null,
     typeOf: fact => typeFactOf(lowering, fact),
-  }, request, read.value);
+  }, request, views.value.read);
   if (layout !== null && layout.kind !== "complete") return layout;
   return { kind: "complete", value: {
-    views: { read: read.value, declared: declared.value, contextual: contextual.value },
+    views: views.value,
     place: place.value,
     ...(layout === null ? { memory: memoryOf(lowering, node), observation: capturedFact(core.layoutQuery, absenceOnly("layout query")) } : layout.value),
   } };
@@ -765,10 +776,102 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
       ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : { kind: "available", value: null }, place } };
 }
 
-type ExpressionContext = "execution" | "declaration-name";
+type FieldSelectorContext = {
+  readonly kind: "layout-selector";
+  readonly role: LayoutSelectorRole;
+  readonly use: RawPropertyUse;
+};
+
+type ExpressionContext = "execution" | "declaration-name" | FieldSelectorContext;
+
+function selectorBindings(lowering: Lowering, selected: RawPropertyUse, owner: TyId): ConversionResult<BindingVector> {
+  const captured = lowering.raw.types.types[selected.receiverType]?.form;
+  const type = readType(lowering.deps.types, owner);
+  if (captured?.kind !== "available") return throwInvariant(invariant("A field selector requires the checked receiver type."));
+  const classBindings: TypeBinding[] = [];
+  if (captured.value.kind === "declared" && type.kind === "declared") {
+    const { declaration, parameters } = captured.value;
+    const selectedDeclaration = selected.selectedDeclaration;
+    const path = selectedDeclaration === null ? null : decodeDefId(lowering.deps.definitionOf(selectedDeclaration));
+    if (path?.kind !== "decoded" || path.value.segments.length === 0 ||
+      encodeDefId({ module: path.value.module, segments: path.value.segments.slice(0, -1) }) !== type.definition ||
+      lowering.deps.definitionOf(declaration) !== type.definition || parameters.length !== type.arguments.length)
+      return throwInvariant(invariant("A field selector requires its actual declared member scope and bound receiver arguments."));
+    for (let index = 0; index < parameters.length; index += 1) {
+      const stop = admitTypePublicationStep(lowering.typeWork);
+      if (stop !== null) return stop;
+      const parameter = parameters[index];
+      const argument = type.arguments[index];
+      if (parameter === undefined || argument === undefined)
+        return throwInvariant(invariant("A declared receiver must retain its complete argument vector."));
+      classBindings.push({ kind: "bound", parameter: lowering.deps.definitionOf(parameter), type: argument });
+    }
+    return { kind: "complete", value: { classBindings, methodBindings: [], capturedBindings: [],
+      selfBindings: [{ kind: "bound", owner: type.definition, type: owner }] } };
+  }
+  if (captured.value.kind !== "structure" || type.kind !== "shape")
+    return throwInvariant(invariant("A physical member selection requires its actual declared or structural receiver."));
+  return { kind: "complete", value: { classBindings, methodBindings: [], capturedBindings: [], selfBindings: [] } };
+}
+
+function buildFieldSelector(lowering: Lowering, node: Hir.ArrowFunction<Syntax>, typeOf: TypeReader,
+  context: FieldSelectorContext): ConversionResult<Hir.ArrowFunction<Checked>> {
+  const source = readLayoutSelector<Syntax, NonNullable<ReturnType<typeof admitTypePublicationStep>>>(node,
+    work => admitTypePublicationStep(lowering.typeWork, work));
+  if (source.kind === "resource-stop") return source.stop;
+  if (source.kind !== "complete") return throwInvariant(invariant("A field selector requires its actual admitted arrow syntax."));
+  const { formal, access, receiver } = source.value;
+  const { role, use } = context;
+  const { selector, call } = role;
+  const body = lowering.bodyOf.get(call.node);
+  if (body === undefined || lowering.bodyOf.get(node.id) !== body || node.parent !== selector.parent
+    || selector.expression.node !== node.id || selector.formal.node !== formal.id || selector.access.node !== access.id
+    || selector.receiver.node !== receiver.id || !sameSource(selector.access, use.occurrence) || !sameSource(selector.receiver, use.receiver))
+    return throwInvariant(invariant("A field selector must retain the exact syntax and member association of its actual call."));
+  const definition = definitionOf(lowering, node.id);
+  const formalDefinition = definitionOf(lowering, formal.id);
+  const path = decodeDefId(definition);
+  if (path.kind !== "decoded" || path.value.segments.length === 0)
+    return throwInvariant(invariant("A field selector must belong to its actual enclosing declaration."));
+  const member = expression(lowering, access);
+  if (member.kind !== "PropertyAccessExpression" || member.tsonic.role !== "value"
+    || member.expression.kind !== "Identifier" || member.expression.tsonic.role !== "value" || member.name.kind !== "Identifier"
+    || member.name.tsonic.role !== "property-name" || member.name.tsonic.key.kind !== "available" || member.tsonic.origins.kind !== "available"
+    || member.tsonic.accessor.kind !== "available" || member.tsonic.accessor.value !== null
+    || member.expression.tsonic.resolution.kind !== "declarations" || member.expression.tsonic.resolution.definitions.length !== 1
+    || member.expression.tsonic.resolution.definitions[0] !== formalDefinition || use.selectedDeclaration === null)
+    return throwInvariant(invariant("A field selector must read the actual stored member on its own declaration-only formal."));
+  const owner = member.expression.tsonic.value.views.read;
+  const value = member.tsonic.value.views.read;
+  if (owner.kind !== "available" || value.kind !== "available") return throwInvariant(invariant("A field selector requires both actual selected types."));
+  const bindings = selectorBindings(lowering, use, owner.value);
+  if (bindings.kind !== "complete") return bindings;
+  const parameters = lowerCheckedParameters(declarationLowering(lowering), node.parameters, definition, typeOf);
+  if (parameters.kind !== "complete") return parameters;
+  const views = checkerViewsOf(lowering, node.id);
+  if (views.kind !== "complete") return views;
+  const result = node.type === null ? null : typeOf(node.type, definition);
+  if (result !== null && result.kind !== "complete") return result;
+  const selectedDeclarations: DefId[] = [];
+  for (const declaration of use.selectedDeclarations) {
+    const stop = admitTypePublicationStep(lowering.typeWork);
+    if (stop !== null) return stop;
+    selectedDeclarations.push(lowering.deps.definitionOf(declaration));
+  }
+  const parent = encodeDefId({ module: path.value.module, segments: path.value.segments.slice(0, -1) });
+  return { kind: "complete", value: { ...headerOf(node), kind: node.kind, modifiers: null, typeParameters: null, parameters: parameters.value,
+    type: result?.value ?? null, fullSignature: null, asteriskToken: null, body: member, equalsGreaterThanToken: token(node.equalsGreaterThanToken),
+    tsonic: { core: coreOf(lowering, node.id), definition, parent, attributes: [], memory: memoryOf(lowering, node.id),
+      role: "layout-selector", call: { body, node: call.node }, views: views.value, formal: { owner: formalDefinition, node: formal.id },
+      selection: { body, node: access.id }, ownerType: owner.value, valueType: value.value,
+      member: { key: member.name.tsonic.key.value, origins: member.tsonic.origins.value, selectedDeclarations,
+        primary: lowering.deps.definitionOf(use.selectedDeclaration), bindings: bindings.value } } } };
+}
 
 function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner: DefId,
   typeOf: TypeReader, context: ExpressionContext): ConversionResult<Hir.Expression<Checked>> {
+  if (node.kind === "ArrowFunction" && typeof context === "object")
+    return buildFieldSelector(lowering, node, typeOf, context);
   if (node.kind === "Identifier") {
     const qualifier = lowering.enumQualifiers.get(node.id);
     if (qualifier !== undefined) {
@@ -1263,7 +1366,8 @@ function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undef
 }
 
 function lowerStatements(lowering: Lowering, owner: DefId): ConversionResult<void> {
-  type Frame = { readonly work: CheckedWork; readonly children: Generator<CheckedWork, void, undefined> };
+  type Frame = { readonly work: CheckedWork; readonly children: Generator<CheckedWork, void, undefined>;
+    readonly context: "execution" | FieldSelectorContext };
   const declarations = declarationLowering(lowering);
   const typeOf: TypeReader = (node, owner) => lowerCheckedType(declarations, node, owner);
   const pending: Frame[] = [];
@@ -1271,9 +1375,13 @@ function lowerStatements(lowering: Lowering, owner: DefId): ConversionResult<voi
     const node = work.node;
     if (work.kind === "statement" && node.kind === "FunctionDeclaration") {
       const definition = definitionOf(lowering, node.id);
-      return { work, children: checkedChildren({ ...work, owner: definition }) };
+      return { work, children: checkedChildren({ ...work, owner: definition }), context: "execution" };
     }
-    return { work, children: checkedChildren(work) };
+    const role = node.kind === "ArrowFunction" ? lowering.layoutSelectors?.get(node.id) : undefined;
+    if (role === undefined) return { work, children: checkedChildren(work), context: "execution" };
+    const use = lowering.memberUses.get(role.selector.access.node);
+    if (use?.kind !== "property") return throwInvariant(invariant("A field selector requires the captured actual property use."));
+    return { work, children: checkedChildren(work), context: { kind: "layout-selector", role, use } };
   };
   for (const node of lowering.raw.tree.statements.nodes) {
     pending.push(enter({ kind: "statement", node, owner }));
@@ -1281,7 +1389,7 @@ function lowerStatements(lowering: Lowering, owner: DefId): ConversionResult<voi
       const next = frame.children.next();
       if (!next.done) { pending.push(frame, enter(next.value)); continue; }
       if (frame.work.kind === "expression") {
-        const converted = completeExpression(lowering, frame.work.node, frame.work.owner, typeOf);
+        const converted = completeExpression(lowering, frame.work.node, frame.work.owner, typeOf, frame.context);
         if (converted.kind !== "complete") return converted;
       } else {
         const converted = buildStatement(lowering, frame.work.node, frame.work.owner);
@@ -1434,7 +1542,7 @@ function moduleLinks(raw: RawModule): ReadonlyMap<NodeId, RawModuleLink> {
 
 export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirModule> {
   const layout = layoutSourceRoles(raw);
-  refuseUnwritten(raw.tree, layout?.quotes ?? null);
+  refuseUnwritten(raw.tree, layout);
   const exported = deps.exportsOf(raw.module);
   if (exported === null || exported.module !== raw.module)
     return throwInvariant(invariant("Checked lowering requires the actual completed B1 module export and binding inventory."));
@@ -1450,6 +1558,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     assignmentTargets: structure.assignmentTargets,
     labelTargets: structure.labelTargets,
     layoutQuotes: layout?.quotes ?? null,
+    layoutSelectors: layout?.selectors ?? null,
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     storage: storageCaptures(raw),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),

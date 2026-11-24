@@ -613,6 +613,16 @@ function closureData(value: Hir.CheckedClosure): HirDataWork {
   return recordData("CheckedClosure", value, () => [...valueFields(value), ...coreFields(value), fieldData("body", bodyData(value.body)), fieldData("captures", arrayData(value.captures, localRefData))]);
 }
 
+function fieldSelectorData(value: Hir.CheckedFieldSelector): HirDataWork {
+  return recordData("CheckedFieldSelector", value, () => [...declarationFields(value), fieldData("role", scalarData(value.role)),
+    fieldData("call", nodeRefData(value.call)), fieldData("views", viewsData(value.views)), fieldData("formal", itemRefData(value.formal)), fieldData("selection", nodeRefData(value.selection)),
+    fieldData("ownerType", typeData(value.ownerType)), fieldData("valueType", typeData(value.valueType)), fieldData("member",
+      recordData("MemberStorageSelection", value.member, () => [fieldData("key", memberKeyData(value.member.key)),
+        fieldData("origins", arrayData(value.member.origins, memberOriginData)),
+        fieldData("selectedDeclarations", arrayData(value.member.selectedDeclarations, definitionData)),
+        fieldData("primary", nullableData(value.member.primary, definitionData)), fieldData("bindings", bindingsData(value.member.bindings))]))]);
+}
+
 function checkedTypeData(value: Hir.CheckedType): HirDataWork {
   return recordData("CheckedType", value, () => [...coreFields(value), fieldData("type", capturedData(value.type, typeData)), fieldData("referencedDefinitions", arrayData(value.referencedDefinitions, definitionData))]);
 }
@@ -818,7 +828,9 @@ export function hirCheckedData(node: Hir.HirNode): HirDataWork {
       return unaryData(node.tsonic);
     case "YieldExpression": case "SpreadElement": case "AwaitExpression":
       return protocolNodeData(node.tsonic);
-    case "ArrowFunction": case "FunctionExpression":
+    case "ArrowFunction":
+      return "role" in node.tsonic ? fieldSelectorData(node.tsonic) : closureData(node.tsonic);
+    case "FunctionExpression":
       return closureData(node.tsonic);
     case "PropertyAccessExpression": case "ElementAccessExpression":
       return memberData(node.tsonic);

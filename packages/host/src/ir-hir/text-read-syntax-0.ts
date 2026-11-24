@@ -40,7 +40,8 @@ export function createSyntaxGroup0(readers: () => HirTextReaders): ReadonlyMap<s
       const field_asteriskToken = read("asteriskToken", unionReader<Hir.AsteriskToken<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_7]));
       const field_body = read("body", unionReader<Hir.BlockOrExpression<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_8]));
       const field_equalsGreaterThanToken = read("equalsGreaterThanToken", readers().syntax_9);
-      const field_tsonic = read("tsonic", readers().record_182);
+      const field_tsonic = read("tsonic", unionReader<Hir.CheckedClosure | Hir.CheckedFieldSelector>(() =>
+        [readers().record_182, readers().record_fieldSelector]));
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_modifiers, field_typeParameters, field_parameters, field_type, field_fullSignature, field_asteriskToken, field_body, field_equalsGreaterThanToken, field_tsonic], value: () => ({ kind: "ArrowFunction", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), modifiers: field_modifiers.value(), typeParameters: field_typeParameters.value(), parameters: field_parameters.value(), type: field_type.value(), fullSignature: field_fullSignature.value(), asteriskToken: field_asteriskToken.value(), body: field_body.value(), equalsGreaterThanToken: field_equalsGreaterThanToken.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "ArrowFunction", value }), accept)],
     ["AsExpression", accept => syntaxRecord<Hir.AsExpression<Hir.CheckedPhase>>(read => {

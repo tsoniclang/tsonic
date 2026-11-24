@@ -577,11 +577,15 @@ export const verifyBindingSlots = <Stop extends object>(
       else {
         if (actual !== null && named.some(capture => capture.local.body === actual.body))
           emit("capture-qualified", node, "closure captures contain a local from the closure's own body");
-        if ((original?.kind === "ArrowFunction" || original?.kind === "FunctionExpression") &&
-          (named.length !== original.tsonic.captures.length || named.some((capture, position) => {
-            const expected = original.tsonic.captures[position];
+        if (original?.kind === "ArrowFunction" || original?.kind === "FunctionExpression") {
+          const payload = original.tsonic;
+          if (!("captures" in payload))
+            emit("capture-qualified", node, "a nonexecuting field selector cannot supply a closure");
+          else if (named.length !== payload.captures.length || named.some((capture, position) => {
+            const expected = payload.captures[position];
             return expected === undefined || !sameLocalReference(capture.local, expected);
-          }))) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
+          })) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
+        }
       }
       if (closure.kind === "decided") {
         for (const row of closure.decision.captures) {

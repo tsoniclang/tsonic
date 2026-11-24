@@ -2,7 +2,7 @@ import type { BodyId, DefId, NodeId } from "../ids/contract.js";
 import { decodeBodyId, encodeBodyId } from "../ids/index.js";
 import { throwInvariant } from "../diag/index.js";
 import type { SyntaxNode, SyntaxPhase } from "../ir-hir/contract.js";
-import type { RawModule } from "./contract.js";
+import type { RawLayoutSelector, RawModule, RawNodeRef } from "./contract.js";
 
 export interface SourceBodyScope {
   readonly body: BodyId;
@@ -22,7 +22,9 @@ export interface SourceBodyTransition extends SourceBodyScope {
 }
 
 export function enterSourceBody(node: SyntaxNode<SyntaxPhase>, scope: SourceBodyScope,
-  definitions: ReadonlyMap<NodeId, DefId>): SourceBodyTransition {
+  definitions: ReadonlyMap<NodeId, DefId>, layout: LayoutSourceRoles | null): SourceBodyTransition {
+  if (node.kind === "ArrowFunction" && layout?.selectors.has(node.id) === true)
+    return { ...scope, boundary: null };
   if (node.kind === "FunctionDeclaration" || node.kind === "FunctionExpression" || node.kind === "ArrowFunction"
     || node.kind === "Constructor" || node.kind === "MethodDeclaration" || node.kind === "GetAccessor" || node.kind === "SetAccessor") {
     const definition = definitions.get(node.id);
@@ -48,14 +50,37 @@ export function enterSourceBody(node: SyntaxNode<SyntaxPhase>, scope: SourceBody
   return { ...scope, boundary: null };
 }
 
+export interface LayoutSelectorRole {
+  readonly call: RawNodeRef;
+  readonly selector: RawLayoutSelector;
+}
+
 export interface LayoutSourceRoles {
   readonly declarations: ReadonlySet<NodeId>;
   readonly operands: ReadonlyMap<NodeId, NodeId>;
   readonly quotes: ReadonlyMap<NodeId, NodeId>;
+  readonly selectors: ReadonlyMap<NodeId, LayoutSelectorRole>;
 }
 
 export function layoutSourceRoles(raw: RawModule): LayoutSourceRoles | null {
-  if (raw.types.memoryDescriptors.length === 0) return null;
+  let selectors: Map<NodeId, LayoutSelectorRole> | null = null;
+  const addSelector = (call: RawNodeRef, selector: RawLayoutSelector): void => {
+    if (call.module !== raw.module || selector.expression.module !== raw.module || selectors?.has(selector.expression.node) === true)
+      return throwInvariant({ owner: "front", query: null, origin: null,
+        message: "A layout selector belongs once to its actual selected call and source module." });
+    (selectors ??= new Map()).set(selector.expression.node, { call, selector });
+  };
+  for (const call of raw.calls) {
+    const row = raw.core[call.invocation.node];
+    const observation = row?.layoutQuery.kind === "available" ? row.layoutQuery.value : null;
+    if (observation?.operation !== "field-offset") continue;
+    if (row === undefined || row.node.node !== call.invocation.node || row.node.module !== raw.module
+      || observation.application.invocation.node !== call.invocation.node || observation.application.invocation.module !== raw.module)
+      return throwInvariant({ owner: "front", query: null, origin: null,
+        message: "A field query selector must come from the actual call's captured core association." });
+    addSelector(call.invocation, observation.selector);
+  }
+  if (raw.types.memoryDescriptors.length === 0 && selectors === null) return null;
   const declarations = new Set<NodeId>();
   const operands = new Map<NodeId, NodeId>();
   const quotes = new Map<NodeId, NodeId>();
@@ -65,6 +90,7 @@ export function layoutSourceRoles(raw: RawModule): LayoutSourceRoles | null {
       return throwInvariant({ owner: "front", query: null, origin: null,
         message: "A layout declaration belongs once to its actual captured constructor occurrence." });
     declarations.add(invocation.node);
+    if (descriptor.construction === "field") addSelector(invocation, descriptor.selector);
     const quotesOf = descriptor.construction === "value" ? [descriptor.descriptor, descriptor.fieldList] : [descriptor.descriptor];
     for (const quote of quotesOf) {
       if (quote.module !== raw.module || quotes.has(quote.node))
@@ -82,7 +108,7 @@ export function layoutSourceRoles(raw: RawModule): LayoutSourceRoles | null {
       operands.set(expression.node, operand.parent);
     }
   }
-  return { declarations, operands, quotes };
+  return { declarations, operands, quotes, selectors: selectors ?? new Map() };
 }
 
 export function childSourceBody(parent: SourceBodyTransition, child: SyntaxNode<SyntaxPhase>,

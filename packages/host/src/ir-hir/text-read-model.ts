@@ -211,6 +211,7 @@ export interface HirReadGroup6 {
   readonly record_180: HirReader<Hir.NodeList<Hir.TypeParameterDeclaration<Hir.CheckedPhase>>>;
   readonly record_181: HirReader<Hir.NodeList<Hir.ParameterDeclaration<Hir.CheckedPhase>>>;
   readonly record_182: HirReader<Hir.CheckedClosure>;
+  readonly record_fieldSelector: HirReader<Hir.CheckedFieldSelector>;
   readonly record_183: HirReader<Hir.CheckedExpression>;
   readonly record_184: HirReader<Hir.CheckedProtocol>;
   readonly record_185: HirReader<{ readonly kind: "available"; readonly value: Hir.HirProtocolFact; }>;

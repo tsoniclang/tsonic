@@ -113,7 +113,7 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
         const owner = definitionOf(context, node.id);
         const binders = typeParameters(context, node.typeParameters, owner, typeOf);
         if (binders.kind !== "complete") return binders;
-        const formals = parameters(context, node.parameters, owner, typeOf);
+        const formals = lowerCheckedParameters(context, node.parameters, owner, typeOf);
         if (formals.kind !== "complete") return formals;
         result = { ...header(node), kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers), typeParameters: binders.value,
           parameters: formals.value, type: node.type === null ? null : child(node.type),
@@ -238,7 +238,8 @@ function facts(context: DeclarationLowering, node: Hir.NodeHeader, owner: DefId)
   return { core: context.core(node.id), parent: owner, attributes: [], memory: context.memory(node.id) };
 }
 
-function parameters(context: DeclarationLowering, source: Hir.ParameterList<Syntax>, owner: DefId, typeOf: TypeReader): ConversionResult<Hir.ParameterList<Checked>> {
+export function lowerCheckedParameters(context: DeclarationLowering, source: Hir.ParameterList<Syntax>, owner: DefId,
+  typeOf: TypeReader): ConversionResult<Hir.ParameterList<Checked>> {
   const nodes: Hir.ParameterDeclaration<Checked>[] = [];
   for (const node of source.nodes) {
     if (node.name.kind !== "Identifier" || node.initializer !== null) return fail("bodyless parameter pattern or initializer");
@@ -302,7 +303,7 @@ function bodylessCallableHeader(context: DeclarationLowering, node: BodylessCall
   if (own.kind !== "complete") return own;
   const signature = node.kind === "IndexSignature" ? null : context.signature(node.id);
   if (signature !== null && signature.kind !== "complete") return signature;
-  const formal = parameters(context, node.parameters, declaration, typeOf);
+  const formal = lowerCheckedParameters(context, node.parameters, declaration, typeOf);
   if (formal.kind !== "complete") return formal;
   const type = node.type === null ? null : typeOf(node.type, declaration);
   if (type !== null && type.kind !== "complete") return type;

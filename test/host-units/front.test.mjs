@@ -602,7 +602,9 @@ test("layout capture retains the same selected application and authored operands
 
 test("field constructor and offset preserve their independent actual selector slots and checked member identities", async () => {
   const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
-  const { create } = layoutInput(await loadFrontFixture());
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const fixture = await loadFrontFixture();
+  const { create } = layoutInput(fixture);
   const prefix = `interface Header { tag: boolean; payload: boolean }
     const word = make<boolean>({ datalayout: Abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });`;
   const input = create(`${prefix}
@@ -628,6 +630,47 @@ test("field constructor and offset preserve their independent actual selector sl
   });
   assert.notDeepEqual(constructor.selector.formal, query.selector.formal);
   assert.deepEqual(physical.selectedDeclaration, requested.selectedDeclaration);
+  const accessRoots = [constructor.selector.access, query.selector.access];
+  const definitions = front.lowerModuleDefinitions({ module: value, componentRoots: accessRoots });
+  assert.equal(definitions.kind, "ok");
+  for (const root of accessRoots) {
+    const position = definitions.value.sourceOccurrences.find(row => row.node === root.node).occurrence;
+    assert.equal(position.kind, "body");
+    assert.equal(ids.decodeBodyId(position.value.body).value.role, "initializer");
+  }
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const chapter = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+  const selectors = chapter.nodes.filter(node => node.kind === "ArrowFunction" && node.tsonic.role === "layout-selector");
+  assert.equal(selectors.length, 2);
+  assert.equal(selectors[0].tsonic.member.primary, selectors[1].tsonic.member.primary);
+  assert.notDeepEqual(selectors[0].tsonic.formal, selectors[1].tsonic.formal);
+  assert.deepEqual(selectors[0].tsonic.member.bindings, selectors[1].tsonic.member.bindings);
+  for (const arrow of selectors) {
+    assert.equal(chapter.module.bodies.some(body => body.owner === arrow.tsonic.definition || body.root === arrow.body), false);
+    assert.equal(arrow.parameters.nodes[0].tsonic.declaration.kind, "definition");
+  }
+  const text = fixture.hir.printHir(chapter.module);
+  const parsed = fixture.hir.parseHir(text);
+  assert.equal(parsed.kind, "parsed", JSON.stringify(parsed.diagnostics));
+  assert.equal(fixture.hir.printHir(parsed.value), text);
+  const decoded = fixture.hir.indexSyntaxTree(parsed.value.tree);
+  const [decodedField, decodedOffset] = decoded.filter(node => node.kind === "ArrowFunction" && node.tsonic.role === "layout-selector");
+  const source = checked.value;
+  const context = {
+    moduleOf: module => module === parsed.value.module ? parsed.value : source.modules.find(row => row.module.module === module)?.module ?? null,
+    types: fixture.types.viewTypes(source.types), bodyPathOf: body => ids.decodeBodyId(body).value,
+    definitionPathOf: definition => source.definitionPaths.get(definition) ?? null,
+    bindingScopeOf: definition => source.descriptions.get(definition)?.generics ?? null,
+    bindingScopeAt: position => source.descriptions.get(position.kind === "item" ? position.value.owner
+      : source.checked.bodies.get(position.value.body)?.owner)?.generics ?? null,
+    nominalOf: source.nominalOf, nodeOf: source.checked.nodeOf, localExists: source.checked.localExists,
+  };
+  const selectorFinding = finding => finding.rule === "node-reference"
+    && finding.detail.some(detail => detail.value === "a layout selector retains its actual call, formal and checked storage selection");
+  assert.equal(fixture.hir.verifyHir(parsed.value, context).some(selectorFinding), false);
+  decodedField.tsonic.formal = decodedOffset.tsonic.formal;
+  assert.equal(fixture.hir.verifyHir(parsed.value, context).filter(selectorFinding).length, 1);
   const invalid = capture(create(`${prefix}
     export const result = field<Header, boolean>({ select: (value: Header) => { return value.payload; },
       fieldlayout: word, byteoffset: 8, bytealignment: 8 });`));
