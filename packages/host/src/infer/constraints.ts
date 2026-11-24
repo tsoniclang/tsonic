@@ -1158,7 +1158,7 @@ function evidenceOf(deps: InferenceInputs, group: InferenceGroup, type: TyId, no
   const quotation = layoutQuotation(node);
   if (quotation?.views.contextual.kind === "available" && quotation.views.contextual.value === type)
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error };
-  if (term.kind === "open" || term.kind === "error" || term.kind === "shape" || term.kind === "param")
+  if (term.kind === "open" || term.kind === "error" || term.kind === "shape" || term.kind === "param" || term.kind === "merged-parameter")
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error };
   if (term.kind === "declared" && node.tsonic !== null && "referencedDefinitions" in node.tsonic
     && node.tsonic.type.kind === "available" && node.tsonic.type.value === type)

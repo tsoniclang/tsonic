@@ -234,10 +234,10 @@ export type VerifyBindings = <Stop extends object>(bindings: readonly BindingVer
   admit: (work: number, entries: number) => Stop | null) =>
   | { readonly kind: "complete"; readonly violations: readonly Violation<TypeRule, TypeSite>[] }
   | { readonly kind: "resource-stop"; readonly stop: Stop };
-export interface NominalDefinition {
-  readonly kind: "declared" | "enum";
-  readonly facets: readonly ("instance" | "value")[];
-}
+export type NominalDefinition =
+  | { readonly kind: "declared" | "enum"; readonly facets: readonly ("instance" | "value")[] }
+  | { readonly kind: "merged-interface"; readonly definitions: readonly DefId[];
+      readonly slots: readonly { readonly scope: "outer" | "local"; readonly parameters: readonly DefId[] }[] };
 
 export interface TypeVerificationInput {
   readonly table: TypeTable;

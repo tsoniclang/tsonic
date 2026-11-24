@@ -429,9 +429,10 @@ export const verifyClosedReferences = (
         for (const signature of term.calls) edge(position, signature, true);
         for (const signature of term.constructs) edge(position, signature, true);
         break;
-      case "declared": case "construction-reference": for (const child of term.arguments) edge(position, child); break;
+      case "declared": case "merged-interface": case "construction-reference":
+        for (const child of term.arguments) edge(position, child); break;
       case "projection": edge(position, term.source); break;
-      case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": break;
+      case "primitive": case "string": case "intrinsic": case "enum": case "param": case "merged-parameter": case "self": break;
     }
   }
   for (let position = 0; position < table.signatures.length; position++) {

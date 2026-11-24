@@ -161,7 +161,7 @@ function termReferences(term: TypeTerm, path: TextPath, meter: WorkMeter, missin
       if (meter.exhausted) return [];
       appendSignatures(term.constructs);
       break;
-    case "declared": case "construction-reference": appendTypes(term.arguments); break;
+    case "declared": case "merged-interface": case "construction-reference": appendTypes(term.arguments); break;
     case "projection":
       appendType(term.source);
       if (meter.exhausted) return [];
@@ -170,7 +170,8 @@ function termReferences(term: TypeTerm, path: TextPath, meter: WorkMeter, missin
         if (meter.exhausted) return [];
       }
       break;
-    case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error": break;
+    case "primitive": case "string": case "intrinsic": case "enum": case "param": case "merged-parameter":
+    case "self": case "open": case "error": break;
   }
   return references;
 }

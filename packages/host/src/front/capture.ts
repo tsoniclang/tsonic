@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, SourceMarkerFact, SourceTypeRequest, TypeInterfaceApplication, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -11,7 +11,7 @@ import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../
 import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
-import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawLayoutSelector, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
+import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawInterfaceGroup, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawLayoutSelector, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { projectProviderModel } from "./provider-model.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -63,6 +63,7 @@ interface CaptureTables {
   readonly memoryDescriptors: RawLayoutConstruction[];
   readonly symbols: RawSymbol[];
   readonly completedSourceReferences: Map<Node, RawNodeRef>;
+  readonly interfaceGroups: { readonly byTarget: Map<Type, RawInterfaceGroup>; readonly rows: RawInterfaceGroup[] };
   readonly symbolIds: Map<CheckerSymbol, RawSymbolId>;
   readonly signatureIds: Map<Signature, RawSignatureId>;
   readonly qualifiedSignatures: Map<Signature, Map<Node, Map<Type, Map<Node, Map<string, RawSignatureId>>>>>;
@@ -2005,46 +2006,56 @@ function conditionalBinder(scope: CaptureScope, pattern: Node | undefined, param
   return [reference];
 }
 
-function changedMergedApplication(scope: CaptureScope, active: Type, current: Type): {
-  readonly target: Type;
-  readonly arguments: readonly TypeReferenceArgumentInfo[];
-} | null {
-  if (active === current || !admit(scope, "edges")) return null;
-  const target = scope.shape.getTypeReferenceTarget(current);
-  if (target === undefined || !admit(scope, "edges") || scope.shape.getTypeReferenceTarget(active) !== target) return null;
-  if (!admit(scope, "edges")) return null;
-  const arguments_ = scope.shape.getTypeReferenceArgumentInfos(current);
-  if (arguments_ === undefined || arguments_.length === 0 || !admit(scope, "edges")) return null;
-  const source = scope.shape.getTypeReferenceArgumentInfos(active);
-  if (source?.length !== arguments_.length)
+function nativeInterfaceApplication(scope: CaptureScope, type: Type): TypeInterfaceApplication | null {
+  const result = scope.shape.acquireInterfaceApplication(type, nativeCaptureAdmission(scope));
+  if (result.kind === "complete") return result.value;
+  if (result.kind === "refused" && result.stop === scope.meter.refusal) return null;
+  return throwInvariant(invariant("A merged interface must borrow its actual native declaration application."));
+}
+
+function changedMergedApplication(scope: CaptureScope, active: Type, current: Type): TypeInterfaceApplication | null {
+  if (active === current) return null;
+  const selected = nativeInterfaceApplication(scope, current);
+  if (selected === null || selected.arguments.length === 0) return null;
+  const source = nativeInterfaceApplication(scope, active);
+  if (source === null || source.target !== selected.target) return null;
+  if (source.arguments.length !== selected.arguments.length)
     return throwInvariant(invariant("A merged inventory target must retain its actual ordered parameter vector."));
   let changed = false;
-  for (let index = 0; index < arguments_.length; index += 1) {
+  for (let index = 0; index < selected.arguments.length; index += 1) {
     if (!admit(scope, "edges")) return null;
-    const previous = source[index];
-    const selected = arguments_[index];
-    if (previous === undefined || selected === undefined || previous.parameter !== selected.parameter || previous.scope !== selected.scope)
+    const previous = source.arguments[index];
+    const argument = selected.arguments[index];
+    if (previous === undefined || argument === undefined || previous.parameter !== argument.parameter || previous.scope !== argument.scope)
       return throwInvariant(invariant("A merged inventory target must retain its actual ordered parameter associations."));
-    if (previous.argument !== selected.argument) changed = true;
+    if (previous.argument !== argument.argument) changed = true;
   }
-  return changed ? { target, arguments: arguments_ } : null;
+  return changed ? selected : null;
 }
 
 function mergedArgumentGroup(scope: CaptureScope, argument: Type): readonly [RawNodeRef, ...RawNodeRef[]] | null {
   if (!admit(scope, "edges")) return null;
   const symbol = scope.checker.getTypeSymbol(argument);
   if (symbol === undefined) return null;
-  const declarations = scope.checker.getSymbolDeclarations(symbol);
-  if (declarations.length < 2) return null;
-  for (const declaration of declarations) {
+  return parameterGroup(scope, symbol, 2);
+}
+
+function parameterGroup(scope: CaptureScope, binder: CheckerSymbol, minimum: 1 | 2): readonly [RawNodeRef, ...RawNodeRef[]] | null {
+  const declarations = scope.checker.getSymbolDeclarations(binder);
+  if (declarations.length < minimum) return null;
+  let result: [RawNodeRef, ...RawNodeRef[]] | null = null;
+  for (let index = 0; index < declarations.length; ++index) {
     if (!admit(scope, "edges")) return null;
-    if (scope.checked.ast.kindName(declaration) !== "KindTypeParameter") return null;
+    const node = declarations[index];
+    if (node === undefined || scope.checked.ast.kindName(node) !== "KindTypeParameter") return null;
+    const reference = referenceTo(scope, scope.program, node);
+    if (scope.meter.refusal !== null) return null;
+    if (reference === null) return throwInvariant(invariant("A native parameter group requires its actual admitted declarations."));
+    if (!admit(scope, "facts", result === null ? 2 : 1)) return null;
+    if (result === null) result = [reference];
+    else result.push(reference);
   }
-  const target = symbolTarget(scope, symbol, null);
-  if (target === null) return null;
-  if (target.kind !== "available" || target.value.kind !== "declarations")
-    return throwInvariant(invariant("A selected merged argument must retain its own actual admitted parameter group."));
-  return target.value.declarations;
+  return result;
 }
 
 function activeMergedSlot(scope: CaptureScope, type: Type, symbol: CheckerSymbol): RawTypeForm | null {
@@ -2055,11 +2066,11 @@ function activeMergedSlot(scope: CaptureScope, type: Type, symbol: CheckerSymbol
     for (const slot of arguments_) {
       if (!admit(scope, "edges")) return null;
       if (slot.parameter !== type) continue;
-      const target = symbolTarget(scope, symbol, null);
-      if (target === null) return null;
-      if (target.kind !== "available" || target.value.kind !== "declarations")
+      const declarations = parameterGroup(scope, symbol, 2);
+      if (scope.meter.refusal !== null) return null;
+      if (declarations === null)
         return throwInvariant(invariant("An active merged slot must retain its actual admitted parameter group."));
-      return { kind: "merged-slot-parameter", declarations: target.value.declarations };
+      return captureMergedParameter(scope, declarations);
     }
   }
   return null;
@@ -2073,37 +2084,136 @@ function restArgumentForSlot(rest: ReceiverUse | DeclaredRestUse | null, selecte
     ? slot.composition : null;
 }
 
-function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId, symbol: CheckerSymbol,
-  selectedArguments: readonly TypeReferenceArgumentInfo[], rest: ReceiverUse | DeclaredRestUse | null): RawTypeForm | null {
+function retainInterfaceGroup(scope: CaptureScope, application: TypeInterfaceApplication): RawInterfaceGroup | null {
+  const { byTarget, rows } = scope.tables.interfaceGroups;
+  const known = byTarget.get(application.target);
+  if (known !== undefined) return known;
+  if (!admit(scope, "facts", 5)) return null;
+  const captureDeclaration = (index: number): RawNodeRef | null => {
+    if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+    const source = application.declarations[index];
+    const reference = source === undefined ? null : referenceTo(scope, scope.program, source);
+    if (scope.meter.refusal !== null) return null;
+    if (reference === null) return throwInvariant(invariant("A merged type recipe requires every actual interface declaration."));
+    return reference;
+  };
+  const first = captureDeclaration(0);
+  if (first === null) return null;
+  const second = captureDeclaration(1);
+  if (second === null) return null;
+  const declarations: [RawNodeRef, RawNodeRef, ...RawNodeRef[]] = [first, second];
+  for (let index = 2; index < application.declarations.length; ++index) {
+    const reference = captureDeclaration(index);
+    if (reference === null) return null;
+    declarations.push(reference);
+  }
+  const slots: RawInterfaceGroup["slots"][number][] = [];
+  for (let index = 0; index < application.arguments.length; ++index) {
+    if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+    const selected = application.arguments[index];
+    const binder = selected === undefined ? undefined : scope.checker.getTypeSymbol(selected.parameter);
+    if (selected === undefined || binder === undefined)
+      return throwInvariant(invariant("A merged interface slot needs its actual parameter symbol."));
+    const parameters = parameterGroup(scope, binder, 1);
+    if (scope.meter.refusal !== null) return null;
+    if (parameters === null)
+      return throwInvariant(invariant("A merged interface slot must retain its actual admitted parameter declarations."));
+    slots.push({ scope: selected.scope, parameters });
+  }
+  const group: RawInterfaceGroup = { ordinal: rows.length, declarations, slots };
+  byTarget.set(application.target, group);
+  rows.push(group);
+  return group;
+}
+
+function captureMergedParameter(scope: CaptureScope, declarations: readonly [RawNodeRef, ...RawNodeRef[]]): RawTypeForm | null {
+  if (!admit(scope, "edges")) return null;
+  const ast = scope.checked.ast;
+  const parameter = admittedTypeUse(scope, declarations[0]);
+  const owner = ast.parent(parameter);
+  if (ast.kindName(parameter) !== "KindTypeParameter" || ast.kindName(owner) !== "KindInterfaceDeclaration")
+    return throwInvariant(invariant("A symbolic merged parameter must retain its actual interface owner."));
+  if (!admit(scope, "edges")) return null;
+  const symbol = scope.checker.getSymbolAtLocation(ast.name(owner));
+  const target = symbol === undefined ? undefined : scope.checker.getDeclaredTypeOfSymbol(symbol);
+  if (target === undefined) return throwInvariant(invariant("A symbolic merged parameter requires its independently declared target."));
+  let sourceGroup = scope.tables.interfaceGroups.byTarget.get(target);
+  if (sourceGroup === undefined) {
+    const application = nativeInterfaceApplication(scope, target);
+    if (application === null) return null;
+    const retained = retainInterfaceGroup(scope, application);
+    if (retained === null) return null;
+    sourceGroup = retained;
+  }
+  for (let index = 0; index < sourceGroup.slots.length; ++index) {
+    if (!admit(scope, "edges")) return null;
+    const slot = sourceGroup.slots[index];
+    if (slot === undefined) return throwInvariant(invariant("A retained merged group must have dense native slots."));
+    if (slot.scope !== "local" || slot.parameters.length !== declarations.length) continue;
+    let agrees = true;
+    for (let position = 0; position < declarations.length; ++position) {
+      if (!admit(scope, "edges")) return null;
+      const expected = declarations[position];
+      if (expected === undefined || !sameSource(slot.parameters[position], expected)) { agrees = false; break; }
+    }
+    if (agrees) return { kind: "merged-slot-parameter", declarations: slot.parameters };
+  }
+  return throwInvariant(invariant("A symbolic merged parameter must match a complete independently declared native slot."));
+}
+
+function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId, application: TypeInterfaceApplication,
+  rest: ReceiverUse | DeclaredRestUse | null, source: OriginalTypeUse | null, selectedType: Type): RawTypeForm | null {
   if (!admit(scope, "facts")) return null;
-  const declarations = symbolTarget(scope, symbol, null);
-  if (declarations === null) return null;
-  if (declarations.kind !== "available" || declarations.value.kind !== "declarations")
-    return throwInvariant(invariant("A recursive merged interface must retain its actual admitted declaration group."));
+  const group = retainInterfaceGroup(scope, application);
+  if (group === null) return null;
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A recursive merged interface needs its actual captured position."));
-  const arguments_: { parameters: readonly [RawNodeRef, ...RawNodeRef[]]; type: RawTypeId; scope: "outer" | "local" }[] = [];
-  for (let index = 0; index < selectedArguments.length; index += 1) {
+  const sourceNode = source === null ? undefined : admittedTypeUse(scope, source);
+  const ast = scope.checked.ast;
+  const written = ast.kindName(sourceNode) === "KindTypeReference" ? ast.as.AsTypeReferenceNode(sourceNode) : undefined;
+  let direct: readonly (Node | undefined)[] = [];
+  if (written?.TypeName !== undefined && written.TypeArguments !== undefined) {
+    if (!admit(scope, "edges")) return null;
+    const selected = scope.checker.getSymbolAtLocation(written.TypeName);
+    if (selected !== undefined && selected === scope.checker.getTypeSymbol(application.target)) {
+      const actual = sourceType(scope, { kind: "annotation", node: sourceNode });
+      if (scope.meter.refusal !== null) return null;
+      if (actual?.type === selectedType && actual.causes.length === 0) direct = written.TypeArguments.Nodes;
+    }
+  }
+  let local = 0;
+  const arguments_: RawTypeId[] = [];
+  for (let index = 0; index < application.arguments.length; index += 1) {
     if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
-    const selected = selectedArguments[index];
-    const symbol = selected === undefined ? undefined : scope.checker.getTypeSymbol(selected.parameter);
-    if (selected === undefined || symbol === undefined)
+    const selected = application.arguments[index];
+    const slot = group.slots[index];
+    if (selected === undefined || slot === undefined || selected.scope !== slot.scope)
       return throwInvariant(invariant("A recursive merged interface must retain each actual parameter slot."));
-    const parameters = symbolTarget(scope, symbol, null);
-    if (parameters === null) return null;
-    if (parameters.kind !== "available" || parameters.value.kind !== "declarations")
-      return throwInvariant(invariant("A recursive merged interface slot must retain its actual admitted parameter declarations."));
+    const writtenIndex = selected.scope === "local" ? local++ : null;
+    let authored: Node | null = null;
+    const receiver = rest?.kind === "receiver" ? rest.slots.get(selected.parameter) : undefined;
+    if (receiver?.argument === selected.argument && receiver.composition === undefined) authored = receiver.source;
+    else if (writtenIndex !== null && writtenIndex < direct.length) {
+      if (!admit(scope, "edges")) return null;
+      const original = direct[writtenIndex];
+      const actual = original === undefined ? undefined : sourceType(scope, { kind: "annotation", node: original });
+      if (scope.meter.refusal !== null) return null;
+      if (actual?.type === selected.argument && actual.causes.length === 0) authored = original ?? null;
+    }
     let use: ComposedUnionUse | DeclaredArgumentsUse | MergedSlotUse | null = restArgumentForSlot(rest, selected);
-    if (use === null) {
-      const group = selected.argument === selected.parameter ? parameters.value.declarations : mergedArgumentGroup(scope, selected.argument);
+    if (use === null && authored === null) {
+      const group = selected.argument === selected.parameter ? slot.parameters : mergedArgumentGroup(scope, selected.argument);
       if (scope.meter.refusal !== null) return null;
       if (group !== null) use = { kind: "merged-slot", type: selected.argument, declarations: group };
     }
-    const argument = selectedOperand(scope, parent, selected.argument, { kind: "argument-place", index }, false, use);
+    const step: RawComponentStep = { kind: "argument-place", index };
+    const argument = authored === null || use !== null
+      ? selectedOperand(scope, parent, selected.argument, step, false, use)
+      : rawType(scope, () => withoutTypeCause(selected.argument), appendComponent(scope, parent, step), authored);
     if (argument === null) return null;
-    arguments_.push({ parameters: parameters.value.declarations, type: argument, scope: selected.scope });
+    arguments_.push(argument);
   }
-  return { kind: "merged-interface-dependency", declarations: declarations.value.declarations, arguments: arguments_ };
+  return { kind: "merged-interface-dependency", group, arguments: arguments_ };
 }
 
 function authoredOperatorComponent(component: RawComponent | undefined, operator: RawNodeRef, source: OriginalTypeUse | null): boolean {
@@ -2460,7 +2570,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     if (changed !== null) {
       const rest = (bindingUse?.kind === "declared-rest" || bindingUse?.kind === "receiver" && bindingUse.target === merged) &&
         bindingUse.type === type && bindingUse.nativeTarget === changed.target && type.alias === undefined ? bindingUse : null;
-      return mergedInterfaceDependency(scope, position, merged, changed.arguments, rest);
+      return mergedInterfaceDependency(scope, position, changed, rest, originalUse, type);
     }
   }
   if (scope.meter.refusal !== null) return null;
@@ -3119,7 +3229,7 @@ function captureFacts(scope: CaptureScope): void {
           const source = use?.kind === "direct-result" ? use.source ?? next.originalUse : next.originalUse;
           if (next.bindingUse?.kind === "merged-slot") {
             if (next.bindingUse.type !== base) return throwInvariant(invariant("A merged slot argument must retain its actual native parameter."));
-            captured = { kind: "merged-slot-parameter", declarations: next.bindingUse.declarations };
+            captured = captureMergedParameter(scope, next.bindingUse.declarations);
           } else if ((base.flags & TypeFlagsIndexedAccess) !== 0 && (source === null || !("module" in source)
             || scope.checked.ast.kindName(admittedTypeUse(scope, source)) !== "KindIndexedAccessType")) {
             const selected = selectedIndexedType(scope, base, next.position, projection);
@@ -4223,6 +4333,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
     fieldSelectors: null, invalidLayout: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
+      interfaceGroups: { byTarget: new Map(), rows: [] },
       symbolIds: new Map(), signatureIds: new Map(),
       qualifiedSignatures: new Map(), activeTypes: new Map(), activeQualifiedTypes: new Map(), activeReceiverKeys: null,
       activeIndexedAliases: new Set(),
@@ -4524,7 +4635,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const raw: RawModule = {
     module, tree,
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
-      symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts, memoryDescriptors: scope.tables.memoryDescriptors },
+      symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts, memoryDescriptors: scope.tables.memoryDescriptors,
+      interfaceGroups: scope.tables.interfaceGroups.rows },
     checkerViews: views, calls, callableAssociations: associations, providerDeclarations, publicLibraryModule, references, links, exports, bindings,
     implementations: [], heritage: [], constructors: [], enums, propertyNames, memberUses, protocols: [], storage, core,
     checkerDiagnostics, diagnosticCoverage,

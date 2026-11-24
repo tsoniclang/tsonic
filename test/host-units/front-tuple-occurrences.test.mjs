@@ -705,9 +705,9 @@ test("the changed merged dependency retains each actual composed rest union's ow
     assert.equal(dependency.form.value.kind, "merged-interface-dependency");
     assert.equal(dependency.form.value.arguments.length, 1);
     const [argument] = dependency.form.value.arguments;
-    assert.equal(argument.scope, "local");
-    assert.equal(argument.parameters.length, 2);
-    const union = raw.types.types[argument.type];
+    assert.equal(dependency.form.value.group.slots[0].scope, "local");
+    assert.equal(dependency.form.value.group.slots[0].parameters.length, 2);
+    const union = raw.types.types[argument];
     assert.equal(union.authoredTypeNode, null);
     assert.equal(union.form.value.kind, "union");
     assert.deepEqual(raw.types.components[union.component].path,
@@ -730,34 +730,24 @@ test("the changed merged dependency retains each actual composed rest union's ow
 });
 
 test("a crossed changed target or slot cannot carry the earlier proved tuple into a different dependency", async () => {
-  const { arrays: [active], rest: [first, second], arguments_, checker, typeShape, foreignTarget, element, capture, limits } =
+  const { rest: [first, second], arguments_, checker, typeShape, foreignTarget, element, capture, limits } =
     await restDependencyProbe("V,K");
   assert.equal(typeShape.getTypeReferenceTarget(first.type) === foreignTarget, false);
   assert.equal(first.type === second.type, false);
   assert.equal(arguments_[0].parameter === arguments_[1].parameter && arguments_[0].argument !== arguments_[1].argument, true);
   for (const kind of ["actual", "target", "slot"]) {
-    let targetReads = 0;
-    let slotReads = 0;
-    let pairedRead = false;
     let changedRead = false;
     let elementReads = 0;
     const run = () => capture({ acquireSourceType: observeSourceType(checker, request => {
       if (changedRead && request.kind === "annotation" && request.node === element) elementReads += 1;
     }) }, limits, {
-      getTypeReferenceTarget(type) {
-        if (type === first.type && ++targetReads === 2 && kind === "target") {
-          pairedRead = true;
-          return foreignTarget;
-        }
-        if (pairedRead && type === active) { pairedRead = false; return foreignTarget; }
-        return typeShape.getTypeReferenceTarget(type);
-      },
-      getTypeReferenceArgumentInfos(type) {
-        if (type === first.type && ++slotReads === 2) {
-          changedRead = true;
-          if (kind === "slot") return [arguments_[1]];
-        }
-        return typeShape.getTypeReferenceArgumentInfos(type);
+      acquireInterfaceApplication(type, admit) {
+        const result = typeShape.acquireInterfaceApplication(type, admit);
+        if (type !== first.type || result.kind !== "complete") return result;
+        changedRead = true;
+        if (kind === "target") return { ...result, value: { ...result.value, target: foreignTarget } };
+        if (kind === "slot") return { ...result, value: { ...result.value, arguments: [arguments_[1]] } };
+        return result;
       },
     });
     if (kind === "actual") {
@@ -767,36 +757,37 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
       assert.throws(run, /a tuple requires its actual authored, projected or inferred destructuring association/u);
       assert.equal(elementReads, 0, kind);
     }
-    assert.equal(pairedRead, false);
     assert.equal(changedRead, true);
   }
 });
 
-test("the changed dependency target and slot readers preserve their paid original stops", async () => {
+test("the changed dependency application preserves the original stop before its target and completed vector", async () => {
   const { rest: [first], capture, limits, typeShape, checker, element } = await restDependencyProbe();
-  for (const [reader, facts, edges] of [["target", 151, 337], ["slot", 151, 339]]) {
+  const targetFacts = 151;
+  const targetEdges = 337;
+  const fragmentCount = 2;
+  const slotCount = 1;
+  const vectorFacts = targetFacts + 1 + fragmentCount + 1 + 2 * slotCount + 1;
+  const vectorEdges = targetEdges + fragmentCount + slotCount;
+  for (const [reader, facts, edges] of [["target", targetFacts, targetEdges], ["vector", vectorFacts, vectorEdges]]) {
     const stop = new Error(`actual changed dependency ${reader} reader stopped`);
     const run = navigationCapture => {
-      let targets = 0;
-      let slots = 0;
       let stopped = false;
-      try {
-        return capture({ acquireSourceType: observeSourceType(checker, request => {
-          if (stopped && request.kind === "annotation") assert.equal(request.node === element, false);
-        }) }, navigationCapture, {
-          getTypeReferenceTarget(type) {
-            if (type === first.type && ++targets === 2 && reader === "target") { stopped = true; throw stop; }
-            return typeShape.getTypeReferenceTarget(type);
-          },
-          getTypeReferenceArgumentInfos(type) {
-            assert.equal(stopped, false);
-            if (type === first.type && ++slots === 2 && reader === "slot") { stopped = true; throw stop; }
-            return typeShape.getTypeReferenceArgumentInfos(type);
-          },
-        });
-      } finally {
-        if (stopped) assert.equal(slots, reader === "target" ? 1 : 2);
-      }
+      return capture({ acquireSourceType: observeSourceType(checker, request => {
+        if (stopped && request.kind === "annotation") assert.equal(request.node === element, false);
+      }) }, navigationCapture, {
+        acquireInterfaceApplication(type, admit) {
+          assert.equal(stopped, false);
+          if (type !== first.type) return typeShape.acquireInterfaceApplication(type, admit);
+          const result = typeShape.acquireInterfaceApplication(type, (axis, count) => {
+            const refused = admit(axis, count);
+            if (refused === null && reader === "target") { stopped = true; throw stop; }
+            return refused;
+          });
+          if (result.kind === "complete") { stopped = true; throw stop; }
+          return result;
+        },
+      });
     };
     for (const [dimension, exact] of [["maximumCapturedFactsPerModule", facts], ["maximumCapturedEdgesPerModule", edges]]) {
       primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
@@ -850,7 +841,7 @@ test("a directly declared rest element retains two ordered argument components w
     assert.equal(rest.authoredTypeNode, null);
     assert.equal(rest.form.value.kind, "merged-interface-dependency");
     const [application] = rest.form.value.arguments;
-    const innerRow = raw.types.types[application.type];
+    const innerRow = raw.types.types[application];
     assert.deepEqual(raw.types.components[innerRow.component].path,
       { prefix: rest.component, step: { kind: "argument-place", index: 0 } });
     assert.equal(innerRow.authoredTypeNode, null);
@@ -1113,7 +1104,7 @@ test("wrapped rest and a bracketed result retain their own occurrences under one
   const rest = raw.types.types[applied.parameters[0].type];
   const answer = raw.types.types[applied.result.value];
   assert.equal(rest.form.value.kind, "merged-interface-dependency");
-  const wrapper = raw.types.types[rest.form.value.arguments[0].type];
+  const wrapper = raw.types.types[rest.form.value.arguments[0]];
   expectTupleResult(raw, wrapper.form.value.arguments[0].argument.value);
   assert.equal(answer.form.value.kind, "structure");
   assert.notEqual(rest.component, answer.component);

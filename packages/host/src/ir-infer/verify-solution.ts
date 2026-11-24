@@ -352,7 +352,8 @@ function operationTypes(input: InferVerificationInput, finals: ReadonlyMap<numbe
     if (term === undefined) return null;
     switch (term.kind) {
       case "open": return term.group === input.group.id ? finals.get(term.variable)?.type ?? null : type;
-      case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "error": return type;
+      case "primitive": case "string": case "intrinsic": case "enum": case "param": case "merged-parameter":
+      case "self": case "error": return type;
       default: return null;
     }
   };

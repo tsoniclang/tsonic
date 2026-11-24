@@ -60,6 +60,31 @@ function parameterKey(value: DefId): string {
   return encodeKey([value]);
 }
 
+function readMergedReplacement<Stop extends TypeTableAdmissionStop>(
+  declarations: readonly DefId[], parameters: ReadonlyMap<DefId, TyId | null>,
+  blocked: (key: string) => boolean, commitment: TypeTableAdmissionWork<Stop>,
+): { readonly kind: "complete"; readonly value: { readonly type: TyId; readonly keys: readonly string[] } | null } | Stop {
+  let type: TyId | null = null;
+  let keys: string[] | null = null;
+  for (let index = 0; index < declarations.length; ++index) {
+    const stop = commitment.work(1);
+    if (stop !== null) return stop;
+    const declaration = declarations[index];
+    if (declaration === undefined) throw new TypeError("A merged type slot requires dense parameter declarations.");
+    const key = parameterKey(declaration);
+    const replacement = parameters.get(declaration);
+    if (blocked(key) || replacement === undefined || replacement === null || (type !== null && type !== replacement))
+      return { kind: "complete", value: null };
+    const retain = commitment.retain(keys === null ? 3 : 1);
+    if (retain !== null) return retain;
+    if (keys === null) keys = [key];
+    else keys.push(key);
+    type = replacement;
+  }
+  if (type === null || keys === null) throw new TypeError("A merged type slot requires every actual parameter.");
+  return { kind: "complete", value: { type, keys } };
+}
+
 function admittedLimits(limits: TypeExpansionLimits): void {
   if (![limits.maximumDepth, limits.maximumVisits, limits.maximumUnionMembers, limits.maximumIntersectionMembers]
     .every(value => Number.isSafeInteger(value) && value >= 0))
@@ -241,6 +266,21 @@ export const readLexicalTypeSupport: ReadLexicalTypeSupport = (table, roots, sco
             if (!parameters.has(parameter)) return { kind: "complete", value: "foreign" };
             dependent = true;
           }
+        } else if (term.kind === "merged-parameter") {
+          let allBlocked = true;
+          let allInScope = true;
+          for (let index = 0; index < term.parameters.length; ++index) {
+            const paid = admission.work(1);
+            if (paid !== null) return paid;
+            const declaration = term.parameters[index];
+            if (declaration === undefined) throw new TypeError("A merged type slot requires dense parameter declarations.");
+            const parameter = parameterKey(declaration);
+            const locallyBound = scopeHas(blocked, parameter);
+            allBlocked &&= locallyBound;
+            allInScope &&= !locallyBound && parameters.has(parameter);
+            if (!allBlocked && !allInScope) return { kind: "complete", value: "foreign" };
+          }
+          if (!allBlocked) dependent = true;
         } else if (term.kind === "self") {
           if (!selfOwners.has(term.owner)) return { kind: "complete", value: "foreign" };
           dependent = true;
@@ -357,6 +397,15 @@ function transform<Stop extends TypeTableAdmissionStop>(
         const selected = child("type", replacement, block(plan.blocked, [key]));
         if (selected.kind !== "complete") return selected;
         plan.redirect = selected.value;
+      }
+    } else if (plan.kind === "type" && plan.value.kind === "merged-parameter") {
+      const selected = readMergedReplacement(plan.value.parameters, parameters, key => scopeHas(plan.blocked, key), commitment);
+      if (selected.kind !== "complete") return selected;
+      const replacement = selected.value;
+      if (replacement !== null && replacement.type !== plan.identity) {
+        const replaced = child("type", replacement.type, block(plan.blocked, replacement.keys));
+        if (replaced.kind !== "complete") return replaced;
+        plan.redirect = replaced.value;
       }
     } else {
       if (plan.kind === "type" && (plan.value.kind === "union" || plan.value.kind === "intersection")) {

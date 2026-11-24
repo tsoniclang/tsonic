@@ -64,8 +64,10 @@ export function copyType(value: TypeTerm): TypeTerm {
       origins: member.origins.map(copyOrigin), readOrigins: member.readOrigins.map(copyOrigin),
       writeOrigins: member.writeOrigins.map(copyOrigin) })) };
     case "declared": return { ...value, arguments: [...value.arguments], extent: value.extent === null ? null : { ...value.extent } };
+    case "merged-interface": return { ...value, definitions: [...value.definitions], arguments: [...value.arguments] };
     case "construction-reference": return { ...value, definition: copyConstruction(value.definition), arguments: [...value.arguments] };
     case "param": return { ...value };
+  case "merged-parameter": return { ...value, parameters: [...value.parameters] };
     case "projection": return { ...value, projection: value.projection.kind === "component"
       ? { ...value.projection, component: copyComponent(value.projection.component) } : { ...value.projection } };
   }

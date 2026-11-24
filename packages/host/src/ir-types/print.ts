@@ -164,10 +164,13 @@ function term(value: TypeTerm): TextRecord {
     case "declared": return record(value.kind, value, ["definition", reference("def", value.definition)],
       ["arguments", value.arguments.map(selected => reference("t", selected))], ["facet", value.facet],
       ["extent", value.extent === null ? null : record("FixedExtent", value.extent, ["length", value.extent.length], ["runtimeBase", value.extent.runtimeBase])]);
+    case "merged-interface": return record(value.kind, value, ["definitions", value.definitions.map(definition => reference("def", definition))],
+      ["arguments", value.arguments.map(argument => reference("t", argument))]);
     case "construction-reference": return record(value.kind, value, ["definition", construction(value.definition)],
       ["arguments", value.arguments.map(selected => reference("t", selected))]);
     case "enum": return record(value.kind, value, ["definition", reference("def", value.definition)]);
     case "param": return record(value.kind, value, ["parameter", reference("def", value.parameter)]);
+    case "merged-parameter": return record(value.kind, value, ["parameters", value.parameters.map(parameter => reference("def", parameter))]);
     case "self": return record(value.kind, value, ["owner", reference("def", value.owner)]);
     case "projection": {
       const projection = value.projection;

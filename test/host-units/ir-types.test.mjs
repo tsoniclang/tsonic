@@ -1736,6 +1736,105 @@ test("nominal definitions, facets, signed zero and exact native extents remain d
   assert.deepEqual(rows.map(row => insertFixtureType(product, interner, row)), ids);
 });
 
+test("merged interface applications preserve exact independent group identity and native argument order", () => {
+  const definitions = [definition("FirstFragment"), definition("SecondFragment")];
+  const otherDefinitions = [definition("ThirdFragment"), definition("FourthFragment")];
+  const groupOf = fragments => ({
+    kind: "merged-interface", definitions: fragments,
+    slots: [0, 1].map(index => ({ scope: "local", parameters: fragments.map(fragment => parameterDeclaration(fragment, index)) })),
+  });
+  const firstGroup = groupOf(definitions);
+  const secondGroup = groupOf(otherDefinitions);
+  const retained = new Map([firstGroup, secondGroup].flatMap(group => group.definitions.map(fragment => [fragment, group])));
+  const nominalOf = fragment => retained.get(fragment) ?? null;
+  const verify = (table, lookup = nominalOf) => runTypeVerifier({
+    ...verificationInputs, table, bindings: [], evidence: [], nominalOf: lookup,
+  });
+  const interner = createTypeInterner();
+  const string = product.internType(interner, { kind: "string" });
+  const boolean = product.internType(interner, { kind: "primitive", primitive: "bool" });
+  const root = { kind: "merged-interface", definitions: [...definitions], arguments: [string, boolean] };
+  const first = insertFixtureType(product, interner, root);
+  assert.equal(insertFixtureType(product, interner, root), first);
+  const reversed = insertFixtureType(product, interner, { ...root, arguments: [boolean, string] });
+  const foreign = insertFixtureType(product, interner, { ...root, definitions: otherDefinitions });
+  assert.equal(new Set([first, reversed, foreign]).size, 3);
+  root.definitions[0] = otherDefinitions[0];
+  assert.deepEqual(readType(interner, first).definitions, definitions);
+  const { table, types } = completePublication(exportTypes(interner, publicationLimits));
+  assert.deepEqual(verify(table), []);
+  assert.deepEqual(parseTypes(printTypes(table)), { kind: "parsed", value: table });
+  assert.deepEqual(table.terms[types[first]].arguments, [types[string], types[boolean]]);
+  assert.deepEqual(table.terms[types[reversed]].arguments, [types[boolean], types[string]]);
+  const equalButIndependent = fragment => fragment === definitions[1] ? { ...firstGroup } : nominalOf(fragment);
+  assert.equal(verify(table, equalButIndependent).some(row => row.rule === "nominal-definition" && row.site.type === types[first]), true);
+  for (const row of [
+    { ...table.terms[types[first]], definitions: [definitions[0], otherDefinitions[1]] },
+    { ...table.terms[types[first]], definitions: [...definitions].reverse() },
+    { ...table.terms[types[first]], arguments: [types[string]] },
+  ]) {
+    const forged = { ...table, terms: table.terms.map((value, index) => index === types[first] ? row : value) };
+    assert.equal(verify(forged).some(finding => finding.rule === "nominal-definition" && finding.site.type === types[first]), true);
+  }
+});
+
+test("symbolic merged parameters require the complete independently verified and agreeing slot", () => {
+  const definitions = [definition("SymbolicFirst"), definition("SymbolicSecond")];
+  const parameters = definitions.map(fragment => parameterDeclaration(fragment, 0));
+  const slot = { scope: "local", parameters };
+  const group = { kind: "merged-interface", definitions, slots: [slot] };
+  const verify = (table, lookup) => runTypeVerifier({ ...verificationInputs, table, bindings: [], evidence: [], nominalOf: lookup });
+  const nominalOf = fragment => definitions.includes(fragment) ? group : null;
+  const make = () => {
+    const interner = createTypeInterner();
+    const selected = product.internType(interner, { kind: "string" });
+    const otherType = product.internType(interner, primitive);
+    const symbolic = insertFixtureType(product, interner, { kind: "merged-parameter", parameters });
+    return { interner, selected, otherType, symbolic };
+  };
+  const { interner, selected, otherType, symbolic } = make();
+  const vector = values => ({ ...emptyBindings(), classBindings: values.map(([parameter, type]) =>
+    ({ kind: "bound", parameter, type })) });
+  const first = [parameters[0], selected];
+  const second = [parameters[1], selected];
+  const complete = vector([first, second]);
+  for (const bindings of [vector([first]), vector([second]), vector([first, [parameters[1], otherType]])])
+    assert.deepEqual(substitute(interner, [symbolic], bindings, limits(), fixtureTypeWork(product)), { kind: "complete", value: [symbolic] });
+  assert.deepEqual(substitute(interner, [symbolic], complete, limits(), fixtureTypeWork(product)), { kind: "complete", value: [selected] });
+  const scoped = declarations => ({ classParameters: declarations, methodParameters: [], capturedParameters: [], selfOwners: [] });
+  for (const [declarations, expected] of [[parameters, "dependent"], [parameters.slice(1), "foreign"]])
+    assert.deepEqual(product.readLexicalTypeSupport(viewTypes(interner), [symbolic], scoped(declarations), fixtureTypeAdmission()),
+      { kind: "complete", value: expected });
+  const { table, types } = completePublication(exportTypes(interner, publicationLimits));
+  assert.deepEqual(verify(table, nominalOf), []);
+  assert.deepEqual(parseTypes(printTypes(table)), { kind: "parsed", value: table });
+  const supplied = table.terms[types[symbolic]];
+  for (const forged of [[...parameters].reverse(), [parameters[0], parameterDeclaration(definitions[1], 1)], [parameters[0]]]) {
+    const crossed = { ...table, terms: table.terms.map(value => value === supplied ? { ...value, parameters: forged } : value) };
+    assert.equal(verify(crossed, nominalOf).some(finding => finding.rule === "parameter-identity" && finding.site.type === types[symbolic]), true);
+  }
+  const separate = fragment => fragment === definitions[1] ? { ...group } : nominalOf(fragment);
+  assert.equal(verify(table, separate).some(finding => finding.rule === "parameter-identity" && finding.site.type === types[symbolic]), true);
+  for (const dimension of ["work", "result-entries"]) {
+    let completed = false;
+    for (let maximum = 0; maximum < 200; ++maximum) {
+      const cold = make();
+      const account = createAccount({ maximumWork: dimension === "work" ? maximum : 200,
+        maximumResultEntries: dimension === "result-entries" ? maximum : 200 });
+      const paid = { work: count => chargeWork(account, count), retain: count => chargeResultEntries(account, count) };
+      const result = substitute(cold.interner, [cold.symbolic], complete, limits(), paid);
+      if (result.kind === "complete") {
+        assert.deepEqual(result.value, [cold.selected]);
+        completed = true;
+        break;
+      }
+      assert.equal(result === accountFailure(account), true);
+      assert.equal(substitute(cold.interner, [cold.symbolic], complete, limits(), paid) === result, true);
+    }
+    assert.equal(completed, true, dimension);
+  }
+});
+
 test("union, intersection, optional and member normalization is complete and does not mutate issued rows", () => {
   const interner = createTypeInterner();
   const integer = insertFixtureType(product, interner, primitive);
@@ -4309,7 +4408,7 @@ test("fresh public declarations admit real strict readers and reject the entire 
     [2305, 2339, 2540], invalidParameter.diagnostics.slice(-8000));
   write("index-reader.ts", "export {};\n");
   const imports = 'import type { TypeTable, TypePublication, TypePublicationLimits, TypePublicationResult, TypeInterner, ExportTypes, TypeExpansionLimits, BindingScope, BindingVector, Signature, TypeEvidence, TypeVerificationInput, NominalDefinition } from "./declarations/ir-types/contract.js";\nimport type { DefId, TyId } from "./declarations/ids/contract.js";\n';
-  write("reader.ts", imports + 'export function read(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: DefId, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): number { return table.terms.length + publication.table.terms.length + publication.types.length + publication.signatures.length + limits.maximumDepth + scope.selfOwners.length + bindings.classBindings.length + signature.parameters.length + evidence.type + parameter.length + definition.length + type + nominal.facets.length + (input.nominalOf(definition) === null ? 0 : 1); }\nexport function publish(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits): TypePublicationResult { return operation(interner, limits); }');
+  write("reader.ts", imports + 'export function read(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: DefId, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): number { return table.terms.length + publication.table.terms.length + publication.types.length + publication.signatures.length + limits.maximumDepth + scope.selfOwners.length + bindings.classBindings.length + signature.parameters.length + evidence.type + parameter.length + definition.length + type + (nominal.kind === "merged-interface" ? nominal.definitions.length + nominal.slots.length : nominal.facets.length) + (input.nominalOf(definition) === null ? 0 : 1); }\nexport function publish(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits): TypePublicationResult { return operation(interner, limits); }');
   write("inline-reader.ts", "import type { CategoryEvidence, TypeComponent, ComponentSelector, TypeInterner, TypeTerm, Signature, TypeTable, ReadType, ReadSignature } from \"./declarations/ir-types/contract.js\";\nimport type { SourceNodeRef, TyId, SigId } from \"./declarations/ids/contract.js\";\nexport function checkedBoundary(readType: ReadType, readSignature: ReadSignature, interner: TypeInterner, type: TyId, signature: SigId): void { readType(interner, type); readSignature(interner, signature); }\nexport function sparseTable(): TypeTable {\n  return { terms: new Array<TypeTerm>(1), signatures: new Array<Signature>(1) };\n}\nexport function sparseComponent(root: SourceNodeRef): TypeComponent {\n  return { root, path: new Array<ComponentSelector>(1) };\n}\nexport function categoryCycle(): CategoryEvidence { const alternatives: CategoryEvidence[] = []; const value: CategoryEvidence = { kind: \"choice\", alternatives }; alternatives.push(value); return value; }\nexport function componentCycle(root: SourceNodeRef): TypeComponent { const path: ComponentSelector[] = []; const component: TypeComponent = { root, path }; path.push({ kind: \"sum-arm\", family: { origin: \"authored\", component, parameters: [], roles: [] }, index: 0 }); return component; }\n");
   write("seed-reader.ts", 'import { admitTypeTable, readType, readSignature, projectBindingValues, substitute, substituteSignature } from "./declarations/ir-types/index.js";\nimport type { AdmitTypeTable, TypeTableAdmissionWork, TypePublicationWork, TypePublicationStop, BindingValues, ProjectedBindingValues, TypeInterner, TypeTable, TypeTerm, Signature, Substitute, SubstituteSignature, TypeTransform, BindingVector, TypeExpansionLimits, TypePublicationResult } from "./declarations/ir-types/contract.js";\nimport type { TyId, SigId } from "./declarations/ids/contract.js";\nimport type { DataflowStop } from "./declarations/dataflow/account.js";\nexport const seed: AdmitTypeTable = admitTypeTable;\nexport const signatureRoot: SubstituteSignature = substituteSignature;\nexport const typeRoots: Substitute = substitute;\nexport function seeded(table: TypeTable, type: TyId, signature: SigId, work: TypeTableAdmissionWork<TypePublicationStop>): readonly [TypeInterner, TypeTerm, Signature] | null { const admitted = seed(table, work); if (admitted.kind !== "complete") return null; const interner = admitted.types; return [interner, readType(interner, type), readSignature(interner, signature)]; }\nexport function transform(interner: TypeInterner, signatures: readonly SigId[], bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork): TypeTransform<readonly SigId[]> | TypePublicationStop { return signatureRoot(interner, signatures, bindings, limits, "lexical", work); }\nexport function transformTypes(interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork): TypeTransform<readonly TyId[]> | TypePublicationStop { return typeRoots(interner, types, bindings, limits, work); }\nexport function borrow(interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits, work: TypeTableAdmissionWork<DataflowStop | TypePublicationStop>): TypeTransform<readonly TyId[]> | DataflowStop | TypePublicationStop { return substitute(interner, types, bindings, limits, work); }\nexport function project(interner: TypeInterner, values: BindingValues, bindings: BindingVector, limits: TypeExpansionLimits, work: TypeTableAdmissionWork<DataflowStop>): TypeTransform<ProjectedBindingValues> | DataflowStop { return projectBindingValues(interner, values, bindings, limits, work); }\nexport function usage(result: TypePublicationResult): readonly [number, number] | null { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\n');
   write("binding-reader.ts", 'import { verifyBindings } from "./declarations/ir-types/index.js";\nimport type { BindingVerificationInput } from "./declarations/ir-types/contract.js";\nexport function check(inputs: readonly BindingVerificationInput[], stop: { readonly kind: "original"; readonly cause: string }): string { const result = verifyBindings(inputs, 1, () => stop); return result.kind === "resource-stop" ? result.stop.cause : String(result.violations.length); }\n');
@@ -4317,7 +4416,7 @@ test("fresh public declarations admit real strict readers and reject the entire 
     noEmit: true, types: [], skipLibCheck: false, exactOptionalPropertyTypes: true },
     files: [resolve(stage, "reader.ts"), resolve(stage, "inline-reader.ts"), resolve(stage, "seed-reader.ts"), resolve(stage, "binding-reader.ts")], include: [] });
   assert.deepEqual(run(resolve(stage, "consumer.json")), { status: 0, diagnostics: "" });
-  write("reader.ts", imports + 'export function mutate(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: DefId, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): void {\ntable.terms.push({ kind: "error" });\ntable.terms[0] = { kind: "error" };\ntable.signatures[0] = signature;\nlimits.maximumDepth = 1;\nscope.selfOwners.push(definition);\nbindings.classBindings[0] = { kind: "rigid", parameter };\nsignature.parameters.push({ declaration: definition, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false });\nevidence.type = type;\nnominal.facets.push("instance");\ninput.nominalOf = () => null;\npublication.table = { terms: [], signatures: [] };\npublication.types.push(type);\npublication.signatures[0] = signature.id;\npublication.terms.push({ kind: "error" });\n}\nexport function removed(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits, result: TypePublicationResult, publication: TypePublication): void {\noperation(interner);\nresult.table;\nlimits.maximumWork = 1;\nlimits.maximumCreatedRecords = 1;\nif (result.kind === "complete") result.value = publication;\nelse { result.dimension = "work"; result.maximum = 1; }\nresult.kind = "complete";\n}');
+  write("reader.ts", imports + 'export function mutate(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: DefId, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): void {\ntable.terms.push({ kind: "error" });\ntable.terms[0] = { kind: "error" };\ntable.signatures[0] = signature;\nlimits.maximumDepth = 1;\nscope.selfOwners.push(definition);\nbindings.classBindings[0] = { kind: "rigid", parameter };\nsignature.parameters.push({ declaration: definition, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false });\nevidence.type = type;\nif (nominal.kind !== "merged-interface") nominal.facets.push("instance");\ninput.nominalOf = () => null;\npublication.table = { terms: [], signatures: [] };\npublication.types.push(type);\npublication.signatures[0] = signature.id;\npublication.terms.push({ kind: "error" });\n}\nexport function removed(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits, result: TypePublicationResult, publication: TypePublication): void {\noperation(interner);\nresult.table;\nlimits.maximumWork = 1;\nlimits.maximumCreatedRecords = 1;\nif (result.kind === "complete") result.value = publication;\nelse { result.dimension = "work"; result.maximum = 1; }\nresult.kind = "complete";\n}');
   write("binding-reader.ts", 'import { verifyBindings } from "./declarations/ir-types/index.js";\nimport type { BindingVerificationInput } from "./declarations/ir-types/contract.js";\nexport function removed(inputs: readonly BindingVerificationInput[]): void { verifyBindings(inputs, 1, () => true); verifyBindings(inputs, 1, () => false); verifyBindings(inputs, 1); }\n');
   const negative = run(resolve(stage, "consumer.json"));
   assert.equal(negative.status, 1, negative.diagnostics.slice(-8000));

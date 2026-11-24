@@ -251,9 +251,7 @@ export type RawTypeForm =
   | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly RawParameter[] }
   | { readonly kind: "structure"; readonly inventory: RawMemberTableId }
   | { readonly kind: "source-environment"; readonly members: readonly RawMemberHeader[] }
-  | { readonly kind: "merged-interface-dependency"; readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]];
-      readonly arguments: readonly { readonly parameters: readonly [RawNodeRef, ...RawNodeRef[]];
-        readonly type: RawTypeId; readonly scope: "outer" | "local" }[] }
+  | { readonly kind: "merged-interface-dependency"; readonly group: RawInterfaceGroup; readonly arguments: readonly RawTypeId[] }
   | { readonly kind: "merged-slot-parameter"; readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]] }
   | { readonly kind: "indexed-access"; readonly operator: RawNodeRef | null; readonly object: RawTypeId; readonly index: RawTypeId }
   | { readonly kind: "keyof"; readonly operator: RawNodeRef; readonly target: RawTypeId }
@@ -290,6 +288,13 @@ export interface RawTypeTable {
   readonly candidates: readonly RawCandidateList[];
   readonly dataLayouts: readonly RawDataLayout[];
   readonly memoryDescriptors: readonly RawLayoutConstruction[];
+  readonly interfaceGroups: readonly RawInterfaceGroup[];
+}
+
+export interface RawInterfaceGroup {
+  readonly ordinal: number;
+  readonly declarations: readonly [RawNodeRef, RawNodeRef, ...RawNodeRef[]];
+  readonly slots: readonly { readonly scope: "outer" | "local"; readonly parameters: readonly [RawNodeRef, ...RawNodeRef[]] }[];
 }
 
 export interface RawCheckerViews {

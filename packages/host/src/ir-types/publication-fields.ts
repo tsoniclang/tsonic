@@ -46,6 +46,7 @@ export type PublicationArray = { readonly field: string } & (
   | { readonly kind: "local-array"; readonly value: readonly LocalRef[] }
   | { readonly kind: "selector-array"; readonly value: readonly ComponentSelector[] }
   | { readonly kind: "definition-id-array"; readonly value: readonly DefId[] }
+  | { readonly kind: "group-definition-array"; readonly value: readonly DefId[] }
   | { readonly kind: "arm-array"; readonly value: readonly SumArmRole[] }
 );
 
@@ -57,10 +58,10 @@ export function publicationWork(selected: PublicationRecord): number | undefined
     case "type":
       switch (selected.value.kind) {
         case "primitive": case "intrinsic": case "union": case "intersection": case "optional":
-        case "enum": case "param": case "self": case "source-environment": return 2;
+        case "enum": case "param": case "merged-parameter": case "self": case "source-environment": return 2;
         case "string": case "error": return 1;
         case "literal": case "array": case "tuple": case "fixed-array": case "callable":
-        case "construction-reference": case "projection": case "open": return 3;
+        case "construction-reference": case "merged-interface": case "projection": case "open": return 3;
         case "shape": case "declared": return 5;
       }
       return undefined;
@@ -94,7 +95,12 @@ export function publicationWork(selected: PublicationRecord): number | undefined
 
 export function publicationScalarField(selected: PublicationRecord): string | null {
   switch (selected.kind) {
-    case "type": return selected.value.kind === "primitive" && !isNativePrimitive(selected.value.primitive) ? "primitive" : null;
+    case "type": {
+      const value = selected.value;
+      if (value.kind === "primitive" && !isNativePrimitive(value.primitive)) return "primitive";
+      if (value.kind === "merged-interface" && (!Array.isArray(value.definitions) || value.definitions.length < 2)) return "definitions";
+      return null;
+    }
     case "signature": case "signature-input":
       return selected.value.kind !== "call" && selected.value.kind !== "construct" ? "kind" : null;
     case "literal": return selected.value.kind === "bigint" && typeof selected.value.value !== "bigint" ? "value" : null;
@@ -149,9 +155,12 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
         case "source-environment": return { children: [{ kind: "member-header-array", field: "members", value: value.members }] };
         case "callable": return { children: [{ kind: "signature-id-array", field: "calls", value: value.calls }, { kind: "signature-id-array", field: "constructs", value: value.constructs }] };
         case "declared": return { children: [{ kind: "type-id-array", field: "arguments", value: value.arguments }, value.extent === null ? { kind: "scalar" } : { kind: "extent", value: value.extent }] };
+        case "merged-interface": return { children: [{ kind: "type-id-array", field: "arguments", value: value.arguments },
+          { kind: "group-definition-array", field: "definitions", value: value.definitions }] };
         case "construction-reference": return { children: [{ kind: "construction", value: value.definition }, { kind: "type-id-array", field: "arguments", value: value.arguments }] };
         case "enum": return { children: [] };
         case "param": return { children: [] };
+        case "merged-parameter": return { children: [{ kind: "group-definition-array", field: "parameters", value: value.parameters }] };
         case "self": return { children: [] };
         case "projection": return { children: [{ kind: "projection", value: value.projection }] };
         case "open": return { children: [] };
@@ -351,6 +360,9 @@ export function publicationArrayElement(node: PublicationArray, position: number
     case "definition-id-array": {
       return node.value[position] === undefined ? undefined : { kind: "scalar" };
     }
+    case "group-definition-array": {
+      return typeof node.value[position] !== "string" ? undefined : { kind: "scalar" };
+    }
     case "arm-array": {
       const value = node.value[position];
       return value === undefined ? undefined : { kind: "arm", value };
@@ -372,6 +384,7 @@ export function isPublicationArray(node: PublicationNode): node is PublicationAr
     case "local-array":
     case "selector-array":
     case "definition-id-array":
+    case "group-definition-array":
     case "arm-array":
       return true;
     default: return false;

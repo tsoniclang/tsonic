@@ -1,6 +1,7 @@
 import type { GoPtr } from "../go/compat.js";
 import type { TypeIndexedAccessComponents, TypeIndexedAccessSelection } from "./type-indexed-access.js";
 import type { TypeKeyOfComponents, TypeSubstitutionComponents } from "./type-dependent-operands.js";
+import { type CompletedTupleFormal } from "./signature-formal-evidence.js";
 import { type RetainedTypeAliasApplication, type TypeAliasApplicationInfo } from "./type-applications.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
@@ -9,6 +10,7 @@ import { type NativeCheckerAdmission, type NativeCheckerResult } from "../intern
 import type { CheckerDiagnosticMembership, ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 import type { Context } from "../go/context.js";
 import type { Signature, Type } from "../internal/checker/types.js";
+export type { CompletedTupleFormal } from "./signature-formal-evidence.js";
 export interface TypeIndexInfo {
     readonly keyType: GoPtr<Type>;
     readonly valueType: GoPtr<Type>;
@@ -67,6 +69,11 @@ interface NativePropertyInventory<Value> {
 export interface TypePropertyInventory<Stop extends object> {
     readonly mayHaveRows: boolean;
     readonly next: () => TypePropertyRead<Stop>;
+}
+export interface TypeInterfaceApplication {
+    readonly target: Type;
+    readonly declarations: readonly [Node, ...Node[]];
+    readonly arguments: readonly TypeReferenceArgumentInfo[];
 }
 export type TypePropertyHeaderInventory = NativePropertyInventory<TypePropertyHeader>;
 export interface StructuredTypeInventory<Stop extends object> {
@@ -146,6 +153,7 @@ export interface TypeShapeQueries {
     readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceArgumentInfos: (type: GoPtr<Type>) => readonly TypeReferenceArgumentInfo[] | undefined;
+    readonly acquireInterfaceApplication: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<TypeInterfaceApplication, Stop>;
     readonly acquireCompletedTypeArgument: <Stop extends object>(type: GoPtr<Type>, parameter: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<Type, Stop>;
     readonly getInstantiatedBaseTypes: (type: GoPtr<Type>) => readonly Type[] | undefined;
     readonly getKeyOfComponents: (type: GoPtr<Type>) => TypeKeyOfComponents | undefined;
@@ -161,6 +169,7 @@ export interface TypeShapeQueries {
     readonly getDeclarationSignatureInfo: (declaration: GoPtr<Node>) => TypeSignatureInfo | undefined;
     readonly getSignatureParameterInfos: (signature: GoPtr<Signature>) => readonly TypeSignatureParameterInfo[];
     readonly acquireSignatureParameters: <Stop extends object>(signature: GoPtr<Signature>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<readonly TypeSignatureParameterInfo[], Stop>;
+    readonly acquireCompletedTupleFormal: <Stop extends object>(signature: Signature, ordinal: number, selected: Type, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<CompletedTupleFormal, Stop>;
     readonly getSignatureThisParameterInfo: (signature: GoPtr<Signature>) => TypeSignatureThisParameterInfo | undefined;
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly getIndexInfos: (type: GoPtr<Type>) => readonly TypeIndexInfo[];
@@ -174,5 +183,4 @@ export interface TypeShapeQueries {
     readonly getNonNullableType: (type: GoPtr<Type>) => GoPtr<Type>;
 }
 export declare function createTypeShapeQueries(program: GoPtr<Program>, defaultOptions: CreateTypeShapeQueriesOptions): TypeShapeQueries;
-export {};
 //# sourceMappingURL=type-shape.d.ts.map

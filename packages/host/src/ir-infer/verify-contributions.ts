@@ -202,7 +202,7 @@ export function termReferences(term: TypeTerm, visitData: DataVisitor, path: str
     case "optional": return { types: [term.value], signatures: [] };
     case "array": case "fixed-array": return { types: [term.element], signatures: [] };
     case "tuple": return { types: term.elements.map(element => element.type), signatures: [] };
-    case "declared": case "construction-reference": return { types: term.arguments, signatures: [] };
+    case "declared": case "merged-interface": case "construction-reference": return { types: term.arguments, signatures: [] };
     case "shape": return {
       types: [...term.members.flatMap(member => [...member.read === null ? [] : [member.read], ...member.write === null ? [] : [member.write]]),
         ...term.indexes.flatMap(index => [index.key, index.read, ...index.write === null ? [] : [index.write]])],
@@ -221,7 +221,7 @@ export function termReferences(term: TypeTerm, visitData: DataVisitor, path: str
       return { types, signatures };
     }
     case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
-    case "source-environment":
+    case "source-environment": case "merged-parameter":
       return { types: [], signatures: [] };
   }
 }

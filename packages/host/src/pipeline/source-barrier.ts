@@ -9,7 +9,7 @@ import { createModuleBindingViews, deriveDeclarationScopes, indexSyntaxTree, res
 import type { AdmittedNativeGuarantee, Libraries, ProviderLibraryModel, ProviderLibraryOrigin, ProviderLibraryText } from "../libraries/contract.js";
 import { bindProviderLibraries } from "../libraries/index.js";
 import type { NominalDefinition, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
-import { createTypeInterner, createTypePublicationWork, viewTypes } from "../ir-types/index.js";
+import { admitTypePublicationStep, createTypeInterner, createTypePublicationWork, refuseTypeConstruction, viewTypes } from "../ir-types/index.js";
 import type { PackageModule } from "../snapshot/contract.js";
 import type { HostAnalysisInputs } from "./contract.js";
 import { checkedSourceViews } from "./checked-inputs.js";
@@ -42,6 +42,18 @@ export interface SourceBarrier extends HirBindingViews {
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly libraries: Libraries;
   readonly nativeGuaranteeOf: (declaration: DefId) => AdmittedNativeGuarantee | null;
+}
+
+type InterfaceGroup = Extract<NominalDefinition, { readonly kind: "merged-interface" }>;
+
+function sameGroup(left: InterfaceGroup, right: InterfaceGroup): boolean {
+  return left.definitions.length === right.definitions.length && left.slots.length === right.slots.length
+    && left.definitions.every((definition, index) => right.definitions[index] === definition)
+    && left.slots.every((slot, index) => {
+      const other = right.slots[index];
+      return other !== undefined && other.scope === slot.scope && other.parameters.length === slot.parameters.length
+        && slot.parameters.every((parameter, position) => other.parameters[position] === parameter);
+    });
 }
 
 export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceBarrier> {
@@ -134,7 +146,93 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     return path === undefined ? null : scopes.get(path.module) ?? null;
   };
   const bindingScopeOf = (definition: DefId) => scopesOf(definition)?.bindingScopeOf(definition) ?? null;
-  const nominalOf = (definition: DefId) => scopesOf(definition)?.nominalOf(definition) ?? null;
+  const groups = new Map<DefId, InterfaceGroup>();
+  for (const captured of raw.values()) {
+    const groupRows = captured.types.interfaceGroups;
+    for (let position = 0; position < groupRows.length; ++position) {
+      const admit = (count = 1) => {
+        const stopped = admitTypePublicationStep(typeWork, count);
+        const module = checked.get(captured.module);
+        return stopped === null ? null : refuseTypeConstruction(typeWork, stopped,
+          module?.tree.origin ?? fail("A captured type group must belong to its checked source."),
+          { query: "checkedInterfaceGroups", key: [captured.module, position] });
+      };
+      const stopped = admit();
+      if (stopped !== null) return stopped;
+      const group = groupRows[position];
+      if (group === undefined || group.ordinal !== position) return fail("A captured type group must retain its actual dense position.");
+      const definitionsInGroup: DefId[] = [];
+      for (let index = 0; index < group.declarations.length; ++index) {
+        const step = admit();
+        if (step !== null) return step;
+        const reference = group.declarations[index];
+        if (reference === undefined) return fail("A merged interface retains every original fragment.");
+        const definition = definitionOf(reference);
+        const node = sources.nodeOf({ kind: "item", value: { owner: definition, node: reference.node } });
+        if (node?.kind !== "InterfaceDeclaration" || node.tsonic.definition !== definition)
+          return fail("A merged interface fragment must name its actual independent checked declaration.");
+        definitionsInGroup.push(definition);
+      }
+      const slots: InterfaceGroup["slots"][number][] = [];
+      let local = 0;
+      for (let index = 0; index < group.slots.length; ++index) {
+        const step = admit();
+        if (step !== null) return step;
+        const slot = group.slots[index];
+        if (slot === undefined || slot.scope === "outer" && local !== 0)
+          return fail("A merged interface retains its outer and local slots in native order.");
+        const parameters: DefId[] = [];
+        for (let parameter = 0; parameter < slot.parameters.length; ++parameter) {
+          const paid = admit();
+          if (paid !== null) return paid;
+          const reference = slot.parameters[parameter];
+          if (reference === undefined) return fail("A merged interface retains every actual parameter declaration.");
+          const definition = definitionOf(reference);
+          const node = sources.nodeOf({ kind: "item", value: { owner: definition, node: reference.node } });
+          if (node?.kind !== "TypeParameter" || node.tsonic.parameter.declaration !== definition)
+            return fail("A merged interface parameter must name its actual checked binder.");
+          parameters.push(definition);
+        }
+        for (let fragment = 0; fragment < definitionsInGroup.length; ++fragment) {
+          const paid = admit();
+          if (paid !== null) return paid;
+          const definition = definitionsInGroup[fragment];
+          const scope = definition === undefined ? null : bindingScopeOf(definition);
+          if (scope === null) return fail("A merged interface fragment must retain its actual parameter scope.");
+          if (slot.scope === "local") {
+            if (parameters.length !== definitionsInGroup.length || scope.classParameters[local] !== parameters[fragment])
+              return fail("A merged interface local slot must pair the actual parameter of every fragment.");
+          } else {
+            const allowed = scope.capturedParameters;
+            const cost = admit(allowed.length * parameters.length);
+            if (cost !== null) return cost;
+            if (!parameters.some(parameter => allowed.includes(parameter)))
+              return fail("A merged interface outer slot must remain in the actual checked lexical scope.");
+          }
+        }
+        if (slot.scope === "local") ++local;
+        slots.push({ scope: slot.scope, parameters });
+      }
+      const result: InterfaceGroup = { kind: "merged-interface", definitions: definitionsInGroup, slots };
+      let prior: InterfaceGroup | undefined;
+      for (const definition of definitionsInGroup) {
+        const step = admit();
+        if (step !== null) return step;
+        if (bindingScopeOf(definition)?.classParameters.length !== local)
+          return fail("A merged interface application must retain all local slots of every actual fragment.");
+        const recorded = groups.get(definition);
+        if (recorded === undefined) continue;
+        if (prior !== undefined && recorded !== prior) return fail("Completed merged interface groups cannot overlap.");
+        prior = recorded;
+      }
+      if (prior !== undefined) {
+        const step = admit(definitionsInGroup.length + slots.length + slots.reduce((count, slot) => count + slot.parameters.length, 0));
+        if (step !== null) return step;
+        if (!sameGroup(prior, result)) return fail("Repeated capture must retain one exact checked declaration group.");
+      } else for (const definition of definitionsInGroup) groups.set(definition, result);
+    }
+  }
+  const nominalOf = (definition: DefId) => groups.get(definition) ?? scopesOf(definition)?.nominalOf(definition) ?? null;
   const table = viewTypes(types);
   for (const { module } of modules) {
     const violations = verifyHir(module, {

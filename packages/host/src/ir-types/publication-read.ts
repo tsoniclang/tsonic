@@ -54,7 +54,7 @@ function readPublication<Value, Stop extends LimitStop>(value: Value, root: Publ
       if (task.position >= task.value.value.length) continue;
       const reference = task.value.kind === "type-id-array" || task.value.kind === "signature-id-array";
       const rowWork = reference ? Number(phase !== "read") : Number(task.value.kind !== "definition-id-array");
-      const stop = work(rowWork) ?? (reference && phase === "retain" ? retain(1) : null);
+      const stop = work(rowWork) ?? ((reference || task.value.kind === "group-definition-array") && phase === "retain" ? retain(1) : null);
       if (stop !== null) return stop;
       tasks.push({ ...task, position: task.position + 1 });
       const row = publicationArrayElement(task.value, task.position);

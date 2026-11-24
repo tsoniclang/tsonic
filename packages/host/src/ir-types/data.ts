@@ -254,9 +254,11 @@ export type TypeTerm =
   | { readonly kind: "source-environment"; readonly members: readonly MemberInventoryEntry[] }
   | { readonly kind: "declared"; readonly definition: DefId; readonly arguments: readonly TyId[];
       readonly facet: "instance" | "value"; readonly extent: FixedExtent | null }
+  | { readonly kind: "merged-interface"; readonly definitions: readonly DefId[]; readonly arguments: readonly TyId[] }
   | { readonly kind: "construction-reference"; readonly definition: ConstructionDefinition; readonly arguments: readonly TyId[] }
   | { readonly kind: "enum"; readonly definition: DefId }
   | { readonly kind: "param"; readonly parameter: DefId }
+  | { readonly kind: "merged-parameter"; readonly parameters: readonly DefId[] }
   | { readonly kind: "self"; readonly owner: DefId }
   | { readonly kind: "projection"; readonly source: TyId; readonly projection: TypeProjection }
   | { readonly kind: "open"; readonly group: GroupId; readonly variable: number }

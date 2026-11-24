@@ -1,5 +1,5 @@
 import type { TyId, SigId, SourceNodeRef } from "../ids/contract.js";
-import { decodeDefId } from "../ids/index.js";
+import { decodeDefId, encodeDefId } from "../ids/index.js";
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { VerifyTypes, TypeRule, TypeSite, ExactRational, TypeTerm,
   MemberOrigin, TypeEvidence, TypeVerificationInput, TypeComponent, ConstructionDefinition, Signature,
@@ -147,7 +147,8 @@ function termReferences(value: TypeTerm, site: TypeSite, checks: Checks, path: I
   const types = (values: readonly TyId[], field: string): void => vector(values, "type-reference", site, field, checks, type => checks.type(type, site));
   const signatures = (values: readonly SigId[], field: string): void => vector(values, "signature-reference", site, field, checks, signature => checks.signature(signature, site));
   switch (value.kind) {
-    case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error": break;
+    case "primitive": case "string": case "intrinsic": case "enum": case "param": case "merged-parameter":
+    case "self": case "open": case "error": break;
     case "literal": checks.type(value.base, site); break;
     case "union": case "intersection": types(value.members, "members"); break;
     case "optional": checks.type(value.value, site); break;
@@ -174,7 +175,7 @@ function termReferences(value: TypeTerm, site: TypeSite, checks: Checks, path: I
       }
       signatures(value.calls, "calls"); signatures(value.constructs, "constructs"); break;
     case "callable": signatures(value.calls, "calls"); signatures(value.constructs, "constructs"); break;
-    case "declared": types(value.arguments, "arguments"); break;
+    case "declared": case "merged-interface": types(value.arguments, "arguments"); break;
     case "construction-reference": types(value.arguments, "arguments"); construction(value.definition, site, checks); break;
     case "projection":
       checks.type(value.source, site);
@@ -304,8 +305,60 @@ export function verifyTypeRows(table: TypeVerificationInput["table"], input: Typ
       if (nominal === null || nominal.kind !== value.kind || value.kind === "declared" && !nominal.facets.includes(value.facet))
         add("nominal-definition", site, "definition");
     }
+    if (value.kind === "merged-interface") {
+      const { definitions, arguments: arguments_ } = value;
+      if (definitions.length < 2 || new Set(definitions).size !== definitions.length
+        || definitions.some(definition => typeof definition !== "string"))
+        add("nominal-definition", site, "definitions");
+      else if (input !== null) {
+        let group: ReturnType<typeof input.nominalOf> = null;
+        for (const [index, definition] of definitions.entries()) {
+          const nominal = input.nominalOf(definition);
+          if (nominal?.kind !== "merged-interface" || (group === null
+            ? nominal.definitions.length !== definitions.length
+              || nominal.definitions.some((fragment, position) => fragment !== definitions[position])
+            : nominal !== group)) {
+            add("nominal-definition", site, "definitions", index);
+            break;
+          }
+          if (group !== null) continue;
+          if (nominal.slots.length !== arguments_.length) {
+            add("nominal-definition", site, "arguments");
+            break;
+          }
+          group = nominal;
+        }
+      }
+    }
     if (value.kind === "param" && typeof value.parameter !== "string")
       add("parameter-identity", site, "parameter");
+    if (value.kind === "merged-parameter") {
+      if (!Array.isArray(value.parameters) || value.parameters.length < 2
+        || new Set(value.parameters).size !== value.parameters.length)
+        add("parameter-identity", site, "parameters");
+      else {
+        let group: ReturnType<TypeVerificationInput["nominalOf"]> = null;
+        for (let index = 0; index < value.parameters.length; ++index) {
+          const parameter = value.parameters[index];
+          const path = typeof parameter === "string" ? decodeDefId(parameter) : null;
+          if (path?.kind !== "decoded" || path.value.segments.length < 2) {
+            add("parameter-identity", site, "parameters", index);
+            break;
+          }
+          if (input === null) continue;
+          const owner = encodeDefId({ module: path.value.module, segments: path.value.segments.slice(0, -1) });
+          const nominal = input.nominalOf(owner);
+          if (nominal?.kind !== "merged-interface" || (group === null
+            ? !nominal.slots.some(slot => slot.scope === "local" && slot.parameters.length === value.parameters.length
+              && slot.parameters.every((member, position) => member === value.parameters[position]))
+            : nominal !== group)) {
+            add("parameter-identity", site, "parameters", index);
+            break;
+          }
+          group = nominal;
+        }
+      }
+    }
     if (value.kind === "union" || value.kind === "intersection") {
       if (value.members.length < 2 || !increasing(value.members)
         || value.members.some(member => table.terms[member]?.kind === value.kind))

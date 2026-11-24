@@ -71,7 +71,8 @@ export function normalizeType<Stop extends LimitStop>(term: TypeTerm, read: (typ
     case "source-environment": return emit({ ...term,
       members: [...term.members].sort((left, right) => compareMemberKeys(left.key, right.key)) });
     case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
-    case "literal": case "array": case "fixed-array": case "tuple": case "declared": case "construction-reference":
+    case "literal": case "array": case "fixed-array": case "tuple": case "declared": case "merged-interface":
+    case "merged-parameter": case "construction-reference":
     case "projection": return emit(term);
   }
 }
@@ -144,7 +145,7 @@ export function remapTerm(value: TypeTerm, typeOf: (value: TyId) => TyId, signat
     write: selected.write === null ? null : typeOf(selected.write) });
   switch (value.kind) {
     case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
-    case "source-environment": return value;
+    case "source-environment": case "merged-parameter": return value;
     case "literal": return { ...value, base: typeOf(value.base) };
     case "union": case "intersection": return { ...value, members: value.members.map(typeOf) };
     case "optional": return { ...value, value: typeOf(value.value) };
@@ -153,7 +154,7 @@ export function remapTerm(value: TypeTerm, typeOf: (value: TyId) => TyId, signat
     case "shape": return { ...value, members: value.members.map(member), indexes: value.indexes.map(index).sort(compareIndexSignatures),
       calls: value.calls.map(signatureOf), constructs: value.constructs.map(signatureOf) };
     case "callable": return { ...value, calls: value.calls.map(signatureOf), constructs: value.constructs.map(signatureOf) };
-    case "declared": case "construction-reference": return { ...value, arguments: value.arguments.map(typeOf) };
+    case "declared": case "merged-interface": case "construction-reference": return { ...value, arguments: value.arguments.map(typeOf) };
     case "projection": {
       const projection = value.projection;
       if (projection.kind === "conditional") return remapConditional(value.source, projection, typeOf);

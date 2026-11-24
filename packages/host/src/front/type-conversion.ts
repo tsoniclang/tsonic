@@ -132,11 +132,11 @@ function signatureReference(graph: TypeGraph, id: RawSignatureId, dependencies: 
   return handle.reference;
 }
 
-function isTupleChild(parent: RawComponent, child: RawComponent | undefined, index: number,
+function isIndexedChild(parent: RawComponent, child: RawComponent | undefined, role: "tuple-element" | "argument-place", index: number,
   work: TypePublicationWork): boolean | TypePublicationStop {
   const path = child?.path;
   if (child === undefined || path === undefined || path === null || parent.id >= child.id || !sameSource(child.root, parent.root)
-    || path.step.kind !== "tuple-element" || !Object.is(path.step.index, index)) return false;
+    || path.step.kind !== role || !Object.is(path.step.index, index)) return false;
   if (parent.path === null) return path.prefix === null;
   return admitTypePublicationStep(work) ?? (path.prefix === parent.id);
 }
@@ -276,6 +276,24 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
         }).sort(compareIndexSignatures) };
     }
     scheduleDependencies(graph, memberDependencies);
+  } else if (form.kind === "merged-interface-dependency") {
+    const { group } = form;
+    if (raw.types.interfaceGroups[group.ordinal] !== group || group.slots.length !== form.arguments.length)
+      throw new TypeError("front: a merged application requires its independently retained declaration and slot group");
+    const argumentsOf: TyId[] = [];
+    for (let index = 0; index < form.arguments.length; ++index) {
+      const stop = admitTypePublicationStep(graph.conversion.typeWork);
+      if (stop !== null) { graph.failure = stop; return stop; }
+      const argument = form.arguments[index];
+      if (argument === undefined) throw new TypeError("front: a merged application must retain its actual ordered argument slots");
+      const child = raw.types.types[argument];
+      const position = child === undefined ? undefined : raw.types.components[child.component];
+      const matched = child?.id === argument && isIndexedChild(component, position, "argument-place", index, graph.conversion.typeWork);
+      if (typeof matched !== "boolean") { graph.failure = matched; return matched; }
+      if (!matched) throw new TypeError("front: a merged argument must retain its own actual qualified type occurrence");
+      argumentsOf.push(reference(argument));
+    }
+    term = { kind: "merged-interface", definitions: group.declarations.map(deps.definitionOf), arguments: argumentsOf };
   } else if (form.kind === "declared") {
     if (form.arguments.length !== form.parameters.length)
       throw new TypeError("front: declared arguments must retain their actual ordered parameter associations");
@@ -310,7 +328,8 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       const { type, component: positionId } = element;
       const child = raw.types.types[type];
       const position = raw.types.components[positionId];
-      const matches = child?.id === type && child.component === positionId && position?.id === positionId && isTupleChild(component, position, index, work);
+      const matches = child?.id === type && child.component === positionId && position?.id === positionId
+        && isIndexedChild(component, position, "tuple-element", index, work);
       if (typeof matches !== "boolean") {
         graph.failure = matches;
         return matches;
@@ -402,6 +421,18 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       extends: reference(form.extends), whenTrue: reference(form.whenTrue.type), whenFalse: reference(form.whenFalse.type),
       distributive: form.distributive,
       inferParameter: binder === undefined ? null : deps.definitionOf(binder) } };
+  } else if (form.kind === "merged-slot-parameter") {
+    const parameters = [];
+    for (let index = 0; index < form.declarations.length; ++index) {
+      const stopped = admitTypePublicationStep(graph.conversion.typeWork);
+      if (stopped !== null) { graph.failure = stopped; return stopped; }
+      const declaration = form.declarations[index];
+      if (declaration === undefined)
+        throw new TypeError("front: a symbolic merged slot requires each actual checked parameter declaration");
+      parameters.push(deps.definitionOf(declaration));
+    }
+    if (parameters.length < 2) throw new TypeError("front: a symbolic merged parameter requires its complete declaration group");
+    term = { kind: "merged-parameter", parameters };
   } else if (form.kind === "parameter") term = { kind: "param", parameter: deps.definitionOf(form.parameter) };
   else if (form.kind === "self") term = { kind: "self", owner: deps.definitionOf(form.owner) };
   else if (form.kind === "scalar") {

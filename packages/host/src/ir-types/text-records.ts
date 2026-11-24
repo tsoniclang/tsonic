@@ -83,6 +83,12 @@ export function createTypeTextReaders() {
       const field_arguments = read("arguments", arrayReader(() => values["type-id"]));
       return { fields: [field_definition, field_arguments], value: () => ({ kind: "construction-reference", definition: field_definition.value(), arguments: field_arguments.value() }) };
     });
+    case "merged-interface": return recordReader<TypeTerm>("merged-interface", read => {
+      const definitions = read("definitions", arrayReader(() => values["definition-id"]));
+      const arguments_ = read("arguments", arrayReader(() => values["type-id"]));
+      return { fields: [definitions, arguments_], value: () =>
+        ({ kind: "merged-interface", definitions: definitions.value(), arguments: arguments_.value() }) };
+    });
     case "enum": return recordReader<TypeTerm>("enum", read => {
       const field_definition = read("definition", lazyReader(() => values["definition-id"]));
       return { fields: [field_definition], value: () => ({ kind: "enum", definition: field_definition.value() }) };
@@ -90,6 +96,10 @@ export function createTypeTextReaders() {
     case "param": return recordReader<TypeTerm>("param", read => {
       const field_parameter = read("parameter", lazyReader(() => values["definition-id"]));
       return { fields: [field_parameter], value: () => ({ kind: "param", parameter: field_parameter.value() }) };
+    });
+    case "merged-parameter": return recordReader<TypeTerm>("merged-parameter", read => {
+      const parameters = read("parameters", arrayReader(() => values["definition-id"]));
+      return { fields: [parameters], value: () => ({ kind: "merged-parameter", parameters: parameters.value() }) };
     });
     case "self": return recordReader<TypeTerm>("self", read => {
       const field_owner = read("owner", lazyReader(() => values["definition-id"]));

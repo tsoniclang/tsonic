@@ -2,6 +2,29 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { primeCaptureReader, propertyRows, loadFrontFixture, observeSourceType, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
+test("the checked source barrier preserves a recursive merged application", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "interface Chain<T>{ next():Chain<string> } interface Chain<T>{flag:boolean} export type Ready=Chain<boolean>;");
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const source = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+  const [first, second] = source.module.tree.statements.nodes;
+  const definitions = [first.tsonic.definition, second.tsonic.definition];
+  const group = checked.value.nominalOf(definitions[0]);
+  assert.equal(group.kind, "merged-interface");
+  assert.equal(group === checked.value.nominalOf(definitions[1]), true);
+  assert.deepEqual(group.definitions, definitions);
+  assert.deepEqual(group.slots.map(slot => slot.parameters),
+    [[first.typeParameters.nodes[0].tsonic.definition, second.typeParameters.nodes[0].tsonic.definition]]);
+  const types = fixture.types.viewTypes(checked.value.types);
+  const recursive = types.terms.filter(row => row.kind === "merged-interface" && row.definitions[0] === definitions[0]);
+  assert.ok(recursive.length > 0);
+  assert.equal(recursive.every(row => types.terms[row.arguments[0]].kind === "string"), true);
+});
+
 test("a mapped index value retains the actual different merged parameter group", async () => {
   const fixture = await loadFrontFixture();
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
@@ -27,6 +50,39 @@ test("a mapped index value retains the actual different merged parameter group",
     assert.deepEqual(row.form.value.declarations, expected);
     assert.notDeepEqual(row.form.value.declarations, own);
     assert.equal(rawComponentPath(types.components, types.components[row.component]).at(-1).kind, "index-value");
+  }
+});
+
+test("the checked symbolic slot verifies against its own declared group, not its receiving interface", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    interface Matrix<Item> { [index: number]: Item; }
+    interface Matrix<Item> { marker: boolean; }
+    interface Holder<Value> { selected: Matrix<Value>; }
+    interface Holder<Value> { other: boolean; }
+  `);
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const source = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+  const [matrix, otherMatrix, holder, otherHolder] = source.module.tree.statements.nodes;
+  const parameters = fragments => fragments.map(fragment => fragment.typeParameters.nodes[0].tsonic.definition);
+  const table = fixture.types.viewTypes(checked.value.types);
+  const position = table.terms.findIndex(row => row.kind === "merged-parameter");
+  assert.ok(position >= 0);
+  assert.deepEqual(table.terms[position], { kind: "merged-parameter", parameters: parameters([holder, otherHolder]) });
+  const verify = nominalOf => fixture.types.verifyTypes({ table, bindings: [], evidence: [], nominalOf,
+    nodeExists: node => checked.value.checked.nodeOf(node) !== null, localExists: checked.value.checked.localExists });
+  const sourceGroup = checked.value.nominalOf(holder.tsonic.definition);
+  assert.equal(sourceGroup === checked.value.nominalOf(otherHolder.tsonic.definition), true);
+  assert.equal(sourceGroup.kind, "merged-interface");
+  const receiver = { kind: "merged-interface", definitions: [matrix, otherMatrix].map(fragment => fragment.tsonic.definition),
+    slots: [{ scope: "local", parameters: parameters([matrix, otherMatrix]) }] };
+  assert.deepEqual(verify(checked.value.nominalOf), []);
+  for (const replacement of [null, receiver]) {
+    const failures = verify(definition => sourceGroup.definitions.includes(definition) ? replacement : checked.value.nominalOf(definition));
+    assert.equal(failures.some(failure => failure.rule === "parameter-identity" && failure.site.type === position), true);
   }
 });
 
@@ -149,12 +205,13 @@ test("a recursively re-entered merged interface retains its changed argument and
   for (const row of recurrences) {
     const form = row.form.value;
     const position = raw.types.components[row.component];
-    assert.deepEqual(form.declarations, [qualified(first), qualified(second)]);
+    assert.equal(raw.types.interfaceGroups[form.group.ordinal] === form.group, true);
+    assert.deepEqual(form.group.declarations, [qualified(first), qualified(second)]);
     assert.equal(form.arguments.length, 1);
     const [argument] = form.arguments;
-    assert.equal(argument.scope, "local");
-    assert.deepEqual(argument.parameters, [qualified(first.typeParameters.nodes[0]), qualified(second.typeParameters.nodes[0])]);
-    const captured = raw.types.types[argument.type];
+    assert.equal(form.group.slots[0].scope, "local");
+    assert.deepEqual(form.group.slots[0].parameters, [qualified(first.typeParameters.nodes[0]), qualified(second.typeParameters.nodes[0])]);
+    const captured = raw.types.types[argument];
     assert.deepEqual(captured.form, { kind: "available", value: { kind: "scalar", scalar: "string" } });
     assert.deepEqual(raw.types.components[captured.component].path,
       { prefix: position.path === null ? null : position.id, step: { kind: "argument-place", index: 0 } });
