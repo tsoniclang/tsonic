@@ -38,6 +38,32 @@ test("a written type literal with no members is a complete empty structural type
   assert.deepEqual(table.terms[alias.type.tsonic.type.value], { kind: "shape", members: [], indexes: [], calls: [], constructs: [] });
 });
 
+test("a declared interface preserves its explicit readonly tuple before omitted native defaults", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    interface Container<Item, Output = number, Input = string> {}
+    export type Ready = Container<readonly [boolean, string]>;
+  `);
+  const result = captureSourceBarrier(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const module = result.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+  const [container, alias] = module.module.tree.statements.nodes;
+  const table = fixture.types.viewTypes(result.value.types);
+  const selected = table.terms[alias.type.tsonic.type.value];
+  assert.equal(selected.kind, "declared");
+  assert.equal(selected.definition, container.tsonic.definition);
+  assert.equal(selected.arguments.length, 3);
+  const [tuple, output, inputType] = selected.arguments.map(value => table.terms[value]);
+  assert.equal(tuple.kind, "tuple");
+  assert.equal(tuple.readonly, true);
+  assert.deepEqual(tuple.elements.map(element => table.terms[element.type]), [
+    { kind: "primitive", primitive: "bool" }, { kind: "string" },
+  ]);
+  assert.deepEqual(output, { kind: "primitive", primitive: "float64" });
+  assert.deepEqual(inputType, { kind: "string" });
+});
+
 test("an original rest formal retains each authored tuple arm and its actual binder", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

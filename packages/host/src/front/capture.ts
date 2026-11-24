@@ -1365,21 +1365,26 @@ function projectedDeclaredArgument(scope: CaptureScope, use: ReceiverProjectionU
 }
 
 function authoredTupleArgument(scope: CaptureScope, type: Type, originalUse: OriginalTypeUse,
-  argument: Type): { readonly authored: Node; readonly selected: Node } | null {
+  argument: Type, ordinal: number): { readonly authored: Node; readonly selected: Node } | null {
   const source = admittedTypeUse(scope, originalUse);
-  const syntax = source === undefined ? undefined : tupleReference(scope, source);
-  if (source === undefined || syntax === undefined || !admit(scope, "edges")) return null;
+  const ast = scope.checked.ast;
+  const reference = ast.kindName(source) === "KindTypeReference" ? ast.as.AsTypeReferenceNode(source) : undefined;
+  const written = reference?.TypeArguments?.Nodes;
+  if (source === undefined || reference?.TypeName === undefined || written === undefined || ordinal >= written.length
+    || !admit(scope, "edges")) return null;
   const target = scope.shape.getTypeReferenceTarget(type);
   const symbol = target === undefined ? undefined : scope.checker.getTypeSymbol(target);
-  if (symbol === undefined || scope.checker.getSymbolAtLocation(syntax.name) !== symbol) return null;
+  if (symbol === undefined || scope.checker.getSymbolAtLocation(reference.TypeName) !== symbol) return null;
   if ("Kind" in originalUse) {
     if (!admit(scope, "edges")) return null;
     const annotation = sourceType(scope, { kind: "annotation", node: source });
     if (annotation?.type !== type || annotation.causes.length !== 0) return null;
   }
   if (!admit(scope, "edges")) return null;
-  const authored = sourceType(scope, { kind: "annotation", node: syntax.argument });
-  return authored?.type === argument && authored.causes.length === 0 ? { authored: syntax.argument, selected: syntax.argument } : null;
+  const node = written[ordinal];
+  if (node === undefined || tupleSyntax(scope, node) === undefined) return null;
+  const authored = sourceType(scope, { kind: "annotation", node });
+  return authored?.type === argument && authored.causes.length === 0 ? { authored: node, selected: node } : null;
 }
 
 function tupleAnnotationOf(scope: CaptureScope, type: Type, annotation: Node | undefined): Node | undefined {
@@ -2402,11 +2407,13 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
         if (shape.getTypeReferenceTarget(type) === bindingUse.nativeTarget) rest = bindingUse;
       }
       const arguments_: RawTypeArgument[] = [];
+      let local = 0;
       for (let index = 0; index < infos.length; index += 1) {
         if (!admit(scope, "edges")) return null;
         const info = infos[index];
         const parameter = parameters[index];
         if (info === undefined || parameter === undefined) return throwInvariant(invariant("An interface's checked arguments must match its actual ordered parameters."));
+        const ordinal = info.scope === "local" ? local++ : null;
         const capturedUse = qualified?.slots.get(info.parameter);
         const receiverSlot = bindingUse?.kind === "receiver" ? bindingUse.slots.get(info.parameter) : undefined;
         const restArgument = restArgumentForSlot(rest, info);
@@ -2414,8 +2421,8 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
           : receiverSlot !== undefined && info.argument === receiverSlot.argument && originalUse !== null
             ? { authored: receiverSlot.source, selected: receiverSlot.source }
             : restArgument !== null && rest !== null ? { authored: rest.element, selected: null }
-            : originalUse !== null && infos.length === 1 && info.scope === "local" && shape.isTuple(info.argument)
-              ? authoredTupleArgument(scope, type, originalUse, info.argument) : null;
+            : originalUse !== null && ordinal !== null && shape.isTuple(info.argument)
+              ? authoredTupleArgument(scope, type, originalUse, info.argument, ordinal) : null;
         if (scope.meter.refusal !== null) return null;
         const explicitTypeNode = sourceUse === null ? null : referenceTo(scope, scope.program, sourceUse.authored);
         if (scope.meter.refusal !== null) return null;
