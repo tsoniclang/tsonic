@@ -453,9 +453,9 @@ for (const nested of ["(Box<T>)", "Identity<Box<T>>", "Box<Identity<T>>"]) {
     const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
       const views = checked.getSourceFileQueries(sourceFile);
       if (sourceFile !== file) return views;
-      return { ...views, checker: { ...checker, getTypeFromTypeNode(node) {
-        if (node === checkpoint) reachedLater = true;
-        return checker.getTypeFromTypeNode(node);
+      return { ...views, checker: { ...checker, acquireSourceType(request, admit) {
+        if (request.kind === "annotation" && request.node === checkpoint) reachedLater = true;
+        return checker.acquireSourceType(request, admit);
       } } };
     } }, OpenedProgram.table(program), set.modules.map(entry =>
       OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
@@ -492,18 +492,20 @@ test("recursive receiver admission preserves the actual source-reader stop befor
   const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
     const views = checked.getSourceFileQueries(sourceFile);
     if (sourceFile !== file) return views;
-    return { ...views, checker: { ...checker, getTypeFromTypeNode(node) {
-      if (node === checkpoint) reachedLater = true;
-      if (node === recursive) {
+    return { ...views, checker: { ...checker, acquireSourceType(request, admit) {
+      if (request.kind === "annotation" && request.node === checkpoint) reachedLater = true;
+      const acquired = checker.acquireSourceType(request, admit);
+      if (request.kind === "annotation" && request.node === recursive && acquired.kind === "complete") {
+        assert.equal(acquired.value.type === receiver, true);
         attempts += 1;
         throw stop;
       }
-      return checker.getTypeFromTypeNode(node);
+      return acquired;
     } } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 66], ["maximumCapturedEdgesPerModule", 71]]) {
+  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 69], ["maximumCapturedEdgesPerModule", 124]]) {
     const captureAt = maximum => fixture.front.captureModule({ ...deps,
       navigationCapture: { ...deps.navigationCapture, [limit]: maximum } }, observed, module);
     primeCaptureReader(captureAt, deps.navigationCapture[limit], stop);
@@ -632,6 +634,7 @@ test("the exact callback evidence limits preserve the actual annotation reader s
   const [exact, later] = members.filter(node => ast.kindName(node) === "KindPropertySignature").map(node => ast.typeNode(node));
   const method = members.find(node => ast.kindName(node) === "KindMethodSignature");
   const syntax = ast.typeNode(ast.parameters(method)[0]);
+  const originalAnnotation = checker.getTypeFromTypeNode(syntax).type;
   const receiver = checker.getTypeFromTypeNode(exact).type;
   const [signature] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "sort").type);
   const optional = typeShape.getSignatureParameterInfos(signature)[0].type;
@@ -643,18 +646,20 @@ test("the exact callback evidence limits preserve the actual annotation reader s
   const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
     const queries = checked.getSourceFileQueries(sourceFile);
     if (sourceFile !== file) return queries;
-    return { ...queries, checker: { ...checker, getTypeFromTypeNode(node) {
-      if (node === syntax) {
+    return { ...queries, checker: { ...checker, acquireSourceType(request, admit) {
+      if (request.kind === "annotation" && request.node === later) readAfter = true;
+      const acquired = checker.acquireSourceType(request, admit);
+      if (request.kind === "annotation" && request.node === syntax && acquired.kind === "complete") {
+        assert.equal(acquired.value.type === originalAnnotation, true);
         reads += 1;
         throw stop;
       }
-      if (node === later) readAfter = true;
-      return checker.getTypeFromTypeNode(node);
+      return acquired;
     } } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 52], ["maximumCapturedEdgesPerModule", 52]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 61], ["maximumCapturedEdgesPerModule", 92]]) {
     const run = cap => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
     primeCaptureReader(run, deps.navigationCapture[limit], stop);
     reads = 0;
@@ -919,13 +924,21 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped callback r
   const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
     const queries = checked.getSourceFileQueries(sourceFile);
     if (sourceFile !== file) return queries;
-    return { ...queries, checker: { ...checker, getReturnTypeOfSignature(signature) {
-      if (signature === original) { originalReads += 1; throw stop; }
-      if (signature === selected) selectedReads += 1;
-      return checker.getReturnTypeOfSignature(signature);
-    }, getTypeFromTypeNode(node) {
-      if (node === result || node === inner || node === checkpoint) readAfter = true;
-      return checker.getTypeFromTypeNode(node);
+    return { ...queries, checker: { ...checker, acquireSourceType(request, admit) {
+      if (request.kind === "annotation" && (request.node === result || request.node === inner || request.node === checkpoint)) readAfter = true;
+      const acquired = checker.acquireSourceType(request, admit);
+      if (request.kind === "signature-return" && acquired.kind === "complete") {
+        if (request.signature === original) {
+          assert.equal(acquired.value.type === argument.parameter, true);
+          originalReads += 1;
+          throw stop;
+        }
+        if (request.signature === selected) {
+          assert.equal(acquired.value.type === argument.argument, true);
+          selectedReads += 1;
+        }
+      }
+      return acquired;
     } } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
@@ -939,7 +952,7 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped callback r
     assert.equal(readAfter, false);
     return;
   }
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 68], ["maximumCapturedEdgesPerModule", 80]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 92], ["maximumCapturedEdgesPerModule", 145]]) {
     primeCaptureReader(cap => run(limit, cap), deps.navigationCapture[limit], stop);
     originalReads = 0;
     selectedReads = 0;

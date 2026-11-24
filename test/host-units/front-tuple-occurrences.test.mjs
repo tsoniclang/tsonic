@@ -1042,7 +1042,7 @@ test("an active inventory key is paid before the next native inventory reader an
       },
     });
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 179], ["maximumCapturedEdgesPerModule", 171]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 209], ["maximumCapturedEdgesPerModule", 435]]) {
     primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
       const result = run({ ...limits, [dimension]: cap });
@@ -1215,7 +1215,7 @@ test("a callable inventory does not fetch the next native signature before its e
       navigationCapture: { ...deps.navigationCapture, maximumCapturedEdgesPerModule } }, observed, module);
   };
   primeCaptureReader(run, deps.navigationCapture.maximumCapturedEdgesPerModule, stop);
-  const secondRowEdge = 46;
+  const secondRowEdge = 193;
   for (let cap = 0; cap < secondRowEdge; cap += 1) {
     const result = run(cap);
     assert.equal(result.kind, "refused", String(cap));
@@ -1269,7 +1269,8 @@ test("type-form classification does not fetch the next native declaration before
     return fixture.front.captureModule({ ...deps,
       navigationCapture: { ...deps.navigationCapture, maximumCapturedEdgesPerModule } }, observed, module);
   };
-  const secondRowEdge = 42;
+  primeCaptureReader(run, deps.navigationCapture.maximumCapturedEdgesPerModule, stop);
+  const secondRowEdge = 189;
   for (let cap = 0; cap < secondRowEdge; cap += 1) {
     const result = run(cap);
     assert.equal(result.kind, "refused", String(cap));
