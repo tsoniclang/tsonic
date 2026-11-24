@@ -650,6 +650,34 @@ test("field constructor and offset preserve their independent actual selector sl
     assert.equal(chapter.module.bodies.some(body => body.owner === arrow.tsonic.definition || body.root === arrow.body), false);
     assert.equal(arrow.parameters.nodes[0].tsonic.declaration.kind, "definition");
   }
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { printTir, parseTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const typedChapter = typed.value.modules.get(input.snapshot.entryPoint);
+  const body = typedChapter.bodies.find(candidate => candidate.bindings.kind === "parametric" &&
+    candidate.root.kind === "CallExpression" && candidate.root.tsonic.layout === "field-offset");
+  const original = chapter.nodes[body.root.id];
+  const args = body.root.arguments;
+  assert.equal(args.kind, "field-offset-quote");
+  assert.equal(args.layout.id, original.arguments.nodes[0].id);
+  assert.equal(args.selector === original.arguments.nodes[1], true);
+  const wire = printTir(body);
+  const roundtrip = parseTir(wire);
+  assert.equal(roundtrip.kind, "parsed", JSON.stringify(roundtrip.diagnostics));
+  assert.equal(printTir(roundtrip.value), wire);
+  const crossedPhase = wire.replace(/selector=c:(\d+)/u, "selector=n:$1");
+  assert.notEqual(crossedPhase, wire);
+  assert.equal(parseTir(crossedPhase).kind, "invalid-text");
+  const expected = typed.value.verifierOf(typedChapter.module);
+  const other = selectors.find(selector => selector !== args.selector);
+  const crossedBody = { ...body, root: { ...body.root, arguments: { ...args, selector: other } } };
+  const tested = verifyTir(expected, tirReadyReadAdmission(createAccount(input.limits.dataflow)))(crossedBody);
+  assert.equal(tested.kind, "complete");
+  assert.equal(tested.violations.some(row => row.rule === "node-reference" &&
+    row.detail.some(detail => detail.value === "a field-offset selector must retain its exact nonexecuting checked occurrence")), true);
   const text = fixture.hir.printHir(chapter.module);
   const parsed = fixture.hir.parseHir(text);
   assert.equal(parsed.kind, "parsed", JSON.stringify(parsed.diagnostics));
@@ -669,6 +697,10 @@ test("field constructor and offset preserve their independent actual selector sl
   const selectorFinding = finding => finding.rule === "node-reference"
     && finding.detail.some(detail => detail.value === "a layout selector retains its actual call, formal and checked storage selection");
   assert.equal(fixture.hir.verifyHir(parsed.value, context).some(selectorFinding), false);
+  const member = decodedField.tsonic.member;
+  decodedField.tsonic.member = { ...member, selectedDeclarations: [] };
+  assert.equal(fixture.hir.verifyHir(parsed.value, context).filter(selectorFinding).length, 1);
+  decodedField.tsonic.member = member;
   decodedField.tsonic.formal = decodedOffset.tsonic.formal;
   assert.equal(fixture.hir.verifyHir(parsed.value, context).filter(selectorFinding).length, 1);
   const invalid = capture(create(`${prefix}
@@ -691,6 +723,45 @@ test("field constructor and offset preserve their independent actual selector sl
   assert.equal(missing.diagnostics.some(row => row.code.rendered === "TS2339"), true);
   assert.equal(missing.diagnostics.some(row => row.code.rendered === "TSONIC_LAYOUT_DESCRIPTOR_SYNTAX"
     && row.message.includes("actual checked stored member")), true);
+});
+
+test("field offsets follow the actual containing layout and publish the selected qualified field", async () => {
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { printModuleBodies, parseModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
+  const { create } = layoutInput(await loadFrontFixture());
+  const source = (fields, selected) => `interface Header { tag: boolean; payload: boolean }
+    const word = make<boolean>({ datalayout: Abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+    const tag = field<Header, boolean>({ select: (value: Header) => value.tag, fieldlayout: word, byteoffset: 0, bytealignment: 8 });
+    const payload = field<Header, boolean>({ select: (value: Header) => value.payload, fieldlayout: word, byteoffset: 8, bytealignment: 8 });
+    const header = make<Header>({ datalayout: Abi, bytesize: 16, bytealignment: 8, stride: 16, fields: [${fields}] });
+    export const result = offset<Header, boolean>(header, (record: Header) => record.${selected});`;
+  const input = create(source("tag, payload", "payload"));
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const module = modules.find(row => row.module === input.snapshot.entryPoint);
+  const [row] = module.bodies.flatMap(body => body.observations?.rows ?? []);
+  assert.equal(row.operation, "field-offset");
+  assert.equal(row.value, 8n);
+  assert.notEqual(row.field.metadata.definition, row.layout.metadata.definition);
+  const wire = printModuleBodies(index, module);
+  const decoded = parseModuleBodies(index, wire);
+  assert.equal(decoded.kind, "parsed", JSON.stringify(decoded.diagnostics));
+  assert.equal(printModuleBodies(index, decoded.value), wire);
+  const missing = analyzeHostProgram(create(source("tag", "payload")));
+  assert.equal(missing.kind, "refused");
+  assert.equal(missing.diagnostics.some(row => row.source === "metadata"
+    && row.message === "The checked field selection does not belong to its actual containing value layout."), true);
+  const opposite = analyzeHostProgram(create(source("tag, payload", "tag")));
+  assert.equal(opposite.kind, "ok", JSON.stringify(opposite.diagnostics));
+  const [other] = opposite.value.modules.flatMap(chapter => chapter.bodies.flatMap(body => body.observations?.rows ?? []));
+  assert.equal(other.value, 0n);
+  assert.notEqual(other.field.metadata.definition, row.field.metadata.definition);
+  const ambiguous = analyzeHostProgram(create(source("payload, payload", "payload")));
+  assert.equal(ambiguous.kind, "refused");
+  assert.equal(ambiguous.diagnostics.some(row => row.source === "metadata"
+    && row.message === "A field offset cannot select more than one authored field descriptor."), true);
 });
 
 test("selected native layout geometry reaches verified Program through the real constant and observation demands", async () => {

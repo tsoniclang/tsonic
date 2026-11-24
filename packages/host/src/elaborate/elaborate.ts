@@ -1075,7 +1075,14 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           const layout = checkedLayoutRoleOf(node);
           const construction = checkedLayoutConstructionOf(node);
           let arguments_: TirCallArguments;
-          if (construction === null) {
+          if (layout === "field-offset") {
+            const operand = node.arguments.nodes[0];
+            const selector = node.arguments.nodes[1];
+            if (node.arguments.nodes.length !== 2 || operand === undefined || selector?.kind !== "ArrowFunction"
+              || !("role" in selector.tsonic) || selector.tsonic.call.body !== body.body || selector.tsonic.call.node !== node.id)
+              return callerDefect("a field offset requires its actual selected layout operand and checked selector", node.origin);
+            arguments_ = { kind: "field-offset-quote", loc: node.arguments.loc, layout: expressionOf(operand), selector };
+          } else if (construction === null) {
             arguments_ = { loc: node.arguments.loc, nodes: node.arguments.nodes.map(expressionOf) };
           } else {
             const descriptor = node.arguments.nodes[0];
@@ -1112,7 +1119,11 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
             tsonic: layout === null ? { ...valueOf(position, result, node.origin), operation: null, application: selected }
               : { ...valueOf(position, result, node.origin), layout, application: selected } };
         } else {
-          if (checkedLayoutConstructionOf(node) === null) visitList(node.arguments.nodes, node.origin);
+          if (checkedLayoutRoleOf(node) === "field-offset") {
+            const operand = node.arguments.nodes[0];
+            if (operand === undefined) return callerDefect("a field offset requires its actual layout operand", node.origin);
+            visit(operand);
+          } else if (checkedLayoutConstructionOf(node) === null) visitList(node.arguments.nodes, node.origin);
           visit(node.expression);
         }
         return;

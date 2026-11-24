@@ -3,7 +3,7 @@ import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { Block, CapturedFact, CheckedPhase, CheckedUnopenedDeclaration, DeclarationTarget, Expression, FunctionDeclaration, FunctionDeclarationHeader, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, NodeList, NonFunctionStatement, ParameterDeclaration, Phase, SourceFile, SourceFileHeader, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { LayoutCallRole, ObjectLiteralExpression, TextRange } from "../ir-hir/contract.js";
+import type { ArrowFunction, LayoutCallRole, ObjectLiteralExpression, TextRange } from "../ir-hir/contract.js";
 
 export interface TypedOperation {
   readonly decision: OperationDecision;
@@ -227,7 +227,14 @@ export interface TirLayoutArguments {
   readonly operands: readonly TirLayoutOperand[];
 }
 
-export type TirCallArguments = NodeList<Expression<TypedPhase>> | TirLayoutArguments;
+export interface TirFieldOffsetArguments {
+  readonly kind: "field-offset-quote";
+  readonly loc: TextRange;
+  readonly layout: Expression<TypedPhase>;
+  readonly selector: ArrowFunction<CheckedPhase>;
+}
+
+export type TirCallArguments = NodeList<Expression<TypedPhase>> | TirLayoutArguments | TirFieldOffsetArguments;
 
 export type LayoutBindingOf = (initializer: Expression<TypedPhase> | null) => TypedLayoutApplication | null;
 export type LayoutObservationOf = (node: TirSyntaxOccurrence) => TypedLayoutApplication | null;
@@ -689,6 +696,10 @@ export interface TirFormalInitializerSlot {
 export type TirLayoutArgumentSlot =
   | { readonly kind: "layout-descriptor"; readonly fields: readonly (string | number)[];
       readonly read: () => ObjectLiteralExpression<CheckedPhase> }
+  | { readonly kind: "field-selector"; readonly fields: readonly (string | number)[];
+      readonly read: () => ArrowFunction<CheckedPhase> }
+  | { readonly kind: "field-layout"; readonly fields: readonly (string | number)[];
+      readonly read: () => Expression<TypedPhase> }
   | { readonly kind: "layout-operand"; readonly fields: readonly (string | number)[]; readonly read: () => TirLayoutOperand };
 
 export type TirChapterSyntaxSlot =
@@ -696,7 +707,7 @@ export type TirChapterSyntaxSlot =
   | { readonly kind: "statement"; readonly fields: readonly (string | number)[]; readonly read: () => TirModuleStatement }
   | TirFormalInitializerSlot | TirLayoutArgumentSlot;
 
-export type LayoutArgumentSlots = (arguments_: TirLayoutArguments) => Iterable<TirLayoutArgumentSlot>;
+export type LayoutArgumentSlots = (arguments_: TirLayoutArguments | TirFieldOffsetArguments) => Iterable<TirLayoutArgumentSlot>;
 export type ChapterSyntaxSlots = (subject: TirTypedSyntax) => Iterable<TirChapterSyntaxSlot>;
 export type IsLayoutOperandBody = (body: BodyId) => boolean;
 export type ReadChapterSyntaxSlot = (slot: TirChapterSyntaxSlot) => TirChapterSyntax | null;

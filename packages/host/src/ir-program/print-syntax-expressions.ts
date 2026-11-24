@@ -234,11 +234,13 @@ export function printCallExpression(node: CallExpression<TypedPhase>, context: S
     field("expression", context.reference(node.expression)),
     field("questionDotToken", (node.questionDotToken === null ? token("null") : context.reference(node.questionDotToken))),
     field("typeArguments", (node.typeArguments === null ? token("null") : textNodeList(node.typeArguments, context))),
-    field("arguments", "kind" in args ? record(args.kind, [
+    field("arguments", !("kind" in args) ? textNodeList(args, context) : args.kind === "field-offset-quote" ? record(args.kind, [
+      field("loc", textRange(args.loc)), field("layout", context.reference(args.layout)), field("selector", context.checked(args.selector)),
+    ]) : record(args.kind, [
       field("loc", textRange(args.loc)), field("descriptor", context.checked(args.descriptor)),
       field("operands", sequence(args.operands, operand => record("TirLayoutOperand",
         [field("source", textNodeRef(operand.source)), field("root", context.reference(operand.root))]))),
-    ]) : textNodeList(args, context)),
+    ])),
     field("tsonic", "role" in node.tsonic ? textNameExpression(node.tsonic) : textTypedApplication(node.tsonic)),
   ]);
 }

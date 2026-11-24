@@ -43,11 +43,6 @@ export function createReadGroup5(readers: () => HirTextReaders): HirReadGroup5 {
       const field_bindings = read("bindings", unionReader<Hir.CapturedFact<Types.BindingVector>>(() => [readers().record_17, readers().record_10]));
       const field_source = read("source", unionReader<Hir.CapturedFact<Ids.TyId>>(() => [readers().record_9, readers().record_10]));
       const field_selector = read("selector", unionReader<Ids.SourceNodeRef>(() => [readers().record_5, readers().record_7]));
-      const field_selection = read("selection", unionReader<Hir.CapturedFact<Ids.SourceNodeRef>>(() => [readers().record_159, readers().record_10]));
-      const field_key = read("key", unionReader<Hir.CapturedFact<Types.MemberKey>>(() => [readers().record_160, readers().record_10]));
-      const field_origins = read("origins", unionReader<Hir.CapturedFact<readonly Types.MemberOrigin[]>>(() => [readers().record_161, readers().record_10]));
-      const field_selectedDeclarations = read("selectedDeclarations", unionReader<Hir.CapturedFact<readonly Ids.DefId[]>>(() => [readers().record_162, readers().record_10]));
-      const field_primary = read("primary", unionReader<Hir.CapturedFact<Ids.DefId | null>>(() => [readers().record_85, readers().record_10]));
       const field_value = read("value", unionReader<Hir.CapturedFact<Ids.TyId>>(() => [readers().record_9, readers().record_10]));
       const field_fieldLayoutExpression = read("fieldLayoutExpression", unionReader<Ids.SourceNodeRef | null>(() => [readers().scalar_null, readers().record_5, readers().record_7]));
       const field_fieldLayout = read("fieldLayout", unionReader<Hir.CapturedFact<Ids.SourceNodeRef>>(() => [readers().record_159, readers().record_10]));
@@ -55,7 +50,7 @@ export function createReadGroup5(readers: () => HirTextReaders): HirReadGroup5 {
       const field_byteOffset = read("byteOffset", unionReader<Hir.CapturedFact<bigint>>(() => [readers().record_163, readers().record_10]));
       const field_byteAlignmentExpression = read("byteAlignmentExpression", unionReader<Ids.SourceNodeRef | null>(() => [readers().scalar_null, readers().record_5, readers().record_7]));
       const field_byteAlignment = read("byteAlignment", unionReader<Hir.CapturedFact<bigint>>(() => [readers().record_163, readers().record_10]));
-      return { fields: [field_occurrence, field_bindings, field_source, field_selector, field_selection, field_key, field_origins, field_selectedDeclarations, field_primary, field_value, field_fieldLayoutExpression, field_fieldLayout, field_byteOffsetExpression, field_byteOffset, field_byteAlignmentExpression, field_byteAlignment], value: () => ({ kind: "field", occurrence: field_occurrence.value(), bindings: field_bindings.value(), source: field_source.value(), selector: field_selector.value(), selection: field_selection.value(), key: field_key.value(), origins: field_origins.value(), selectedDeclarations: field_selectedDeclarations.value(), primary: field_primary.value(), value: field_value.value(), fieldLayoutExpression: field_fieldLayoutExpression.value(), fieldLayout: field_fieldLayout.value(), byteOffsetExpression: field_byteOffsetExpression.value(), byteOffset: field_byteOffset.value(), byteAlignmentExpression: field_byteAlignmentExpression.value(), byteAlignment: field_byteAlignment.value() }) };
+      return { fields: [field_occurrence, field_bindings, field_source, field_selector, field_value, field_fieldLayoutExpression, field_fieldLayout, field_byteOffsetExpression, field_byteOffset, field_byteAlignmentExpression, field_byteAlignment], value: () => ({ kind: "field", occurrence: field_occurrence.value(), bindings: field_bindings.value(), source: field_source.value(), selector: field_selector.value(), value: field_value.value(), fieldLayoutExpression: field_fieldLayoutExpression.value(), fieldLayout: field_fieldLayout.value(), byteOffsetExpression: field_byteOffsetExpression.value(), byteOffset: field_byteOffset.value(), byteAlignmentExpression: field_byteAlignmentExpression.value(), byteAlignment: field_byteAlignment.value() }) };
     });
   const record_159 = recordReader<{ readonly kind: "available"; readonly value: Ids.SourceNodeRef; }>("available", read => {
       const field_value = read("value", unionReader<Ids.SourceNodeRef>(() => [readers().record_5, readers().record_7]));
@@ -67,10 +62,6 @@ export function createReadGroup5(readers: () => HirTextReaders): HirReadGroup5 {
     });
   const record_161 = recordReader<{ readonly kind: "available"; readonly value: readonly Types.MemberOrigin[]; }>("available", read => {
       const field_value = read("value", sequenceReader(unionReader<Types.MemberOrigin>(() => [readers().record_58, readers().record_59, readers().intrinsicMemberOrigin, readers().sourceMemberOrigin, readers().record_60])));
-      return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
-    });
-  const record_162 = recordReader<{ readonly kind: "available"; readonly value: readonly Ids.DefId[]; }>("available", read => {
-      const field_value = read("value", sequenceReader(readers().identity_def));
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
   const record_163 = recordReader<{ readonly kind: "available"; readonly value: bigint; }>("available", read => {
@@ -178,5 +169,5 @@ export function createReadGroup5(readers: () => HirTextReaders): HirReadGroup5 {
       const field_nodes = read("nodes", sequenceReader(readers().syntax_4));
       return { fields: [field_loc, field_nodes], value: () => ({ loc: field_loc.value(), nodes: field_nodes.value() }) };
     });
-  return { record_150, record_151, record_153, record_154, record_155, record_156, record_157, record_158, record_159, record_160, record_161, record_162, record_163, record_164, record_165, record_166, record_167, record_168, record_169, record_170, record_171, record_172, record_173, record_174, record_175, record_176, record_177, record_178, record_179 };
+  return { record_150, record_151, record_153, record_154, record_155, record_156, record_157, record_158, record_159, record_160, record_161, record_163, record_164, record_165, record_166, record_167, record_168, record_169, record_170, record_171, record_172, record_173, record_174, record_175, record_176, record_177, record_178, record_179 };
 }

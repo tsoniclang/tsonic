@@ -1,6 +1,6 @@
 import type { Identifier, CaseBlock, CatchClause, Block, VariableDeclaration, VariableDeclarationList, ParameterDeclaration, BindingElement, HeritageClause, EnumMember, ExportSpecifier, TemplateSpan, ExpressionWithTypeArguments, ImportAttribute, ImportAttributes, TemplateHead, TemplateLiteralTypeSpan, JsxAttributes, JsxOpeningElement, JsxOpeningFragment, JsxClosingFragment, JsxClosingElement, SourceFile, ImportClause, ImportSpecifier, TypeParameterDeclaration, EntityName, Expression, LeftHandSideExpression, Statement, ForInitializer, CaseOrDefaultClause, BindingName, TypeNode, PropertyName, BlockOrExpression, ClassElement, TypeElement, ModuleExportName, MemberName, TemplateMiddleOrTail, TemplateLiteral, ObjectLiteralElementLike, LiteralTypeChild, TypePredicateParameterName, ImportAttributeName, JsxChild, JsxAttributeLike, JsxTagNameExpression, JsxAttributeName, JsxAttributeValue, JSDocComment, JSDocTag, JSDocFullName, NodeBody, ModuleName, ModuleReference, NamedExportBindings, NamedImportBindings, ModifierLike, BodyRoot, AwaitKeyword, ExclamationToken, DotDotDotToken, QuestionToken, AsteriskToken, BinaryOperatorToken, EqualsGreaterThanToken, ColonToken, QuestionDotToken, EqualsToken, AssertsKeyword, ReadonlyKeyword, PlusToken, MinusToken, EndOfFile, SyntaxNode, NodeHeader, NodeList, SyntaxFlag, TextRange } from "../ir-hir/contract.js";
 import type { TirBodyRoot, TirCallArguments, TirFormal, TirFormalInitializer, TirLayoutOperand, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedPhase } from "../ir-tir/contract.js";
-import type { ObjectLiteralExpression } from "../ir-hir/contract.js";
+import type { ArrowFunction, ObjectLiteralExpression } from "../ir-hir/contract.js";
 import type { TextParseResult } from "../diag/contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
@@ -59,6 +59,7 @@ export interface ChapterReadPorts {
 
 export interface SyntaxReadPorts {
   readonly layoutDescriptor: CheckedSyntaxPort<ObjectLiteralExpression<CheckedPhase>>;
+  readonly layoutSelector: CheckedSyntaxPort<ArrowFunction<CheckedPhase>>;
   readonly Identifier: SyntaxPort<Identifier<TypedPhase>>;
   readonly CaseBlock: SyntaxPort<CaseBlock<TypedPhase>>;
   readonly CatchClause: SyntaxPort<CatchClause<TypedPhase>>;
@@ -318,12 +319,17 @@ export function readCallArgumentList<Root>(cursor: Cursor, ports: SyntaxReadPort
       fieldText<NodeRef, Output>(next, fields, "source", (entry, accept) => atomicText(entry, readNodeRef, accept), source =>
         fieldText<SyntaxValue<Expression<TypedPhase>>, Output>(next, fields, "root", expression, root =>
           finishSyntaxRecord(next, fields, mapSyntaxValue(root, actual => ({ source, root: actual })), done))));
-  return atomicText(cursor, next => choice(next, ["NodeList", "layout-quote"]), kind =>
+  return atomicText(cursor, next => choice(next, ["NodeList", "layout-quote", "field-offset-quote"]), kind =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set() };
       if (kind === "NodeList") return readSyntaxListFields(cursor, fields, expression, finish);
       return fieldText<TextRange, Root>(cursor, fields, "loc", (next, done) => atomicText(next, readTextRange, done), loc =>
-        fieldText<SyntaxValue<ObjectLiteralExpression<CheckedPhase>>, Root>(cursor, fields, "descriptor",
+        kind === "field-offset-quote"
+          ? fieldText<SyntaxValue<Expression<TypedPhase>>, Root>(cursor, fields, "layout", expression, layout =>
+            fieldText<SyntaxValue<ArrowFunction<CheckedPhase>>, Root>(cursor, fields, "selector",
+              (next, done) => readCheckedReference(next, ports.layoutSelector, done), selector =>
+                finishSyntaxRecord(cursor, fields, { resolve: () => ({ kind, loc, layout: layout.resolve(), selector: selector.resolve() }) }, finish)))
+          : fieldText<SyntaxValue<ObjectLiteralExpression<CheckedPhase>>, Root>(cursor, fields, "descriptor",
           (next, done) => readCheckedReference(next, ports.layoutDescriptor, done), descriptor =>
             fieldText<SyntaxValue<readonly TirLayoutOperand[]>, Root>(cursor, fields, "operands",
               (next, done) => readSyntaxArray(next, operand, done), operands =>

@@ -122,9 +122,11 @@ export function admitStorageIdentity(member: MemberStorageSelection, account: Da
   if (initial !== null) return initial;
   const key = admitMemberKey(member.key, account);
   if (key !== null) return key;
-  for (const origin of member.origins) {
+  const origins = member.origins;
+  for (let index = 0; index < origins.length; index += 1) {
     const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
     if (step !== null) return step;
+    const origin = origins[index];
     if (origin === undefined) continue;
     const stop = origin.kind === "declared" ? chargeWork(account, origin.declaration.length)
       : origin.kind === "class-prototype" ? chargeWork(account, origin.owner.length)
@@ -134,8 +136,12 @@ export function admitStorageIdentity(member: MemberStorageSelection, account: Da
               ?? admitMemberKey(origin.key, account);
     if (stop !== null) return stop;
   }
-  for (const declaration of member.selectedDeclarations) {
-    const stop = chargeWork(account, 1 + (declaration?.length ?? 0)) ?? chargeResultEntries(account, 1);
+  const declarations = member.selectedDeclarations;
+  for (let index = 0; index < declarations.length; index += 1) {
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    const declaration = declarations[index];
+    const stop = chargeWork(account, declaration?.length ?? 0) ?? chargeResultEntries(account, 1);
     if (stop !== null) return stop;
   }
   return admitBindingIdentity(member.bindings, account) ?? chargeWork(account, member.primary?.length ?? 0);

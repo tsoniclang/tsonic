@@ -87,8 +87,7 @@ function construct(deps: LayoutProjectionDeps, selected: RawConstruction): Conve
       ? { kind: "complete", value: unavailable } : deps.typeOf(valueArgument.argument);
     if (value.kind !== "complete") return value;
     return { kind: "complete", value: { observation: absent, memory: available({
-      kind: "field", occurrence: site, bindings: unavailable, source: type.value, selector: qualify(selected.selector), selection: unavailable,
-      key: unavailable, origins: unavailable, selectedDeclarations: unavailable, primary: unavailable, value: value.value,
+      kind: "field", occurrence: site, bindings: unavailable, source: type.value, selector: qualify(selected.selector), value: value.value,
       fieldLayoutExpression: qualify(selected.fieldLayout), fieldLayout: unavailable, byteOffsetExpression: qualify(selected.byteOffset), byteOffset: unavailable,
       byteAlignmentExpression: qualify(selected.byteAlignment), byteAlignment: unavailable,
     }) } };

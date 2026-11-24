@@ -192,8 +192,7 @@ export function createHirSchema(): HirSchema {
         ["runtimeBase", captured(hirLiteral("number", "bigint"))], ["elementExpression", hirNullable(sourceReference)], ["element", captured(sourceReference)]]],
     ], layoutCommon),
     HirMemoryFieldCapture: hirVariant("field", [["occurrence", sourceReference], ["bindings", captured("BindingVector")],
-      ["source", captured("TyId")], ["selector", sourceReference], ["selection", captured(sourceReference)], ["key", captured("MemberKey")],
-      ["origins", captured(hirArray("MemberOrigin"))], ["selectedDeclarations", captured(hirArray("DefId"))], ["primary", captured(hirNullable("DefId"))],
+      ["source", captured("TyId")], ["selector", sourceReference],
       ["value", captured("TyId")], ["fieldLayoutExpression", hirNullable(sourceReference)], ["fieldLayout", captured(sourceReference)],
       ["byteOffsetExpression", hirNullable(sourceReference)], ["byteOffset", captured("bigint")],
       ["byteAlignmentExpression", hirNullable(sourceReference)], ["byteAlignment", captured("bigint")]]),
@@ -674,9 +673,6 @@ export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCa
         capture.occurrence.value.owner !== capture.declaration.value || metadata.core.provider.kind !== "available" ||
         metadata.core.provider.value !== capture.declaration.value))
         report("memory-capture-owner", site, "a platform layout must retain its own canonical provider declaration");
-      if (capture.kind === "field" && capture.primary.kind === "available" && capture.primary.value !== null &&
-        capture.selectedDeclarations.kind === "available" && !capture.selectedDeclarations.value.includes(capture.primary.value))
-        report("memory-capture-reference", site, "primary field declaration must belong to its selected declaration group");
     }
     const observation = "observation" in value ? value.observation : null;
     if (observation !== null && observation.kind === "available" && observation.value !== null) {

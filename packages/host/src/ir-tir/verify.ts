@@ -2,7 +2,7 @@ import type { BodyId, CandidateListId, DefId, ItemNodeRef, NodeId, SourceNodeRef
 import { encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
-import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedMemberStorageOf,
+import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf,
   checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
   readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
@@ -660,9 +660,29 @@ function verifyLayoutArguments<Stop extends object>(node: CallExpression<TypedPh
 ): Stop | null {
   const capture = original?.kind === "CallExpression" ? checkedLayoutConstructionOf(original) : null;
   const args = node.arguments;
-  if ((capture !== null) !== ("kind" in args))
+  if (original?.kind === "CallExpression" && checkedLayoutRoleOf(original) === "field-offset") {
+    if (!("kind" in args) || args.kind !== "field-offset-quote") {
+      emit("kind-children-shape", node, "a field-offset quotation must retain its layout and nonexecuting checked selector");
+      return null;
+    }
+    const stopped = admit({ kind: "row" });
+    if (stopped !== null) return stopped;
+    const layout = args.layout;
+    const checkedLayout = original.arguments.nodes[0];
+    if (checkedLayout === undefined || layout.id !== checkedLayout.id)
+      emit("node-reference", node, "a field-offset layout must retain its exact checked operand occurrence");
+    const selectorRead = admit({ kind: "row" });
+    if (selectorRead !== null) return selectorRead;
+    const selector = args.selector;
+    if (selector !== original.arguments.nodes[1] || !("role" in selector.tsonic) || selector.tsonic.role !== "layout-selector" ||
+      selector.tsonic.call.body !== body.body || selector.tsonic.call.node !== original.id)
+      emit("node-reference", node, "a field-offset selector must retain its exact nonexecuting checked occurrence");
+    return null;
+  }
+  if ((capture !== null) !== ("kind" in args && args.kind === "layout-quote") ||
+    ("kind" in args && args.kind === "field-offset-quote"))
     emit("kind-children-shape", node, "a layout quotation belongs only to its actual checked construction");
-  if (capture === null || !("kind" in args)) return null;
+  if (capture === null || !("kind" in args) || args.kind !== "layout-quote") return null;
   const expected = checkedLayoutGeometryOperands(capture);
   if (args.operands.length !== expected.length || expected.length !== (capture.kind === "field" ? 2 : capture.kind === "array" ? 4 : 3)) {
     emit("kind-children-shape", node, "a layout quote must retain its complete checked geometry operand inventory");

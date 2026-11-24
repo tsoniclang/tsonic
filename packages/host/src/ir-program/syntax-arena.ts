@@ -4,7 +4,7 @@ import { admitFormalInitializer, chapterStatementSyntax, chapterSyntaxSlots, for
   layoutArgumentSlots, readChapterSyntaxSlot } from "../ir-tir/index.js";
 import type { ModuleBodies } from "./contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
-import type { ApplicationSyntaxReceipt, CheckedPhase, CheckedUnopenedDeclaration, Expression, HirNode, ObjectLiteralExpression,
+import type { ApplicationSyntaxReceipt, ArrowFunction, CheckedPhase, CheckedUnopenedDeclaration, Expression, HirNode, ObjectLiteralExpression,
   ParameterSyntaxReceipt, RetainedSyntaxNode, SourceFile, SyntaxChildSlot, SyntaxCopyResult, SyntaxExpressionImage,
   SyntaxImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy, SyntaxStructureReceipt } from "../ir-hir/contract.js";
 import { prepareSyntaxArgumentList, prepareSyntaxCopy } from "../ir-hir/index.js";
@@ -127,12 +127,28 @@ function retainCallArguments(header: ApplicationSyntaxReceipt<TypedPhase>, argum
   }
   const layout = argumentList;
   const loc = layout.loc;
+  if (layout.kind === "field-offset-quote") {
+    const source = layout;
+    let operand: Expression<TypedPhase> | undefined;
+    let selector: ArrowFunction<CheckedPhase> | undefined;
+    function* slots(): Generator<TirChapterSyntaxSlot> {
+      for (const slot of layoutArgumentSlots(source)) {
+        if (slot.kind === "field-layout") yield { ...slot, read: () => (operand = slot.read()) };
+        else if (slot.kind === "field-selector") yield { ...slot, read: () => (selector = slot.read()) };
+      }
+    }
+    return { kind: "call", ordinal: header.ordinal, header, slots: slots(), copy: (typed, checked) => {
+      const mapped = checked(requirePresent(selector, missingParameter));
+      if (mapped.kind !== "ArrowFunction") return throwInvariant(missingParameter);
+      return { kind: "field-offset-quote", loc, layout: typed(requirePresent(operand, missingParameter)), selector: mapped };
+    } };
+  }
   let descriptor: ObjectLiteralExpression<CheckedPhase> | undefined;
   const operands: (Pick<TirLayoutOperand, "source"> & { root: Expression<TypedPhase> })[] = [];
   function* slots(): Generator<TirChapterSyntaxSlot> {
     for (const slot of layoutArgumentSlots(layout)) {
       if (slot.kind === "layout-descriptor") yield { ...slot, read: () => (descriptor = slot.read()) };
-      else yield { ...slot, read: () => {
+      else if (slot.kind === "layout-operand") yield { ...slot, read: () => {
         const { source, root } = slot.read();
         const operand = { source, root };
         operands.push(operand);

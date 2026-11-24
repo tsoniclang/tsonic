@@ -95,10 +95,9 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
             kind: "array", occurrence: row.occurrence, bindings, geometry: ready, extentExpression: row.extentExpression,
             length: row.length, runtimeBase: row.runtimeBase, elementExpression: row.elementExpression, element: row.element,
           }))));
-        case "field": return admit(16, 1, () => following(captured(row.bindings, project.bindings), bindings =>
+        case "field": return admit(11, 1, () => following(captured(row.bindings, project.bindings), bindings =>
           following(captured(row.source, project.type), source => following(captured(row.value, project.type), value => copied({
-            kind: "field", occurrence: row.occurrence, bindings, source, selector: row.selector, selection: row.selection,
-            key: row.key, origins: row.origins, selectedDeclarations: row.selectedDeclarations, primary: row.primary, value,
+            kind: "field", occurrence: row.occurrence, bindings, source, selector: row.selector, value,
             fieldLayoutExpression: row.fieldLayoutExpression, fieldLayout: row.fieldLayout,
             byteOffsetExpression: row.byteOffsetExpression, byteOffset: row.byteOffset,
             byteAlignmentExpression: row.byteAlignmentExpression, byteAlignment: row.byteAlignment,

@@ -47,10 +47,12 @@ export function sameBlock(left: Hir.Block<Hir.Phase>, right: Hir.Block<Hir.Phase
 
 export function sameCallExpression(left: Hir.CallExpression<TypedPhase>, right: Hir.CallExpression<Hir.CheckedPhase>): boolean {
   const args = left.arguments;
-  const sameArguments = "kind" in args
-    ? right.arguments.nodes.length === 1 && args.descriptor === right.arguments.nodes[0] &&
-      sameTextRange1(args.loc, right.arguments.loc)
-    : sameNodeList(args, right.arguments);
+  const original = right.arguments;
+  const sameArguments = !("kind" in args) ? sameNodeList(args, original)
+    : sameTextRange1(args.loc, original.loc) && (args.kind === "layout-quote"
+      ? original.nodes.length === 1 && args.descriptor === original.nodes[0]
+      : original.nodes.length === 2 && original.nodes[0] !== undefined &&
+        sameNodeKind(args.layout, original.nodes[0]) && args.selector === original.nodes[1]);
   return sameNodeKind(left.expression, right.expression) &&
     ((left.questionDotToken === null) === (right.questionDotToken === null)) &&
     (left.typeArguments === null ? right.typeArguments === null : right.typeArguments !== null && sameNodeList(left.typeArguments, right.typeArguments)) &&

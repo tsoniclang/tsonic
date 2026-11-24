@@ -295,10 +295,7 @@ function memoryData(value: Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCaptur
       fieldData("runtimeBase", capturedData(value.runtimeBase, scalarData)), fieldData("elementExpression", nullableData(value.elementExpression, sourceRefData)),
       fieldData("element", capturedData(value.element, sourceRefData))]);
     case "field": return recordData(value.kind, value, () => [...memoryFields(value), fieldData("source", capturedData(value.source, typeData)),
-      fieldData("selector", sourceRefData(value.selector)), fieldData("selection", capturedData(value.selection, sourceRefData)),
-      fieldData("key", capturedData(value.key, memberKeyData)), fieldData("origins", capturedData(value.origins, refs => arrayData(refs, memberOriginData))),
-      fieldData("selectedDeclarations", capturedData(value.selectedDeclarations, refs => arrayData(refs, definitionData))),
-      fieldData("primary", capturedData(value.primary, slot => nullableData(slot, definitionData))), fieldData("value", capturedData(value.value, typeData)),
+      fieldData("selector", sourceRefData(value.selector)), fieldData("value", capturedData(value.value, typeData)),
       fieldData("fieldLayoutExpression", nullableData(value.fieldLayoutExpression, sourceRefData)), fieldData("fieldLayout", capturedData(value.fieldLayout, sourceRefData)),
       fieldData("byteOffsetExpression", nullableData(value.byteOffsetExpression, sourceRefData)), fieldData("byteOffset", capturedData(value.byteOffset, scalarData)),
       fieldData("byteAlignmentExpression", nullableData(value.byteAlignmentExpression, sourceRefData)), fieldData("byteAlignment", capturedData(value.byteAlignment, scalarData))]);

@@ -4,12 +4,12 @@ import type { ErrorValue, Result, UnitRef, UnitRequest, UnitResult } from "../di
 import { hostDiagnosticCode, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { NodeRef, Origin, SourceNodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { CheckedLayoutSource, HirObservationCapture } from "../ir-hir/contract.js";
+import type { CheckedFieldSelector, CheckedLayoutSource, HirMemoryFieldCapture, HirObservationCapture } from "../ir-hir/contract.js";
 import { resolveCheckedLayout } from "../ir-hir/index.js";
 import type { MetadataKey } from "../ir-facts/contract.js";
-import { admitArtifactIdentity } from "../ir-facts/index.js";
+import { admitArtifactIdentity, admitStorageIdentity } from "../ir-facts/index.js";
 import type { BodyInstance, ConstantReference, TypeTable } from "../ir-types/contract.js";
-import { artifactBindingsKey, instanceKey } from "../ir-types/index.js";
+import { artifactBindingsKey, instanceKey, memberStorageData } from "../ir-types/index.js";
 import type { LayoutAnswer, LayoutDeclaration, LayoutDeps, LayoutObservation, LayoutPause, LayoutRequest, ObservedLayout, ReadyLayout } from "../metadata/contract.js";
 import type { Query } from "../query/contract.js";
 import type { DeclaredSignatureErrorData } from "../decls/contract.js";
@@ -117,6 +117,57 @@ export function createLayoutQueries(inputs: HostAnalysisInputs, typed: TypedSour
       kind: "instantiated", bindings: { capturedBindings: [], classBindings: [], methodBindings: [], selfBindings: [] },
     } } } };
   };
+  const selectorOf = (reference: SourceNodeRef | null, occurrence: SourceNodeRef, origin: Origin): Result<CheckedFieldSelector> => {
+    const step = admit(1, 0);
+    if (step !== null) return step;
+    if (reference?.kind !== "body" || occurrence.kind !== "body" || reference.value.body !== occurrence.value.body)
+      return refused(origin, "A field layout requires its actual checked member and native storage selection.");
+    const identity = admit(reference.value.body.length, 0);
+    if (identity !== null) return identity;
+    const node = sources.nodeOf(reference);
+    if (node?.kind !== "ArrowFunction" || !("role" in node.tsonic) || node.tsonic.role !== "layout-selector" ||
+      node.tsonic.call.body !== occurrence.value.body || node.tsonic.call.node !== occurrence.value.node)
+      return refused(origin, "A field layout requires its actual checked member and native storage selection.");
+    return { kind: "ok", diagnostics: [], value: node.tsonic };
+  };
+  const fieldSelection = (capture: HirMemoryFieldCapture, origin: Origin): Result<CheckedFieldSelector> => {
+    const selector = selectorOf(capture.selector, capture.occurrence, origin);
+    if (selector.kind === "refused") return selector;
+    if (capture.source.kind !== "available" || capture.value.kind !== "available"
+      || capture.source.value !== selector.value.ownerType || capture.value.value !== selector.value.valueType)
+      return refused(origin, "A field layout selector must select storage of its actual owner and value type.");
+    return selector;
+  };
+  const selectedField = (row: LayoutRequestRow, capture: HirObservationCapture, origin: Origin): Result<LayoutRequestRow> => {
+    if (row.source.capture.kind !== "value")
+      return refused(origin, "A field offset needs its actual containing value layout.");
+    const requested = selectorOf(capture.selector, { kind: "body", value: capture.occurrence }, origin);
+    if (requested.kind === "refused") return requested;
+    const wanted = requested.value;
+    const paid = admitStorageIdentity(wanted.member, account);
+    if (paid !== null) return analysisStop(paid, unit);
+    const identity = encodeKey(memberStorageData(wanted.member));
+    let selected: LayoutRequestRow | null = null;
+    const fields = row.source.capture.fieldExpressions;
+    for (let index = 0; index < fields.length; index += 1) {
+      const read = admit(1, 0);
+      if (read !== null) return read;
+      const field = resolve(fields[index] ?? null, origin);
+      if (field.kind === "refused") return field;
+      const source = field.value.source;
+      if (source.capture.kind !== "field") return refused(origin, "A value layout needs its actual field descriptors.");
+      const candidate = fieldSelection(source.capture, source.node.origin);
+      if (candidate.kind === "refused") return candidate;
+      if (wanted.ownerType !== candidate.value.ownerType || wanted.valueType !== candidate.value.valueType) continue;
+      const member = admitStorageIdentity(candidate.value.member, account);
+      if (member !== null) return analysisStop(member, unit);
+      if (identity !== encodeKey(memberStorageData(candidate.value.member))) continue;
+      if (selected !== null) return refused(origin, "A field offset cannot select more than one authored field descriptor.");
+      selected = field.value;
+    }
+    return selected === null ? refused(origin, "The checked field selection does not belong to its actual containing value layout.")
+      : { kind: "ok", diagnostics: [], value: selected };
+  };
   const declarationOf = (row: LayoutRequestRow): Result<LayoutDeclaration> => {
     const stop = admit(1, 1);
     if (stop !== null) return stop;
@@ -130,20 +181,18 @@ export function createLayoutQueries(inputs: HostAnalysisInputs, typed: TypedSour
         byteOrder: capture.byteOrder.value, addressWidth: capture.addressWidth.value } };
     }
     if (capture.kind === "field") {
-      if (capture.source.kind !== "available" || capture.value.kind !== "available" || capture.selection.kind !== "available"
-        || capture.key.kind !== "available" || capture.origins.kind !== "available" || capture.selectedDeclarations.kind !== "available"
-        || capture.primary.kind !== "available" || capture.bindings.kind !== "available")
-        return refused(origin, "A field layout requires its actual checked member and native storage selection.");
+      const selection = fieldSelection(capture, origin);
+      if (selection.kind === "refused") return selection;
       const child = resolve(capture.fieldLayoutExpression, origin);
       if (child.kind === "refused") return child;
       const offset = initializer(capture.byteOffsetExpression, origin, "compile-time");
       if (offset.kind === "refused") return offset;
       const alignment = initializer(capture.byteAlignmentExpression, origin, "compile-time");
       if (alignment.kind === "refused") return alignment;
-      return { kind: "ok", diagnostics: [], value: { ...common, kind: "field", owner: capture.source.value, value: capture.value.value,
-        selector: capture.selector, selection: capture.selection.value, child: child.value.key, byteOffset: offset.value, byteAlignment: alignment.value,
-        member: { key: capture.key.value, origins: capture.origins.value, selectedDeclarations: capture.selectedDeclarations.value,
-          primary: capture.primary.value, bindings: capture.bindings.value } } };
+      const actual = selection.value;
+      return { kind: "ok", diagnostics: [], value: { ...common, kind: "field", owner: actual.ownerType, value: actual.valueType,
+        selector: capture.selector, selection: { kind: "body", value: actual.selection }, child: child.value.key,
+        byteOffset: offset.value, byteAlignment: alignment.value, member: actual.member } };
     }
     const geometry = capture.geometry;
     const abi = resolve(geometry.dataLayoutExpression, origin);
@@ -225,14 +274,8 @@ export function createLayoutQueries(inputs: HostAnalysisInputs, typed: TypedSour
         if (selected.kind === "refused") return { kind: "done", value: selected };
         let operation: LayoutObservation;
         if (capture.operation === "field-offset") {
-          const read = admit(1, 0);
-          if (read !== null) return { kind: "done", value: read };
-          if (capture.selector === null || capture.field.kind !== "available" || capture.field.value === null)
-            return { kind: "done", value: refused(node.origin, "A field offset requires its exact checked field selection.") };
-          const field = resolve(capture.field.value, node.origin);
+          const field = selectedField(selected.value, capture, node.origin);
           if (field.kind === "refused") return { kind: "done", value: field };
-          if (field.value.source.capture.kind !== "field")
-            return { kind: "done", value: refused(node.origin, "A field offset needs its actual field descriptor.") };
           operation = { kind: "field-offset", field: field.value.key };
         } else operation = { kind: capture.operation };
         return { kind: "paused", requests: [selected.value], paused: { demand, capture, operation, origin: node.origin }, earned: [] };

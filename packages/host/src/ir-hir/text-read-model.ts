@@ -188,7 +188,6 @@ export interface HirReadGroup5 {
   readonly record_159: HirReader<{ readonly kind: "available"; readonly value: Ids.SourceNodeRef; }>;
   readonly record_160: HirReader<{ readonly kind: "available"; readonly value: Types.MemberKey; }>;
   readonly record_161: HirReader<{ readonly kind: "available"; readonly value: readonly Types.MemberOrigin[]; }>;
-  readonly record_162: HirReader<{ readonly kind: "available"; readonly value: readonly Ids.DefId[]; }>;
   readonly record_163: HirReader<{ readonly kind: "available"; readonly value: bigint; }>;
   readonly record_164: HirReader<{ readonly occurrence: Ids.SourceNodeRef; readonly bindings: Hir.CapturedFact<Types.BindingVector>; readonly kind: "data-layout"; readonly declaration: Hir.CapturedFact<Ids.DefId>; readonly fingerprint: Hir.CapturedFact<string>; readonly byteOrder: Hir.CapturedFact<"big" | "little">; readonly addressWidth: Hir.CapturedFact<32 | 64> }>;
   readonly record_165: HirReader<{ readonly kind: "available"; readonly value: Ids.DefId; }>;

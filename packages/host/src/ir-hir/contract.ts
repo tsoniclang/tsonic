@@ -4085,11 +4085,6 @@ export interface HirMemoryFieldCapture {
   readonly bindings: CapturedFact<BindingVector>;
   readonly source: CapturedFact<TyId>;
   readonly selector: SourceNodeRef;
-  readonly selection: CapturedFact<SourceNodeRef>;
-  readonly key: CapturedFact<MemberKey>;
-  readonly origins: CapturedFact<readonly MemberOrigin[]>;
-  readonly selectedDeclarations: CapturedFact<readonly DefId[]>;
-  readonly primary: CapturedFact<DefId | null>;
   readonly value: CapturedFact<TyId>;
   readonly fieldLayoutExpression: SourceNodeRef | null;
   readonly fieldLayout: CapturedFact<SourceNodeRef>;
@@ -4870,7 +4865,7 @@ export type CheckedUnopenedDeclaration =
   | FunctionDeclaration<CheckedPhase> | InterfaceDeclaration<CheckedPhase> | TypeAliasDeclaration<CheckedPhase>;
 
 export interface CheckedWireRequest {
-  readonly role: "source-file" | "unopened-declaration" | "expression" | "layout-descriptor";
+  readonly role: "source-file" | "unopened-declaration" | "expression" | "layout-descriptor" | "layout-selector";
   readonly ordinal: number;
   readonly offset: number;
 }
@@ -4880,6 +4875,7 @@ export interface CheckedWireImage {
   readonly declarationOf: (ordinal: number) => CheckedUnopenedDeclaration | null;
   readonly expressionOf: (ordinal: number) => Expression<CheckedPhase> | null;
   readonly layoutDescriptorOf: (ordinal: number) => ObjectLiteralExpression<CheckedPhase> | null;
+  readonly layoutSelectorOf: (ordinal: number) => ArrowFunction<CheckedPhase> | null;
 }
 
 export interface ParsedCheckedDeclarations {

@@ -4,7 +4,7 @@ import type { InvariantFailure } from "../diag/contract.js";
 import type { NodeList, SyntaxChildSlot } from "../ir-hir/contract.js";
 import { iterateFunctionHeaderSlots, iterateSourceFileHeaderSlots, iterateSyntaxChildSlots, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { LayoutBindingOf, LayoutObservationOf, RawValueTypeOf } from "./contract.js";
-import type { IsLayoutOperandBody, LayoutArgumentSlots, TirLayoutArguments, TirLayoutArgumentSlot, TirTypedSyntax } from "./contract.js";
+import type { IsLayoutOperandBody, LayoutArgumentSlots, TirFieldOffsetArguments, TirLayoutArguments, TirLayoutArgumentSlot, TirTypedSyntax } from "./contract.js";
 import type { AdmitFormalInitializer, BodyOccurrenceSlots, ChapterStatementSyntax, ChapterSyntaxSlots, FormalInitializerSlot, FormalInitializerSyntax, IndexChapterSyntax, ReadChapterSyntaxSlot, TirBodySyntaxOf, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirFormalInitializerRead, TirModuleStatement, TypedPhase } from "./contract.js";
 
 const missingChild: InvariantFailure = { owner: "ir-tir", query: null, origin: null,
@@ -101,7 +101,16 @@ function layoutDescriptorSlot(arguments_: TirLayoutArguments): TirLayoutArgument
   return { kind: "layout-descriptor", fields: ["arguments", "descriptor"], read: () => arguments_.descriptor };
 }
 
+function* fieldOffsetSlots(arguments_: TirFieldOffsetArguments): Generator<TirLayoutArgumentSlot> {
+  yield { kind: "field-layout", fields: ["arguments", "layout"], read: () => arguments_.layout };
+  yield { kind: "field-selector", fields: ["arguments", "selector"], read: () => arguments_.selector };
+}
+
 export const layoutArgumentSlots: LayoutArgumentSlots = function* (arguments_) {
+  if (arguments_.kind === "field-offset-quote") {
+    yield* fieldOffsetSlots(arguments_);
+    return;
+  }
   yield layoutDescriptorSlot(arguments_);
   const operands = arguments_.operands;
   for (let position = 0; position < operands.length; position += 1) {
@@ -117,6 +126,8 @@ export const readChapterSyntaxSlot: ReadChapterSyntaxSlot = slot => {
     case "statement": return chapterStatementSyntax(slot.read());
     case "formal-initializer": return formalInitializerSyntax(readInitializer(slot.read()));
     case "layout-descriptor": return { kind: "checked", node: slot.read() };
+    case "field-selector": return { kind: "checked", node: slot.read() };
+    case "field-layout": return { kind: "ordinary", node: slot.read() };
     case "layout-operand": return { kind: "ordinary", node: slot.read().root };
   }
 };
@@ -143,7 +154,8 @@ function* syntaxSlots(subject: TirTypedSyntax, layout: LayoutArgumentSlots): Gen
   }
 }
 
-export const chapterSyntaxSlots: ChapterSyntaxSlots = subject => syntaxSlots(subject, args => [layoutDescriptorSlot(args)]);
+export const chapterSyntaxSlots: ChapterSyntaxSlots = subject => syntaxSlots(subject,
+  args => args.kind === "field-offset-quote" ? fieldOffsetSlots(args) : [layoutDescriptorSlot(args)]);
 export const chapterTransportSlots: ChapterSyntaxSlots = subject => syntaxSlots(subject, layoutArgumentSlots);
 
 export const tirBodySyntaxOf: TirBodySyntaxOf = node =>

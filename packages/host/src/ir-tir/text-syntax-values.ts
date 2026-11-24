@@ -2,7 +2,7 @@ import { constructKeywordExpression, constructToken } from "./text-syntax-constr
 import { checkedSyntaxReader, lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
 import { checkedSyntaxReference, unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
-import type { TirCallArguments, TirLayoutArguments, TirLayoutOperand, TypedCall, TypedValueOccurrence } from "./contract.js";
+import type { TirCallArguments, TirFieldOffsetArguments, TirLayoutArguments, TirLayoutOperand, TypedCall, TypedValueOccurrence } from "./contract.js";
 import type {
   TypedApplication, TypedBigInt, TypedBinary, TypedConditional, TypedConstruction, TypedDecorator, TypedInstantiation, TypedKeyword, TypedMember, TypedModuleReference, TypedName, TypedNumber, TypedObjectSpread, TypedOmission, TypedPhase, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue, TypedShorthand, TypedSpread, TypedString, TypedTemplate, TypedType, TypedUnary, TypedUpdate, TypedValue
 } from "./contract.js";
@@ -337,9 +337,16 @@ export const createSyntaxValuesText = (kernel: TirTextKernel, read: SyntaxValues
     .field("operands", "[TirLayoutOperand]", value => sequenceWork("[TirLayoutOperand]", value.operands, layoutOperand.write),
       sequenceReader("[TirLayoutOperand]", layoutOperand.reader))
     .finish((loc, descriptor, operands) => ({ kind: "layout-quote", loc, descriptor, operands })));
+  const fieldOffsetArguments = defineRecord<TirFieldOffsetArguments>("field-offset-quote", "TirCallArguments", null, "field-offset-quote", null, null, fields => fields
+    .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
+    .field("layout", "$Expression", value => syntaxReference("$Expression", value.layout), syntaxReads.Expression)
+    .field("selector", "$CheckedLayoutSelector", value => checkedSyntaxReference("$CheckedLayoutSelector", value.selector),
+      checkedSyntaxReader("$CheckedLayoutSelector", "layout-selector", (image, ordinal) => image.layoutSelectorOf(ordinal)))
+    .finish((loc, layout, selector) => ({ kind: "field-offset-quote", loc, layout, selector })));
   const callArguments = unionRecord<TirCallArguments>("TirCallArguments",
-    value => "kind" in value ? layoutArguments.write(value) : work_L_Expression_.write(value),
-    () => [layoutArguments.reader, work_L_Expression_.reader]);
+    value => !("kind" in value) ? work_L_Expression_.write(value) : value.kind === "layout-quote"
+      ? layoutArguments.write(value) : fieldOffsetArguments.write(value),
+    () => [layoutArguments.reader, fieldOffsetArguments.reader, work_L_Expression_.reader]);
   const work_CallExpression: (value: CallExpression<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<CallExpression<TypedPhase>>("CallExpression", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'CallExpression", literalReader<(CallExpression<TypedPhase>)["kind"]>("'CallExpression", ["CallExpression"]))

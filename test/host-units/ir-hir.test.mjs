@@ -3055,8 +3055,7 @@ function layoutCapture(kind, occurrence = bodySource(2)) {
     case "data-layout": return { ...common, kind, declaration: available(definitionIdentity), fingerprint: available("abi1"), byteOrder: available("little"), addressWidth: available(64) };
     case "value": return { ...common, kind, geometry: geometry(), fieldExpressions: [], fields: available([]) };
     case "array": return { ...common, kind, geometry: geometry(), extentExpression: null, length: available(3n), runtimeBase: available("bigint"), elementExpression: null, element: unavailable() };
-    case "field": return { ...common, kind, source: available(0), selector: bodySource(3), selection: unavailable(), key: available({ kind: "text", value: "field" }),
-      origins: available([{ kind: "declared", declaration: definitionIdentity }]), selectedDeclarations: available([definitionIdentity]), primary: available(definitionIdentity),
+    case "field": return { ...common, kind, source: available(0), selector: bodySource(3),
       value: available(0), fieldLayoutExpression: null, fieldLayout: unavailable(), byteOffsetExpression: null, byteOffset: available(0n),
       byteAlignmentExpression: null, byteAlignment: available(4n) };
     default: assert.fail(`unknown authored capture ${kind}`);
@@ -3073,6 +3072,8 @@ for (const kind of ["data-layout", "value", "array", "field"]) test(`HIR complet
   const expression = callExpression();
   const value = expressionModule(expression);
   expression.tsonic.memory = available(layoutCapture(kind));
+  if (kind !== "data-layout") value.items.push({ definition: ids.encodeDefId({ module: value.module,
+    segments: [{ name: "", ordinal: 0 }] }), node: expression.id });
   const decoded = roundtrip((value), kind);
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
 });
@@ -5831,20 +5832,6 @@ test("HIR raw geometry and array extents preserve each captured availability wit
       const decoded = roundtrip((value), `array facts/${runtimeBase}/${length}/${reason}`);
       assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
     }
-});
-
-test("HIR field primary selection belongs to its genuine supplied declaration group", () => {
-  for (const missing of [false, true]) {
-    const expression = callExpression();
-    const value = expressionModule(expression);
-    const capture = layoutCapture("field");
-    capture.selectedDeclarations = available(missing ? [] : [definitionIdentity]);
-    expression.tsonic.memory = available(capture);
-    const decoded = roundtrip((value), `field primary/${missing}`);
-    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), missing ? [
-      violation("memory-capture-reference", nodeSite(2), "primary field declaration must belong to its selected declaration group"),
-    ] : []);
-  }
 });
 
 test("HIR attribute selection compares actual qualified node identity across body and item reference arms", () => {
