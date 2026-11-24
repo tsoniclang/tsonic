@@ -143,6 +143,7 @@ export interface TypeShapeQueries {
     readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceArgumentInfos: (type: GoPtr<Type>) => readonly TypeReferenceArgumentInfo[] | undefined;
+    readonly acquireCompletedTypeArgument: <Stop extends object>(type: GoPtr<Type>, parameter: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<Type, Stop>;
     readonly getInstantiatedBaseTypes: (type: GoPtr<Type>) => readonly Type[] | undefined;
     readonly getKeyOfComponents: (type: GoPtr<Type>) => TypeKeyOfComponents | undefined;
     readonly getSubstitutionComponents: (type: GoPtr<Type>) => TypeSubstitutionComponents | undefined;

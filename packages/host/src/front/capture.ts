@@ -1711,8 +1711,9 @@ function originalIndexRow(scope: CaptureScope, inventory: OriginalIndexInventory
   return inventory.origins.get(declaration)?.get(key) ?? null;
 }
 
-function directIndexValueSource(scope: CaptureScope, receiver: ReceiverUse, bound: ReceiverSlotUse, selected: TypeIndexInfo,
-  originals: OriginalIndexInventory): Node | undefined {
+function checkedIndexValueBinder(scope: CaptureScope, target: CheckerSymbol, selected: TypeIndexInfo,
+  originals: OriginalIndexInventory, accepts: (type: Type) => boolean):
+  { readonly node: Node; readonly type: Type; readonly symbol: CheckerSymbol | undefined } | undefined {
   const { declaration, keyType, readonly } = selected;
   const ast = scope.checked.ast;
   if (declaration === undefined || keyType === undefined ||
@@ -1723,9 +1724,9 @@ function directIndexValueSource(scope: CaptureScope, receiver: ReceiverUse, boun
   const name = valueNode === undefined ? undefined : parameterReferenceName(scope, valueNode);
   const parent = ast.parent(declaration);
   if (valueNode === undefined || name === undefined || parent === undefined ||
-    scope.checker.getSymbolAtLocation(ast.name(parent)) !== receiver.target) return undefined;
+    scope.checker.getSymbolAtLocation(ast.name(parent)) !== target) return undefined;
   const original = originalIndexRow(scope, originals, declaration, keyType);
-  if (original === null || original.readonly !== readonly || original.valueType !== bound.parameter ||
+  if (original === null || original.readonly !== readonly || original.valueType === undefined || !accepts(original.valueType) ||
     original.components.length > 1 || original.components.length === 1 && original.components[0] !== declaration ||
     !admit(scope, "edges")) return undefined;
   const parameters = ast.parameters(declaration);
@@ -1733,7 +1734,35 @@ function directIndexValueSource(scope: CaptureScope, receiver: ReceiverUse, boun
   if (key === undefined) return undefined;
   const authored = sourceType(scope, { kind: "annotation", node: key });
   if (authored === undefined || authored.type !== keyType || authored.causes.length !== 0 || !admit(scope, "edges")) return undefined;
-  return directBinderSource(scope, bound, valueNode, scope.checker.getSymbolAtLocation(name));
+  return { node: valueNode, type: original.valueType, symbol: scope.checker.getSymbolAtLocation(name) };
+}
+
+function directIndexValueSource(scope: CaptureScope, receiver: ReceiverUse, bound: ReceiverSlotUse, selected: TypeIndexInfo,
+  originals: OriginalIndexInventory): Node | undefined {
+  const value = checkedIndexValueBinder(scope, receiver.target, selected, originals, type => type === bound.parameter);
+  return value === undefined ? undefined : directBinderSource(scope, bound, value.node, value.symbol);
+}
+
+function selectedMergedIndexArgument(scope: CaptureScope, reference: Type, selected: TypeIndexInfo):
+  { readonly source: Node | null; readonly slot: MergedSlotUse | null } | null {
+  const argument = selected.valueType;
+  if (argument === undefined || !scope.shape.isTypeReference(reference)) return null;
+  const symbol = scope.checker.getTypeSymbol(argument);
+  if (symbol === undefined || scope.checker.getSymbolDeclarations(symbol).length < 2 || !admit(scope, "edges")) return null;
+  const target = scope.shape.getTypeReferenceTarget(reference);
+  const receiver = target === undefined ? undefined : scope.checker.getTypeSymbol(target);
+  if (target === undefined || receiver === undefined) return null;
+  const original = scope.shape.getStructuredInventory(target, nativeCaptureAdmission(scope));
+  if (original.kind !== "complete") return null;
+  const authored = checkedIndexValueBinder(scope, receiver, selected, { rows: original.value.indexes, origins: null }, () => true);
+  if (authored === undefined || authored.symbol === undefined || scope.checker.getTypeSymbol(authored.type) !== authored.symbol) return null;
+  const checked = sourceType(scope, { kind: "annotation", node: authored.node });
+  if (checked?.type !== authored.type || checked.causes.length !== 0) return null;
+  const selectedSlot = scope.shape.acquireCompletedTypeArgument(reference, authored.type, nativeCaptureAdmission(scope));
+  if (selectedSlot.kind !== "complete" || selectedSlot.value !== argument) return null;
+  if (authored.type === argument) return { source: authored.node, slot: null };
+  const declarations = mergedArgumentGroup(scope, argument);
+  return declarations === null ? null : { source: null, slot: { kind: "merged-slot", type: argument, declarations } };
 }
 
 function selectMergedParameter(scope: CaptureScope, symbol: CheckerSymbol, declarations: readonly (Node | undefined)[],
@@ -2493,8 +2522,10 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
         if (originalIndexes !== null) source = directIndexValueSource(scope, receiver, tupleSlot, selected, originalIndexes);
         if (scope.meter.refusal !== null) return null;
       }
+      const selectedArgument = source === undefined ? selectedMergedIndexArgument(scope, type, selected) : null;
+      if (scope.meter.refusal !== null) return null;
       const value = rawType(scope, () => withoutTypeCause(selected.valueType),
-        appendComponent(scope, parent, { kind: "index-value", origin, key }), source ?? null);
+        appendComponent(scope, parent, { kind: "index-value", origin, key }), source ?? selectedArgument?.source ?? null, selectedArgument?.slot ?? null);
       if (value === null) return null;
       indexes.push({ origin, key, value, readonly: selected.readonly });
     }

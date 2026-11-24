@@ -2,6 +2,34 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { primeCaptureReader, propertyRows, loadFrontFixture, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
+test("a mapped index value retains the actual different merged parameter group", async () => {
+  const fixture = await loadFrontFixture();
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
+    interface Matrix<Item> { [index: number]: Item; }
+    interface Matrix<Item> { marker: boolean; }
+    interface Holder<Value> { selected: Matrix<Value>; }
+    interface Holder<Value> { other: boolean; }
+  ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const { deps, program } = fixture.openAndCapture(snapshot);
+  const captured = fixture.front.captureModule(deps, program, snapshot.entryPoint);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const { types, tree, module } = captured.value;
+  const [matrix, otherMatrix, holder, otherHolder] = tree.statements.nodes;
+  const original = matrix.members.nodes[0];
+  const qualify = node => ({ module, node: node.id });
+  const own = [matrix, otherMatrix].map(node => qualify(node.typeParameters.nodes[0]));
+  const expected = [holder, otherHolder].map(node => qualify(node.typeParameters.nodes[0]));
+  const indexes = types.members.flatMap(member => member.indexes).filter(row => row.origin.node === original.id && row.origin.module === module);
+  const selected = indexes.map(row => types.types[row.value]).filter(row => row.form.value?.kind === "merged-slot-parameter");
+  assert.ok(selected.length > 0);
+  for (const row of selected) {
+    assert.equal(row.authoredTypeNode, null);
+    assert.deepEqual(row.form.value.declarations, expected);
+    assert.notDeepEqual(row.form.value.declarations, own);
+    assert.equal(rawComponentPath(types.components, types.components[row.component]).at(-1).kind, "index-value");
+  }
+});
+
 test("unchanged selected signature arguments retain their actual foreign lexical slots", async () => {
   const fixture = await loadFrontFixture();
   const collection = fixture.moduleOf(fixture.packageOf("/checker"), "lib.es5.d.ts");

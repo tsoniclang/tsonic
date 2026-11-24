@@ -29,7 +29,7 @@ import { PseudoBigInt_String } from "../internal/jsnum/pseudobigint.js";
 import { Checker_getMinArgumentCount, Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
 import { Checker_GetConstantValue, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
-import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, StructuredType_Properties, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNonPrimitive, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsStructuredType, TypeFlagsStructuredOrInstantiable, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsConditionalType, Type_AsInterfaceType, Type_AsLiteralType, LiteralType_Value, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
+import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, StructuredType_Properties, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNonPrimitive, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsStructuredType, TypeFlagsStructuredOrInstantiable, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsConditionalType, Type_AsInterfaceType, Type_AsTypeReference, Type_AsLiteralType, LiteralType_Value, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
 export function createTypeShapeQueries(program, defaultOptions) {
     if (program === undefined || defaultOptions.sourceFile === undefined) {
         throw new Error("Type-shape queries require one source file from the compiler program.");
@@ -154,6 +154,14 @@ export function createTypeShapeQueries(program, defaultOptions) {
             }
             return Object.freeze(result);
         }),
+        acquireCompletedTypeArgument: (type, parameter, admit) => {
+            if (type === undefined || parameter === undefined || type.checker !== parameter.checker)
+                return { kind: "unavailable" };
+            const result = withOwnedCheckerAcquisition(program, defaultOptions.sourceFile, type.checker, defaultOptions.context ?? Background(), admit, checker => completedTypeArgument(checker, type, parameter));
+            if (result.kind !== "complete")
+                return result;
+            return result.value === undefined ? { kind: "unavailable" } : { kind: "complete", value: result.value };
+        },
         getKeyOfComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeKeyOfComponents(checker, type)),
         getSubstitutionComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeSubstitutionComponents(checker, type)),
         getTupleInfo: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypeTupleInfo(checker, type)),
@@ -201,6 +209,31 @@ export function createTypeShapeQueries(program, defaultOptions) {
 }
 function hasFlags(type, flags) {
     return type !== undefined && (type.flags & flags) !== 0;
+}
+function completedTypeArgument(checker, type, parameter) {
+    admitNativeChecker(checker, "work");
+    if (!hasFlags(type, TypeFlagsObject) || (type.objectFlags & ObjectFlagsReference) === 0)
+        return undefined;
+    const target = Type_Target(type);
+    const arguments_ = Type_AsTypeReference(type)?.resolvedTypeArguments;
+    if (target === undefined || target.checker !== checker || (target.objectFlags & ObjectFlagsClassOrInterface) === 0 ||
+        arguments_ === undefined)
+        return undefined;
+    const definition = Type_AsInterfaceType(target);
+    const parameters = definition?.allTypeParameters;
+    if (definition === undefined || parameters === undefined || parameters.length === 0)
+        return undefined;
+    const count = parameters.length - 1;
+    if (arguments_.length < count || arguments_.length > count + (definition.thisType === undefined ? 0 : 1))
+        return undefined;
+    for (let index = 0; index < count; index += 1) {
+        admitNativeChecker(checker, "work");
+        if (parameters[index] !== parameter)
+            continue;
+        admitNativeChecker(checker, "work");
+        return arguments_[index];
+    }
+    return undefined;
 }
 function enumOwnerDeclaration(type) {
     if (type === undefined || !hasFlags(type, TypeFlagsEnumLike) || type.data.AsType() !== type)
