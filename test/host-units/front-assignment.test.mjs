@@ -32,7 +32,10 @@ async function withStorageReader(opened, reader) {
   return OpenedProgram.create({ ...checked, getSourceFileQueries(file) {
     const queries = checked.getSourceFileQueries(file);
     return { ...queries, checker: { ...queries.checker,
-      getResolvedStorageInfo: node => reader(node, queries.checker) } };
+      acquireResolvedStorage(node, admit) {
+        const actual = queries.checker.acquireResolvedStorage(node, admit);
+        return actual.kind === "complete" ? reader(node, actual) : actual;
+      } } };
   } }, OpenedProgram.table(opened.program), OpenedProgram.modules(opened.program).modules.map(origin =>
     OpenedProgram.file(opened.program, origin.kind === "snapshot" ? origin.module : origin.document.module)),
   OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
@@ -108,7 +111,7 @@ test("plain assignment storage rejects crossed, foreign, duplicate and unused ca
 test("an absent actual storage answer stays unavailable rather than gaining writable storage", async () => {
   const { fixture, opened, module, lower } = await captured();
   let reads = 0;
-  const guarded = await withStorageReader(opened, () => { reads += 1; return undefined; });
+  const guarded = await withStorageReader(opened, () => { reads += 1; return { kind: "unavailable" }; });
   const result = fixture.front.captureModule(opened.deps, guarded, module);
   assert.equal(result.kind, "ok");
   assert.equal(reads, 1);
@@ -153,18 +156,20 @@ test("the actual SDK readonly local answer retains its original error associatio
 });
 
 test("plain assignment capture admits every fact and edge before publishing its actual storage answer", async () => {
-  const { fixture, opened, module } = await captured();
   const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 64], ["maximumCapturedEdgesPerModule", 5]]) {
+  const run = async (dimension, maximum) => {
+    const { fixture, opened, module } = await captured();
+    return { module, result: fixture.front.captureModule({ ...opened.deps, navigationCapture: {
+      ...opened.deps.navigationCapture, [dimension]: maximum } }, opened.program, module) };
+  };
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 73], ["maximumCapturedEdgesPerModule", 67]]) {
     for (let maximum = 0; maximum < exact; maximum += 1) {
-      const result = fixture.front.captureModule({ ...opened.deps, navigationCapture: {
-        ...opened.deps.navigationCapture, [dimension]: maximum } }, opened.program, module);
+      const { module, result } = await run(dimension, maximum);
       assert.deepEqual(result, { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
         limit: `front.${dimension}`, maximum, site: { kind: "file", path: "/project/src/main.ts" },
         unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
     }
-    const result = fixture.front.captureModule({ ...opened.deps, navigationCapture: {
-      ...opened.deps.navigationCapture, [dimension]: exact } }, opened.program, module);
+    const { result } = await run(dimension, exact);
     assert.equal(result.kind, "ok");
     assert.equal(result.value.storage.length, 1);
     assert.equal(result.value.storage[0].fact.kind, "available");
@@ -172,24 +177,26 @@ test("plain assignment capture admits every fact and edge before publishing its 
 });
 
 test("capture refuses before the actual storage query and preserves an original ready-reader failure", async () => {
-  const { fixture, opened, module } = await captured();
   const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
   const original = new Error("the actual storage query failed");
   let reads = 0;
-  const guarded = await withStorageReader(opened, () => { reads += 1; throw original; });
-  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 27], ["maximumCapturedEdgesPerModule", 2]]) {
+  const run = async (dimension, maximum) => {
+    const { fixture, opened, module } = await captured();
+    const guarded = await withStorageReader(opened, () => { reads += 1; throw original; });
+    return { module, result: fixture.front.captureModule({ ...opened.deps, navigationCapture: {
+      ...opened.deps.navigationCapture, [dimension]: maximum } }, guarded, module) };
+  };
+  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 36], ["maximumCapturedEdgesPerModule", 43]]) {
     for (let maximum = 0; maximum < firstRead; maximum += 1) {
       reads = 0;
-      const result = fixture.front.captureModule({ ...opened.deps, navigationCapture: {
-        ...opened.deps.navigationCapture, [dimension]: maximum } }, guarded, module);
+      const { module, result } = await run(dimension, maximum);
       assert.deepEqual(result, { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
         limit: `front.${dimension}`, maximum, site: { kind: "file", path: "/project/src/main.ts" },
         unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
       assert.equal(reads, 0, `${dimension} refuses before the query at ${maximum}`);
     }
     reads = 0;
-    assert.throws(() => fixture.front.captureModule({ ...opened.deps, navigationCapture: {
-      ...opened.deps.navigationCapture, [dimension]: firstRead } }, guarded, module), error => error === original);
+    await assert.rejects(run(dimension, firstRead), error => error === original);
     assert.equal(reads, 1);
   }
 });

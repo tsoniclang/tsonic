@@ -269,7 +269,10 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
       const queries = checked.getSourceFileQueries(sourceFile);
       if (sourceFile !== file(module)) return queries;
       return { ...queries, checker: { ...queries.checker,
-        getResolvedCallInfo: call => adapt(call, queries.checker.getResolvedCallInfo(call)) } };
+        acquireResolvedCall(call, admit) {
+          const result = queries.checker.acquireResolvedCall(call, admit);
+          return result.kind === "complete" ? { kind: "complete", value: adapt(call, result.value) } : result;
+        } } };
     } }, OpenedProgram.table(opened.program), OpenedProgram.modules(opened.program).modules.map(entry =>
       fileEntry(entry.kind === "snapshot" ? entry.module : entry.document.module)),
     OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
@@ -305,7 +308,7 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
     }, { ...opened.deps.navigationCapture, [dimension]: maximum });
     return { reads, capture };
   };
-  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 219], ["maximumCapturedEdgesPerModule", 147]]) {
+  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 246], ["maximumCapturedEdgesPerModule", 245]]) {
     const originalStop = new Error("the first actual checked binding read");
     const unread = readBindingsAt(dimension, firstRead - 1, originalStop);
     assert.equal(unread.reads, 0);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { loadFrontFixture, observeSourceType } from "./fixtures/front/checked-module.mjs";
 import { checkedDomain } from "./fixtures/front/checked-domain.mjs";
 
 async function captured(source) {
@@ -162,8 +162,9 @@ const capturedNativeEdges = recursiveInventoryRows * (2 + 5);
 
 test("finite raw graph capture admits the exact fact and edge counts including native acquisition", async () => {
   const { fixture, raw, module, opened } = await captured("export type Link={next:Link};\n");
-  const frontFacts = 36;
-  const frontEdges = 13 - recursiveInventoryRows;
+  const capturedSourceAnswers = { facts: 7, edges: 21 };
+  const frontFacts = 36 + capturedSourceAnswers.facts;
+  const frontEdges = 13 - recursiveInventoryRows + capturedSourceAnswers.edges;
   for (const [dimension, exact] of [
     ["maximumCapturedFactsPerModule", frontFacts + capturedNativeFacts],
     ["maximumCapturedEdgesPerModule", frontEdges + capturedNativeEdges],
@@ -194,16 +195,15 @@ test("finite raw graph capture returns the original limit before a later actual 
   let reads = 0;
   const guarded = OpenedProgram.create({ ...checked, getSourceFileQueries(file) {
     const queries = checked.getSourceFileQueries(file);
-    return { ...queries, checker: { ...queries.checker, getTypeFromTypeNode(node) {
-      if (node === syntax) { reads += 1; throw original; }
-      return queries.checker.getTypeFromTypeNode(node);
-    } } };
+    return { ...queries, checker: { ...queries.checker, acquireSourceType: observeSourceType(queries.checker, request => {
+      if (request.kind === "annotation" && request.node === syntax) { reads += 1; throw original; }
+    }) } };
   } }, OpenedProgram.table(opened.program), OpenedProgram.modules(opened.program).modules.map(origin =>
     OpenedProgram.file(opened.program, origin.kind === "snapshot" ? origin.module : origin.document.module)),
   OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
   const run = maximum => fixture.front.captureModule({ ...opened.deps, navigationCapture: {
     ...opened.deps.navigationCapture, maximumCapturedFactsPerModule: maximum } }, guarded, module);
-  const beforeLater = 28 + capturedNativeFacts;
+  const beforeLater = 35 + capturedNativeFacts;
   for (let maximum = 0; maximum < beforeLater; maximum += 1) {
     assert.deepEqual(run(maximum), { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
       limit: "front.maximumCapturedFactsPerModule", maximum, site: { kind: "file", path: "/project/src/main.ts" },

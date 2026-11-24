@@ -296,7 +296,7 @@ test("backing capture pays the SDK read and the complete evidence before publish
   } };
   const program = OpenedProgram.create(checked, opened.deps.extensions, files, [], OpenedProgram.contributions(opened.program));
   for (const [dimension, beforeRead, exact] of [
-    ["maximumCapturedFactsPerModule", 32, 38], ["maximumCapturedEdgesPerModule", 2, 8],
+    ["maximumCapturedFactsPerModule", 35, 41], ["maximumCapturedEdgesPerModule", 24, 30],
   ]) for (let maximum = beforeRead; maximum <= exact; maximum += 1) {
     reads = 0;
     const outcome = fixture.front.captureModule({ ...opened.deps,
