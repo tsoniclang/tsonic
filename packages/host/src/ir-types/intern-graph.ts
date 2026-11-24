@@ -2,11 +2,12 @@ import type { InternTypeGraph, TypePublicationStop, TypeTerm, SignatureInput } f
 import type { TyId, SigId } from "../ids/contract.js";
 import { TypeArena } from "./arena.js";
 import { stageGraph } from "./graph-stage.js";
-import { remapTerm, remapSignature } from "./canonical.js";
+import { fixedTypeTerm, remapTerm, remapSignature } from "./canonical.js";
 import { copyType, copySignature } from "./copy.js";
 import { readTypeData, readSignatureData } from "./publication-read.js";
 import { chargeWork, chargeCreated, workLimit, createdLimit } from "./work.js";
 import { signatureIdentifier, required } from "./value.js";
+import { typeText } from "./print.js";
 
 export const internTypeGraph: InternTypeGraph = (deps, input) => {
   const { work, types } = deps;
@@ -44,7 +45,16 @@ export const internTypeGraph: InternTypeGraph = (deps, input) => {
     if (value === undefined) throw new TypeError("ir-types: a graph type vector must be dense.");
     const admitted = readTypeData(value, work, "retain", true);
     if (admitted.kind === "resource-limit") return admitted;
-    typeRows.set(typeBase + position, copyType(remapTerm(admitted.value, typeOf, signatureOf)));
+    const row = copyType(remapTerm(admitted.value, typeOf, signatureOf));
+    if (typeCount === 1 && signatureCount === 0 && fixedTypeTerm(row)) {
+      if (!chargeWork(work, 2)) return workLimit(work);
+      const previous = TypeArena.typeKeys(types).get(typeText(row));
+      if (previous !== undefined) {
+        mappedTypes[position] = previous;
+        return { kind: "complete", value: { types: mappedTypes, signatures: mappedSignatures } };
+      }
+    }
+    typeRows.set(typeBase + position, row);
   }
   for (let position = 0; position < signatureCount; position++) {
     if (!chargeWork(work, 1)) return workLimit(work);
@@ -57,6 +67,7 @@ export const internTypeGraph: InternTypeGraph = (deps, input) => {
   }
   const grow = (count: number): TypePublicationStop | null => chargeWork(work, count) ? null : workLimit(work);
   const staged = stageGraph(types, typeRows, signatureRows, {
+    phase: "construction",
     step: (count = 1) => grow(count),
     growth: grow,
     type: value => {

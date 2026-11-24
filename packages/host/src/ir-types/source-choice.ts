@@ -143,6 +143,7 @@ export const joinSourceChoice: JoinSourceChoice = ({ types: arena, work: account
     : absent ? reserve({ kind: "optional", value: payload }) : payload;
   if (rows.size === 0) return { kind: "complete", value: { type: result, category } };
   const staged = stageGraph(arena, rows, new Map(), {
+    phase: "expansion",
     step: (count = 1) => consume(count), growth: work.work,
     ...readStagedGraph(work.work),
     commitType: value => admitGraphType(value, work.work, work.retain),

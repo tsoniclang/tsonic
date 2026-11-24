@@ -9,6 +9,7 @@ import { typeIdentifier, signatureIdentifier, required } from "./value.js";
 import { typeText, signatureText } from "./print.js";
 
 export interface GraphStageAccounting<Stop extends LimitStop> {
+  readonly phase: "construction" | "expansion";
   readonly step: (count?: number) => Stop | null;
   readonly growth: (count: number) => Stop | null;
   readonly type: (value: TypeTerm) => Stop | null;
@@ -29,6 +30,7 @@ interface StageBase {
   readonly children: Map<string, Stage>;
   key: string | null;
   queued: boolean;
+  dirty: boolean;
 }
 interface TypeStage extends StageBase { readonly kind: "type"; value: TypeTerm }
 interface SignatureStage extends StageBase { readonly kind: "signature"; value: SignatureInput }
@@ -47,7 +49,10 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
   { readonly kind: "complete"; readonly value: GraphStageMapping } | Stop {
   const typeBase = TypeArena.terms(storage).length;
   const signatureBase = TypeArena.signatures(storage).length;
+  const issuedTypes = TypeArena.typeKeys(storage);
+  const issuedSignatures = TypeArena.signatureKeys(storage);
   let nextType = typeBase + typeRows.size;
+  let representatives = typeRows.size + signatureRows.size;
   let failure: Stop | null = accounting.growth(8 + typeRows.size * 5 + signatureRows.size * 5);
   if (failure !== null) return failure;
   const grow = (count: number): boolean => {
@@ -70,9 +75,9 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
   const types = new Map<number, TypeStage>();
   const signatures = new Map<number, SignatureStage>();
   for (const [id, value] of typeRows) types.set(id, { kind: "type", id, value, key: null,
-    parents: new Map(), children: new Map(), queued: false });
+    parents: new Map(), children: new Map(), queued: false, dirty: true });
   for (const [id, value] of signatureRows) signatures.set(id, { kind: "signature", id, value, key: null,
-    parents: new Map(), children: new Map(), queued: false });
+    parents: new Map(), children: new Map(), queued: false, dirty: true });
   const keys = new Map<string, number>();
   const signatureKeys = new Map<string, number>();
   const tasks: Stage[] = [];
@@ -84,7 +89,7 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
     if (stage.key !== null && index.get(stage.key) === stage.id) index.delete(stage.key);
   };
   const notify = (stage: Stage): void => {
-    for (const parent of stage.parents.values()) { invalidate(parent); schedule(parent); }
+    for (const parent of stage.parents.values()) { parent.dirty = true; invalidate(parent); schedule(parent); }
   };
   const refresh = (stage: Stage): boolean => {
     failure = stage.kind === "type" ? accounting.type(stage.value) : accounting.signature(stage.value);
@@ -115,6 +120,7 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
     const index = stage.kind === "type" ? keys : signatureKeys;
     if (!index.has(key)) index.set(key, stage.id);
     stage.key = key;
+    stage.dirty = false;
     return old !== key;
   };
   const redirect = (stage: Stage, selected: number): void => {
@@ -123,12 +129,22 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
     stage.children.clear();
     const aliases = stage.kind === "type" ? typeAliases : signatureAliases;
     aliases.set(stage.id, selected);
+    representatives -= 1;
     const target = stage.kind === "type" ? types.get(selected) : signatures.get(selected);
     for (const parent of stage.parents.values()) {
       if (target !== undefined) target.parents.set(stageKey(parent), parent);
-      invalidate(parent); schedule(parent);
+      parent.dirty = true; invalidate(parent); schedule(parent);
     }
     stage.parents.clear();
+  };
+  const borrow = (stage: Stage): boolean => {
+    if (stage.children.size !== 0 || stage.key === null) return false;
+    const issued = stage.kind === "type" ? issuedTypes : issuedSignatures;
+    if (issued.size === 0 || !grow(1)) return false;
+    const existing = issued.get(stage.key);
+    if (existing === undefined) return false;
+    redirect(stage, existing);
+    return true;
   };
   const read = (value: TyId): TypeTerm | Stop => {
     const before = accounting.growth(1);
@@ -147,13 +163,13 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
   for (const stage of types.values()) {
     refresh(stage);
     if (failure !== null) return failure;
-    schedule(stage);
+    if (accounting.phase !== "construction" || !borrow(stage)) schedule(stage);
     if (failure !== null) return failure;
   }
   for (const stage of signatures.values()) {
     refresh(stage);
     if (failure !== null) return failure;
-    schedule(stage);
+    if (accounting.phase !== "construction" || !borrow(stage)) schedule(stage);
     if (failure !== null) return failure;
   }
   let cursor = 0;
@@ -164,20 +180,27 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
       const stage = rowAt(tasks, cursor++);
       stage.queued = false;
       if (stage.kind === "type" ? typeAliases.has(stage.id) : signatureAliases.has(stage.id)) continue;
-      const changed = refresh(stage);
+      const changed = stage.dirty && refresh(stage);
       if (failure !== null) return failure;
+      if (stage.kind === "type" && borrow(stage)) continue;
+      if (failure !== null) return failure;
+      const retainedKey = stage.key;
+      if (retainedKey === null) throw new TypeError("A scheduled graph node requires its actual admitted key.");
       if (stage.kind === "type") {
         const emit = (value: TypeTerm): TyId | Stop => {
-          const admitted = accounting.type(value);
-          if (admitted !== null) return admitted;
-          const key = typeText(value);
-          const existing = TypeArena.typeKeys(storage).get(key);
+          let key = retainedKey;
+          if (value !== stage.value) {
+            const admitted = accounting.type(value);
+            if (admitted !== null) return admitted;
+            key = typeText(value);
+          }
+          const existing = issuedTypes.get(key);
           if (existing !== undefined) return existing;
           const previous = keys.get(key);
           if (previous !== undefined) return typeIdentifier(resolve(previous, typeAliases));
           const id = typeIdentifier(nextType++);
-          const created: TypeStage = { kind: "type", id, value, key: null, parents: new Map(), children: new Map(), queued: false };
-          types.set(id, created); refresh(created);
+          const created: TypeStage = { kind: "type", id, value, key: null, parents: new Map(), children: new Map(), queued: false, dirty: true };
+          types.set(id, created); representatives += 1; refresh(created);
           if (failure !== null) return failure;
           schedule(created);
           return failure ?? id;
@@ -187,8 +210,8 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
         if (selected !== stage.id) redirect(stage, selected);
         else if (changed) notify(stage);
       } else {
-        const key = signatureText(stage.value);
-        const existing = TypeArena.signatureKeys(storage).get(key);
+        const key = retainedKey;
+        const existing = issuedSignatures.get(key);
         let selected = stage.id;
         if (existing !== undefined) {
           selected = existing;
@@ -215,6 +238,7 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
   for (;;) {
     const stopped = drain();
     if (stopped !== null) return stopped;
+    if (representatives === 0) break;
     const inventoryStop = accounting.growth(4 + types.size + signatures.size);
     if (inventoryStop !== null) return inventoryStop;
     const unresolved = new Map<Stage, number>();
@@ -274,7 +298,7 @@ export function stageGraph<Stop extends LimitStop>(storage: TypeInterner, typeRo
       if (failure !== null) return failure;
     }
   }
-  if (accounting.project === true) {
+  if (accounting.project === true || representatives === 0) {
     const admitted = accounting.growth(2 + typeRows.size + signatureRows.size);
     if (admitted !== null) return admitted;
     const types = new Map<number, TyId>();

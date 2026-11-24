@@ -1456,7 +1456,7 @@ test("borrowed construction pays before following a retained signature inside a 
   const table = { terms: [primitive, { kind: "callable", calls: [0], constructs: [] }], signatures: [{ id: 0, ...signature() }] };
   const capacity = limits();
   const bindings = emptyBindings();
-  const exact = 1 + (1 + 5) + (1 + 10 + 1) + (1 + 3) + (8 + 4 + 4 + 1);
+  const exact = 1 + (1 + 5) + (1 + 10 + 1) + (1 + 3) + (8 + 2);
   for (let maximumWork = 0; maximumWork <= exact; maximumWork += 1) {
     const interner = admitFixtureTable(product, table);
     const issued = readSignature(interner, 0);
@@ -4065,7 +4065,7 @@ test("a changed callable compacts an unchanged existing signature alongside a ge
       ["required", "optional", "default", "rest"], row("call", [parameter])],
     ["tuple kind", "TypeTable(terms=[tuple(elements=[TupleElement(kind=",
       ", type=t:0, declaration=null)], readonly=false)], signatures=[])",
-      ["required", "optional", "rest"], { terms: [{ kind: "tuple", elements: [
+      ["required", "optional", "rest", "variadic"], { terms: [{ kind: "tuple", elements: [
         { kind: "required", type: 0, declaration: null }], readonly: false }], signatures: [] }],
     ["passing", beforeParameter + 'kind="required", type=t:0, passing=', ", initializer=null, acceptsOmission=false" + afterParameter,
       ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"],

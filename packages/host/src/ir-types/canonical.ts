@@ -1,4 +1,4 @@
-import type { CompareMemberKeys, TypeTerm, Signature, SignatureInput, TypeTable, TypePublication, Member, IndexSignature, TypeComponent,
+import type { CompareMemberKeys, FixedTypeTerm, TypeTerm, Signature, SignatureInput, TypeTable, TypePublication, Member, IndexSignature, TypeComponent,
   ComponentSelector, SumFamily, TypeProjection } from "./contract.js";
 import type { TyId, SigId } from "../ids/contract.js";
 import type { LimitStop, TypePublicationWork, PublicationResult } from "./work.js";
@@ -8,6 +8,13 @@ import { typeText, signatureText, memberKeyText } from "./print.js";
 import { readTypeData, readSignatureData } from "./publication-read.js";
 import { copyType, copySignature } from "./copy.js";
 import type { GraphIdentity } from "./arena.js";
+
+export function fixedTypeTerm(value: TypeTerm): value is FixedTypeTerm {
+  switch (value.kind) {
+    case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error": return true;
+    default: return false;
+  }
+}
 
 export const compareMemberKeys: CompareMemberKeys = (left, right) =>
   compareText(memberKeyText(left), memberKeyText(right));

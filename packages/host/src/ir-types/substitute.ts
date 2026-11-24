@@ -480,6 +480,7 @@ function transform<Stop extends TypeTableAdmissionStop>(
     return commitment.work(count);
   };
   const staged = stageGraph<ExpansionStop | Stop>(storage, typeRows, signatureRows, {
+    phase: "expansion",
     step: admit,
     growth: commitment.work,
     ...readStagedGraph(commitment.work),

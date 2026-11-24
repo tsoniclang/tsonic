@@ -24,6 +24,39 @@ export async function graphInsertionCases(suite, types) {
     writeOrigins: [], kind: "property", read, write: null, optional: false, readonly: true }],
     indexes: [], calls: signature === null ? [] : [signature], constructs: [] });
 
+  await suite.test("an already committed batch borrows grounded term and callable keys at every admission cut", () => {
+    const current = create();
+    const fixed = { kind: "primitive", primitive: "bool" };
+    const signature = (parameter, result) => ({ declaration: definition("call"), owner: null, composition: null, kind: "call",
+      typeParameters: [], receiver: null, parameters: [{ declaration: definition("argument"), kind: "required",
+        type: parameter, passing: "by-value", initializer: null, acceptsOmission: false }], result });
+    const seeded = run(current.arena, [], [signature(current.bool, current.string)]).result;
+    assert.equal(seeded.kind, "complete");
+    const original = current.table.signatures[0];
+    const base = current.table.terms.length;
+    const cases = [
+      { rows: [fixed], signatures: [], mapping: { types: [current.bool], signatures: [] } },
+      { rows: [fixed, { kind: "string" }], signatures: [signature(base, base + 1)],
+        mapping: { types: [current.bool, current.string], signatures: [original.id] } },
+    ];
+    for (const { rows, signatures, mapping } of cases) {
+      const complete = run(current.arena, rows, signatures);
+      assert.deepEqual(complete.result, { kind: "complete", value: mapping });
+      for (const dimension of ["work", "created-records"]) {
+        const maximumReached = dimension === "work" ? usedPublicationWork(complete.work) : usedPublicationRecords(complete.work);
+        for (let maximum = 0; maximum < maximumReached; ++maximum) {
+          const work = types.createTypePublicationWork({ ...limits, [dimension === "work" ? "maximumWork" : "maximumCreatedRecords"]: maximum });
+          const result = run(current.arena, rows, signatures, work).result;
+          assert.deepEqual(result, { kind: "resource-limit", dimension, maximum });
+          assert.strictEqual(types.admitTypePublicationStep(work), result);
+          assert.equal(current.table.terms.length, base);
+          assert.strictEqual(current.table.signatures[0], original);
+          assert.equal(current.table.signatures.length, 1);
+        }
+      }
+    }
+  });
+
   await suite.test("a finite cyclic type/signature graph joins the populated arena without retagging issued rows", () => {
     const current = create();
     const prefix = [...current.table.terms];

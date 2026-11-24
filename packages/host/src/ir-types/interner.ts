@@ -6,7 +6,7 @@ import { createTypePublicationWork, usedPublicationWork, usedPublicationRecords 
 import { admitForeignRow, admitGraphSignature, admitGraphType, readTypeData, readSignatureRow } from "./publication-read.js";
 import { TypeArena } from "./arena.js";
 import { typeIdentifier, signatureIdentifier } from "./value.js";
-import { canonicalTypes, remapSignature } from "./canonical.js";
+import { canonicalTypes, fixedTypeTerm, remapSignature } from "./canonical.js";
 import { copyType, copySignature } from "./copy.js";
 import { typeText, signatureText } from "./print.js";
 import { stageGraph } from "./graph-stage.js";
@@ -97,6 +97,7 @@ export const admitTypeTable: AdmitTypeTable = (table, admission) => {
   const violations = verifyTypeRows({ terms: ownedTerms, signatures: ownedSignatures }, null);
   if (violations.length !== 0) return { kind: "invalid", violations };
   const result = stageGraph(storage, terms, signatures, {
+    phase: "construction",
     step: (count = 1) => admission.work(count),
     growth: count => admission.work(count) ?? admission.retain(count),
     type: value => admitGraphType(value, admission.work, admission.retain),
@@ -121,11 +122,8 @@ export const admitTypeTable: AdmitTypeTable = (table, admission) => {
 };
 
 export const internType: InternType = (interner, term) => {
-  switch (term.kind) {
-    case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
-      return publish(interner, term);
-    default: throw new TypeError("ir-types: a nonleaf type requires one paid closed graph admission.");
-  }
+  if (!fixedTypeTerm(term)) throw new TypeError("ir-types: a nonleaf type requires one paid closed graph admission.");
+  return publish(interner, term);
 };
 
 export const readType: ReadType = (interner, type) => storedType(interner, type);
