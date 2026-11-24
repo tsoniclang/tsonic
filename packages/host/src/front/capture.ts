@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypeInterfaceApplication, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -64,6 +64,7 @@ interface CaptureTables {
   readonly symbols: RawSymbol[];
   readonly completedSourceReferences: Map<Node, RawNodeRef>;
   readonly interfaceGroups: { readonly byTarget: Map<Type, RawInterfaceGroup>; readonly rows: RawInterfaceGroup[] };
+  nativeInterfaceDeclarations: Map<Type, readonly [Node, ...Node[]]> | null;
   readonly symbolIds: Map<CheckerSymbol, RawSymbolId>;
   readonly signatureIds: Map<Signature, RawSignatureId>;
   readonly qualifiedSignatures: Map<Signature, Map<Node, Map<Type, Map<Node, Map<string, RawSignatureId>>>>>;
@@ -2097,9 +2098,28 @@ function conditionalAliasApplication(scope: CaptureScope, type: Type, parent: Ra
   return { kind: "conditional-alias-application", declaration, arguments: arguments_ };
 }
 
+interface TypeInterfaceApplication {
+  readonly target: Type;
+  readonly declarations: readonly [Node, ...Node[]];
+  readonly arguments: readonly TypeReferenceArgumentInfo[];
+}
+
 function nativeInterfaceApplication(scope: CaptureScope, type: Type): TypeInterfaceApplication | null {
-  const result = scope.shape.acquireInterfaceApplication(type, nativeCaptureAdmission(scope));
-  if (result.kind === "complete") return result.value;
+  if (!admit(scope, "edges")) return null;
+  const target = scope.shape.getTypeReferenceTarget(type) ?? type;
+  const admission = nativeCaptureAdmission(scope);
+  let declarations = scope.tables.nativeInterfaceDeclarations?.get(target);
+  if (declarations === undefined) {
+    const result = scope.shape.acquireInterfaceDeclarations(target, admission);
+    if (result.kind === "refused" && result.stop === scope.meter.refusal) return null;
+    if (result.kind !== "complete")
+      return throwInvariant(invariant("A merged interface must borrow its actual native declaration target."));
+    if (!admit(scope, "facts", scope.tables.nativeInterfaceDeclarations === null ? 2 : 1)) return null;
+    (scope.tables.nativeInterfaceDeclarations ??= new Map()).set(target, declarations = result.value);
+  }
+  const result = scope.shape.acquireInterfaceArguments(type, target, admission);
+  if (result.kind === "complete")
+    return admit(scope, "facts") ? { target, declarations, arguments: result.value } : null;
   if (result.kind === "refused" && result.stop === scope.meter.refusal) return null;
   return throwInvariant(invariant("A merged interface must borrow its actual native declaration application."));
 }
@@ -4520,7 +4540,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
     fieldSelectors: null, invalidLayout: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
-      interfaceGroups: { byTarget: new Map(), rows: [] },
+      interfaceGroups: { byTarget: new Map(), rows: [] }, nativeInterfaceDeclarations: null,
       symbolIds: new Map(), signatureIds: new Map(),
       qualifiedSignatures: new Map(), activeTypes: new Map(), activeQualifiedTypes: new Map(), activeReceiverKeys: null,
       activeIndexedAliases: new Set(),

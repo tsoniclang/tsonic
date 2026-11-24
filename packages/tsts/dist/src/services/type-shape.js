@@ -2,7 +2,7 @@ import { readObjectPropertyInfo, readTypeIndexInfo, readTypePropertyInfo, readTy
 import { readTypeIndexedAccessComponents, selectTypeIndexedAccess } from "./type-indexed-access.js";
 import { readTypeKeyOfComponents, readTypeSubstitutionComponents, readTypeTemplateLiteralComponents } from "./type-dependent-operands.js";
 import { readCompletedTupleFormal } from "./signature-formal-evidence.js";
-import { readConditionalApplication, readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
+import { readConditionalApplication, readDeferredTypeAliasApplication, readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
 import { Node_Symbol, Node_Type, SourceFile_FileName } from "../internal/ast/ast.js";
 import { AsConditionalTypeNode } from "../internal/ast/generated/casts.js";
 import { IsLiteralTypeNode } from "../internal/ast/generated/predicates.js";
@@ -41,18 +41,20 @@ export function createTypeShapeQueries(program, defaultOptions) {
         return withCheckerForType(program, type, defaultOptions, checker => checker === undefined || checker.program.SourceFiles() !== Program_SourceFiles(program)
             ? undefined : read(checker, type));
     };
+    const acquireTypeEvidence = (type, admit, read) => {
+        if (type === undefined)
+            return { kind: "unavailable" };
+        const result = withOwnedCheckerAcquisition(program, defaultOptions.sourceFile, type.checker, defaultOptions.context ?? Background(), admit, checker => read(checker, type));
+        if (result.kind !== "complete")
+            return result;
+        return result.value === undefined ? { kind: "unavailable" } : { kind: "complete", value: result.value };
+    };
     const queries = {
         typeToString: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_TypeToString(checker, type)) ?? "",
         getTypeFromTypeNode: (node) => querySourceType(program, defaultOptions, { kind: "annotation", node }),
         instantiateTypeAlias: (declaration, arguments_) => withCheckerForNode(program, declaration, defaultOptions, checker => resolveTypeAliasApplication(checker, declaration, arguments_)),
-        acquireTypeAliasApplication: (type, admit) => {
-            if (type === undefined)
-                return { kind: "unavailable" };
-            const result = withOwnedCheckerAcquisition(program, defaultOptions.sourceFile, type.checker, defaultOptions.context ?? Background(), admit, checker => readTypeAliasApplication(checker, type));
-            if (result.kind !== "complete")
-                return result;
-            return result.value === undefined ? { kind: "unavailable" } : { kind: "complete", value: result.value };
-        },
+        acquireTypeAliasApplication: (type, admit) => acquireTypeEvidence(type, admit, readTypeAliasApplication),
+        acquireDeferredTypeAliasApplication: (type, admit) => acquireTypeEvidence(type, admit, readDeferredTypeAliasApplication),
         getIndexedAccessComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeIndexedAccessComponents(checker, type)),
         getConditionalComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeConditionalComponents(checker, type)),
         selectIndexedAccess: (objectType, indexType) => withOwnedChecker(program, defaultOptions.sourceFile, objectType?.checker, defaultOptions.context ?? Background(), checker => checker.program.SourceFiles() === Program_SourceFiles(program)
@@ -136,14 +138,8 @@ export function createTypeShapeQueries(program, defaultOptions) {
                 return undefined;
             return referenceArguments(checker, type, Type_Target(type) ?? type);
         }),
-        acquireInterfaceApplication: (type, admit) => {
-            if (type === undefined)
-                return { kind: "unavailable" };
-            const result = withOwnedCheckerAcquisition(program, defaultOptions.sourceFile, type.checker, defaultOptions.context ?? Background(), admit, owner => interfaceApplication(owner, type));
-            if (result.kind !== "complete")
-                return result;
-            return result.value === undefined ? { kind: "unavailable" } : { kind: "complete", value: result.value };
-        },
+        acquireInterfaceDeclarations: (target, admit) => acquireTypeEvidence(target, admit, interfaceDeclarations),
+        acquireInterfaceArguments: (type, target, admit) => acquireTypeEvidence(type, admit, (checker, source) => target !== undefined && interfaceTarget(checker, source) === target ? referenceArguments(checker, source, target) : undefined),
         acquireCompletedTypeArgument: (type, parameter, admit) => {
             if (type === undefined || parameter === undefined || type.checker !== parameter.checker)
                 return { kind: "unavailable" };
@@ -242,12 +238,16 @@ function referenceArguments(checker, type, target) {
     }
     return Object.freeze(result);
 }
-function interfaceApplication(checker, type) {
+function interfaceTarget(checker, type) {
     admitNativeChecker(checker, "work");
-    if (!hasFlags(type, TypeFlagsObject))
+    if (!hasFlags(type, TypeFlagsObject) || type.data.AsType() !== type)
         return undefined;
     const target = Type_Target(type) ?? type;
-    if (target.checker !== checker || (target.objectFlags & ObjectFlagsInterface) === 0)
+    return target.checker === checker && target.data.AsType() === target && (target.objectFlags & ObjectFlagsInterface) !== 0
+        ? target : undefined;
+}
+function interfaceDeclarations(checker, target) {
+    if (interfaceTarget(checker, target) !== target)
         return undefined;
     const declarations = target.symbol?.Declarations;
     if (declarations === undefined)
@@ -260,19 +260,13 @@ function interfaceApplication(checker, type) {
             return undefined;
         if (declaration.Kind !== KindInterfaceDeclaration)
             continue;
-        admitNativeChecker(checker, "retained", fragments === undefined ? 2 : 1);
+        admitNativeChecker(checker, "retained");
         if (fragments === undefined)
             fragments = [declaration];
         else
             fragments.push(declaration);
     }
-    if (fragments === undefined)
-        return undefined;
-    const arguments_ = referenceArguments(checker, type, target);
-    if (arguments_ === undefined)
-        return undefined;
-    admitNativeChecker(checker, "retained");
-    return Object.freeze({ target, declarations: Object.freeze(fragments), arguments: arguments_ });
+    return fragments === undefined ? undefined : Object.freeze(fragments);
 }
 function completedTypeArgument(checker, type, parameter) {
     admitNativeChecker(checker, "work");

@@ -12,7 +12,7 @@ import { createExtensionConditionalCapture } from "../extensions/conditional-typ
 import { Checker_getConditionalTypeInstantiationWithCapture } from "../internal/checker/checker/inference.js";
 import { Checker_fillMissingTypeArguments, Checker_getMinTypeArgumentCount } from "../internal/checker/checker/signatures.js";
 import { getConditionalTypeKey } from "../internal/checker/checker/state.js";
-import { Type_AsConditionalType, TypeFlagsConditional, TypeFlagsIndexedAccess, TypeFlagsTypeParameter } from "../internal/checker/types.js";
+import { ObjectFlagsMapped, ObjectFlagsReference, Type_AsConditionalType, Type_AsInterfaceType, Type_AsStringMappingType, Type_AsTypeReference, Type_Target, Type_Types, TypeFlagsConditional, TypeFlagsIndex, TypeFlagsIndexedAccess, TypeFlagsObject, TypeFlagsStringMapping, TypeFlagsSubstitution, TypeFlagsTemplateLiteral, TypeFlagsTypeParameter, TypeFlagsUnionOrIntersection } from "../internal/checker/types.js";
 import { LinkStore_TryGet } from "../internal/core/linkstore.js";
 import { admitNativeChecker } from "../internal/checker/resource-admission.js";
 import { createTypeNormalization } from "./type-normalization.js";
@@ -50,6 +50,9 @@ export function readConditionalApplication(checker, result, data) {
 export function readTypeAliasApplication(checker, type) {
     if (type.checker !== checker || type.data.AsType() !== type)
         return undefined;
+    return retainAliasApplication(checker, type);
+}
+function retainAliasApplication(checker, type) {
     admitNativeChecker(checker, "work");
     const alias = type.alias;
     if (alias?.symbol === undefined)
@@ -91,6 +94,94 @@ export function readTypeAliasApplication(checker, type) {
         bindings.push(Object.freeze({ declaration: source, parameter, argument }));
     }
     return Object.freeze({ declaration, typeNode, bindings: Object.freeze(bindings), result: type });
+}
+function pullOperand(frame) {
+    const index = frame.next++;
+    switch (frame.kind) {
+        case "root": return frame.bindings[index]?.argument;
+        case "alias": return index < frame.supplied.length ? frame.supplied[index] : frame.defaults?.[index - frame.supplied.length];
+        case "vector": return frame.types[index];
+        case "string-mapping": return frame.target;
+    }
+}
+function retainedOperands(checker, type) {
+    admitNativeChecker(checker, "work");
+    const alias = type.alias;
+    if (alias !== undefined) {
+        const supplied = alias.typeArguments;
+        const defaults = alias.defaultTypeArguments;
+        const count = supplied.length + (defaults?.length ?? 0);
+        if (count > 0) {
+            admitNativeChecker(checker, "retained");
+            return { kind: "alias", count, supplied, defaults, next: 0 };
+        }
+    }
+    let types;
+    let count = 0;
+    if ((type.flags & (TypeFlagsUnionOrIntersection | TypeFlagsTemplateLiteral)) !== 0) {
+        types = Type_Types(type);
+        count = types?.length ?? 0;
+    }
+    else if ((type.flags & TypeFlagsObject) !== 0 && (type.objectFlags & ObjectFlagsReference) !== 0) {
+        const reference = Type_AsTypeReference(type);
+        const target = Type_Target(type);
+        if (target?.checker !== checker || target.data.AsType() !== target)
+            return undefined;
+        const definition = Type_AsInterfaceType(target);
+        if (definition === undefined)
+            return undefined;
+        types = reference?.resolvedTypeArguments;
+        count = Math.max(0, definition.allTypeParameters.length - 1);
+        if (types === undefined || types.length < count || types.length > count + (definition.thisType === undefined ? 0 : 1))
+            return undefined;
+    }
+    else if ((type.flags & TypeFlagsStringMapping) !== 0) {
+        admitNativeChecker(checker, "retained");
+        const target = Type_AsStringMappingType(type)?.target;
+        return { kind: "string-mapping", count: 1, target, next: 0 };
+    }
+    if (types === undefined || count === 0)
+        return undefined;
+    admitNativeChecker(checker, "retained");
+    return { kind: "vector", count, types, next: 0 };
+}
+export function readDeferredTypeAliasApplication(checker, type) {
+    if (type.checker !== checker || type.data.AsType() !== type)
+        return undefined;
+    admitNativeChecker(checker, "work");
+    if ((type.flags & TypeFlagsUnionOrIntersection) === 0 &&
+        ((type.flags & TypeFlagsObject) === 0 || (type.objectFlags & ObjectFlagsMapped) === 0))
+        return undefined;
+    const application = retainAliasApplication(checker, type);
+    if (application === undefined || application.bindings.length === 0)
+        return undefined;
+    admitNativeChecker(checker, "retained", 3);
+    const frames = [{ kind: "root", count: application.bindings.length, bindings: application.bindings, next: 0 }];
+    const visited = new Set();
+    while (frames.length !== 0) {
+        const frame = frames.at(-1);
+        if (frame === undefined)
+            throw new Error("A retained operand cursor must have a current frame.");
+        if (frame.next === frame.count) {
+            frames.pop();
+            continue;
+        }
+        admitNativeChecker(checker, "work");
+        const operand = pullOperand(frame);
+        if (operand?.checker !== checker || operand === checker.errorType || operand.data.AsType() !== operand)
+            return undefined;
+        if ((operand.flags & (TypeFlagsTypeParameter | TypeFlagsConditional | TypeFlagsIndexedAccess | TypeFlagsIndex | TypeFlagsSubstitution)) !== 0)
+            return application;
+        if (visited.has(operand))
+            continue;
+        const nested = retainedOperands(checker, operand);
+        if (nested === undefined)
+            continue;
+        admitNativeChecker(checker, "retained", 2);
+        visited.add(operand);
+        frames.push(nested);
+    }
+    return undefined;
 }
 export function resolveTypeAliasApplication(queryChecker, declaration, arguments_) {
     if (declaration === undefined || !IsTypeAliasDeclaration(declaration) || !Array.isArray(arguments_))

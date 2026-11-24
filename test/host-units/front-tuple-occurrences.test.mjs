@@ -741,12 +741,11 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
     const run = () => capture({ acquireSourceType: observeSourceType(checker, request => {
       if (changedRead && request.kind === "annotation" && request.node === element) elementReads += 1;
     }) }, limits, {
-      acquireInterfaceApplication(type, admit) {
-        const result = typeShape.acquireInterfaceApplication(type, admit);
-        if (type !== first.type || result.kind !== "complete") return result;
+      acquireInterfaceArguments(type, target, admit) {
+        if (type !== first.type) return typeShape.acquireInterfaceArguments(type, target, admit);
         changedRead = true;
-        if (kind === "target") return { ...result, value: { ...result.value, target: foreignTarget } };
-        if (kind === "slot") return { ...result, value: { ...result.value, arguments: [arguments_[1]] } };
+        const result = typeShape.acquireInterfaceArguments(type, kind === "target" ? foreignTarget : target, admit);
+        if (kind === "slot" && result.kind === "complete") return { ...result, value: [arguments_[1]] };
         return result;
       },
     });
@@ -754,7 +753,8 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
       assert.equal(run().kind, "ok");
       assert.ok(elementReads > 0);
     } else {
-      assert.throws(run, /a tuple requires its actual authored, projected or inferred destructuring association/u);
+      assert.throws(run, kind === "target" ? /actual native declaration application/u
+        : /a tuple requires its actual authored, projected or inferred destructuring association/u);
       assert.equal(elementReads, 0, kind);
     }
     assert.equal(changedRead, true);
@@ -763,12 +763,11 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
 
 test("the changed dependency application preserves the original stop before its target and completed vector", async () => {
   const { rest: [first], capture, limits, typeShape, checker, element } = await restDependencyProbe();
-  const targetFacts = 151;
-  const targetEdges = 337;
-  const fragmentCount = 2;
+  const targetFacts = 155;
+  const targetEdges = 341;
   const slotCount = 1;
-  const vectorFacts = targetFacts + 1 + fragmentCount + 1 + 2 * slotCount + 1;
-  const vectorEdges = targetEdges + fragmentCount + slotCount;
+  const vectorFacts = targetFacts + 1 + 2 * slotCount;
+  const vectorEdges = targetEdges + slotCount;
   for (const [reader, facts, edges] of [["target", targetFacts, targetEdges], ["vector", vectorFacts, vectorEdges]]) {
     const stop = new Error(`actual changed dependency ${reader} reader stopped`);
     const run = navigationCapture => {
@@ -776,10 +775,10 @@ test("the changed dependency application preserves the original stop before its 
       return capture({ acquireSourceType: observeSourceType(checker, request => {
         if (stopped && request.kind === "annotation") assert.equal(request.node === element, false);
       }) }, navigationCapture, {
-        acquireInterfaceApplication(type, admit) {
+        acquireInterfaceArguments(type, target, admit) {
           assert.equal(stopped, false);
-          if (type !== first.type) return typeShape.acquireInterfaceApplication(type, admit);
-          const result = typeShape.acquireInterfaceApplication(type, (axis, count) => {
+          if (type !== first.type) return typeShape.acquireInterfaceArguments(type, target, admit);
+          const result = typeShape.acquireInterfaceArguments(type, target, (axis, count) => {
             const refused = admit(axis, count);
             if (refused === null && reader === "target") { stopped = true; throw stop; }
             return refused;

@@ -70,11 +70,6 @@ export interface TypePropertyInventory<Stop extends object> {
     readonly mayHaveRows: boolean;
     readonly next: () => TypePropertyRead<Stop>;
 }
-export interface TypeInterfaceApplication {
-    readonly target: Type;
-    readonly declarations: readonly [Node, ...Node[]];
-    readonly arguments: readonly TypeReferenceArgumentInfo[];
-}
 export type TypePropertyHeaderInventory = NativePropertyInventory<TypePropertyHeader>;
 export interface StructuredTypeInventory<Stop extends object> {
     readonly signatures: readonly GoPtr<Signature>[];
@@ -124,6 +119,7 @@ export interface TypeShapeQueries {
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly instantiateTypeAlias: (declaration: GoPtr<Node>, arguments_: readonly Type[]) => TypeAliasApplicationInfo | undefined;
     readonly acquireTypeAliasApplication: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<RetainedTypeAliasApplication, Stop>;
+    readonly acquireDeferredTypeAliasApplication: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<RetainedTypeAliasApplication, Stop>;
     readonly getConstantValue: (node: GoPtr<Node>) => unknown;
     readonly getNumericLiteralTypeValue: (type: GoPtr<Type>) => number | bigint | undefined;
     readonly getStringLiteralTypeValue: (type: GoPtr<Type>) => string | undefined;
@@ -153,7 +149,8 @@ export interface TypeShapeQueries {
     readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceArgumentInfos: (type: GoPtr<Type>) => readonly TypeReferenceArgumentInfo[] | undefined;
-    readonly acquireInterfaceApplication: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<TypeInterfaceApplication, Stop>;
+    readonly acquireInterfaceDeclarations: <Stop extends object>(target: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<readonly [Node, ...Node[]], Stop>;
+    readonly acquireInterfaceArguments: <Stop extends object>(type: GoPtr<Type>, target: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<readonly TypeReferenceArgumentInfo[], Stop>;
     readonly acquireCompletedTypeArgument: <Stop extends object>(type: GoPtr<Type>, parameter: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<Type, Stop>;
     readonly getInstantiatedBaseTypes: (type: GoPtr<Type>) => readonly Type[] | undefined;
     readonly getKeyOfComponents: (type: GoPtr<Type>) => TypeKeyOfComponents | undefined;
