@@ -427,7 +427,9 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
           throw new TypeError("front: a mapped key use must belong to its actual checked value subtree");
         current = parent;
       }
-      for (const [id, role] of [[form.base, "projection-source"], [form.constraint, "projection-constraint"]] as const) {
+      const inputs: readonly { readonly id: RawTypeId; readonly role: "projection-source" | "projection-constraint" }[] =
+        [{ id: form.base, role: "projection-source" }, { id: form.constraint, role: "projection-constraint" }];
+      for (const { id, role } of inputs) {
         const stop = admitTypePublicationStep(work);
         if (stop !== null) { graph.failure = stop; return stop; }
         const selected = raw.types.types[id];
