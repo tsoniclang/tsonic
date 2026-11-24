@@ -259,7 +259,7 @@ interface TupleInitializerUse {
 interface ProjectedOperandUse {
   readonly kind: "projected-operand";
   readonly type: Type;
-  readonly role: "indexed-result" | "indexed-tuple-object" | "declared-tuple-argument";
+  readonly role: "indexed-result" | "indexed-tuple-object" | "declared-tuple-argument" | "receiver-tuple-result";
 }
 
 type ResultBindingUse = ReceiverProjectionUse | UnionResultUse | DirectResultUse;
@@ -1423,10 +1423,12 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
   projection: ProjectedOperandUse | null): RawTypeForm | null {
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A tuple type requires its actual captured component."));
-  const nativeProjection = projection?.role === "indexed-tuple-object" || projection?.role === "declared-tuple-argument";
+  const nativeProjection = projection?.role === "indexed-tuple-object" || projection?.role === "declared-tuple-argument"
+    || projection?.role === "receiver-tuple-result";
   const prefix = parent.path?.prefix;
   if (nativeProjection && (projection.type !== type || originalUse !== null || binding !== null
-    || (projection.role === "indexed-tuple-object" ? parent.path?.step.kind !== "projection-source"
+    || (projection.role === "receiver-tuple-result" ? parent.path?.step.kind !== "result" || prefix !== null
+      : projection.role === "indexed-tuple-object" ? parent.path?.step.kind !== "projection-source"
       : parent.path?.step.kind !== "argument-place" || prefix === null || prefix === undefined ||
         scope.tables.components[prefix]?.path?.step.kind !== "result")))
     return throwInvariant(invariant("A projected source must retain its exact native tuple and component."));
@@ -2061,7 +2063,9 @@ function conditionalAliasApplication(scope: CaptureScope, type: Type, parent: Ra
       if (actual?.type !== row.argument || actual.causes.length !== 0) return null;
     }
     const step: RawComponentStep = { kind: "argument-place", index };
-    const captured = rawType(scope, () => withoutTypeCause(row.argument), appendComponent(scope, parent, step), source ?? null);
+    const captured = source === undefined
+      ? selectedOperand(scope, parent, row.argument, step)
+      : rawType(scope, () => withoutTypeCause(row.argument), appendComponent(scope, parent, step), source);
     if (captured === null) return null;
     arguments_.push(captured);
   }
@@ -3885,9 +3889,17 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
     if (scope.meter.refusal !== null) return;
     if (authored !== declaration || projected.selected !== answer?.type)
       return throwInvariant(invariant("A selected signature result must retain its actual declaration and native parameter."));
-    const declarations = mergedArgumentGroup(scope, projected.selected);
-    if (scope.meter.refusal !== null) return;
-    if (declarations !== null) use = { kind: "merged-slot", type: projected.selected, declarations };
+    if (projected.kind === "receiver") {
+      const ast = scope.checked.ast;
+      if (target === null || ast.typeNode(projected.declaration) !== projected.annotation
+        || ast.kindName(projected.annotation) !== "KindThisType" || !scope.shape.isTuple(projected.selected))
+        return throwInvariant(invariant("A selected receiver result must retain its actual written this and mapped tuple."));
+      use = { kind: "projected-operand", role: "receiver-tuple-result", type: projected.selected };
+    } else {
+      const declarations = mergedArgumentGroup(scope, projected.selected);
+      if (scope.meter.refusal !== null) return;
+      if (declarations !== null) use = { kind: "merged-slot", type: projected.selected, declarations };
+    }
   }
   const result = enqueueRawType(scope, answer, resultPosition, operator ?? originalUse ?? direct, use, null);
   scope.tables.signatures[id] = {

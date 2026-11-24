@@ -11,6 +11,7 @@ export interface ResolvedSourceTypeInfo {
     readonly projectedReturn?: SelectedSignatureReturnProjection;
 }
 export interface SelectedSignatureReturnProjection {
+    readonly kind: "parameter" | "receiver";
     readonly declaration: Node;
     readonly annotation: Node;
     readonly original: Type;

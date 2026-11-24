@@ -1,9 +1,10 @@
 import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
 import { Node_Type } from "../internal/ast/ast.js";
+import { KindThisType } from "../internal/ast/generated/kinds.js";
 import {} from "../internal/compiler/program.js";
 import { CheckerLifetimeAPI, CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
 import { Background } from "../go/context.js";
-import { Checker_GetReturnTypeOfSignature, Checker_GetTypeFromTypeNode } from "../internal/checker/exports.js";
+import { Checker_GetReturnTypeOfSignature, Checker_GetTypeFromTypeNode, IsTupleType } from "../internal/checker/exports.js";
 import { Checker_getContextualType, Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
 import { ContextFlagsNone, TypeFlagsTypeParameter } from "../internal/checker/types.js";
 import { TypeMapper_Kind, TypeMapper_Map, TypeMapperKindArray, TypeMapperKindSimple } from "../internal/checker/mapper.js";
@@ -43,10 +44,14 @@ export function admitSourceTypeAnswer(answer, admits, checker) {
 function selectedSignatureReturn(checker, signature, type, admits) {
     const answer = signatureReturnAnswer(checker, signature, type, admits);
     if (answer === undefined || answer.causes.length !== 0 || signature === undefined || type === undefined
-        || type.checker !== checker || (type.flags & TypeFlagsTypeParameter) === 0)
+        || type.checker !== checker)
+        return answer;
+    const parameter = (type.flags & TypeFlagsTypeParameter) !== 0;
+    const target = signature.target;
+    const receiverAnnotation = parameter || !IsTupleType(type) ? undefined : Node_Type(target?.declaration);
+    if (!parameter && receiverAnnotation?.Kind !== KindThisType)
         return answer;
     admitNativeChecker(checker, "work");
-    const target = signature.target;
     const mapper = signature.mapper;
     if (signature.composite !== undefined || target === undefined || mapper === undefined || target.checkerId !== checker.id
         || signature.resolvedReturnType !== type)
@@ -58,12 +63,12 @@ function selectedSignatureReturn(checker, signature, type, admits) {
     if (kind !== TypeMapperKindArray && kind !== TypeMapperKindSimple || TypeMapper_Map(mapper, original) !== type)
         return answer;
     const declaration = originalSignatureDeclaration(checker, target);
-    const annotation = Node_Type(declaration);
+    const annotation = parameter ? Node_Type(declaration) : receiverAnnotation;
     if (declaration === undefined || signature.declaration !== declaration || annotation === undefined
         || completedAnnotationSource(checker, annotation, original) !== annotation)
         return answer;
     admitNativeChecker(checker, "retained", 2);
-    return { ...answer, projectedReturn: { declaration, annotation, original, selected: type } };
+    return { ...answer, projectedReturn: { kind: parameter ? "parameter" : "receiver", declaration, annotation, original, selected: type } };
 }
 function readHead(checker, request, admits) {
     admitNativeChecker(checker, "work");
