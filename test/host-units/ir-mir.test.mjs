@@ -2015,6 +2015,39 @@ test("MIR index selector keys are real reachable type references, not opaque sou
   }
 });
 
+test("MIR follows each actual template literal type operand at its paid slot", async () => {
+  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify-types.js");
+  const body = parsedBody();
+  const site = { kind: "body", body: body.body };
+  const roots = [{ type: identities.tyId(1), site }];
+  const check = (last, maximum, seen) => {
+    const meter = { spent: 0, maximum, exhausted: false };
+    const spans = new Proxy([{ type: identities.tyId(0), tail: "-" }, { type: identities.tyId(last), tail: "" }], {
+      get(rows, field) {
+        if (field === "0" || field === "1") {
+          assert.equal(meter.exhausted, false);
+          seen.push(Number(field));
+        }
+        return Reflect.get(rows, field);
+      },
+    });
+    const terms = [{ kind: "string" }, { kind: "template-literal", head: "", spans }];
+    return { result: verifyTypeReferences({ terms, signatures: [] }, roots, [], meter), meter };
+  };
+  same(check(0, 100000, []).result, [], "both actual placeholder types are reachable");
+  const expected = [{ rule: "type-resolves", site, detail: [{ kind: "number", value: 1 }] }];
+  const complete = check(99, 100000, []);
+  same(complete.result, expected, "the crossed later placeholder is a real type operand");
+  for (let maximum = 0; maximum <= complete.meter.spent; ++maximum) {
+    const seen = [];
+    const result = check(99, maximum, seen);
+    const stopped = maximum < complete.meter.spent;
+    assert.equal(result.meter.exhausted, stopped);
+    same(result.result, stopped ? [] : expected, "no partial result after a cut");
+    same(seen, [0, 1].slice(0, seen.length), "only the reached placeholder prefix was read");
+  }
+});
+
 test("MIR storage lifetime checks all predecessor paths, dead transitions and repeated exact queries", () => {
   const base = parsedBody();
   const context = sourceContext(base);

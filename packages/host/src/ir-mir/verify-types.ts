@@ -116,6 +116,14 @@ function termReferences(term: TypeTerm, path: TextPath, meter: WorkMeter, missin
   };
   switch (term.kind) {
     case "literal": appendType(term.base); break;
+    case "template-literal":
+      for (let position = 0; position < term.spans.length; position += 1) {
+        chargeWork(meter, 1);
+        if (meter.exhausted) return [];
+        appendType(term.spans[position]?.type);
+        if (meter.exhausted) return [];
+      }
+      break;
     case "union": case "intersection": appendTypes(term.members); break;
     case "optional": appendType(term.value); break;
     case "array": case "fixed-array": appendType(term.element); break;
