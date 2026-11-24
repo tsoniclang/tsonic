@@ -1545,11 +1545,16 @@ function undefinedUnionArms(scope: CaptureScope, type: Type, reference?: Type):
   return value === undefined || absent === undefined || !matchedReference ? undefined : { value, valueIndex, absent };
 }
 
-function authoredFormalArms(scope: CaptureScope, type: Type, syntax: Node, role: "optional" | "rest"): AuthoredFormalArms | null {
+function authoredCompoundArms(scope: CaptureScope, type: Type, syntax: Node, role: "direct" | "optional" | "rest",
+  readNative: () => readonly (Type | undefined)[]): AuthoredFormalArms | null {
   const ast = scope.checked.ast;
-  if (ast.kindName(syntax) !== "KindUnionType" || !scope.shape.isUnion(type) || !admit(scope, "edges")) return null;
-  const written = ast.as.AsUnionTypeNode(syntax)?.Types?.Nodes;
-  const native = scope.shape.getUnionOrIntersectionTypes(type);
+  const kind = ast.kindName(syntax);
+  if (kind !== "KindUnionType" && kind !== "KindIntersectionType" ||
+    kind === "KindUnionType" && !scope.shape.isUnion(type) ||
+    kind === "KindIntersectionType" && (role !== "direct" || !scope.shape.isIntersection(type)) ||
+    !admit(scope, "edges")) return null;
+  const written = (kind === "KindUnionType" ? ast.as.AsUnionTypeNode(syntax) : ast.as.AsIntersectionTypeNode(syntax))?.Types?.Nodes;
+  const native = readNative();
   if (written === undefined || written.length < 2 || native.length < written.length
     || native.length > written.length + Number(role === "optional")) return null;
   const unassigned = new Set<Type>();
@@ -1596,7 +1601,8 @@ function authoredFormalAnnotation(scope: CaptureScope, task: Extract<CaptureTask
   if (signature === undefined || signature.target !== undefined || signature.mapper !== undefined || signature.composite !== undefined ||
     scope.checker.getSignatureDeclaration(signature) !== owner || !admit(scope, "edges")) return null;
   const answer = sourceType(scope, { kind: "annotation", node: syntax });
-  return answer?.type === type && answer.causes.length === 0 ? authoredFormalArms(scope, type, syntax, role) : null;
+  return answer?.type === type && answer.causes.length === 0
+    ? authoredCompoundArms(scope, type, syntax, role, () => scope.shape.getUnionOrIntersectionTypes(type)) : null;
 }
 
 function undefinedUnionSyntax(scope: CaptureScope, node: Node): UndefinedUnionSyntax | undefined {
@@ -2522,6 +2528,16 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     const parent = scope.tables.components[position];
     if (parent === undefined) return throwInvariant(invariant("A captured composite type requires its actual original component."));
     const actual = shape.getUnionOrIntersectionTypes(type);
+    let written = bindingUse?.kind === "authored-formal-arms" ? bindingUse : null;
+    const syntaxKind = scope.checked.ast.kindName(syntax);
+    if (bindingUse === null && (syntaxKind === "KindUnionType" || syntaxKind === "KindIntersectionType") && syntax !== undefined
+      && undefinedUnionSyntax(scope, syntax) === undefined) {
+      if (!admit(scope, "edges")) return null;
+      const source = sourceType(scope, { kind: "annotation", node: syntax });
+      if (scope.meter.refusal !== null) return null;
+      if (source?.type === type && source.causes.length === 0) written = authoredCompoundArms(scope, type, syntax, "direct", () => actual);
+      if (scope.meter.refusal !== null) return null;
+    }
     const members: RawTypeId[] = [];
     for (let index = 0; index < actual.length; index += 1) {
       if (!admit(scope, "edges")) return null;
@@ -2533,8 +2549,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
       const association = bindingUse?.kind === "callback" && bindingUse.type === member ? bindingUse
         : composed?.reference === member ? composed.argument : null;
       const source = bindingUse?.kind === "union-arm" && bindingUse.type === member ? bindingUse.source
-        : bindingUse?.kind === "authored-formal-arms" ? bindingUse.sources.get(member) ?? null
-        : composed?.bare === member ? composed.source : null;
+        : written?.sources.get(member) ?? (composed?.bare === member ? composed.source : null);
       const captured = rawType(scope, () => withoutTypeCause(member), position, source, association);
       if (captured === null) return null;
       members.push(captured);
@@ -3711,7 +3726,8 @@ function captureSignatureParameter(scope: CaptureScope, draft: SignatureDraft, i
       : parameterSyntax?.QuestionToken === undefined && parameterSyntax?.DotDotDotToken !== undefined && parameter.parameterKind === "rest" ? "rest" : null;
     const authoredArms = originalUse !== null && parameterNode !== undefined && parameterSyntax?.Initializer === undefined
       && role !== null && scope.checker.getSignatureDeclaration(draft.signature) === scope.checked.ast.parent(parameterNode) &&
-      draft.signature.parameters[index] === symbol ? authoredFormalArms(scope, parameter.type, originalUse, role) : null;
+      draft.signature.parameters[index] === symbol ? authoredCompoundArms(scope, parameter.type, originalUse, role,
+        () => scope.shape.getUnionOrIntersectionTypes(parameter.type)) : null;
     if (scope.meter.refusal !== null) return;
     const use = draft.use?.formals?.get(index) ?? authoredArms ?? undefined;
     const type = rawType(scope, () => withoutTypeCause(parameter.type, parameter.typeSource), position,

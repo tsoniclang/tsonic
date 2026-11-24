@@ -96,6 +96,24 @@ test("an original rest formal retains each authored tuple arm and its actual bin
   }
 });
 
+test("a non-formal written union retains distinct tuple occurrences, including a zero-slot arm", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export type Slots = readonly [boolean] | [];");
+  const result = captureSourceBarrier(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const module = result.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+  const [alias] = module.module.tree.statements.nodes;
+  const { terms } = fixture.types.viewTypes(result.value.types);
+  const choice = terms[alias.type.tsonic.type.value];
+  assert.equal(choice.kind, "union");
+  const alternatives = choice.members.map(id => terms[id]).sort((left, right) => left.elements.length - right.elements.length);
+  assert.deepEqual(alternatives[0], { kind: "tuple", readonly: false, elements: [] });
+  assert.equal(alternatives[1].kind, "tuple");
+  assert.equal(alternatives[1].readonly, true);
+  assert.deepEqual(terms[alternatives[1].elements[0].type], { kind: "primitive", primitive: "bool" });
+});
+
 test("two concrete uses of an executable foreign generic retain their own selected signatures and bodies", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
