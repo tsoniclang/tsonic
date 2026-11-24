@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { primeCaptureReader, propertyRows, loadFrontFixture, rawComponentPath } from "./fixtures/front/checked-module.mjs";
+import { primeCaptureReader, propertyRows, loadFrontFixture, observeSourceType, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
 test("a mapped index value retains the actual different merged parameter group", async () => {
   const fixture = await loadFrontFixture();
@@ -790,10 +790,9 @@ for (const annotation of ["T[]", "Identity<T[]>"]) {
       const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
         const queries = checked.getSourceFileQueries(sourceFile);
         if (sourceFile !== file) return queries;
-        return { ...queries, checker: { ...checker, getTypeFromTypeNode(node) {
-          if (node === checkpoint) readLater = true;
-          return checker.getTypeFromTypeNode(node);
-        } } };
+        return { ...queries, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
+          if (request.kind === "annotation" && request.node === checkpoint) readLater = true;
+        }) } };
       } }, OpenedProgram.table(program), set.modules.map(entry =>
         OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
       OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
@@ -1162,11 +1161,10 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped self resul
     const program = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
       const queries = checked.getSourceFileQueries(sourceFile);
       if (sourceFile !== file) return queries;
-      return { ...queries, checker: { ...checker, getReturnTypeOfSignature(signature) {
-        if (signature === original) sourceReads += 1;
-        if (signature === natives[0].selected) selectedReads += 1;
-        return checker.getReturnTypeOfSignature(signature);
-      } } };
+      return { ...queries, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
+        if (request.kind === "signature-return" && request.signature === original) sourceReads += 1;
+        if (request.kind === "signature-return" && request.signature === natives[0].selected) selectedReads += 1;
+      }) } };
     } }, OpenedProgram.table(opened.program), opened.set.modules.map(entry =>
       OpenedProgram.file(opened.program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
     OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
@@ -1484,11 +1482,12 @@ test("the composed rest preserves the original authored argument reader stop", a
   const observed = OpenedProgram.create({ ...OpenedProgram.checked(program), getSourceFileQueries(sourceFile) {
     const queries = getSourceFileQueries(sourceFile);
     if (sourceFile !== file) return queries;
-    return { ...queries, checker: { ...checker, getTypeFromTypeNode(node) {
+    return { ...queries, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
+      if (request.kind !== "annotation") return;
+      const { node } = request;
       if (node === bare || node === argument || node === reference || node === checkpoint) reads.push(node);
       if (node === argument) throw stop;
-      return checker.getTypeFromTypeNode(node);
-    } } };
+    }) } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
@@ -1556,14 +1555,13 @@ for (const scenario of ["direct", "crossed", "stop"]) test("a composed receiver 
     const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
       const queries = checked.getSourceFileQueries(sourceFile);
       if (sourceFile !== file) return queries;
-      return { ...queries, checker: { ...checker, getReturnTypeOfSignature(signature) {
-        if (signature === selected || signature === original || signature === oppositeSelected || signature === oppositeOriginal) reads.push(signature);
-        if (scenario === "stop" && signature === original) throw stop;
-        return checker.getReturnTypeOfSignature(signature);
-      }, getTypeFromTypeNode(node) {
-        if (node === authored || node === oppositeSyntax) reads.push(node);
-        return checker.getTypeFromTypeNode(node);
-      } }, typeShape: { ...typeShape, getUnionOrIntersectionTypes(type) {
+      return { ...queries, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
+        if (request.kind === "signature-return") {
+          const { signature } = request;
+          if (signature === selected || signature === original || signature === oppositeSelected || signature === oppositeOriginal) reads.push(signature);
+          if (scenario === "stop" && signature === original) throw stop;
+        } else if (request.kind === "annotation" && (request.node === authored || request.node === oppositeSyntax)) reads.push(request.node);
+      }) }, typeShape: { ...typeShape, getUnionOrIntersectionTypes(type) {
         if (type === selectedResult) reads.push(type);
         return typeShape.getUnionOrIntersectionTypes(type);
       } } };
@@ -1856,11 +1854,12 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot
     }, getStructuredInventory(type, admit) {
       if (type === tuple) propertyReads += 1;
       return typeShape.getStructuredInventory(type, admit);
-    } }, checker: { ...checker, getTypeFromTypeNode(node) {
+    } }, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
+      if (request.kind !== "annotation") return;
+      const { node } = request;
       if (node === first || node === binder || node === later || node === checkpoint) read.push(node);
       if (node === binder && !wrapped) throw stop;
-      return checker.getTypeFromTypeNode(node);
-    } } };
+    }) } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
@@ -1873,7 +1872,7 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot
     assert.equal(read.length === 2 && read[0] === first && read[1] === binder, true);
     return;
   }
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 54], ["maximumCapturedEdgesPerModule", 61]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 57], ["maximumCapturedEdgesPerModule", 119]]) {
     primeCaptureReader(cap => run(limit, cap), deps.navigationCapture[limit], stop);
     tupleReads = 0;
     propertyReads = 0;
@@ -1975,17 +1974,13 @@ for (const forged of [false, true]) test(forged ? "an alias result cannot borrow
   const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
     const queries = checked.getSourceFileQueries(sourceFile);
     if (sourceFile !== file) return queries;
-    return { ...queries, checker: { ...checker, getReturnTypeOfSignature(signature) {
-      if (signature === selected) selectedReads += 1;
-      if (signature === original) {
-        originalReads += 1;
-        throw stop;
+    return { ...queries, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
+      if (request.kind === "signature-return") {
+        if (request.signature === selected) selectedReads += 1;
+        if (request.signature === original) { originalReads += 1; throw stop; }
       }
-      return checker.getReturnTypeOfSignature(signature);
-    }, getTypeFromTypeNode(node) {
-      if (node === result || node === authored.TypeArguments.Nodes[0] || node === checkpoint) readAfter = true;
-      return checker.getTypeFromTypeNode(node);
-    } } };
+      if (request.kind === "annotation" && (request.node === result || request.node === authored.TypeArguments.Nodes[0] || request.node === checkpoint)) readAfter = true;
+    }) } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
@@ -1997,7 +1992,7 @@ for (const forged of [false, true]) test(forged ? "an alias result cannot borrow
     assert.equal(readAfter, false);
     return;
   }
-  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 50], ["maximumCapturedEdgesPerModule", 51]]) {
+  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 53], ["maximumCapturedEdgesPerModule", 84]]) {
     const run = maximum => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: maximum } },
       observed, module);
     primeCaptureReader(run, deps.navigationCapture[limit], stop);
@@ -2051,11 +2046,10 @@ test("an alias-wrapped result cannot borrow a matching inner union by native poi
   const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
     const queries = checked.getSourceFileQueries(sourceFile);
     if (sourceFile !== file) return queries;
-    return { ...queries, checker: { ...checker, getReturnTypeOfSignature(signature) {
-      if (signature === selected) selectedReads += 1;
-      if (signature === original) originalReads += 1;
-      return checker.getReturnTypeOfSignature(signature);
-    } } };
+    return { ...queries, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
+      if (request.kind === "signature-return" && request.signature === selected) selectedReads += 1;
+      if (request.kind === "signature-return" && request.signature === original) originalReads += 1;
+    }) } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
@@ -2094,21 +2088,17 @@ test("the exact union result limits preserve the original signature reader stop"
   const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
     const queries = checked.getSourceFileQueries(sourceFile);
     if (sourceFile !== file) return queries;
-    return { ...queries, checker: { ...checker, getReturnTypeOfSignature(signature) {
-      if (signature === selected) selectedReads += 1;
-      if (signature === original) {
-        reads += 1;
-        throw stop;
+    return { ...queries, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
+      if (request.kind === "signature-return") {
+        if (request.signature === selected) selectedReads += 1;
+        if (request.signature === original) { reads += 1; throw stop; }
       }
-      return checker.getReturnTypeOfSignature(signature);
-    }, getTypeFromTypeNode(node) {
-      if (node === syntax || node === parameter || node === absent || node === checkpoint) readAfter = true;
-      return checker.getTypeFromTypeNode(node);
-    } } };
+      if (request.kind === "annotation" && (request.node === syntax || request.node === parameter || request.node === absent || request.node === checkpoint)) readAfter = true;
+    }) } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 54], ["maximumCapturedEdgesPerModule", 52]]) {
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 63], ["maximumCapturedEdgesPerModule", 91]]) {
     const run = cap => fixture.front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: cap } }, observed, module);
     primeCaptureReader(run, deps.navigationCapture[limit], stop);
     reads = 0;
@@ -2159,10 +2149,9 @@ test("a union arm cannot classify a mixed declaration inventory from its first n
     if (sourceFile !== file) return views;
     return { ...views, checker: { ...checker, getSymbolDeclarations(candidate) {
       return candidate === symbol ? mixed : checker.getSymbolDeclarations(candidate);
-    }, getTypeFromTypeNode(node) {
-      if (node === parameter) readArm += 1;
-      return checker.getTypeFromTypeNode(node);
-    } } };
+    }, acquireSourceType: observeSourceType(checker, request => {
+      if (request.kind === "annotation" && request.node === parameter) readArm += 1;
+    }) } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));

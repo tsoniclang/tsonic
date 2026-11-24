@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { primeCaptureReader, propertyRows, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { primeCaptureReader, propertyRows, loadFrontFixture, observeSourceType } from "./fixtures/front/checked-module.mjs";
 
 async function opened(source, includeArrayIndex = true, foreignSource) {
   const fixture = await loadFrontFixture();
@@ -91,11 +91,10 @@ test("the actual optional arm reader stops before the next written source arm", 
   const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
     const queries = checked.getSourceFileQueries(sourceFile);
     if (sourceFile !== file) return queries;
-    return { ...queries, checker: { ...queries.checker, getTypeFromTypeNode(node) {
-      if (node === absent) absenceReads += 1;
-      if (node === array) { arrayReads += 1; throw stop; }
-      return queries.checker.getTypeFromTypeNode(node);
-    } } };
+    return { ...queries, checker: { ...queries.checker, acquireSourceType: observeSourceType(queries.checker, request => {
+      if (request.kind === "annotation" && request.node === absent) absenceReads += 1;
+      if (request.kind === "annotation" && request.node === array) { arrayReads += 1; throw stop; }
+    }) } };
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
@@ -200,10 +199,9 @@ test("neither a crossed native result target nor a different actual tuple argume
   assert.equal(firstArgument(actual.type) === firstArgument(unrelated.type), false);
   for (const wrong of [crossed, unrelated]) {
     let read = 0;
-    assert.throws(() => capture({ getReturnTypeOfSignature(signature) {
-      if (signature === produce) { read += 1; return wrong; }
-      return checker.getReturnTypeOfSignature(signature);
-    } }), /a tuple requires its actual authored, projected or inferred destructuring association/u);
+    assert.throws(() => capture({ acquireSourceType: observeSourceType(checker, request => {
+      if (request.kind === "signature-return" && request.signature === produce) { read += 1; return wrong; }
+    }) }), /a tuple requires its actual authored, projected or inferred destructuring association/u);
     assert.equal(read, 1);
   }
 });
@@ -215,17 +213,13 @@ test("the exact bracketed result allowance bounds every cut before the actual or
   const stop = new Error("actual original result reader stopped");
   const reads = [];
   const overrides = {
-    getReturnTypeOfSignature(signature) {
-      if (signature === produce) reads.push("selected");
-      if (signature === original) { reads.push("original"); throw stop; }
-      return checker.getReturnTypeOfSignature(signature);
-    },
-    getTypeFromTypeNode(node) {
-      if (node === syntax) reads.push("written");
-      return checker.getTypeFromTypeNode(node);
-    },
+    acquireSourceType: observeSourceType(checker, request => {
+      if (request.kind === "signature-return" && request.signature === produce) reads.push("selected");
+      if (request.kind === "signature-return" && request.signature === original) { reads.push("original"); throw stop; }
+      if (request.kind === "annotation" && request.node === syntax) reads.push("written");
+    }),
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 149], ["maximumCapturedEdgesPerModule", 133]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 181], ["maximumCapturedEdgesPerModule", 361]]) {
     const run = cap => capture(overrides, { ...limits, [dimension]: cap });
     primeCaptureReader(run, limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
@@ -370,7 +364,7 @@ test("the callback formal proof stops at its actual original root without readin
     if (symbol === left) { reads.push("left"); throw stop; }
     return checker.getRootSymbols(symbol);
   } };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 207], ["maximumCapturedEdgesPerModule", 191]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 258], ["maximumCapturedEdgesPerModule", 460]]) {
     const run = cap => capture(overrides, { ...limits, [dimension]: cap });
     primeCaptureReader(run, limits[dimension], stop);
     reads.length = 0;
@@ -463,10 +457,9 @@ test("a different tuple flag or changed unbound sibling cannot transport the nes
     assert.equal(original.elements[1].type === tuple.elements[1].type, true);
     assert.equal(name === "flags" ? original.readonly !== tuple.readonly : original.elements[0].type !== tuple.elements[0].type, true);
     let received = 0;
-    assert.throws(() => capture({ getReturnTypeOfSignature(signature) {
-      if (signature === entries) { received += 1; return wrong; }
-      return checker.getReturnTypeOfSignature(signature);
-    } }), error, name);
+    assert.throws(() => capture({ acquireSourceType: observeSourceType(checker, request => {
+      if (request.kind === "signature-return" && request.signature === entries) { received += 1; return wrong; }
+    }) }), error, name);
     assert.equal(received, 1);
   }
 });
@@ -478,12 +471,11 @@ test("the changed nested slot reads only after its unchanged sibling and the exa
   const [unchanged, changed] = ast.as.AsTupleTypeNode(tuple).Elements.Nodes;
   const stop = new Error("actual original changed tuple element reader stopped");
   const reads = [];
-  const overrides = { getTypeFromTypeNode(node) {
-    if (node === unchanged) reads.push("unchanged");
-    if (node === changed) { reads.push("changed"); throw stop; }
-    return checker.getTypeFromTypeNode(node);
-  } };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 201], ["maximumCapturedEdgesPerModule", 185]]) {
+  const overrides = { acquireSourceType: observeSourceType(checker, request => {
+    if (request.kind === "annotation" && request.node === unchanged) reads.push("unchanged");
+    if (request.kind === "annotation" && request.node === changed) { reads.push("changed"); throw stop; }
+  }) };
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 236], ["maximumCapturedEdgesPerModule", 460]]) {
     const run = cap => capture(overrides, { ...limits, [dimension]: cap });
     primeCaptureReader(run, limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
@@ -573,10 +565,9 @@ test("the selected callback result cannot borrow the differently bound tuple fro
   assert.equal(original.type === replacement.type, false);
   assert.equal(capture({}).kind, "ok");
   let reads = 0;
-  assert.throws(() => capture({ getReturnTypeOfSignature(signature) {
-    if (signature === actual) { reads += 1; return replacement; }
-    return checker.getReturnTypeOfSignature(signature);
-  } }), /a tuple requires its actual authored, projected or inferred destructuring association/u);
+  assert.throws(() => capture({ acquireSourceType: observeSourceType(checker, request => {
+    if (request.kind === "signature-return" && request.signature === actual) { reads += 1; return replacement; }
+  }) }), /a tuple requires its actual authored, projected or inferred destructuring association/u);
   assert.equal(reads, 1);
 });
 
@@ -639,20 +630,19 @@ test("direct result and index value binders preserve the exact paid stops", asyn
   const callbackAnnotation = callback.ast.typeNode(callback.ast.parameters(callbackOwner)[0]);
   const indexDeclaration = index.typeShape.getIndexInfos(index.arrays[0])[0].declaration;
   const endpoints = [
-    [member, member.checker.getSignatureDeclaration(member.produce.target), undefined, 115, 92],
-    [callback, callbackAnnotation, undefined, 129, 110],
-    [index, indexDeclaration, index.ast.typeNode(index.ast.parameters(indexDeclaration)[0]), 85, 73],
+    [member, member.checker.getSignatureDeclaration(member.produce.target), undefined, 135, 276],
+    [callback, callbackAnnotation, undefined, 158, 314],
+    [index, indexDeclaration, index.ast.typeNode(index.ast.parameters(indexDeclaration)[0]), 96, 248],
   ];
   for (const [probe, declaration, key, facts, edges] of endpoints) {
     const binder = probe.ast.typeNode(declaration);
     assert.notEqual(binder, undefined);
     const stop = new Error("actual direct endpoint's written binder reader stopped");
     const reads = [];
-    const overrides = { getTypeFromTypeNode(node) {
-      if (key !== undefined && node === key) reads.push("key");
-      if (node === binder) { reads.push("binder"); throw stop; }
-      return probe.checker.getTypeFromTypeNode(node);
-    } };
+    const overrides = { acquireSourceType: observeSourceType(probe.checker, request => {
+      if (request.kind === "annotation" && key !== undefined && request.node === key) reads.push("key");
+      if (request.kind === "annotation" && request.node === binder) { reads.push("binder"); throw stop; }
+    }) };
     for (const [dimension, exact] of [["maximumCapturedFactsPerModule", facts], ["maximumCapturedEdgesPerModule", edges]]) {
       const run = cap => probe.capture(overrides, { ...probe.limits, [dimension]: cap });
       primeCaptureReader(run, probe.limits[dimension], stop);
@@ -751,10 +741,9 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
     let pairedRead = false;
     let changedRead = false;
     let elementReads = 0;
-    const run = () => capture({ getTypeFromTypeNode(node) {
-      if (changedRead && node === element) elementReads += 1;
-      return checker.getTypeFromTypeNode(node);
-    } }, limits, {
+    const run = () => capture({ acquireSourceType: observeSourceType(checker, request => {
+      if (changedRead && request.kind === "annotation" && request.node === element) elementReads += 1;
+    }) }, limits, {
       getTypeReferenceTarget(type) {
         if (type === first.type && ++targetReads === 2 && kind === "target") {
           pairedRead = true;
@@ -785,17 +774,16 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
 
 test("the changed dependency target and slot readers preserve their paid original stops", async () => {
   const { rest: [first], capture, limits, typeShape, checker, element } = await restDependencyProbe();
-  for (const [reader, facts, edges] of [["target", 128, 110], ["slot", 128, 112]]) {
+  for (const [reader, facts, edges] of [["target", 151, 337], ["slot", 151, 339]]) {
     const stop = new Error(`actual changed dependency ${reader} reader stopped`);
     const run = navigationCapture => {
       let targets = 0;
       let slots = 0;
       let stopped = false;
       try {
-        return capture({ getTypeFromTypeNode(node) {
-          if (stopped) assert.equal(node === element, false);
-          return checker.getTypeFromTypeNode(node);
-        } }, navigationCapture, {
+        return capture({ acquireSourceType: observeSourceType(checker, request => {
+          if (stopped && request.kind === "annotation") assert.equal(request.node === element, false);
+        }) }, navigationCapture, {
           getTypeReferenceTarget(type) {
             if (type === first.type && ++targets === 2 && reader === "target") { stopped = true; throw stop; }
             return typeShape.getTypeReferenceTarget(type);
@@ -902,10 +890,9 @@ test("crossed declared rest outer or inner targets and slots do not read the wri
   for (const [read, type, crossed, label] of cases) {
     let replaced = false;
     let binderReads = 0;
-    assert.throws(() => capture({ getTypeFromTypeNode(node) {
-      if (replaced && node === binder) binderReads += 1;
-      return checker.getTypeFromTypeNode(node);
-    } }, limits, { [read](subject) {
+    assert.throws(() => capture({ acquireSourceType: observeSourceType(checker, request => {
+      if (replaced && request.kind === "annotation" && request.node === binder) binderReads += 1;
+    }) }, limits, { [read](subject) {
       if (subject === type && !replaced) { replaced = true; return crossed; }
       return typeShape[read](subject);
     } }), /a tuple requires its actual authored, projected or inferred destructuring association/u, label);
@@ -933,10 +920,9 @@ test("the original declared rest inner target stop is paid before selected slots
   const stop = new Error("actual selected declared rest element target reader stopped");
   const run = navigationCapture => {
     let targetRead = false;
-    return capture({ getTypeFromTypeNode(node) {
-      if (targetRead) assert.equal(node === binder, false);
-      return checker.getTypeFromTypeNode(node);
-    } }, navigationCapture, {
+    return capture({ acquireSourceType: observeSourceType(checker, request => {
+      if (targetRead && request.kind === "annotation") assert.equal(request.node === binder, false);
+    }) }, navigationCapture, {
       getTypeReferenceTarget(type) {
         if (type === selected) { targetRead = true; throw stop; }
         return typeShape.getTypeReferenceTarget(type);
@@ -947,7 +933,7 @@ test("the original declared rest inner target stop is paid before selected slots
       },
     });
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 127], ["maximumCapturedEdgesPerModule", 109]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 150], ["maximumCapturedEdgesPerModule", 334]]) {
     primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
       const result = run({ ...limits, [dimension]: cap });
@@ -1155,13 +1141,12 @@ test("the joint rest and result declaration proof keeps its first paid reader st
         if (symbol === formal.sourceSymbol) reads.push("formal root");
         return checker.getRootSymbols(symbol);
       },
-      getReturnTypeOfSignature(selected) {
-        if (selected === signature) reads.push("selected result");
-        return checker.getReturnTypeOfSignature(selected);
-      },
+      acquireSourceType: observeSourceType(checker, request => {
+        if (request.kind === "signature-return" && request.signature === signature) reads.push("selected result");
+      }),
     }, navigationCapture);
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 191], ["maximumCapturedEdgesPerModule", 171]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 216], ["maximumCapturedEdgesPerModule", 394]]) {
     primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
       const result = run({ ...limits, [dimension]: cap });

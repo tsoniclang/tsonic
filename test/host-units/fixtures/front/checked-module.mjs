@@ -43,6 +43,15 @@ export function primeCaptureReader(run, maximum, stop) {
     "the genuine source reader is reached after completing its native prerequisites");
 }
 
+export function observeSourceType(checker, observe) {
+  return (request, admit) => {
+    const result = checker.acquireSourceType(request, admit);
+    if (result.kind !== "complete") return result;
+    const replacement = observe(request, result.value);
+    return replacement === undefined ? result : { kind: "complete", value: replacement };
+  };
+}
+
 export async function loadFrontFixture() {
   const front = await import("../../../../packages/host/dist/front/index.js");
   const ids = await import("../../../../packages/host/dist/ids/index.js");
