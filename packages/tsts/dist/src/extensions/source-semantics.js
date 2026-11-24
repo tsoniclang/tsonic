@@ -418,6 +418,8 @@ function recordSourceSemanticsCallMarker(facts, checker, callExpression, callInf
         case "memory-value-layout":
         case "memory-array-layout":
         case "memory-field-layout":
+        case "memory-field-binding":
+        case "memory-record-binding":
         case "memory-size":
         case "memory-alignment":
         case "memory-stride":

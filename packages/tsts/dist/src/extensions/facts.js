@@ -803,6 +803,8 @@ const sourceCallMarkerKinds = new Set([
     "memory-value-layout",
     "memory-array-layout",
     "memory-field-layout",
+    "memory-field-binding",
+    "memory-record-binding",
     "memory-size",
     "memory-alignment",
     "memory-stride",
