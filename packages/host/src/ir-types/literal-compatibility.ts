@@ -101,7 +101,8 @@ export const literalCompatibilityOf: LiteralCompatibilityOf = (table, type, valu
           }
           case "array": case "tuple": case "fixed-array": case "shape": case "callable": case "source-environment":
           case "error": result = { kind: "incompatible" }; break;
-          case "declared": case "merged-interface": case "construction-reference": case "enum": case "param": case "merged-parameter":
+          case "declared": case "merged-interface": case "alias-application": case "construction-reference": case "enum":
+          case "param": case "merged-parameter":
           case "self": case "projection": case "open":
             result = { kind: "needs-selected-evidence", type: base.type, primitive: null, requirement: "checked-association" }; break;
         }

@@ -252,6 +252,7 @@ export type RawTypeForm =
   | { readonly kind: "structure"; readonly inventory: RawMemberTableId }
   | { readonly kind: "source-environment"; readonly members: readonly RawMemberHeader[] }
   | { readonly kind: "merged-interface-dependency"; readonly group: RawInterfaceGroup; readonly arguments: readonly RawTypeId[] }
+  | { readonly kind: "conditional-alias-application"; readonly declaration: RawNodeRef; readonly arguments: readonly RawTypeId[] }
   | { readonly kind: "merged-slot-parameter"; readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]] }
   | { readonly kind: "indexed-access"; readonly operator: RawNodeRef | null; readonly object: RawTypeId; readonly index: RawTypeId }
   | { readonly kind: "keyof"; readonly operator: RawNodeRef; readonly target: RawTypeId }

@@ -89,6 +89,12 @@ export function createTypeTextReaders() {
       return { fields: [definitions, arguments_], value: () =>
         ({ kind: "merged-interface", definitions: definitions.value(), arguments: arguments_.value() }) };
     });
+    case "alias-application": return recordReader<TypeTerm>("alias-application", read => {
+      const declaration = read("declaration", lazyReader(() => values["definition-id"]));
+      const arguments_ = read("arguments", arrayReader(() => values["type-id"]));
+      return { fields: [declaration, arguments_], value: () =>
+        ({ kind: "alias-application", declaration: declaration.value(), arguments: arguments_.value() }) };
+    });
     case "enum": return recordReader<TypeTerm>("enum", read => {
       const field_definition = read("definition", lazyReader(() => values["definition-id"]));
       return { fields: [field_definition], value: () => ({ kind: "enum", definition: field_definition.value() }) };

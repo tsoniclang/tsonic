@@ -255,6 +255,7 @@ export type TypeTerm =
   | { readonly kind: "declared"; readonly definition: DefId; readonly arguments: readonly TyId[];
       readonly facet: "instance" | "value"; readonly extent: FixedExtent | null }
   | { readonly kind: "merged-interface"; readonly definitions: readonly DefId[]; readonly arguments: readonly TyId[] }
+  | { readonly kind: "alias-application"; readonly declaration: DefId; readonly arguments: readonly TyId[] }
   | { readonly kind: "construction-reference"; readonly definition: ConstructionDefinition; readonly arguments: readonly TyId[] }
   | { readonly kind: "enum"; readonly definition: DefId }
   | { readonly kind: "param"; readonly parameter: DefId }

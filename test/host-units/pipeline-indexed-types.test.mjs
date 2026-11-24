@@ -815,6 +815,30 @@ test("independent multiple infer binders and a closed checker answer cross Progr
   assert.deepEqual(terms[ready.tsonic.type], { kind: "string" });
 });
 
+test("an actual unreduced conditional alias keeps its original definition and separate operand", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    type Pick<T> = T extends boolean ? string : number;
+    export type Open<U> = Pick<U>;
+    export type Closed = Pick<true>;
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const [definition, open, closed] = publishedStatements(result.value.modules.find(row => row.module === input.snapshot.entryPoint));
+  const { terms } = result.value.index.types;
+  const deferred = terms[open.tsonic.type];
+  assert.equal(deferred.kind, "alias-application");
+  assert.equal(deferred.declaration, definition.tsonic.definition);
+  assert.equal(deferred.arguments.length, 1);
+  assert.deepEqual(terms[deferred.arguments[0]], {
+    kind: "param", parameter: open.typeParameters.nodes[0].tsonic.parameter.declaration,
+  });
+  assert.deepEqual(terms[closed.tsonic.type], { kind: "string" });
+  const printed = fixture.types.printTypes(result.value.index.types);
+  assert.deepEqual(fixture.types.parseTypes(printed), { kind: "parsed", value: result.value.index.types });
+});
+
 test("same-spelled conditional parameters keep their own definitions across true and false arms", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

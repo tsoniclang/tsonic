@@ -43,7 +43,8 @@ function checkedType(node: HirNode): TyId {
 }
 
 function deferred(term: TypeTerm): boolean {
-  return term.kind === "param" || term.kind === "merged-parameter" || term.kind === "self" || term.kind === "projection";
+  return term.kind === "param" || term.kind === "merged-parameter" || term.kind === "self"
+    || term.kind === "projection" || term.kind === "alias-application";
 }
 
 function completeSelected(site: Site, type: TyId, term: TypeTerm): TypeProductionStep {

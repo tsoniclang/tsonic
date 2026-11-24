@@ -166,6 +166,8 @@ function term(value: TypeTerm): TextRecord {
       ["extent", value.extent === null ? null : record("FixedExtent", value.extent, ["length", value.extent.length], ["runtimeBase", value.extent.runtimeBase])]);
     case "merged-interface": return record(value.kind, value, ["definitions", value.definitions.map(definition => reference("def", definition))],
       ["arguments", value.arguments.map(argument => reference("t", argument))]);
+    case "alias-application": return record(value.kind, value, ["declaration", reference("def", value.declaration)],
+      ["arguments", value.arguments.map(argument => reference("t", argument))]);
     case "construction-reference": return record(value.kind, value, ["definition", construction(value.definition)],
       ["arguments", value.arguments.map(selected => reference("t", selected))]);
     case "enum": return record(value.kind, value, ["definition", reference("def", value.definition)]);

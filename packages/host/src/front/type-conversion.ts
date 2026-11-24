@@ -276,24 +276,26 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
         }).sort(compareIndexSignatures) };
     }
     scheduleDependencies(graph, memberDependencies);
-  } else if (form.kind === "merged-interface-dependency") {
-    const { group } = form;
-    if (raw.types.interfaceGroups[group.ordinal] !== group || group.slots.length !== form.arguments.length)
+  } else if (form.kind === "merged-interface-dependency" || form.kind === "conditional-alias-application") {
+    if (form.kind === "merged-interface-dependency" &&
+      (raw.types.interfaceGroups[form.group.ordinal] !== form.group || form.group.slots.length !== form.arguments.length))
       throw new TypeError("front: a merged application requires its independently retained declaration and slot group");
     const argumentsOf: TyId[] = [];
     for (let index = 0; index < form.arguments.length; ++index) {
       const stop = admitTypePublicationStep(graph.conversion.typeWork);
       if (stop !== null) { graph.failure = stop; return stop; }
       const argument = form.arguments[index];
-      if (argument === undefined) throw new TypeError("front: a merged application must retain its actual ordered argument slots");
+      if (argument === undefined) throw new TypeError("front: a deferred application must retain its actual ordered argument slots");
       const child = raw.types.types[argument];
       const position = child === undefined ? undefined : raw.types.components[child.component];
       const matched = child?.id === argument && isIndexedChild(component, position, "argument-place", index, graph.conversion.typeWork);
       if (typeof matched !== "boolean") { graph.failure = matched; return matched; }
-      if (!matched) throw new TypeError("front: a merged argument must retain its own actual qualified type occurrence");
+      if (!matched) throw new TypeError("front: a deferred argument must retain its own actual qualified type occurrence");
       argumentsOf.push(reference(argument));
     }
-    term = { kind: "merged-interface", definitions: group.declarations.map(deps.definitionOf), arguments: argumentsOf };
+    term = form.kind === "merged-interface-dependency"
+      ? { kind: "merged-interface", definitions: form.group.declarations.map(deps.definitionOf), arguments: argumentsOf }
+      : { kind: "alias-application", declaration: deps.definitionOf(form.declaration), arguments: argumentsOf };
   } else if (form.kind === "declared") {
     if (form.arguments.length !== form.parameters.length)
       throw new TypeError("front: declared arguments must retain their actual ordered parameter associations");

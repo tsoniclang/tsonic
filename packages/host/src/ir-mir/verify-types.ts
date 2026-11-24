@@ -161,7 +161,7 @@ function termReferences(term: TypeTerm, path: TextPath, meter: WorkMeter, missin
       if (meter.exhausted) return [];
       appendSignatures(term.constructs);
       break;
-    case "declared": case "merged-interface": case "construction-reference": appendTypes(term.arguments); break;
+    case "declared": case "merged-interface": case "alias-application": case "construction-reference": appendTypes(term.arguments); break;
     case "projection":
       appendType(term.source);
       if (meter.exhausted) return [];

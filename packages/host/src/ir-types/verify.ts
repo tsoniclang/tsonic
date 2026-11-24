@@ -175,7 +175,7 @@ function termReferences(value: TypeTerm, site: TypeSite, checks: Checks, path: I
       }
       signatures(value.calls, "calls"); signatures(value.constructs, "constructs"); break;
     case "callable": signatures(value.calls, "calls"); signatures(value.constructs, "constructs"); break;
-    case "declared": case "merged-interface": types(value.arguments, "arguments"); break;
+    case "declared": case "merged-interface": case "alias-application": types(value.arguments, "arguments"); break;
     case "construction-reference": types(value.arguments, "arguments"); construction(value.definition, site, checks); break;
     case "projection":
       checks.type(value.source, site);
@@ -308,6 +308,15 @@ export function verifyTypeRows(table: TypeVerificationInput["table"], input: Typ
       const nominal = input.nominalOf(value.definition);
       if (nominal === null || nominal.kind !== value.kind || value.kind === "declared" && !nominal.facets.includes(value.facet))
         add("nominal-definition", site, "definition");
+    }
+    if (value.kind === "alias-application") {
+      if (typeof value.declaration !== "string" || decodeDefId(value.declaration).kind !== "decoded")
+        add("nominal-definition", site, "declaration");
+      else if (input !== null) {
+        const declaration = input.nominalOf(value.declaration);
+        if (declaration?.kind !== "alias") add("nominal-definition", site, "declaration");
+        else if (declaration.parameterCount !== value.arguments.length) add("nominal-definition", site, "arguments");
+      }
     }
     if (value.kind === "merged-interface") {
       const { definitions, arguments: arguments_ } = value;

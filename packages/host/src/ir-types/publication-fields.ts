@@ -61,7 +61,7 @@ export function publicationWork(selected: PublicationRecord): number | undefined
         case "enum": case "param": case "merged-parameter": case "self": case "source-environment": return 2;
         case "string": case "error": return 1;
         case "literal": case "array": case "tuple": case "fixed-array": case "callable":
-        case "construction-reference": case "merged-interface": case "projection": case "open": return 3;
+        case "construction-reference": case "merged-interface": case "alias-application": case "projection": case "open": return 3;
         case "shape": case "declared": return 5;
       }
       return undefined;
@@ -157,6 +157,7 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
         case "declared": return { children: [{ kind: "type-id-array", field: "arguments", value: value.arguments }, value.extent === null ? { kind: "scalar" } : { kind: "extent", value: value.extent }] };
         case "merged-interface": return { children: [{ kind: "type-id-array", field: "arguments", value: value.arguments },
           { kind: "group-definition-array", field: "definitions", value: value.definitions }] };
+        case "alias-application": return { children: [{ kind: "type-id-array", field: "arguments", value: value.arguments }] };
         case "construction-reference": return { children: [{ kind: "construction", value: value.definition }, { kind: "type-id-array", field: "arguments", value: value.arguments }] };
         case "enum": return { children: [] };
         case "param": return { children: [] };

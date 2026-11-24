@@ -110,8 +110,9 @@ export const deriveDeclarationScopes: DeriveDeclarationScopes = (module, nodes) 
     },
     nominalOf: definition => {
       const node = declarations.get(definition);
-      const kind = node === undefined ? undefined : nodes[node]?.kind;
-      return kind === "InterfaceDeclaration" ? INTERFACE_INSTANCE : kind === "EnumDeclaration" ? ENUM_INSTANCE : null;
+      const selected = node === undefined ? undefined : nodes[node];
+      return selected?.kind === "InterfaceDeclaration" ? INTERFACE_INSTANCE : selected?.kind === "EnumDeclaration" ? ENUM_INSTANCE
+        : selected?.kind === "TypeAliasDeclaration" ? { kind: "alias", parameterCount: selected.typeParameters?.nodes.length ?? 0 } : null;
     },
   };
 };

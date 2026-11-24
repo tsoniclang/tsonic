@@ -236,6 +236,7 @@ export type VerifyBindings = <Stop extends object>(bindings: readonly BindingVer
   | { readonly kind: "resource-stop"; readonly stop: Stop };
 export type NominalDefinition =
   | { readonly kind: "declared" | "enum"; readonly facets: readonly ("instance" | "value")[] }
+  | { readonly kind: "alias"; readonly parameterCount: number }
   | { readonly kind: "merged-interface"; readonly definitions: readonly DefId[];
       readonly slots: readonly { readonly scope: "outer" | "local"; readonly parameters: readonly DefId[] }[] };
 

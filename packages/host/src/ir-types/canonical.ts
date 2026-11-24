@@ -72,7 +72,7 @@ export function normalizeType<Stop extends LimitStop>(term: TypeTerm, read: (typ
       members: [...term.members].sort((left, right) => compareMemberKeys(left.key, right.key)) });
     case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
     case "literal": case "array": case "fixed-array": case "tuple": case "declared": case "merged-interface":
-    case "merged-parameter": case "construction-reference":
+    case "merged-parameter": case "alias-application": case "construction-reference":
     case "projection": return emit(term);
   }
 }
@@ -154,7 +154,8 @@ export function remapTerm(value: TypeTerm, typeOf: (value: TyId) => TyId, signat
     case "shape": return { ...value, members: value.members.map(member), indexes: value.indexes.map(index).sort(compareIndexSignatures),
       calls: value.calls.map(signatureOf), constructs: value.constructs.map(signatureOf) };
     case "callable": return { ...value, calls: value.calls.map(signatureOf), constructs: value.constructs.map(signatureOf) };
-    case "declared": case "merged-interface": case "construction-reference": return { ...value, arguments: value.arguments.map(typeOf) };
+    case "declared": case "merged-interface": case "alias-application": case "construction-reference":
+      return { ...value, arguments: value.arguments.map(typeOf) };
     case "projection": {
       const projection = value.projection;
       if (projection.kind === "conditional") return remapConditional(value.source, projection, typeOf);

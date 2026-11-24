@@ -2010,6 +2010,58 @@ function conditionalBinders(scope: CaptureScope, pattern: Node | undefined, para
   return result;
 }
 
+function conditionalAliasApplication(scope: CaptureScope, type: Type, parent: RawComponent,
+  syntax: Node | undefined): RawTypeForm | null {
+  const ast = scope.checked.ast;
+  const reference = ast.kindName(syntax) === "KindTypeReference" ? ast.as.AsTypeReferenceNode(syntax) : undefined;
+  if (syntax !== undefined && reference === undefined || syntax === undefined && type.alias === undefined) return null;
+  if (!admit(scope, "edges")) return null;
+  const answer = scope.shape.getConditionalComponents(type);
+  if (answer === undefined) return null;
+  const owner = ast.parent(answer.declaration);
+  if (owner === undefined || ast.kindName(owner) !== "KindTypeAliasDeclaration" || ast.typeNode(owner) !== answer.declaration)
+    return null;
+  if (reference !== undefined) {
+    if (!admit(scope, "edges")) return null;
+    const written = scope.checker.getSymbolAtLocation(reference.TypeName);
+    const declared = scope.checker.getSymbolAtLocation(ast.name(owner));
+    if (written === undefined || declared === undefined || written !== declared) return null;
+    const actual = sourceType(scope, { kind: "annotation", node: syntax });
+    if (actual?.type !== type || actual.causes.length !== 0) return null;
+  }
+  let native = answer.application;
+  if (reference === undefined || native === null) {
+    if (!admit(scope, "edges")) return null;
+    const actual = scope.shape.getTypeAliasApplication(type);
+    if (actual?.result !== type || actual.declaration !== owner || actual.typeNode !== answer.declaration) return null;
+    native = actual.bindings;
+  }
+  const parameters = ast.typeParameters(owner);
+  if (native === null || native.length !== parameters.length) return null;
+  const declaration = referenceTo(scope, scope.program, owner);
+  if (scope.meter.refusal !== null) return null;
+  if (declaration === null) return throwInvariant(invariant("An open conditional alias must retain its actual admitted declaration."));
+  const arguments_: RawTypeId[] = [];
+  const written = reference?.TypeArguments?.Nodes;
+  for (let index = 0; index < native.length; ++index) {
+    if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+    const row = native[index];
+    if (row === undefined || row.declaration !== parameters[index])
+      return throwInvariant(invariant("A conditional alias application must pair its actual ordered formal declarations."));
+    const source = written === undefined || index >= written.length ? undefined : written[index];
+    if (source !== undefined) {
+      const actual = sourceType(scope, { kind: "annotation", node: source });
+      if (scope.meter.refusal !== null) return null;
+      if (actual?.type !== row.argument || actual.causes.length !== 0) return null;
+    }
+    const step: RawComponentStep = { kind: "argument-place", index };
+    const captured = rawType(scope, () => withoutTypeCause(row.argument), appendComponent(scope, parent, step), source ?? null);
+    if (captured === null) return null;
+    arguments_.push(captured);
+  }
+  return { kind: "conditional-alias-application", declaration, arguments: arguments_ };
+}
+
 function nativeInterfaceApplication(scope: CaptureScope, type: Type): TypeInterfaceApplication | null {
   const result = scope.shape.acquireInterfaceApplication(type, nativeCaptureAdmission(scope));
   if (result.kind === "complete") return result.value;
@@ -2387,6 +2439,10 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     const endpoint = selected.path?.step;
     if (endpoint?.kind === "projection-index") return projectedConditional(scope, type, selected, null);
     if (endpoint?.kind === "member") return projectedConditional(scope, type, selected, endpoint.declaration);
+  }
+  if ((type.flags & TypeFlagsConditional) !== 0 && selected !== undefined) {
+    const alias = conditionalAliasApplication(scope, type, selected, syntax);
+    if (alias !== null || scope.meter.refusal !== null) return alias;
   }
   if (syntax !== undefined && scope.checked.ast.kindName(syntax) === "KindThisType") {
     if (!admit(scope, "edges")) return null;
