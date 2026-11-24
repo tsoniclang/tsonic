@@ -84,7 +84,7 @@ export function componentReferences(component: TypeComponent, at: TextPath, mete
   return references;
 }
 
-function termReferences(term: TypeTerm, path: TextPath, meter: WorkMeter, missing: () => void): GraphReference[] {
+function termReferences(term: TypeTerm, path: TextPath, meter: WorkMeter, missing: () => void, open: () => void): GraphReference[] {
   const references: GraphReference[] = [];
   const appendType = (value: TyId | undefined): void => {
     chargeWork(meter, 1);
@@ -133,6 +133,7 @@ function termReferences(term: TypeTerm, path: TextPath, meter: WorkMeter, missin
         if (meter.exhausted) return [];
         const element = term.elements[position];
         if (element === undefined) throw new TypeError(`Sparse MIR tuple at ${showPath(path)}[${position}]`);
+        if (element.kind === "variadic") open();
         appendType(element.type);
         if (meter.exhausted) return [];
       }
@@ -249,7 +250,8 @@ export function verifyTypeReferences(
       const term = densePosition(reference.value, types.terms.length) ? types.terms[reference.value] : undefined;
       if (term === undefined) { node.unresolved = true; continue; }
       node.open = term.kind === "open" || term.kind === "error";
-      children = termReferences(term, childPath(rootPath, `.types.terms[${reference.value}]`), meter, () => { node.unresolved = true; });
+      children = termReferences(term, childPath(rootPath, `.types.terms[${reference.value}]`), meter,
+        () => { node.unresolved = true; }, () => { node.open = true; });
       if (meter.exhausted) return [];
     } else {
       const signature = densePosition(reference.value, types.signatures.length) ? types.signatures[reference.value] : undefined;

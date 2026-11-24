@@ -54,7 +54,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
   "EnumDeclaration", "EnumMember", "ConstKeyword",
   "CallSignature", "ConstructSignature", "FunctionType", "ConstructorType", "MethodSignature", "IndexSignature", "GetAccessor", "SetAccessor", "TypeReference", "TypeQuery", "UnionType", "IntersectionType",
-  "ArrayType", "TupleType", "OptionalType", "TypeOperator", "IndexedAccessType", "ConditionalType", "InferType", "ThisType", "LiteralType", "ParenthesizedType", "MappedType",
+  "ArrayType", "TupleType", "OptionalType", "RestType", "TypeOperator", "IndexedAccessType", "ConditionalType", "InferType", "ThisType", "LiteralType", "ParenthesizedType", "MappedType",
   "TemplateLiteralType", "TemplateLiteralTypeSpan", "TemplateHead", "TemplateMiddle", "TemplateTail",
   "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "QuestionToken",
   "ObjectLiteralExpression", "PropertyAssignment"];

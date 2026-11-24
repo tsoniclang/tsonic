@@ -892,6 +892,8 @@ export interface ModuleSourceOccurrence {
     | { readonly kind: "indexed"; readonly index: NodeId }
     | { readonly kind: "mapped"; readonly parameter: NodeId; readonly value: NodeId | null }
     | { readonly kind: "type-reference"; readonly arguments: readonly NodeId[] }
+    | { readonly kind: "tuple"; readonly spreadOperands: readonly (NodeId | null)[] }
+    | { readonly kind: "tuple-wrapper"; readonly target: NodeId }
     | { readonly kind: "union"; readonly members: readonly NodeId[] };
 }
 

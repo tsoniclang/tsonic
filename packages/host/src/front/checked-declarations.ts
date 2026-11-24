@@ -106,7 +106,7 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
         result = { ...header(node), kind: node.kind, tsonic }; break;
       case "UnionType": case "IntersectionType":
         result = { ...header(node), kind: node.kind, types: { loc: node.types.loc, nodes: node.types.nodes.map(child) }, tsonic }; break;
-      case "ParenthesizedType": case "OptionalType":
+      case "ParenthesizedType": case "OptionalType": case "RestType":
         result = { ...header(node), kind: node.kind, type: child(node.type), tsonic }; break;
       case "ArrayType": result = { ...header(node), kind: node.kind, elementType: child(node.elementType), tsonic }; break;
       case "FunctionType": case "ConstructorType": {

@@ -1256,6 +1256,53 @@ test("an actual direct conditional keeps all four operands without choosing a br
   }
 });
 
+test("a direct conditional branch keeps its actual native substituted reference", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export type Preserved<T> = T extends null | undefined ? T : boolean;");
+  const result = captureSourceBarrier(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { modules, types } = result.value;
+  const [alias] = modules.find(row => row.module.module === input.snapshot.entryPoint).module.tree.statements.nodes;
+  const { checkType, extendsType, trueType, falseType } = alias.type;
+  const { readType } = fixture.types;
+  const checked = node => node.tsonic.type.value;
+  assert.equal(trueType.kind, "TypeReference");
+  const base = checked(checkType);
+  const constraint = checked(extendsType);
+  assert.deepEqual(readType(types, base), { kind: "param", parameter: alias.typeParameters.nodes[0].tsonic.parameter.declaration });
+  assert.deepEqual(readType(types, constraint), { kind: "intrinsic", intrinsic: "absence" });
+  assert.deepEqual(readType(types, checked(trueType)), { kind: "projection", source: base,
+    projection: { kind: "substitution", constraint } });
+  assert.deepEqual(readType(types, checked(falseType)), { kind: "primitive", primitive: "bool" });
+});
+
+test("authored variadic tuple slots preserve each distinct sequence and their source order", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { readType, viewTypes, parseTypes, printTypes } = fixture.types;
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export type Spread<A extends unknown[], B extends unknown[]> = [...B, ...A];");
+  const result = captureSourceBarrier(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { modules, types } = result.value;
+  const [alias] = modules.find(row => row.module.module === input.snapshot.entryPoint).module.tree.statements.nodes;
+  const [first, second] = alias.typeParameters.nodes.map(parameter => parameter.tsonic.parameter.declaration);
+  const tuple = readType(types, alias.type.tsonic.type.value);
+  assert.equal(tuple.kind, "tuple");
+  assert.equal(tuple.elements.length, 2);
+  assert.equal(tuple.elements.every(element => element.kind === "variadic" && element.declaration === null), true);
+  for (const [index, expected] of [second, first].entries()) {
+    const source = alias.type.elements.nodes[index];
+    assert.equal(source.kind, "RestType");
+    assert.equal(tuple.elements[index].type, source.type.tsonic.type.value);
+    assert.deepEqual(readType(types, tuple.elements[index].type), { kind: "param", parameter: expected });
+  }
+  const table = viewTypes(types);
+  assert.deepEqual(parseTypes(printTypes(table)), { kind: "parsed", value: table });
+});
+
 test("bound keyof uses only the exact member inventory and never guesses an index domain", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

@@ -1799,9 +1799,10 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
   assert.notDeepEqual(originalComponent.path, appliedComponent.path);
   assert.notDeepEqual(raw.types.components[foreign.component].root, raw.types.components[tuple.component].root);
   for (const [owner, elements, error] of [
-    [tuple, [undefined, second], /actual required or optional unlabelled slots/u],
-    [tuple, [{ ...first, kind: "optional" }, second], /actual required or optional unlabelled slots/u],
-    [tuple, [{ ...first, acceptsOmission: true }, second], /actual required or optional unlabelled slots/u],
+    [tuple, [undefined, second], /actual ordered unlabelled slots/u],
+    [tuple, [{ ...first, kind: "optional" }, second], /actual ordered unlabelled slots/u],
+    [tuple, [{ ...first, acceptsOmission: true }, second], /actual ordered unlabelled slots/u],
+    [tuple, [{ ...first, kind: "variadic" }, second], /actual authored spread at its ordinal/u],
     [tuple, [{ ...first, type: second.type }, second], /actual type component/u],
     [tuple, [second, first], /actual type component/u],
     [tuple, foreign.form.value.elements, /actual type component/u],

@@ -2,7 +2,7 @@ import type { BodyId, DefId, GroupId, ItemNodeRef, LocalId, LocalRef, NodeId, No
 import { decodeBodyId, decodeDefId, decodeGroupId, encodeBodyId, encodeDefId, encodeGroupId, localId, nodeId, sigId, tyId } from "../ids/index.js";
 import type { ConstructionDefinition, ExactRational, FixedExtent, IndexSignature, Intrinsic, IntrinsicMemberOrigin, LiteralTypeValue, Member, MemberInventoryEntry, MemberKey, MemberOrigin, NativePrimitive, PassingMode, Signature, SignatureParameter, TupleElement, TypeParameter } from "./contract.js";
 import type { RecordReader, TextReader } from "./text-readers.js";
-import { arrayReader, bigintReader, booleanReader, enumReader, lazyReader, nullableReader, numberReader, recordReader, stringReader, unionReader } from "./text-readers.js";
+import { arrayReader, bigintReader, booleanReader, enumReader, lazyReader, nullableReader, numberReader, recordReader, stringReader, tupleElementKinds, unionReader } from "./text-readers.js";
 
 interface SignatureComposition { readonly kind: "union" | "intersection"; readonly signatures: readonly SigId[] }
 
@@ -24,7 +24,7 @@ export interface TypeTextValues {
   readonly "member-kind": TextReader<"property" | "method" | "accessor">;
   readonly "signature-kind": TextReader<"call" | "construct">;
   readonly "parameter-kind": TextReader<"required" | "optional" | "default" | "rest">;
-  readonly "tuple-kind": TextReader<"required" | "optional" | "rest">;
+  readonly "tuple-kind": TextReader<TupleElement["kind"]>;
   readonly "passing": TextReader<PassingMode>;
   readonly "runtime-base": TextReader<"number" | "bigint">;
   readonly "facet": TextReader<"instance" | "value">;
@@ -76,7 +76,7 @@ export function createTypeTextValues(): TypeTextValues {
   const reader_member_kind: TextReader<"property" | "method" | "accessor"> = enumReader("member-kind", ["property", "method", "accessor"]);
   const reader_signature_kind: TextReader<"call" | "construct"> = enumReader("signature-kind", ["call", "construct"]);
   const reader_parameter_kind: TextReader<"required" | "optional" | "default" | "rest"> = enumReader("parameter-kind", ["required", "optional", "default", "rest"]);
-  const reader_tuple_kind: TextReader<"required" | "optional" | "rest"> = enumReader("tuple-kind", ["required", "optional", "rest"]);
+  const reader_tuple_kind: TextReader<TupleElement["kind"]> = enumReader("tuple-kind", tupleElementKinds());
   const reader_passing: TextReader<PassingMode> = enumReader<PassingMode>("passing", ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"]);
   const reader_runtime_base: TextReader<"number" | "bigint"> = enumReader("runtime-base", ["number", "bigint"]);
   const reader_facet: TextReader<"instance" | "value"> = enumReader("facet", ["instance", "value"]);

@@ -331,9 +331,9 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
         return stop;
       }
       const element = form.elements[index];
-      if (element === undefined || (element.kind !== "required" && element.kind !== "optional") ||
+      if (element === undefined || (element.kind !== "required" && element.kind !== "optional" && element.kind !== "variadic") ||
         element.declaration !== null || element.acceptsOmission !== (element.kind === "optional"))
-        throw new TypeError("front: a captured tuple requires its actual required or optional unlabelled slots");
+        throw new TypeError("front: a captured tuple requires its actual ordered unlabelled slots");
       const { type, component: positionId } = element;
       const child = raw.types.types[type];
       const position = raw.types.components[positionId];
@@ -345,6 +345,23 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       }
       if (!matches)
         throw new TypeError("front: a captured tuple slot must retain its actual type component and position under this tuple");
+      if (element.kind === "variadic") {
+        const syntaxStop = admitTypePublicationStep(work);
+        if (syntaxStop !== null) { graph.failure = syntaxStop; return syntaxStop; }
+        const operand = child?.authoredTypeNode;
+        const authored = row.authoredTypeNode;
+        if (operand == null || authored === null || operand.module !== authored.module)
+          throw new TypeError("front: a variadic tuple slot requires the actual authored spread at its ordinal");
+        let tuple = sourceOccurrence(deps, authored);
+        while (tuple?.typeSyntax?.kind === "tuple-wrapper") {
+          const wrapperStop = admitTypePublicationStep(work);
+          if (wrapperStop !== null) { graph.failure = wrapperStop; return wrapperStop; }
+          const child = sourceOccurrence(deps, { module: authored.module, node: tuple.typeSyntax.target });
+          tuple = child?.parent === tuple.node && child.node > tuple.node ? child : null;
+        }
+        if (tuple?.typeSyntax?.kind !== "tuple" || tuple.typeSyntax.spreadOperands[index] !== operand.node)
+          throw new TypeError("front: a variadic tuple slot requires the actual authored spread at its ordinal");
+      }
       elements.push({ kind: element.kind, declaration: element.declaration, type: reference(type) });
     }
     term = { kind: "tuple", readonly: form.readonly, elements };
@@ -442,8 +459,11 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
     } else {
       const conditional = sourceOccurrence(deps, form.operator)?.typeSyntax;
       if (conditional?.kind !== "conditional" || module !== component.root.module || component.path !== null
-        || source.kind !== "TypeReference" || source.parent !== conditional.whenTrue || !sameSource(row.authoredTypeNode, component.root))
+        || source.kind !== "TypeReference" || !sameSource(row.authoredTypeNode, component.root))
         throw new TypeError("front: a lexical substitution requires its actual conditional and ordered checked operands");
+      const direct = source.node === conditional.whenTrue;
+      if (source.parent !== (direct ? form.operator.node : conditional.whenTrue))
+        throw new TypeError("front: a lexical substitution requires its actual conditional branch occurrence");
       const baseStop = admitTypePublicationStep(work);
       if (baseStop !== null) { graph.failure = baseStop; return baseStop; }
       const base = authoredOperandAt(raw, form.base, { module, node: conditional.check })?.form;
@@ -452,13 +472,15 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       const constraintStop = admitTypePublicationStep(work);
       if (constraintStop !== null) { graph.failure = constraintStop; return constraintStop; }
       const constraint = authoredOperandAt(raw, form.constraint, { module, node: conditional.extends })?.form;
-      if (constraint?.kind !== "available" || constraint.value.kind !== "keyof")
+      if (constraint?.kind !== "available")
         throw new TypeError("front: a lexical substitution requires its actual conditional and ordered checked operands");
-      const indexedStop = admitTypePublicationStep(work);
-      if (indexedStop !== null) { graph.failure = indexedStop; return indexedStop; }
-      const indexed = sourceOccurrence(deps, { module, node: conditional.whenTrue })?.typeSyntax;
-      if (indexed?.kind !== "indexed" || indexed.index !== source.node)
-        throw new TypeError("front: a lexical substitution requires its actual checked index occurrence");
+      if (!direct) {
+        const indexedStop = admitTypePublicationStep(work);
+        if (indexedStop !== null) { graph.failure = indexedStop; return indexedStop; }
+        const indexed = sourceOccurrence(deps, { module, node: conditional.whenTrue })?.typeSyntax;
+        if (indexed?.kind !== "indexed" || indexed.index !== source.node)
+          throw new TypeError("front: a lexical substitution requires its actual checked index occurrence");
+      }
     }
     term = { kind: "projection", source: reference(form.base), projection: { kind: "substitution", constraint: reference(form.constraint) } };
   } else if (form.kind === "conditional") {

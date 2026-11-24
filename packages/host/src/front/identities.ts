@@ -74,6 +74,10 @@ export function sourcePropertyNames(module: ModuleId, names: readonly RawPropert
 }
 
 function typeSyntax(node: Hir.SyntaxNode<Hir.SyntaxPhase>): Pick<ModuleDefinitions["sourceOccurrences"][number], "typeSyntax"> {
+  if (node.kind === "TupleType") return { typeSyntax: { kind: "tuple",
+    spreadOperands: node.elements.nodes.map(element => element.kind === "RestType" ? element.type.id : null) } };
+  if (node.kind === "ParenthesizedType" || node.kind === "TypeOperator" && node.operator === "ReadonlyKeyword")
+    return { typeSyntax: { kind: "tuple-wrapper", target: node.type.id } };
   if (node.kind === "TypeOperator" && node.operator === "KeyOfKeyword") return { typeSyntax: { kind: "keyof", target: node.type.id } };
   if (node.kind === "ConditionalType") return { typeSyntax: {
     kind: "conditional", check: node.checkType.id, extends: node.extendsType.id, whenTrue: node.trueType.id } };

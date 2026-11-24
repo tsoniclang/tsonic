@@ -174,7 +174,7 @@ export interface SignatureInput {
 }
 
 export interface TupleElement {
-  readonly kind: "required" | "optional" | "rest";
+  readonly kind: "required" | "optional" | "rest" | "variadic";
   readonly type: TyId;
   readonly declaration: DefId | null;
 }

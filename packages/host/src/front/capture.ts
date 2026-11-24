@@ -1488,19 +1488,25 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
     const before = originalSlots[index];
     const slot = selected[index];
     const annotation = syntax?.elements[index];
+    const ast = scope.checked.ast;
+    const role = ast.kindName(annotation);
     if (before === undefined || slot === undefined ||
-      (before.elementKind !== "required" && before.elementKind !== "optional") || slot.elementKind !== before.elementKind ||
+      before.elementKind === "rest" || slot.elementKind !== before.elementKind ||
       before.declaration !== undefined || slot.declaration !== undefined ||
-      syntax !== undefined && (annotation === undefined ||
-        (scope.checked.ast.kindName(annotation) === "KindOptionalType") !== (slot.elementKind === "optional")))
-      throw new TypeError("front: a tuple slot requires its actual required or optional unlabelled association");
-    if (annotation !== undefined) {
-      const authored = sourceType(scope, { kind: "annotation", node: annotation });
+      (slot.elementKind === "variadic" ? role !== "KindRestType"
+        : syntax !== undefined && (annotation === undefined || role === "KindRestType" ||
+          (role === "KindOptionalType") !== (slot.elementKind === "optional"))))
+      throw new TypeError("front: a tuple slot requires its actual ordered unlabelled association");
+    const operand = slot.elementKind === "variadic" ? ast.as.AsRestTypeNode(annotation)?.Type : annotation;
+    if (slot.elementKind === "variadic" && operand === undefined)
+      throw new TypeError("front: a generic tuple spread requires its actual authored sequence operand");
+    if (operand !== undefined) {
+      const authored = sourceType(scope, { kind: "annotation", node: operand });
       if (scope.meter.refusal !== null) return null;
       if (authored?.type !== before.type || authored.causes.length !== 0)
         throw new TypeError("front: a tuple slot requires its actual authored checker type");
     }
-    let sourceUse: Node | null = annotation ?? null;
+    let sourceUse: Node | null = operand ?? null;
     if (binding?.kind === "tuple-initializer" && slot.type !== before.type)
       throw new TypeError("front: a tuple initializer requires its actual unchanged contextual slot types");
     if (binding?.kind === "tuple-projection") {
@@ -1516,9 +1522,13 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
       } else if (slot.type !== before.type || !projectedTuple && scope.shape.couldContainTypeVariables(before.type))
         throw new TypeError("front: a projected tuple slot requires its actual selected type association");
     }
+    const qualified = slot.elementKind !== "variadic" || sourceUse === null ? sourceUse : referenceTo(scope, scope.program, sourceUse);
+    if (scope.meter.refusal !== null) return null;
+    if (slot.elementKind === "variadic" && qualified === null)
+      return throwInvariant(invariant("A variadic slot must retain its actual numbered operand."));
     const componentId = appendComponent(scope, parent, { kind: "tuple-element", index });
     if (componentId === null) return null;
-    const captured = rawType(scope, () => withoutTypeCause(slot.type), componentId, sourceUse);
+    const captured = rawType(scope, () => withoutTypeCause(slot.type), componentId, qualified);
     if (captured === null) return null;
     elements.push({ declaration: null, symbol: null, kind: slot.elementKind, component: componentId, type: captured,
       acceptsOmission: slot.elementKind === "optional", initializer: null, passing: notProvided() });
@@ -2315,15 +2325,13 @@ function authoredOperatorComponent(scope: CaptureScope, component: RawComponent 
 function lexicalSubstitution(scope: CaptureScope, type: Type, syntax: Node, position: RawComponentId): RawTypeForm | undefined | null {
   const ast = scope.checked.ast;
   if (ast.kindName(syntax) !== "KindTypeReference") return undefined;
-  const indexedNode = ast.parent(syntax);
-  const indexed = ast.kindName(indexedNode) === "KindIndexedAccessType" ? ast.as.AsIndexedAccessTypeNode(indexedNode) : undefined;
-  if (indexed === undefined || indexed.IndexType !== syntax) return undefined;
-  const conditionalNode = ast.parent(indexedNode);
+  const parent = ast.parent(syntax);
+  const indexed = ast.kindName(parent) === "KindIndexedAccessType" && ast.as.AsIndexedAccessTypeNode(parent)?.IndexType === syntax;
+  const branch = indexed ? parent : syntax;
+  const conditionalNode = indexed ? ast.parent(parent) : parent;
   const conditional = ast.kindName(conditionalNode) === "KindConditionalType" ? ast.as.AsConditionalTypeNode(conditionalNode) : undefined;
-  if (conditionalNode === undefined || conditional === undefined || conditional.TrueType !== indexedNode
-    || ast.kindName(conditional.ExtendsType) !== "KindTypeOperator"
-    || ast.operatorKindName(conditional.ExtendsType) !== "KindKeyOfKeyword")
-    return mappedSubstitution(scope, type, syntax, position);
+  if (conditionalNode === undefined || conditional === undefined || conditional.TrueType !== branch)
+    return indexed ? mappedSubstitution(scope, type, syntax, position) : undefined;
   if (!admit(scope, "edges")) return null;
   const substitution = scope.shape.getSubstitutionComponents(type);
   if (substitution === undefined) return undefined;

@@ -1,5 +1,6 @@
 import { requirePresent } from "../diag/index.js";
 import { createTypeTextReaders } from "./text-records.js";
+import { tupleElementKinds } from "./text-readers.js";
 import type { ScalarRequest, ScalarRule, TextFieldReader, TextRecordReader, TextRequest } from "./text-readers.js";
 import type { ParseTypes, TypeTable } from "./contract.js";
 import type { InvariantFailure, TextParseResult } from "../diag/contract.js";
@@ -29,7 +30,7 @@ function scalarExpected(rule: ScalarRule): readonly string[] {
     case "member-kind": return ["property", "method", "accessor"];
     case "signature-kind": return ["call", "construct"];
     case "parameter-kind": return ["required", "optional", "default", "rest"];
-    case "tuple-kind": return ["required", "optional", "rest"];
+    case "tuple-kind": return tupleElementKinds();
     case "passing": return ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"];
     case "runtime-base": return ["number", "bigint"];
     case "facet": return ["instance", "value"];

@@ -1,5 +1,10 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
+import type { TupleElement } from "./data.js";
+
+export function tupleElementKinds(): readonly TupleElement["kind"][] {
+  return ["required", "optional", "rest", "variadic"];
+}
 
 export type ScalarRule = "type-id" | "signature-id" | "own-signature-id" | "definition-id" | "body-id" | "group-id" | "node-id" | "local-id"
   | "number" | "bigint" | "string" | "boolean" | "native" | "intrinsic" | "member-kind" | "signature-kind"

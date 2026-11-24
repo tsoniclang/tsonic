@@ -1144,6 +1144,15 @@ test("MIR type resolution and closure distinguish unknown IDs, open terms and tr
   const open = { ...context, types: { ...context.types, terms: [...context.types.terms, { kind: "open", group: identities.encodeGroupId([body.body]), variable: 0 }] } };
   same(verified({ ...body, locals: [{ ...local, storage: identities.tyId(5) }] }, open),
     [expectedViolation("type-closed", { kind: "local", local: 0 }, [{ kind: "number", value: 5 }])], "open type complete vector");
+  const sequence = identities.tyId(context.types.terms.length);
+  const tuple = identities.tyId(sequence + 1);
+  const unclosedTuple = { ...context, types: { ...context.types, terms: [...context.types.terms,
+    { kind: "array", element: identities.tyId(1), readonly: false },
+    { kind: "tuple", readonly: false, elements: [{ kind: "variadic", type: sequence, declaration: null }] },
+  ] } };
+  same(verified({ ...body, locals: [{ ...local, storage: tuple }] }, unclosedTuple),
+    [expectedViolation("type-closed", { kind: "local", local: 0 }, [{ kind: "number", value: tuple }])],
+    "checked variadic sequence evidence cannot stand in for a closed MIR tuple");
   const signature = { ...context.types.signatures[0], result: identities.tyId(99) };
   const recursive = { ...context, types: { terms: [...context.types.terms, { kind: "callable", calls: [identities.sigId(0)], constructs: [] }], signatures: [signature] } };
   same(verified({ ...body, locals: [{ ...local, storage: identities.tyId(5) }] }, recursive),
