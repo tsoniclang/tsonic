@@ -453,7 +453,7 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
       return notInferredYet(PORT, "an executable ArrayLiteralExpression", node.origin);
     case "PropertyAssignment": yield node.initializer; return;
     case "PropertyAccessExpression": if (node.tsonic.role !== "enum-member") yield node.expression; return;
-    case "Identifier": case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "StringLiteral":
+    case "Identifier": case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "BigIntLiteral": case "StringLiteral":
     case "NoSubstitutionTemplateLiteral": case "NullKeyword": return;
     default: return notInferredYet(PORT, `a ${node.kind}`, node.origin);
   }
@@ -631,7 +631,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     if (typeof result === "object" && "kind" in result) return result;
     walk.typeOf.set(node.id, result);
   }
-  else if (node.kind === "TrueKeyword" || node.kind === "FalseKeyword" || node.kind === "NumericLiteral" || node.kind === "StringLiteral"
+  else if (node.kind === "TrueKeyword" || node.kind === "FalseKeyword" || node.kind === "NumericLiteral" || node.kind === "BigIntLiteral" || node.kind === "StringLiteral"
     || node.kind === "NoSubstitutionTemplateLiteral" || node.kind === "NullKeyword") {
     if (node.tsonic.role !== "value" || node.tsonic.value.views.read.kind !== "available")
       return notInferredYet(PORT, "the actual checked literal value type", node.origin);
@@ -1161,6 +1161,9 @@ function evidenceOf(deps: InferenceInputs, group: InferenceGroup, type: TyId, no
       ? { producer: component.value, kind: "literal", category, authored } : null,
     sum: null, nominal: null, pointer: null }, error: null };
   }
+  if (term.kind === "intrinsic" && term.intrinsic === "bigint" || term.kind === "literal" && term.value.kind === "bigint")
+    return { value: { type, component, category: { kind: "known", category: "bigint" },
+      numeric: null, sum: null, nominal: null, pointer: null }, error: null };
   if (term.kind === "string" || term.kind === "primitive" && term.primitive === "bool"
     || term.kind === "literal" && (term.value.kind === "boolean" || term.value.kind === "string"))
     return { value: { type, component, category: { kind: "known", category: term.kind === "string"

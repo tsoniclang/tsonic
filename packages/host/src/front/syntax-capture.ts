@@ -1301,7 +1301,7 @@ function buildNode(context: SyntaxBuildContext, node: SyntaxNodeOf, parent: Node
       if (view === undefined) return defect("the checker gave no BigIntLiteral view of a BigIntLiteral node");
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
-      const text_ = view.Text;
+      const text_ = numericSyntaxText(context, node, header.origin);
       const tokenFlags_ = tokenFlags(view.TokenFlags);
       return { kind: "BigIntLiteral", ...header, text: text_, tokenFlags: tokenFlags_, tsonic: null };
     }

@@ -12,6 +12,7 @@ export interface LiteralStop {
 export type LiteralResult<Value> = { readonly kind: "complete"; readonly value: Value } | LiteralStop;
 export type LiteralLoweringQuery = "captureModule" | "lowerModule" | "lowerModuleExports";
 type ParsedNumber = LiteralResult<Extract<LiteralTypeValue, { readonly kind: "number" }>>;
+type ParsedBigint = LiteralResult<Extract<LiteralTypeValue, { readonly kind: "bigint" }>>;
 
 type LiteralLimit = keyof LiteralCaptureLimits;
 
@@ -125,12 +126,27 @@ function reduce(work: LiteralWork, numerator: SizedInteger, denominator: SizedIn
 }
 
 export function captureNumericLiteral(limits: LiteralCaptureLimits, literal: RawNumericLiteral, query: LiteralLoweringQuery = "lowerModule"): ParsedNumber {
+  return captureAuthoredNumeric(limits, literal, "number", query);
+}
+
+export function captureBigintLiteral(limits: LiteralCaptureLimits, literal: RawNumericLiteral): ParsedBigint {
+  return captureAuthoredNumeric(limits, literal, "bigint", "lowerModule");
+}
+
+function captureAuthoredNumeric(limits: LiteralCaptureLimits, literal: RawNumericLiteral,
+  kind: "number", query: LiteralLoweringQuery): ParsedNumber;
+function captureAuthoredNumeric(limits: LiteralCaptureLimits, literal: RawNumericLiteral,
+  kind: "bigint", query: LiteralLoweringQuery): ParsedBigint;
+function captureAuthoredNumeric(limits: LiteralCaptureLimits, literal: RawNumericLiteral,
+  kind: "number" | "bigint", query: LiteralLoweringQuery): ParsedNumber | ParsedBigint {
   validateLimits(limits);
   const { token, origin } = literal;
   const work: LiteralWork = { maximumIntermediateBits: limits.maximumIntermediateBits, remaining: limits.maximumArithmeticWork };
   if (!charge(work, token.length)) return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork, query);
   const negative = token.startsWith("-");
-  const unsigned = negative || token.startsWith("+") ? token.slice(1) : token;
+  const digitsStart = negative || token.startsWith("+") ? 1 : 0;
+  if (kind === "bigint" && !token.endsWith("n")) throw new TypeError("front: an authored bigint requires its actual suffix");
+  const unsigned = kind === "bigint" ? token.slice(digitsStart, -1) : token.slice(digitsStart);
   const prefix = unsigned.slice(0, 2).toLowerCase();
   const radixBits = prefix === "0x" ? 4 : prefix === "0o" ? 3 : prefix === "0b" ? 1 : 0;
   let coefficient: string;
@@ -142,6 +158,10 @@ export function captureNumericLiteral(limits: LiteralCaptureLimits, literal: Raw
     digitBounds(raw, digit);
     coefficient = raw.replaceAll("_", "");
     if (!full.test(coefficient)) throw new TypeError("front: the authored numeric token is not in its actual radix");
+  } else if (kind === "bigint") {
+    digitBounds(unsigned, /[0-9]/u);
+    coefficient = unsigned.replaceAll("_", "");
+    if (!/^[0-9]+$/u.test(coefficient)) throw new TypeError("front: the authored bigint is not an integer token");
   } else {
     digitBounds(unsigned, /[0-9]/u);
     const parts = /^(?:([0-9]+)(?:\.([0-9]*))?|\.([0-9]+))(?:[eE]([+-]?[0-9]+))?$/u.exec(unsigned.replaceAll("_", ""));
@@ -161,13 +181,20 @@ export function captureNumericLiteral(limits: LiteralCaptureLimits, literal: Raw
   }
   const exponent = Math.abs(scale);
   const coefficientBits = coefficientBound(coefficient, radixBits, limits.maximumIntermediateBits);
-  if (limits.maximumIntermediateBits === 0 || exponent > Math.floor((limits.maximumIntermediateBits - 1) / 3)
+  if ((kind === "number" && (limits.maximumIntermediateBits === 0 || exponent > Math.floor((limits.maximumIntermediateBits - 1) / 3)))
     || coefficientBits === null)
     return stop(origin, origin.module, "maximumIntermediateBits", limits.maximumIntermediateBits, query);
   if (!zero && !charge(work, coefficientBits)) return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork, query);
 
   const magnitude = zero ? 0n : BigInt(radixBits === 0 ? coefficient : prefix + coefficient);
   let numerator = radixBits === 0 && coefficient.length > 1 ? sized(magnitude) : { value: magnitude, bits: coefficientBits };
+  if (kind === "bigint") {
+    if (numerator.bits > limits.maximumResultBits)
+      return stop(origin, origin.module, "maximumResultBits", limits.maximumResultBits, query);
+    if (negative && !charge(work, numerator.bits))
+      return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork, query);
+    return { kind: "complete", value: { kind, value: negative ? -magnitude : magnitude } };
+  }
   let denominator: SizedInteger = { value: 1n, bits: 1 };
   if (scale !== 0) {
     const power = powerOfTen(work, exponent);
@@ -188,6 +215,26 @@ export function captureNumericLiteral(limits: LiteralCaptureLimits, literal: Raw
   if (negate && !charge(work, numerator.bits)) return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork, query);
   return { kind: "complete", value: { kind: "number", value: { numerator: negate ? -numerator.value : numerator.value,
     denominator: denominator.value, negativeZero: negative && zero } } };
+}
+
+export function captureCheckerBigint(limits: LiteralCaptureLimits, value: bigint, origin: Origin, module: ModuleId): ParsedBigint {
+  validateLimits(limits);
+  const limit = limits.maximumIntermediateBits <= limits.maximumResultBits ? "maximumIntermediateBits" : "maximumResultBits";
+  const maximum = limits[limit];
+  if (value === 0n) return { kind: "complete", value: { kind: "bigint", value } };
+  const work: LiteralWork = { maximumIntermediateBits: limits.maximumIntermediateBits, remaining: limits.maximumArithmeticWork };
+  const negative = value < 0n;
+  for (let width = Math.min(8, maximum); width !== 0; width += Math.min(width, maximum - width)) {
+    if (!charge(work, width) || (negative && !charge(work, 1)))
+      return stop(origin, module, "maximumArithmeticWork", limits.maximumArithmeticWork);
+    if (negative ? BigInt.asIntN(width + 1, value) === value : BigInt.asUintN(width, value) === value) {
+      if (!negative) return { kind: "complete", value: { kind: "bigint", value } };
+      if (!charge(work, width)) return stop(origin, module, "maximumArithmeticWork", limits.maximumArithmeticWork);
+      if (value !== -(1n << BigInt(width))) return { kind: "complete", value: { kind: "bigint", value } };
+    }
+    if (width === maximum) break;
+  }
+  return stop(origin, module, limit, maximum);
 }
 
 export function captureCheckerNumber(limits: LiteralCaptureLimits, value: number, origin: Origin, module: ModuleId,

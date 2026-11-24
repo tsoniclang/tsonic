@@ -20,7 +20,7 @@ import { lowerLayoutApplication } from "./lower-layout.js";
 import { lowerObjectProperties } from "./lower-members.js";
 import { convertRawType, createTypeConversion, signatureOf } from "./type-conversion.js";
 import type { ConversionResult, ConversionStop, TypeConversion } from "./type-conversion.js";
-import { captureNumericLiteral } from "./literals.js";
+import { captureBigintLiteral, captureNumericLiteral } from "./literals.js";
 import type { LiteralResult } from "./literals.js";
 import { expressionKinds, typeNodeKinds } from "./syntax-capture.js";
 import { numericTypeSpelling, writtenCompoundAssignmentKinds } from "./syntax-support.js";
@@ -49,7 +49,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "LessThanToken", "LessThanEqualsToken", "GreaterThanToken", "GreaterThanEqualsToken",
   "AmpersandToken", "BarToken", "CaretToken", "LessThanLessThanToken", "GreaterThanGreaterThanToken", "GreaterThanGreaterThanGreaterThanToken",
   "AmpersandAmpersandToken", "BarBarToken", "QuestionQuestionToken", "CommaToken",
-  "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "NumericLiteral", "StringLiteral", "NoSubstitutionTemplateLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
+  "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "NumericLiteral", "BigIntLiteral", "StringLiteral", "NoSubstitutionTemplateLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
   "EnumDeclaration", "EnumMember", "ConstKeyword",
@@ -502,6 +502,7 @@ function valueOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.Checked
       return throwInvariant(invariant("A checked layout query must retain its actual authored argument vector."));
   }
   const layout = request === null ? null : lowerLayoutApplication({
+    types: { types: lowering.deps.types, work: lowering.typeWork },
     admit: () => admitTypePublicationStep(lowering.typeWork),
     bodyOf: reference => reference.module === lowering.raw.module ? lowering.bodyOf.get(reference.node) ?? null : null,
     typeOf: fact => typeFactOf(lowering, fact),
@@ -583,7 +584,8 @@ function admitNumericAnnotation(lowering: Lowering, node: NodeId, raw: RawFact<R
   if (row?.id !== raw.value || component?.root.module !== lowering.raw.module || component.root.node !== node || component.path !== null)
     return throwInvariant(invariant("A numeric annotation must retain its actual checked component."));
   if (row.form.kind === "unavailable") return;
-  const value = row.literal.kind === "available" && row.literal.value?.kind === "number" ? row.literal.value.value : null;
+  const selected = row.literal.kind === "available" ? row.literal.value : null;
+  const value = selected?.kind === (source.token.endsWith("n") ? "bigint" : "number") ? selected.value : null;
   const authored = value?.kind === "authored" ? value.literal : null;
   if (authored === null || authored.token !== source.token || authored.origin.module !== source.origin.module
     || authored.origin.start !== source.origin.start || authored.origin.length !== source.origin.length
@@ -638,10 +640,11 @@ function declarationLowering(lowering: Lowering): DeclarationLowering {
       if (numeric !== null) admitNumericAnnotation(lowering, node.id, { kind: "available", value: captured }, numeric);
       return typeFactOf(lowering, { kind: "available", value: captured });
     },
-    numericLiteral: (type, spelling) => {
-      if (type.kind === "unavailable") return captureNumericLiteral(lowering.deps.literalCapture, spelling);
+    numericLiteral: (type, spelling, kind) => {
+      if (type.kind === "unavailable") return kind === "number" ? captureNumericLiteral(lowering.deps.literalCapture, spelling)
+        : captureBigintLiteral(lowering.deps.literalCapture, spelling);
       const checked = readType(lowering.deps.types, type.value);
-      if (checked.kind !== "literal" || checked.value.kind !== "number")
+      if (checked.kind !== "literal" || checked.value.kind !== kind)
         return throwInvariant(invariant("A numeric annotation must have its actual checked numeric singleton type."));
       return { kind: "complete", value: checked.value };
     },
@@ -793,21 +796,22 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
         ? { ...spelling, kind: node.kind }
         : { ...spelling, kind: node.kind, rawText: node.rawText, templateFlags: node.templateFlags } };
     }
-    case "NumericLiteral": {
+    case "NumericLiteral": case "BigIntLiteral": {
+      const kind = node.kind === "NumericLiteral" ? "number" : "bigint";
       const views = lowering.views.get(node.id);
       const raw = views?.read.kind === "available" ? lowering.raw.types.types[views.read.value]?.literal : undefined;
       const selected = raw?.kind === "available" ? raw.value : null;
-      const authored = selected?.kind === "number" && selected.value.kind === "authored" ? selected.value.literal : null;
+      const authored = selected?.kind === kind && selected.value.kind === "authored" ? selected.value.literal : null;
       const read = value.value.views.read;
       const type = read.kind === "available" ? readType(lowering.deps.types, read.value) : null;
       if (authored === null || authored.token !== node.text || authored.origin.module !== node.origin.module
         || authored.origin.start !== node.origin.start || authored.origin.length !== node.origin.length
         || authored.origin.derived.length !== 0 || node.origin.derived.length !== 0
-        || type?.kind !== "literal" || type.value.kind !== "number")
+        || type?.kind !== "literal" || type.value.kind !== kind)
         return throwInvariant(invariant("A checked numeric literal must retain its actual authored token and exact type."));
-      return { kind: "complete", value: { ...headerOf(node), kind: "NumericLiteral", text: node.text, tokenFlags: node.tokenFlags,
+      return { kind: "complete", value: { ...headerOf(node), kind: node.kind, text: node.text, tokenFlags: node.tokenFlags,
         tsonic: { core: coreOf(lowering, node.id), role: "value", value: value.value,
-          literal: { kind: "number", token: authored.token, value: type.value.value } } } };
+          literal: { ...type.value, token: authored.token } } } };
     }
     case "ParenthesizedExpression": case "NonNullExpression": case "VoidExpression":
       return { kind: "complete", value: { ...headerOf(node), kind: node.kind, expression: expression(lowering, node.expression),

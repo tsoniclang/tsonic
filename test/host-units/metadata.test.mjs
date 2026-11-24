@@ -102,6 +102,21 @@ test("the Layout producer correlates constant and descriptor answers and emits a
   assert.match(incompatible.value.diagnostics[0].message, /actual element layout/u);
 });
 
+test("an array extent cannot substitute a numerically equal constant of the wrong runtime base", () => {
+  const { deps } = fixture();
+  const pending = layoutOf(deps, array);
+  assert.equal(pending.kind, "paused");
+  const answers = pending.requests.map((request, position) => request.kind === "descriptor"
+    ? { kind: "descriptor", request, value: abi }
+    : { kind: "constant", request, value: position === 4
+      ? { kind: "floating", type: 2, bits: 0x4000000000000000n }
+      : { kind: "bigint", type: 0, value: 8n } });
+  Object.defineProperty(answers, 5, { get() { assert.fail("a child cannot be read after the extent carrier is refused"); } });
+  const result = resumeLayout(deps, pending.paused, answers);
+  assert.equal(result.value.kind, "refused");
+  assert.match(result.value.diagnostics[0].message, /selected extent's native runtime base/u);
+});
+
 test("a field observation borrows the exact field from its actual containing layout under the original account", () => {
   const { deps } = fixture();
   const child = finish(deps, scalar, [abi, 4n, 4n, 4n]).value.value;

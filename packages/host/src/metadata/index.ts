@@ -193,7 +193,8 @@ export const resumeLayout: ResumeLayout = (deps, paused, answers) => {
     if (!match.matches) return invariant("A layout answer must belong to the requested declaration and complete bindings.");
     return { kind: "complete", value: answer.value.value };
   };
-  const quantity = (bits: number): Completed<bigint> | { readonly kind: "stop"; readonly result: LayoutStep } => {
+  const quantity = (bits: number, runtimeBase: "number" | "bigint" | null): Completed<bigint> |
+    { readonly kind: "stop"; readonly result: LayoutStep } => {
     const bound = work.geometry(bits);
     if (bound !== null) return { kind: "stop", result: refused(bound) };
     const answer = pull();
@@ -204,6 +205,8 @@ export const resumeLayout: ResumeLayout = (deps, paused, answers) => {
     if (stop !== null) return { kind: "stop", result: refused(stop) };
     const constant = answer.value.value;
     if (constant.kind === "error") return invariant("A layout needs its originating completed error position.");
+    if (runtimeBase !== null && (constant.kind === "bigint") !== (runtimeBase === "bigint"))
+      return { kind: "stop", result: invalid(origin, "An array length must retain the selected extent's native runtime base.") };
     const converted = constant.kind === "floating" ? floatingQuantity(deps, work, constant, bits) : null;
     if (converted?.kind === "refused") return { kind: "stop", result: refused(converted) };
     const value = converted !== null ? converted.value : constant.kind === "bigint" ? constant.value
@@ -218,9 +221,9 @@ export const resumeLayout: ResumeLayout = (deps, paused, answers) => {
     const child = base.value;
     if (child.kind !== "value" && child.kind !== "array") return invalid(origin, "A field requires its actual physical child layout.");
     const bits = child.abi.addressWidth;
-    const offset = quantity(bits);
+    const offset = quantity(bits, null);
     if (offset.kind !== "complete") return offset.result;
-    const alignment = quantity(bits);
+    const alignment = quantity(bits, null);
     if (alignment.kind !== "complete") return alignment.result;
     const stop = work.admit(bits, 1);
     if (stop !== null) return refused(stop);
@@ -233,11 +236,11 @@ export const resumeLayout: ResumeLayout = (deps, paused, answers) => {
   const abi = base.value;
   if (abi.kind !== "data-layout") return invalid(origin, "The layout requires its actual registered platform descriptor.");
   const bits = abi.addressWidth;
-  const size = quantity(bits);
+  const size = quantity(bits, null);
   if (size.kind !== "complete") return size.result;
-  const alignment = quantity(bits);
+  const alignment = quantity(bits, null);
   if (alignment.kind !== "complete") return alignment.result;
-  const stride = quantity(bits);
+  const stride = quantity(bits, null);
   if (stride.kind !== "complete") return stride.result;
   const geometry = work.admit(bits, 1);
   if (geometry !== null) return refused(geometry);
@@ -250,7 +253,7 @@ export const resumeLayout: ResumeLayout = (deps, paused, answers) => {
   if (type === null) return invariant("A layout must retain its checked source type.");
   const header = { key, occurrence, origin, source, abi, byteSize: size.value, byteAlignment: alignment.value, stride: stride.value };
   if (declaration.kind === "array") {
-    const length = quantity(bits);
+    const length = quantity(bits, declaration.runtimeBase);
     if (length.kind !== "complete") return length.result;
     const element = descriptor();
     if (element.kind !== "complete") return element.result;

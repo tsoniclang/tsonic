@@ -673,6 +673,36 @@ test("selected native layout geometry reaches verified Program through the real 
     row.site.kind === "source" && row.message.includes("unknown")), true);
 });
 
+test("selected array layouts publish the actual number and wider-than-number bigint extent", async () => {
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { printProgramIndex, parseProgramIndex } = await import("../../packages/host/dist/ir-program/index.js");
+  const { create } = layoutInput(await loadFrontFixture());
+  for (const [token, length, runtimeBase, elementSize, size, expectedValue] of [
+    ["2", 2n, "number", 8, 16, { kind: "floating", bits: 0x4000000000000000n }],
+    ["0x20_0000_0000_0001n", 9_007_199_254_740_993n, "bigint", 0, 0, { kind: "bigint", value: 9_007_199_254_740_993n }],
+  ]) {
+    const input = create(`const element = make<boolean>({ datalayout: Abi, fields: [], bytesize: ${elementSize}, bytealignment: 8, stride: ${elementSize} });
+      export const width = measure(makeArray<boolean, ${token}>({
+        datalayout: Abi, elementlayout: element, length: ${token}, bytesize: ${size}, bytealignment: 8, stride: ${size} }));`);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index } = result.value;
+    const layout = index.metadata.find(record => record.kind === "memory-layout" && record.layouts[record.root].kind === "array");
+    const root = layout.layouts[layout.root];
+    assert.equal(root.byteSize, BigInt(size));
+    const element = layout.layouts[root.element];
+    assert.deepEqual(index.types.terms[root.source], { kind: "fixed-array", element: element.source, extent: { length, runtimeBase } });
+    const constant = index.constants.find(row => row.reference.context === "fixed-array-extent");
+    assert.equal(ids.decodeBodyId(constant.reference.initializer.body).value.role, "layout-operand");
+    assert.deepEqual(constant.value, { ...expectedValue, type: constant.value.type });
+    const wire = printProgramIndex(index);
+    const decoded = parseProgramIndex(wire);
+    assert.equal(decoded.kind, "parsed", JSON.stringify(decoded.diagnostics));
+    assert.equal(printProgramIndex(decoded.value), wire);
+  }
+});
+
 const plainSources = { "main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\n",
   "util.mts": "export function twice(value: number): number { return value * 2; }\n" };
 const failure = message => ({ owner: "front", query: null, origin: null, message });

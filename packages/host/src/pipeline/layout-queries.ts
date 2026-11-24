@@ -154,7 +154,9 @@ export function createLayoutQueries(inputs: HostAnalysisInputs, typed: TypedSour
     if (byteAlignment.kind === "refused") return byteAlignment;
     const stride = initializer(geometry.strideExpression, origin, "compile-time");
     if (stride.kind === "refused") return stride;
-    if (geometry.source.kind !== "available") return refused(origin, "A layout requires its exact selected checked source type.");
+    if (geometry.source.kind !== "available") return refused(origin, capture.kind === "array"
+      ? "An array layout requires its exact selected fixed-array type and nonnegative literal extent."
+      : "A layout requires its exact selected checked source type.");
     const layout = { ...common, source: geometry.source.value, abi: abi.value.key,
       measures: { byteSize: byteSize.value, byteAlignment: byteAlignment.value, stride: stride.value } };
     if (capture.kind === "array") {

@@ -1,12 +1,14 @@
 import type { BodyId, NodeRef, RawTypeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { CapturedFact, CheckedValue, HirMemoryGeometryCapture } from "../ir-hir/contract.js";
-import type { TypePublicationStop } from "../ir-types/contract.js";
-import { throwInvariant } from "../diag/index.js";
+import type { FixedExtent, TypeGraphDeps, TypePublicationStop } from "../ir-types/contract.js";
+import { internTypeGraph, readType, viewTypes } from "../ir-types/index.js";
+import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { RawFact, RawLayoutApplication, RawLayoutOperand, RawLayoutQuery, RawMemoryMetadata, RawNodeRef } from "./contract.js";
 import type { ConversionResult } from "./type-conversion.js";
 
 type RawConstruction = Extract<RawMemoryMetadata, { readonly kind: "layout-construction" }>;
 interface LayoutProjectionDeps {
+  readonly types: TypeGraphDeps;
   readonly admit: () => TypePublicationStop | null;
   readonly bodyOf: (reference: RawNodeRef) => BodyId | null;
   readonly typeOf: (fact: RawFact<RawTypeId>) => ConversionResult<CapturedFact<TyId>>;
@@ -37,6 +39,36 @@ function operands(deps: LayoutProjectionDeps, selected: RawLayoutApplication): C
   return { kind: "complete", value: rows };
 }
 
+function arrayType(deps: LayoutProjectionDeps, selected: Extract<RawConstruction, { readonly construction: "array" }>,
+  element: CapturedFact<TyId>): ConversionResult<{ readonly source: TyId; readonly extent: FixedExtent } | null> {
+  const paid = deps.admit();
+  if (paid !== null) return paid;
+  const arguments_ = selected.application.signatureArguments;
+  const length = arguments_[1];
+  if (element.kind !== "available" || arguments_.length !== 2 || length === undefined)
+    return { kind: "complete", value: null };
+  const checked = deps.typeOf(length.argument);
+  if (checked.kind !== "complete") return checked;
+  if (checked.value.kind !== "available") return { kind: "complete", value: null };
+  const read = deps.admit();
+  if (read !== null) return read;
+  const term = readType(deps.types.types, checked.value.value);
+  if (term.kind !== "literal") return { kind: "complete", value: null };
+  const value = term.value;
+  let extent: FixedExtent;
+  if (value.kind === "number" && value.value.denominator === 1n && value.value.numerator >= 0n &&
+    value.value.numerator <= 9_007_199_254_740_991n) extent = { length: value.value.numerator, runtimeBase: "number" };
+  else if (value.kind === "bigint" && value.value >= 0n) extent = { length: value.value, runtimeBase: "bigint" };
+  else return { kind: "complete", value: null };
+  const table = viewTypes(deps.types.types);
+  const result = internTypeGraph(deps.types, { typeBase: table.terms.length, signatureBase: table.signatures.length,
+    terms: [{ kind: "fixed-array", element: element.value, extent }], signatures: [] });
+  if (result.kind !== "complete") return result;
+  return { kind: "complete", value: { extent, source: requirePresent(result.value.types[0], {
+    owner: "front", query: null, origin: null, message: "A published fixed-array type retains its actual dense image.",
+  }) } };
+}
+
 function construct(deps: LayoutProjectionDeps, selected: RawConstruction): ConversionResult<Projection> {
   const prepaid = deps.admit();
   if (prepaid !== null) return prepaid;
@@ -45,7 +77,7 @@ function construct(deps: LayoutProjectionDeps, selected: RawConstruction): Conve
   const qualify = (operand: RawLayoutOperand): SourceNodeRef => ({ kind: "body", value: occurrence(deps, operand.expression) });
   const site: SourceNodeRef = { kind: "body", value: occurrence(deps, selected.application.invocation) };
   const typeArgument = selected.application.signatureArguments[0];
-  const type: ConversionResult<CapturedFact<TyId>> = typeArgument === undefined || selected.construction === "array"
+  const type: ConversionResult<CapturedFact<TyId>> = typeArgument === undefined
     ? { kind: "complete", value: unavailable }
     : deps.typeOf(typeArgument.argument);
   if (type.kind !== "complete") return type;
@@ -61,13 +93,17 @@ function construct(deps: LayoutProjectionDeps, selected: RawConstruction): Conve
       byteAlignmentExpression: qualify(selected.byteAlignment), byteAlignment: unavailable,
     }) } };
   }
+  const fixed = selected.construction === "array" ? arrayType(deps, selected, type.value) : null;
+  if (fixed !== null && fixed.kind !== "complete") return fixed;
   const actual = selected.geometry;
-  const geometry: HirMemoryGeometryCapture = { source: type.value, dataLayoutExpression: qualify(actual.dataLayout), dataLayout: unavailable,
+  const source = fixed === null ? type.value : fixed.value === null ? unavailable : available(fixed.value.source);
+  const geometry: HirMemoryGeometryCapture = { source, dataLayoutExpression: qualify(actual.dataLayout), dataLayout: unavailable,
     byteSizeExpression: qualify(actual.byteSize), byteSize: unavailable, byteAlignmentExpression: qualify(actual.byteAlignment), byteAlignment: unavailable,
     strideExpression: qualify(actual.stride), stride: unavailable };
   if (selected.construction === "array") return { kind: "complete", value: { observation: absent, memory:
     available({ kind: "array", occurrence: site, bindings: unavailable, geometry,
-      extentExpression: qualify(selected.length), length: unavailable, runtimeBase: unavailable,
+      extentExpression: qualify(selected.length), length: unavailable, runtimeBase: fixed?.value === null || fixed === null
+        ? unavailable : available(fixed.value.extent.runtimeBase),
       elementExpression: qualify(selected.element), element: unavailable }) } };
   const fieldExpressions: SourceNodeRef[] = [];
   for (let index = 0; index < selected.fields.length; index += 1) {

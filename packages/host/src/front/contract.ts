@@ -101,7 +101,7 @@ export type RawNumericValue =
   | { readonly kind: "checker-value"; readonly value: number };
 
 export type RawBigintValue =
-  | { readonly kind: "authored"; readonly literal: RawNumericLiteral }
+  | { readonly kind: "authored"; readonly literal: RawNumericLiteral; readonly checked: bigint }
   | { readonly kind: "checker-value"; readonly value: bigint };
 
 export type RawLiteral =

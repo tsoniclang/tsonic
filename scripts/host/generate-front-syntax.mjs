@@ -92,6 +92,10 @@ const scalarSource = {
   templateFlags: () => "tokenFlags(view.TemplateFlags)",
   rawText: () => "view.RawText",
 };
+const phaseField = {
+  "ParameterDeclaration.initializer": "ParameterInitializer",
+  "CallExpression.arguments": "CallArguments",
+};
 const scalarByKind = {
   "PrefixUnaryExpression.operator": "prefixOperator(context, node)",
   "PostfixUnaryExpression.operator": "postfixOperator(context, node)",
@@ -108,6 +112,7 @@ const scalarByKind = {
   "SourceFile.checkJsDirective": "context.checkJsDirective",
   "SyntaxList.children": "view.Children.map(child => one(context, child, id, isSyntax))",
   "NumericLiteral.text": "numericSyntaxText(context, node, header.origin)",
+  "BigIntLiteral.text": "numericSyntaxText(context, node, header.origin)",
   "JSDocText.text": "jsDocText(view.text)",
   "JSDocLink.text": "jsDocText(view.text)",
   "JSDocLinkPlain.text": "jsDocText(view.text)",
@@ -143,9 +148,9 @@ for (const member of expanded) {
   const assigned = [];
   for (const field of ordered) {
     const property = byName.get(field);
-    const typeNode = name === "ParameterDeclaration" && field === "initializer"
-      ? ast.typeNode(ast.members(decls.get("SyntaxPhase")).find(member => ast.text(ast.name(member)) === "ParameterInitializer"))
-      : ast.typeNode(property);
+    const syntaxSlot = phaseField[`${name}.${field}`];
+    const typeNode = syntaxSlot === undefined ? ast.typeNode(property)
+      : ast.typeNode(ast.members(decls.get("SyntaxPhase")).find(member => ast.text(ast.name(member)) === syntaxSlot));
     const typeText = text(typeNode);
     const nullable = /\|\s*null$/u.test(typeText);
     const sdk = sdkName(field);

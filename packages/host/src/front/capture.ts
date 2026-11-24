@@ -2992,14 +2992,17 @@ function captureFacts(scope: CaptureScope): void {
           if (scope.meter.refusal !== null) return;
           if (source === null) return throwInvariant(invariant("A unique symbol's declaration must belong to the admitted source domain."));
           literal = { kind: "symbol", declaration: source };
-        } else if (scope.shape.isNumberLike(type) && scope.checker.getTypeSymbol(type) === undefined) {
+        } else if ((scope.shape.isNumberLike(type) || scope.shape.isBigIntLike(type)) && scope.checker.getTypeSymbol(type) === undefined) {
           const numeric = scope.shape.getNumericLiteralTypeValue(type);
-          if (typeof numeric === "number") {
+          if (numeric !== undefined) {
             const source = next.answer.typeSource;
             const authored = next.literalNode !== null ? captureNumericToken(scope, next.literalNode)
               : source === undefined ? null : forwardedNumericToken(scope, source);
             if (scope.meter.refusal !== null) return;
-            literal = { kind: "number", value: authored === null ? { kind: "checker-value", value: numeric } : { kind: "authored", literal: authored } };
+            literal = typeof numeric === "number"
+              ? { kind: "number", value: authored === null ? { kind: "checker-value", value: numeric } : { kind: "authored", literal: authored } }
+              : { kind: "bigint", value: authored === null ? { kind: "checker-value", value: numeric }
+                : { kind: "authored", literal: authored, checked: numeric } };
           }
         }
         const base = literal === null ? type : scope.shape.getBaseTypeOfLiteralType(type);
@@ -4223,7 +4226,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       if (scope.meter.refusal !== null) break;
       const tuple = kind === "KindArrayLiteralExpression" ? tupleInitializerUse(scope, node, parent, contextual) : null;
       if (scope.meter.refusal !== null) break;
-      const read = enqueueRawType(scope, answer, readPosition, null, tuple, kind === "KindNumericLiteral" ? node : null);
+      const read = enqueueRawType(scope, answer, readPosition, null, tuple,
+        kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);
       const contextualType = contextual === undefined ? null : rawType(scope, () => contextual, component(scope, reference, null), null, tuple);
       if (contextual !== undefined && contextualType === null) break;
       const symbol = scope.checker.getSymbolAtLocation(node);

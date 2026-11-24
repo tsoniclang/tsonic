@@ -1164,7 +1164,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         if (building) expressions[position] = identifier(node, position);
         else admitName(node, position);
         return;
-      case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "StringLiteral":
+      case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "BigIntLiteral": case "StringLiteral":
       case "NoSubstitutionTemplateLiteral": case "NullKeyword": {
         if (node.tsonic.role !== "value" || node.tsonic.value.views.read.kind !== "available")
           return callerDefect("a literal has no actual checked value type", node.origin);
@@ -1179,6 +1179,11 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
             if (node.tsonic.literal.kind !== "number" || node.tsonic.literal.token !== node.text)
               return callerDefect("a numeric occurrence has no actual captured exact token and value", node.origin);
             expressions[position] = { ...header(node), kind: "NumericLiteral", text: node.text, tokenFlags: node.tokenFlags,
+              tsonic: { role: "value", value: node.tsonic.literal.value, ...value } };
+          } else if (node.kind === "BigIntLiteral") {
+            if (node.tsonic.literal.kind !== "bigint" || node.tsonic.literal.token !== node.text)
+              return callerDefect("a bigint occurrence has no actual captured exact token and value", node.origin);
+            expressions[position] = { ...header(node), kind: "BigIntLiteral", text: node.text, tokenFlags: node.tokenFlags,
               tsonic: { role: "value", value: node.tsonic.literal.value, ...value } };
           } else if (node.kind === "StringLiteral" || node.kind === "NoSubstitutionTemplateLiteral") {
             if (node.tsonic.literal.kind !== "string")

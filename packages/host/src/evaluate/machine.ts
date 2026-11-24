@@ -41,6 +41,14 @@ function put(machine: Machine, value: ConstValue, site: MirSite): void {
   if (valueFits(machine, value, "maximumIntermediateBits", site.origin)) current(machine).values.push(value);
 }
 
+function materializeFloat64(machine: Machine, value: ExactRational, selected: TyId, site: MirSite,
+  source: "authored" | "observation"): ConstValue | null {
+  const format = selectedFloatingFormat(machine, "float64", site.origin);
+  if (format === null) return null;
+  const bits = packFloat64Literal(machine, value, value, site, format, source);
+  return bits === null ? null : { kind: "floating", type: selected, bits };
+}
+
 function putNumber(machine: Machine, value: ExactRational, selected: TyId, site: MirSite,
   source: "authored" | "observation"): void {
   if (!arithmetic(machine, 1, site.origin)) return;
@@ -49,11 +57,14 @@ function putNumber(machine: Machine, value: ExactRational, selected: TyId, site:
   const type = machine.deps.typeOf(selected);
   if (type === undefined) return fail("A numeric literal requires a complete ready type row.", site.origin);
   if (type.kind === "primitive" && type.primitive === "float64") {
-    const format = selectedFloatingFormat(machine, type.primitive, site.origin);
-    if (format === null) return;
-    const bits = packFloat64Literal(machine, value, value, site, format, source);
-    if (bits !== null) put(machine, { kind: "floating", type: selected, bits }, site);
-  } else put(machine, { kind: "number", value, type: selected }, site);
+    const packed = materializeFloat64(machine, value, selected, site, source);
+    if (packed !== null) put(machine, packed, site);
+    return;
+  }
+  const result: ConstValue = { kind: "number", value, type: selected };
+  if (type.kind === "literal" && type.value.kind === "number")
+    (machine.pendingNumericLiterals ??= new Map()).set(result, { base: type.base, source });
+  put(machine, result, site);
 }
 
 function localPlace(machine: Machine, place: PlaceId, site: MirSite): LocalId | null {
@@ -129,7 +140,18 @@ function returnValue(machine: Machine, value: ConstValue | null, site: MirSite):
   const frame = current(machine);
   const caller = frame.caller;
   if (caller === null) {
-    const result: ConstValue = value ?? { kind: "absence", type: frame.body.result };
+    let result: ConstValue = value ?? { kind: "absence", type: frame.body.result };
+    const pending = result.kind === "number" ? machine.pendingNumericLiterals?.get(result) : undefined;
+    if (result.kind === "number" && pending !== undefined) {
+      const carrier = nativeCarrierOf(machine.deps.types, pending.base, type =>
+        arithmetic(machine, 1, site.origin) ? machine.deps.typeOf(type) : null);
+      if (carrier.kind === "resource-stop") return;
+      if (carrier.kind === "primitive" && carrier.primitive === "float64") {
+        const packed = materializeFloat64(machine, result.value, result.type, site, pending.source);
+        if (packed === null) return;
+        result = packed;
+      }
+    }
     if (valueFits(machine, result, "maximumResultBits", site.origin)) finish(machine, { kind: "value", value: result });
     return;
   }
@@ -477,7 +499,8 @@ export const evaluate: Evaluate = (deps, entry, body, arguments_, context, unit)
   for (const entry of body.entries) if (entry.provided === arguments_.length) selected = entry.block;
   if (selected === null) return fail("The constant invocation must name an actually provided entry.");
   const frame: Frame = { instance: entry, body, cells: new Map(), work: [], values: [], caller: null, block: selected, statement: 0 };
-  const machine: Machine = { deps, context, unit, frames: [frame], steps: 0, arithmetic: 0, result: null, pending: null };
+  const machine: Machine = { deps, context, unit, frames: [frame], steps: 0, arithmetic: 0,
+    pendingNumericLiterals: null, result: null, pending: null };
   for (const local of body.locals) {
     if (local.role.kind !== "parameter") continue;
     const value = arguments_[local.role.index];

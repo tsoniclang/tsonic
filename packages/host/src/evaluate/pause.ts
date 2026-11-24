@@ -45,6 +45,7 @@ export interface Machine<Dependencies> {
   readonly frames: [Frame, ...Frame[]];
   steps: number;
   arithmetic: number;
+  pendingNumericLiterals: Map<ConstValue, { readonly base: TyId; readonly source: "authored" | "observation" }> | null;
   result: UnitResult<EvaluationResult> | null;
   pending: { readonly request: EvaluateRequest; readonly type: TyId | null; readonly site: MirSite; readonly call: ReadyCall | null } | null;
 }

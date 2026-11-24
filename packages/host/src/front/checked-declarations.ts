@@ -16,9 +16,9 @@ export interface DeclarationLowering {
   readonly resolution: (node: NodeId) => ConversionResult<Hir.HirResolution>;
   readonly memory: (node: NodeId) => Hir.CapturedFact<Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCapture | null>;
   readonly checkedType: (node: Hir.TypeNode<Syntax>, inferParameter: NodeId | null) => ConversionResult<Hir.CapturedFact<TyId>>;
-  readonly numericLiteral: (type: Hir.CapturedFact<TyId>, spelling: RawNumericLiteral) =>
-    ConversionResult<Extract<LiteralTypeValue, { readonly kind: "number" }>>;
-  readonly numericOperand: (node: Hir.NumericLiteral<Syntax>) => ConversionResult<Hir.CapturedFact<TyId>>;
+  readonly numericLiteral: (type: Hir.CapturedFact<TyId>, spelling: RawNumericLiteral, kind: "number" | "bigint") =>
+    ConversionResult<Extract<LiteralTypeValue, { readonly kind: "number" | "bigint" }>>;
+  readonly numericOperand: (node: Hir.NumericLiteral<Syntax> | Hir.BigIntLiteral<Syntax>) => ConversionResult<Hir.CapturedFact<TyId>>;
   readonly signature: (node: NodeId) => ConversionResult<SigId>;
   readonly expression: (node: Hir.Expression<Syntax>) => Hir.Expression<Checked>;
   readonly prepareNameExpression: (node: Hir.SyntaxNode<Syntax>, owner: DefId, typeOf: TypeReader) => ConversionResult<void>;
@@ -119,18 +119,21 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
           result = { ...header(node), kind: node.kind, tsonic,
             literal: { ...literal, tsonic: { core, role: "type-literal", type: type.value,
               literal: literal.kind === "NullKeyword" ? { kind: "absence" } : { kind: "boolean", value: literal.kind === "TrueKeyword" } } } };
-        } else if (literal.kind === "NumericLiteral") {
-          const exact = context.numericLiteral(type.value, { token: literal.text, origin: literal.origin });
+        } else if (literal.kind === "NumericLiteral" || literal.kind === "BigIntLiteral") {
+          const exact = context.numericLiteral(type.value, { token: literal.text, origin: literal.origin },
+            literal.kind === "NumericLiteral" ? "number" : "bigint");
           if (exact.kind !== "complete") return exact;
           result = { ...header(node), kind: node.kind, tsonic,
             literal: { ...literal, tsonic: { core, role: "type-literal", type: type.value, literal: exact.value } } };
-        } else if (literal.kind === "PrefixUnaryExpression" && literal.operator === "MinusToken" && literal.operand.kind === "NumericLiteral") {
+        } else if (literal.kind === "PrefixUnaryExpression" && literal.operator === "MinusToken" &&
+          (literal.operand.kind === "NumericLiteral" || literal.operand.kind === "BigIntLiteral")) {
           const spelling = numericTypeSpelling(literal) ?? fail("a signed literal annotation requires its actual authored spelling");
-          const signed = context.numericLiteral(type.value, spelling);
+          const kind = literal.operand.kind === "NumericLiteral" ? "number" : "bigint";
+          const signed = context.numericLiteral(type.value, spelling, kind);
           if (signed.kind !== "complete") return signed;
           const operand = context.numericOperand(literal.operand);
           if (operand.kind !== "complete") return operand;
-          const magnitude = context.numericLiteral(operand.value, { token: literal.operand.text, origin: literal.operand.origin });
+          const magnitude = context.numericLiteral(operand.value, { token: literal.operand.text, origin: literal.operand.origin }, kind);
           if (magnitude.kind !== "complete") return magnitude;
           result = { ...header(node), kind: node.kind, tsonic, literal: { ...literal,
             operand: { ...literal.operand, tsonic: { core: context.core(literal.operand.id), role: "type-literal",

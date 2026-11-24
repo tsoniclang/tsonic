@@ -71,20 +71,23 @@ export function authoredNumericType(context: AuthoredTypeContext, node: Node): R
   const literal = ast.as.AsLiteralTypeNode(node)?.Literal;
   if (literal === undefined) return defect("a literal annotation has no actual child");
   const kind = ast.kindName(literal);
-  if (kind === "KindNumericLiteral") {
+  if (kind === "KindNumericLiteral" || kind === "KindBigIntLiteral") {
     const origin = originOf(context, literal);
     return { token: numericTokenAt(context.sourceText, origin), origin };
   }
   if (kind !== "KindPrefixUnaryExpression" || ast.operatorKindName(literal) !== "KindMinusToken") return null;
   const operand = ast.as.AsPrefixUnaryExpression(literal)?.Operand;
-  if (operand === undefined || ast.kindName(operand) !== "KindNumericLiteral") return null;
+  if (operand === undefined) return null;
+  const operandKind = ast.kindName(operand);
+  if (operandKind !== "KindNumericLiteral" && operandKind !== "KindBigIntLiteral") return null;
   const origin = originOf(context, literal);
   return { token: "-" + numericTokenAt(context.sourceText, originOf(context, operand)), origin };
 }
 
 export function numericTypeSpelling(literal: Hir.LiteralTypeChild<Hir.SyntaxPhase>): RawNumericLiteral | null {
-  if (literal.kind === "NumericLiteral") return { token: literal.text, origin: literal.origin };
-  if (literal.kind === "PrefixUnaryExpression" && literal.operator === "MinusToken" && literal.operand.kind === "NumericLiteral")
+  if (literal.kind === "NumericLiteral" || literal.kind === "BigIntLiteral") return { token: literal.text, origin: literal.origin };
+  if (literal.kind === "PrefixUnaryExpression" && literal.operator === "MinusToken" &&
+    (literal.operand.kind === "NumericLiteral" || literal.operand.kind === "BigIntLiteral"))
     return { token: "-" + literal.operand.text, origin: literal.origin };
   return null;
 }

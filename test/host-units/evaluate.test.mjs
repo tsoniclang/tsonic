@@ -100,6 +100,40 @@ test("a verified native Float64 literal materializes its exact direct-return bit
   }
 });
 
+test("a directly returned Float64 singleton earns its native bits without widening its selected type", () => {
+  const exact = { numerator: 3n, denominator: 2n, negativeZero: false };
+  const singleton = declareType("evaluation.returnedFloatSingleton", {
+    kind: "literal", value: { kind: "number", value: exact }, base: T.float64,
+  });
+  const value = fixture("evaluate-returned-float-singleton", singleton, builder => {
+    const literal = builder.num("0", singleton);
+    return builder.block(builder.returns({ ...literal, text: "1.5", tsonic: { ...literal.tsonic, value: exact } }));
+  });
+  const packing = 3 + 1024 + 1075 + 64;
+  const complete = packing + 3;
+  const boundaries = [[1, singleton], [2, T.float64], [3, "format"],
+    [packing + 1, singleton], [packing + 2, T.float64], [complete, "format"]];
+  for (const maximum of [0, 1, 2, 3, packing - 1, packing, packing + 1, packing + 2, complete]) {
+    const reads = [];
+    const floatingFormats = new Proxy(value.deps.selectedNativeFacts.floatingFormats, { get(target, key, receiver) {
+      if (key === "0") reads.push("format");
+      return Reflect.get(target, key, receiver);
+    } });
+    const deps = { ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, floatingFormats },
+      limits: { ...limits, maximumArithmeticWork: maximum },
+      typeOf: type => { reads.push(type); return value.deps.typeOf(type); } };
+    const result = product.evaluate(deps, value.entry, value.body, [], "compile-time", value.unit);
+    assert.deepEqual(reads, boundaries.filter(([boundary]) => boundary <= maximum).map(([, read]) => read));
+    if (maximum === complete)
+      assert.deepEqual(result.value.value, { kind: "value", value: { kind: "floating", type: singleton, bits: 0x3ff8000000000000n } });
+    else {
+      assert.equal(result.value.kind, "refused");
+      assert.deepEqual(result.value.diagnostics[0].arguments,
+        [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }]);
+    }
+  }
+});
+
 function embeddingFixture(name, source, target, operand, embeddingKind, parameters = []) {
   return fixture(name, target, builder => {
     const node = operand(builder);

@@ -6,7 +6,7 @@ import type { ConvertedCheckedType, LowerDeps, ModuleSourceOccurrence, RawChecke
 import { lowerMemberHeader, lowerMembers } from "./lower-members.js";
 import { sameSource, sourceOccurrence } from "./bindings.js";
 import type { MemberKeyLowering } from "./bindings.js";
-import { captureCheckerNumber, captureNumericLiteral } from "./literals.js";
+import { captureBigintLiteral, captureCheckerBigint, captureCheckerNumber, captureNumericLiteral } from "./literals.js";
 import type { LiteralStop } from "./literals.js";
 
 export type ConversionStop = TypePublicationStop | LiteralStop;
@@ -19,7 +19,7 @@ export interface TypeConversion extends MemberKeyLowering {
   readonly typeWork: TypePublicationWork;
   readonly convertedTypes: Map<RawTypeId, ConvertedCheckedType>;
   readonly convertedSignatures: Map<RawSignatureId, SigId>;
-  readonly numericLiterals: Map<RawNumericLiteral, Extract<LiteralTypeValue, { readonly kind: "number" }>>;
+  readonly numericLiterals: Map<RawNumericLiteral, Extract<LiteralTypeValue, { readonly kind: "number" | "bigint" }>>;
 }
 
 interface TypeHandle {
@@ -191,28 +191,34 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
   if (selectedLiteral !== null) {
     if (selectedLiteral.kind === "symbol") literal = { kind: "unique-symbol", declaration: deps.definitionOf(selectedLiteral.declaration) };
     else if (selectedLiteral.kind === "boolean" || selectedLiteral.kind === "string") literal = selectedLiteral;
-    else if (selectedLiteral.kind === "number" && selectedLiteral.value.kind === "authored") {
+    else if (selectedLiteral.kind === "absence") throw new TypeError("front: checked literal conversion of absence is not implemented");
+    else if (selectedLiteral.value.kind === "authored") {
       const token = selectedLiteral.value.literal;
       const known = graph.conversion.numericLiterals.get(token);
       if (known !== undefined) literal = known;
       else {
-        const parsed = captureNumericLiteral(deps.literalCapture, token);
+        const parsed = selectedLiteral.kind === "number" ? captureNumericLiteral(deps.literalCapture, token)
+          : captureBigintLiteral(deps.literalCapture, token);
         if (parsed.kind !== "complete") { graph.failure = parsed; return parsed; }
         literal = parsed.value;
         graph.conversion.numericLiterals.set(token, parsed.value);
       }
+      if (literal.kind !== selectedLiteral.kind || (literal.kind === "bigint" &&
+        (selectedLiteral.kind !== "bigint" || literal.value !== selectedLiteral.value.checked)))
+        throw new TypeError("front: the authored numeric token does not match its captured checker literal");
     }
-    else if (selectedLiteral.kind !== "number") throw new TypeError("front: checked literal conversion of " + selectedLiteral.kind + " is not implemented");
   }
   const component = raw.types.components[row.component];
   if (component === undefined || component.id !== row.component)
     throw new TypeError("front: a graph must retain every actual captured type and component");
   const source = sourceOccurrence(deps, component.root);
   if (source === null) throw new TypeError("front: a type component requires its actual qualified source occurrence");
-  if (selectedLiteral?.kind === "number" && selectedLiteral.value.kind === "checker-value") {
+  if ((selectedLiteral?.kind === "number" || selectedLiteral?.kind === "bigint") && selectedLiteral.value.kind === "checker-value") {
     if (source.origin?.module !== component.root.module)
       throw new TypeError("front: a checked numeric component requires its actual source origin");
-    const parsed = captureCheckerNumber(deps.literalCapture, selectedLiteral.value.value, source.origin, raw.module, graph.conversion);
+    const parsed = selectedLiteral.kind === "number"
+      ? captureCheckerNumber(deps.literalCapture, selectedLiteral.value.value, source.origin, raw.module, graph.conversion)
+      : captureCheckerBigint(deps.literalCapture, selectedLiteral.value.value, source.origin, raw.module);
     if (parsed.kind !== "complete") { graph.failure = parsed; return parsed; }
     literal = parsed.value;
   }

@@ -3,7 +3,7 @@ import type { DefId, NodeId, TyId } from "../ids/contract.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import type { SignatureParameter, TypeInterner } from "../ir-types/contract.js";
-import { admitTypePublicationStep, internType, internTypeGraph, readType, refuseTypeConstruction, viewTypes } from "../ir-types/index.js";
+import { admitTypePublicationStep, internType, internTypeGraph, literalTypeValuesEqual, readType, refuseTypeConstruction, viewTypes } from "../ir-types/index.js";
 import type { DeclarationNameExpression, TypedPhase } from "../ir-tir/contract.js";
 import type { ElaborateDeps } from "./contract.js";
 import { throwInvariant } from "../diag/index.js";
@@ -15,14 +15,13 @@ function fail(message: string): never {
 }
 
 function verifyNumericSingleton(types: TypeInterner, type: TyId, evidence: Hir.CheckedLiteral | Hir.CheckedUnary): void {
-  if (evidence.role !== "type-literal" || evidence.type.kind !== "available" || evidence.type.value !== type || evidence.literal.kind !== "number")
+  if (evidence.role !== "type-literal" || evidence.type.kind !== "available" || evidence.type.value !== type
+    || (evidence.literal.kind !== "number" && evidence.literal.kind !== "bigint"))
     return fail("A numeric annotation requires its actual checked type-literal endpoint.");
   const checked = readType(types, type);
-  if (checked.kind !== "literal" || checked.value.kind !== "number")
+  if (checked.kind !== "literal" || checked.value.kind !== evidence.literal.kind)
     return fail("A numeric annotation requires its exact selected singleton.");
-  const value = evidence.literal.value;
-  const actual = checked.value.value;
-  if (value.numerator !== actual.numerator || value.denominator !== actual.denominator || value.negativeZero !== actual.negativeZero)
+  if (!literalTypeValuesEqual(evidence.literal, checked.value))
     return fail("A numeric annotation must agree with its exact selected singleton.");
 }
 
@@ -181,7 +180,8 @@ function projectDeclaration<State>(deps: ElaborateDeps<State>, roots: readonly H
       }
       case "LiteralType": {
         const literal = node.literal;
-        if (literal.kind === "PrefixUnaryExpression" && literal.operator === "MinusToken" && literal.operand.kind === "NumericLiteral") {
+        if (literal.kind === "PrefixUnaryExpression" && literal.operator === "MinusToken" &&
+          (literal.operand.kind === "NumericLiteral" || literal.operand.kind === "BigIntLiteral")) {
           verifyNumericSingleton(deps.types, tsonic.type, literal.tsonic);
           const operand = literal.operand;
           const endpoint = operand.tsonic;
@@ -193,7 +193,7 @@ function projectDeclaration<State>(deps: ElaborateDeps<State>, roots: readonly H
             operand: { ...operand, tsonic: { role: "type-literal", type } } } };
           break;
         }
-        if (literal.kind === "NumericLiteral") {
+        if (literal.kind === "NumericLiteral" || literal.kind === "BigIntLiteral") {
           verifyNumericSingleton(deps.types, tsonic.type, literal.tsonic);
           result = { ...node, tsonic, literal: { ...literal, tsonic: { role: "type-literal", type: tsonic.type } } };
           break;
