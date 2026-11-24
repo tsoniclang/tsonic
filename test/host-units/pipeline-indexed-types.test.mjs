@@ -839,6 +839,29 @@ test("an actual unreduced conditional alias keeps its original definition and se
   assert.deepEqual(fixture.types.parseTypes(printed), { kind: "parsed", value: result.value.index.types });
 });
 
+test("a written indexed operator can be the exact child of a conditional alias application", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    type Choose<Value> = Value extends boolean ? string : number;
+    export type Selected<Row, Key extends keyof Row> = Choose<Row[Key]>;
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const [choose, alias] = publishedStatements(result.value.modules.find(row => row.module === input.snapshot.entryPoint));
+  const { terms } = result.value.index.types;
+  const request = terms[alias.tsonic.type];
+  assert.equal(request.kind, "alias-application");
+  assert.equal(request.declaration, choose.tsonic.definition);
+  assert.equal(request.arguments.length, 1);
+  const indexed = terms[request.arguments[0]];
+  assert.equal(indexed.kind, "projection");
+  assert.equal(indexed.projection.kind, "indexed");
+  const [row, key] = alias.typeParameters.nodes.map(value => value.tsonic.parameter.declaration);
+  assert.deepEqual(terms[indexed.source], { kind: "param", parameter: row });
+  assert.deepEqual(terms[indexed.projection.index], { kind: "param", parameter: key });
+});
+
 test("same-spelled conditional parameters keep their own definitions across true and false arms", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

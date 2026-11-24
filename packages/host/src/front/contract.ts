@@ -887,6 +887,7 @@ export interface ModuleSourceOccurrence {
   readonly typeSyntax?: { readonly kind: "keyof"; readonly target: NodeId }
     | { readonly kind: "conditional"; readonly check: NodeId; readonly extends: NodeId; readonly whenTrue: NodeId }
     | { readonly kind: "indexed"; readonly index: NodeId }
+    | { readonly kind: "type-reference"; readonly arguments: readonly NodeId[] }
     | { readonly kind: "union"; readonly members: readonly NodeId[] };
 }
 

@@ -78,6 +78,7 @@ function typeSyntax(node: Hir.SyntaxNode<Hir.SyntaxPhase>): Pick<ModuleDefinitio
   if (node.kind === "ConditionalType") return { typeSyntax: {
     kind: "conditional", check: node.checkType.id, extends: node.extendsType.id, whenTrue: node.trueType.id } };
   if (node.kind === "IndexedAccessType") return { typeSyntax: { kind: "indexed", index: node.indexType.id } };
+  if (node.kind === "TypeReference") return { typeSyntax: { kind: "type-reference", arguments: node.typeArguments?.nodes.map(argument => argument.id) ?? [] } };
   if (node.kind === "UnionType") return { typeSyntax: { kind: "union", members: node.types.nodes.map(member => member.id) } };
   return {};
 }

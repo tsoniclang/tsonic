@@ -148,9 +148,16 @@ function authoredOperator(graph: TypeGraph, row: RawCheckedType, component: RawC
   const { deps, raw, typeWork } = graph.conversion;
   if (component.path === null) return root.kind === kind && sameSource(component.root, operator) ? root : null;
   const { prefix, step } = component.path;
-  if (prefix !== null || step.kind !== "parameter" && step.kind !== "result") return null;
+  if (prefix !== null) return null;
   const stop = admitTypePublicationStep(typeWork);
   if (stop !== null) return stop;
+  if (step.kind === "argument-place") {
+    if (component.root.module !== operator.module || root.typeSyntax?.kind !== "type-reference"
+      || root.typeSyntax.arguments[step.index] !== operator.node) return null;
+    const source = sourceOccurrence(deps, operator);
+    return source?.kind === kind && source.parent === component.root.node ? source : null;
+  }
+  if (step.kind !== "parameter" && step.kind !== "result") return null;
   const signature = raw.types.signatures[step.signature];
   if (signature?.id !== step.signature || signature.target !== null || signature.composition !== null
     || !sameSource(signature.owner, component.root)) return null;

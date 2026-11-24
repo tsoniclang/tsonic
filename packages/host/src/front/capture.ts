@@ -2063,9 +2063,14 @@ function conditionalAliasApplication(scope: CaptureScope, type: Type, parent: Ra
       if (actual?.type !== row.argument || actual.causes.length !== 0) return null;
     }
     const step: RawComponentStep = { kind: "argument-place", index };
-    const captured = source === undefined
-      ? selectedOperand(scope, parent, row.argument, step)
-      : rawType(scope, () => withoutTypeCause(row.argument), appendComponent(scope, parent, step), source);
+    let captured: RawTypeId | null;
+    if (source === undefined) captured = selectedOperand(scope, parent, row.argument, step);
+    else {
+      const authored = referenceTo(scope, scope.program, source);
+      if (scope.meter.refusal !== null) return null;
+      if (authored === null) return throwInvariant(invariant("A written conditional alias argument requires its actual numbered operand."));
+      captured = rawType(scope, () => withoutTypeCause(row.argument), appendComponent(scope, parent, step), authored);
+    }
     if (captured === null) return null;
     arguments_.push(captured);
   }
@@ -2282,11 +2287,19 @@ function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId
   return { kind: "merged-interface-dependency", group, arguments: arguments_ };
 }
 
-function authoredOperatorComponent(component: RawComponent | undefined, operator: RawNodeRef, source: OriginalTypeUse | null): boolean {
+function authoredOperatorComponent(scope: CaptureScope, component: RawComponent | undefined, operator: RawNodeRef,
+  source: OriginalTypeUse | null): boolean {
   if (component === undefined) return false;
   if (component.path === null) return sameSource(component.root, operator);
-  return source !== null && "module" in source && sameSource(source, operator) && component.path.prefix === null
-    && (component.path.step.kind === "parameter" || component.path.step.kind === "result");
+  if (source === null || !("module" in source) || !sameSource(source, operator) || component.path.prefix !== null) return false;
+  const step = component.path.step;
+  if (step.kind === "parameter" || step.kind === "result") return true;
+  if (step.kind !== "argument-place" || !admit(scope, "edges")) return false;
+  const root = admittedTypeUse(scope, component.root);
+  const ast = scope.checked.ast;
+  if (ast.kindName(root) !== "KindTypeReference") return false;
+  const argument = ast.as.AsTypeReferenceNode(root)?.TypeArguments?.Nodes[step.index];
+  return argument !== undefined && admittedTypeUse(scope, operator) === argument;
 }
 
 function lexicalSubstitution(scope: CaptureScope, type: Type, syntax: Node): RawTypeForm | undefined | null {
@@ -2393,8 +2406,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
         const ast = scope.checked.ast.as.AsTypeOperatorNode(syntax);
         const operator = referenceTo(scope, scope.program, syntax);
         if (scope.meter.refusal !== null) return null;
-        if (open.indexFlags !== 0 || ast === undefined || operator === null
-          || !authoredOperatorComponent(scope.tables.components[position], operator, originalUse))
+        const associated = operator !== null && authoredOperatorComponent(scope, scope.tables.components[position], operator, originalUse);
+        if (scope.meter.refusal !== null) return null;
+        if (open.indexFlags !== 0 || ast === undefined || operator === null || !associated)
           return throwInvariant(invariant("An open keyof requires its actual ordinary native key domain and authored operator."));
         const target = authoredOperatorOperand(scope, ast.Type, open.target);
         return target === null ? null : { kind: "keyof", operator, target };
@@ -2409,7 +2423,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
       const ast = scope.checked.ast.as.AsConditionalTypeNode(syntax);
       const operator = referenceTo(scope, scope.program, syntax);
       if (scope.meter.refusal !== null) return null;
-      if (answer.declaration !== syntax || ast === undefined || operator === null || !authoredOperatorComponent(parent, operator, originalUse))
+      const associated = operator !== null && authoredOperatorComponent(scope, parent, operator, originalUse);
+      if (scope.meter.refusal !== null) return null;
+      if (answer.declaration !== syntax || ast === undefined || operator === null || !associated)
         throw new TypeError("front: a direct conditional requires its actual operator");
       const inferParameters = conditionalBinders(scope, ast.ExtendsType, answer.inferParameters);
       if (inferParameters === null) return null;
@@ -2434,8 +2450,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
       const parent = scope.tables.components[position];
       const operator = referenceTo(scope, scope.program, syntax);
       if (scope.meter.refusal !== null) return null;
-      if (ast === undefined || ast.ObjectType === undefined || ast.IndexType === undefined || operator === null
-        || !authoredOperatorComponent(parent, operator, originalUse))
+      const associated = operator !== null && authoredOperatorComponent(scope, parent, operator, originalUse);
+      if (scope.meter.refusal !== null) return null;
+      if (ast === undefined || ast.ObjectType === undefined || ast.IndexType === undefined || operator === null || !associated)
         return throwInvariant(invariant("An open indexed annotation requires its actual defining operator component."));
       const object = authoredOperatorOperand(scope, ast.ObjectType, components.objectType);
       if (object === null) return null;
