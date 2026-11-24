@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, SourceMarkerFact, SourceTypeRequest, TypeInterfaceApplication, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypeInterfaceApplication, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -444,6 +444,14 @@ function admit(scope: CaptureAdmission, dimension: "facts" | "edges", units = 1)
 function nativeCaptureAdmission(scope: CaptureAdmission): NativeCheckerAdmission<Diagnostic> {
   return (cost, units) => admit(scope, cost === "work" ? "edges" : "facts", units) ? null :
     scope.meter.refusal ?? throwInvariant(invariant("Native acquisition retains its actual first capture refusal."));
+}
+
+function nativeAliasApplication(scope: CaptureScope, type: Type): RetainedTypeAliasApplication | undefined {
+  if (scope.meter.refusal !== null) return undefined;
+  const result = scope.shape.acquireTypeAliasApplication(type, nativeCaptureAdmission(scope));
+  if (result.kind === "refused" && result.stop !== scope.meter.refusal)
+    return throwInvariant(invariant("Native alias acquisition must retain its actual first capture refusal."));
+  return result.kind === "complete" ? result.value : undefined;
 }
 
 function sourceType(scope: CaptureScope, request: SourceTypeRequest): ResolvedSourceTypeInfo | undefined {
@@ -1864,9 +1872,10 @@ function selectedIndexedType(scope: CaptureScope, type: Type, componentId: RawCo
   if (!admit(scope, "edges")) return null;
   const componentRoot = scope.tables.components[componentId];
   if (componentRoot === undefined) return throwInvariant(invariant("A selected indexed answer requires its actual result component."));
-  const application = type.alias === undefined ? undefined : scope.shape.getTypeAliasApplication(type);
+  const application = type.alias === undefined ? undefined : nativeAliasApplication(scope, type);
+  if (scope.meter.refusal !== null) return null;
   let selected: { readonly declaration: RawNodeRef; readonly operator: RawNodeRef;
-    readonly recursive: boolean; readonly native: NonNullable<ReturnType<TypeShapeQueries["getTypeAliasApplication"]>> } | null = null;
+    readonly recursive: boolean; readonly native: RetainedTypeAliasApplication } | null = null;
   if (application === undefined) {
     if (type.alias !== undefined || projection?.role !== "indexed-result" || projection.type !== type)
       throw new TypeError("front: the selected indexed answer requires its actual retained indexed alias application");
@@ -2040,7 +2049,8 @@ function conditionalAliasApplication(scope: CaptureScope, type: Type, parent: Ra
   let native = answer.application;
   if (reference === undefined || native === null) {
     if (!admit(scope, "edges")) return null;
-    const actual = scope.shape.getTypeAliasApplication(type);
+    const actual = nativeAliasApplication(scope, type);
+    if (scope.meter.refusal !== null) return null;
     if (actual?.result !== type || actual.declaration !== owner || actual.typeNode !== answer.declaration) return null;
     native = actual.bindings;
   }
@@ -4020,7 +4030,8 @@ function inferredStorageAlias(scope: CaptureScope, node: Node, answer: ResolvedS
     || answer.causes.length !== 0 || !admit(scope, "edges")) return null;
   const type = answer.type;
   if (type.alias === undefined || !admit(scope, "edges")) return null;
-  const application = scope.shape.getTypeAliasApplication(type);
+  const application = nativeAliasApplication(scope, type);
+  if (scope.meter.refusal !== null) return null;
   if (application === undefined || application.result !== type || application.bindings.length !== 0
     || ast.kindName(application.declaration) !== "KindTypeAliasDeclaration" || ast.kindName(application.typeNode) !== "KindTypeLiteral"
     || ast.typeNode(application.declaration) !== application.typeNode || !admit(scope, "edges")) return null;

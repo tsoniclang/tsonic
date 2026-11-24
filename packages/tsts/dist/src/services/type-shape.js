@@ -45,7 +45,14 @@ export function createTypeShapeQueries(program, defaultOptions) {
         typeToString: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_TypeToString(checker, type)) ?? "",
         getTypeFromTypeNode: (node) => querySourceType(program, defaultOptions, { kind: "annotation", node }),
         instantiateTypeAlias: (declaration, arguments_) => withCheckerForNode(program, declaration, defaultOptions, checker => resolveTypeAliasApplication(checker, declaration, arguments_)),
-        getTypeAliasApplication: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeAliasApplication(checker, type)),
+        acquireTypeAliasApplication: (type, admit) => {
+            if (type === undefined)
+                return { kind: "unavailable" };
+            const result = withOwnedCheckerAcquisition(program, defaultOptions.sourceFile, type.checker, defaultOptions.context ?? Background(), admit, checker => readTypeAliasApplication(checker, type));
+            if (result.kind !== "complete")
+                return result;
+            return result.value === undefined ? { kind: "unavailable" } : { kind: "complete", value: result.value };
+        },
         getIndexedAccessComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeIndexedAccessComponents(checker, type)),
         getConditionalComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeConditionalComponents(checker, type)),
         selectIndexedAccess: (objectType, indexType) => withOwnedChecker(program, defaultOptions.sourceFile, objectType?.checker, defaultOptions.context ?? Background(), checker => checker.program.SourceFiles() === Program_SourceFiles(program)

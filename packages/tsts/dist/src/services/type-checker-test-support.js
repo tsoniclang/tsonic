@@ -17,11 +17,24 @@ export function propertyRows(shape, type) {
     const selected = shape.getStructuredInventory(type, () => null);
     assert.equal(selected.kind, "complete", "An actual property query has its owning checker.");
     const inventory = selected.value.properties;
-    return Array.from({ length: inventory.length }, (_, index) => {
-        const row = inventory.read(index, () => null);
+    const rows = [];
+    while (true) {
+        const row = inventory.next();
         assert.equal(row.kind, "complete");
-        return row.value;
-    });
+        if (row.value === null)
+            return rows;
+        rows.push(row.value);
+    }
+}
+export function aliasApplication(shape, type) {
+    const result = shape.acquireTypeAliasApplication(type, () => null);
+    assert.notEqual(result.kind, "refused");
+    return result.kind === "complete" ? result.value : undefined;
+}
+export function propertyAccess(checker, node) {
+    const result = checker.acquireResolvedPropertyAccess(node, () => null);
+    assert.notEqual(result.kind, "refused");
+    return result.kind === "complete" ? result.value : undefined;
 }
 export function createProgram(sourceText, settings = {}) {
     const fileName = settings.fileName ?? "index.ts";

@@ -123,7 +123,7 @@ export interface TypeShapeQueries {
     readonly typeToString: (type: GoPtr<Type>) => string;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly instantiateTypeAlias: (declaration: GoPtr<Node>, arguments_: readonly Type[]) => TypeAliasApplicationInfo | undefined;
-    readonly getTypeAliasApplication: (type: GoPtr<Type>) => RetainedTypeAliasApplication | undefined;
+    readonly acquireTypeAliasApplication: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<RetainedTypeAliasApplication, Stop>;
     readonly getConstantValue: (node: GoPtr<Node>) => unknown;
     readonly getNumericLiteralTypeValue: (type: GoPtr<Type>) => number | bigint | undefined;
     readonly getStringLiteralTypeValue: (type: GoPtr<Type>) => string | undefined;
