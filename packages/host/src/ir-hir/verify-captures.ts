@@ -304,6 +304,7 @@ export function createHirSchema(): HirSchema {
     CheckedProtocol: hirRecord("CheckedProtocol", [...checkedValue, ...core, ["protocol", captured("HirProtocolFact")]]),
     CheckedClosure: hirRecord("CheckedClosure", [...checkedValue, ...core, ["body", "BodyId"], ["captures", hirArray("LocalRef")]]),
     CheckedType: hirRecord("CheckedType", [...core, ["type", captured("TyId")], ["referencedDefinitions", hirArray("DefId")]]),
+    CheckedCallableType: hirRecord("CheckedCallableType", [...declaration, ["type", captured("TyId")], ["referencedDefinitions", hirArray("DefId")]]),
     DeclarationTarget: hirChoice(hirVariant("local", [["local", "LocalRef"]]), hirVariant("definition", [["definition", "DefId"]])),
     CheckedCallable: hirRecord("CheckedCallable", [...declaration, ["parameters", hirArray("TypeParameterData")], ["signatures", hirArray("HirCallableEndpoint")], ["body", hirNullable("BodyId")]]),
     CheckedClass: hirRecord("CheckedClass", classMetadata),

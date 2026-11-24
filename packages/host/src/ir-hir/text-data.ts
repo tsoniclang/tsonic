@@ -830,8 +830,8 @@ export function hirCheckedData(node: Hir.HirNode): HirDataWork {
     case "InferType": case "ArrayType": case "IndexedAccessType": case "TypeReference":
     case "LiteralType": case "ThisType": case "TypePredicate": case "TypeQuery":
     case "MappedType": case "TypeLiteral": case "TupleType": case "NamedTupleMember":
-    case "OptionalType": case "RestType": case "ParenthesizedType": case "FunctionType":
-    case "ConstructorType": case "TemplateLiteralType": case "TemplateLiteralTypeSpan": case "JSDocTypeExpression":
+    case "OptionalType": case "RestType": case "ParenthesizedType":
+    case "TemplateLiteralType": case "TemplateLiteralTypeSpan": case "JSDocTypeExpression":
     case "JSDocNonNullableType": case "JSDocNullableType": case "JSDocAllType": case "JSDocVariadicType":
     case "JSDocOptionalType": case "JSDocSignature": case "JSDocNameReference": case "ImportType":
     case "JSDocTypeLiteral": case "AnyKeyword": case "BigIntKeyword": case "BooleanKeyword":
@@ -839,6 +839,11 @@ export function hirCheckedData(node: Hir.HirNode): HirDataWork {
     case "StringKeyword": case "SymbolKeyword": case "UndefinedKeyword": case "UnknownKeyword":
     case "VoidKeyword":
       return checkedTypeData(node.tsonic);
+    case "FunctionType": case "ConstructorType": {
+      const value = node.tsonic;
+      return recordData("CheckedCallableType", value, () => [...declarationFields(value),
+        fieldData("type", capturedData(value.type, typeData)), fieldData("referencedDefinitions", arrayData(value.referencedDefinitions, definitionData))]);
+    }
     case "ExpressionWithTypeArguments":
       return instantiationData(node.tsonic);
     case "SourceFile":

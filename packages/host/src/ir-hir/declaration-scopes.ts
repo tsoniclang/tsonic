@@ -73,7 +73,7 @@ function environmentAt(node: HirNode, inherited: Inherited, parent: BindingScope
       return member(inherited, node.kind === "ClassStaticBlockDeclaration" || staticMember(node.modifiers), [], false, context);
     case "ArrowFunction":
       return binder(inherited, [], ownParameters(node.typeParameters), inherited.selfs);
-    case "FunctionDeclaration": case "FunctionExpression":
+    case "FunctionDeclaration": case "FunctionExpression": case "FunctionType": case "ConstructorType":
       return binder(inherited, [], ownParameters(node.typeParameters), []);
     default:
       return [parent, inherited];

@@ -232,6 +232,7 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
         || source.origin.module !== document.module || source.tsonic === null || !("core" in source.tsonic)
         || source.tsonic.core.provider.kind !== "available" || source.tsonic.core.provider.value !== definition)
         return fail("A native declaration receipt must name its original qualified checked declaration.");
+      if (source.kind === "FunctionType" || source.kind === "ConstructorType") continue;
       libraryOrigins.push({ package: document.package, identity: row.identity, definition });
     }
   }

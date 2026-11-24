@@ -66,7 +66,7 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
   const child = (node: Hir.TypeNode<Syntax>): Hir.TypeNode<Checked> => completed.get(node.id)
     ?? fail("a type child must complete before its containing annotation");
   const typeOf: TypeReader = node => ({ kind: "complete", value: child(node) });
-  const enter = (node: Hir.SyntaxNode<Syntax>, parent: DefId, nameExpression: boolean, pattern: NodeId | null) => ({ node, nameExpression, pattern,
+  const enter = (node: Hir.SyntaxNode<Syntax>, parent: DefId, nameExpression: boolean, pattern: NodeId | null) => ({ node, nameExpression, pattern, parent,
     owner: context.definitions.get(node.id) ?? parent, children: iterateChildrenOfSyntax(node) });
   const pending = [enter(root, owner, false, null)];
   for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
@@ -109,6 +109,18 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
       case "ParenthesizedType": case "OptionalType":
         result = { ...header(node), kind: node.kind, type: child(node.type), tsonic }; break;
       case "ArrayType": result = { ...header(node), kind: node.kind, elementType: child(node.elementType), tsonic }; break;
+      case "FunctionType": case "ConstructorType": {
+        const owner = definitionOf(context, node.id);
+        const binders = typeParameters(context, node.typeParameters, owner, typeOf);
+        if (binders.kind !== "complete") return binders;
+        const formals = parameters(context, node.parameters, owner, typeOf);
+        if (formals.kind !== "complete") return formals;
+        result = { ...header(node), kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers), typeParameters: binders.value,
+          parameters: formals.value, type: node.type === null ? null : child(node.type),
+          fullSignature: node.fullSignature === null ? null : child(node.fullSignature),
+          tsonic: { ...tsonic, parent: frame.parent, attributes: [], memory: context.memory(node.id), definition: owner } };
+        break;
+      }
       case "LiteralType": {
         const literal = node.literal;
         const core = context.core(literal.id);

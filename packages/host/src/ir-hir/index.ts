@@ -27,15 +27,16 @@ import { checkedMemberStorageOf as memberStorage, checkedSourceObjectHoldingOf a
 import { checkedGroupingFrontierOf as groupingFrontier } from "./grouping-frontier.js";
 import type { CollectInferredStorageSources } from "./contract.js";
 import { collectInferredStorageSources as storageSources } from "./storage-inputs.js";
-import type { CheckedLayoutConstructionOf, CheckedLayoutGeometryOperands, CheckedLayoutRoleOf, ReadLayoutDescriptor, ResolveCheckedLayout } from "./contract.js";
+import type { CheckedLayoutConstructionOf, CheckedLayoutGeometryOperands, CheckedLayoutRoleOf, ReadLayoutDescriptor, ReadLayoutSelector, ResolveCheckedLayout } from "./contract.js";
 import { checkedLayoutConstructionOf as layoutConstruction, checkedLayoutGeometryOperands as layoutGeometryOperands, checkedLayoutRoleOf as layoutRole,
-  readLayoutDescriptor as layoutDescriptor, resolveCheckedLayout as layoutSource } from "./layout.js";
+  readLayoutDescriptor as layoutDescriptor, readLayoutSelector as layoutSelector, resolveCheckedLayout as layoutSource } from "./layout.js";
 
 export const collectInferredStorageSources: CollectInferredStorageSources = storageSources;
 export const checkedLayoutRoleOf: CheckedLayoutRoleOf = layoutRole;
 export const checkedLayoutConstructionOf: CheckedLayoutConstructionOf = layoutConstruction;
 export const checkedLayoutGeometryOperands: CheckedLayoutGeometryOperands = layoutGeometryOperands;
 export const readLayoutDescriptor: ReadLayoutDescriptor = layoutDescriptor;
+export const readLayoutSelector: ReadLayoutSelector = layoutSelector;
 export const resolveCheckedLayout: ResolveCheckedLayout = layoutSource;
 
 export const resolveModuleBinding: ResolveModuleBinding = resolveBinding;

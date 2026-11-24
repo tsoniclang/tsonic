@@ -39,7 +39,8 @@ export function sourceIdentityName(node: Hir.SyntaxNode<Hir.SyntaxPhase>, module
   switch (node.kind) {
     case "SourceFile":
     case "FunctionExpression": case "ArrowFunction": case "ClassExpression":
-    case "Constructor": case "ClassStaticBlockDeclaration": case "CallSignature": case "ConstructSignature": case "IndexSignature":
+    case "Constructor": case "ClassStaticBlockDeclaration": case "CallSignature": case "ConstructSignature": case "FunctionType":
+    case "ConstructorType": case "IndexSignature":
       return "";
     case "CallExpression": return layout?.declarations.has(node.id) === true ? "" : null;
     case "ExportAssignment": return node.isExportEquals ? "export=" : "default";

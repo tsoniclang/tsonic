@@ -600,6 +600,56 @@ test("layout capture retains the same selected application and authored operands
     && row.detail.some(detail => detail.value === "a layout definition retains its exact authored unnamed sibling ordinal")).length, 2);
 });
 
+test("field constructor and offset preserve their independent actual selector slots and checked member identities", async () => {
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
+  const { create } = layoutInput(await loadFrontFixture());
+  const prefix = `interface Header { tag: boolean; payload: boolean }
+    const word = make<boolean>({ datalayout: Abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });`;
+  const input = create(`${prefix}
+    const selected = field<Header, boolean>({ select: (value: Header) => value.payload, fieldlayout: word, byteoffset: 8, bytealignment: 8 });
+    const header = make<Header>({ datalayout: Abi, bytesize: 16, bytealignment: 8, stride: 16, fields: [selected] });
+    export const result = offset<Header, boolean>(header, (record: Header) => record.payload);`);
+  const capture = ({ snapshot, extensions, limits }) => {
+    const deps = { extensions, navigationCapture: limits.navigationCapture, literalCapture: limits.evaluation };
+    const opened = front.openCheckedProgram(deps, snapshot);
+    assert.equal(opened.kind, "ok", JSON.stringify(opened.diagnostics));
+    return front.captureModule(deps, opened.value, snapshot.entryPoint);
+  };
+  const captured = capture(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const { value } = captured;
+  const constructor = value.types.memoryDescriptors.find(row => row.construction === "field");
+  const query = value.core.find(row => row.layoutQuery.kind === "available" && row.layoutQuery.value?.operation === "field-offset").layoutQuery.value;
+  const [physical, requested] = [constructor.selector, query.selector].map(selector => {
+    const use = value.memberUses.find(row => row.occurrence.node === selector.access.node);
+    assert.deepEqual(use.receiver, selector.receiver);
+    assert.equal(value.types.types[use.receiverType].form.value.kind, "declared");
+    return use;
+  });
+  assert.notDeepEqual(constructor.selector.formal, query.selector.formal);
+  assert.deepEqual(physical.selectedDeclaration, requested.selectedDeclaration);
+  const invalid = capture(create(`${prefix}
+    export const result = field<Header, boolean>({ select: (value: Header) => { return value.payload; },
+      fieldlayout: word, byteoffset: 8, bytealignment: 8 });`));
+  assert.equal(invalid.kind, "refused");
+  assert.equal(invalid.diagnostics.some(row => row.code.rendered === "TSONIC_LAYOUT_DESCRIPTOR_SYNTAX"
+    && row.message.includes("direct non-optional property access")), true);
+  const foreign = capture(create(`${prefix}
+    const outside: Header = { tag: false, payload: true };
+    export const result = field<Header, boolean>({ select: (value: Header) => outside.payload,
+      fieldlayout: word, byteoffset: 8, bytealignment: 8 });`));
+  assert.equal(foreign.kind, "refused");
+  assert.equal(foreign.diagnostics.some(row => row.code.rendered === "TSONIC_LAYOUT_DESCRIPTOR_SYNTAX"
+    && row.message.includes("own authored formal")), true);
+  const missing = capture(create(`${prefix}
+    export const result = field<Header, boolean>({ select: (value: Header) => value.missing,
+      fieldlayout: word, byteoffset: 8, bytealignment: 8 });`));
+  assert.equal(missing.kind, "refused");
+  assert.equal(missing.diagnostics.some(row => row.code.rendered === "TS2339"), true);
+  assert.equal(missing.diagnostics.some(row => row.code.rendered === "TSONIC_LAYOUT_DESCRIPTOR_SYNTAX"
+    && row.message.includes("actual checked stored member")), true);
+});
+
 test("selected native layout geometry reaches verified Program through the real constant and observation demands", async () => {
   const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

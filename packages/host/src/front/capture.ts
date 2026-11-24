@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, SourceMarkerFact, SourceTypeRequest, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -11,14 +11,14 @@ import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../
 import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
-import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
+import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawLayoutSelector, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { projectProviderModel } from "./provider-model.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
 import { captureNode, expressionKinds, typeNodeKinds } from "./syntax-capture.js";
 import type { SyntaxCaptureContext } from "./syntax-support.js";
 import { authoredNumericType, capturePragmas, originOf, writtenCompoundAssignmentKinds } from "./syntax-support.js";
-import { isModuleBindingKind, readLayoutDescriptor } from "../ir-hir/index.js";
+import { isModuleBindingKind, readLayoutDescriptor, readLayoutSelector } from "../ir-hir/index.js";
 import { captureFileDiagnostics } from "./diagnostics.js";
 import { sameSource } from "./bindings.js";
 
@@ -328,6 +328,7 @@ interface CaptureScope extends CaptureAdmission {
   readonly diagnosticRoots: Map<CheckerDiagnostic, CheckerDiagnosticRef>;
   readonly callCore: Map<NodeId, CallCore>;
   readonly tables: CaptureTables;
+  fieldSelectors: Map<NodeId, RawLayoutSelector> | null;
   invalidLayout: Diagnostic | null;
 }
 
@@ -658,6 +659,65 @@ function capturedMappedMember(scope: CaptureScope, property: TypePropertyInfo,
     optional: property.optional, readonly: property.readonly, read: available(read), write: available(write) };
 }
 
+function capturedDeclaredMember(scope: CaptureScope, property: TypePropertyHeader, primary: Node, active: ActiveReceiverCandidate | null):
+  { readonly header: RawMemberHeader; readonly origin: RawNodeRef; readonly declarations: ReadonlySet<Node>; readonly setter: Node | undefined } | null {
+  const key = capturedInventoryKey(scope, primary);
+  if (scope.meter.refusal !== null) return null;
+  if (key === null) throw new TypeError("front: a member requires its actual selected source property-key evidence");
+  const origin = referenceTo(scope, scope.program, primary);
+  if (scope.meter.refusal !== null) return null;
+  if (origin === null) return throwInvariant(invariant("A property value declaration must retain its actual admitted source identity."));
+  const declarations: RawNodeRef[] = [];
+  const getters: RawNodeRef[] = [];
+  const setters: RawNodeRef[] = [];
+  let setter: Node | undefined;
+  const origins: RawMemberOrigin[] = [];
+  const seen = new Set<Node>();
+  let method = false;
+  for (let rootIndex = 0; rootIndex < property.rootSymbols.length; rootIndex += 1) {
+    if (!admit(scope, "edges")) return null;
+    const root = property.rootSymbols[rootIndex];
+    if (root === undefined) return throwInvariant(invariant("A selected property retains each actual checker root symbol."));
+    const sources = scope.checker.getSymbolDeclarations(root);
+    for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+      if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+      const source = sources[sourceIndex];
+      if (source === undefined) return throwInvariant(invariant("A property root declaration inventory must be dense."));
+      if (seen.has(source)) continue;
+      seen.add(source);
+      const kind = scope.checked.ast.kindName(source);
+      if (kind === "KindInterfaceDeclaration" || kind === "KindTypeAliasDeclaration") continue;
+      if (active?.ordinary === true && kind !== "KindPropertySignature" && kind !== "KindMethodSignature" &&
+        kind !== "KindGetAccessor" && kind !== "KindSetAccessor") active.ordinary = false;
+      if (kind !== "KindVariableDeclaration" && kind !== "KindFunctionDeclaration" && kind !== "KindModuleDeclaration"
+        && kind !== "KindPropertyDeclaration" && kind !== "KindPropertyAssignment"
+        && kind !== "KindPropertySignature" && kind !== "KindMethodDeclaration" && kind !== "KindMethodSignature"
+        && kind !== "KindGetAccessor" && kind !== "KindSetAccessor")
+        throw new TypeError(`front: property origin transport for the actual ${kind} declaration is not implemented`);
+      const reference = referenceTo(scope, scope.program, source);
+      if (scope.meter.refusal !== null) return null;
+      if (reference === null) return throwInvariant(invariant("A property origin requires its actual admitted source declaration."));
+      declarations.push(reference);
+      if (kind === "KindGetAccessor") getters.push(reference);
+      if (kind === "KindSetAccessor") { setters.push(reference); setter ??= source; }
+      method ||= kind === "KindMethodDeclaration" || kind === "KindMethodSignature";
+      if (kind !== "KindSetAccessor") {
+        if (!admit(scope, "facts")) return null;
+        origins.push(capturedMemberOrigin(kind, reference, "read"));
+      }
+      if (!property.readonly && kind !== "KindGetAccessor") {
+        if (!admit(scope, "facts")) return null;
+        origins.push(capturedMemberOrigin(kind, reference, "write"));
+      }
+    }
+  }
+  if (declarations.length === 0 || !seen.has(primary))
+    throw new TypeError("front: a member requires its actual declared or synthetic origin association");
+  return { origin, setter, declarations: seen, header: { key, name: property.name, origins, declarations, getters, setters,
+    optional: property.optional, readonly: property.readonly,
+    readKind: getters.length !== 0 || setters.length !== 0 ? "accessor" : method ? "method" : "property" } };
+}
+
 function capturedMembers(scope: CaptureScope, type: Type, properties: TypePropertyInventory,
   position: RawComponentId, receiver: ReceiverUse | null, active: ActiveReceiverCandidate | null): readonly RawMember[] | null {
   const parent = scope.tables.components[position];
@@ -747,60 +807,12 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
         read: available(read), write: available(write), readKind: "property" });
       continue;
     }
-    const key = capturedInventoryKey(scope, primary);
-    if (scope.meter.refusal !== null) return null;
-    if (key === null) throw new TypeError("front: a member requires its actual selected source property-key evidence");
-    const origin = referenceTo(scope, scope.program, primary);
-    if (scope.meter.refusal !== null) return null;
-    if (origin === null) return throwInvariant(invariant("A property value declaration must retain its actual admitted source identity."));
-    const declarations: RawNodeRef[] = [];
-    const getters: RawNodeRef[] = [];
-    const setters: RawNodeRef[] = [];
-    const setterNodes: Node[] = [];
-    const origins: RawMemberOrigin[] = [];
-    const seen = new Set<Node>();
-    let method = false;
-    for (let rootIndex = 0; rootIndex < property.rootSymbols.length; rootIndex += 1) {
-      if (!admit(scope, "edges")) return null;
-      const root = property.rootSymbols[rootIndex];
-      if (root === undefined) return throwInvariant(invariant("A selected property retains each actual checker root symbol."));
-      const sources = scope.checker.getSymbolDeclarations(root);
-      for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
-        if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
-        const source = sources[sourceIndex];
-        if (source === undefined) return throwInvariant(invariant("A property root declaration inventory must be dense."));
-        if (seen.has(source)) continue;
-        seen.add(source);
-        const kind = scope.checked.ast.kindName(source);
-        if (kind === "KindInterfaceDeclaration" || kind === "KindTypeAliasDeclaration") continue;
-        if (active?.ordinary === true && kind !== "KindPropertySignature" && kind !== "KindMethodSignature" &&
-          kind !== "KindGetAccessor" && kind !== "KindSetAccessor") active.ordinary = false;
-        if (kind !== "KindVariableDeclaration" && kind !== "KindFunctionDeclaration" && kind !== "KindModuleDeclaration"
-          && kind !== "KindPropertyDeclaration" && kind !== "KindPropertyAssignment"
-          && kind !== "KindPropertySignature" && kind !== "KindMethodDeclaration" && kind !== "KindMethodSignature"
-          && kind !== "KindGetAccessor" && kind !== "KindSetAccessor")
-          throw new TypeError(`front: property origin transport for the actual ${kind} declaration is not implemented`);
-        const reference = referenceTo(scope, scope.program, source);
-        if (scope.meter.refusal !== null) return null;
-        if (reference === null) return throwInvariant(invariant("A property origin requires its actual admitted source declaration."));
-        declarations.push(reference);
-        if (kind === "KindGetAccessor") getters.push(reference);
-        if (kind === "KindSetAccessor") { setters.push(reference); setterNodes.push(source); }
-        method ||= kind === "KindMethodDeclaration" || kind === "KindMethodSignature";
-        if (kind !== "KindSetAccessor") {
-          if (!admit(scope, "facts")) return null;
-          origins.push(capturedMemberOrigin(kind, reference, "read"));
-        }
-        if (!property.readonly && kind !== "KindGetAccessor") {
-          if (!admit(scope, "facts")) return null;
-          origins.push(capturedMemberOrigin(kind, reference, "write"));
-        }
-      }
-    }
-    if (declarations.length === 0 || !seen.has(primary))
-      throw new TypeError("front: a member requires its actual declared or synthetic origin association");
-    const use: BindingUse | null = receiver === null ? null : method ? { kind: "member", receiver, declarations: seen }
-      : getters.length === 0 && setters.length === 0 && declarations.length === 1 &&
+    const captured = capturedDeclaredMember(scope, property, primary, active);
+    if (captured === null) return null;
+    const { header, origin, setter } = captured;
+    const use: BindingUse | null = receiver === null ? null
+      : header.readKind === "method" ? { kind: "member", receiver, declarations: captured.declarations }
+      : header.readKind === "property" && header.declarations.length === 1 &&
         directReceiverRecurrence(scope, receiver, property.type, primary) ? receiver : null;
     if (scope.meter.refusal !== null) return null;
     const step = (declaration: RawNodeRef, access: "read" | "write"): RawComponentStep =>
@@ -812,7 +824,6 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
     if (!property.readonly) {
       let type = property.type;
       let declaration = origin;
-      const setter = setterNodes[0];
       if (setter !== undefined) {
         if (!admit(scope, "edges")) return null;
         const signature = scope.shape.getDeclarationSignatureInfo(setter);
@@ -820,15 +831,13 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
         if (signature === undefined || signature.parameters.length !== 1 || parameter === undefined)
           throw new TypeError("front: an accessor write requires its actual selected setter parameter type");
         type = parameter.type;
-        declaration = setters[0] ?? throwInvariant(invariant("A selected setter retains its actual captured source declaration."));
-      } else if (getters.length !== 0) throw new TypeError("front: a writable accessor requires its actual setter association");
+        declaration = header.setters[0] ?? throwInvariant(invariant("A selected setter retains its actual captured source declaration."));
+      } else if (header.getters.length !== 0) throw new TypeError("front: a writable accessor requires its actual setter association");
       const sameType = setter === undefined && type === property.type;
       write = readType(type, step(declaration, "write"), sameType ? use : null, sameType ? property.typeSource : undefined);
       if (write === null) return null;
     }
-    members.push({ key, name: property.name, origins, declarations, getters, setters,
-      optional: property.optional, readonly: property.readonly, read: available(read), write: available(write),
-      readKind: getters.length !== 0 || setters.length !== 0 ? "accessor" : method ? "method" : "property" });
+    members.push({ ...header, read: available(read), write: available(write) });
   }
   return members;
 }
@@ -2501,9 +2510,28 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
 
 function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeRef): RawMemberUse | null {
   if (!admit(scope, "facts")) return null;
-  const info = scope.checker.getResolvedPropertyAccessInfo(node);
-  if (info === undefined || info.kind !== "member" || info.expression !== node)
+  const selector = scope.fieldSelectors?.get(occurrence.node);
+  const acquired = scope.checker.acquireResolvedPropertyAccess(node, nativeCaptureAdmission(scope));
+  if (acquired.kind === "refused") {
+    if (acquired.stop !== scope.meter.refusal)
+      return throwInvariant(invariant("A selected member acquisition must retain its actual first refusal."));
+    return null;
+  }
+  if (acquired.kind === "unavailable" && selector !== undefined) return unavailableLayoutSelector(scope, selector);
+  if (acquired.kind !== "complete" || acquired.value.kind !== "member" || acquired.value.expression !== node)
     throw new TypeError("front: a property access requires its actual selected member answer");
+  const info = acquired.value;
+  if (selector !== undefined) {
+    if (!admit(scope, "edges")) return null;
+    const nativeFormal = info.receiver.valueDeclaration;
+    const formal = nativeFormal === undefined ? null : referenceTo(scope, scope.program, nativeFormal);
+    if (scope.meter.refusal !== null) return null;
+    if (formal === null || !sameSource(formal, selector.formal)) {
+      const actual = scope.syntaxOf(selector.receiver.node);
+      if (actual === undefined) return throwInvariant(invariant("A selector receiver retains its actual authored occurrence."));
+      return layoutSyntaxFault(scope, actual, "A physical field selector must read its own authored formal.");
+    }
+  }
   if (info.optionalChain || info.selectedIndex !== undefined)
     throw new TypeError("front: selected optional or index-backed property transport is not implemented");
   const receiver = referenceTo(scope, scope.program, info.receiver.expression);
@@ -2538,13 +2566,23 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   const receiverComponent = component(scope, receiver, null);
   const receiverType = rawType(scope, () => withoutTypeCause(info.receiver.type), receiverComponent, null);
   if (receiverType === null || receiverComponent === null) return null;
-  captureFacts(scope);
-  if (scope.meter.refusal !== null) return null;
-  const form = scope.tables.types[receiverType]?.form;
-  if (form?.kind !== "available" || form.value.kind !== "structure")
-    throw new TypeError("front: selected member transport requires its actual receiver member inventory");
-  const inventory = scope.tables.members[form.value.inventory];
-  if (inventory === undefined) return throwInvariant(invariant("A selected member retains its actual receiver inventory."));
+  const property = info.property;
+  if (property === null || property.symbol !== info.sourceSymbol)
+    return throwInvariant(invariant("A selected property must show its actual native source member."));
+  if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+  const primary = scope.checker.getSymbolValueDeclaration(property.symbol);
+  if (primary === undefined) throw new TypeError("front: selected property transport requires its original member declaration");
+  const captured = capturedDeclaredMember(scope, property, primary, null);
+  if (captured === null) return null;
+  const member = captured.header;
+  if (selector !== undefined) {
+    if (member.optional || member.readKind !== "property" || info.accessMode !== "read" || info.callCallee) {
+      const actual = scope.syntaxOf(occurrence.node);
+      if (actual === undefined) return throwInvariant(invariant("A field selector retains its actual authored property access."));
+      return layoutSyntaxFault(scope, actual, "A physical field selector must read one non-optional stored property.");
+    }
+    scope.fieldSelectors?.delete(occurrence.node);
+  }
   const source = (declaration: Node | undefined): RawNodeRef | null => {
     if (declaration === undefined) return null;
     if (!admit(scope, "edges")) return null;
@@ -2555,20 +2593,8 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   const selected = source(info.selectedDeclaration);
   if (scope.meter.refusal !== null) return null;
   if (selected === null) throw new TypeError("front: selected property transport requires its actual source declaration");
-  let memberIndex: number | null = null;
-  for (let index = 0; index < inventory.members.length; index += 1) {
-    if (!admit(scope, "edges")) return null;
-    const member = inventory.members[index];
-    if (member === undefined) return throwInvariant(invariant("A selected member inventory must be dense."));
-    for (const declaration of member.declarations) {
-      if (!admit(scope, "edges")) return null;
-      if (declaration.module !== selected.module || declaration.node !== selected.node) continue;
-      if (memberIndex !== null && memberIndex !== index)
-        return throwInvariant(invariant("The selected declaration cannot identify competing receiver members."));
-      memberIndex = index;
-    }
-  }
-  if (memberIndex === null) throw new TypeError("front: the selected declaration is missing from its actual receiver member inventory");
+  if (selectedMember === undefined || !captured.declarations.has(selectedMember))
+    throw new TypeError("front: the selected declaration is missing from its actual receiver member inventory");
   const readDeclaration = source(info.selectedReadDeclaration);
   if (scope.meter.refusal !== null) return null;
   const writeDeclaration = source(info.selectedWriteDeclaration);
@@ -2582,14 +2608,12 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   const write = info.sourceWriteType === undefined ? null : rawType(scope, () => withoutTypeCause(info.sourceWriteType), writeComponent, null);
   if (info.sourceWriteType !== undefined && write === null) return null;
   if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
-  const member = inventory.members[memberIndex];
-  if (member === undefined) return throwInvariant(invariant("The selected member row must remain in its actual inventory."));
   const readDeclarations = readDeclaration === null ? [] : [readDeclaration];
   const writeDeclarations = writeDeclaration === null ? [] : [writeDeclaration];
-  return { kind: "property", occurrence, receiver, receiverComponent, key: null, access: info.accessMode, callCallee: info.callCallee,
+  return { kind: "property", occurrence, receiver, receiverComponent, receiverType, key: null, access: info.accessMode, callCallee: info.callCallee,
     optionalChain: info.optionalChain, chainContinuation: false, selectedDeclaration: selected,
     selectedDeclarations: member.declarations, readDeclarations, writeDeclarations, read, write,
-    arms: [{ kind: "member", receiver: receiverComponent, member: { table: inventory.id, index: memberIndex },
+    arms: [{ kind: "member", receiver: receiverComponent, member,
       readDeclarations, writeDeclarations }] };
 }
 
@@ -3802,6 +3826,12 @@ function layoutSyntaxFault(scope: CaptureScope, at: Hir.SyntaxNode<Hir.SyntaxPha
   return null;
 }
 
+function unavailableLayoutSelector(scope: CaptureScope, selector: RawLayoutSelector): null {
+  const at = scope.syntaxOf(selector.access.node);
+  if (at === undefined) return throwInvariant(invariant("An unavailable selector retains its actual authored access."));
+  return layoutSyntaxFault(scope, at, "A physical field selector requires an actual checked stored member.");
+}
+
 function layoutCaptureAdmission(scope: CaptureScope, work: number, created: number): Diagnostic | null {
   return admit(scope, "edges", work) && admit(scope, "facts", created) ? null :
       scope.meter.refusal ?? throwInvariant(invariant("Layout descriptor admission retains its actual first refusal."));
@@ -3821,10 +3851,54 @@ function captureLayoutSyntax(scope: CaptureScope, input: Hir.Expression<Hir.Synt
       : problem.kind === "not-inline" ? "A layout descriptor must be an inline object."
       : problem.kind === "not-inline-fields" ? "Layout fields must be an inline array."
       : problem.kind === "invalid-field-entry" ? "Each layout field must be a non-spread descriptor expression."
+      : problem.kind === "invalid-selector" ? "A field selector must be one arrow formal with a direct non-optional property access."
       : "A layout descriptor accepts only ordinary data properties.";
     return layoutSyntaxFault(scope, at, detail);
   }
   return selected.value;
+}
+
+function capturedLayoutSelector(scope: CaptureScope, value: Hir.LayoutSelectorSyntax<Hir.SyntaxPhase>): RawLayoutSelector | null {
+  if (layoutCaptureAdmission(scope, 4, scope.fieldSelectors === null ? 7 : 6) !== null) return null;
+  const { arrow, formal, access, receiver } = value;
+  if (arrow.parent === null || formal.parent !== arrow.id || access.parent !== arrow.id || receiver.parent !== access.id)
+    return throwInvariant(invariant("A field selector belongs to its exact authored arrow, formal and property occurrence."));
+  const at = (node: Hir.SyntaxNode<Hir.SyntaxPhase>): RawNodeRef => {
+    if (scope.syntaxOf(node.id) !== node)
+      return throwInvariant(invariant("A field selector retains its actual captured syntax pointer."));
+    return { module: scope.module, node: node.id };
+  };
+  const selected = { expression: at(arrow), parent: arrow.parent, formal: at(formal), access: at(access), receiver: at(receiver) };
+  const pending = scope.fieldSelectors ??= new Map();
+  if (pending.has(access.id)) return throwInvariant(invariant("A physical selector has one actual originating quotation."));
+  pending.set(access.id, selected);
+  return selected;
+}
+
+function capturedLayoutQuery(scope: CaptureScope, application: RawApplication, declaration: RawNodeRef,
+  operation: RawLayoutQuery["operation"], operands: readonly RawAuthoredArgument[]): RawLayoutQuery | null {
+  if (operation !== "field-offset") return { application, declaration, operands, operation };
+  if (!admit(scope, "edges")) return null;
+  const call = scope.syntaxOf(application.invocation.node);
+  if (call?.kind !== "CallExpression")
+    return throwInvariant(invariant("A field observation must retain its actual authored call."));
+  if (operands.length !== 2 || call.arguments.nodes.length !== 2)
+    return layoutSyntaxFault(scope, call, "A field observation requires its layout and one inline field selector.");
+  if (!admit(scope, "edges")) return null;
+  const actual = call.arguments.nodes[1];
+  const authored = operands[1];
+  if (actual === undefined || authored?.kind !== "value" || authored.expression.module !== scope.module ||
+    authored.expression.node !== actual.id || actual.parent !== call.id)
+    return throwInvariant(invariant("A field observation must retain its exact second authored operand."));
+  const selected = readLayoutSelector<Hir.SyntaxPhase, Diagnostic>(actual, (work, records) => layoutCaptureAdmission(scope, work, records));
+  if (selected.kind === "resource-stop") return null;
+  if (selected.kind === "invalid") {
+    const site = scope.syntaxOf(selected.fault.at);
+    if (site === undefined) return throwInvariant(invariant("A field selector fault retains its exact authored site."));
+    return layoutSyntaxFault(scope, site, "A field selector must be one arrow formal with a direct non-optional property access.");
+  }
+  const selector = capturedLayoutSelector(scope, selected.value);
+  return selector === null ? null : { application, declaration, operands, operation, selector };
 }
 
 function capturedLayoutConstruction(scope: CaptureScope, application: RawApplication, declaration: RawNodeRef,
@@ -3859,9 +3933,11 @@ function capturedLayoutConstruction(scope: CaptureScope, application: RawApplica
   const count = value.kind === "array" ? 6 : 4;
   if (layoutCaptureAdmission(scope, count + 1, 2 * count + (value.kind === "value" ? 4 : value.kind === "array" ? 3 : 2)) !== null) return null;
   const descriptor = { module: scope.module, node: input.id };
-  if (value.kind === "field") return { kind: "layout-construction", construction: "field", application, declaration, descriptor,
-    selector: occurrence(value.select), byteOffset: occurrence(value.byteoffset), byteAlignment: occurrence(value.bytealignment),
-    fieldLayout: occurrence(value.fieldlayout) };
+  if (value.kind === "field") {
+    const selector = capturedLayoutSelector(scope, value.select);
+    return selector === null ? null : { kind: "layout-construction", construction: "field", application, declaration, descriptor,
+      selector, byteOffset: occurrence(value.byteoffset), byteAlignment: occurrence(value.bytealignment), fieldLayout: occurrence(value.fieldlayout) };
+  }
   const geometry = { dataLayout: occurrence(value.datalayout), byteSize: occurrence(value.bytesize),
     byteAlignment: occurrence(value.bytealignment), stride: occurrence(value.stride) };
   if (value.kind === "array") return { kind: "layout-construction", construction: "array", application, declaration, descriptor,
@@ -4009,8 +4085,11 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
         if (capture === null) return null;
         scope.tables.memoryDescriptors.push(capture);
         scope.callCore.set(invocation.node, { role: "layout-construction", capture, provider });
-      } else scope.callCore.set(invocation.node, { role: "layout-query", capture: { application: rawApplication,
-        declaration, operands: sourceArguments, operation: layout.operation }, provider });
+      } else {
+        const capture = capturedLayoutQuery(scope, rawApplication, declaration, layout.operation, sourceArguments);
+        if (capture === null) return null;
+        scope.callCore.set(invocation.node, { role: "layout-query", capture, provider });
+      }
     } else if (marker?.kind === "call-marker" && (marker.marker === "struct" || marker.marker === "field")) {
       if (!admit(scope, "edges")) return null;
       const declaration = scope.tables.signatures[original]?.declaration;
@@ -4082,7 +4161,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   if (tree.kind !== "SourceFile") return throwInvariant(invariant("A module's captured tree is not a source file."));
   const queries = checked.getSourceFileQueries(file);
   const scope: CaptureScope = { ...admission, program, file, numericLiterals, syntaxOf: syntax.syntaxOf, checked, checker: queries.checker,
-    shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(), invalidLayout: null,
+    shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
+    fieldSelectors: null, invalidLayout: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),
       qualifiedSignatures: new Map(), activeTypes: new Map(), activeQualifiedTypes: new Map(), activeReceiverKeys: null,
@@ -4276,6 +4356,11 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
     captureFacts(scope);
     if (scope.meter.refusal !== null) break;
+    const invalidSelector = failedSelection ? scope.fieldSelectors?.get(reference.node) : undefined;
+    if (invalidSelector !== undefined) {
+      unavailableLayoutSelector(scope, invalidSelector);
+      break;
+    }
     if (kind === "KindPropertyAccessExpression" && declarationNameRoot === null && !failedSelection) {
       const use = capturedMemberUse(scope, node, reference);
       if (use === null) break;
@@ -4293,6 +4378,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
   }
   if (scope.invalidLayout !== null) return { kind: "refused", diagnostics: captureRefusal(scope.invalidLayout, checkerDiagnostics) };
+  if (scope.meter.refusal === null && (scope.fieldSelectors?.size ?? 0) !== 0)
+    return throwInvariant(invariant("Every captured field selector completes its actual property selection."));
   const core: RawCoreCapture[] = [];
   const providerDeclarations: RawProviderDeclaration[] = [];
   const dataLayouts: RawDataLayout[] = [];

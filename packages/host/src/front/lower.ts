@@ -53,7 +53,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
   "EnumDeclaration", "EnumMember", "ConstKeyword",
-  "CallSignature", "ConstructSignature", "MethodSignature", "IndexSignature", "GetAccessor", "SetAccessor", "TypeReference", "TypeQuery", "UnionType", "IntersectionType",
+  "CallSignature", "ConstructSignature", "FunctionType", "ConstructorType", "MethodSignature", "IndexSignature", "GetAccessor", "SetAccessor", "TypeReference", "TypeQuery", "UnionType", "IntersectionType",
   "ArrayType", "TupleType", "OptionalType", "TypeOperator", "IndexedAccessType", "ConditionalType", "InferType", "ThisType", "LiteralType", "ParenthesizedType",
   "TemplateLiteralType", "TemplateLiteralTypeSpan", "TemplateHead", "TemplateMiddle", "TemplateTail",
   "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "QuestionToken",
@@ -703,10 +703,9 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
   const arm = selected.arms[0];
   if (arm?.kind !== "member" || arm.receiver !== selected.receiverComponent)
     throw new TypeError("front: a property use requires its actual selected member arm");
-  const inventory = lowering.raw.types.members[arm.member.table];
-  const member = inventory?.members[arm.member.index];
-  if (inventory?.component !== arm.receiver || member === undefined)
-    throw new TypeError("front: a selected member use must name its genuine receiver inventory row");
+  const member = arm.member;
+  if (lowering.raw.types.types[selected.receiverType]?.component !== arm.receiver)
+    throw new TypeError("front: a selected member use must name its genuine receiver type");
   const component = lowering.raw.types.components[selected.receiverComponent];
   if (component?.root.module !== selected.receiver.module || component.root.node !== selected.receiver.node || component.path !== null)
     throw new TypeError("front: a selected member must retain its actual receiver component");

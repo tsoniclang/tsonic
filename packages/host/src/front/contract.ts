@@ -514,7 +514,7 @@ export type RawIndexSelection =
   | { readonly kind: "string-character"; readonly receiver: RawComponentId; readonly read: RawComponentId };
 
 export type RawMemberArm =
-  | { readonly kind: "member"; readonly receiver: RawComponentId; readonly member: RawMemberReference;
+  | { readonly kind: "member"; readonly receiver: RawComponentId; readonly member: RawMemberHeader;
       readonly readDeclarations: readonly RawNodeRef[]; readonly writeDeclarations: readonly RawNodeRef[] }
   | { readonly kind: "index"; readonly receiver: RawComponentId; readonly selection: RawIndexSelection;
       readonly key: RawComponentId; readonly read: RawComponentId | null;
@@ -525,6 +525,7 @@ export interface RawPropertyUse {
   readonly occurrence: RawNodeRef;
   readonly receiver: RawNodeRef;
   readonly receiverComponent: RawComponentId;
+  readonly receiverType: RawTypeId;
   readonly key: RawNodeRef | null;
   readonly access: "read" | "write" | "read-write" | "delete";
   readonly callCallee: boolean;
@@ -731,6 +732,12 @@ export interface RawLayoutOperand {
   readonly parent: NodeId;
 }
 
+export interface RawLayoutSelector extends RawLayoutOperand {
+  readonly formal: RawNodeRef;
+  readonly access: RawNodeRef;
+  readonly receiver: RawNodeRef;
+}
+
 interface RawLayoutGeometry {
   readonly dataLayout: RawLayoutOperand;
   readonly byteSize: RawLayoutOperand;
@@ -746,7 +753,7 @@ export type RawLayoutConstruction = {
 } & (
   | { readonly construction: "value"; readonly geometry: RawLayoutGeometry; readonly fieldList: RawNodeRef; readonly fields: readonly RawLayoutOperand[] }
   | { readonly construction: "array"; readonly geometry: RawLayoutGeometry; readonly element: RawLayoutOperand; readonly length: RawLayoutOperand }
-  | { readonly construction: "field"; readonly selector: RawLayoutOperand; readonly byteOffset: RawLayoutOperand;
+  | { readonly construction: "field"; readonly selector: RawLayoutSelector; readonly byteOffset: RawLayoutOperand;
       readonly byteAlignment: RawLayoutOperand; readonly fieldLayout: RawLayoutOperand }
 );
 
@@ -780,9 +787,10 @@ export interface RawRecordBinding {
   readonly fields: readonly RawRecordFieldBinding[];
 }
 
-export interface RawLayoutQuery extends RawLayoutApplication {
-  readonly operation: "size" | "alignment" | "stride" | "field-offset";
-}
+export type RawLayoutQuery = RawLayoutApplication & (
+  | { readonly operation: "size" | "alignment" | "stride" }
+  | { readonly operation: "field-offset"; readonly selector: RawLayoutSelector }
+);
 
 export interface RawCoreCapture {
   readonly node: RawNodeRef;

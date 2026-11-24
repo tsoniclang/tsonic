@@ -151,6 +151,18 @@ export function createReadGroup9(readers: () => HirTextReaders): HirReadGroup9 {
       const field_parameter = read("parameter", readers().record_230);
       return { fields: [field_core, field_parent, field_attributes, field_memory, field_definition, field_parameter], value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(), memory: field_memory.value(), definition: field_definition.value(), parameter: field_parameter.value() }) };
     });
+  const record_callableType = recordReader<Hir.CheckedCallableType>("CheckedCallableType", read => {
+    const core = read("core", readers().record_84);
+    const parent = read("parent", unionReader<Ids.DefId | null>(() => [readers().scalar_null, readers().identity_def]));
+    const attributes = read("attributes", sequenceReader(readers().record_13));
+    const memory = read("memory", unionReader<Hir.CapturedFact<Hir.HirMemoryFieldCapture | Hir.HirMemoryLayoutCapture | null>>(() => [readers().record_157, readers().record_10]));
+    const definition = read("definition", readers().identity_def);
+    const type = read("type", unionReader<Hir.CapturedFact<Ids.TyId>>(() => [readers().record_9, readers().record_10]));
+    const referencedDefinitions = read("referencedDefinitions", sequenceReader(readers().identity_def));
+    return { fields: [core, parent, attributes, memory, definition, type, referencedDefinitions],
+      value: () => ({ core: core.value(), parent: parent.value(), attributes: attributes.value(), memory: memory.value(),
+        definition: definition.value(), type: type.value(), referencedDefinitions: referencedDefinitions.value() }) };
+  });
   const record_293 = recordReader<Hir.NodeList<Hir.VariableDeclaration<Hir.CheckedPhase>>>("NodeList", read => {
       const field_loc = read("loc", readers().record_81);
       const field_nodes = read("nodes", sequenceReader(readers().syntax_19));
@@ -193,5 +205,5 @@ export function createReadGroup9(readers: () => HirTextReaders): HirReadGroup9 {
       const field_value = read("value", unionReader<Hir.HirRecordBindingCapture | null>(() => [readers().scalar_null, readers().record_298]));
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
-  return { record_270, record_271, record_272, record_273, record_274, record_275, record_276, record_277, record_278, record_279, record_280, record_281, record_282, record_283, record_284, record_285, record_286, record_287, record_288, record_289, record_290, record_291, record_292, record_293, record_294, record_295, record_296, record_297, record_298, record_299 };
+  return { record_270, record_271, record_272, record_273, record_274, record_275, record_276, record_277, record_278, record_279, record_280, record_281, record_282, record_283, record_284, record_285, record_286, record_287, record_288, record_289, record_290, record_291, record_callableType, record_292, record_293, record_294, record_295, record_296, record_297, record_298, record_299 };
 }

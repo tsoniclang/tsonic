@@ -45,14 +45,12 @@ test("actual SDK selected property reads retain their exact receiver, member arm
   assert.equal(use.arms.length, 1);
   const arm = use.arms[0];
   assert.equal(arm.kind, "member");
-  const table = raw.types.members[arm.member.table];
-  const member = table.members[arm.member.index];
-  assert.equal(table.component, use.receiverComponent);
+  const member = arm.member;
+  assert.equal(raw.types.types[use.receiverType].component, use.receiverComponent);
   assert.equal(use.selectedDeclarations, member.declarations);
   assert.equal(use.readDeclarations, arm.readDeclarations);
   assert.deepEqual(member.key, { kind: "text", value: "flag" });
-  assert.equal(member.write.kind, "available");
-  assert.equal(member.write.value !== null, true, "the separate receiver inventory keeps the actual writable type");
+  assert.equal(member.readonly, false, "the selected declaration can be written independently of this read");
   const declared = definitions.rows.find(row => row.kind === "PropertySignature");
   assert.equal(declared !== undefined, true);
   assert.deepEqual(use.selectedDeclaration, { module: raw.module, node: declared.node });
@@ -76,7 +74,8 @@ test("selected property transport rejects foreign, missing and competing receive
     { receiver: foreign }, { access: "write" }, { optionalChain: true }, { chainContinuation: true }, { arms: [] },
     { read: null }, { write: use.read }, { writeDeclarations: use.readDeclarations }, { selectedDeclaration: foreign },
     { selectedDeclarations: [] }, { readDeclarations: [] },
-    { readDeclarations: [foreign] }, { arms: [{ ...use.arms[0], member: { ...use.arms[0].member, index: 10000 } }] },
+    { readDeclarations: [foreign] }, { receiverType: use.read },
+    { arms: [{ ...use.arms[0], member: { ...use.arms[0].member, declarations: [foreign] } }] },
     { arms: [{ ...use.arms[0], receiver: use.read }] },
   ]) assert.throws(() => lower({ ...raw, memberUses: [{ ...use, ...changed }] }), /front:/u);
   assert.throws(() => lower({ ...raw, memberUses: [use, use] }), /unique syntax order/u);
@@ -85,6 +84,52 @@ test("selected property transport rejects foreign, missing and competing receive
   const missing = lower({ ...raw, memberUses: [] }).checked.tree.statements.nodes[1].body.statements.nodes[0].expression;
   assert.deepEqual(missing.tsonic.origins, { kind: "unavailable", reason: "not-provided", causes: [] });
   assert.equal(missing.name.tsonic.key.kind, "unavailable");
+});
+
+test("nominal property selection keeps the named receiver and borrows only its actual member declaration", async () => {
+  const { fixture, raw, definitions, lower } = await captured(
+    "export interface Header { tag:boolean; payload:boolean };"
+      + "export function read(value:Header):boolean{return value.payload;}");
+  const [use] = raw.memberUses;
+  const receiver = raw.types.types[use.receiverType];
+  const header = raw.tree.statements.nodes[0];
+  const payload = header.members.nodes[1];
+  assert.deepEqual(receiver.form.value.declaration, { module: raw.module, node: header.id });
+  assert.equal(receiver.form.value.kind, "declared");
+  assert.equal(raw.types.members.some(table => table.component === use.receiverComponent), false);
+  assert.deepEqual(use.selectedDeclarations, [{ module: raw.module, node: payload.id }]);
+  const { checked, interner } = lower();
+  assert.deepEqual(fixture.verifyChecked(checked, interner), []);
+  const access = checked.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration").body.statements.nodes[0].expression;
+  const definition = definitions.rows.find(row => row.node === payload.id).definition;
+  assert.deepEqual(access.tsonic.origins, { kind: "available", value: [{ kind: "declared", declaration: definition }] });
+  assert.deepEqual(access.name.tsonic.key, { kind: "available", value: { kind: "text", value: "payload" } });
+});
+
+test("authored function and constructor types publish their own annotations without creating executions", async () => {
+  const { fixture, raw, definitions, lower } = await captured(
+    "export type Predicate<T> = (input: T) => boolean;"
+      + "export type Factory = new (flag: boolean) => {flag: boolean};");
+  const { checked, interner } = lower();
+  assert.deepEqual(fixture.verifyChecked(checked, interner), []);
+  assert.equal(checked.bodies.length, 1);
+  const text = fixture.hir.printHir(checked);
+  const decoded = fixture.hir.parseHir(text);
+  assert.equal(decoded.kind, "parsed");
+  assert.equal(fixture.hir.printHir(decoded.value), text);
+  for (const [position, family] of ["calls", "constructs"].entries()) {
+    const original = raw.tree.statements.nodes[position].type;
+    const actual = checked.tree.statements.nodes[position].type;
+    const definition = definitions.rows.find(row => row.node === original.id).definition;
+    const type = fixture.types.readType(interner, actual.tsonic.type.value);
+    assert.equal(type.kind, "callable");
+    assert.equal(type[family].length, 1);
+    const signature = fixture.types.readSignature(interner, type[family][0]);
+    assert.equal(signature.declaration, definition);
+    assert.equal(actual.parameters.nodes[0].tsonic.parent, definition);
+    assert.equal(actual.parameters.nodes[0].tsonic.initializer, null);
+    assert.equal(decoded.value.tree.statements.nodes[position].type.tsonic.definition, definition);
+  }
 });
 
 test("a selected native property write captures its own type and exact receiver without an implicit read", async () => {

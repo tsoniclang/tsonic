@@ -1,6 +1,6 @@
-import type { SourceNodeRef } from "../ids/contract.js";
+import type { NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { CallExpression, CheckedLayoutConstructionOf, CheckedLayoutGeometryOperands, CheckedLayoutRoleOf, CheckedPhase, Expression, HirModuleBinding, HirNode,
-  LayoutDescriptorKind, LayoutDescriptorOperand, LayoutDescriptorSyntaxFault, Phase, ReadLayoutDescriptor, ResolveCheckedLayout } from "./contract.js";
+  LayoutDescriptorKind, LayoutDescriptorOperand, LayoutDescriptorSyntaxFault, Phase, ReadLayoutDescriptor, ReadLayoutSelector, ResolveCheckedLayout } from "./contract.js";
 
 const geometryNames: readonly LayoutDescriptorOperand[] = ["datalayout", "bytesize", "bytealignment", "stride"];
 function* descriptorNames(kind: LayoutDescriptorKind): Generator<LayoutDescriptorOperand> {
@@ -22,6 +22,37 @@ function* descriptorNames(kind: LayoutDescriptorKind): Generator<LayoutDescripto
 function invalidDescriptor(fault: LayoutDescriptorSyntaxFault): { readonly kind: "invalid"; readonly fault: LayoutDescriptorSyntaxFault } {
   return { kind: "invalid", fault };
 }
+
+function invalidSelector(at: NodeId): { readonly kind: "invalid"; readonly fault: { readonly kind: "invalid-selector"; readonly at: NodeId } } {
+  return { kind: "invalid", fault: { kind: "invalid-selector", at } };
+}
+
+export const readLayoutSelector: ReadLayoutSelector = (input, admit) => {
+  let stop = admit(1, 0);
+  if (stop !== null) return { kind: "resource-stop", stop };
+  if (input.kind !== "ArrowFunction") return invalidSelector(input.id);
+  stop = admit(5, 0);
+  if (stop !== null) return { kind: "resource-stop", stop };
+  if (input.modifiers !== null || input.typeParameters !== null || input.asteriskToken !== null || input.fullSignature !== null)
+    return invalidSelector(input.id);
+  const formals = input.parameters.nodes;
+  if (formals.length !== 1) return invalidSelector(input.id);
+  stop = admit(6, 0);
+  if (stop !== null) return { kind: "resource-stop", stop };
+  const formal = formals[0];
+  if (formal === undefined || formal.name.kind !== "Identifier" || formal.modifiers !== null || formal.dotDotDotToken !== null
+    || formal.initializer !== null || formal.questionToken !== null) return invalidSelector(formal?.id ?? input.id);
+  stop = admit(1, 0);
+  if (stop !== null) return { kind: "resource-stop", stop };
+  const access = input.body;
+  if (access?.kind !== "PropertyAccessExpression") return invalidSelector(access?.id ?? input.id);
+  stop = admit(3, 1);
+  if (stop !== null) return { kind: "resource-stop", stop };
+  if (access.questionDotToken !== null || access.name.kind !== "Identifier") return invalidSelector(access.id);
+  const receiver = access.expression;
+  return receiver.kind === "Identifier" ? { kind: "complete", value: { arrow: input, formal, access, receiver } }
+    : invalidSelector(receiver.id);
+};
 
 export const readLayoutDescriptor: ReadLayoutDescriptor = <P extends Phase, Stop extends object>(
   input: Expression<P>, kind: LayoutDescriptorKind, admit: (work: number, created: number) => Stop | null,
@@ -95,8 +126,11 @@ export const readLayoutDescriptor: ReadLayoutDescriptor = <P extends Phase, Stop
   }
   const result = admit(found.size, 1);
   if (result !== null) return { kind: "resource-stop", stop: result };
-  if (kind === "field") return { kind: "complete", value: { kind, descriptor: input, select: lookup("select"),
-    byteoffset: lookup("byteoffset"), bytealignment: lookup("bytealignment"), fieldlayout: lookup("fieldlayout") } };
+  if (kind === "field") {
+    const select = readLayoutSelector<P, Stop>(lookup("select"), admit);
+    return select.kind === "complete" ? { kind: "complete", value: { kind, descriptor: input, select: select.value,
+      byteoffset: lookup("byteoffset"), bytealignment: lookup("bytealignment"), fieldlayout: lookup("fieldlayout") } } : select;
+  }
   if (kind === "array") return { kind: "complete", value: {
     kind, descriptor: input, datalayout: lookup("datalayout"), bytesize: lookup("bytesize"), bytealignment: lookup("bytealignment"),
     stride: lookup("stride"), elementlayout: lookup("elementlayout"), length: lookup("length"),

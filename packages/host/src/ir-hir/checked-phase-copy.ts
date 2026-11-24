@@ -2,7 +2,7 @@ import type { LocalId, TyId } from "../ids/contract.js";
 import type {
   CapturedFact, CheckedClosure, CheckedContentImage, CheckedEnum, CheckedEnumMember, CheckedExport, CheckedExportAssignment, CheckedExportBinding, CheckedImport, CheckedModule,
   CheckedNamespace, CheckedNamespaceExport, CheckedProperty, CheckedStaticBlock, CheckedAggregate, CheckedApplication, CheckedBinary, CheckedBinding, CheckedBindingList, CheckedCallable,
-  CheckedClass, CheckedClassExpression, CheckedDeclarationFacts, CheckedExpression, CheckedInstantiation, CheckedIteration,
+  CheckedCallableType, CheckedClass, CheckedClassExpression, CheckedDeclarationFacts, CheckedExpression, CheckedInstantiation, CheckedIteration,
   CheckedKeyword, CheckedLiteral, CheckedMember, CheckedName, CheckedPhase, CheckedProjection, CheckedProtocol, CheckedType,
   CheckedTypeAlias, CheckedTypeParameter, CheckedUnary, CheckedValue, CheckedVariable, CopyCheckedContent, CopyCheckedModule, HirApplication,
   HirArgument, HirBody, HirCandidate, HirCandidateList, HirCheckerViews, HirCoreCarrier, HirDiagnosticRoot, HirHeritage,
@@ -276,6 +276,12 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
       following(captured(row.memory, optional(memory)), memory => copied({ core, memory, parent: row.parent, attributes: row.attributes }))));
   }
 
+  function callableType(row: CheckedCallableType): SyntaxCopyResult<CheckedCallableType, Stop> {
+    return admit(3, 1, () => following(declarationPart(row), ready =>
+      following(captured(row.type, project.type), type => copied({ ...ready, definition: row.definition,
+        type, referencedDefinitions: row.referencedDefinitions }))));
+  }
+
   function declaration<Value extends CheckedDeclarationFacts>(fields: number): (row: Value) => SyntaxCopyResult<Value, Stop> {
     return row => admit(fields, 1, () => following(declarationPart(row), ready => copied({ ...row, ...ready })));
   }
@@ -425,7 +431,7 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
     ConditionalTypeNode: ready(typeSyntax),
     ConstructSignatureDeclaration: ready(callable),
     ConstructorDeclaration: ready(callable),
-    ConstructorTypeNode: ready(typeSyntax),
+    ConstructorTypeNode: ready(callableType),
     Decorator: ready(copied),
     DeleteExpression: ready(expression<CheckedExpression>(5)),
     ElementAccessExpression: ready(member),
@@ -438,7 +444,7 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
     ForInOrOfStatement: ready(iteration),
     FunctionDeclaration: ready(callable),
     FunctionExpression: ready(expression<CheckedClosure>(7)),
-    FunctionTypeNode: ready(typeSyntax),
+    FunctionTypeNode: ready(callableType),
     GetAccessorDeclaration: ready(callable),
     HeritageClause: ready(copied),
     Identifier: ready(name),

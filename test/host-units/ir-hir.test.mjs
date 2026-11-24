@@ -89,6 +89,45 @@ test("layout descriptors retain actual authored operands and admit each field be
   } });
 });
 
+test("field selector syntax qualifies one formal and never opens the next raw occurrence before admission", async () => {
+  const fixture = await loadFrontFixture();
+  const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const source = async expression => {
+    const tree = await fixture.captureSyntaxOf(`export const selection = ${expression};`, module);
+    return tree.statements.nodes[0].declarationList.declarations.nodes[0].initializer;
+  };
+  const arrow = await source("(record: Header) => record.payload");
+  const [formal] = arrow.parameters.nodes;
+  const access = arrow.body;
+  const receiver = access.expression;
+  const trace = [];
+  Object.defineProperty(arrow.parameters.nodes, 0, { configurable: true, get() { trace.push("formal"); return formal; } });
+  Object.defineProperty(arrow, "body", { configurable: true, get() { trace.push("access"); return access; } });
+  Object.defineProperty(access, "expression", { configurable: true, get() { trace.push("receiver"); return receiver; } });
+  const stop = { selector: "admission" };
+  for (const [maximum, records, expected] of [[0, 1, []], [11, 1, []], [12, 1, ["formal"]],
+    [13, 1, ["formal", "access"]], [15, 1, ["formal", "access"]], [16, 0, ["formal", "access"]],
+    [16, 1, ["formal", "access", "receiver"]]]) {
+    trace.length = 0;
+    let work = 0;
+    let created = 0;
+    const actual = product.readLayoutSelector(arrow, (cost, count) => {
+      work += cost;
+      created += count;
+      return work <= maximum && created <= records ? null : stop;
+    });
+    assert.deepEqual(trace, expected);
+    if (maximum === 16 && records === 1) {
+      assert.equal(actual.kind, "complete");
+      assert.equal(actual.value.arrow === arrow && actual.value.formal === formal && actual.value.access === access
+        && actual.value.receiver === receiver, true);
+    } else assert.equal(actual.kind === "resource-stop" && actual.stop === stop, true);
+  }
+  const nested = await source("(record: Header) => record.owner.payload");
+  assert.deepEqual(product.readLayoutSelector(nested, () => null),
+    { kind: "invalid", fault: { kind: "invalid-selector", at: nested.body.expression.id } });
+});
+
 after(async () => {
   try {
     const capture = await post("Profiler.takePreciseCoverage");
@@ -1279,7 +1318,7 @@ test("HIR public index has exactly the current complete data and binding operati
     "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceObjectFieldOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxArgumentList", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
-    "projectCheckedContent", "readLayoutDescriptor", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
+    "projectCheckedContent", "readLayoutDescriptor", "readLayoutSelector", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
     "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
   ]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),

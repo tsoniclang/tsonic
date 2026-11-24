@@ -16,7 +16,7 @@ export function createSyntaxGroup1(readers: () => HirTextReaders): ReadonlyMap<s
       const field_parameters = read("parameters", readers().record_181);
       const field_type = read("type", unionReader<Hir.TypeNode<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_3]));
       const field_fullSignature = read("fullSignature", unionReader<Hir.TypeNode<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_3]));
-      const field_tsonic = read("tsonic", readers().record_178);
+      const field_tsonic = read("tsonic", readers().record_callableType);
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_modifiers, field_typeParameters, field_parameters, field_type, field_fullSignature, field_tsonic], value: () => ({ kind: "ConstructorType", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), modifiers: field_modifiers.value(), typeParameters: field_typeParameters.value(), parameters: field_parameters.value(), type: field_type.value(), fullSignature: field_fullSignature.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "ConstructorType", value }), accept)],
     ["ContinueStatement", accept => syntaxRecord<Hir.ContinueStatement<Hir.CheckedPhase>>(read => {
@@ -280,7 +280,7 @@ export function createSyntaxGroup1(readers: () => HirTextReaders): ReadonlyMap<s
       const field_parameters = read("parameters", readers().record_181);
       const field_type = read("type", unionReader<Hir.TypeNode<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_3]));
       const field_fullSignature = read("fullSignature", unionReader<Hir.TypeNode<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_3]));
-      const field_tsonic = read("tsonic", readers().record_178);
+      const field_tsonic = read("tsonic", readers().record_callableType);
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_modifiers, field_typeParameters, field_parameters, field_type, field_fullSignature, field_tsonic], value: () => ({ kind: "FunctionType", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), modifiers: field_modifiers.value(), typeParameters: field_typeParameters.value(), parameters: field_parameters.value(), type: field_type.value(), fullSignature: field_fullSignature.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "FunctionType", value }), accept)],
     ["GetAccessor", accept => syntaxRecord<Hir.GetAccessorDeclaration<Hir.CheckedPhase>>(read => {

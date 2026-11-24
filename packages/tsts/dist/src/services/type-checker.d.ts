@@ -11,7 +11,7 @@ export type { SourceTypeRequest } from "./source-type-answer.js";
 import { type NativeCheckerAdmission, type NativeCheckerResult } from "../internal/checker/resource-admission.js";
 import type { CheckerDiagnosticMembership, ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 export type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
-import type { TypeIndexInfo } from "./type-shape.js";
+import type { TypeIndexInfo, TypePropertyHeader } from "./type-shape.js";
 import type { Program } from "../internal/compiler/program.js";
 import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo as CheckerResolvedSourcePropertyAccessInfo } from "../internal/checker/checker/symbols.js";
 import type { ExtensionCheckedIterationSelection } from "../internal/checker/checker/iteration-evidence.js";
@@ -63,6 +63,7 @@ type PublicSelectedPropertyAccess<Selection> = Selection extends CheckerResolved
 export type ResolvedSourcePropertyAccessInfo = (PublicSelectedPropertyAccess<CheckerResolvedSourcePropertyAccessInfo> & {
     readonly kind: "member";
     readonly receiver: CheckerResolvedSourcePropertyAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;
+    readonly property: TypePropertyHeader | null;
 }) | {
     readonly kind: "module-exported-value";
     readonly target: Symbol | undefined;
@@ -173,7 +174,7 @@ export interface TypeCheckerQueries {
     readonly getSignatureFromDeclaration: (declaration: GoPtr<Node>) => GoPtr<Signature>;
     readonly getResolvedCallInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceCallInfo>;
     readonly acquireResolvedCall: <Stop extends object>(node: GoPtr<Node>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<ResolvedSourceCallInfo, Stop>;
-    readonly getResolvedPropertyAccessInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourcePropertyAccessInfo>;
+    readonly acquireResolvedPropertyAccess: <Stop extends object>(node: GoPtr<Node>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<ResolvedSourcePropertyAccessInfo, Stop>;
     readonly getResolvedElementAccessInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceElementAccessInfo>;
     readonly getResolvedIterationInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceIterationInfo>;
     readonly getResolvedObjectLiteralElementInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceObjectLiteralElementInfo>;

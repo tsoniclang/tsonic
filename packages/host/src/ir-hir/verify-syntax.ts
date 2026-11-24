@@ -127,7 +127,7 @@ type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" |
   | "HirArgumentPassingCapture" | "HirCoreCapture" | "CheckedValue" | "CheckedExpression" | "CheckedLiteral"
   | "CheckedName" | "CheckedBinary" | "CheckedUnary" | "CheckedKeyword" | "CheckedInstantiation"
   | "CheckedAggregate" | "CheckedApplication" | "CheckedMember" | "CheckedProtocol" | "CheckedClosure"
-  | "CheckedType" | "DeclarationTarget" | "CheckedCallable" | "CheckedClass" | "CheckedClassExpression"
+  | "CheckedType" | "CheckedCallableType" | "DeclarationTarget" | "CheckedCallable" | "CheckedClass" | "CheckedClassExpression"
   | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "InferredStorageBound" | "CheckedEnumMember" | "EnumValueSource" | "CheckedEnum" | "CheckedNamespace"
   | "CheckedImport" | "CheckedExport" | "CheckedExportBinding" | "CheckedNamespaceExport" | "CheckedExportAssignment" | "CheckedStaticBlock"
   | "CheckedProperty" | "CheckedBinding" | "CheckedBindingList" | "CheckedIteration" | "CheckedModule"
@@ -633,6 +633,7 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly CheckedProtocol: HirShapeBody;
   readonly CheckedClosure: HirShapeBody;
   readonly CheckedType: HirShapeBody;
+  readonly CheckedCallableType: HirShapeBody;
   readonly DeclarationTarget: HirShapeBody;
   readonly CheckedCallable: HirShapeBody;
   readonly CheckedClass: HirShapeBody;
@@ -887,8 +888,8 @@ export function createSyntaxSchema(): HirSyntaxSchema {
     OptionalType: node("OptionalType", "CheckedType", [["type", "TypeNode"]]),
     RestType: node("RestType", "CheckedType", [["type", "TypeNode"]]),
     ParenthesizedType: node("ParenthesizedType", "CheckedType", [["type", "TypeNode"]]),
-    FunctionType: node("FunctionType", "CheckedType", [["modifiers", modifiers], ...callable]),
-    ConstructorType: node("ConstructorType", "CheckedType", [["modifiers", modifiers], ...callable]),
+    FunctionType: node("FunctionType", "CheckedCallableType", [["modifiers", modifiers], ...callable]),
+    ConstructorType: node("ConstructorType", "CheckedCallableType", [["modifiers", modifiers], ...callable]),
     TemplateHead: node("TemplateHead", "null", template),
     TemplateMiddle: node("TemplateMiddle", "null", template),
     TemplateTail: node("TemplateTail", "null", template),

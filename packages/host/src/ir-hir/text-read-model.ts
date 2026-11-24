@@ -325,6 +325,7 @@ export interface HirReadGroup9 {
   readonly record_289: HirReader<Hir.NodeList<Hir.TemplateSpan<Hir.CheckedPhase>>>;
   readonly record_290: HirReader<Hir.NodeList<Hir.TemplateLiteralTypeSpan<Hir.CheckedPhase>>>;
   readonly record_291: HirReader<Hir.CheckedTypeAlias>;
+  readonly record_callableType: HirReader<Hir.CheckedCallableType>;
   readonly record_292: HirReader<Hir.CheckedTypeParameter>;
   readonly record_293: HirReader<Hir.NodeList<Hir.VariableDeclaration<Hir.CheckedPhase>>>;
   readonly record_294: HirReader<Hir.CheckedBindingList>;

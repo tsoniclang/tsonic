@@ -4114,6 +4114,18 @@ export interface HirObservationCapture {
 export type LayoutCallRole = "value-layout" | "array-layout" | "field-layout" | "size" | "alignment" | "stride" | "field-offset";
 
 export type LayoutDescriptorKind = "value" | "array" | "field";
+export interface LayoutSelectorSyntax<P extends Phase> {
+  readonly arrow: ArrowFunction<P>;
+  readonly formal: ParameterDeclaration<P>;
+  readonly access: PropertyAccessExpression<P>;
+  readonly receiver: Identifier<P>;
+}
+export type ReadLayoutSelector = <P extends Phase, Stop extends object>(input: Expression<P>,
+  admit: (work: number, created: number) => Stop | null) =>
+  { readonly kind: "complete"; readonly value: LayoutSelectorSyntax<P> }
+  | { readonly kind: "invalid"; readonly fault: { readonly kind: "invalid-selector"; readonly at: NodeId } }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+
 export type LayoutDescriptorOperand = "datalayout" | "bytesize" | "bytealignment" | "stride" | "fields" |
   "elementlayout" | "length" | "select" | "byteoffset" | "fieldlayout";
 interface LayoutGeometrySyntax<P extends Phase> {
@@ -4125,11 +4137,11 @@ interface LayoutGeometrySyntax<P extends Phase> {
 export type LayoutDescriptorSyntax<P extends Phase> = { readonly descriptor: ObjectLiteralExpression<P> } & (
   | ({ readonly kind: "value"; readonly fields: ArrayLiteralExpression<P> } & LayoutGeometrySyntax<P>)
   | ({ readonly kind: "array"; readonly elementlayout: Expression<P>; readonly length: Expression<P> } & LayoutGeometrySyntax<P>)
-  | { readonly kind: "field"; readonly select: Expression<P>; readonly byteoffset: Expression<P>;
+  | { readonly kind: "field"; readonly select: LayoutSelectorSyntax<P>; readonly byteoffset: Expression<P>;
       readonly bytealignment: Expression<P>; readonly fieldlayout: Expression<P> }
 );
 export type LayoutDescriptorSyntaxFault =
-  | { readonly kind: "not-inline" | "invalid-property" | "not-inline-fields" | "invalid-field-entry"; readonly at: NodeId }
+  | { readonly kind: "not-inline" | "invalid-property" | "not-inline-fields" | "invalid-field-entry" | "invalid-selector"; readonly at: NodeId }
   | { readonly kind: "unknown-property"; readonly at: NodeId; readonly name: string }
   | { readonly kind: "duplicate-property" | "missing-property"; readonly at: NodeId; readonly name: LayoutDescriptorOperand };
 export type ReadLayoutDescriptor = <P extends Phase, Stop extends object>(input: Expression<P>, kind: LayoutDescriptorKind,
@@ -4425,6 +4437,8 @@ export interface CheckedDeclaration extends CheckedDeclarationFacts {
   readonly definition: DefId;
 }
 
+export interface CheckedCallableType extends CheckedType, CheckedDeclaration {}
+
 export interface CheckedCallable extends CheckedDeclaration {
   readonly parameters: readonly TypeParameter[];
   readonly signatures: readonly HirCallableEndpoint[];
@@ -4670,8 +4684,8 @@ export interface CheckedPhase extends Phase {
   readonly OptionalTypeNode: CheckedType;
   readonly RestTypeNode: CheckedType;
   readonly ParenthesizedTypeNode: CheckedType;
-  readonly FunctionTypeNode: CheckedType;
-  readonly ConstructorTypeNode: CheckedType;
+  readonly FunctionTypeNode: CheckedCallableType;
+  readonly ConstructorTypeNode: CheckedCallableType;
   readonly TemplateHead: null;
   readonly TemplateMiddle: null;
   readonly TemplateTail: null;
