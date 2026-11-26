@@ -15,9 +15,7 @@ import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { readyModuleRoot, readyModuleStatements } from "./fixtures/chapter-syntax.mjs";
 import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
-import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
 import { checkCallShapedComputedDeclarationName } from "./fixtures/computed-declaration-name.mjs";
-import { checkCommaSequence, checkCoalescingAssignment, checkOptionalEmbedding, checkLabelledTransfers, checkVoidOperand, checkTirAdmissionCuts, checkTirBodyAdmissionCuts, checkTirVerifierAdmissionCuts, tirFixtureAdmission, tirFixtureBodyVerifier, tirFixtureVerifier } from "./fixtures/typed-occurrence-witnesses.mjs";
 import {
   available, bodyId, bodyScopeReader, checkerViews, checkedValue, completeScopes, emptyBindings, emptyCore, emptyModuleBody,
   emptyScope, emptyVerificationInput, header, memberScenario, moduleId, nodeList, origin, ownerId, selectedOperation, typedValue,
@@ -48,6 +46,15 @@ const profiler = new Session();
 const post = (method, parameters = {}) => new Promise((accept, reject) => {
   profiler.post(method, parameters, (error, result) => error === null ? accept(result) : reject(error));
 });
+assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the entire bank requires bounded aggregate admission");
+profiler.connect();
+await post("Debugger.enable");
+await post("Profiler.enable");
+await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
+const { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } = await import("./fixtures/typed-static-witnesses.mjs");
+const { checkCommaSequence, checkCoalescingAssignment, checkOptionalEmbedding, checkLabelledTransfers, checkVoidOperand,
+  checkTirAdmissionCuts, checkTirBodyAdmissionCuts, checkTirVerifierAdmissionCuts, tirFixtureAdmission,
+  tirFixtureBodyVerifier, tirFixtureVerifier } = await import("./fixtures/typed-occurrence-witnesses.mjs");
 let product;
 let verifyBody;
 let verifyChapter;
@@ -192,11 +199,6 @@ function assertInvalidText(text, offset, expected, found) {
 }
 
 before(async () => {
-  assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the entire bank requires bounded aggregate admission");
-  profiler.connect();
-  await post("Debugger.enable");
-  await post("Profiler.enable");
-  await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   product = await import("../../packages/host/dist/ir-tir/index.js");
   verifyBody = await tirFixtureBodyVerifier(product.verifyTir);
   verifyChapter = await tirFixtureVerifier(product.verifyTirModule);
@@ -8885,7 +8887,8 @@ after(async () => {
     writeFileSync(resolve(directory, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(directory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, productNames.length, "all current actual runtime owners have nonempty source-identified raw V8 evidence");
+    assert.deepEqual(result.map(script => script.url).sort(), [...urls].sort(),
+      "all current actual runtime owners need distinct source-identified raw V8 evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
     assert.equal(report.files.filter(file => file.status === "covered").length, productNames.length);
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1);
