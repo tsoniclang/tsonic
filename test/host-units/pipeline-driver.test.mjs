@@ -221,6 +221,73 @@ test("a refused answer abandons the requester: no memo entry, and what it had ea
   }
 });
 
+test("a denied checked declaration lends one completed Forms report to cold and warm driver requests", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { checkedDomain } = await import("./fixtures/front/checked-domain.mjs");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const { formDiagnosticsQuery, completedFormCut } = await import("../../packages/host/dist/pipeline/semantic-queries.js");
+  const fixture = await loadFrontFixture();
+  const { checked } = fixture.checkedModuleOf("export declare function denied(flag: boolean): boolean { return flag; }");
+  const { sources } = checkedDomain(checked, fixture.hir);
+  const [site, extra] = pipelineWiring.validate.indexFormDiagnostics({ role: "source", scopeOf: sources.formScopeOf }, checked);
+  assert.equal(extra, undefined);
+  assert.strictEqual(site.cut, checked.tree.statements.nodes[0]);
+  const source = sources.declarationSourceOf(site.cut.tsonic.definition);
+  assert.strictEqual(sources.nodeOf(source), site.cut);
+  const base = { sources };
+  const forms = formDiagnosticsQuery(base, offered => offered === site);
+  const stops = [];
+  const prefixes = [d(1, "first earned prefix"), d(2, "second earned prefix")];
+  const blocked = driver.defineQuery({
+    name: "blocked", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    producer: { start: (_, key) => pause([key, "later"], key, [prefixes[key]]), resume: never },
+    route: request => {
+      assert.notEqual(request, "later");
+      return driver.abandonAtReport(forms, site, { kind: "forms-prerequisite", source, site }, (cut, errorOf) => {
+        const completed = completedFormCut(site, cut, errorOf);
+        stops.push(completed);
+        return completed.report;
+      });
+    },
+    witness: never,
+  });
+  const database = query.createDatabase(base, unbounded, noCycle, "recorded");
+  for (const key of prefixes.keys()) {
+    const result = database.run(blocked, key);
+    assert.equal(result.kind, "refused");
+    assert.equal(result.diagnostics.length, 1);
+    assert.strictEqual(result.diagnostics[0], stops[key].diagnostics[0]);
+  }
+  assert.equal(stops.length, 2);
+  assert.strictEqual(stops[0], stops[1]);
+  assert.equal(stops[0].diagnostics[0].code.rendered, "TSONIC_SOURCE_FORM_UNSUPPORTED");
+  assert.deepEqual(requests(database).filter(([, name]) => name === forms.name).map(([, , , state]) => state), ["cold", "warm"]);
+  const diagnostics = database.diagnostics();
+  assert.equal(diagnostics.length, 3);
+  for (const original of [stops[0].diagnostics[0], ...prefixes])
+    assert.equal(diagnostics.filter(diagnostic => diagnostic === original).length, 1);
+});
+
+test("an unavailable route retains its earned prefix without performing a query or resuming", () => {
+  const prefix = d(1, "earned before the request");
+  const limit = d(2, "the route reached its limit");
+  const blocked = driver.defineQuery({
+    name: "unavailable", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    producer: { start: () => pause(["limited", "later"], null, [prefix]), resume: never },
+    route: request => {
+      assert.equal(request, "limited");
+      return { way: "abandon", diagnostics: [limit] };
+    },
+    witness: never,
+  });
+  const database = query.createDatabase(null, unbounded, noCycle, "recorded");
+  const result = database.run(blocked, null);
+  assert.equal(result.kind, "refused");
+  assert.strictEqual(result.diagnostics[0], limit);
+  assert.deepEqual(database.diagnostics(), [prefix, limit]);
+  assert.equal(requests(database).filter(([from]) => from !== null).length, 0);
+});
+
 test("an error-valued answer is delivered unchanged; the driver adds, drops and repeats no diagnostic", () => {
   const detected = diagnostic(1, "a.ts", "detected by the producer of the error value");
   const own = diagnostic(2, "b.ts", "the requester's own");
