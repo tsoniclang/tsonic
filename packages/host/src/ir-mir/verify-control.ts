@@ -21,6 +21,20 @@ export interface ControlEdge {
   readonly destination: PlaceId | null;
 }
 
+export type ControlInventory = readonly (readonly ControlEdge[] | undefined)[];
+
+export function controlAt(control: ControlInventory, position: number): readonly ControlEdge[] {
+  const row = control[position];
+  if (row === undefined) throw new TypeError("A verified block requires its retained control edges.");
+  return row;
+}
+
+export function readContinuation(control: ControlInventory, position: number): BlockId {
+  const edge = controlAt(control, position)[0];
+  if (edge === undefined) throw new TypeError("A continuing terminator requires its retained successor.");
+  return edge.target;
+}
+
 function visitUnwindEdge<Stop>(unwind: MirUnwind, projection: MirControlProjection<Stop>): Stop | null {
   if (unwind.kind !== "handler") return null;
   const stop = projection.admit();
@@ -81,7 +95,7 @@ export const visitControlEdges: VisitMirControlEdges = (terminator, projection) 
   }
 };
 
-export function controlEdges(terminator: MirTerminator): readonly ControlEdge[] {
+function controlEdges(terminator: MirTerminator): readonly ControlEdge[] {
   const edges: ControlEdge[] = [];
   visitControlEdges(terminator, { kind: "edges", admit: () => null,
     visit: (kind, target, destination) => { edges.push({ kind, target, destination }); } });
@@ -99,14 +113,14 @@ export interface OrderedBlock {
  * after the source of each of its edges that is not a back edge of that walk. Roots are taken in the order given; a
  * position that holds no block is skipped.
  */
-export function reversePostorder(body: MirBody, roots: readonly number[]): readonly OrderedBlock[] {
+export function reversePostorder(body: MirBody, roots: readonly number[], control: ControlInventory): readonly OrderedBlock[] {
   const postorder: OrderedBlock[] = [];
   const reached = new Uint8Array(body.blocks.length);
   for (const root of roots) {
     const start = densePosition(root, reached.length) ? body.blocks[root] : undefined;
     if (start === undefined || reached[root] === 1) continue;
     reached[root] = 1;
-    const frames: SearchFrame[] = [{ position: root, block: start, edges: controlEdges(start.terminator), next: 0 }];
+    const frames: SearchFrame[] = [{ position: root, block: start, edges: controlAt(control, root), next: 0 }];
     for (let frame = frames.at(-1); frame !== undefined; frame = frames.at(-1)) {
       const candidate = frame.edges[frame.next];
       if (candidate === undefined) {
@@ -118,7 +132,7 @@ export function reversePostorder(body: MirBody, roots: readonly number[]): reado
       const block = densePosition(candidate.target, reached.length) ? body.blocks[candidate.target] : undefined;
       if (block === undefined || reached[candidate.target] === 1) continue;
       reached[candidate.target] = 1;
-      frames.push({ position: candidate.target, block, edges: controlEdges(block.terminator), next: 0 });
+      frames.push({ position: candidate.target, block, edges: controlAt(control, candidate.target), next: 0 });
     }
   }
   return postorder.reverse();
@@ -146,15 +160,21 @@ export function densePosition(value: number, length: number): boolean {
   return Number.isSafeInteger(value) && !Object.is(value, -0) && value >= 0 && value < length;
 }
 
-export function verifyEdges(body: MirBody): readonly Violation<MirRule, MirViolationSite>[] {
+export function verifyEdges(body: MirBody): {
+  readonly control: ControlInventory;
+  readonly violations: readonly Violation<MirRule, MirViolationSite>[];
+} {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
+  const control: (readonly ControlEdge[] | undefined)[] = [];
   const entry = body.blocks[0];
   if (entry === undefined || !Object.is(entry.id, 0)) violations.push({ rule: "entry-block-zero",
     site: { kind: "body", body: body.body }, detail: [] });
-  for (const block of body.blocks) {
+  for (const [position, block] of body.blocks.entries()) {
     if (block === undefined) continue;
     const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: null };
-    for (const edge of controlEdges(block.terminator)) {
+    const row = controlEdges(block.terminator);
+    control[position] = row;
+    for (const edge of row) {
       const target = densePosition(edge.target, body.blocks.length) ? body.blocks[edge.target] : undefined;
       if (target === undefined || !Object.is(target.id, edge.target)) violations.push({ rule: "edge-target-resolves", site,
         detail: [{ kind: "text", value: edge.kind }, { kind: "number", value: edge.target }] });
@@ -172,7 +192,7 @@ export function verifyEdges(body: MirBody): readonly Violation<MirRule, MirViola
       previous = target.constant;
     }
   }
-  return violations;
+  return { control, violations };
 }
 
 export interface SourceNode {

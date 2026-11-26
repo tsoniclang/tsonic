@@ -6,8 +6,8 @@ import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ExactRational, LiteralValue, TypeTerm } from "../ir-types/contract.js";
 import { literalCompatibilityOf } from "../ir-types/index.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { chargeWork, controlEdges, densePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
-import type { ControlEdge, SourceNode, WorkMeter } from "./verify-control.js";
+import { chargeWork, controlAt, densePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
+import type { ControlEdge, ControlInventory, SourceNode, WorkMeter } from "./verify-control.js";
 import type { SignatureReference, TypeReference } from "./verify-types.js";
 import { ownershipOfMode } from "./local-ownership.js";
 
@@ -363,7 +363,7 @@ interface StorageReading {
  * outgoing edge of a block read again. When the account is exhausted nothing is reported.
  */
 export function verifyStorage(
-  body: MirBody, places: ReadonlyMap<PlaceId, PlaceLocation>, meter: WorkMeter,
+  body: MirBody, places: ReadonlyMap<PlaceId, PlaceLocation>, control: ControlInventory, meter: WorkMeter,
 ): readonly Violation<MirRule, MirViolationSite>[] {
   // The empty set of the body's width, one node for each level, each charged before it is made; the locals present
   // where an execution starts; and the locals each place's use reaches.
@@ -403,7 +403,7 @@ export function verifyStorage(
   const usedIn = new Int32Array(body.locals.length);
   let record = 0;
   let last: StorageReading | null = null;
-  for (const ordered of reversePostorder(body, starts)) {
+  for (const ordered of reversePostorder(body, starts, control)) {
     const block = ordered.block;
     if (!Object.is(block.id, ordered.position)) continue;
     const serial = readings.length + 1;
@@ -447,7 +447,7 @@ export function verifyStorage(
     if (!use(terminatorOperands(block.terminator), { kind: "instruction", body: body.body, block: block.id, statement: null })) return [];
     rankOf[ordered.position] = readings.length;
     const reading: StorageReading = { rank: readings.length, block, changes: marked.map(local => ({ local, live: liveAfter[local] === 1 })),
-      decided, awaiting, start: null, waiting: null, read: false, edges: controlEdges(block.terminator), next: null };
+      decided, awaiting, start: null, waiting: null, read: false, edges: controlAt(control, ordered.position), next: null };
     if (last !== null) last.next = reading;
     last = reading;
     readings.push(reading);

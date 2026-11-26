@@ -3273,6 +3273,12 @@ test("MIR actual throw escape, handler and unreachable terminators have complete
   ], terminator: { ...body.blocks[0].terminator, unwind: { kind: "handler", exception: place.id, target: identities.blockId(1) } } },
   { ...base.blocks[0], id: identities.blockId(1), terminator: { ...site, kind: "unreachable" } }] };
   same(verified(handled, input), [], "real handler edge and explicit unreachable completion are structurally valid");
+  const original = handled.blocks[0].terminator;
+  let targetReads = 0;
+  const unwind = { ...original.unwind, get target() { targetReads += 1; return original.unwind.target; } };
+  const observed = { ...handled, blocks: [{ ...handled.blocks[0], terminator: { ...original, unwind } }, handled.blocks[1]] };
+  same(verified(observed, input), [], "storage liveness and checked place analysis use the same verified handler edge");
+  assert.equal(targetReads, 1, "later verification passes borrow the actual admitted successor");
   const discarded = { ...body, blocks: [{ ...body.blocks[0], terminator: { ...handled.blocks[0].terminator,
     unwind: { kind: "handler", exception: null, target: identities.blockId(1) } } }, handled.blocks[1]] };
   same(verified(discarded, input), [], "an unbound handler carries the actual edge and creates no destination");

@@ -74,9 +74,11 @@ let pairOf;
 let withLocal;
 let meetLive;
 let liveIn;
+let verifyEdges;
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "MIR storage cases require a guarded admission");
   ({ verifyMir } = await import("../../packages/host/dist/ir-mir/index.js"));
+  ({ verifyEdges } = await import("../../packages/host/dist/ir-mir/verify-control.js"));
   ({ verifyStorage, placeLocations, leafOf, pairOf, withLocal, meetLive, liveIn } = await import("../../packages/host/dist/ir-mir/verify-storage.js"));
 });
 
@@ -89,7 +91,7 @@ const found = body => {
 /** The pass alone under an account of the case: its findings, the units it charged, and whether it ran out. */
 const pass = (body, maximum = Number.MAX_SAFE_INTEGER) => {
   const meter = { spent: 0, maximum, exhausted: false };
-  const findings = verifyStorage(body, placeLocations(body), meter);
+  const findings = verifyStorage(body, placeLocations(body), verifyEdges(body).control, meter);
   return { findings, units: meter.spent, exhausted: meter.exhausted };
 };
 /** Every limit below `units` is a refusal that reports nothing; `units` itself is the complete answer. */

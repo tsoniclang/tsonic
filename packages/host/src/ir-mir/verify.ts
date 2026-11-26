@@ -462,16 +462,16 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
     return target ?? undefined;
   }, meter);
   if (meter.exhausted) return refusal;
-  const storage = verifyStorage(body, places, meter);
+  const storage = verifyStorage(body, places, edges.control, meter);
   if (meter.exhausted) return refusal;
-  const laws = verifyLaws(body, input, nodes, texts, places, meter);
+  const laws = verifyLaws(body, input, nodes, texts, places, edges.control, meter);
   // Past the limit the body is neither accepted nor found invalid: the findings gathered so far are not an answer,
   // and the remaining passes are not run.
   if (meter.exhausted) return refusal;
   const references = verifyTypeReferences(input.types, types, signatures, meter);
   if (meter.exhausted) return refusal;
   const violations: Violation<MirRule, MirViolationSite>[] = [];
-  for (const family of [rows, values.violations, edges, selections, storage, laws, decisions,
+  for (const family of [rows, values.violations, edges.violations, selections, storage, laws, decisions,
     references]) for (const violation of family) violations.push(violation);
   return { kind: "complete", violations };
 }

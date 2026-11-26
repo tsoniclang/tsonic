@@ -488,7 +488,7 @@ test("law 3: a fixed extent does not survive a write or lifetime restart of its 
 
 test("law 3: fixed inner bounds retain the actual enclosing checked-location dependency", async () => {
   const { verifyLaws } = await import("../../packages/host/dist/ir-mir/verify-laws.js");
-  const { createWireTexts, sourceNodes } = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  const { createWireTexts, sourceNodes, verifyEdges } = await import("../../packages/host/dist/ir-mir/verify-control.js");
   const { placeLocations } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
   const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
   const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
@@ -541,7 +541,7 @@ test("law 3: fixed inner bounds retain the actual enclosing checked-location dep
     assert.deepEqual(found(body, given).map(finding => finding.rule), storage === T.int32Fixed4Grid ? [] : ["checked-place-available"]);
     const sparse = structuredClone(body);
     sparse.places[0] = undefined;
-    assert.doesNotThrow(() => verifyLaws(sparse, given, sourceNodes(given.source, texts), texts, placeLocations(sparse),
+    assert.doesNotThrow(() => verifyLaws(sparse, given, sourceNodes(given.source, texts), texts, placeLocations(sparse), verifyEdges(sparse).control,
       { spent: 0, maximum: 100000, exhausted: false }));
   }
 });
@@ -892,7 +892,7 @@ test("the work limit is one boundary for every body: below it a refusal, from it
 test("law 3 under every limit: once the account refuses, the law pass charges nothing more (K-3350)", async () => {
   const dist = "../../packages/host/dist/ir-mir";
   const { verifyLaws } = await import(`${dist}/verify-laws.js`);
-  const { createWireTexts, sourceNodes } = await import(`${dist}/verify-control.js`);
+  const { createWireTexts, sourceNodes, verifyEdges } = await import(`${dist}/verify-control.js`);
   const { placeLocations } = await import(`${dist}/verify-storage.js`);
   const { createDecisionWires } = await import(`${dist}/text-decisions.js`);
   const { createScalarWires } = await import(`${dist}/text.js`);
@@ -922,14 +922,15 @@ test("law 3 under every limit: once the account refuses, the law pass charges no
     const given = position < 3 ? context : fixedContext;
     const selectedNodes = position < 3 ? nodes : sourceNodes(given.source, texts);
     const places = placeLocations(body);
+    const control = verifyEdges(body).control;
     const unlimited = recording(1000000);
-    verifyLaws(body, given, selectedNodes, texts, places, unlimited);
+    verifyLaws(body, given, selectedNodes, texts, places, control, unlimited);
     // The law pass's own need on this body; below it every limit refuses inside the pass, and no charge follows.
     const need = unlimited.total;
     assert.equal(need > 0, true, `body ${position}`);
     for (let maximum = 0; maximum <= need; maximum += 1) {
       const meter = recording(maximum);
-      verifyLaws(body, given, selectedNodes, texts, places, meter);
+      verifyLaws(body, given, selectedNodes, texts, places, control, meter);
       assert.equal(meter.exhausted, maximum < need, `body ${position} under ${maximum}`);
       assert.equal(meter.afterRefusal, 0, `body ${position} under ${maximum}: a charge after the refusal`);
     }
@@ -941,7 +942,7 @@ test("law 3 stops private copies, stamps and handoffs immediately after a charge
   const { readFileSync } = await import("node:fs");
   const runtime = new URL("../../packages/host/dist/ir-mir/verify-laws.js", import.meta.url);
   const { verifyLaws } = await import(runtime.href);
-  const { createWireTexts, sourceNodes } = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  const { createWireTexts, sourceNodes, verifyEdges } = await import("../../packages/host/dist/ir-mir/verify-control.js");
   const { placeLocations } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
   const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
   const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
@@ -993,13 +994,14 @@ test("law 3 stops private copies, stamps and handoffs immediately after a charge
       const selectedNodes = position < 3 ? nodes : sourceNodes(given.source, texts);
       const places = placeLocations(body);
       const unlimited = { spent: 0, maximum: 1000000, exhausted: false };
-      verifyLaws(body, given, selectedNodes, texts, places, unlimited);
+      const control = verifyEdges(body).control;
+      verifyLaws(body, given, selectedNodes, texts, places, control, unlimited);
       const required = unlimited.spent;
       assert.equal(required, [8, 10, 1, 12, 15][position]);
       for (let maximum = 0; maximum <= required; maximum += 1) {
         const observation = { meter: { spent: 0, maximum, exhausted: false }, afterRefusal: [] };
         active = observation;
-        const findings = verifyLaws(body, given, selectedNodes, texts, places, observation.meter);
+        const findings = verifyLaws(body, given, selectedNodes, texts, places, control, observation.meter);
         active = null;
         assert.equal(observation.meter.exhausted, maximum < required, `body ${position} under ${maximum}`);
         assert.deepEqual(observation.afterRefusal, [], `body ${position} under ${maximum}: no private work after refusal`);
@@ -1018,7 +1020,7 @@ test("law 3 stops private copies, stamps and handoffs immediately after a charge
 test("law 3: an index chain shared by two checked places is walked once in a mutable span, and a walk in a later span is charged (K-3349)", async () => {
   const dist = "../../packages/host/dist/ir-mir";
   const { verifyLaws } = await import(`${dist}/verify-laws.js`);
-  const { createWireTexts, sourceNodes } = await import(`${dist}/verify-control.js`);
+  const { createWireTexts, sourceNodes, verifyEdges } = await import(`${dist}/verify-control.js`);
   const { placeLocations } = await import(`${dist}/verify-storage.js`);
   const { createDecisionWires } = await import(`${dist}/text-decisions.js`);
   const { createScalarWires } = await import(`${dist}/text.js`);
@@ -1049,7 +1051,7 @@ test("law 3: an index chain shared by two checked places is walked once in a mut
   });
   const need = body => {
     const meter = recording(1000000);
-    verifyLaws(body, context, nodes, texts, placeLocations(body), meter);
+    verifyLaws(body, context, nodes, texts, placeLocations(body), verifyEdges(body).control, meter);
     return meter.total;
   };
   // ACQUIRE only reads: one mutable span; the second check of X and the check of Y stop at the shared node of i.
@@ -1064,7 +1066,7 @@ test("law 3: an index chain shared by two checked places is walked once in a mut
   const total = need(writing);
   for (let maximum = 0; maximum <= total; maximum += 1) {
     const meter = recording(maximum);
-    verifyLaws(writing, context, nodes, texts, placeLocations(writing), meter);
+    verifyLaws(writing, context, nodes, texts, placeLocations(writing), verifyEdges(writing).control, meter);
     assert.equal(meter.exhausted, maximum < total, `under ${maximum}`);
     assert.equal(meter.afterRefusal, 0, `under ${maximum}: a charge after the refusal`);
   }

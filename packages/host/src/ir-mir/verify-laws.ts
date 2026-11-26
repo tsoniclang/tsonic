@@ -5,9 +5,9 @@ import type { BlockId, NodeId, PlaceId } from "../ids/contract.js";
 import type {
   MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlaceBase, MirProjection, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,
 } from "./contract.js";
-import { controlEdges, densePosition, findSourceNode } from "./verify-control.js";
+import { controlAt, densePosition, findSourceNode, readContinuation } from "./verify-control.js";
 import { chargeWork, read, reversePostorder } from "./verify-control.js";
-import type { SourceNode, SourceStep, WireTexts, WorkMeter } from "./verify-control.js";
+import type { ControlInventory, SourceNode, SourceStep, WireTexts, WorkMeter } from "./verify-control.js";
 import type { PlaceLocation } from "./verify-storage.js";
 import { ownershipOfMode } from "./local-ownership.js";
 
@@ -18,7 +18,7 @@ import { ownershipOfMode } from "./local-ownership.js";
 // and selects none of it. Law 3 is enforced for every checked place as the contract states it.
 export function verifyLaws(
   body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, texts: WireTexts,
-  places: ReadonlyMap<PlaceId, PlaceLocation>, meter: WorkMeter,
+  places: ReadonlyMap<PlaceId, PlaceLocation>, control: ControlInventory, meter: WorkMeter,
 ): readonly Violation<MirRule, MirViolationSite>[] {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   // A site record is built only when a finding is reported.
@@ -243,26 +243,24 @@ export function verifyLaws(
   const incoming = new Uint32Array(body.blocks.length);
   const edge = (target: BlockId): void => { incoming[target] = read(incoming, target, 0) + 1; };
   for (const entry of body.entries) edge(entry.block);
-  for (const block of body.blocks) if (block !== undefined) for (const out of controlEdges(block.terminator)) edge(out.target);
+  for (const row of control) if (row !== undefined) for (const out of row) edge(out.target);
   /** The block a terminator continues to, or -1. */
-  const continues = (block: MirBlock): number => {
-    const terminator = block.terminator;
-    switch (terminator.kind) {
-      case "goto": return terminator.target;
-      case "check": case "call": case "invoke": return terminator.next;
-      case "await": case "yield": case "delegate": return terminator.resume;
+  const continues = (block: MirBlock, position: number): number => {
+    switch (block.terminator.kind) {
+      case "goto": case "check": case "call": case "invoke": case "await": case "yield": case "delegate":
+        return readContinuation(control, position);
       case "switch": case "throw": case "return": case "unreachable": return -1;
     }
   };
   /** That block when it has no other incoming edge and is not an entry: it is read as part of the same chain. */
-  const continuation = (block: MirBlock): number => {
-    const target = continues(block);
+  const continuation = (block: MirBlock, position: number): number => {
+    const target = continues(block, position);
     return densePosition(target, incoming.length) && incoming[target] === 1 ? target : -1;
   };
   const inherits = new Uint8Array(body.blocks.length);
-  for (const block of body.blocks) {
+  for (const [position, block] of body.blocks.entries()) {
     if (block === undefined) continue;
-    const next = continuation(block);
+    const next = continuation(block, position);
     if (next >= 0) inherits[next] = 1;
   }
 
@@ -480,6 +478,7 @@ export function verifyLaws(
       visited[position] = 1;
       const block = body.blocks[position];
       if (block === undefined) return true;
+      const edges = controlAt(control, position);
       for (const [index, statement] of block.statements.entries()) {
         if (statement.kind === "assign") {
           useValue(statement.value, block.id, index);
@@ -492,8 +491,7 @@ export function verifyLaws(
         case "goto": case "unreachable": break;
         case "switch":
           useOperand(terminator.operand, block.id, null);
-          for (const target of terminator.targets) give(target.target, snapshot());
-          give(terminator.otherwise, snapshot());
+          for (const edge of edges) give(edge.target, snapshot());
           break;
         case "return": useOperand(terminator.value, block.id, null); break;
         case "throw": useOperand(terminator.operand, block.id, null); break;
@@ -526,10 +524,10 @@ export function verifyLaws(
       }
       // The failure edge and the return edge of a suspension leave before the effect; the place of a failing
       // check is not available on its failure edge.
-      if ("unwind" in terminator && terminator.unwind.kind === "handler")
-        give(terminator.unwind.target, carried(snapshot(), terminator.unwind.exception, block.id));
-      if (terminator.kind === "yield" || terminator.kind === "delegate")
-        give(terminator.return.target, carried(snapshot(), terminator.return.destination, block.id));
+      const failure = edges.at(-1);
+      if (failure?.kind === "unwind") give(failure.target, carried(snapshot(), failure.destination, block.id));
+      const completed = edges[1];
+      if (completed?.kind === "suspension-return") give(completed.target, carried(snapshot(), completed.destination, block.id));
       switch (terminator.kind) {
         case "invoke": {
           // An invocation that only reads ends nothing; one that writes existing storage ends mutable availability.
@@ -548,8 +546,8 @@ export function verifyLaws(
           break;
         case "goto": case "switch": case "throw": case "return": case "unreachable": break;
       }
-      const next = continuation(block);
-      const target = continues(block);
+      const target = continues(block, position);
+      const next = densePosition(target, incoming.length) && incoming[target] === 1 ? target : -1;
       if (next < 0 && target >= 0) give(target, snapshot());
       position = next;
     }
@@ -560,7 +558,7 @@ export function verifyLaws(
   const roots: number[] = [];
   for (const entry of body.entries) roots.push(entry.block);
   for (const position of body.blocks.keys()) roots.push(position);
-  for (const ordered of reversePostorder(body, roots)) {
+  for (const ordered of reversePostorder(body, roots, control)) {
     if (inherits[ordered.position] !== 1 && visited[ordered.position] !== 1 && !chain(ordered.position)) return violations;
   }
   // Blocks left over form a closed ring that nothing enters; each is read once all the same.
@@ -601,7 +599,7 @@ export function verifyLaws(
     operand.kind === "place" ? completions.get(read(cellOf, operand.place, -1)) : undefined;
 
   const effects = new Set<string>();
-  for (const block of body.blocks) {
+  for (const [blockPosition, block] of body.blocks.entries()) {
     if (block === undefined) continue;
     for (const [position, statement] of block.statements.entries()) {
       if (statement.kind === "assign") {
@@ -723,7 +721,8 @@ export function verifyLaws(
         const constant = only !== undefined && densePosition(only.constant, body.constants.length) ? body.constants[only.constant] : undefined;
         const complete = constant !== undefined && constant.value.kind === "literal" && constant.value.value.kind === "boolean"
           && constant.value.value.value === true;
-        if (only === undefined || !complete || Object.is(only.target, terminator.otherwise)) reportAt("completion-branch-canonical", block.id, null);
+        const edges = controlAt(control, blockPosition);
+        if (only === undefined || !complete || Object.is(edges[0]?.target, edges[1]?.target)) reportAt("completion-branch-canonical", block.id, null);
         // Law 5: the completion of a handle is one record, so a step has one completion branch.
         occurrence = "completion";
         break;
