@@ -451,9 +451,9 @@ for (const level of ["function", "verifier"]) for (const name of readdirSync(res
   });
 }
 
-test("MIR public index has exactly the five current ports", () => {
+test("MIR public index has exactly the current wire, verification and projection ports", () => {
   same(Object.keys(product).sort(), ["constantKeyOfMir", "localOwnershipOfMir", "parseMir", "printMir", "projectMirConstantKey",
-    "projectMirConstantOrdinals", "projectMirValues", "verifyMir"], "exact public value inventory");
+    "projectMirConstantOrdinals", "projectMirValues", "verifyMir", "visitMirControlEdges"], "exact public value inventory");
 });
 
 test("MIR storage modes preserve their exact scalar transport and one ownership projection", () => {
