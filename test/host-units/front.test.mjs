@@ -2869,7 +2869,8 @@ test("Checked indexed assignment retains its actual receiver and key, and reject
 
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
-  const input = analysisInput(await loadFrontFixture(), "es2024",
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "es2024",
     "export function update(values: boolean[], flag: boolean): boolean { values[0] = flag; return flag; }");
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
@@ -2880,6 +2881,62 @@ test("Checked indexed assignment retains its actual receiver and key, and reject
   const [indexOrigin] = array.tsonic.origins.value;
   assert.equal(indexOrigin.kind, "declared");
   assert.notEqual(ids.decodeDefId(indexOrigin.declaration).value.module, main.module);
+  const receiver = array.expression.tsonic.value.views.read.value;
+  const element = array.tsonic.place.value.write.value;
+  assert.deepEqual(fixture.types.readType(captured.value.types, receiver), { kind: "array", element, readonly: false });
+});
+
+test("installed native array accesses reach verified Typed HIR with the original receiver and integral key", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { parseTir, printTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const input = analysisInput(fixture, "es2024", `
+    export function update(values: boolean[], flag: boolean): boolean {
+      values[0] = flag;
+      return values[1];
+    }
+    export function read(values: readonly boolean[]): boolean {
+      return values[2];
+    }
+  `);
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const source = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const chapter = typed.value.modules.get(source.module);
+  const selected = new Set();
+  for (const declaration of source.tree.statements.nodes) {
+    const root = chapter.bodies.find(row => row.body === declaration.tsonic.body).root;
+    for (const statement of root.statements.nodes) {
+      const index = statement.kind === "ExpressionStatement" ? statement.expression.left : statement.expression;
+      assert.equal(index.kind, "ElementAccessExpression");
+      const decided = index.tsonic.index;
+      const old = typed.value.sourceNodeOf({ kind: "body", value: { body: declaration.tsonic.body, node: index.id } });
+      assert.equal(index.expression.id, old.expression.id);
+      assert.equal(index.argumentExpression.id, old.argumentExpression.id);
+      assert.equal(decided.receiver, index.expression.tsonic.convertedType);
+      assert.equal(decided.key, index.argumentExpression.tsonic.convertedType);
+      assert.equal(decided.failure, input.snapshot.nativeFacts.arrayIndexFailure);
+      assert.deepEqual(fixture.types.readType(checked.value.types, decided.key), { kind: "primitive", primitive: "int64" });
+      const carrier = fixture.types.readType(checked.value.types, decided.receiver);
+      assert.equal(carrier.kind, "array");
+      assert.equal(carrier.readonly, declaration.name.text === "read");
+      const writes = statement.kind === "ExpressionStatement";
+      assert.equal(decided.read, writes ? null : carrier.element);
+      assert.equal(decided.write, writes ? carrier.element : null);
+      selected.add(index.argumentExpression.text);
+    }
+    const actual = chapter.bodies.find(row => row.root === root);
+    const wire = printTir(actual);
+    const parsed = parseTir(wire);
+    assert.equal(parsed.kind, "parsed");
+    assert.equal(printTir(parsed.value) === wire, true);
+  }
+  assert.deepEqual([...selected].sort(), ["0", "1", "2"]);
 });
 
 test("installed ES2024 carries open bind tuples through verified inference as one authored rest formal", async () => {

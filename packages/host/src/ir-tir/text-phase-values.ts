@@ -3,6 +3,7 @@ import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec, TirRecordFields } from "./text-layouts.js";
 import type { CapturedFact, LayoutCallRole } from "../ir-hir/contract.js";
 import type { DeclarationNameExpression, TirEnumResolution, TypedCall, TypedCase, TypedLayoutApplication, TypedValueOccurrence } from "./contract.js";
+import type { TypedElement, TypedIndex } from "./contract.js";
 import type {
   BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, TargetAccess, TirApplication, TirDemand, TirProtocol, TirResolution, TirSelection, TypedApplication, TypedBigInt, TypedBinary, TypedConditional, TypedConstruction, TypedControlTransfer, TypedDecorator, TypedInstantiation, TypedIteration, TypedKeyword, TypedMember, TypedName, TypedNumber, TypedObjectSpread, TypedOmission, TypedOperation, TypedOperationOf, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue, TypedShorthand, TypedSpread, TypedString, TypedTemplate, TypedUnary, TypedUpdate, TypedValue
 } from "./contract.js";
@@ -16,7 +17,7 @@ import type {
   DeclarationTarget, ImportTarget
 } from "../ir-hir/contract.js";
 import type {
-  ApplicationDecision, ConstructionPartDecision, OperationDecision, RefinementDecision, RuleOutcome
+  ApplicationDecision, ConstructionPartDecision, IndexDecision, OperationDecision, RefinementDecision, RuleOutcome
 } from "../ir-infer/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, nullableWork, sequenceWork } from "./text-layouts.js";
@@ -123,6 +124,7 @@ export interface PhaseValuesTextModel {
   readonly work_TypedBinary: TirRecordCodec<TypedBinary>;
   readonly work_TypedPrefix: TirRecordCodec<TypedPrefix>;
   readonly work_TypedMember: TirRecordCodec<TypedMember>;
+  readonly work_TypedElement: TirRecordCodec<TypedElement>;
   readonly work_TypedConstruction: TirRecordCodec<TypedConstruction>;
   readonly work_TypedInstantiation: TirRecordCodec<TypedInstantiation>;
 }
@@ -141,13 +143,14 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     .field("decision", "OperationDecision", value => read.work_OperationDecision_backed.write(value.decision), lazyReader(() => read.work_OperationDecision_backed.reader))
     .field("permissionScope", "?n", value => nullableWork(value.permissionScope, actual => referenceWork("n", actual)), nullableReader(nodeReader))
     .finish((field_decision, field_permissionScope) => ({ decision: field_decision, permissionScope: field_permissionScope })));
-  const work_TypedValue: TirRecordCodec<TypedValue> = defineRecord<TypedValue>("TypedValue", "TypedValue", null, "TypedValue", null, null, fields => fields
+  const typedValueFields = <Value extends TypedValue, Fields extends readonly unknown[]>(fields: TirRecordFields<Value, Fields>) => fields
     .field("type", "t", value => referenceWork("t", value.type), typeReader)
     .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)
     .field("conversion", "ConversionDecision", value => read.work_ConversionDecision.write(value.conversion), lazyReader(() => read.work_ConversionDecision.reader))
     .field("narrowing", "?RefinementDecision", value => nullableWork(value.narrowing, actual => read.work_RefinementDecision.write(actual)), nullableReader(lazyReader(() => read.work_RefinementDecision.reader)))
     .field("evidenceIndex", "?number", value => nullableWork(value.evidenceIndex, actual => scalarWork("number", actual)), nullableReader(numberReader))
-    .field("demand", "TirDemand", value => read.work_TirDemand.write(value.demand), lazyReader(() => read.work_TirDemand.reader))
+    .field("demand", "TirDemand", value => read.work_TirDemand.write(value.demand), lazyReader(() => read.work_TirDemand.reader));
+  const work_TypedValue: TirRecordCodec<TypedValue> = defineRecord<TypedValue>("TypedValue", "TypedValue", null, "TypedValue", null, null, fields => typedValueFields(fields)
     .finish((field_type, field_convertedType, field_conversion, field_narrowing, field_evidenceIndex, field_demand) => ({
       type: field_type, convertedType: field_convertedType, conversion: field_conversion, narrowing: field_narrowing,
       evidenceIndex: field_evidenceIndex, demand: field_demand,
@@ -744,6 +747,28 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       case "assignment-target": return work_TypedMember_assignment_target.write(value);
     }
   }, () => [declarationNameExpression.reader, work_TypedMember_value.reader, work_TypedMember_assignment_target.reader, enumMember.reader]);
+  const indexDecision = defineRecord<IndexDecision>("IndexDecision", "IndexDecision", null, "IndexDecision", null, null, fields => fields
+    .field("carrier", "IndexCarrier", value => scalarWork("IndexCarrier", value.carrier), literalReader<IndexDecision["carrier"]>("IndexCarrier", ["array", "fixed-array"]))
+    .field("receiver", "t", value => referenceWork("t", value.receiver), typeReader)
+    .field("key", "t", value => referenceWork("t", value.key), typeReader)
+    .field("read", "?t", value => nullableWork(value.read, actual => referenceWork("t", actual)), nullableReader(typeReader))
+    .field("write", "?t", value => nullableWork(value.write, actual => referenceWork("t", actual)), nullableReader(typeReader))
+    .field("failure", "CheckFailure", value => scalarWork("CheckFailure", value.failure), literalReader<IndexDecision["failure"]>("CheckFailure", ["unwind", "abort"]))
+    .finish((carrier, receiver, key, read, write, failure) => ({ carrier, receiver, key, read, write, failure })));
+  const indexValue = defineRecord<Extract<TypedIndex, { readonly role: "value" }>>("TypedIndex@value", "TypedIndex", { field: "role", value: "value" }, "TypedIndex", null, null, fields => typedValueFields(fields
+    .field("role", "'value", value => scalarWork("'value", value.role), literalReader<"value">("'value", ["value"]))
+    .field("index", "IndexDecision", value => indexDecision.write(value.index), lazyReader(() => indexDecision.reader)))
+    .finish((role, index, type, convertedType, conversion, narrowing, evidenceIndex, demand) =>
+      ({ role, index, type, convertedType, conversion, narrowing, evidenceIndex, demand })));
+  const indexTarget = defineRecord<Extract<TypedIndex, { readonly role: "assignment-target" }>>("TypedIndex@assignment-target", "TypedIndex", { field: "role", value: "assignment-target" }, "TypedIndex", null, null, fields => fields
+    .field("role", "'assignment-target", value => scalarWork("'assignment-target", value.role), literalReader<"assignment-target">("'assignment-target", ["assignment-target"]))
+    .field("index", "IndexDecision", value => indexDecision.write(value.index), lazyReader(() => indexDecision.reader))
+    .field("access", "TargetAccess", value => read.work_TargetAccess.write(value.access), lazyReader(() => read.work_TargetAccess.reader))
+    .finish((role, index, access) => ({ role, index, access })));
+  const work_TypedElement = unionRecord<TypedElement>("TypedElement", value =>
+    "index" in value ? value.role === "value" ? indexValue.write(value) : indexTarget.write(value) : work_TypedMember.write(value),
+  () => [declarationNameExpression.reader, work_TypedMember_value.reader, work_TypedMember_assignment_target.reader, enumMember.reader,
+    indexValue.reader, indexTarget.reader]);
   const work_TypedConstruction: TirRecordCodec<TypedConstruction> = unionRecord<TypedConstruction>("TypedConstruction", (value: TypedConstruction): TirTypedRecordWork => {
     switch (value.role) {
       case "value": return work_TypedConstruction_value.write(value);
@@ -756,5 +781,5 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       case "heritage": return work_TypedInstantiation_heritage.write(value);
     }
   }, () => [work_TypedInstantiation_value.reader, work_TypedInstantiation_heritage.reader]);
-  return { work_TypedCase, work_TypedOperation_conversion, work_TypedOperation_backed, work_TypedOperation, work_TypedValue, work_TypedValueOccurrence, work_TypedName_value, work_TypedName_shorthand_value, work_TypedName_assignment_target, work_TypedName_binding_name, work_TypedName_declaration_name, work_TypedName_property_name, work_TypedName_type_name, work_TypedName_label, work_TypedName_private_name, work_TypedPropertyKey_constant, work_TypedPropertyKey_computed, work_TypedString_value, work_TypedString_property_name, work_TypedString_declaration_name, work_TypedString_type_literal, work_TypedString_module_specifier, work_TypedString_export_name, work_TypedString_attribute_value, work_TypedNumber_value, work_TypedNumber_property_name, work_TypedNumber_declaration_name, work_TypedNumber_type_literal, work_TypedBigInt_value, work_TypedBigInt_property_name, work_TypedBigInt_declaration_name, work_TypedBigInt_type_literal, work_TypedKeyword_value, work_TypedKeyword_receiver, work_TypedKeyword_super, work_TypedKeyword_type_literal, work_TypedBinary_arithmetic, work_TypedBinary_comparison, work_TypedBinary_short_circuit, work_TypedBinary_assignment, work_TypedBinary_sequence, work_TypedUnary, work_TypedPrefix_value, work_TypedPrefix_update, work_TypedPrefix_type_literal, work_TypedUpdate, work_TypedConditional, work_TypedMember_value, work_TypedMember_assignment_target, work_TypedApplication, work_TypedCall, work_TypedProtocolValue, work_TypedSpread, work_TypedObjectSpread, work_TypedConstruction_value, work_TypedConstruction_assignment_pattern, work_TypedTemplate, work_TypedInstantiation_value, work_TypedInstantiation_heritage, work_TypedProperty, work_TypedShorthand, work_TypedOmission, work_TypedIteration, work_TypedControlTransfer, work_TypedDecorator, work_TypedName, work_TypedPropertyKey, work_TypedString, work_TypedNumber, work_TypedBigInt, work_TypedKeyword, work_TypedBinary, work_TypedPrefix, work_TypedMember, work_TypedConstruction, work_TypedInstantiation };
+  return { work_TypedElement, work_TypedCase, work_TypedOperation_conversion, work_TypedOperation_backed, work_TypedOperation, work_TypedValue, work_TypedValueOccurrence, work_TypedName_value, work_TypedName_shorthand_value, work_TypedName_assignment_target, work_TypedName_binding_name, work_TypedName_declaration_name, work_TypedName_property_name, work_TypedName_type_name, work_TypedName_label, work_TypedName_private_name, work_TypedPropertyKey_constant, work_TypedPropertyKey_computed, work_TypedString_value, work_TypedString_property_name, work_TypedString_declaration_name, work_TypedString_type_literal, work_TypedString_module_specifier, work_TypedString_export_name, work_TypedString_attribute_value, work_TypedNumber_value, work_TypedNumber_property_name, work_TypedNumber_declaration_name, work_TypedNumber_type_literal, work_TypedBigInt_value, work_TypedBigInt_property_name, work_TypedBigInt_declaration_name, work_TypedBigInt_type_literal, work_TypedKeyword_value, work_TypedKeyword_receiver, work_TypedKeyword_super, work_TypedKeyword_type_literal, work_TypedBinary_arithmetic, work_TypedBinary_comparison, work_TypedBinary_short_circuit, work_TypedBinary_assignment, work_TypedBinary_sequence, work_TypedUnary, work_TypedPrefix_value, work_TypedPrefix_update, work_TypedPrefix_type_literal, work_TypedUpdate, work_TypedConditional, work_TypedMember_value, work_TypedMember_assignment_target, work_TypedApplication, work_TypedCall, work_TypedProtocolValue, work_TypedSpread, work_TypedObjectSpread, work_TypedConstruction_value, work_TypedConstruction_assignment_pattern, work_TypedTemplate, work_TypedInstantiation_value, work_TypedInstantiation_heritage, work_TypedProperty, work_TypedShorthand, work_TypedOmission, work_TypedIteration, work_TypedControlTransfer, work_TypedDecorator, work_TypedName, work_TypedPropertyKey, work_TypedString, work_TypedNumber, work_TypedBigInt, work_TypedKeyword, work_TypedBinary, work_TypedPrefix, work_TypedMember, work_TypedConstruction, work_TypedInstantiation };
 };

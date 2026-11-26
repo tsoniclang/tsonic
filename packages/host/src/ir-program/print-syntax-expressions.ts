@@ -4,7 +4,7 @@ import type { SyntaxTextContext, TextWork } from "./text-values.js";
 import { textSyntaxHeader, field, record, sequence, token, text, boolean, textNodeList, textNodeRef, textRange } from "./text-values.js";
 import { textTypedName, textTypedPropertyKey, textTypedDecorator, textTypedOmission, textTypedKeyword, textTypedString, textTypedNumber, textTypedBigInt, textTypedBinary, textTypedPrefix, textTypedUpdate, textTypedProtocolValue, textTypedClosure, textTypedConditional, textTypedMember, textTypedApplication, textTypedSpread, textTypedTemplate, textTypedConstruction, textTypedObjectSpread, textTypedProperty, textTypedShorthand, textTypedUnary, textTypedInstantiation } from "./text-phase.js";
 import { textTypedValue } from "./text-tir.js";
-import { textNameExpression, textTypedValueOccurrence } from "./text-phase.js";
+import { textNameExpression, textTypedElement, textTypedValueOccurrence } from "./text-phase.js";
 
 export function printIdentifier(node: Identifier<TypedPhase>, _context: SyntaxTextContext): TextWork {
   return record(node.kind, [
@@ -223,7 +223,7 @@ export function printElementAccessExpression(node: ElementAccessExpression<Typed
     field("expression", context.reference(node.expression)),
     field("questionDotToken", (node.questionDotToken === null ? token("null") : context.reference(node.questionDotToken))),
     field("argumentExpression", context.reference(node.argumentExpression)),
-    field("tsonic", textTypedMember(node.tsonic)),
+    field("tsonic", textTypedElement(node.tsonic)),
   ]);
 }
 

@@ -1,10 +1,10 @@
 import type { SyntaxPhaseCopy } from "../ir-hir/contract.js";
 import type { TyId } from "../ids/contract.js";
-import type { RuleOutcome, ClosureDecision } from "../ir-infer/contract.js";
+import type { RuleOutcome, ClosureDecision, IndexDecision } from "../ir-infer/contract.js";
 import type {
   DeclarationNameExpression, TargetAccess, TirEnumResolution, TirProtocol, TirResolution, TypedAlias, TypedApplication, TypedBigInt, TypedBinary, TypedBinding,
   TypedBindingElement, TypedBodyTemplate, TypedCallable, TypedClass, TypedClassValue, TypedClosure, TypedConditional,
-  TypedConstruction, TypedDecorator, TypedEnum, TypedExportAssignment, TypedHeritage, TypedIndexDeclaration, TypedInstantiation,
+  TypedConstruction, TypedDecorator, TypedElement, TypedEnum, TypedExportAssignment, TypedHeritage, TypedIndexDeclaration, TypedInstantiation,
   TypedInterface, TypedIteration, TypedKeyword, TypedLayoutApplication, TypedMember, TypedName, TypedNamespace, TypedNumber, TypedObjectSpread,
   TypedOmission, TypedParameter, TypedPhase, TypedPredicate, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue,
   TypedSourceFile, TypedStaticBlock, TypedStorageDeclaration, TypedString, TypedType, TypedTypeParameter, TypedUnary, TypedUpdate,
@@ -215,6 +215,26 @@ function prepareTypedMember(scan: ProjectionInventory, value: TypedMember, at: s
             ({ kind: "copied", value: image => ({ role: "assignment-target", selection: selection(image), access: access(image) }) })));
       }
     });
+}
+
+function prepareIndexDecision(scan: ProjectionInventory, value: IndexDecision): PreparedPhase<IndexDecision> {
+  return paidPhase(scan, 6, () => {
+    const { carrier, failure } = value;
+    return withPlan(typePhase(scan, value.receiver), receiver =>
+      withPlan(typePhase(scan, value.key), key =>
+        withPlan(optionalTypePhase(scan, value.read), read =>
+          withPlan(optionalTypePhase(scan, value.write), write => ({ kind: "copied", value: image =>
+            ({ carrier, receiver: receiver(image), key: key(image), read: read(image), write: write(image), failure }) })))));
+  });
+}
+
+function prepareTypedElement(scan: ProjectionInventory, value: TypedElement, at: string): PreparedPhase<TypedElement> {
+  if (!("index" in value)) return prepareTypedMember(scan, value, at);
+  return paidPhase(scan, 3, () => withPlan(prepareIndexDecision(scan, value.index), (index): PreparedPhase<TypedElement> =>
+    value.role === "value" ? withPlan(prepareValue(scan, value, at), common =>
+      ({ kind: "copied", value: image => ({ ...common(image), role: "value", index: index(image) }) }))
+      : withPlan(prepareAccess(scan, value.access, at + ".access"), access =>
+        ({ kind: "copied", value: image => ({ role: "assignment-target", index: index(image), access: access(image) }) }))));
 }
 
 function prepareTypedApplication(scan: ProjectionInventory, value: TypedApplication, at: string,
@@ -585,7 +605,7 @@ export function typedSyntaxPhaseCopy(scan: ProjectionInventory, at: string,
     ConstructorTypeNode: value => prepareTypePhase(scan, value),
     Decorator: value => prepareDecorator(scan, value, at + ".Decorator.tsonic"),
     DeleteExpression: value => prepareUnary(scan, value, at + ".DeleteExpression.tsonic"),
-    ElementAccessExpression: value => prepareTypedMember(scan, value, at + ".ElementAccessExpression.tsonic"),
+    ElementAccessExpression: value => prepareTypedElement(scan, value, at + ".ElementAccessExpression.tsonic"),
     EnumDeclaration: value => prepareEnumPhase(scan, value),
     EnumMember: value => prepareStoragePhase(scan, value),
     ExportAssignment: value => prepareExportAssignmentPhase(scan, value),

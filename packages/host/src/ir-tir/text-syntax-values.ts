@@ -31,6 +31,7 @@ export interface SyntaxValuesTextReads {
   readonly work_TypedInstantiation: TirRecordCodec<TypedInstantiation>;
   readonly work_TypedKeyword: TirRecordCodec<TypedKeyword>;
   readonly work_TypedMember: TirRecordCodec<TypedMember>;
+  readonly work_TypedElement: TirRecordCodec<import("./contract.js").TypedElement>;
   readonly work_TypedModuleReference: TirRecordCodec<TypedModuleReference>;
   readonly work_TypedName: TirRecordCodec<TypedName>;
   readonly work_TypedNumber: TirRecordCodec<TypedNumber>;
@@ -321,7 +322,7 @@ export const createSyntaxValuesText = (kernel: TirTextKernel, read: SyntaxValues
     .field("expression", "$Expression", value => syntaxReference("$Expression", value.expression), syntaxReads.Expression)
     .field("questionDotToken", "?$QuestionDotToken", value => nullableWork(value.questionDotToken, actual => syntaxReference("$QuestionDotToken", actual)), nullableReader(syntaxReads.QuestionDotToken))
     .field("argumentExpression", "$Expression", value => syntaxReference("$Expression", value.argumentExpression), syntaxReads.Expression)
-    .field("tsonic", "TypedMember", value => read.work_TypedMember.write(value.tsonic), lazyReader(() => read.work_TypedMember.reader))
+    .field("tsonic", "TypedElement", value => read.work_TypedElement.write(value.tsonic), lazyReader(() => read.work_TypedElement.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_expression, field_questionDotToken, field_argumentExpression, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, expression: field_expression, questionDotToken: field_questionDotToken,
       argumentExpression: field_argumentExpression, tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind),

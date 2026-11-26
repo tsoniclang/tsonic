@@ -246,15 +246,15 @@ export type RawTypeForm =
   | { readonly kind: "enum"; readonly declaration: RawNodeRef }
   | { readonly kind: "declared"; readonly declaration: RawNodeRef; readonly facet: "instance" | "value";
       readonly parameters: readonly RawNodeRef[]; readonly arguments: readonly RawTypeArgument[];
-      readonly definition: RawTypeId | null;
+      readonly definition: RawTypeId | null; readonly nativeArrayReadonly: boolean | null;
       readonly extent: RawFact<{ readonly length: bigint; readonly runtimeBase: "number" | "bigint" } | null> }
   | { readonly kind: "union"; readonly members: readonly RawTypeId[]; readonly numericOrigin?: RawNumericUnionOrigin }
   | { readonly kind: "intersection"; readonly members: readonly RawTypeId[] }
-  | { readonly kind: "array"; readonly readonly: boolean; readonly element: RawTypeId }
   | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly RawParameter[] }
   | { readonly kind: "structure"; readonly inventory: RawMemberTableId }
   | { readonly kind: "source-environment"; readonly members: readonly RawMemberHeader[] }
-  | { readonly kind: "merged-interface-dependency"; readonly group: RawInterfaceGroup; readonly arguments: readonly RawTypeId[] }
+  | { readonly kind: "merged-interface-dependency"; readonly group: RawInterfaceGroup; readonly arguments: readonly RawTypeId[];
+      readonly nativeArrayReadonly: boolean | null }
   | { readonly kind: "merged-interface-backedge"; readonly group: RawInterfaceGroup; readonly application: RawTypeId }
   | { readonly kind: "alias-application"; readonly declaration: RawNodeRef; readonly arguments: readonly RawTypeId[] }
   | { readonly kind: "merged-slot-parameter"; readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]] }

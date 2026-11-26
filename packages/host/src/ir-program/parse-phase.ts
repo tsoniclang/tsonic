@@ -6,6 +6,8 @@ import type { ApplicationDecision, ClosureDecision, ConstructionPartDecision, Ru
 import type { TypedOperation, TirResolution, MemberSelection, TirApplication, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedName, TypedPropertyKey, TypedString, TypedNumber, TypedBigInt, TypedKeyword, TypedBinary, TypedUnary, TypedPrefix, TypedUpdate, TypedConditional, TargetAccess, TypedMember, TypedApplication, TypedProtocolValue, TypedSpread, TypedObjectSpread, TypedConstruction, TypedTemplate, TypedInstantiation, TypedProperty, TypedShorthand, TypedOmission, TypedIteration, TypedControlTransfer, TypedDecorator, TypedVariableList, TypedCallable, TypedClosure, TypedClass, TypedClassValue } from "../ir-tir/contract.js";
 import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
 import type { TypedCase } from "../ir-tir/contract.js";
+import type { TypedElement } from "../ir-tir/contract.js";
+import type { IndexDecision } from "../ir-infer/contract.js";
 import { delimiter, readString, readNumber, readBigInt, choice, readBoolean, readStringChoice, openRecord, startFieldChoice, closeRecord, readDefinitionId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readMemberKeyText, readExactRational, readBindings } from "./parse-types.js";
 import { readNodeRef, readSourceNodeRef } from "./parse-diagnostics.js";
@@ -431,8 +433,11 @@ export function readTypedConditionalText<Root>(cursor: Cursor, finish: (value: T
 }
 
 export function readTypedMemberText<Root>(cursor: Cursor, finish: (value: TypedMember) => TextStep<Root>): TextStep<Root> {
-  return readNameableText<TypedMember, Root>(cursor, "TypedMember", fields =>
-    atomicText(cursor, next => startFieldChoice(next, fields, ["type","role"]), nextField => {
+  return readNameableText<TypedMember, Root>(cursor, "TypedMember", fields => readTypedMemberFields(cursor, fields, finish), finish);
+}
+
+function readTypedMemberFields<Root>(cursor: Cursor, fields: RecordFields, finish: (value: TypedMember) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => startFieldChoice(next, fields, ["type","role"]), nextField => {
     switch (nextField) {
       case "type":
         return atomicText(cursor, readTypeId, typeValue => fieldText<TyId, Root>(cursor, fields, "convertedType", (next, done) => atomicText(next, readTypeId, done), convertedTypeValue =>
@@ -457,7 +462,35 @@ export function readTypedMemberText<Root>(cursor: Cursor, finish: (value: TypedM
           atomicText(cursor, next => closeRecord(next, fields), () =>
               acceptText({ role: roleValue, selection: selectionValue, access: accessValue }, finish)))));
     }
-    }), finish);
+    });
+}
+
+function readIndexDecisionText<Root>(cursor: Cursor, finish: (value: IndexDecision) => TextStep<Root>): TextStep<Root> {
+  const required = <Output>(next: Cursor, done: (type: TyId) => TextStep<Output>) => atomicText(next, readTypeId, done);
+  const optional = <Output>(next: Cursor, done: (type: TyId | null) => TextStep<Output>) => nullableText(next, required, done);
+  return atomicText(cursor, next => openRecord(next, "IndexDecision"), fields =>
+    fieldText<IndexDecision["carrier"], Root>(cursor, fields, "carrier", (next, done) =>
+      atomicText(next, value => readStringChoice(value, ["array", "fixed-array"]), done), carrier =>
+    fieldText<TyId, Root>(cursor, fields, "receiver", required, receiver =>
+      fieldText<TyId, Root>(cursor, fields, "key", required, key =>
+        fieldText<TyId | null, Root>(cursor, fields, "read", optional, read =>
+          fieldText<TyId | null, Root>(cursor, fields, "write", optional, write =>
+            fieldText<IndexDecision["failure"], Root>(cursor, fields, "failure", (next, done) =>
+              atomicText(next, value => readStringChoice(value, ["unwind", "abort"]), done), failure =>
+              atomicText(cursor, next => closeRecord(next, fields), () =>
+                acceptText({ carrier, receiver, key, read, write, failure }, finish)))))))));
+}
+
+export function readTypedElementText<Root>(cursor: Cursor, finish: (value: TypedElement) => TextStep<Root>): TextStep<Root> {
+  return readNameableText<TypedElement, Root>(cursor, "TypedMember", fields => readTypedMemberFields(cursor, fields, finish), finish, {
+    label: "TypedIndex",
+    read: fields => fieldText<"value" | "assignment-target", Root>(cursor, fields, "role", (next, done) =>
+      atomicText(next, value => readStringChoice(value, ["value", "assignment-target"]), done), role =>
+      fieldText<IndexDecision, Root>(cursor, fields, "index", readIndexDecisionText, index => role === "value"
+        ? readTypedValueFields(cursor, fields, value => acceptText({ ...value, role, index }, finish))
+        : fieldText<TargetAccess, Root>(cursor, fields, "access", readTargetAccessText, access =>
+          atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role, index, access }, finish))))),
+  });
 }
 
 export function readTypedApplicationText<Root>(cursor: Cursor, finish: (value: TypedApplication) => TextStep<Root>): TextStep<Root> {

@@ -594,6 +594,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       return result;
     };
     const input: TirVerifierInput = { source: original, module: typed, types: viewTypes(source.types),
+      selectedNativeFacts: inputs.snapshot.nativeFacts,
       declarationOf, declarationSourceOf: sources.declarationSourceOf, nominalOf: source.nominalOf,
       nodeOf: sources.nodeOf, bindingOf: source.bindingOf, localExists: sources.localExists, staticStorageOf,
       diagnostics: original.checkerDiagnostics, bodyOf: instance => bodies.get(instanceKey(instance))?.body ?? null,

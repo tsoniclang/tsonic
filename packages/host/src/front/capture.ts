@@ -2422,6 +2422,17 @@ function bindsWrittenTypeTarget(scope: CaptureScope, name: Node, target: Checker
   return selected === target;
 }
 
+function nativeArrayReadonly(scope: CaptureScope, type: Type, arguments_: readonly TypeReferenceArgumentInfo[]): boolean | null {
+  if (arguments_.length !== 1) return null;
+  const receipt = scope.shape.acquireNativeArrayType(type, nativeCaptureAdmission(scope));
+  if (receipt.kind !== "complete") return null;
+  if (!admit(scope, "edges")) return null;
+  const slot = arguments_[0];
+  if (slot?.scope !== "local" || slot.argument !== receipt.value.element)
+    return throwInvariant(invariant("A native array must retain its actual selected element slot."));
+  return receipt.value.readonly;
+}
+
 function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId, application: TypeInterfaceApplication,
   rest: ReceiverUse | DeclaredRestUse | null, source: OriginalTypeUse | null, selectedType: Type): RawTypeForm | null {
   if (!admit(scope, "facts")) return null;
@@ -2486,7 +2497,8 @@ function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId
     if (argument === null) return null;
     arguments_.push(argument);
   }
-  return { kind: "merged-interface-dependency", group, arguments: arguments_ };
+  const readonly = nativeArrayReadonly(scope, selectedType, application.arguments);
+  return scope.meter.refusal !== null ? null : { kind: "merged-interface-dependency", group, arguments: arguments_, nativeArrayReadonly: readonly };
 }
 
 function authoredOperatorComponent(scope: CaptureScope, component: RawComponent | undefined, operator: RawNodeRef,
@@ -3003,7 +3015,10 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
           if (provider !== undefined) extent = available(null);
         }
       }
-      return { kind: "declared", declaration: source, facet: "instance", parameters, arguments: arguments_, definition: null, extent };
+      const readonly = nativeArrayReadonly(scope, type, infos);
+      return scope.meter.refusal !== null ? null
+        : { kind: "declared", declaration: source, facet: "instance", parameters, arguments: arguments_, definition: null,
+            extent, nativeArrayReadonly: readonly };
     }
   }
   const merged = interfaceFragments > 1 && !classFacet ? symbol : undefined;
@@ -3851,7 +3866,7 @@ function captureFacts(scope: CaptureScope): void {
             if (active === undefined) scope.tables.activeQualifiedTypes.set(exit.key, new Map([[type, next.id]]));
             else active.set(type, next.id);
           }
-          if (captured?.kind === "merged-interface-dependency" || next.bindingUse?.kind === "interface-description")
+          if (captured.kind === "merged-interface-dependency" || next.bindingUse?.kind === "interface-description")
             scope.tables.activeMergedArguments.add(next.id);
         } else {
           const original = scope.tables.types[ancestor];

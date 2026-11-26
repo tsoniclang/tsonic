@@ -166,6 +166,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypedInstantiation: lazyRecord(() => phase_values.work_TypedInstantiation),
     work_TypedKeyword: lazyRecord(() => phase_values.work_TypedKeyword),
     work_TypedMember: lazyRecord(() => phase_values.work_TypedMember),
+    work_TypedElement: lazyRecord(() => phase_values.work_TypedElement),
     work_TypedModuleReference: lazyRecord(() => phase_declarations.work_TypedModuleReference),
     work_TypedName: lazyRecord(() => phase_values.work_TypedName),
     work_TypedNumber: lazyRecord(() => phase_values.work_TypedNumber),

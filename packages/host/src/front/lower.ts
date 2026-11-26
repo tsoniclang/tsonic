@@ -644,13 +644,18 @@ function declarationLowering(lowering: Lowering): DeclarationLowering {
       if (base.kind !== "complete") return base;
       const type = base.value;
       if (type.kind === "unavailable") return { kind: "complete", value: { type, declarations: type } };
-      const term = readType(lowering.deps.types, type.value);
-      const declarations = term.kind === "merged-interface" ? term.definitions
-        : term.kind === "declared" && term.facet === "instance" ? [term.definition]
-        : term.kind === "alias-application" ? [term.declaration] : null;
+      const stop = admitTypePublicationStep(lowering.typeWork);
+      if (stop !== null) return stop;
+      const selected = lowering.raw.types.types[captured]?.form;
+      const form = selected?.kind === "available" ? selected.value : null;
+      const declarations = form?.kind === "merged-interface-dependency" || form?.kind === "merged-interface-backedge"
+        ? form.group.evidence.declarations
+        : form?.kind === "declared" && form.facet === "instance" || form?.kind === "alias-application" ? [form.declaration] : null;
       if (declarations === null || declarations.length === 0)
         return throwInvariant(invariant("An interface base must retain its actual checked declaration group."));
-      return { kind: "complete", value: { type, declarations: { kind: "available", value: declarations } } };
+      const admitted = admitTypePublicationStep(lowering.typeWork, declarations.length + 1);
+      if (admitted !== null) return admitted;
+      return { kind: "complete", value: { type, declarations: { kind: "available", value: declarations.map(lowering.deps.definitionOf) } } };
     },
     checkedType: (node, inferParameters) => {
       const captured = lowering.authoredTypes.get(node.id);

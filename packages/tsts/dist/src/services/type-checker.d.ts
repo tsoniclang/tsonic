@@ -11,7 +11,7 @@ export type { SourceTypeRequest } from "./source-type-answer.js";
 import { type NativeCheckerAdmission, type NativeCheckerResult } from "../internal/checker/resource-admission.js";
 import type { CheckerDiagnosticMembership, ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 export type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
-import type { TypeIndexInfo, TypePropertyHeader } from "./type-shape.js";
+import type { NativeArrayTypeInfo, TypeIndexInfo, TypePropertyHeader } from "./type-shape.js";
 import type { Program } from "../internal/compiler/program.js";
 import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo as CheckerResolvedSourcePropertyAccessInfo } from "../internal/checker/checker/symbols.js";
 import type { ExtensionCheckedIterationSelection } from "../internal/checker/checker/iteration-evidence.js";
@@ -68,13 +68,9 @@ export type ResolvedSourcePropertyAccessInfo = (PublicSelectedPropertyAccess<Che
     readonly kind: "module-exported-value";
     readonly target: Symbol | undefined;
 };
-export interface ResolvedNativeArrayIndex {
-    readonly element: Type;
-    readonly readonly: boolean;
-}
 export type ResolvedSourceElementAccessInfo = CheckerResolvedSourceElementAccessInfo & {
     readonly receiver: CheckerResolvedSourceElementAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;
-    readonly nativeArray: ResolvedNativeArrayIndex | null;
+    readonly nativeArray: NativeArrayTypeInfo | null;
 };
 export type ResolvedSourceIterationInfo = ExtensionCheckedIterationSelection;
 export type ResolvedSourceObjectLiteralElementKind = "property" | "shorthand" | "method" | "get" | "set";

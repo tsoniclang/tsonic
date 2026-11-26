@@ -6,16 +6,18 @@ import { textImportTarget } from "./text-core.js";
 import { textArtifactBindings, textBodyInstance } from "./text-types.js";
 
 export function textTypedValue(value: TypedValue): TextWork {
-  return deferred(value, () => {
-    return record("TypedValue", [
+  return deferred(value, () => record("TypedValue", typedValueFields(value)));
+}
+
+export function typedValueFields(value: TypedValue) {
+  return [
       field("type", numericIdentity("t", value.type)),
       field("convertedType", numericIdentity("t", value.convertedType)),
       field("conversion", textConversionDecision(value.conversion)),
       field("narrowing", (value.narrowing === null ? token("null") : textRefinementDecision(value.narrowing))),
       field("evidenceIndex", (value.evidenceIndex === null ? token("null") : numeric(value.evidenceIndex))),
       field("demand", textTirDemand(value.demand)),
-    ]);
-  });
+  ];
 }
 
 export function textConversionDecision(value: ConversionDecision): TextWork {

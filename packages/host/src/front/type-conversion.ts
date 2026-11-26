@@ -22,6 +22,12 @@ export interface TypeConversion extends MemberKeyLowering {
   readonly numericLiterals: Map<RawNumericLiteral, Extract<LiteralTypeValue, { readonly kind: "number" | "bigint" }>>;
 }
 
+function nativeArrayTerm(readonly: boolean, arguments_: readonly TyId[]): TypeTerm {
+  const element = arguments_[0];
+  if (arguments_.length !== 1 || element === undefined) throw new TypeError("front: a native array requires its actual sole checked argument");
+  return { kind: "array", element, readonly };
+}
+
 interface TypeHandle {
   readonly id: RawTypeId;
   readonly position: number;
@@ -427,9 +433,10 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       if (!matched) throw new TypeError("front: a deferred argument must retain its own actual qualified type occurrence");
       argumentsOf.push(reference(argument));
     }
-    term = applied.kind === "merged-interface-dependency"
-      ? { kind: "merged-interface", definitions: applied.group.evidence.declarations.map(deps.definitionOf), arguments: argumentsOf }
-      : { kind: "alias-application", declaration: deps.definitionOf(applied.declaration), arguments: argumentsOf };
+    if (applied.kind === "alias-application")
+      term = { kind: "alias-application", declaration: deps.definitionOf(applied.declaration), arguments: argumentsOf };
+    else if (applied.nativeArrayReadonly !== null) term = nativeArrayTerm(applied.nativeArrayReadonly, argumentsOf);
+    else term = { kind: "merged-interface", definitions: applied.group.evidence.declarations.map(deps.definitionOf), arguments: argumentsOf };
   } else if (form.kind === "declared") {
     if (form.arguments.length !== form.parameters.length)
       throw new TypeError("front: declared arguments must retain their actual ordered parameter associations");
@@ -446,7 +453,8 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
     }
     if (form.extent.kind !== "available" || form.extent.value !== null)
       throw new TypeError("front: declared type conversion requires its actual selected extent association");
-    term = { kind: "declared", definition: deps.definitionOf(form.declaration), facet: form.facet, extent: null, arguments: argumentsOf };
+    term = form.nativeArrayReadonly !== null ? nativeArrayTerm(form.nativeArrayReadonly, argumentsOf)
+      : { kind: "declared", definition: deps.definitionOf(form.declaration), facet: form.facet, extent: null, arguments: argumentsOf };
   } else if (form.kind === "enum") term = { kind: "enum", definition: deps.definitionOf(form.declaration) };
   else if (form.kind === "tuple") {
     const elements = [];
@@ -678,7 +686,7 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
     else if (scalar === "boolean") term = { kind: "primitive", primitive: "bool" };
     else if (scalar === "null" || scalar === "undefined") term = { kind: "intrinsic", intrinsic: "absence" };
     else term = { kind: "intrinsic", intrinsic: scalar };
-  } else throw new TypeError("front: the conversion of the checker type form " + form.kind + " is not implemented");
+  } else throw new TypeError("front: unexpected checked type form");
   if (literal === null) graph.terms[handle.position] = term;
   else {
     const base = graph.typeCount;

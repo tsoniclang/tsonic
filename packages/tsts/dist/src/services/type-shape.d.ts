@@ -9,6 +9,7 @@ import type { Program } from "../internal/compiler/program.js";
 import { type NativeCheckerAdmission, type NativeCheckerResult } from "../internal/checker/resource-admission.js";
 import type { CheckerDiagnosticMembership, ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 import type { Context } from "../go/context.js";
+import type { Checker } from "../internal/checker/checker/state.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 export type { CompletedTupleFormal } from "./signature-formal-evidence.js";
 export interface TypeIndexInfo {
@@ -62,6 +63,11 @@ export interface TypePropertyInfo extends TypePropertyHeader {
     readonly mapped?: TypeMappedPropertyInfo;
 }
 export type TypePropertyRead<Stop extends object> = NativeCheckerResult<TypePropertyInfo | null, Stop>;
+export interface NativeArrayTypeInfo {
+    readonly element: Type;
+    readonly readonly: boolean;
+}
+export declare function readNativeArrayType(checker: Checker, type: Type): NativeArrayTypeInfo | undefined;
 interface NativePropertyInventory<Value> {
     readonly length: number;
     readonly read: <Stop extends object>(index: number, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<Value, Stop>;
@@ -148,6 +154,7 @@ export interface TypeShapeQueries {
     readonly couldContainTypeVariables: (type: GoPtr<Type>) => boolean;
     readonly getUnionOrIntersectionTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
+    readonly acquireNativeArrayType: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<NativeArrayTypeInfo, Stop>;
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceArgumentInfos: (type: GoPtr<Type>) => readonly TypeReferenceArgumentInfo[] | undefined;
     readonly acquireInterfaceDeclarations: <Stop extends object>(target: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<readonly [Node, ...Node[]], Stop>;

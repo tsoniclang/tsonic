@@ -2,7 +2,8 @@ import type { BodyId, DefId, ItemNodeRef, KeyData, LocalId, LocalRef, ModuleId, 
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { Block, CapturedFact, CheckedPhase, CheckedUnopenedDeclaration, DeclarationTarget, Expression, FunctionDeclaration, FunctionDeclarationHeader, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, NodeList, NonFunctionStatement, ParameterDeclaration, Phase, SourceFile, SourceFileHeader, SyntaxNode } from "../ir-hir/contract.js";
-import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, IndexDecision, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { IndexFailureFacts } from "../ir-infer/contract.js";
 import type { ArrowFunction, CheckedLayoutAlias, LayoutCallRole, ObjectLiteralExpression, TextRange } from "../ir-hir/contract.js";
 
 export interface TypedOperation {
@@ -206,6 +207,12 @@ export type TypedMember =
   | (TypedValue & { readonly role: "value"; readonly selection: RuleOutcome<MemberSelection> })
   | (TypedValue & { readonly role: "enum-member"; readonly resolution: TirEnumResolution })
   | { readonly role: "assignment-target"; readonly selection: RuleOutcome<MemberSelection>; readonly access: TargetAccess };
+
+export type TypedIndex =
+  | (TypedValue & { readonly role: "value"; readonly index: IndexDecision })
+  | { readonly role: "assignment-target"; readonly index: IndexDecision; readonly access: TargetAccess };
+
+export type TypedElement = TypedMember | TypedIndex;
 
 interface SelectedApplication extends TypedValue {
   readonly application: RuleOutcome<TirApplication>;
@@ -538,7 +545,7 @@ export interface TypedPhase extends Phase {
   readonly SatisfiesExpression: TypedValue;
   readonly ConditionalExpression: TypedConditional;
   readonly PropertyAccessExpression: TypedMember;
-  readonly ElementAccessExpression: TypedMember;
+  readonly ElementAccessExpression: TypedElement;
   readonly CallExpression: TypedCall;
   readonly NewExpression: TypedApplication;
   readonly MetaProperty: TypedValue;
@@ -786,6 +793,7 @@ export interface TirVerifierInput extends HirBindingViews {
   readonly source: HirModule;
   readonly module: TirModule;
   readonly types: TypeTable;
+  readonly selectedNativeFacts: IndexFailureFacts;
   readonly bindingScopesOf: TirBindingScopesOf;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
   readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;

@@ -11,6 +11,7 @@ import { acquireLeasedChecker, withOwnedChecker, withCheckerById, withSourceFile
 import { sourceTypeAnswer } from "../internal/checker/checker/source-type-answers.js";
 import { admitSourceTypeAnswer, querySourceType, readSourceType, settleSourceTypeAnswer } from "./source-type-answer.js";
 import { admitNativeChecker } from "../internal/checker/resource-admission.js";
+import { readNativeArrayType } from "./type-shape.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
 import { IsElementAccessExpression, IsAwaitExpression, IsExportDeclaration, IsExportSpecifier, IsGetAccessorDeclaration, IsIdentifier, IsImportSpecifier, IsNamespaceExport, IsNamespaceImport, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
 import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsFunctionLike, IsObjectLiteralMethod, IsOuterExpression, IsPropertyName, IsDynamicName, IsImportCall, IsInExpressionContext, IsRightSideOfQualifiedNameOrPropertyAccess, ModuleExportNameIsDefault, OEKAssertions, OEKParentheses, SkipOuterExpressions, SkipParentheses, } from "../internal/ast/utilities.js";
@@ -21,7 +22,7 @@ import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_Resolve
 import { Checker_getCompletedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal, getNumberLiteralValue } from "../internal/checker/checker/state.js";
 import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclarationOfAliasSymbol, Checker_getDeclaredTypeOfSymbol, Checker_getEffectivePropertyNameForPropertyNameNode, Checker_getExportSymbolOfValueSymbolIfExported, Checker_getIdentifierAssignmentError, Checker_getImmediateAliasedSymbol, Checker_getLiteralTypeFromPropertyName, Checker_getTypeOfPropertyOfContextualTypeEx, Checker_getResolvedSymbolOrNil, Checker_getModuleSpecifierForImportOrExport, Checker_getExportsOfModule, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, isSourceModuleBinding, retainedAliasFailure, } from "../internal/checker/checker/symbols.js";
-import { Checker_getApparentTypeOfContextualType, Checker_getAwaitedType, Checker_getElementTypeOfArrayType, Checker_GetTypeAtLocation, Checker_isReadonlyArrayType, } from "../internal/checker/checker/types.js";
+import { Checker_getApparentTypeOfContextualType, Checker_getAwaitedType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
 import { Checker_isAssignmentToReadonlyEntity } from "../internal/checker/checker/relations.js";
 import { AssignmentKindDefinite, AssignmentKindNone, getAssignmentTargetKind, isReservedMemberName } from "../internal/checker/utilities.js";
 import { Checker_getResolvedSourceIterationInfo } from "../internal/checker/checker/syntax-checking.js";
@@ -649,19 +650,15 @@ function nativeArrayIndexOf(checker, selected) {
     if (selected.sourceSymbol !== undefined || selected.optionalChain || selected.selectedDeclaration === undefined)
         return null;
     admitNativeChecker(checker, "work");
-    const receiver = selected.receiver.type;
-    const element = Checker_getElementTypeOfArrayType(checker, receiver);
-    if (element === undefined)
+    const array = readNativeArrayType(checker, selected.receiver.type);
+    if (array === undefined)
         return null;
     admitNativeChecker(checker, "work");
-    if ((selected.sourceReadType !== undefined && selected.sourceReadType !== element)
-        || (selected.sourceWriteType !== undefined && selected.sourceWriteType !== element))
+    if ((selected.sourceReadType !== undefined && selected.sourceReadType !== array.element)
+        || (selected.sourceWriteType !== undefined && selected.sourceWriteType !== array.element)
+        || array.readonly === selected.writable)
         return null;
-    const readonly = Checker_isReadonlyArrayType(checker, receiver);
-    if (readonly === selected.writable)
-        return null;
-    admitNativeChecker(checker, "retained");
-    return Object.freeze({ element, readonly });
+    return array;
 }
 function withResolvedSourceReceiverValueEvidence(checker, selected) {
     if (checker === undefined || selected === undefined) {

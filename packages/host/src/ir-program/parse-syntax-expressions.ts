@@ -4,7 +4,8 @@ import type { Cursor, TextStep } from "./parse-values.js";
 import type { SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
 import { readString, readBoolean, readNull, readStringChoice, atomicText, fieldText, arrayText } from "./parse-values.js";
 import { readTypedValueText } from "./parse-tir.js";
-import { readTypedCallText, readTypedValueOccurrenceText } from "./parse-phase.js";
+import { readTypedCallText, readTypedElementText, readTypedValueOccurrenceText } from "./parse-phase.js";
+import type { TypedElement } from "../ir-tir/contract.js";
 import { readTypedNameText, readTypedPropertyKeyText, readTypedDecoratorText, readTypedOmissionText, readTypedKeywordText, readTypedStringText, readTypedNumberText, readTypedBigIntText, readTypedBinaryText, readTypedPrefixText, readTypedUpdateText, readTypedProtocolValueText, readTypedClosureText, readTypedConditionalText, readTypedMemberText, readTypedApplicationText, readTypedSpreadText, readTypedTemplateText, readTypedConstructionText, readTypedObjectSpreadText, readTypedPropertyText, readTypedShorthandText, readTypedUnaryText, readTypedInstantiationText } from "./parse-phase.js";
 import { resolveSyntaxValue, syntaxAlternatives, readSyntaxRecord, finishSyntaxRecord, readSyntaxReference, readNullableSyntax, readSyntaxList, readCallArgumentList } from "./parse-syntax-values.js";
 import type { TirCallArguments } from "../ir-tir/contract.js";
@@ -247,7 +248,7 @@ export function readElementAccessExpressionSyntax<Root>(cursor: Cursor, ports: S
     fieldText<SyntaxValue<Expression<TypedPhase>>, Root>(cursor, fields, "expression", (next, done) => readSyntaxReference(next, ports.Expression, done), expressionValue =>
     fieldText<SyntaxValue<QuestionDotToken<TypedPhase> | null>, Root>(cursor, fields, "questionDotToken", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.QuestionDotToken, done), done), questionDotTokenValue =>
     fieldText<SyntaxValue<Expression<TypedPhase>>, Root>(cursor, fields, "argumentExpression", (next, done) => readSyntaxReference(next, ports.Expression, done), argumentExpressionValue =>
-    fieldText<TypedMember, Root>(cursor, fields, "tsonic", readTypedMemberText, tsonicValue =>
+    fieldText<TypedElement, Root>(cursor, fields, "tsonic", readTypedElementText, tsonicValue =>
     finishSyntaxRecord<ElementAccessExpression<TypedPhase>, Root>(cursor, fields, {
       resolve: () => resolveSyntaxValue(expressionValue, expressionResolved => resolveSyntaxValue(questionDotTokenValue, questionDotTokenResolved => resolveSyntaxValue(argumentExpressionValue, argumentExpressionResolved => ({ ...header, kind, expression: expressionResolved, questionDotToken: questionDotTokenResolved, argumentExpression: argumentExpressionResolved, tsonic: tsonicValue })))),
     }, finish))))));

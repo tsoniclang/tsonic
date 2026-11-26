@@ -4,9 +4,9 @@ import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeR
 import { decodeBodyId } from "../ids/index.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
-import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, IndexDecision, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirLayoutOperand,
-  TirLocal, TirResolution, TirSelection, TypedBinary, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+  TirLocal, TirResolution, TirSelection, TypedBinary, TypedIndex, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { TirEnumResolution } from "../ir-tir/contract.js";
 import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
 import { artifactBindingsKey, optionalValueDomainOf, readType, rigidBindings } from "../ir-types/index.js";
@@ -222,8 +222,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     | { readonly kind: "contextual-literal"; readonly type: TyId; target: number | null } | undefined)[] = [];
   const applications: (RuleOutcome<ApplicationDecision> | undefined)[] = [];
   const members: (MemberDecision | undefined)[] = [];
+  const indexes: (IndexDecision | undefined)[] = [];
   const calleeTypes = new Map<NodeId, TyId>();
-  const read = { operations: new Set<number>(), flows: new Set<number>(), variables: new Set<number>(), applications: new Set<number>(), members: new Set<number>() };
+  const read = { operations: new Set<number>(), flows: new Set<number>(), variables: new Set<number>(), applications: new Set<number>(),
+    members: new Set<number>(), indexes: new Set<number>() };
   const finals: (TyId | undefined)[] = [];
   for (const final of solution.variables) finals[final.variable] = final.value.type;
   const finalType = (type: TyId, origin: Origin): TyId => {
@@ -272,6 +274,16 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       if (result === null || result !== finalType(constraint.result, origin))
         return callerDefect("a selected member access retains its actual finalized result type", origin);
       members[position] = decision.member;
+    } else if (constraint.kind === "index") {
+      if (decision.kind !== "index" || indexes[position] !== undefined || nodes[position]?.kind !== "ElementAccessExpression")
+        return callerDefect("an index must retain its one actual selected operand decision", origin);
+      const result = finalType(constraint.result, origin);
+      const selected = decision.index;
+      if (selected.receiver !== finalType(constraint.receiver, origin) || selected.key !== finalType(constraint.key, origin)
+        || selected.read !== (constraint.access === "write" ? null : result)
+        || selected.write !== (constraint.access === "read" ? null : result))
+        return callerDefect("an index must retain its finalized receiver, key and reached types", origin);
+      indexes[position] = selected;
     } else if (constraint.kind === "call") {
       if (applications[position] !== undefined)
         return callerDefect("a call must retain its one selected application decision", origin);
@@ -588,7 +600,8 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       const storageOf = reads ? readWriteRootStorageOf : writableRootStorageOf;
       let selected = name?.role === "assignment-target" && name.access === (reads ? "read-write" : "write")
         && (logical === null || name.resolution.kind === "local") ? storageOf(node.tsonic.target, name.resolution) : null;
-      if (leaf.kind === "PropertyAccessExpression" && leaf.tsonic.role === "assignment-target") {
+      if ((leaf.kind === "PropertyAccessExpression" || leaf.kind === "ElementAccessExpression")
+        && leaf.tsonic.role === "assignment-target") {
         const member = checkedMemberStorageOf(leaf);
         if (leaf.tsonic.place === node.tsonic.target && leaf.tsonic.access === (reads ? "read-write" : "write")
           && member !== null && (!reads || member.read === member.write)) selected = member.write;
@@ -673,7 +686,8 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       const right = expressionOf(node.right);
       const compound = compoundAssignmentOperatorOf(node.operatorToken.kind) !== null;
       const logical = shortCircuitOperatorOf(node.operatorToken.kind, "assignment");
-      if ((target.kind !== "Identifier" && target.kind !== "PropertyAccessExpression") || target.tsonic.role !== "assignment-target"
+      if ((target.kind !== "Identifier" && target.kind !== "PropertyAccessExpression" && target.kind !== "ElementAccessExpression")
+        || target.tsonic.role !== "assignment-target"
         || target.tsonic.access.kind !== (compound || logical !== null ? "read-write" : "write"))
         return callerDefect("an assignment retains its actual typed storage access", node.origin);
       const access = target.tsonic.access;
@@ -1024,6 +1038,29 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         } else visit(node.operand);
         return;
       }
+      case "ElementAccessExpression":
+        if (!building) { visit(node.expression); visit(node.argumentExpression); return; }
+        {
+          const index = indexes[position] ?? compilerDefect("an element access has no actual selected index decision", node.origin);
+          if (node.questionDotToken !== null || node.tsonic.role === "enum-member")
+            return callerDefect("a native index retains its actual nonoptional index occurrence", node.origin);
+          let tsonic: TypedIndex;
+          if (node.tsonic.role === "assignment-target") {
+            const storage = checkedMemberStorageOf(node);
+            if (storage === null || index.write !== storage.write || index.read !== storage.read)
+              return callerDefect("an index target requires its actual selected storage", node.origin);
+            const access: TargetAccess = storage.read === null ? { kind: "write", storage: storage.write }
+              : { kind: "read-write", storage: storage.write, read: storage.read, narrowing: null, evidenceIndex: null };
+            tsonic = { role: "assignment-target", index, access };
+          } else {
+            if (index.read === null || index.write !== null) return callerDefect("an index read requires its selected read alone", node.origin);
+            tsonic = { role: "value", index, ...valueOf(position, index.read, node.origin) };
+          }
+          read.indexes.add(position);
+          expressions[position] = { ...header(node), kind: "ElementAccessExpression", expression: expressionOf(node.expression),
+            questionDotToken: null, argumentExpression: expressionOf(node.argumentExpression), tsonic };
+          return;
+        }
       case "PropertyAccessExpression":
         if (node.tsonic.role === "enum-member") {
           if (!building) return;
@@ -1266,6 +1303,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   refuseUnread(variables, read.variables, "variable");
   refuseUnread(applications, read.applications, "application decision");
   refuseUnread(members, read.members, "member decision");
+  refuseUnread(indexes, read.indexes, "index decision");
 
   return { kind: "ok", diagnostics: [], value: {
     body: body.body, owner: body.owner, bindings: instance.bindings,

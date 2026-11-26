@@ -1,11 +1,11 @@
 import type { TypedName, TypedPropertyKey, TypedDecorator, TypedIteration, TypedControlTransfer, TypedVariableList, TypedClassValue, TypedOmission, TypedKeyword, TypedString, TypedNumber, TypedBigInt, TypedBinary, TypedPrefix, TypedUpdate, TypedProtocolValue, TypedClosure, TypedConditional, TypedMember, TypedApplication, TypedSpread, TypedTemplate, TypedConstruction, TypedObjectSpread, TypedProperty, TypedShorthand, TypedUnary, TypedInstantiation } from "../ir-tir/contract.js";
 import type { TextWork } from "./text-values.js";
 import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textNodeRef, textSourceNodeRef } from "./text-values.js";
-import { textConversionDecision, textTirDemand, textTirResolution, textTargetAccess, textTirApplication, textTirProtocol, textTypedOperation, textTirSelection, textMemberSelection, textTypedValue } from "./text-tir.js";
+import { textConversionDecision, textTirDemand, textTirResolution, textTargetAccess, textTirApplication, textTirProtocol, textTypedOperation, textTirSelection, textMemberSelection, textTypedValue, typedValueFields } from "./text-tir.js";
 import { textRefinementDecision, textRuleOutcome, textConstructionPartDecision, textApplicationDecision, textClosureDecision } from "./text-inference.js";
 import { textMemberKey, textExactRational, textBindingVector } from "./text-types.js";
 import { textCapturedFact, textDeclarationTarget, textImportTarget } from "./text-core.js";
-import type { DeclarationNameExpression, TypedCase, TypedLayoutApplication, TypedValueOccurrence } from "../ir-tir/contract.js";
+import type { DeclarationNameExpression, TypedCase, TypedElement, TypedLayoutApplication, TypedValueOccurrence } from "../ir-tir/contract.js";
 import { textTypedClass, textTypedCallable } from "./text-phase-declarations.js";
 
 export function textNameExpression(value: DeclarationNameExpression): TextWork {
@@ -507,6 +507,24 @@ export function textTypedMember(value: TypedMember): TextWork {
       field("access", textTargetAccess(value.access)),
     ]);
     }
+  });
+}
+
+export function textTypedElement(value: TypedElement): TextWork {
+  if (!("index" in value)) return textTypedMember(value);
+  return deferred(value, () => {
+    const selected = value.index;
+    return record("TypedIndex", [
+      field("role", text(value.role)),
+      field("index", record("IndexDecision", [
+        field("carrier", text(selected.carrier)), field("receiver", numericIdentity("t", selected.receiver)),
+        field("key", numericIdentity("t", selected.key)),
+        field("read", selected.read === null ? token("null") : numericIdentity("t", selected.read)),
+        field("write", selected.write === null ? token("null") : numericIdentity("t", selected.write)),
+        field("failure", text(selected.failure)),
+      ])),
+      ...(value.role === "value" ? typedValueFields(value) : [field("access", textTargetAccess(value.access))]),
+    ]);
   });
 }
 

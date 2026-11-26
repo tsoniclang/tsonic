@@ -111,9 +111,9 @@ function projectDeclaration<State>(deps: ElaborateDeps<State>, roots: readonly H
       case "ArrayType": {
         const elementType = child(node.elementType);
         const selected = readType(deps.types, tsonic.type);
-        if (selected.kind !== "declared" || selected.facet !== "instance" || selected.arguments.length !== 1
-          || elementType.tsonic === null || !("type" in elementType.tsonic) || selected.arguments[0] !== elementType.tsonic.type)
-          return fail("An array annotation requires its actual selected declaration and element type.");
+        if (selected.kind !== "array" || elementType.tsonic === null || !("type" in elementType.tsonic)
+          || selected.element !== elementType.tsonic.type)
+          return fail("An array annotation requires its actual selected native array and element type.");
         result = { ...node, elementType, tsonic };
         break;
       }
@@ -136,7 +136,9 @@ function projectDeclaration<State>(deps: ElaborateDeps<State>, roots: readonly H
           if (node.operator !== "ReadonlyKeyword" || operand.kind !== "TupleType" && operand.kind !== "ArrayType")
             return fail("A declaration type operator requires its actual supported typed operand.");
           if (operand.kind === "ArrayType") {
-            if (operand.tsonic.type !== tsonic.type)
+            const selected = readType(deps.types, tsonic.type);
+            const base = readType(deps.types, operand.tsonic.type);
+            if (selected.kind !== "array" || !selected.readonly || base.kind !== "array" || selected.element !== base.element)
               return fail("A readonly array annotation requires its actual checked operand type.");
           } else {
             const selected = readType(deps.types, tsonic.type);

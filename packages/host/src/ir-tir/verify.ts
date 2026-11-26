@@ -6,9 +6,9 @@ import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayo
   checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
   readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
-import { sameInstance, verifyTypes } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
-import type { CallExpression } from "../ir-hir/contract.js";
+import type { CallExpression, ElementAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
 import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
@@ -27,6 +27,38 @@ export interface TirSourceInventory {
   readonly typedNodes: ReadonlyMap<NodeId, TirSyntaxOccurrence>;
   readonly ownNodes: readonly TirSyntaxOccurrence[];
   readonly nestedRoots: ReadonlySet<NodeId>;
+}
+
+function verifyIndex(input: TirVerifierInput, node: ElementAccessExpression<TypedPhase>, original: HirNode | undefined,
+  emit: TirOccurrenceEmit): void {
+  const value = node.tsonic;
+  if (!("index" in value)) return;
+  const selected = value.index;
+  const receiver = typedValueOf(node.expression);
+  const key = typedValueOf(node.argumentExpression);
+  const storage = input.types.terms[selected.receiver];
+  const nativeKey = input.types.terms[selected.key];
+  if (original?.kind !== "ElementAccessExpression" || original.questionDotToken !== null || node.questionDotToken !== null
+    || receiver?.convertedType !== selected.receiver || key?.convertedType !== selected.key
+    || nativeKey?.kind !== "primitive" || !isNativeIntegerPrimitive(nativeKey.primitive)
+    || (storage?.kind !== "array" && storage?.kind !== "fixed-array") || selected.carrier !== storage.kind
+    || selected.failure !== (storage.kind === "array" ? input.selectedNativeFacts.arrayIndexFailure : input.selectedNativeFacts.fixedArrayIndexFailure)) {
+    emit("access-location", node, "an indexed place must retain its actual receiver, native index operand and bounds failure");
+    return;
+  }
+  if (value.role === "value") {
+    const read = original.tsonic.role === "value" ? original.tsonic.value.views.read : null;
+    if (read?.kind !== "available" || read.value !== selected.read || value.type !== selected.read
+      || selected.read !== storage.element || selected.write !== null)
+      emit("access-location", node, "an indexed read must retain the actual selected element and no write");
+  } else {
+    const checked = checkedMemberStorageOf(original);
+    if (checked === null || (storage.kind === "array" && storage.readonly) || selected.write !== storage.element
+      || selected.write !== checked.write || value.access.storage !== checked.write || selected.read !== checked.read
+      || (value.access.kind === "write" ? checked.read !== null
+        : value.access.read !== checked.read || value.access.narrowing !== null || value.access.evidenceIndex !== null))
+      emit("access-location", node, "an indexed write must retain its actual checked write and only its reached read");
+  }
 }
 
 const validRange = (start: number, length: number): boolean =>
@@ -796,6 +828,11 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     verifyOccurrenceRole(node, original, emit);
     verifyValueEndpoints(body, node, emit);
     verifyOccurrenceOperation(node, input.types, emit);
+    if (node.kind === "ElementAccessExpression" && "index" in node.tsonic) {
+      const paid = admit({ kind: "row" });
+      if (paid !== null) return { kind: "resource-stop", stop: paid };
+      verifyIndex(input, node, original, emit);
+    }
     if (node.kind === "SwitchStatement") verifySwitchOperations(node, input.types, emit);
     const phase = node.tsonic;
     const checked = original?.tsonic;
