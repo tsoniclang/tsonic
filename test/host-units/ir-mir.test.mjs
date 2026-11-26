@@ -748,6 +748,8 @@ for (const [value, text] of [
   [{ kind: "invoke", step: { protocol: 1, step: 2 }, operation, operands: [], destination: null, next: 0, unwind: { kind: "none" } },
     `invoke(operation=${operationText}, operands=[], destination=null, next=b:0, unwind=none(), step=MirStepRef(protocol=1, step=2))`],
   [{ kind: "throw", operand: constantOperand, unwind: { kind: "escape" } }, `throw(operand=${constantOperandText}, unwind=escape())`],
+  [{ kind: "throw", operand: constantOperand, unwind: { kind: "handler", exception: null, target: 1 } },
+    `throw(operand=${constantOperandText}, unwind=handler(exception=null, target=b:1))`],
   [{ kind: "return", value: placeOperand }, `return(value=${operandText})`],
   [{ kind: "return", value: null }, "return(value=null)"],
   [{ kind: "unreachable" }, "unreachable()"],
@@ -3244,6 +3246,9 @@ test("MIR actual throw escape, handler and unreachable terminators have complete
   ], terminator: { ...body.blocks[0].terminator, unwind: { kind: "handler", exception: place.id, target: identities.blockId(1) } } },
   { ...base.blocks[0], id: identities.blockId(1), terminator: { ...site, kind: "unreachable" } }] };
   same(verified(handled, input), [], "real handler edge and explicit unreachable completion are structurally valid");
+  const discarded = { ...body, blocks: [{ ...body.blocks[0], terminator: { ...handled.blocks[0].terminator,
+    unwind: { kind: "handler", exception: null, target: identities.blockId(1) } } }, handled.blocks[1]] };
+  same(verified(discarded, input), [], "an unbound handler carries the actual edge and creates no destination");
   const wrongException = { ...handled, locals: [{ ...exception, storage: identities.tyId(1) }], places: [{ ...place, storage: identities.tyId(1) }] };
   same(verified(wrongException, input), [expectedViolation("exception-destination-type", at)], "handler carrier is canonical intrinsic unknown");
   const unknownHandler = { ...handled, blocks: [{ ...handled.blocks[0], terminator: { ...handled.blocks[0].terminator,

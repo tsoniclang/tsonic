@@ -7,6 +7,7 @@ import type { Lowering, Work } from "./model.js";
 import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
 import { exposeLocal, held, popOperand, pushOperand, saveBeforeControl, temporary } from "./operands.js";
 import { enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
+import { unwindToHandler } from "./bindings.js";
 
 export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> | NewExpression<TypedPhase>, selected: TypedApplication): boolean {
   if (selected.operation !== null) return notLoweredYet("a call with a selected operation", node.origin);
@@ -134,9 +135,11 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
   if (needsDestination && result === null) return false;
   const next = newBlock(lowering.state, siteOf(lowering.body, nextWork.node));
   if (next === null) return false;
+  const unwind = unwindToHandler(lowering, node);
+  if (unwind === null) return false;
   terminate(lowering.state, { ...site, kind: "call", callee: target === null ? { kind: "direct", resolution: application.callee }
     : { kind: "indirect", operand: target.operand, resolution: application.callee }, receiver: null,
-    arguments: arguments_, destination: result, next, unwind: { kind: "escape" }, step: null });
+    arguments: arguments_, destination: result, next, unwind, step: null });
   enterBlock(lowering.state, next);
   if (result !== null) pushOperand(lowering, held(result, decision.result, site));
   else {

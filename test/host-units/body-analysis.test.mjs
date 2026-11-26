@@ -1659,7 +1659,9 @@ test("call identity, selected storage and missing effect relations are checked b
   assert.equal(run({ ...operation, destination: null }).kind, "complete");
   assert.throws(() => run(operation, { ...summary, suspends: true }), /actual suspension transport/);
   assert.equal(run(operation, { ...summary, unwinds: true }).kind, "complete");
-  for (const unwind of [{ kind: "none" }, { kind: "abort" }, { kind: "handler", target: 0, exception: 0 }])
+  assert.equal(run({ ...operation, unwind: { kind: "handler", target: 0, exception: null } },
+    { ...summary, unwinds: true }).kind, "complete");
+  for (const unwind of [{ kind: "none" }, { kind: "abort" }])
     assert.throws(() => run({ ...operation, unwind }, { ...summary, unwinds: true }), /actual selected callee failure continuation/u);
   const arena = analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input).value.value.facts.arena;
   const apply = (answer, overrides = {}) => applyScalarCall({ ...current.deps, account: createAccount(limits), ...overrides },

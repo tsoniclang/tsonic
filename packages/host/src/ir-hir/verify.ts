@@ -606,6 +606,17 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
       node.kind === "PropertySignature" || node.kind === "PropertyDeclaration") {
       const initializer = node.tsonic.initializer;
       const expectsBound = node.kind === "VariableDeclaration" && node.type === null && node.initializer !== null;
+      if (node.kind === "VariableDeclaration") {
+        const parent = inventory.parents.get(node);
+        const isCatch = parent?.kind === "CatchClause" && parent.variableDeclaration === node;
+        const target = node.tsonic.declaration;
+        const body = target.kind === "local" ? inventory.bodies.get(target.local.body) : undefined;
+        const local = target.kind === "local" ? body?.locals[target.local.local] : undefined;
+        if (isCatch && (body !== inventory.owners.get(node) || local?.role !== "catch" || local.declaration.kind !== "item"
+          || local.declaration.value.node !== node.id || initializer !== null || node.initializer !== null)
+          || !isCatch && local?.role === "catch")
+          report("local-reference", site, "a catch local must retain its actual owned declaration and no initializer");
+      }
       if ((node.tsonic.inferredTypeBound !== null) !== expectsBound)
         report("inferred-type-bound", site, "an inferred declaration bound must belong to its unannotated variable initializer");
       const bound = node.tsonic.inferredTypeBound;

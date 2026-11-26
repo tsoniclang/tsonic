@@ -1,7 +1,7 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BlockId, BodyId, LocalId, LocalRef, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
-import type { BinaryExpression, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, Statement, SwitchStatement, ThrowStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
+import type { BinaryExpression, Block, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, Statement, SwitchStatement, ThrowStatement, TryStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
 import type { CaseClause, CaseOrDefaultClause, DefaultClause } from "../ir-hir/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
 import type { MemberSelection, TirApplication, TirBody, TirDemand, TirModuleRoot, TypedOperation, TypedValueOccurrence, TypedPhase, TypedValue } from "../ir-tir/contract.js";
@@ -90,6 +90,8 @@ export type Work =
   | ({ readonly kind: "switch-clause"; readonly position: number } & SwitchDispatch)
   | { readonly kind: "if-then-end"; readonly node: IfStatement<TypedPhase>; readonly otherwise: BlockId; readonly exit: BlockId | null }
   | { readonly kind: "if-else-end"; readonly node: IfStatement<TypedPhase>; readonly exit: BlockId | null }
+  | { readonly kind: "protected-end"; readonly node: TryStatement<TypedPhase>; readonly handler: HandlerScope; readonly outer: HandlerScope | null }
+  | { readonly kind: "handler-end"; readonly node: TryStatement<TypedPhase>; readonly exit: BlockId | null; readonly payloadScope: LocalScope | null }
   | { readonly kind: "while-condition"; readonly node: WhileStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "while-end"; readonly node: WhileStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "do-end"; readonly node: DoStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined; readonly condition: NonNullable<LoopContinuation["update"]> }
@@ -118,6 +120,14 @@ export interface LocalScope {
   readonly kind: "block" | "case";
   readonly parent: LocalScope | null;
   readonly locals: LocalId[];
+}
+
+export interface HandlerScope {
+  readonly block: Block<TypedPhase>;
+  readonly locals: LocalScope | null;
+  readonly payloadScope: LocalScope | null;
+  readonly exception: PlaceId | null;
+  entry: BlockId | null;
 }
 
 export interface LoopContinuation {
@@ -155,6 +165,7 @@ export interface Lowering {
   readonly preservedLocals: Set<LocalId>;
   readonly outerLocals: Map<BodyId, Map<LocalId, LocalId>>;
   scope: LocalScope | null;
+  handler: HandlerScope | null;
   receiver: LocalId | null;
 }
 

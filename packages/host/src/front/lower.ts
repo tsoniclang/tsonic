@@ -41,7 +41,7 @@ const invariant = (message: string): InvariantFailure => ({ owner: "front", quer
 const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeyword", "DefaultKeyword", "FunctionDeclaration", "Parameter",
   "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "BigIntKeyword", "AnyKeyword", "UnknownKeyword", "NeverKeyword", "ObjectKeyword", "UndefinedKeyword", "VoidKeyword",
   "Block", "ReturnStatement", "ThrowStatement", "IfStatement", "WhileStatement", "DoStatement", "ForStatement", "BreakStatement", "ContinueStatement",
-  "SwitchStatement", "CaseBlock", "CaseClause", "DefaultClause",
+  "SwitchStatement", "CaseBlock", "CaseClause", "DefaultClause", "TryStatement", "CatchClause",
   "EmptyStatement", "LabeledStatement",
   "BinaryExpression", "ConditionalExpression", "ColonToken", "PrefixUnaryExpression", "PostfixUnaryExpression", "PlusToken", "EqualsToken",
   "CallExpression", "ExpressionStatement", "ParenthesizedExpression", "VoidExpression",
@@ -305,7 +305,8 @@ interface NodeBodies {
   /** The bodies each body directly encloses, in preorder of their roots. */
   readonly children: ReadonlyMap<BodyId, readonly BodyId[]>;
   readonly locals: ReadonlyMap<NodeId, LocalRef>;
-  readonly variables: readonly { readonly node: Hir.VariableDeclaration<Syntax>; readonly mutable: boolean; readonly local: LocalRef }[];
+  readonly variables: readonly { readonly node: Hir.VariableDeclaration<Syntax>; readonly mutable: boolean; readonly local: LocalRef;
+    readonly role: "binding" | "catch" }[];
   readonly assignmentTargets: ReadonlyMap<NodeId, "write" | "read-write">;
   readonly labelTargets: ReadonlyMap<NodeId, NodeRef>;
   readonly layoutRoots: readonly { readonly node: NodeId; readonly body: BodyId; readonly owner: DefId }[];
@@ -333,7 +334,8 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
   const labels = new Map<string, LabelBinding>();
   type Frame = { readonly node: Hir.SyntaxNode<Syntax>; readonly context: SourceBodyTransition;
     readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly mutable: boolean; readonly label: LabelBinding | null };
-  const enter = (node: Hir.SyntaxNode<Syntax>, scope: SourceBodyScope, mutable: boolean, blockVariable: boolean): Frame => {
+  const enter = (node: Hir.SyntaxNode<Syntax>, scope: SourceBodyScope, mutable: boolean, blockVariable: boolean,
+    role: "binding" | "catch"): Frame => {
     if (!definitionAt.has(node.id) && sourceIdentityName(node, properties, layout) !== null)
       definitionAt.set(node.id, deps.definitionOf({ module: raw.module, node: node.id }));
     const body = scope.body;
@@ -367,16 +369,16 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
       siblings.push(boundary.body);
       children.set(context.lexicalBody, siblings);
     }
-    if (node.kind === "VariableDeclaration" && (body !== moduleBody || blockVariable)) {
+    if (node.kind === "VariableDeclaration" && (body !== moduleBody || blockVariable || role === "catch")) {
       const local = { body, local: localId(localCounts.get(body) ?? 0) };
       locals.set(node.id, local);
       localCounts.set(body, local.local + 1);
-      variables.push({ node, mutable, local });
+      variables.push({ node, mutable: role === "catch" || mutable, local, role });
     }
     return { node, context, children: iterateChildrenOfSyntax(node), label,
       mutable: node.kind === "VariableDeclarationList" ? !node.flags.includes("Const") : mutable };
   };
-  const pending: Frame[] = [enter(raw.tree, { body: moduleBody, lexicalBody: moduleBody, callableBody: null }, true, false)];
+  const pending: Frame[] = [enter(raw.tree, { body: moduleBody, lexicalBody: moduleBody, callableBody: null }, true, false, "binding")];
   for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
     const next = frame.children.next();
     if (next.done) {
@@ -421,7 +423,8 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
     const blockVariable = scope.body === moduleBody && child.kind === "VariableDeclaration"
       && frame.node.kind === "VariableDeclarationList" && (frame.node.flags.includes("Let") || frame.node.flags.includes("Const"))
       && (enclosing?.kind !== "VariableStatement" || enclosing.parent !== raw.tree.id);
-    pending.push(enter(child, scope, frame.mutable, blockVariable));
+    const role = frame.node.kind === "CatchClause" && child === frame.node.variableDeclaration ? "catch" : "binding";
+    pending.push(enter(child, scope, frame.mutable, blockVariable, role));
   }
   return { definitions: definitionAt, bodyOf: bodies, captureParent, children, locals, variables, assignmentTargets, labelTargets, layoutRoots };
 }
@@ -1221,6 +1224,16 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
       return { kind: "complete", value: { ...headerOf(node), kind: "ReturnStatement", expression: node.expression === null ? null : expression(lowering, node.expression), tsonic: null } };
     case "ThrowStatement":
       return { kind: "complete", value: { ...headerOf(node), kind: "ThrowStatement", expression: expression(lowering, node.expression), tsonic: null } };
+    case "TryStatement": {
+      const handler = node.catchClause;
+      const variable = handler?.variableDeclaration ?? null;
+      const binding = variable === null ? null : variableDeclaration(lowering, variable, owner);
+      if (binding !== null && binding.kind !== "complete") return binding;
+      return { kind: "complete", value: { ...headerOf(node), kind: node.kind, tryBlock: block(lowering, node.tryBlock),
+        catchClause: handler === null ? null : { ...headerOf(handler), kind: handler.kind, variableDeclaration: binding?.value ?? null,
+          block: block(lowering, handler.block), tsonic: null },
+        finallyBlock: node.finallyBlock === null ? null : block(lowering, node.finallyBlock), tsonic: null } };
+    }
     case "EmptyStatement":
       return { kind: "complete", value: { ...headerOf(node), kind: node.kind, tsonic: null } };
     case "BreakStatement": case "ContinueStatement":
@@ -1411,6 +1424,10 @@ function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undef
       yield { kind: "statement", node: statement, owner };
     } else if (node.kind === "LabeledStatement") {
       if (child === node.statement) yield { kind: "statement", node: node.statement, owner };
+    } else if (node.kind === "TryStatement") {
+      if (child === node.tryBlock || child.kind === "Block" && child === node.finallyBlock)
+        yield { kind: "statement", node: child, owner };
+      else if (child.kind === "CatchClause" && child === node.catchClause) yield { kind: "statement", node: child.block, owner };
     } else if (node.kind === "ModuleDeclaration") {
       if (child === node.body && (child.kind === "ModuleBlock" || child.kind === "ModuleDeclaration"))
         yield { kind: "statement", node: child, owner };
@@ -1676,16 +1693,16 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<LoweredM
     associations: new Map(raw.callableAssociations.filter(entry => entry.declaration.module === raw.module).map(entry => [entry.declaration.node, entry])),
     authoredTypes: authoredAnnotations(raw),
   };
-  for (const { node, mutable, local } of structure.variables) {
+  for (const { node, mutable, local, role } of structure.variables) {
     if (node.name.kind !== "Identifier") return throwInvariant(invariant("A variable of a written form has no identifier name."));
     const checked = lowering.views.get(node.id);
     if (checked === undefined) return throwInvariant(invariant("A local variable requires its own captured checked type."));
-    if (mutable && checked.inferredStorageAlias !== null) lowering.inferredStorage.set(node.id, null);
+    if (role === "binding" && mutable && checked.inferredStorageAlias !== null) lowering.inferredStorage.set(node.id, null);
     const checkerSlot = typeFactOf(lowering, checked.read);
     if (checkerSlot.kind !== "complete") return publicationRefusal(raw, checkerSlot);
     const rows = variableLocals.get(local.body) ?? [];
     rows.push({ id: local.local, declaration: { kind: "item", value: { owner: definitionOf(lowering, node.id), node: node.id } },
-      name: node.name.text, role: "binding", checkerSlot: checkerSlot.value,
+      name: node.name.text, role, checkerSlot: checkerSlot.value,
       capturedFrom: null, mutable });
     variableLocals.set(local.body, rows);
   }

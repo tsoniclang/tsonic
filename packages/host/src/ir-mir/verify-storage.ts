@@ -56,7 +56,8 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
       break;
     case "throw": operands.push(terminator.operand); break;
   }
-  if (terminator.unwind.kind === "handler") operands.push({ kind: "place", place: terminator.unwind.exception });
+  if (terminator.unwind.kind === "handler" && terminator.unwind.exception !== null)
+    operands.push({ kind: "place", place: terminator.unwind.exception });
   return operands;
 }
 
@@ -960,7 +961,7 @@ export function verifyValues(
       case "throw": operandType(terminator.operand, site); break;
     }
     if (terminator.kind !== "goto" && terminator.kind !== "switch" && terminator.kind !== "return" && terminator.kind !== "unreachable"
-      && terminator.unwind.kind === "handler") {
+      && terminator.unwind.kind === "handler" && terminator.unwind.exception !== null) {
       const storage = placeType(terminator.unwind.exception, site);
       if (storage !== null) {
         const selected = term(storage);

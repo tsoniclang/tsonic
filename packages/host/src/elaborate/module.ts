@@ -1,8 +1,8 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { BodyId, DefId } from "../ids/contract.js";
+import type { BodyId, DefId, TyId } from "../ids/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
-import type { CheckedPhase, EnumDeclaration, EnumMember, Expression, FunctionDeclaration, ParameterDeclaration, SourceFile, Statement, VariableDeclaration } from "../ir-hir/contract.js";
+import type { CheckedPhase, EnumDeclaration, EnumMember, Expression, FunctionDeclaration, HirLocal, Identifier, ParameterDeclaration, SourceFile, Statement, TypeNode, VariableDeclaration } from "../ir-hir/contract.js";
 import type { TirBody, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
 import { internType, typePublicationRefusalOf } from "../ir-types/index.js";
 import type { AttachFormalDefault, ElaborateDeps, ElaborationCause, ElaborationChild, ElaborationNoResult } from "./contract.js";
@@ -102,9 +102,28 @@ export function elaborateVariable<State>(deps: ElaborateDeps<State>, node: Varia
     ?? defect("A variable without an annotation or initializer requires its actual inferred storage producer.");
   if (body !== null && body.completion !== storage)
     return defect("The completed initializer and actual variable storage disagree.");
-  return { kind: "ok", diagnostics: [], value: { ...node, name: name(node.name, storage), type: type.value, initializer,
+  return { kind: "ok", diagnostics: [], value: typedVariable(node, node.name, type.value, initializer, storage) };
+}
+
+export function elaborateCatchBinding<State>(deps: ElaborateDeps<State>, node: VariableDeclaration<CheckedPhase>,
+  local: HirLocal): Result<VariableDeclaration<TypedPhase>> {
+  if (node.name.kind !== "Identifier" || node.initializer !== null || node.tsonic.initializer !== null
+    || local.role !== "catch" || local.checkerSlot.kind !== "available")
+    return defect("An exception binding requires its actual checked local payload.");
+  const storage = local.checkerSlot.value;
+  const carrier = deps.typeOf(storage);
+  if (carrier.kind !== "intrinsic" || carrier.intrinsic !== "unknown")
+    return defect("An exception binding requires its selected intrinsic unknown carrier.");
+  const type = annotation(deps, node.type);
+  if (type.kind === "refused") return type;
+  return { kind: "ok", diagnostics: [], value: typedVariable(node, node.name, type.value, null, storage) };
+}
+
+function typedVariable(node: VariableDeclaration<CheckedPhase>, identifier: Identifier<CheckedPhase>, type: TypeNode<TypedPhase> | null,
+  initializer: Expression<TypedPhase> | null, storage: TyId): VariableDeclaration<TypedPhase> {
+  return { ...node, name: name(identifier, storage), type, initializer,
     exclamationToken: node.exclamationToken === null ? null : { ...node.exclamationToken, tsonic: null },
-    tsonic: { declaration: checked.declaration, storage, initializer: checked.initializer } } };
+    tsonic: { declaration: node.tsonic.declaration, storage, initializer: node.tsonic.initializer } };
 }
 
 function elaborateEnum<State>(deps: ElaborateDeps<State>, node: EnumDeclaration<CheckedPhase>, children: ReadonlyMap<BodyId, ElaborationChild>,

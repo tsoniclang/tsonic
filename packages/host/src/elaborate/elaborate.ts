@@ -11,7 +11,7 @@ import type { TirEnumResolution } from "../ir-tir/contract.js";
 import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
 import { artifactBindingsKey, optionalValueDomainOf, readType, rigidBindings } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput, ElaborateSelectedCall, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
-import { attachFormalDefault, elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
+import { attachFormalDefault, elaborateCatchBinding, elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
 import { declarationAlias, declarationInterface, declarationModifiers, declarationType } from "./declarations.js";
 
 const failure = (kind: string, what: string, origin: Origin | null): InvariantFailure =>
@@ -418,11 +418,15 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (local.role === "parameter" || local.role === "capture") continue;
     if (local.declaration.kind === "item" && deps.cuts.declaration(local.declaration.value.owner) !== null) continue;
     const declaration = deps.nodeOf(local.declaration);
-    if (local.role !== "binding" || local.declaration.kind !== "item" || declaration?.kind !== "VariableDeclaration"
+    if (local.role !== "binding" && local.role !== "catch" || local.declaration.kind !== "item" || declaration?.kind !== "VariableDeclaration"
       || declaration.id !== local.declaration.value.node || declaration.tsonic.declaration.kind !== "local"
       || declaration.tsonic.declaration.local.body !== body.body || !Object.is(declaration.tsonic.declaration.local.local, local.id))
       return notElaboratedYet("the actual checked declaration of a non-parameter local", rootOrigin);
-    const selected = elaborateVariable(deps, declaration, children, local.declaration.value.owner);
+    const parent = local.role === "catch" && declaration.parent !== null ? nodes[nodePosition(declaration.parent)] : undefined;
+    if (local.role === "catch" && (parent?.kind !== "CatchClause" || parent.variableDeclaration !== declaration))
+      return callerDefect("a typed handler binding must retain its actual checked declaration", declaration.origin);
+    const selected = local.role === "catch" ? elaborateCatchBinding(deps, declaration, local)
+      : elaborateVariable(deps, declaration, children, local.declaration.value.owner);
     if (selected.kind === "refused") return selected;
     storageOf[local.id] = selected.value.tsonic.storage;
     variablesByNode.set(declaration.id, selected.value);
@@ -472,6 +476,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
 
   const block = (node: Block<CheckedPhase>): Block<TypedPhase> => ({ ...header(node), kind: "Block", multiLine: node.multiLine, tsonic: null,
     statements: { loc: node.statements.loc, nodes: node.statements.nodes.map(statementOf) } });
+  const blockOf = (node: Block<CheckedPhase>): Block<TypedPhase> => {
+    const result = statementOf(node);
+    return result.kind === "Block" ? result : callerDefect("a protected block must retain its actual typed block", node.origin);
+  };
 
   const binaryRoles: (TypedBinary["role"] | undefined)[] = [];
   type ShortCircuitOperator = NonNullable<ReturnType<typeof shortCircuitOperatorOf>>;
@@ -752,6 +760,23 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         if (building) statements[position] = block(node);
         else visitList(node.statements.nodes, node.origin);
         return;
+      case "TryStatement": {
+        const handler = node.catchClause;
+        if (building) {
+          const variable = handler?.variableDeclaration ?? null;
+          const binding = variable === null ? null : requirePresent(variablesByNode.get(variable.id),
+            failure("compiler defect", "a handler binding without its actual local declaration", variable.origin));
+          statements[position] = { ...header(node), kind: node.kind, tryBlock: blockOf(node.tryBlock),
+            catchClause: handler === null ? null : { ...header(handler), kind: handler.kind, variableDeclaration: binding,
+              block: blockOf(handler.block), tsonic: null },
+            finallyBlock: node.finallyBlock === null ? null : blockOf(node.finallyBlock), tsonic: null };
+        } else {
+          if (node.finallyBlock !== null) visit(node.finallyBlock);
+          if (handler !== null) visit(handler.block);
+          visit(node.tryBlock);
+        }
+        return;
+      }
       case "ReturnStatement": {
         const value = node.expression;
         if (value === null) {

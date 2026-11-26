@@ -1,7 +1,7 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingScope, BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
-import type { CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirNode, HirParam, HirResolution, CheckedPhase } from "../ir-hir/contract.js";
+import type { CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirLocal, HirNode, HirParam, HirResolution, CheckedPhase } from "../ir-hir/contract.js";
 import type { CallConstraint, DefaultConstraint, FlowConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, OperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
@@ -113,6 +113,10 @@ export const constraintsOf: ConstraintsOf = (deps, group) => {
     const reference = deps.hirBody(local.body).locals[local.local]?.declaration;
     if (reference?.kind === "item" && deps.cuts.declaration(reference.value.owner) !== null) return;
     const binding = localBinding(deps, local);
+    if (binding.local.role === "catch") {
+      if (binding.local.checkerSlot.kind === "unavailable") collectOriginalFact(deps, binding.local.checkerSlot, originalDiagnostics);
+      return;
+    }
     const declared = binding.declaration.tsonic.declaredType;
     if (declared.kind === "unavailable" && declared.reason === "checker-error") {
       collectOriginalFact(deps, declared, originalDiagnostics);
@@ -428,6 +432,12 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
     case "CaseBlock": yield* node.clauses.nodes; return;
     case "CaseClause": yield node.expression; yield* node.statements.nodes; return;
     case "DefaultClause": yield* node.statements.nodes; return;
+    case "TryStatement":
+      yield node.tryBlock;
+      if (node.catchClause !== null) yield node.catchClause;
+      if (node.finallyBlock !== null) yield node.finallyBlock;
+      return;
+    case "CatchClause": yield node.block; return;
     case "WhileStatement": yield node.expression; yield node.statement; return;
     case "DoStatement": yield node.statement; yield node.expression; return;
     case "ForStatement": {
@@ -1059,7 +1069,11 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
   }
   const parameter = parametersOf(walk.generation.parameters, owner).get(reference.local);
   if (parameter !== undefined) return parameterType(walk.generation, owner, parameter);
-  const { definition, declaration } = localBinding(walk.generation.deps, reference);
+  const { definition, declaration, local } = localBinding(walk.generation.deps, reference);
+  if (local.role === "catch") {
+    if (local.checkerSlot.kind !== "available") return notInferredYet(PORT, "a handler without its actual checked payload carrier", node.origin);
+    return local.checkerSlot.value;
+  }
   const declared = declaration.tsonic.declaredType;
   if (declared.kind !== "available") return notInferredYet(PORT, "the actual declaration type availability of a local", node.origin);
   if (declared.value !== null) return declared.value;
@@ -1070,17 +1084,23 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
 }
 
 function localBinding(deps: InferenceInputs, reference: LocalRef): {
-  readonly definition: DefId; readonly declaration: Extract<HirNode, { readonly kind: "VariableDeclaration" }>;
+  readonly definition: DefId; readonly declaration: Extract<HirNode, { readonly kind: "VariableDeclaration" }>; readonly local: HirLocal;
 } {
   const local = deps.hirBody(reference.body).locals[reference.local];
-  if (local === undefined || !Object.is(local.id, reference.local) || local.role !== "binding" || local.declaration.kind !== "item")
+  if (local === undefined || !Object.is(local.id, reference.local) || local.role !== "binding" && local.role !== "catch"
+    || local.declaration.kind !== "item")
     return callerDefect(PORT, "a local binding read requires its actual qualified declaration inventory");
   const declaration = deps.itemOf(local.declaration.value.owner);
   if (declaration.kind !== "VariableDeclaration" || declaration.id !== local.declaration.value.node
     || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== reference.body
     || !Object.is(declaration.tsonic.declaration.local.local, reference.local))
     return callerDefect(PORT, "a local binding read retains its actual checked variable and selected local");
-  return { definition: local.declaration.value.owner, declaration };
+  if (local.role === "catch") {
+    const parent = declaration.parent === null ? null : deps.checkedNodeOf({ kind: "body", value: { body: reference.body, node: declaration.parent } });
+    if (parent?.kind !== "CatchClause" || parent.variableDeclaration !== declaration)
+      return callerDefect(PORT, "a handler binding must name its actual checked catch declaration");
+  }
+  return { definition: local.declaration.value.owner, declaration, local };
 }
 
 function parametersOf(cache: ParameterIndex, owner: HirBody): ReadonlyMap<LocalId, ParameterPosition> {

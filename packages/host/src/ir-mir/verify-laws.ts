@@ -418,7 +418,8 @@ export function verifyLaws(
     if (sets === undefined) arriving[target] = [facts]; else sets.push(facts);
   };
   /** What a failure or suspension-return edge carries: nothing, if the value it delivers is written into a local a stable place depends on. */
-  const carried = (now: StableSet, place: PlaceId, block: BlockId): StableSet => {
+  const carried = (now: StableSet, place: PlaceId | null, block: BlockId): StableSet => {
+    if (place === null) return now;
     if (read(checkedAbove, place, -1) >= 0) reportAt("checked-place-destination", block, null);
     const root = rootOf(place);
     return root !== null && stableLocals[root] === stableNow ? nothing : now;

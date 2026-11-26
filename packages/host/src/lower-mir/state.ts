@@ -139,6 +139,16 @@ export function enterBlock(state: LowerState, block: BlockId): void {
   state.current = selected;
 }
 
+export function buildDetachedBlock(state: LowerState, block: BlockId, build: () => boolean): boolean {
+  const current = state.current;
+  state.current = null;
+  enterBlock(state, block);
+  if (!build()) return false;
+  if (state.current !== null) return throwInvariant(invariant("a detached block must be terminated before resuming its source"));
+  state.current = current;
+  return true;
+}
+
 /** Adds a statement to the open block. False when the lowering is refused: nothing was added. */
 export function emitStatement(state: LowerState, statement: MirStatement): boolean {
   if (state.refused) return false;

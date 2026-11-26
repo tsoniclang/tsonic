@@ -259,7 +259,7 @@ export function createBodyWire(): Wire<MirBody> {
   });
 
   const handlerUnwind = record<MirUnwind & { readonly kind: "handler" }>("handler", () =>
-    field("exception", () => placeWire, value => value.exception, exception =>
+    field("exception", () => nullable(() => placeWire), value => value.exception, exception =>
       field("target", () => blockWire, value => value.target, target => finish(() => ({ kind: "handler", exception, target })))));
 
   const escapeUnwind = record<MirUnwind & { readonly kind: "escape" }>("escape", () => finish(() => ({ kind: "escape" })));

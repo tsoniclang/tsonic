@@ -2586,9 +2586,15 @@ test("a thrown scalar is caught by its actual caller handler or yields exactly o
   const site = child.body.blocks[0].terminator;
   const childBody = { ...child.body, blocks: [{ ...child.body.blocks[0], terminator: { ...site, kind: "throw",
     operand: site.value, unwind: { kind: "escape" } } }] };
-  for (const failure of [{ kind: "handler", exception: 0, target: 1 }, { kind: "escape" }, { kind: "abort" }, { kind: "none" }]) {
-    const body = { ...bridge.body, blocks: bridge.body.blocks.map(block => block.id === 0
-      ? { ...block, terminator: { ...block.terminator, unwind: failure } } : block) };
+  for (const failure of [{ kind: "handler", exception: 0, target: 1 }, { kind: "handler", exception: null, target: 1 },
+    { kind: "escape" }, { kind: "abort" }, { kind: "none" }]) {
+    const discard = failure.kind === "handler" && failure.exception === null;
+    const constant = bridge.body.constants.length;
+    const constants = discard ? [...bridge.body.constants, { id: constant, type: T.bool,
+      value: { kind: "literal", value: { kind: "boolean", value: false } } }] : bridge.body.constants;
+    const body = { ...bridge.body, constants, blocks: bridge.body.blocks.map(block => block.id === 0
+      ? { ...block, terminator: { ...block.terminator, unwind: failure } }
+      : discard ? { ...block, terminator: { ...block.terminator, value: { kind: "constant", constant } } } : block) };
     const paused = product.evaluate(bridge.deps, bridge.entry, body, [], "compile-time", bridge.unit);
     assert.equal(paused.kind, "paused");
     if (failure.kind === "none") {
@@ -2599,7 +2605,8 @@ test("a thrown scalar is caught by its actual caller handler or yields exactly o
     assert.equal(result.kind, "done");
     assert.equal(result.value.kind, "ok");
     if (failure.kind === "handler") {
-      same(result.value.value, { kind: "value", value: { kind: "boolean", type: T.bool, value: true } }, "the same thrown value reaches the real handler cell");
+      same(result.value.value, { kind: "value", value: { kind: "boolean", type: T.bool, value: !discard } },
+        discard ? "an unbound handler follows its own return without a payload destination" : "the same thrown value reaches the real handler cell");
       same(result.value.diagnostics, [], "a caught throw is ordinary execution");
     } else {
       assert.equal(result.value.value.value.kind, "error");

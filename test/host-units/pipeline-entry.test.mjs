@@ -3370,6 +3370,70 @@ test("real public Host analysis preserves every repeated callee occurrence acros
   assert.deepEqual(caller.facts.map(facts => facts.execution.provided), [1]);
 });
 
+test("an authored unbound handler catches the actual call and ends only the exited lexical storage", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const result = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", `
+    function fail(value: boolean): void { throw value; }
+    export function recover(flag: boolean): boolean {
+      try {
+        let carried: boolean = flag;
+        if (flag) fail(carried);
+        return false;
+      } catch { return true; }
+    }
+    export function nested(value: boolean): boolean {
+      try { try { throw value; } catch { throw false; } }
+      catch { return true; }
+    }
+    export function propagate(value: string): string {
+      try { throw value; } catch (error) { throw error; }
+    }`));
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const selected = name => modules.flatMap(chapter => chapter.bodies).find(row => row.kind === "selected"
+    && row.instance.body.includes(`;${name}];function;0]`));
+  const recover = selected("recover");
+  const nested = selected("nested");
+  const fail = selected("fail");
+  assert.ok(recover && nested && fail);
+  const summaryOf = row => index.summaries.find(summary => summary.key.execution.instance.body === row.instance.body);
+  assert.deepEqual([recover, nested, fail].map(row => [summaryOf(row).returns, summaryOf(row).unwinds]),
+    [[true, false], [true, false], [false, true]]);
+  assert.equal(recover.mir.locals.some(local => local.role.kind === "exception"), false);
+  const calls = recover.mir.blocks.filter(block => block.terminator.kind === "call");
+  assert.equal(calls.length, 2);
+  const lexical = recover.mir.locals.find(local => local.role.kind === "user");
+  for (const { terminator } of calls) {
+    assert.equal(terminator.unwind.kind, "handler");
+    assert.equal(terminator.unwind.exception, null);
+    const landing = recover.mir.blocks[terminator.unwind.target];
+    assert.deepEqual(landing.statements.map(statement => [statement.kind, statement.local]), [["storage-dead", lexical.id]]);
+    assert.equal(landing.terminator.kind, "goto");
+  }
+  const throws = nested.mir.blocks.filter(block => block.terminator.kind === "throw");
+  assert.equal(throws.length, 2);
+  assert.equal(new Set(throws.map(row => row.terminator.unwind.target)).size, 2, "a handler's throw targets its outer handler");
+  const propagate = selected("propagate");
+  const payload = propagate.tir.locals.find(local => local.role === "catch");
+  const exception = propagate.mir.locals.find(local => local.role.kind === "exception");
+  assert.deepEqual(exception.source, { body: propagate.tir.body, local: payload.id });
+  assert.deepEqual(index.types.terms[exception.storage], { kind: "intrinsic", intrinsic: "unknown" });
+  const propagation = propagate.mir.blocks.filter(block => block.terminator.kind === "throw").map(block => block.terminator);
+  const [caught, escaping] = propagation;
+  assert.equal(caught.unwind.kind, "handler");
+  assert.equal(propagate.mir.places[caught.unwind.exception].base.local, exception.id);
+  assert.deepEqual(escaping.operand, { kind: "place", place: caught.unwind.exception });
+  assert.equal(escaping.unwind.kind, "escape");
+  const summary = summaryOf(propagate);
+  assert.equal(summary.unwinds, true);
+  assert.equal(summary.thrown, summary.arena.contexts[0].arguments[0].origins);
+  const uninitialized = analyzeHostProgram(analysisInput(fixture, "sdk-minimal",
+    "export function recover(): boolean { try { let value: boolean; throw value; } catch { return true; } }"));
+  assert.equal(uninitialized.kind, "refused");
+  assert.deepEqual(uninitialized.diagnostics.map(row => row.code.name), ["TSONIC_READ_BEFORE_INITIALIZATION"]);
+});
+
 test("public argument calls execute left to right and never enter later operands after a throw", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

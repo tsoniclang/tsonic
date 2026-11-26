@@ -1,13 +1,13 @@
 import type { BlockId, ConstId, PlaceId, TyId } from "../ids/contract.js";
 import type { CaseClause, DefaultClause } from "../ir-hir/contract.js";
-import type { BinaryExpression, BreakStatement, ConditionalExpression, ContinueStatement, DoStatement, ForStatement, IfStatement, LabeledStatement, NodeHeader, SwitchStatement, WhileStatement } from "../ir-hir/contract.js";
+import type { BinaryExpression, BreakStatement, ConditionalExpression, ContinueStatement, DoStatement, ForStatement, IfStatement, LabeledStatement, NodeHeader, SwitchStatement, TryStatement, WhileStatement } from "../ir-hir/contract.js";
 import type { MirOperand, MirStatement } from "../ir-mir/contract.js";
 import type { TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import { rawValueTypeOf as rawType } from "../ir-tir/index.js";
 import type { ConditionalDestination, ControlScope, Discard, Evaluated, LoopContinuation, Lowering, SwitchDispatch, SwitchTarget, Work } from "./model.js";
 import { callerDefect, executingValue, failure, notLoweredYet, siteOf } from "./model.js";
 import { held, observePendingRead, popOperand, pushOperand, readPlace, saveRead, temporary } from "./operands.js";
-import { leaveLocalScopes, prepareCaseLocals } from "./bindings.js";
+import { beginLocalScope, declareCatchLocal, endLocalScope, leaveLocalScopes, prepareCaseLocals } from "./bindings.js";
 import { constantOperand, emitBeforeTerminator, emitStatement, enterBlock, newBlock, terminate } from "./state.js";
 
 export function enterConditional(lowering: Lowering, node: ConditionalExpression<TypedPhase>): boolean {
@@ -258,6 +258,52 @@ export function endElse(lowering: Lowering, pending: Extract<Work, { readonly ki
     if (exit === null) exit = newBlock(lowering.state, siteOf(lowering.body, pending.node));
     if (exit === null) return false;
     terminate(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "goto", target: exit });
+  }
+  if (exit !== null) enterBlock(lowering.state, exit);
+  return true;
+}
+
+export function enterProtected(lowering: Lowering, node: TryStatement<TypedPhase>): boolean {
+  const handler = node.catchClause;
+  if (node.finallyBlock !== null) return notLoweredYet("an authored finally cleanup", node.origin);
+  if (handler === null) return callerDefect("a protected block requires its selected handler or cleanup", node.origin);
+  const variable = handler.variableDeclaration;
+  const payloadScope = variable === null ? null : beginLocalScope(lowering);
+  const exception = variable === null || payloadScope === null ? null : declareCatchLocal(lowering, payloadScope, variable);
+  if (variable !== null && exception === null) return false;
+  const scope = { block: handler.block, locals: lowering.scope, entry: null, payloadScope, exception };
+  lowering.work.push({ kind: "protected-end", node, handler: scope, outer: lowering.handler },
+    { kind: "statement", node: node.tryBlock });
+  lowering.handler = scope;
+  return true;
+}
+
+export function endProtected(lowering: Lowering, pending: Extract<Work, { readonly kind: "protected-end" }>): boolean {
+  const { state, body } = lowering;
+  const { handler, node } = pending;
+  lowering.handler = pending.outer;
+  if (handler.entry === null) return handler.payloadScope === null || endLocalScope(lowering, node, handler.payloadScope);
+  const site = siteOf(body, node);
+  let exit: BlockId | null = null;
+  if (state.current !== null) {
+    if (handler.payloadScope !== null && !leaveLocalScopes(lowering, handler.payloadScope.parent, node)) return false;
+    exit = newBlock(state, site);
+    if (exit === null) return false;
+    terminate(state, { ...site, kind: "goto", target: exit });
+  }
+  enterBlock(state, handler.entry);
+  lowering.work.push({ kind: "handler-end", node, exit, payloadScope: handler.payloadScope }, { kind: "statement", node: handler.block });
+  return true;
+}
+
+export function endHandler(lowering: Lowering, pending: Extract<Work, { readonly kind: "handler-end" }>): boolean {
+  if (pending.payloadScope !== null && !endLocalScope(lowering, pending.node, pending.payloadScope)) return false;
+  let exit = pending.exit;
+  if (lowering.state.current !== null) {
+    const site = siteOf(lowering.body, pending.node);
+    exit ??= newBlock(lowering.state, site);
+    if (exit === null) return false;
+    terminate(lowering.state, { ...site, kind: "goto", target: exit });
   }
   if (exit !== null) enterBlock(lowering.state, exit);
   return true;

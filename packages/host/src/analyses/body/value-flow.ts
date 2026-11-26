@@ -110,7 +110,7 @@ export function applyExitContents(deps: BodyRoundDeps,
     locals.push(local);
   }
   if (destination !== null) {
-    const value = appliedOrigins(deps, values, application.result, admit, readBoundary);
+    const value = appliedOrigins(deps, values, kind === "return" ? application.result : application.thrown, admit, readBoundary);
     if (typeof value !== "number") return value;
     const stored = store(destination.local, value);
     if (stored !== null) return stored;
@@ -284,6 +284,20 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
       };
       if (terminator.kind === "goto") edge(terminator.target, state);
       else if (terminator.kind === "invoke") edge(terminator.next, state);
+      else if (terminator.kind === "throw" && terminator.unwind.kind === "handler") {
+        const { exception, target } = terminator.unwind;
+        if (exception === null) edge(target, state);
+        else {
+          if (chargeWork(account, state.origins.length + 1) !== null
+            || chargeResultEntries(account, state.origins.length + 2) !== null) return outgoing;
+          const local = rootSlot(input.mir, exception, statics);
+          const written = [...state.origins];
+          written[local] = operandOrigins(input, constants, state.origins, terminator.operand, statics, fields);
+          const contents = tracked.has(local) ? currentContent(deps, state.contents, local, true) : null;
+          if (contents !== null && contents.kind !== "complete") return outgoing;
+          edge(target, { origins: written, contents: contents?.value ?? state.contents });
+        }
+      }
       else if (terminator.kind === "switch") {
         for (const target of terminator.targets) if (!edge(target.target, state)) return outgoing;
         edge(terminator.otherwise, state);
@@ -292,23 +306,42 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         const selected = selectedCallAt(calls, block);
         if (isLeastCall(selected)) return outgoing;
         if (isCallError(selected)) return bodyFrontier("A solved value call retains its already-completed semantic answer.");
-        if (!selected.returns) return outgoing;
+        const unwind = selected.unwinds && terminator.unwind.kind === "handler" ? terminator.unwind : null;
+        if (!selected.returns && unwind === null) return outgoing;
         const destination = terminator.destination === null ? null : rootSlot(input.mir, terminator.destination, statics);
         const result = callValueEffects(deps, input, terminator, { block, statement: null }, selected,
           arena, state.origins, constants, terminator.callee.kind !== "body" ? [] : requirePresent(captures.get(block), { owner: "analyses/body", query: null,
             origin: terminator.origin, message: "A selected body call retains its actual slot-location inventory." }), staticCallees, objectValues);
         if (result.kind !== "complete") return outgoing;
         if (result.value.kind === "applied") {
-          const descriptor = chargeResultEntries(account, destination === null ? 0 : 1);
-          if (descriptor !== null) return outgoing;
+          const returned = selected.returns && destination !== null ? chargeResultEntries(account, 1) : null;
+          if (returned !== null) return outgoing;
           const boundary = transport?.forCall(terminator, selected) ?? noCallBoundary;
           if (typeof boundary !== "function") return outgoing;
-          const applied = applyExitContents(deps, terminator, result.value.value, cellSlots, "return", state, values, admit,
-            destination === null ? null : { local: destination, tracked: tracked.has(destination) }, boundary);
-          if (applied.kind !== "complete") return outgoing;
-          edge(terminator.next, applied.value);
+          if (selected.returns) {
+            const applied = applyExitContents(deps, terminator, result.value.value, cellSlots, "return", state, values, admit,
+              destination === null ? null : { local: destination, tracked: tracked.has(destination) }, boundary);
+            if (applied.kind !== "complete" || !edge(terminator.next, applied.value)) return outgoing;
+          }
+          if (unwind !== null) {
+            const descriptor = chargeResultEntries(account, unwind.exception === null ? 0 : 1);
+            if (descriptor !== null) return outgoing;
+            const exception = unwind.exception === null ? null : rootSlot(input.mir, unwind.exception, statics);
+            const applied = applyExitContents(deps, terminator, result.value.value, cellSlots, "unwind", state, values, admit,
+              exception === null ? null : { local: exception, tracked: tracked.has(exception) }, boundary);
+            if (applied.kind !== "complete") return outgoing;
+            edge(unwind.target, applied.value);
+          }
           return outgoing;
         }
+        if (unwind !== null) {
+          const locals = requirePresent(result.value.unwound ?? undefined, { owner: "analyses/body", query: null, origin: terminator.origin,
+            message: "A primitive handled call retains its actual unwind contents." });
+          const contents = mergeContents(deps, state.contents, locals, null);
+          if (contents.kind !== "complete" || chargeResultEntries(account, 1) !== null
+            || !edge(unwind.target, { origins: state.origins, contents: contents.value })) return outgoing;
+        }
+        if (!selected.returns) return outgoing;
         let next = state;
         let writtenLocal: number | null = null;
         if (destination !== null) {

@@ -206,7 +206,7 @@ export type MirStatement = MirSite & (
 // decision of its checked place says, with `abort` or with `handler` or `escape`, and never with `none`. A `call`,
 // `await`, `yield`, `delegate` and `throw` unwind.
 export type MirUnwind =
-  | { readonly kind: "handler"; readonly exception: PlaceId; readonly target: BlockId }
+  | { readonly kind: "handler"; readonly exception: PlaceId | null; readonly target: BlockId }
   | { readonly kind: "escape" }
   | { readonly kind: "abort" }
   | { readonly kind: "none" };

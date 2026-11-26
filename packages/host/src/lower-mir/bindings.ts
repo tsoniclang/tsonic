@@ -1,14 +1,14 @@
 import { requirePresent } from "../diag/index.js";
 import type { BodyId, LocalId, LocalRef, PlaceId, TyId } from "../ids/contract.js";
 import type { Block, CaseBlock, NodeHeader, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
-import type { MirClosureCapture } from "../ir-mir/contract.js";
+import type { MirClosureCapture, MirUnwind } from "../ir-mir/contract.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
 import { layoutBindingOf } from "../ir-tir/index.js";
 import type { InternalBodyInput } from "./contract.js";
 import type { LocalScope, Lowering, Work } from "./model.js";
 import { callerDefect, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
 import { exposeLocal, saveBeforeControl } from "./operands.js";
-import { constantOperand, emitStatement, enterBlock, newBlock, newLocal, placeOfLocal, placeOfStatic, terminate } from "./state.js";
+import { buildDetachedBlock, constantOperand, emitStatement, enterBlock, newBlock, newLocal, placeOfLocal, placeOfStatic, terminate } from "./state.js";
 
 export function beginLocalScope(lowering: Lowering): LocalScope {
   const scope: LocalScope = { kind: "block", parent: lowering.scope, locals: [] };
@@ -33,6 +33,28 @@ export function leaveLocalScopes(lowering: Lowering, target: LocalScope | null, 
     }
   }
   return true;
+}
+
+export function unwindToHandler(lowering: Lowering, node: NodeHeader): MirUnwind | null {
+  const handler = lowering.handler;
+  if (handler === null) return { kind: "escape" };
+  const state = lowering.state;
+  const target = handler.entry ?? newBlock(state, siteOf(lowering.body, handler.block));
+  if (target === null) return null;
+  handler.entry = target;
+  for (let scope = lowering.scope; scope !== handler.locals; scope = scope.parent) {
+    if (scope === null) return callerDefect("an unwind leaves an unrelated lexical scope", node.origin);
+    if (scope.locals.length === 0) continue;
+    const site = siteOf(lowering.body, node);
+    const landing = newBlock(state, site);
+    if (landing === null || !buildDetachedBlock(state, landing, () => {
+      if (!leaveLocalScopes(lowering, handler.locals, node)) return false;
+      terminate(state, { ...site, kind: "goto", target });
+      return true;
+    })) return null;
+    return { kind: "handler", target: landing, exception: handler.exception };
+  }
+  return { kind: "handler", target, exception: handler.exception };
 }
 
 export function endLocalScope(lowering: Lowering, node: NodeHeader, scope: LocalScope): boolean {
@@ -61,25 +83,34 @@ export function nextDeclaration(lowering: Lowering, pending: Extract<Work, { rea
   return true;
 }
 
-function localBinding(lowering: Lowering, node: VariableDeclaration<TypedPhase>): LocalRef {
+function localBinding(lowering: Lowering, node: VariableDeclaration<TypedPhase>, role: "binding" | "catch"): LocalRef {
   const selected = node.tsonic;
   if (node.name.kind !== "Identifier") return notLoweredYet("a destructuring variable declaration", node.origin);
   if (selected.declaration.kind !== "local") return notLoweredYet(`a variable declaration of kind ${selected.declaration.kind}`, node.origin);
   const source = selected.declaration.local;
   const actual = lowering.body.locals[source.local];
-  if (source.body !== lowering.body.body || actual === undefined || actual.id !== source.local || actual.role !== "binding" || actual.storage !== selected.storage)
+  if (source.body !== lowering.body.body || actual === undefined || actual.id !== source.local || actual.role !== role || actual.storage !== selected.storage)
     return callerDefect("a variable declaration differs from its selected local storage", node.origin);
   return source;
 }
 
-function startLexicalLocal(lowering: Lowering, scope: LocalScope, node: VariableDeclaration<TypedPhase>, source: LocalRef): LocalId | null {
+function startLexicalLocal(lowering: Lowering, scope: LocalScope, node: VariableDeclaration<TypedPhase>,
+  source: LocalRef, kind: "user" | "exception"): LocalId | null {
   if (lowering.localOf.has(source.local)) return callerDefect("a local storage slot is declared twice", node.origin);
-  const local = newLocal(lowering.state, node.tsonic.storage, { kind: "user" }, "local", source, node.origin);
+  const local = newLocal(lowering.state, node.tsonic.storage, { kind }, "local", source, node.origin);
   if (local === null) return null;
   if (!emitStatement(lowering.state, { ...siteOf(lowering.body, node), kind: "storage-live", local })) return null;
   lowering.localOf.set(source.local, local);
   scope.locals.push(local);
   return local;
+}
+
+export function declareCatchLocal(lowering: Lowering, scope: LocalScope, node: VariableDeclaration<TypedPhase>): PlaceId | null {
+  const type = lowering.typeOf(node.tsonic.storage);
+  if (type.kind !== "intrinsic" || type.intrinsic !== "unknown")
+    return callerDefect("an exception destination retains its actual selected unknown storage", node.origin);
+  const local = startLexicalLocal(lowering, scope, node, localBinding(lowering, node, "catch"), "exception");
+  return local === null ? null : placeOfLocal(lowering.state, local);
 }
 
 export function prepareCaseLocals(lowering: Lowering, block: CaseBlock<TypedPhase>): boolean {
@@ -94,7 +125,7 @@ export function prepareCaseLocals(lowering: Lowering, block: CaseBlock<TypedPhas
     scope ??= { kind: "case", parent: lowering.scope, locals: [] };
     for (const declaration of list.declarations.nodes)
       if (layoutBindingOf(declaration.initializer) === null &&
-        startLexicalLocal(lowering, scope, declaration, localBinding(lowering, declaration)) === null) return false;
+        startLexicalLocal(lowering, scope, declaration, localBinding(lowering, declaration, "binding"), "user") === null) return false;
   }
   if (scope !== null) lowering.scope = scope;
   return true;
@@ -109,7 +140,7 @@ export function prepareFunctionLocals(lowering: Lowering): boolean {
       for (const declaration of node.declarations.nodes) {
         if (declaration.kind !== "VariableDeclaration") return callerDefect("a missing variable declaration", declaration.origin);
         if (layoutBindingOf(declaration.initializer) !== null) continue;
-        const source = localBinding(lowering, declaration);
+        const source = localBinding(lowering, declaration, "binding");
         if (lowering.localOf.has(source.local)) continue;
         const local = newLocal(lowering.state, declaration.tsonic.storage, { kind: "user" }, "local", source, declaration.origin);
         if (local === null) return false;
@@ -177,14 +208,14 @@ export function declareLocal(lowering: Lowering, node: VariableDeclaration<Typed
     }
     return initializePlace(lowering, node, destination, selected.storage, selected.initializer);
   }
-  const source = localBinding(lowering, node);
+  const source = localBinding(lowering, node, "binding");
   let local = lowering.localOf.get(source.local);
   if (lexical) {
     const scope = requirePresent(lowering.scope ?? undefined, failure("a lexical declaration has no enclosing scope", node.origin));
     if (scope.kind === "case") {
       if (local === undefined) return callerDefect("a case declaration has no live shared lexical slot", node.origin);
     } else {
-      const allocated = startLexicalLocal(lowering, scope, node, source);
+      const allocated = startLexicalLocal(lowering, scope, node, source, "user");
       if (allocated === null) return false;
       local = allocated;
     }
@@ -225,8 +256,10 @@ function initializePlace(lowering: Lowering, node: NodeHeader, destination: Plac
   if (!saveBeforeControl(lowering, true, true)) return false;
   const next = newBlock(lowering.state, site);
   if (next === null) return false;
+  const unwind = unwindToHandler(lowering, node);
+  if (unwind === null) return false;
   terminate(lowering.state, { ...site, kind: "call", callee: { kind: "body", instance: input.instance, captures },
-    receiver: null, arguments: [], destination, next, unwind: { kind: "escape" }, step: null });
+    receiver: null, arguments: [], destination, next, unwind, step: null });
   enterBlock(lowering.state, next);
   return true;
 }

@@ -167,9 +167,11 @@ function unwind(machine: Machine, value: ConstValue, failure: MirUnwind, site: M
     if (failure.kind === "abort") { evaluationFault(machine, site.origin, "A process-ending failure occurred during constant evaluation."); return; }
     if (failure.kind === "handler") {
       const frame = current(machine);
-      const local = localPlace(machine, failure.exception, site);
-      if (local === null) return;
-      store(machine, local, value);
+      if (failure.exception !== null) {
+        const local = localPlace(machine, failure.exception, site);
+        if (local === null) return;
+        store(machine, local, value);
+      }
       frame.work.length = 0;
       frame.values = [];
       frame.block = failure.target;

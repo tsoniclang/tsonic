@@ -130,7 +130,18 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       capturesChecked += 1;
     } else if (localOwnershipOfMir(local.mode) !== "body")
       return bodyFrontier("BodyAnalysis requires the actual caller-cell binding of this external storage mode.");
-    let kind = fieldReads?.references.has(local.id) === true ? "reference" : valueKind(deps, local.storage);
+    let kind: ReturnType<typeof valueKind>;
+    if (local.role.kind === "exception") {
+      const admit = chargeWork(account, 2);
+      if (admit !== null) return admit;
+      const selected = local.source?.body === tir.body ? tir.locals[local.source.local] : undefined;
+      const type = deps.typeOf(local.storage);
+      const stopped = accountFailure(account);
+      if (stopped !== null) return stopped;
+      if (selected?.role !== "catch" || selected.storage !== local.storage || type.kind !== "intrinsic" || type.intrinsic !== "unknown")
+        return bodyFrontier("A caught payload retains its actual typed exception binding and selected storage.");
+      kind = "reference";
+    } else kind = fieldReads?.references.has(local.id) === true ? "reference" : valueKind(deps, local.storage);
     const afterKind = accountFailure(account);
     if (afterKind !== null) return afterKind;
     if (kind === null && local.source !== null && (local.role.kind === "capture" ||
@@ -846,6 +857,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const value = appliedOrigins(deps, values.value, applied.value.thrown, admitUnion, boundary);
         if (typeof value !== "number") return value;
         callThrown = value;
+      }
+      if (summary.unwinds && terminator.unwind.kind === "escape") {
         const joined = joinOrigins(deps, values.value, thrownOrigins, callThrown, admitUnion);
         if (typeof joined !== "number") return joined;
         thrownOrigins = joined;
@@ -946,7 +959,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         operation: "initialization", destination: "binding", targets: [], owner: null,
         values: [{ source: terminator.tir, origins: empty, reason: null }], boundaries: [] });
     }
-    if (flow !== null && (terminator.kind === "return" || terminator.kind === "throw")) {
+    const escapesThrow = terminator.kind === "throw" && terminator.unwind.kind === "escape";
+    if (flow !== null && (terminator.kind === "return" || escapesThrow)) {
       const state = flow.value.exit[block.id];
       const origins = requirePresent(state?.origins, { owner: "analyses/body", query: null, origin: terminator.origin,
         message: "An actual finite exit retains its solved current cell values." });
@@ -970,7 +984,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           { kind: "return" }, origins, arena, escapes, retention, copiedEntries);
         if (retained !== null) return retained;
       }
-    } else if (terminator.kind === "throw") {
+    } else if (escapesThrow) {
       const state = cellMustAtExit(deps, boundarySlots, assigned.written, unwindAssigned);
       if (state.kind !== "complete") return state;
       unwindAssigned = state.value;

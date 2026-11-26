@@ -215,7 +215,7 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
     return frontier(operation, "A placed initializer retains its actual selected destination storage and result type.");
   if (selected.suspends)
     return frontier(operation, "BodyAnalysis requires the actual suspension transport of this selected callee.");
-  if (selected.unwinds && operation.unwind.kind !== "escape")
+  if (selected.unwinds && operation.unwind.kind !== "escape" && operation.unwind.kind !== "handler")
     return frontier(operation, "BodyAnalysis requires the actual selected callee failure continuation and its handled state transport.");
   return { kind: "complete", value: selected };
 }
@@ -326,7 +326,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
 }
 
 export type CallValueEffects =
-  | { readonly kind: "primitive"; readonly contents: readonly number[] }
+  | { readonly kind: "primitive"; readonly contents: readonly number[]; readonly unwound: readonly number[] | null }
   | { readonly kind: "applied"; readonly value: AppliedSummary };
 
 export function callCellIndex(summary: Summary, source: number, captures: readonly CallCaptureTransport[],
@@ -383,13 +383,19 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     if (kind === null) return frontier(operation, "BodyAnalysis requires the actual selected call-result representation and Origins producer.");
     usePrimitiveContents = kind !== "reference" && kind !== "primitive-optional" && kind !== "reference-optional";
   }
-  if (usePrimitiveContents) {
+  const unwind = operation.unwind;
+  const handled = summary.unwinds && unwind.kind === "handler";
+  if (usePrimitiveContents && (!handled || unwind.exception === null)) {
     const contents = primitiveExitLocals(deps, input, operation, summary, "return");
     if (contents.kind !== "complete") return contents;
     if (contents.value !== null) {
-      const output = chargeResultEntries(deps.account, 1);
-      if (output !== null) return output;
-      return { kind: "complete", value: { kind: "primitive", contents: contents.value } };
+      const unwound = handled ? primitiveExitLocals(deps, input, operation, summary, "unwind") : null;
+      if (unwound !== null && unwound.kind !== "complete") return unwound;
+      if (unwound === null || unwound.value !== null) {
+        const output = chargeResultEntries(deps.account, 1);
+        if (output !== null) return output;
+        return { kind: "complete", value: { kind: "primitive", contents: contents.value, unwound: unwound?.value ?? null } };
+      }
     }
   }
   const provided = summary.key.execution.provided;

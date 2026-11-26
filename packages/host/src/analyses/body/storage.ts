@@ -162,7 +162,7 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
   switch (terminator.kind) {
     case "return": return terminator.value === null ? [] : [terminator.value];
     case "throw":
-      if (terminator.unwind.kind !== "escape")
+      if (terminator.unwind.kind !== "escape" && terminator.unwind.kind !== "handler")
         return bodyFrontier("BodyAnalysis requires the actual selected handler or process-ending throw transport.");
       return [terminator.operand];
     case "switch": return [terminator.operand];
@@ -372,6 +372,7 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
       if (terminator.kind === "call" || terminator.kind === "invoke") {
         if (state === null) return [];
         let next = state;
+        let failure: { readonly target: BlockId; readonly state: AssignedState } | null = null;
         if (terminator.kind === "invoke") {
           const destination = abortingPrimitiveDestination(deps, body, terminator);
           if (destination.kind !== "complete") return [];
@@ -397,7 +398,16 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
           if (isCallError(selected)) {
             next = taintUnwritten(state, selected, borrowed);
           } else {
-            if (!selected.returns) return [];
+            const unwind = terminator.unwind;
+            if (selected.unwinds && unwind.kind === "handler") {
+              const initialized = callExitAssigned(deps, body, terminator, selected, state.written, "unwind", staticSlot);
+              if (initialized.kind !== "complete") return [];
+              if (chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 2) !== null) return [];
+              const incoming = { written: initialized.value, taint: state.taint };
+              failure = { target: unwind.target, state: unwind.exception === null ? incoming
+                : assignDestination(body, unwind.exception, incoming, borrowed, statics, false) };
+            }
+            if (!selected.returns) return failure === null ? [] : [failure];
             const initialized = callExitAssigned(deps, body, terminator, selected, state.written, "return", staticSlot);
             if (initialized.kind !== "complete") return [];
             if (initialized.value !== state.written) {
@@ -408,7 +418,14 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
           if (terminator.destination !== null) next = assignDestination(body, terminator.destination, next, borrowed, statics, false);
         }
         if (chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 1) !== null) return [];
-        return [{ target: terminator.next, state: next }];
+        const normal = { target: terminator.next, state: next };
+        return failure === null ? [normal] : [normal, failure];
+      }
+      if (terminator.kind === "throw" && terminator.unwind.kind === "handler") {
+        if (state === null || chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 1) !== null) return [];
+        const unwind = terminator.unwind;
+        return [{ target: unwind.target, state: unwind.exception === null ? state
+          : assignDestination(body, unwind.exception, state, borrowed, statics, false) }];
       }
       const count = terminator.kind === "switch" ? terminator.targets.length + 1 : terminator.kind === "goto" ? 1 : 0;
       if (chargeWork(borrowed, count) !== null || chargeResultEntries(borrowed, count) !== null) return [];
