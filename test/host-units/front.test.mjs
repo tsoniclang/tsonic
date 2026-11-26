@@ -2236,7 +2236,8 @@ test("wrong-arity overload capture retains all actual declarations and the origi
   const expressionAndContext = 6 + 3 + 4 + 1;
   const signatureParameters = 3 * 2 + 2 * 2;
   const completedCallRead = 2;
-  const exact = authoredEdges + signatureResults + annotations + expressionAndContext + signatureParameters + completedCallRead;
+  const annotationLookups = 5;
+  const exact = authoredEdges + signatureResults + annotations + expressionAndContext + signatureParameters + completedCallRead + annotationLookups;
   const diagnostic = source.raw.checkerDiagnostics[original.index];
   for (let maximum = 0; maximum < exact; maximum += 1) {
     const stop = resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedEdgesPerModule", maximum,
@@ -2347,6 +2348,26 @@ test("original checker roots render through the public SDK and survive raw and c
   }
 });
 
+test("a raw capture batch borrows the sole diagnostic vector and preserves original reports in module order", () => {
+  const snapshot = projectSnapshot({ sourceFiles: {
+    "main.ts": "export const healthy: boolean = true;",
+    "first.ts": "export type First = MissingFirst;",
+    "second.ts": "export type Second = MissingSecond;",
+  }, libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }] });
+  const { deps, program } = openAndCapture(snapshot);
+  const first = moduleOf(packageOf("/project"), "src/first.ts");
+  const second = moduleOf(packageOf("/project"), "src/second.ts");
+  const single = front.captureModules(deps, program, [snapshot.entryPoint, first]);
+  assert.equal(single.kind, "ok");
+  assert.equal(single.diagnostics === single.value[1].checkerDiagnostics, true);
+  assert.equal(single.diagnostics.length, 1);
+  const multiple = front.captureModules(deps, program, [second, snapshot.entryPoint, first]);
+  assert.equal(multiple.kind, "ok");
+  assert.deepEqual(multiple.diagnostics.map(report => report.site.origin.module), [second, first]);
+  assert.equal(multiple.diagnostics[0] === multiple.value[0].checkerDiagnostics[0], true);
+  assert.equal(multiple.diagnostics[1] === multiple.value[2].checkerDiagnostics[0], true);
+});
+
 test("the public isError receipt precedes any classification, with missing actual component causes never replaced by ordinary any", async () => {
   const hir = await import("../../packages/host/dist/ir-hir/index.js");
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
@@ -2366,8 +2387,8 @@ test("the public isError receipt precedes any classification, with missing actua
     const component = result.value.types.components[row.component];
     return component.root.node === reference.typeName.id && component.path === null;
   });
-  assert.equal(rows.length > 0, true);
-  for (const row of rows) assert.deepEqual(row.form, { kind: "unavailable", reason: "missing-original-component", causes: [] });
+  assert.deepEqual(rows.map(row => row.id), []);
+  assert.equal(result.value.checkerViews.some(view => view.node.node === reference.typeName.id), false);
   const checked = OpenedProgram.checked(opened.program);
   const file = checked.getSourceFile("/project/src/main.ts");
   const nativeReference = OpenedProgram.syntax(opened.program).get("/project/src/main.ts").outcome.numbering.nodes[reference.typeName.id];
@@ -3182,6 +3203,34 @@ test("the identity inputs through the real producer: captureModule and lowerModu
   assert.equal(agreed, 41);
 });
 
+test("interface fragments keep their authored identities without assigning an interface recipe to a class facet", () => {
+  for (const [center, groupCount, form] of [
+    ["export class Shape { own: number = 0; }", 0, "structure"],
+    ["export declare const Shape: boolean;", 1, "merged-interface-dependency"],
+  ]) {
+    const snapshot = projectSnapshot({ sourceFiles: { "main.ts": `
+      export interface Shape { left: number; }
+      ${center}
+      export interface Shape { right: boolean; }
+      export type Chosen = Shape;
+    ` }, libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }] });
+    const { deps, program } = openAndCapture(snapshot);
+    const captured = captureSingleModule(front, deps, program, snapshot.entryPoint);
+    assert.equal(captured.kind, "ok");
+    assert.deepEqual(captured.diagnostics, []);
+    const raw = captured.value;
+    const [left, , right, chosen] = raw.tree.statements.nodes;
+    const definitions = identifySingleModule(front, { module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
+    assert.equal(definitions.kind, "ok");
+    assert.deepEqual(definitions.value.rows.filter(row => row.kind === "InterfaceDeclaration").map(row => row.node), [left.id, right.id]);
+    assert.equal(raw.types.interfaceGroups.length, groupCount);
+    if (groupCount !== 0) assert.deepEqual(raw.types.interfaceGroups[0].evidence.declarations,
+      [left, right].map(declaration => ({ module: raw.module, node: declaration.id })));
+    const resolved = raw.types.types.find(row => row.authoredTypeNode?.node === chosen.type.id);
+    assert.equal(resolved.form.value.kind, form);
+  }
+});
+
 // K-3297 item 3 and R2's V-1/V-2: capture limits before growth, one numbering of every file, cached on the opened program.
 // Expectations written before the run. add has 18 nodes and depth 6 (SourceFile, FunctionDeclaration, Block, ReturnStatement,
 // BinaryExpression, Identifier). Its facts: the signature with its two parameters (4 each), its result (2) and its row (1), the
@@ -3200,9 +3249,11 @@ test("capture limits: nodes, syntax depth, facts and edges are each refused at z
   const signatureEdges = 2 + 2 + 2 * 2;
   const nativeFacts = 2 + 2 + 2 + signatureFacts;
   const nativeEdges = 3 + 14 + 8 + 3 + 2 * 5 + 2 + signatureEdges;
+  const authoredAnnotations = 3;
+  const annotationFacts = authoredAnnotations + (1 + authoredAnnotations);
   for (const [name, limit, exact] of [["maximumCapturedNodesPerModule", "front.maximumCapturedNodesPerModule", 18], ["maximumSyntaxDepth", "front.maximumSyntaxDepth", 6],
-    ["maximumCapturedFactsPerModule", "front.maximumCapturedFactsPerModule", 47 + nativeFacts],
-    ["maximumCapturedEdgesPerModule", "front.maximumCapturedEdgesPerModule", 5 + nativeEdges]]) {
+    ["maximumCapturedFactsPerModule", "front.maximumCapturedFactsPerModule", 47 + nativeFacts + annotationFacts],
+    ["maximumCapturedEdgesPerModule", "front.maximumCapturedEdgesPerModule", 5 + nativeEdges + authoredAnnotations]]) {
     for (const value of [0, exact - 1]) assert.deepEqual(under(name, value), refusal(limit, value), `${name} = ${value}`);
     assert.equal(under(name, exact).kind, "ok", `${name} = ${exact}`);
   }
@@ -3324,7 +3375,9 @@ test("K-3341 many parameters: refused at zero and one under the fact count, acce
     return captureSingleModule(front, { ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule: value } }, program, module);
   };
   const effectiveParameters = 1 + 5 * 2;
-  const exact = 65 + 2 + effectiveParameters;
+  const authoredAnnotations = 6;
+  const annotationFacts = authoredAnnotations + (1 + authoredAnnotations);
+  const exact = 65 + 2 + effectiveParameters + annotationFacts;
   for (const value of [0, exact - 1]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
     limit: "front.maximumCapturedFactsPerModule", maximum: value, site: { kind: "file", path: "/project/src/main.ts" },
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);

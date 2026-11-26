@@ -140,14 +140,14 @@ test("an authored conditional keeps its native substitution under the exact true
   assert.equal(term.projection.kind, "substitution");
   assert.equal(actual.fixture.types.readType(types, term.source).kind, "param");
   assert.equal(actual.fixture.types.readType(types, term.projection.constraint).projection.kind, "keyof");
-  for (const replacement of [
-    { constraint: unrelated.form.value.constraint },
-    { base: unrelated.form.value.base },
-    { operator: unrelated.form.value.operator },
+  for (const [replacement, rule] of [
+    [{ constraint: unrelated.form.value.constraint }, /actual conditional and ordered checked operands/u],
+    [{ base: unrelated.form.value.base }, /actual conditional and ordered checked operands/u],
+    [{ operator: unrelated.form.value.operator }, /actual conditional branch occurrence/u],
   ]) {
     const crossed = structuredClone(actual.raw);
     Object.assign(crossed.types.types[owned.id].form.value, replacement);
-    rejects(actual, crossed, { kind: "type", id: owned.id }, /actual conditional and ordered checked operands/u);
+    rejects(actual, crossed, { kind: "type", id: owned.id }, rule);
   }
   const crossedTarget = structuredClone(actual.raw);
   const key = crossedTarget.types.types[owned.form.value.constraint].form.value;
@@ -357,10 +357,10 @@ test("captured callable boundary failures cannot become a signature or a partial
     [undefined, /callable inventory must name its captured signature/u],
     [{ ...signature, result: unavailable }, /unavailable callable result/u],
     [{ ...signature, parameters: [undefined] }, /captured parameter inventory must be dense/u],
-    [{ ...signature, typeParameters: unavailable }, /incomplete or receiver-bearing/u],
-    [{ ...signature, receiver: unavailable }, /incomplete or receiver-bearing/u],
+    [{ ...signature, typeParameters: unavailable }, /actual type-parameter and receiver answers/u],
+    [{ ...signature, receiver: unavailable }, /actual type-parameter and receiver answers/u],
     [{ ...signature, typeParameters: { kind: "available", value: [signature.parameters[0].type] } }, /actual captured parameter type/u],
-    [{ ...signature, receiver: { kind: "available", value: signature.parameters[0] } }, /incomplete or receiver-bearing/u],
+    [{ ...signature, receiver: { kind: "available", value: signature.parameters[0] } }, /actual qualified signature component and authored declaration/u],
     [{ ...signature, composition: { kind: "union", signatures: [signature.id] } }, /composed callable signature/u],
     [{ ...signature, declaration: null }, /declarationless callable signature/u],
     [{ ...signature, parameters: [{ ...signature.parameters[0], declaration: null }] }, /declarationless callable parameter/u],

@@ -384,14 +384,51 @@ test("each actual bracketed result transports its tuple occurrence to the differ
 
 test("a named result alias is not a directly written bracketed result", async () => {
   const { checker, typeShape, arrays, selected, produce, capture } =
-    await resultProbe(bracketed("Alias<T>", "direct(): T[];") + "type Alias<V> = V[];");
+    await demandedResultProbe("Alias<T>", "direct(): T[];");
   const alias = checker.getReturnTypeOfSignature(produce);
   const direct = checker.getReturnTypeOfSignature(selected(arrays[0], "direct"));
   assert.equal(typeShape.isTypeIdenticalTo(alias.type, direct.type), true);
   assert.equal(typeShape.getTypeReferenceTarget(alias.type) === typeShape.getTypeReferenceTarget(direct.type), true);
-  assert.throws(() => capture({}),
-    /a tuple requires its actual authored, projected or inferred destructuring association/u);
+  const result = capture({});
+  assert.equal(result.kind, "ok");
+  const raw = result.value;
+  const [use] = raw.memberUses;
+  const [signature] = raw.types.members[raw.types.types[use.read].form.value.inventory].calls;
+  const returned = raw.types.types[raw.types.signatures[signature].result.value].form.value;
+  assert.equal(returned.kind, "declared");
+  const [argument] = returned.arguments;
+  assert.equal(argument.explicitTypeNode, null);
+  assert.equal(raw.types.types[argument.argument.value].form.value.kind, "tuple");
 });
+
+async function demandedResultProbe(result = "T[]", other = "crossed(): readonly T[];") {
+  const fixture = await loadFrontFixture();
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const source = "export function observe<K,V>(first: readonly (readonly [K,V])[], second: readonly (readonly [V,K])[]):boolean { first.produce; return true; }";
+  const library = fixture.sdk.barebonesLibContent + " type Alias<V> = V[]; "
+    + `interface ReadonlyArray<T> { produce(): ${result}; ${other} } interface ReadonlyArray<T> { flag: boolean; }`;
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: [{ name: "lib.es5.d.ts", text: library }] });
+  const { deps, program, set } = fixture.openAndCapture(snapshot);
+  const module = snapshot.entryPoint;
+  const checked = OpenedProgram.checked(program);
+  const file = OpenedProgram.file(program, module).file;
+  const { ast } = checked;
+  const { checker, typeShape } = checked.getSourceFileQueries(file);
+  const [owner] = ast.statements(file);
+  const arrays = ast.parameters(owner).map(formal => checker.getTypeFromTypeNode(ast.typeNode(formal)).type);
+  const selected = (receiver, name) => typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === name).type)[0];
+  const produce = selected(arrays[0], "produce");
+  const capture = (query, limits = deps.navigationCapture) => {
+    const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
+      const queries = checked.getSourceFileQueries(sourceFile);
+      return sourceFile === file ? { ...queries, checker: { ...queries.checker, ...query } } : queries;
+    } }, OpenedProgram.table(program), set.modules.map(entry =>
+      OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
+    OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
+    return captureSingleModule(fixture.front, { ...deps, navigationCapture: limits }, observed, module);
+  };
+  return { ast, checker, typeShape, arrays, selected, produce, capture, limits: deps.navigationCapture };
+}
 
 async function resultProbe(source, observedMethod = "produce", foreignSource) {
   const { fixture, program, deps, set, module } = await opened(source, false, foreignSource);
@@ -424,8 +461,7 @@ async function resultProbe(source, observedMethod = "produce", foreignSource) {
 }
 
 test("neither a crossed native result target nor a different actual tuple argument earns the result association", async () => {
-  const source = bracketed("T[]", "crossed(): readonly T[];").replace("second?: null | " + direct, "second?: null | readonly (readonly [V,K])[]");
-  const { checker, typeShape, arrays, selected, produce, capture } = await resultProbe(source);
+  const { checker, typeShape, arrays, selected, produce, capture } = await demandedResultProbe();
   const actual = checker.getReturnTypeOfSignature(produce);
   const crossed = checker.getReturnTypeOfSignature(selected(arrays[0], "crossed"));
   const unrelated = checker.getReturnTypeOfSignature(selected(arrays[1], "produce"));
@@ -445,31 +481,28 @@ test("neither a crossed native result target nor a different actual tuple argume
 });
 
 test("the exact bracketed result allowance bounds every cut before the actual original result reader", async () => {
-  const { ast, checker, produce, capture, limits } = await resultProbe(bracketed());
-  const original = produce.target;
-  const syntax = ast.typeNode(checker.getSignatureDeclaration(original));
   const stop = new Error("actual original result reader stopped");
-  const reads = [];
-  const overrides = {
-    acquireSourceType: observeSourceType(checker, request => {
+  const run = async (dimension, cap, reads) => {
+    const { ast, checker, produce, capture, limits } = await demandedResultProbe();
+    const original = produce.target;
+    const syntax = ast.typeNode(checker.getSignatureDeclaration(original));
+    return capture({ acquireSourceType: observeSourceType(checker, request => {
       if (request.kind === "signature-return" && request.signature === produce) reads.push("selected");
       if (request.kind === "signature-return" && request.signature === original) { reads.push("original"); throw stop; }
       if (request.kind === "annotation" && request.node === syntax) reads.push("written");
-    }),
+    }) }, { ...limits, [dimension]: cap });
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 181], ["maximumCapturedEdgesPerModule", 361]]) {
-    const run = cap => capture(overrides, { ...limits, [dimension]: cap });
-    primeCaptureReader(run, limits[dimension], stop);
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 177], ["maximumCapturedEdgesPerModule", 242]]) {
     for (let cap = 0; cap < exact; cap += 1) {
-      reads.length = 0;
-      const result = run(cap);
+      const reads = [];
+      const result = await run(dimension, cap, reads);
       assert.equal(result.kind, "refused", `${dimension} ${cap}`);
       assert.equal(result.diagnostics.at(-1).code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
-      assert.equal(reads.includes("original") || reads.includes("written"), false, `${dimension} ${cap}`);
+      assert.deepEqual(reads, [], `${dimension} ${cap}`);
     }
-    reads.length = 0;
-    assert.throws(() => run(exact), error => error === stop, `${dimension} ${exact}`);
-    assert.deepEqual(reads, ["selected", "original"]);
+    const reads = [];
+    await assert.rejects(run(dimension, exact, reads), error => error === stop, `${dimension} ${exact}`);
+    assert.deepEqual(reads, ["original"]);
   }
 });
 

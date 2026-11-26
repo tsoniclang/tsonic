@@ -2418,7 +2418,9 @@ function captureDeclaredInterfaceGroup(scope: CaptureScope, declaration: Node): 
   if (!admit(scope, "edges")) return false;
   const name = scope.checked.ast.name(declaration);
   const symbol = scope.checker.getSymbolAtLocation(name);
-  if (symbol === undefined || scope.checker.getSymbolDeclarations(symbol).length < 2) return true;
+  if (symbol === undefined) return true;
+  const source = scope.checker.getSymbolDeclarations(symbol);
+  if (source.length < 2) return true;
   const checked = sourceType(scope, { kind: "expression", node: name });
   if (scope.meter.refusal !== null) return false;
   if (checked === undefined || scope.checker.getTypeSymbol(checked.type) !== symbol)
@@ -2426,8 +2428,15 @@ function captureDeclaredInterfaceGroup(scope: CaptureScope, declaration: Node): 
   const target = scope.shape.getTypeReferenceTarget(checked.type) ?? checked.type;
   const declarations = nativeInterfaceDeclarations(scope, target);
   if (declarations === null) return false;
-  if (declarations === undefined)
+  if (declarations === undefined) {
+    for (let index = 0; index < source.length; ++index) {
+      if (!admit(scope, "edges")) return false;
+      const fragment = source[index];
+      if (fragment === undefined) return throwInvariant(invariant("A type's declaration inventory cannot contain an absent row."));
+      if (scope.checked.ast.kindName(fragment) === "KindClassDeclaration") return true;
+    }
     return throwInvariant(invariant("An interface declaration must retain its actual native declaration inventory."));
+  }
   if (declarations.length < 2) return true;
   const application = nativeInterfaceApplication(scope, target);
   return application !== null && retainInterfaceGroup(scope, application) !== null;
@@ -2781,8 +2790,9 @@ function sourceEnvironment(scope: CaptureScope, type: Type): RawTypeForm | null 
   return result;
 }
 
-function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, originalUse: OriginalTypeUse | null,
+function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUse: OriginalTypeUse | null,
   bindingUse: BindingUse | null, projection: ProjectedOperandUse | null, active: ActiveReceiverCandidate | null): RawTypeForm | null {
+  const { position } = task;
   const shape = scope.shape;
   const syntax = originalUse === null ? undefined : admittedTypeUse(scope, originalUse);
   if (syntax !== undefined) {
@@ -2885,6 +2895,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   if (symbol !== undefined && declarations.length === 0 && shape.isGlobalScopeObject(type)) return sourceEnvironment(scope, type);
   let interfaceFragments = 0;
   let interfaceFragment: Node | undefined;
+  let classFacet = false;
   let valueFragment: Node | undefined;
   for (let index = 0; index < declarations.length; index += 1) {
     if (!admit(scope, "edges")) return null;
@@ -2892,6 +2903,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     if (candidate === undefined) return throwInvariant(invariant("A type's declaration inventory cannot contain an absent row."));
     const kind = scope.checked.ast.kindName(candidate);
     if (kind === "KindInterfaceDeclaration") { interfaceFragments += 1; interfaceFragment = candidate; }
+    if (kind === "KindClassDeclaration") classFacet = true;
     if (active !== null && kind === "KindVariableDeclaration") valueFragment = candidate;
     if (kind !== "KindTypeParameter") continue;
     const declaration = declarations.length === 1 ? candidate : symbol === undefined ? undefined : selectMergedParameter(scope, symbol, declarations, originalUse);
@@ -3042,7 +3054,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
         const selected = sourceUse?.selected;
         const operand = selected != null && "Kind" in selected ? signatureAnnotationOperator(scope, selected, selected) : null;
         if (scope.meter.refusal !== null) return null;
-        const tupleArgument: ProjectedOperandUse | null = selected === undefined && originalUse === null
+        const tupleArgument: ProjectedOperandUse | null = selected === undefined && originalUse === null && task.bindingUse === null
           && parent.path?.step.kind === "result" && shape.isTuple(info.argument)
           ? { kind: "projected-operand", type: info.argument, role: "declared-tuple-argument" } : null;
         const argument = rawType(scope, () => withoutTypeCause(info.argument), position,
@@ -3064,7 +3076,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
       return { kind: "declared", declaration: source, facet: "instance", parameters, arguments: arguments_, definition: null, extent };
     }
   }
-  const merged = interfaceFragments > 1 ? symbol : undefined;
+  const merged = interfaceFragments > 1 && !classFacet ? symbol : undefined;
   const preparing = bindingUse?.kind === "interface-description";
   if (preparing && (merged === undefined || bindingUse.target !== type))
     return throwInvariant(invariant("An interface description requires its actual neutral target."));
@@ -3870,7 +3882,7 @@ function captureFacts(scope: CaptureScope): void {
               alias = available(selected.alias);
               captured = selected.form;
             }
-          } else captured = typeForm(scope, base, next.position, source, use, projection, candidate);
+          } else captured = typeForm(scope, base, next, source, use, projection, candidate);
           if (captured === null) return;
           if (candidate !== null) {
             if (candidate.ordinary) exit.key = candidate.key;
@@ -5347,15 +5359,21 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
 
 export function captureRawModules(deps: CaptureDeps, program: CheckedProgram, modules: readonly ModuleId[]): Result<readonly RawModule[]> {
   const prepared: RawModule[] = [];
-  const diagnostics: Diagnostic[] = [];
+  let soleDiagnostics: readonly Diagnostic[] = [];
+  let combined: Diagnostic[] | null = null;
   const interfaceCapture: InterfaceCaptureSession = { descriptions: null, declarations: null, applications: null, groups: null };
   for (const module of modules) {
     const captured = captureRawModule(deps, program, module, interfaceCapture);
     if (captured.kind === "refused") return captured;
     prepared.push(captured.value);
-    for (const diagnostic of captured.diagnostics) diagnostics.push(diagnostic);
+    if (captured.diagnostics.length === 0) continue;
+    if (soleDiagnostics.length === 0) soleDiagnostics = captured.diagnostics;
+    else {
+      const output = combined ??= [...soleDiagnostics];
+      for (const diagnostic of captured.diagnostics) output.push(diagnostic);
+    }
   }
-  return { kind: "ok", value: prepared, diagnostics };
+  return { kind: "ok", value: prepared, diagnostics: combined ?? soleDiagnostics };
 }
 
 function captureRefusal(refusal: Diagnostic, earned: readonly Diagnostic[]): readonly [Diagnostic, ...Diagnostic[]] {
