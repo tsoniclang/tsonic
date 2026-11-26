@@ -8718,6 +8718,60 @@ test("checked dependency diagnostics follow exact required executions, not packa
   }
 });
 
+test("one dependency body publishes both selected generic binding vectors and converts the literal at the actual formal", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const root = "/project/node_modules/dependency";
+  const name = "dependency";
+  const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
+  const dependency = "export function take<T>(value:T):T {return value;} export function dormant():boolean{return missing;}";
+  const source = 'import {take} from "dependency"; export function run(flag:boolean):boolean { '
+    + "const first = take<boolean>(flag); const second = take<number>(1); return first; }";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    extraFiles: { [root + "/package.json"]: JSON.stringify({ name, version: "1.0.0", types: "index.ts" }) },
+    otherPackages: [{ root, name, modules: { "index.ts": ["source", dependency, false] } }] });
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  assert.deepEqual(result.diagnostics, []);
+  const { index, modules } = result.value;
+  const chapter = modules.find(row => row.module === module);
+  const selected = chapter.bodies.filter(row => row.kind === "selected" && row.tir.params.length === 1);
+  assert.equal(selected.length, 2);
+  assert.equal(selected[0].instance.body, selected[1].instance.body);
+  assert.notEqual(selected[0].tir.signature, selected[1].tir.signature);
+  const primitives = new Map();
+  for (const row of selected) {
+    const { bindings } = row.instance;
+    assert.equal(bindings.kind, "instantiated");
+    assert.deepEqual([bindings.bindings.classBindings, bindings.bindings.capturedBindings, bindings.bindings.selfBindings], [[], [], []]);
+    assert.equal(bindings.bindings.methodBindings.length, 1);
+    const [bound] = bindings.bindings.methodBindings;
+    assert.equal(bound.kind, "bound");
+    assert.equal(bound.type, row.tir.completion);
+    assert.equal(index.types.signatures[row.tir.signature].parameters[0].type, bound.type);
+    const type = index.types.terms[bound.type];
+    assert.equal(type.kind, "primitive");
+    primitives.set(type.primitive, bound);
+    const edges = index.dependencyInventory.dependencies.filter(edge => edge.reason === "call" && edge.target.kind === "body"
+      && fixture.types.sameInstance(edge.target.execution.instance, row.instance));
+    assert.equal(edges.length, 1);
+    assert.equal(edges[0].target.execution.provided, 1);
+  }
+  assert.deepEqual([...primitives.keys()].sort(), ["bool", "float64"]);
+  assert.equal(primitives.get("bool").parameter, primitives.get("float64").parameter);
+  const caller = modules.find(row => row.module === input.snapshot.entryPoint);
+  const selectedCaller = caller.bodies.filter(row => row.kind === "selected");
+  const conversions = selectedCaller.flatMap(row => row.mir.blocks.flatMap(block => block.statements))
+    .filter(row => row.kind === "assign" && row.value.kind === "convert");
+  assert.equal(conversions.some(row => {
+    const operation = row.value.operation.decision.operation;
+    return operation.kind === "conversion" && operation.to === primitives.get("float64").type
+      && operation.embedding.kind === "conversion" && operation.embedding.conversion === "literal-fit";
+  }), true);
+});
+
 test("an unresolved eager link reports only when its owning dependency initializer is required", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

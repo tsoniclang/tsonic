@@ -824,10 +824,11 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     const candidates = walk.draft.candidates.get(captured.value.candidates.value);
     const candidate = candidates?.id === captured.value.candidates.value && candidates.candidates.length === 1
       ? candidates.candidates[0] : undefined;
-    const signature = candidate?.endpoints.kind === "available" && candidate.conditionalFailure.kind === "available"
+    const endpoints = candidate?.endpoints.kind === "available" && candidate.conditionalFailure.kind === "available"
       && candidate.conditionalFailure.value === null && node.tsonic.core.provider.kind === "available"
       && node.tsonic.core.provider.value === null && captured.value.arguments.length !== 0
-      ? readSignature(walk.generation.deps.types, candidate.endpoints.value.apiSignature) : null;
+      ? candidate.endpoints.value : null;
+    const signature = endpoints === null ? null : readSignature(walk.generation.deps.types, endpoints.apiSignature);
     const arguments_ = captured.value.arguments.map((argument, index): DraftArgument => {
       const source = node.arguments.nodes[index];
       if (source === undefined || argument.kind !== "value" || argument.expression !== source.id)
@@ -870,7 +871,8 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       if (source === undefined) return callerDefect(PORT, "a call retains every actual argument occurrence");
       walk.draft.evidence.push({ type: argument.type, node: source, component: { kind: "body", value: argument.occurrence } });
     }
-    if (signature !== null && signature.kind === "call" && signature.receiver === null && signature.typeParameters.length === 0
+    let declaredSignature: Signature | undefined;
+    if (endpoints !== null && signature !== null && signature.kind === "call" && signature.receiver === null && signature.typeParameters.length === 0
       && arguments_.length <= signature.parameters.length) for (const [index, argument] of arguments_.entries()) {
       const formal = signature.parameters[index];
       const actual = readySlotType(walk.generation, argument.type);
@@ -880,22 +882,28 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       if (originalType.kind === "open" || originalType.kind === "error") continue;
       const source = present(node.arguments.nodes[index], "the actual argument requiring a flow");
       if (layoutQuotation(source) !== null) continue;
-      if (formal.kind === "optional" && candidate?.endpoints.kind === "available" && candidate.endpoints.value.api.body !== null) {
-        const selected = candidate.endpoints.value.api.body;
+      declaredSignature ??= readSignature(walk.generation.deps.types, endpoints.api.signature);
+      const declared = declaredSignature.parameters[index];
+      if (declaredSignature.kind !== "call" || declaredSignature.declaration !== endpoints.api.declaration
+        || declared?.declaration !== formal.declaration || declared.kind !== formal.kind || declared.passing !== formal.passing
+        || declared.initializer !== formal.initializer || declared.acceptsOmission !== formal.acceptsOmission)
+        return callerDefect(PORT, "an argument conversion must retain the actual original and applied formal");
+      if (formal.kind === "optional" && endpoints.api.body !== null) {
+        const selected = endpoints.api.body;
         const body = walk.generation.deps.hirBody(selected);
         const row = body.params[index];
         if (body.body !== selected || row?.role !== "optional" || row.declaration !== formal.declaration || row.initializer !== formal.initializer)
           return callerDefect(PORT, "an optional formal component requires its actual selected checked parameter slot");
         const declaration = parameterDeclaration(walk.generation.deps, body, row);
         const slot = body.locals[row.local]?.checkerSlot;
-        if (slot?.kind !== "available" || slot.value !== formal.type)
+        if (slot?.kind !== "available" || slot.value !== declared.type)
           return callerDefect(PORT, "an optional formal component requires its actual selected checked parameter type");
         flow(walk, source, argument.type, formal.type, "argument", { kind: "item", value: { owner: formal.declaration, node: declaration.id } });
         continue;
       }
       const declaration = walk.generation.deps.itemOf(formal.declaration);
       if (declaration.kind !== "Parameter" || declaration.type === null || declaration.type.tsonic.type.kind !== "available"
-        || declaration.type.tsonic.type.value !== formal.type)
+        || declaration.type.tsonic.type.value !== declared.type)
         return notInferredYet(PORT, "the actual selected argument's formal type component", source.origin);
       flow(walk, source, argument.type, formal.type, "argument", { kind: "item", value: { owner: formal.declaration, node: declaration.type.id } });
     }
