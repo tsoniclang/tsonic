@@ -572,7 +572,7 @@ function constructorMetadata(node) {
     case "PrefixUnaryExpression": case "PostfixUnaryExpression": return { core: absentCore(), role: "value", value: emptyValue() };
     case "NullKeyword": case "TrueKeyword": case "FalseKeyword": case "ThisKeyword": case "SuperKeyword": case "ImportKeyword":
       return { core: absentCore(), role: "value", value: emptyValue() };
-    case "ExpressionWithTypeArguments": return { core: absentCore(), role: "heritage", type: unavailable(), definition: unavailable() };
+    case "ExpressionWithTypeArguments": return { core: absentCore(), role: "heritage", type: unavailable(), declarations: unavailable() };
     case "ArrayLiteralExpression": case "ObjectLiteralExpression": return { core: absentCore(), role: "assignment-pattern", views: emptyViews() };
     case "CallExpression": case "NewExpression": case "TaggedTemplateExpression": return { ...expressionMetadata(), application: unavailable() };
     case "PropertyAccessExpression": case "ElementAccessExpression":
@@ -584,13 +584,14 @@ function constructorMetadata(node) {
     case "TypeParameter": return { ...declaration(), parameter: {
       declaration: definitionIdentity, constraint: null, default: null,
     } };
+    case "FunctionType": case "ConstructorType": return { ...typeMetadata(), ...declaration() };
     case "AnyKeyword": case "BigIntKeyword": case "BooleanKeyword": case "IntrinsicKeyword": case "NeverKeyword":
     case "NumberKeyword": case "ObjectKeyword": case "StringKeyword": case "SymbolKeyword": case "UndefinedKeyword":
     case "UnknownKeyword": case "VoidKeyword": case "UnionType": case "IntersectionType": case "ConditionalType":
     case "TypeOperator": case "InferType": case "ArrayType": case "IndexedAccessType": case "TypeReference":
     case "LiteralType": case "ThisType": case "TypePredicate": case "TypeQuery": case "MappedType": case "TypeLiteral":
     case "TupleType": case "NamedTupleMember": case "OptionalType": case "RestType": case "ParenthesizedType":
-    case "FunctionType": case "ConstructorType": case "TemplateLiteralType": case "TemplateLiteralTypeSpan":
+    case "TemplateLiteralType": case "TemplateLiteralTypeSpan":
     case "JSDocTypeExpression": case "JSDocNonNullableType": case "JSDocNullableType": case "JSDocAllType":
     case "JSDocVariadicType": case "JSDocOptionalType": case "JSDocSignature": case "JSDocNameReference": case "ImportType": case "JSDocTypeLiteral":
       return typeMetadata();
@@ -3052,7 +3053,6 @@ function geometry() {
 function layoutCapture(kind, occurrence = bodySource(2)) {
   const common = { occurrence, bindings: unavailable() };
   switch (kind) {
-    case "data-layout": return { ...common, kind, declaration: available(definitionIdentity), fingerprint: available("abi1"), byteOrder: available("little"), addressWidth: available(64) };
     case "value": return { ...common, kind, geometry: geometry(), fieldExpressions: [], fields: available([]) };
     case "array": return { ...common, kind, geometry: geometry(), extentExpression: null, length: available(3n), runtimeBase: available("bigint"), elementExpression: null, element: unavailable() };
     case "field": return { ...common, kind, source: available(0), selector: bodySource(3),
@@ -3062,20 +3062,65 @@ function layoutCapture(kind, occurrence = bodySource(2)) {
   }
 }
 
+function declareLayoutItems(value, ...constructors) {
+  const definitions = constructors.map((node, ordinal) => ({
+    definition: ids.encodeDefId({ module: value.module, segments: [{ name: "", ordinal }] }),
+    node: node.id,
+  }));
+  value.items.push(...definitions);
+  value.items.sort((first, second) => first.definition < second.definition ? -1 : first.definition > second.definition ? 1 : 0);
+}
+
+function layoutReferenceIn(value, node, kind, constructor = node) {
+  if (kind === "body") return referenceIn(value, node, kind);
+  const item = value.items.find(entry => entry.node === constructor.id);
+  assert.equal(item !== undefined, true, "the actual layout occurrence has its own declaration item");
+  return { kind: "item", value: { owner: item.definition, node: node.id } };
+}
+
 function observationCapture(operation = "size") {
   return { occurrence: { body: bodyIdentity, node: 2 }, operation, bindings: unavailable(), operand: { body: bodyIdentity, node: 3 },
     layout: unavailable(), selector: operation === "field-offset" ? bodySource(3) : null,
     field: operation === "field-offset" ? unavailable() : available(null), result: available(0), value: available(4n) };
 }
 
-for (const kind of ["data-layout", "value", "array", "field"]) test(`HIR complete ${kind} capture record roundtrips factual data without native geometry inference`, () => {
+function platformLayoutModule() {
+  const { value, declaration } = variableModule();
+  const owner = declaration.tsonic.declaration.definition;
+  const occurrence = { kind: "item", value: { owner, node: declaration.id } };
+  const capture = { kind: "data-layout", occurrence, bindings: unavailable(), declaration: available(owner),
+    fingerprint: available("abi1"), byteOrder: available("little"), addressWidth: available(64) };
+  declaration.tsonic.core.provider = available(owner);
+  declaration.tsonic.memory = available(capture);
+  return { value, capture, occurrence };
+}
+
+test("HIR complete data-layout capture belongs to the actual canonical provider declaration", () => {
+  const { value, capture, occurrence } = platformLayoutModule();
+  const decoded = roundtrip(value, "provider data-layout");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+  capture.declaration = unavailable("not-provided");
+  assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), [
+    violation("memory-capture-owner", nodeSite(occurrence.value.node), "a platform layout must retain its own canonical provider declaration"),
+  ]);
+});
+
+for (const kind of ["value", "array", "field"]) test(`HIR complete ${kind} capture record roundtrips factual data without native geometry inference`, () => {
   const expression = callExpression();
   const value = expressionModule(expression);
   expression.tsonic.memory = available(layoutCapture(kind));
-  if (kind !== "data-layout") value.items.push({ definition: ids.encodeDefId({ module: value.module,
-    segments: [{ name: "", ordinal: 0 }] }), node: expression.id });
+  declareLayoutItems(value, expression);
   const decoded = roundtrip((value), kind);
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+});
+
+test("HIR a layout construction cannot borrow the enclosing module's declaration item", () => {
+  const expression = callExpression();
+  const value = expressionModule(expression);
+  expression.tsonic.memory = available(layoutCapture("value"));
+  assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), [
+    violation("definition-reference", nodeSite(expression.id), "each actual checked layout constructor has its own declaration item"),
+  ]);
 });
 
 for (const operation of ["size", "alignment", "stride", "field-offset"]) test(`HIR complete ${operation} observation retains its own occurrence and exact value`, () => {
@@ -3095,6 +3140,7 @@ test("HIR empty and exact large memory geometry remain factual data, not a dupli
     capture.geometry.stride = available(size);
     capture.geometry.byteAlignment = available(1n);
     expression.tsonic.memory = available(capture);
+    declareLayoutItems(value, expression);
     const decoded = roundtrip((value), `exact memory geometry/${size}`);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
   }
@@ -3117,7 +3163,10 @@ test("HIR memory-capture-owner rejects one nonexistent original occurrence witho
   const expression = callExpression();
   expression.tsonic.memory = available(layoutCapture("value", bodySource(99)));
   const value = expressionModule(expression);
+  declareLayoutItems(value, expression);
   assert.deepStrictEqual(product.verifyHir((value), contextFor(value)), [
+    violation("definition-reference", { kind: "definition", definition: value.items[0].definition },
+      "a layout definition must retain its actual checked constructor occurrence"),
     violation("cross-owner-qualified", nodeSite(2), "qualified body node must exist in its named owner"),
     violation("memory-capture-owner", nodeSite(2), "capture occurrence must exist in the canonical checked-node inventory"),
   ]);
@@ -3129,6 +3178,7 @@ test("HIR memory-capture-reference checks actual descriptor endpoints rather tha
   capture.fields = available([bodySource(3)]);
   expression.tsonic.memory = available(capture);
   const value = expressionModule(expression);
+  declareLayoutItems(value, expression);
   assert.deepStrictEqual(product.verifyHir((value), contextFor(value)), [
     violation("memory-capture-reference", nodeSite(2), "layout edge must name the required captured descriptor kind"),
   ]);
@@ -3145,6 +3195,7 @@ test("HIR memory-layout-acyclic detects a type-correct value-to-field-to-value r
   field.fieldLayout = available(bodySource(2));
   first.tsonic.memory = available(layout);
   second.tsonic.memory = available(field);
+  declareLayoutItems(value, first, second);
   const decoded = roundtrip((value), "metadata reference cycle");
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), [
     violation("memory-layout-acyclic", nodeSite(2), "captured layout graph must be acyclic"),
@@ -3154,13 +3205,14 @@ test("HIR memory-layout-acyclic detects a type-correct value-to-field-to-value r
 function foreignMemoryFixture(kind = "body") {
   const expressions = [callExpression(), callExpression(), callExpression()];
   const foreign = foreignModuleWith(expressions.map(expression => syntax("ExpressionStatement", 0, { expression })));
-  const references = expressions.map(expression => referenceIn(foreign, expression, kind));
-  const layout = layoutCapture("value", references[0]);
+  declareLayoutItems(foreign, ...expressions);
+  const references = expressions.map(expression => layoutReferenceIn(foreign, expression, kind));
+  const layout = layoutCapture("value", referenceIn(foreign, expressions[0]));
   layout.fields = available([references[1]]);
-  const field = layoutCapture("field", references[1]);
-  field.selector = referenceIn(foreign, expressions[1].expression, kind);
+  const field = layoutCapture("field", referenceIn(foreign, expressions[1]));
+  field.selector = layoutReferenceIn(foreign, expressions[1].expression, kind, expressions[1]);
   field.fieldLayout = available(references[2]);
-  const leaf = layoutCapture("value", references[2]);
+  const leaf = layoutCapture("value", referenceIn(foreign, expressions[2]));
   expressions[0].tsonic.memory = available(layout);
   expressions[1].tsonic.memory = available(field);
   expressions[2].tsonic.memory = available(leaf);
@@ -3169,6 +3221,7 @@ function foreignMemoryFixture(kind = "body") {
   const array = layoutCapture("array");
   array.element = available(references[0]);
   expression.tsonic.memory = available(array);
+  declareLayoutItems(value, expression);
   return { value, foreign, expressions, references, expression, array, layout, field, leaf };
 }
 
@@ -3196,8 +3249,8 @@ test("HIR a real foreign descriptor edge may close a cycle through the local des
 
 for (const kind of ["body", "item"]) for (const cycle of [false, true])
   test(`HIR fresh-equal foreign ${kind} snapshots retain ${cycle ? "cyclic" : "acyclic"} declared arena identity`, () => {
-    const { value, foreign, expressions, references, field } = foreignMemoryFixture(kind);
-    if (cycle) field.fieldLayout = available(referenceIn(foreign, expressions[0], kind === "body" ? "item" : "body"));
+    const { value, foreign, expressions, references, layout, field } = foreignMemoryFixture(kind);
+    if (cycle) field.fieldLayout = available(layoutReferenceIn(foreign, expressions[0], kind === "body" ? "item" : "body"));
 
     const decoded = roundtrip((value), `fresh foreign graph/${kind}/${cycle}`);
     const context = freshContextFor(decoded.value, [foreign]);
@@ -3206,7 +3259,7 @@ for (const kind of ["body", "item"]) for (const cycle of [false, true])
     assert.equal(first !== null && second !== null && first !== second, true, "this pure reader deliberately supplies distinct equal immutable snapshots");
     assertComplete(first, second, "the two allocations preserve the entire actual foreign node value");
     assert.deepStrictEqual(product.verifyHir(decoded.value, context), cycle ? [
-      violation("memory-layout-acyclic", { kind: "node", node: references[0] }, "captured layout graph must be acyclic"),
+      violation("memory-layout-acyclic", { kind: "node", node: layout.occurrence }, "captured layout graph must be acyclic"),
     ] : []);
   });
 
@@ -3217,11 +3270,12 @@ for (const kind of ["body", "item"])
     const field = callExpression();
     const other = foreignModuleWith([syntax("ExpressionStatement", 0, { expression: leaf }),
       syntax("ExpressionStatement", 0, { expression: field })], "other.ts");
-    const leafReference = referenceIn(other, leaf, kind);
-    const fieldReference = referenceIn(other, field, kind === "body" ? "item" : "body");
-    leaf.tsonic.memory = available(layoutCapture("value", leafReference));
-    const capture = layoutCapture("field", fieldReference);
-    capture.selector = referenceIn(other, field.expression, kind);
+    declareLayoutItems(other, leaf, field);
+    const leafReference = layoutReferenceIn(other, leaf, kind);
+    const fieldReference = layoutReferenceIn(other, field, kind === "body" ? "item" : "body");
+    leaf.tsonic.memory = available(layoutCapture("value", referenceIn(other, leaf)));
+    const capture = layoutCapture("field", referenceIn(other, field));
+    capture.selector = layoutReferenceIn(other, field.expression, kind, field);
     capture.fieldLayout = available(leafReference);
     field.tsonic.memory = available(capture);
     layout.fields = available([fieldReference]);
@@ -3232,16 +3286,17 @@ for (const kind of ["body", "item"])
 
 test("HIR shared inline descriptor records retain value semantics and complete lexical binding reads after parsing", () => {
   const first = callExpression();
-  const second = callExpression();
+  const second = nameExpression("alias");
   const value = moduleWith([syntax("ExpressionStatement", 0, { expression: first }), syntax("ExpressionStatement", 0, { expression: second })]);
   const shared = layoutCapture("value", bodySource(first.id));
   shared.bindings = available(emptyBindings());
   first.tsonic.memory = available(shared);
-  second.tsonic.memory = available(shared);
+  second.tsonic.value.memory = available(shared);
+  declareLayoutItems(value, first);
   const decoded = roundtrip((value), "shared inline memory record");
   const decodedFirst = decoded.value.tree.statements.nodes[0].expression;
   const decodedSecond = decoded.value.tree.statements.nodes[1].expression;
-  assert.equal(decodedFirst.tsonic.memory.value === decodedSecond.tsonic.memory.value, false,
+  assert.equal(decodedFirst.tsonic.memory.value === decodedSecond.tsonic.value.memory.value, false,
     "inline descriptor identity is not an arena identity");
   for (const input of [value, decoded.value]) {
     const reads = [];
@@ -3257,10 +3312,11 @@ test("HIR shared inline descriptor records retain value semantics and complete l
 test("HIR incompatible descriptor views of one actual occurrence retain the complete owner violation", () => {
   for (const reversed of [false, true]) {
     const first = callExpression();
-    const second = callExpression();
+    const second = nameExpression("alias");
     const value = moduleWith([syntax("ExpressionStatement", 0, { expression: first }), syntax("ExpressionStatement", 0, { expression: second })]);
     first.tsonic.memory = available(layoutCapture(reversed ? "array" : "value", bodySource(first.id)));
-    second.tsonic.memory = available(layoutCapture(reversed ? "value" : "array", bodySource(first.id)));
+    second.tsonic.value.memory = available(layoutCapture(reversed ? "value" : "array", bodySource(first.id)));
+    declareLayoutItems(value, first);
     const decoded = roundtrip((value), `incompatible descriptor views/${reversed}`);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), [
       violation("memory-capture-owner", nodeSite(second.id), "one occurrence cannot own incompatible descriptor kinds"),
@@ -3330,6 +3386,7 @@ test("HIR record binding accepts an array layout descriptor and a local descript
   const array = layoutCapture("array", bodySource(first.id));
   array.element = available(referenceIn(foreign, foreign.tree.statements.nodes[0].expression));
   first.tsonic.memory = available(array);
+  declareLayoutItems(value, first);
   second.tsonic.core.recordBinding.value.layout = available(bodySource(first.id));
   const decoded = roundtrip((value), "record binding over an array layout");
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [(foreign)])), []);
@@ -4127,9 +4184,16 @@ test("HIR genuine binding producer outcomes preserve every family, position, det
 });
 
 for (const kind of ["data-layout", "value", "array", "field", "observation"]) test(`HIR ${kind} binding scope is the actual lexical occurrence scope including every environment family`, () => {
-  const expression = callExpression();
-  const value = expressionModule(expression);
-  const capture = kind === "observation" ? observationCapture() : layoutCapture(kind);
+  const carrier = () => {
+    if (kind === "data-layout") return platformLayoutModule();
+    const expression = callExpression();
+    const value = expressionModule(expression);
+    const capture = kind === "observation" ? observationCapture() : layoutCapture(kind);
+    expression.tsonic[kind === "observation" ? "observation" : "memory"] = available(capture);
+    if (kind !== "observation") declareLayoutItems(value, expression);
+    return { value, capture, occurrence: bodySource(expression.id) };
+  };
+  const { value, capture, occurrence } = carrier();
   const owners = ["Class", "method", "captured"].map(name => `D[${moduleIdentity};${name}]`);
   const identities = owners.map(owner => (parameterDef(owner, 0)));
   const scope = { classParameters: [identities[0]], methodParameters: [identities[1]], capturedParameters: [identities[2]], selfOwners: [owners[0]] };
@@ -4137,34 +4201,34 @@ for (const kind of ["data-layout", "value", "array", "field", "observation"]) te
     methodBindings: [{ kind: "rigid", parameter: identities[1] }], capturedBindings: [{ kind: "bound", parameter: identities[2], type: 0 }],
     selfBindings: [{ kind: "rigid", owner: owners[0] }] };
   capture.bindings = available(vector);
-  expression.tsonic[kind === "observation" ? "observation" : "memory"] = available(capture);
   const declarations = new Map([[definitionIdentity, emptyScope()], ...owners.map(owner => [owner, emptyScope()]),
-    ...identities.map(declaration => [declaration, emptyScope()])]);
+    ...identities.map(declaration => [declaration, emptyScope()]), ...value.items.map(item => [item.definition, emptyScope()])]);
   const context = contextFor(value, {
     bindingScopeOf: definition => declarations.get(definition) ?? null,
     bindingScopeAt: reference => {
-      assert.deepStrictEqual(reference, bodySource(2), "scope is requested at the actual occurrence, not a capture target or vector parameter");
+      assert.deepStrictEqual(reference, occurrence, "scope is requested at the actual occurrence, not a capture target or vector parameter");
       return scope;
     },
   });
   const decoded = roundtrip((value), `${kind}/lexical bindings`);
   assert.deepStrictEqual(product.verifyHir(decoded.value, context), []);
   const unknown = { ...context, bindingScopeAt: reference => {
-    assert.deepStrictEqual(reference, bodySource(2));
+    assert.deepStrictEqual(reference, occurrence);
     return null;
   } };
-  assert.deepStrictEqual(product.verifyHir(decoded.value, unknown), [{ rule: "binding-vector-complete", site: nodeSite(2),
-    detail: [{ kind: "text", value: "bindingScopeAt" }, { kind: "text", value: "body" },
-      { kind: "text", value: bodyIdentity }, { kind: "number", value: 2 }] }]);
+  const { kind: realm, value: endpoint } = occurrence;
+  assert.deepStrictEqual(product.verifyHir(decoded.value, unknown), [{ rule: "binding-vector-complete", site: nodeSite(endpoint.node),
+    detail: [{ kind: "text", value: "bindingScopeAt" }, { kind: "text", value: realm },
+      { kind: "text", value: realm === "item" ? endpoint.owner : endpoint.body }, { kind: "number", value: endpoint.node }] }]);
 });
 
 test("HIR item-qualified capture scope keeps its actual owner and unknown occurrence rather than a guessed body", () => {
-  const expression = callExpression();
+  const expression = nameExpression("layout");
   const value = expressionModule(expression);
-  const occurrence = { kind: "item", value: { owner: definitionIdentity, node: 2 } };
+  const occurrence = { kind: "item", value: { owner: definitionIdentity, node: expression.id } };
   const capture = layoutCapture("value", occurrence);
   capture.bindings = available(emptyBindings());
-  expression.tsonic.memory = available(capture);
+  expression.tsonic.value.memory = available(capture);
   const decoded = roundtrip((value), "item-qualified bindings");
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value, { bindingScopeAt: reference => {
     assert.deepStrictEqual(reference, occurrence);
@@ -4172,7 +4236,7 @@ test("HIR item-qualified capture scope keeps its actual owner and unknown occurr
   } })), []);
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value, { bindingScopeAt: () => null })), [
     { rule: "binding-vector-complete", site: nodeSite(2), detail: [{ kind: "text", value: "bindingScopeAt" },
-      { kind: "text", value: "item" }, { kind: "text", value: definitionIdentity }, { kind: "number", value: 2 }] },
+      { kind: "text", value: "item" }, { kind: "text", value: occurrence.value.owner }, { kind: "number", value: 2 }] },
   ]);
 });
 
@@ -4696,7 +4760,7 @@ function checkedRoleInputs() {
   for (const kind of ["PrefixUnaryExpression", "PostfixUnaryExpression"]) add(`${kind}/update`, syntax(kind, 0, { operator: "PlusPlusToken", operand: nameExpression(),
     tsonic: { core: absentCore(), role: "update", value: emptyValue(), target: available(rootPlace()) } }));
   for (const role of ["value", "heritage"]) add(`instantiation/${role}`, syntax("ExpressionWithTypeArguments", 0, { expression: nameExpression(), typeArguments: null,
-    tsonic: { core: absentCore(), role, ...(role === "value" ? { value: emptyValue() } : { type: available(0), definition: available(definitionIdentity) }) } }));
+    tsonic: { core: absentCore(), role, ...(role === "value" ? { value: emptyValue() } : { type: available(0), declarations: available([definitionIdentity]) }) } }));
   for (const kind of ["ArrayLiteralExpression", "ObjectLiteralExpression"]) for (const role of ["value", "assignment-pattern"])
     add(`${kind}/${role}`, syntax(kind, 0, { ...(kind === "ArrayLiteralExpression" ? { elements: nodeList([]) } : { properties: nodeList([]) }), multiLine: false,
       tsonic: { core: absentCore(), role, ...(role === "value" ? { value: emptyValue() } : { views: emptyViews() }) } }));
@@ -5171,7 +5235,7 @@ test("HIR declared type parameters and class heritage retain complete ordered re
           expression.tsonic.resolution = { kind: "declarations", definitions: [definitionIdentity] };
           return syntax("HeritageClause", 0, { token: ordinal % 2 === 0 ? "ExtendsKeyword" : "ImplementsKeyword", types: nodeList([
             syntax("ExpressionWithTypeArguments", 0, { expression, typeArguments: null, tsonic: { core: absentCore(), role: "heritage",
-              type: available(0), definition: available(definitionIdentity) } }),
+              type: available(0), declarations: available([definitionIdentity]) } }),
           ]) });
         });
         if (reversed) clauses.reverse();
@@ -5801,14 +5865,10 @@ test("HIR namespace members preserve genuine nested declarations and ordered ide
 test("HIR data-layout facts retain both byte orders, address widths and unavailable captured inputs", () => {
   for (const byteOrder of ["little", "big"]) for (const addressWidth of [32, 64])
     for (const reason of [null, "checker-error", "parameter-dependent", "not-provided"]) {
-      const expression = callExpression();
-      const value = expressionModule(expression);
-      const capture = layoutCapture("data-layout");
+      const { value, capture } = platformLayoutModule();
       capture.byteOrder = reason === null ? available(byteOrder) : unavailable(reason);
       capture.addressWidth = reason === null ? available(addressWidth) : unavailable(reason);
       capture.fingerprint = reason === null ? available("supplied layout fingerprint") : unavailable(reason);
-      capture.declaration = reason === null ? available(definitionIdentity) : unavailable(reason);
-      expression.tsonic.memory = available(capture);
       const decoded = roundtrip((value), `data-layout/${byteOrder}/${addressWidth}/${reason}`);
       assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
     }
@@ -5829,6 +5889,7 @@ test("HIR raw geometry and array extents preserve each captured availability wit
       capture.extentExpression = bodySource(expression.expression.id);
       capture.elementExpression = bodySource(expression.expression.id);
       expression.tsonic.memory = available(capture);
+      declareLayoutItems(value, expression);
       const decoded = roundtrip((value), `array facts/${runtimeBase}/${length}/${reason}`);
       assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
     }
@@ -6405,6 +6466,7 @@ for (const reason of [null, "not-provided", "checker-error", "parameter-dependen
     const capture = layoutCapture("value");
     capture.fields = reason === null ? available([]) : unavailable(reason);
     expression.tsonic.memory = available(capture);
+    declareLayoutItems(value, expression);
     const decoded = roundtrip((value), `value-layout fields/${reason}`);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
   });
@@ -6435,6 +6497,7 @@ for (const cyclic of [false, true])
     second.fieldLayout = available(references[3]);
     const leaf = layoutCapture("value", references[3]);
     for (const [index, capture] of [root, first, second, leaf].entries()) expressions[index].tsonic.memory = available(capture);
+    declareLayoutItems(value, ...expressions);
     const decoded = roundtrip((value), `descriptor diamond/${cyclic}`);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), cyclic ? [
       violation("memory-layout-acyclic", nodeSite(expressions[0].id), "captured layout graph must be acyclic"),

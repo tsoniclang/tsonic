@@ -27,7 +27,6 @@ import { captureCheckedMarkers } from "./fixtures/front/checked-markers.mjs";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { memberScenario } from "./fixtures/tir-member-scenario.mjs";
-import { programForEvidence } from "./fixtures/program-executions.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeNames = [
@@ -66,7 +65,7 @@ const { createInstantiationMeter, ProgramWork } = await import("../../packages/h
 const { programTypeWork } = await import("../../packages/host/dist/ir-program/verification-work.js");
 const { publicationFixture } = await import("./fixtures/program-publication.mjs");
 const { declaredInvocationFixture } = await import("./fixtures/program-invocations.mjs");
-const { projectFixtureProgram } = await import("./fixtures/program-executions.mjs");
+const { projectFixtureProgram, programForEvidence } = await import("./fixtures/program-executions.mjs");
 const { encodeContextKey, authoredMethodGraph, callerComponentCycle, callerSyntaxCycle, dualInstanceFixture, joinModuleFixtures, moduleBoundaryFixture, moduleFixture, pairedModuleFixture, verificationContext } = await import("./ir-program-fixtures.mjs");
 const { genericMetadataSelectionFixture, metadataBindingFixture, metadataFieldFixture, metadataOperationFixture, publishedArtifactFixture,
   repeatedMetadataFixture } = await import("./fixtures/program-metadata.mjs");
