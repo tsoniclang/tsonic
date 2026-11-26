@@ -609,6 +609,7 @@ test("real bodyless call, method, construct and index formals retain definitions
   }
   const bodies = new Map();
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+    nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
@@ -635,8 +636,7 @@ test("real bodyless call, method, construct and index formals retain definitions
   const verifyChapter = await tirFixtureVerifier(tir.verifyTirModule);
   const bodyOf = instance => instance.bindings.kind === "parametric" ? bodies.get(instance.body) ?? null : null;
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
-    declarationOf: program.declarationOf, declarationSourceOf: program.domain.declarationSourceOf, nominalOf: definition => definition === declaration.tsonic.definition
-      ? { kind: "declared", facets: ["instance"] } : null,
+    declarationOf: program.declarationOf, declarationSourceOf: program.domain.declarationSourceOf, nominalOf: program.scopes.nominalOf,
     staticStorageOf: () => null,
     memberTableOf: () => null, bodyOf,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
@@ -693,6 +693,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     for (const set of answer.value.constraints.constraints) records.set(set.body, { constraints: set, solution: answer.value.solution });
   }
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+    nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
@@ -761,8 +762,7 @@ function ready(source, scope = "post-forms owner") {
       endpoints: "signatures" in node.tsonic ? node.tsonic.signatures : [] };
   };
   const verification = (group, constraints, result) => ({
-    types, declarationOf, nominalOf: definition => descriptions.get(definition)?.kind === "InterfaceDeclaration"
-      ? { kind: "declared", facets: ["instance"] } : null, nodeExists: reference => domain.nodeOf(reference) !== null,
+    types, declarationOf, nominalOf: scopes.nominalOf, nodeExists: reference => domain.nodeOf(reference) !== null,
     localExists: domain.localExists,
     bindingScopes: irInfer.inferenceBindingSites({ group, constraints: constraints.constraints, solution: result === null ? null : result.solution }).map(binding => {
       const site = binding.site;
@@ -787,7 +787,7 @@ function ready(source, scope = "post-forms owner") {
   const endpoint = node.tsonic.signatures.find(endpoint => endpoint.role === "api-body");
   assert.equal(endpoint !== undefined, true);
   const signature = { definition: endpoint.declaration, endpoint: endpoint.role, ordinal: 0, bindings: { kind: "parametric" } };
-  return { checked, interner, snapshot, domain, descriptions, base, inputs, queries, database, signature, verification, declarationOf, rulesDeps };
+  return { checked, interner, snapshot, domain, scopes, descriptions, base, inputs, queries, database, signature, verification, declarationOf, rulesDeps };
 }
 
 test("two cold dependent body requests report one exact Forms detector without reading the denied endpoint or next operand", () => {
@@ -1244,6 +1244,7 @@ test("real explicit and inferred calls retain their original endpoint, applied c
     solution: crossed, placedSignatureOf: body => placed.get(body) ?? null, ...program.verification(group, publication.constraints, publication) });
   assert.deepEqual(invalid.map(({ rule, detail }) => [rule, detail.map(part => part.value)]), [["endpoint-agreement", ["completion"]]]);
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+    nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
     staticStorageOf: () => null,
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
@@ -1336,6 +1337,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
   }
   const typed = new Map();
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+    nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
@@ -1451,6 +1453,7 @@ test("actual plain local assignment retains the RHS embedding and writable targe
   assert.equal(flow.occurrence.node, checked.right.id);
   assert.equal(constraints.constraints.some(candidate => candidate.kind === "op" && candidate.occurrence.node === checked.id), false);
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+    nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
     staticStorageOf: () => null,
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
@@ -1536,6 +1539,7 @@ test("throwing an actual string formal retains the value channel without a retur
   assert.deepEqual(constraints.variables, []);
   assert.deepEqual(constraints.constraints, []);
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+    nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
     staticStorageOf: () => null,
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
@@ -1623,6 +1627,7 @@ for (const [authored, annotation, kind, expected] of [
     to: { root: to.value.component, path: [] }, rule: "literal-fit", premises: [] }]);
   const typed = new Map();
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+    nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
@@ -1707,6 +1712,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
   }
   const typed = new Map();
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+    nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
@@ -1825,6 +1831,7 @@ test("an actual null return completes its inferred declaration and selected body
   }
   const typed = new Map();
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
+    nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };

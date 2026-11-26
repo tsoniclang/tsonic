@@ -1,6 +1,6 @@
 import { admitNativeChecker, markNativeCheckerProvisional } from "../resource-admission.js";
 import { LiteralCreation } from "./literal-creation.js";
-import { retainErrorOperandSource, sourceTypeAnswer } from "./source-type-answers.js";
+import { completedAnnotationSource, retainErrorOperandSource, sourceTypeAnswer } from "./source-type-answers.js";
 import { NewGoStructMap } from "../../../go/compat.js";
 import { captureExtensionArrayOrStringIteration, captureKnownIterableInstantiation, captureSelectedIteratorMember, combineExtensionProtocolMechanisms, createChildExtensionIterationCapture, createExtensionIterationProtocolSelectionCapture, sourceIterationEvidenceLimits, extensionIterationTypesMatch, freezeExtensionCheckedYieldStarResult, isForAwaitOfIterationMechanism, isForOfIterationMechanism, setExtensionProtocolMechanismKind, } from "./iteration-evidence.js";
 import * as core from "../../core/core.js";
@@ -14039,7 +14039,7 @@ export function Checker_getContextualType(receiver, node, contextFlags, output) 
             return Checker_getContextualTypeForInitializerExpression(receiver, node, contextFlags);
         case KindArrowFunction:
         case KindReturnStatement:
-            return Checker_getContextualTypeForReturnExpression(receiver, node, contextFlags);
+            return Checker_getContextualTypeForReturnExpression(receiver, node, contextFlags, output);
         case KindYieldExpression:
             return Checker_getContextualTypeForYieldOperand(receiver, parent, contextFlags);
         case KindAwaitExpression:
@@ -14232,6 +14232,7 @@ export function Checker_getContextualTypeForBindingElement(receiver, declaration
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getContextualTypeForReturnExpression","kind":"method","status":"implemented","sigHash":"eb13ac8eba4684b15ff153c085dc5d83241d38ed49605ccf23ea010da1628ea8","bodyHash":"faf35c75d4f2b9928d435d7751f429ce97a71fdb8688514b4df65050aeebc962"}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"Expose the completed written annotation for the actual ordinary tuple return context without changing native contextual checking.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/types.ts::ContextFlags)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/types.ts::ContextFlags,?packages/tsts/src/internal/checker/checker/source-type-answers.ts::SourceTypeAnswerOutput)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  *
  * Go source:
  * func (c *Checker) getContextualTypeForReturnExpression(node *ast.Node, contextFlags ContextFlags) *Type {
@@ -14269,7 +14270,7 @@ export function Checker_getContextualTypeForBindingElement(receiver, declaration
  * 	return nil
  * }
  */
-export function Checker_getContextualTypeForReturnExpression(receiver, node, contextFlags) {
+export function Checker_getContextualTypeForReturnExpression(receiver, node, contextFlags, output) {
     const fn = GetContainingFunction(node);
     if (fn !== undefined) {
         let contextualReturnType = Checker_getContextualReturnType(receiver, fn, contextFlags);
@@ -14293,6 +14294,21 @@ export function Checker_getContextualTypeForReturnExpression(receiver, node, con
                     return undefined;
                 }
                 return Checker_getUnionType(receiver, [contextualAwaitedType, Checker_createPromiseLikeType(receiver, contextualAwaitedType)]);
+            }
+            if (output !== undefined && receiver !== undefined && (functionFlags & FunctionFlagsGenerator) === 0 && isTupleType(contextualReturnType)) {
+                admitNativeChecker(receiver, "work");
+                let annotation = Node_Type(fn);
+                while (annotation?.Kind === KindParenthesizedType) {
+                    admitNativeChecker(receiver, "work");
+                    annotation = Node_Type(annotation);
+                }
+                const readonly = annotation?.Kind === KindTypeOperator ? AsTypeOperatorNode(annotation) : undefined;
+                if (annotation !== undefined && (annotation.Kind === KindTupleType ||
+                    readonly?.Operator === KindReadonlyKeyword && readonly.Type?.Kind === KindTupleType)
+                    && completedAnnotationSource(receiver, annotation, contextualReturnType) === annotation) {
+                    admitNativeChecker(receiver, "retained");
+                    output.value = { type: contextualReturnType, causes: [], typeSource: annotation };
+                }
             }
             return contextualReturnType;
         }

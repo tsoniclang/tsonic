@@ -70,13 +70,15 @@ test("selected property transport rejects foreign, missing and competing receive
   const use = raw.memberUses[0];
   assert.equal(use !== undefined, true);
   const foreign = { ...use.receiver, node: use.occurrence.node };
+  const wrongComponent = raw.types.types[use.read].component;
+  assert.notEqual(wrongComponent, use.receiverComponent);
   for (const changed of [
     { receiver: foreign }, { access: "write" }, { optionalChain: true }, { chainContinuation: true }, { arms: [] },
     { read: null }, { write: use.read }, { writeDeclarations: use.readDeclarations }, { selectedDeclaration: foreign },
     { selectedDeclarations: [] }, { readDeclarations: [] },
     { readDeclarations: [foreign] }, { receiverType: use.read },
     { arms: [{ ...use.arms[0], member: { ...use.arms[0].member, declarations: [foreign] } }] },
-    { arms: [{ ...use.arms[0], receiver: use.read }] },
+    { arms: [{ ...use.arms[0], receiver: wrongComponent }] },
   ]) assert.throws(() => lower({ ...raw, memberUses: [{ ...use, ...changed }] }), /front:/u);
   assert.throws(() => lower({ ...raw, memberUses: [use, use] }), /unique syntax order/u);
   assert.throws(() => lower({ ...raw, memberUses: [{ ...use, occurrence: { module: raw.module, node: raw.tree.id } }, use] }),

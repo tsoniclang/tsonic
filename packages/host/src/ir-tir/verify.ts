@@ -19,6 +19,7 @@ import { sameSourceFileHeader } from "./syntax-compare-values.js";
 import { sameTextRange1, sameVector } from "./syntax-compare-common.js";
 import { chapterSyntaxSlots, indexChapterSyntax, isLayoutOperandBody, readChapterSyntaxSlot, tirBodySyntaxOf } from "./chapter-syntax.js";
 import { createTirLayouts } from "./text-model.js";
+import { verifyInterfaceInstance } from "./verify-interface.js";
 
 export interface TirSourceInventory {
   readonly original: HirBody | undefined;
@@ -157,6 +158,10 @@ function verifyChapterRoles<Stop extends object>(
     }
     if (statement.kind === "checked-declaration" && !Object.is(statement.node, actual)) {
       emit("module-node-identity", statement.node, "checked declaration slot does not retain its actual authored occurrence");
+    }
+    if (statement.kind === "ready-statement" && statement.node.kind === "InterfaceDeclaration") {
+      const stop = verifyInterfaceInstance(input, statement.node, actual, admit, emit);
+      if (stop !== null) return stop;
     }
     if (actual.kind !== "FunctionDeclaration") {
       if (statement.kind === "ready-callable") emit("nested-template-identity", statement.node, "ready callable slot requires its actual authored function");
@@ -780,6 +785,10 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   }
   for (const node of structure.nodes) {
     const original = inventory.sourceNodes.get(node.id);
+    if (node.kind === "InterfaceDeclaration") {
+      const stop = verifyInterfaceInstance(input, node, original, admit, emit);
+      if (stop !== null) return { kind: "resource-stop", stop };
+    }
     if (node.kind === "CallExpression") {
       const layout = verifyLayoutArguments(node, original, body, input, boundary.bodies, admit, emit);
       if (layout !== null) return { kind: "resource-stop", stop: layout };

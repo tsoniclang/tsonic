@@ -769,11 +769,18 @@ export interface TypeNodeLinks {
     resolutionFailure?: Diagnostic;
     resolvedTypeSource?: Node | TypeAliasLinks | readonly [Node, Node] | IndexedTypeReadSource;
 }
-export interface IndexedTypeReadSource {
+export type IndexedTypeReadSource = {
     readonly kind: "indexed-read";
     readonly annotation: Node;
     readonly properties: readonly [Node, Node, ...Node[]];
-}
+} | {
+    readonly kind: "declared-index-read";
+    readonly annotation: Node;
+    readonly receiver: Type;
+    readonly index: Type;
+    readonly declaration: Node;
+    readonly result: Type;
+};
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::EnumMemberLinks","kind":"type","status":"implemented","sigHash":"36404442f2fc2ca29651dc60685cdfa474dd7436f67a79886b11574ead3c754f","bodyHash":"300bf7a1da89d657d940c8095bddf33f21118e8b3fea24006d4bd8e40c4fb3f9"}
  *

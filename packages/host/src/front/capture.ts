@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedSourcePropertyAccessInfo, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -1076,13 +1076,16 @@ function writtenBracketedElement(scope: CaptureScope, source: Node): Node | unde
 }
 
 function authoredTupleReceiver(scope: CaptureScope, type: Type, source: Node): ReceiverUse | null {
-  const element = writtenBracketedElement(scope, source);
+  const written = unparenthesizedType(scope, source);
+  if (written === undefined) return null;
+  const named = unaryTypeReference(scope, written);
+  const element = named?.argument ?? writtenBracketedElement(scope, written);
   if (element === undefined || tupleSyntax(scope, element) === undefined || !admit(scope, "edges")) return null;
   const checked = sourceType(scope, { kind: "annotation", node: source });
   if (checked?.type !== type || checked.causes.length !== 0 || !admit(scope, "edges")) return null;
   const target = scope.shape.getTypeReferenceTarget(type);
   const symbol = target === undefined ? undefined : scope.checker.getTypeSymbol(target);
-  if (target === undefined || symbol === undefined) return null;
+  if (target === undefined || symbol === undefined || named !== undefined && !bindsWrittenTypeTarget(scope, named.name, symbol)) return null;
   const slot = localTypeArgument(scope, type);
   if (slot === undefined || !scope.shape.isTuple(slot.argument) || !admit(scope, "edges")) return null;
   const selected = sourceType(scope, { kind: "annotation", node: element });
@@ -2976,10 +2979,11 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
         if (info === undefined || parameter === undefined) return throwInvariant(invariant("An interface's checked arguments must match its actual ordered parameters."));
         const ordinal = info.scope === "local" ? local++ : null;
         const capturedUse = qualified?.slots.get(info.parameter);
-        const receiverSlot = bindingUse?.kind === "receiver" ? bindingUse.slots.get(info.parameter) : undefined;
+        const receiverSlot = bindingUse?.kind === "receiver" && bindingUse.type === type && bindingUse.target === symbol
+          ? bindingUse.slots.get(info.parameter) : undefined;
         const restArgument = restArgumentForSlot(rest, info);
         const sourceUse = capturedUse !== undefined && capturedUse.argument === info.argument ? capturedUse
-          : receiverSlot !== undefined && info.argument === receiverSlot.argument && originalUse !== null
+          : receiverSlot !== undefined && info.argument === receiverSlot.argument
             ? { authored: receiverSlot.source, selected: receiverSlot.source }
             : restArgument !== null && rest !== null ? { authored: rest.element, selected: null }
             : originalUse !== null && ordinal !== null && shape.isTuple(info.argument)
@@ -3140,7 +3144,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
   throw new TypeError(`front: the captured form of the checker type ${scope.checker.typeToString(type)} is not implemented`);
 }
 
-function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeRef): RawMemberUse | null {
+type CheckedMember = Extract<ResolvedSourcePropertyAccessInfo, { readonly kind: "member" }>;
+
+function selectedMemberOf(scope: CaptureScope, node: Node, occurrence: RawNodeRef): CheckedMember | null {
   if (!admit(scope, "facts")) return null;
   const selector = scope.fieldSelectors?.get(occurrence.node);
   const acquired = scope.checker.acquireResolvedPropertyAccess(node, nativeCaptureAdmission(scope));
@@ -3152,7 +3158,12 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   if (acquired.kind === "unavailable" && selector !== undefined) return unavailableLayoutSelector(scope, selector);
   if (acquired.kind !== "complete" || acquired.value.kind !== "member" || acquired.value.expression !== node)
     throw new TypeError("front: a property access requires its actual selected member answer");
-  const info = acquired.value;
+  return acquired.value;
+}
+
+function capturedMemberUse(scope: CaptureScope, occurrence: RawNodeRef, info: CheckedMember,
+  viewRead: { readonly position: RawComponentId; readonly answer: ResolvedSourceTypeInfo } | null): RawMemberUse | null {
+  const selector = scope.fieldSelectors?.get(occurrence.node);
   if (selector !== undefined) {
     if (!admit(scope, "edges")) return null;
     const nativeFormal = info.receiver.valueDeclaration;
@@ -3196,7 +3207,13 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
     }
   }
   const receiverComponent = component(scope, receiver, null);
-  const receiverType = rawType(scope, () => withoutTypeCause(info.receiver.type), receiverComponent, null);
+  if (receiverComponent === null) return null;
+  const receiverSource = ast.kindName(info.receiver.expression) === "KindIdentifier" && scope.shape.isTypeReference(info.receiver.type)
+    && admit(scope, "edges")
+    ? declaredTupleRead(scope, info.receiver.type, info.receiver.valueDeclaration) : null;
+  const receiverUse = receiverSource === null ? null : receiverBindingUse(scope, info.receiver.type, receiverSource);
+  if (scope.meter.refusal !== null) return null;
+  const receiverType = rawType(scope, () => withoutTypeCause(info.receiver.type), receiverComponent, receiverSource, receiverUse);
   if (receiverType === null || receiverComponent === null) return null;
   const property = info.property;
   if (property === null || property.symbol !== info.sourceSymbol)
@@ -3231,9 +3248,12 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   if (scope.meter.refusal !== null) return null;
   const writeDeclaration = source(info.selectedWriteDeclaration);
   if (scope.meter.refusal !== null) return null;
-  const readComponent = info.sourceReadType === undefined ? null : component(scope, occurrence, null);
+  const readComponent = info.sourceReadType === undefined ? null : viewRead?.position ?? component(scope, occurrence, null);
   if (scope.meter.refusal !== null) return null;
-  const read = info.sourceReadType === undefined ? null : rawType(scope, () => withoutTypeCause(info.sourceReadType), readComponent, null);
+  const binding: MemberBindingUse | null = receiverUse !== null && member.readKind === "method"
+    ? { kind: "member", receiver: receiverUse, declarations: captured.declarations } : null;
+  const read = info.sourceReadType === undefined ? null
+    : rawType(scope, () => viewRead?.answer ?? withoutTypeCause(info.sourceReadType), readComponent, null, binding);
   if (info.sourceReadType !== undefined && read === null) return null;
   const writeComponent = info.sourceWriteType === undefined ? null : component(scope, occurrence, null);
   if (scope.meter.refusal !== null) return null;
@@ -3511,6 +3531,32 @@ function tupleInitializerUse(scope: CaptureScope, node: Node, parent: Node | und
   return syntax === undefined ? null : { kind: "tuple-initializer", syntax, original: contextual.type };
 }
 
+function declaredTupleRead(scope: CaptureScope, type: Type, declaration: Node | undefined): Node | null {
+  if (declaration === undefined) return null;
+  const ast = scope.checked.ast;
+  const kind = ast.kindName(declaration);
+  if (kind !== "KindParameter" && kind !== "KindVariableDeclaration") return null;
+  if (!admit(scope, "edges")) return null;
+  const annotation = ast.typeNode(declaration);
+  if (annotation === undefined) return null;
+  let tuple = tupleSyntax(scope, annotation) !== undefined;
+  if (!tuple) {
+    const element = writtenBracketedElement(scope, annotation);
+    tuple = element !== undefined && tupleSyntax(scope, element) !== undefined;
+  }
+  if (!tuple) {
+    const written = writtenApplication(scope, unparenthesizedType(scope, annotation));
+    for (let index = 0; index < (written?.arguments.length ?? 0); ++index) {
+      if (!admit(scope, "edges")) return null;
+      const argument = written?.arguments[index];
+      if (argument !== undefined && tupleSyntax(scope, argument) !== undefined) { tuple = true; break; }
+    }
+  }
+  if (!tuple || scope.meter.refusal !== null) return null;
+  const original = sourceType(scope, { kind: "annotation", node: annotation });
+  return original?.type === type && original.causes.length === 0 ? annotation : null;
+}
+
 function captureNumericToken(scope: CaptureScope, node: Node): RawNumericLiteral {
   return scope.numericLiterals.get(node) ?? throwInvariant(invariant("A numeric literal requires its exact admitted syntax token."));
 }
@@ -3532,13 +3578,82 @@ function forwardedNumericToken(scope: CaptureScope, source: Node): RawNumericLit
 
 type TypeCapture = Extract<CaptureTask, { readonly kind: "type" }>;
 
+function indexedTupleArgument(scope: CaptureScope, receiver: Type, object: Node, declaration: Node, result: Type): Node | undefined {
+  if (!admit(scope, "edges", 2)) return undefined;
+  const ast = scope.checked.ast;
+  const owner = ast.parent(declaration);
+  const annotation = ast.typeNode(declaration);
+  if (ast.kindName(owner) !== "KindInterfaceDeclaration" || annotation === undefined) return undefined;
+  const name = parameterReferenceName(scope, annotation);
+  const target = scope.shape.getTypeReferenceTarget(receiver);
+  const symbol = target === undefined ? undefined : scope.checker.getTypeSymbol(target);
+  if (name === undefined || target === undefined || symbol === undefined ||
+    scope.checker.getSymbolAtLocation(ast.name(owner)) !== symbol) return undefined;
+  const declared = sourceType(scope, { kind: "annotation", node: annotation });
+  if (declared === undefined || declared.causes.length !== 0 || !admit(scope, "edges")) return undefined;
+  const parameter = scope.checker.getTypeSymbol(declared.type);
+  if (parameter === undefined || scope.checker.getSymbolAtLocation(name) !== parameter) return undefined;
+  const source = unparenthesizedType(scope, object);
+  if (scope.meter.refusal !== null) return undefined;
+  const application = writtenApplication(scope, source);
+  const bracketed = application === null ? writtenBracketedElement(scope, object) : undefined;
+  if (scope.meter.refusal !== null || application === null && bracketed === undefined) return undefined;
+  if (application?.name !== undefined && application.name !== null && !bindsWrittenTypeTarget(scope, application.name, symbol))
+    return undefined;
+  const binding = scope.shape.acquireInterfaceArguments(receiver, target, nativeCaptureAdmission(scope));
+  if (binding.kind === "refused" && binding.stop === scope.meter.refusal || binding.kind === "unavailable") return undefined;
+  if (binding.kind !== "complete") return throwInvariant(invariant("An indexed tuple must retain its actual native binding refusal."));
+  let ordinal = 0;
+  for (let position = 0; position < binding.value.length; ++position) {
+    if (!admit(scope, "edges")) return undefined;
+    const entry = binding.value[position];
+    if (entry === undefined) return throwInvariant(invariant("An indexed tuple must retain each actual native slot."));
+    if (entry.scope !== "local") continue;
+    const index = ordinal++;
+    if (entry.parameter !== declared.type) continue;
+    if (entry.argument !== result || !admit(scope, "edges")) return undefined;
+    const argument = application === null ? index === 0 ? bracketed : undefined : application.arguments[index];
+    if (argument === undefined || tupleSyntax(scope, argument) === undefined) return undefined;
+    const written = sourceType(scope, { kind: "annotation", node: argument });
+    return written?.type === result && written.causes.length === 0 ? argument : undefined;
+  }
+  return undefined;
+}
+
+function declaredIndexResult(scope: CaptureScope, task: TypeCapture, type: Type): RawTypeForm | null | undefined {
+  const receipt = task.answer.indexedRead;
+  if (receipt?.kind !== "declared-index-read") return undefined;
+  const tuple = scope.shape.isTuple(type);
+  const declarations = tuple ? null : mergedArgumentGroup(scope, type);
+  if (!tuple && declarations === null) return scope.meter.refusal === null ? undefined : null;
+  if (!admit(scope, "edges")) return null;
+  const written = task.originalUse === null ? undefined : admittedTypeUse(scope, task.originalUse);
+  if (scope.meter.refusal !== null) return null;
+  const ast = scope.checked.ast;
+  const syntax = ast.as.AsIndexedAccessTypeNode(receipt.annotation);
+  if (receipt.result !== type || written !== receipt.annotation && task.answer.typeSource !== receipt.annotation
+    || syntax?.ObjectType === undefined || syntax.IndexType === undefined
+    || ast.kindName(receipt.declaration) !== "KindIndexSignature")
+    return throwInvariant(invariant("An indexed result must retain its actual checked index signature and annotation."));
+  const receiver = sourceType(scope, { kind: "annotation", node: syntax.ObjectType });
+  if (scope.meter.refusal !== null) return null;
+  const index = sourceType(scope, { kind: "annotation", node: syntax.IndexType });
+  if (scope.meter.refusal !== null) return null;
+  if (receiver?.type !== receipt.receiver || receiver.causes.length !== 0 || index?.type !== receipt.index || index.causes.length !== 0)
+    return throwInvariant(invariant("An indexed result must retain its actual checked receiver and index operands."));
+  if (declarations !== null) return captureMergedParameter(scope, declarations);
+  const argument = indexedTupleArgument(scope, receipt.receiver, syntax.ObjectType, receipt.declaration, type);
+  if (scope.meter.refusal !== null) return null;
+  return argument === undefined ? undefined : captureTuple(scope, type, task.position, argument, null, null);
+}
+
 function exactNumericUnion(scope: CaptureScope, task: TypeCapture): RawTypeForm | undefined | null {
   const ast = scope.checked.ast;
   const position = scope.tables.components[task.position];
   const original = task.originalUse;
   const direct = original !== null && "module" in original && position?.path === null && sameSource(position.root, original)
     ? admittedTypeUse(scope, original) : undefined;
-  const selected = task.answer.indexedRead;
+  const selected = task.answer.indexedRead?.kind === "indexed-read" ? task.answer.indexedRead : undefined;
   const source = selected?.annotation ?? task.answer.typeSource ?? direct;
   if (source === undefined || ast.kindName(source) !== (selected === undefined ? "KindUnionType" : "KindIndexedAccessType")) return undefined;
   const operands = selected?.properties ?? ast.as.AsUnionTypeNode(source)?.Types?.Nodes;
@@ -3694,7 +3809,9 @@ function captureFacts(scope: CaptureScope): void {
           const indexed = (base.flags & TypeFlagsIndexedAccess) !== 0;
           const written = indexed && source !== null && "module" in source ? admittedTypeUse(scope, source) : undefined;
           const writtenKind = scope.checked.ast.kindName(written);
-          if (next.bindingUse?.kind === "merged-slot") {
+          const indexedResult = next.bindingUse === null ? declaredIndexResult(scope, next, base) : undefined;
+          if (indexedResult !== undefined) captured = indexedResult;
+          else if (next.bindingUse?.kind === "merged-slot") {
             if (next.bindingUse.type !== base) return throwInvariant(invariant("A merged slot argument must retain its actual native parameter."));
             captured = captureMergedParameter(scope, next.bindingUse.declarations);
           } else if (indexed && writtenKind !== "KindIndexedAccessType") {
@@ -4993,11 +5110,34 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       if (scope.meter.refusal !== null) break;
       const tuple = kind === "KindArrayLiteralExpression" ? tupleInitializerUse(scope, node, parent, contextual) : null;
       if (scope.meter.refusal !== null) break;
-      const read = enqueueRawType(scope, answer, readPosition, null, tuple,
+      const declaredRead = kind === "KindIdentifier" && answer.causes.length === 0
+        && (scope.shape.isTuple(answer.type) || scope.shape.isTypeReference(answer.type));
+      const declarationSymbol = declaredRead ? scope.checker.getSymbolAtLocation(node) : undefined;
+      const authoredRead = declarationSymbol !== undefined && admit(scope, "edges")
+        ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol)) : null;
+      if (scope.meter.refusal !== null) break;
+      let sharedRead: RawTypeId | null = null;
+      if (kind === "KindPropertyAccessExpression" && declarationNameRoot === null && !failedSelection) {
+        const selected = selectedMemberOf(scope, node, reference);
+        if (selected === null) break;
+        const sameRead = answer.causes.length === 0 && selected.sourceReadType === answer.type;
+        const use = capturedMemberUse(scope, reference, selected, sameRead ? { position: readPosition, answer } : null);
+        if (use === null) break;
+        if (use.kind === "enum") {
+          if (!admit(scope, "facts")) break;
+          if (enumQualifiers === null && !admit(scope, "facts")) break;
+          (enumQualifiers ??= new Set()).add(use.receiver.node);
+        } else if (sameRead) sharedRead = use.read;
+        memberUses.push(use);
+      }
+      const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tuple,
         kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);
-      const contextualType = contextual === undefined ? null : rawType(scope, () => contextual, component(scope, reference, null), null, tuple);
+      const contextualSource = contextual?.typeSource !== undefined && scope.shape.isTuple(contextual.type)
+        ? contextual.typeSource : null;
+      const contextualType = contextual === undefined ? null
+        : rawType(scope, () => contextual, component(scope, reference, null), contextualSource, tuple);
       if (contextual !== undefined && contextualType === null) break;
-      const symbol = scope.checker.getSymbolAtLocation(node);
+      const symbol = declaredRead ? declarationSymbol : scope.checker.getSymbolAtLocation(node);
       const symbolId = symbol === undefined ? null : rawSymbol(scope, symbol);
       if (symbol !== undefined && symbolId === null) break;
       if (!admit(scope, "facts")) break;
@@ -5049,16 +5189,6 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
     if (invalidSelector !== undefined) {
       unavailableLayoutSelector(scope, invalidSelector);
       break;
-    }
-    if (kind === "KindPropertyAccessExpression" && declarationNameRoot === null && !failedSelection) {
-      const use = capturedMemberUse(scope, node, reference);
-      if (use === null) break;
-      if (use.kind === "enum") {
-        if (!admit(scope, "facts")) break;
-        if (enumQualifiers === null && !admit(scope, "facts")) break;
-        (enumQualifiers ??= new Set()).add(use.receiver.node);
-      }
-      memberUses.push(use);
     }
     if (kind === "KindCallExpression" && declarationNameRoot === null && !failedSelection) {
       const call = captureCall(scope, node, reference);

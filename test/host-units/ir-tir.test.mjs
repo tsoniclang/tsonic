@@ -13,6 +13,7 @@ import { syntaxConstructorInputs } from "./fixtures/hir-syntax.mjs";
 import { syntaxFieldMutations } from "./fixtures/syntax-field-mutations.mjs";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
+import { readyModuleRoot, readyModuleStatements } from "./fixtures/chapter-syntax.mjs";
 import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
 import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
 import { checkCallShapedComputedDeclarationName } from "./fixtures/computed-declaration-name.mjs";
@@ -31,7 +32,7 @@ const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const productNames = ["index", "print", "parse", "text-layouts", "text-construction", "text-syntax-construction", "text-model", "text-body", "text-phase-values",
   "text-phase-declarations", "text-type-values", "text-rule-decisions", "text-rule-inputs", "text-causes", "text-captures", "text-memory",
   "text-syntax-values", "text-syntax-statements", "text-syntax-types", "text-syntax-jsx", "text-syntax-docs",
-  "verify", "verify-occurrences", "verify-applications", "verify-instances", "chapter-syntax", "selection-key", "syntax-compare", "syntax-compare-common",
+  "verify", "verify-occurrences", "verify-applications", "verify-instances", "verify-interface", "chapter-syntax", "selection-key", "syntax-compare", "syntax-compare-common",
   "syntax-compare-values", "syntax-compare-statements", "syntax-compare-types", "syntax-compare-jsx", "syntax-compare-docs"];
 const sourceFiles = ["contract", ...productNames].map(name => `packages/host/src/ir-tir/${name}.ts`);
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-tir/${name}.js`));
@@ -56,6 +57,81 @@ let structureOf;
 
 const readyStatement = node => ({ kind: "ready-statement", node });
 const readyChapter = root => ({ kind: "ready-root", root });
+
+test("TIR verifies interface header type bindings independently of the candidate's valid type table", async () => {
+  const fixture = await loadFrontFixture();
+  const { createAccount, chargeWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const { verifyTir, verifyTirModule } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { verifyInterfaceInstance } = await import("../../packages/host/dist/ir-tir/verify-interface.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export interface Left<T> { first: T; }
+    export interface Left<T> { second: T; }
+    export interface Right<V> { one: V; }
+    export interface Right<V> { two: V; }
+    export interface Single<X> { only: X; }
+    export type Concrete = Left<boolean>;
+    export function outer<T, U>(value: T): T {
+      interface Pair<A> { first: T; }
+      interface Pair<A> { second: A; third: U; }
+      return value;
+    }
+  `);
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const account = createAccount(input.limits.dataflow);
+  const typed = typeSourceBarrier(input, checked.value, account);
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const module = input.snapshot.entryPoint;
+  const chapter = typed.value.modules.get(module);
+  const reader = typed.value.verifierOf(module);
+  const [left, , right, , single, concrete] = readyModuleStatements(readyModuleRoot(chapter.tree));
+  const verify = () => verifyTirModule(reader, chapter, tirReadyReadAdmission(account));
+  const body = reader.bodyOf({ body: reader.source.tree.tsonic.body, bindings: { kind: "parametric" } });
+  const verifyBody = verifyTir(reader, tirReadyReadAdmission(account));
+  assert.deepEqual(verify(), { kind: "complete", violations: [] });
+  assert.deepEqual(verifyBody(body), { kind: "complete", violations: [] });
+  const expected = node => ({ rule: "interface-instance-exact", site: { kind: "node", module, node: node.id },
+    detail: [{ kind: "text", value: "interface header must retain its actual checked nominal instance and rigid arguments" }] });
+  for (const [node, offered] of [[left, right.tsonic.type], [left, concrete.tsonic.type], [single, left.tsonic.type]]) {
+    const original = node.tsonic;
+    node.tsonic = { ...original, type: offered };
+    try {
+      assert.deepEqual(verify(), { kind: "complete", violations: [expected(node)] });
+      assert.deepEqual(verifyBody(body), { kind: "complete", violations: [expected(node)] });
+    }
+    finally { node.tsonic = original; }
+  }
+  const authored = reader.source.tree.statements.nodes[0];
+  const originalStop = chargeWork(createAccount({ maximumWork: 0, maximumResultEntries: 10 }));
+  assert.ok(originalStop);
+  const denied = verifyInterfaceInstance({ ...reader, nominalOf: () => assert.fail("refused nominal authority is unread") },
+    left, authored, request => request.kind === "source-declaration" ? originalStop : null,
+    () => assert.fail("an original stop is not a type violation"));
+  assert.equal(denied === originalStop, true);
+  const outer = reader.source.bodies.find(candidate => candidate.root.kind === "Block");
+  const nested = reader.bodyOf({ body: outer.body, bindings: { kind: "parametric" } });
+  assert.deepEqual(verifyBody(nested), { kind: "complete", violations: [] });
+  const originalPair = outer.root.statements.nodes[0];
+  const firstPair = nested.root.statements.nodes[0];
+  const pairNominal = reader.nominalOf(originalPair.tsonic.definition);
+  assert.deepEqual(pairNominal.slots.map(slot => slot.scope), ["outer", "outer", "local"]);
+  const pair = reader.types.terms[firstPair.tsonic.type];
+  const captures = reader.declarationOf(originalPair.tsonic.definition).scope.capturedParameters;
+  assert.deepEqual(pair.arguments.slice(0, 2).map(argument => reader.types.terms[argument]), captures.map(parameter => ({ kind: "param", parameter })));
+  const violations = [];
+  const otherScope = reader.declarationOf(single.tsonic.definition);
+  assert.equal(verifyInterfaceInstance({ ...reader, declarationOf: () => otherScope }, firstPair, originalPair, () => null,
+    (rule, node, detail) => violations.push([rule, node.id, detail])), null);
+  assert.deepEqual(violations, [["interface-instance-exact", firstPair.id, expected(firstPair).detail[0].value]]);
+  let reached = 0;
+  const interrupted = verifyInterfaceInstance({ ...reader, declarationOf: () => assert.fail("refused captured scope is unread") },
+    firstPair, originalPair, request => request.kind === "source-declaration" && ++reached === 2 ? originalStop : null,
+    () => assert.fail("an original stop is not a type violation"));
+  assert.equal(interrupted === originalStop && reached === 2, true);
+});
 
 function writeValueEvidence(path, root) {
   const output = openSync(path, "wx");
@@ -597,6 +673,54 @@ test("one Typed formal initializer slot admits its tag and only the reached phas
   assert.equal(selected.kind, "complete");
   assert.deepEqual(selected.value, { kind: "none" });
   assert.deepEqual(reads, ["tag"]);
+});
+
+test("the standalone TIR wire preserves actual unopened declarations and supplied defaults in its checked domain", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const root = "/project/node_modules/dependency";
+  const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
+  const source = 'import { choose } from "dependency"; '
+    + "export function supplied(value:boolean):boolean { return choose(value, value); }";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
+    otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source",
+      "export function choose<T>(value:T, fallback:T=value):T { return fallback; } "
+      + "export function latent(value:boolean):boolean { return value; }", false] } }] });
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === module);
+  const initializer = chapter.bodies.find(row => row.tir.root.kind === "SourceFile");
+  const selection = chapter.bodies.find(row => row.kind === "selected" && row.tir.params.length === 2);
+  const unopened = initializer.tir.root.statements.nodes.find(slot => slot.node.name?.text === "latent");
+  assert.equal(unopened.kind, "checked-declaration");
+  assert.equal(selection.tir.params[1].initializer.kind, "checked-default");
+  for (const { tir } of [initializer, selection]) {
+    const text = product.printTir(tir);
+    assert.equal(text.includes("CheckedDeclarations(\n"), true);
+    const output = product.parseTir(text);
+    assert.equal(output.kind, "parsed");
+    assert.equal(product.printTir(output.value), text);
+    const typedOffset = text.indexOf("=n:") + 1;
+    const checkedOffset = text.indexOf("=c:") + 1;
+    assert.ok(typedOffset > 0 && checkedOffset > 0);
+    for (const [offset, prefix] of [[typedOffset, "c"], [checkedOffset, "n"]]) {
+      const crossed = product.parseTir(text.slice(0, offset) + prefix + text.slice(offset + 1));
+      assert.equal(crossed.kind, "invalid-text");
+      assert.equal(crossed.offset, offset);
+    }
+    if (output.value.root.kind === "SourceFile") {
+      const slot = output.value.root.statements.nodes.find(row => row.node.name?.text === "latent");
+      assert.equal(slot.kind, "checked-declaration");
+      assert.equal(slot.node.id, unopened.node.id);
+    } else {
+      const formal = output.value.params[1];
+      assert.equal(formal.initializer.kind, "checked-default");
+      assert.equal(formal.initializer.root.id, tir.params[1].initializer.root.id);
+    }
+  }
 });
 
 function siblingIdentityScenario(sourceShared, typedShared) {

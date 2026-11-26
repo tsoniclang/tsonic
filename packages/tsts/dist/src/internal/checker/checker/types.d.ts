@@ -8110,6 +8110,7 @@ export declare function Checker_getMutableArrayOrTupleType(receiver: GoPtr<Check
 export declare function Checker_getContextualTypeForBindingElement(receiver: GoPtr<Checker>, declaration: GoPtr<Node>, contextFlags: ContextFlags): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getContextualTypeForReturnExpression","kind":"method","status":"implemented","sigHash":"eb13ac8eba4684b15ff153c085dc5d83241d38ed49605ccf23ea010da1628ea8","bodyHash":"faf35c75d4f2b9928d435d7751f429ce97a71fdb8688514b4df65050aeebc962"}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"Expose the completed written annotation for the actual ordinary tuple return context without changing native contextual checking.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/types.ts::ContextFlags)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/types.ts::ContextFlags,?packages/tsts/src/internal/checker/checker/source-type-answers.ts::SourceTypeAnswerOutput)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  *
  * Go source:
  * func (c *Checker) getContextualTypeForReturnExpression(node *ast.Node, contextFlags ContextFlags) *Type {
@@ -8147,7 +8148,7 @@ export declare function Checker_getContextualTypeForBindingElement(receiver: GoP
  * 	return nil
  * }
  */
-export declare function Checker_getContextualTypeForReturnExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, contextFlags: ContextFlags): GoPtr<Type>;
+export declare function Checker_getContextualTypeForReturnExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, contextFlags: ContextFlags, output?: SourceTypeAnswerOutput): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getContextualIterationType","kind":"method","status":"implemented","sigHash":"9788fa55f957d844701f50b7a1dd7800e60ff22f8fdbcd37c38af586b0d7bf64","bodyHash":"57774757d85723fc2435321bffe128fabb9d0d74675c4802aa317ecb76fdb3a7"}
  *

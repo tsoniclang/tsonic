@@ -73,30 +73,57 @@ test("the checked source barrier preserves a recursive merged application", asyn
 
 test("a mapped index value retains the actual different merged parameter group", async () => {
   const fixture = await loadFrontFixture();
-  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
     interface Matrix<Item> { [index: number]: Item; }
     interface Matrix<Item> { marker: boolean; }
     interface Holder<Value> { selected: Matrix<Value>; }
-    interface Holder<Value> { other: boolean; }
-  ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const { deps, program } = fixture.openAndCapture(snapshot);
+    interface Holder<Value> { observed: Matrix<Value>[number]; crossed: Matrix<Value>[number]; }
+    export type Answer = Holder<boolean>["observed"];
+  `);
+  const { snapshot } = input;
+  const { deps, program, set } = fixture.openAndCapture(snapshot);
   const captured = captureSingleModule(fixture.front, deps, program, snapshot.entryPoint);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
   const { types, tree, module } = captured.value;
   const [matrix, otherMatrix, holder, otherHolder] = tree.statements.nodes;
-  const original = matrix.members.nodes[0];
   const qualify = node => ({ module, node: node.id });
   const own = [matrix, otherMatrix].map(node => qualify(node.typeParameters.nodes[0]));
   const expected = [holder, otherHolder].map(node => qualify(node.typeParameters.nodes[0]));
-  const indexes = types.members.flatMap(member => member.indexes).filter(row => row.origin.node === original.id && row.origin.module === module);
-  const selected = indexes.map(row => types.types[row.value]).filter(row => row.form.value?.kind === "merged-slot-parameter");
-  assert.ok(selected.length > 0);
-  for (const row of selected) {
-    assert.equal(row.authoredTypeNode, null);
+  const authored = otherHolder.members.nodes.map(member => member.type);
+  for (const annotation of authored) {
+    const position = captured.value.annotations.find(row => row.node === annotation.id);
+    assert.ok(position);
+    const row = types.types[position.type];
+    assert.deepEqual(row.authoredTypeNode, qualify(annotation));
+    assert.equal(row.form.value.kind, "merged-slot-parameter");
     assert.deepEqual(row.form.value.declarations, expected);
     assert.notDeepEqual(row.form.value.declarations, own);
-    assert.equal(rawComponentPath(types.components, types.components[row.component]).at(-1).kind, "index-value");
+    assert.deepEqual(types.components[row.component].root, qualify(annotation));
   }
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const checked = OpenedProgram.checked(program);
+  const file = OpenedProgram.file(program, module).file;
+  const original = checked.getSourceFileQueries(file);
+  const numbered = OpenedProgram.syntax(program).get("/project/src/main.ts").outcome.numbering.nodes;
+  const [first, second] = authored.map(node => numbered[node.id]);
+  const firstAnswer = original.checker.getTypeFromTypeNode(first);
+  const secondAnswer = original.checker.getTypeFromTypeNode(second);
+  assert.equal(firstAnswer.type === secondAnswer.type && firstAnswer.indexedRead !== secondAnswer.indexedRead, true);
+  assert.equal(firstAnswer.indexedRead.kind, "declared-index-read");
+  assert.equal(firstAnswer.indexedRead.declaration === numbered[matrix.members.nodes[0].id], true);
+  const crossed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
+    const selected = checked.getSourceFileQueries(sourceFile);
+    if (sourceFile !== file) return selected;
+    return { ...selected, checker: { ...selected.checker, acquireSourceType: observeSourceType(selected.checker, (request, answer) =>
+      request.kind === "annotation" && request.node === first ? { ...answer, indexedRead: secondAnswer.indexedRead } : undefined) } };
+  } }, OpenedProgram.table(program), set.modules.map(entry =>
+    OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
+  OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
+  assert.throws(() => captureSingleModule(fixture.front, deps, crossed, module), /actual checked index signature and annotation/u);
+  const programResult = analyzeHostProgram(input);
+  assert.equal(programResult.kind, "ok", JSON.stringify(programResult.diagnostics));
 });
 
 test("the checked symbolic slot verifies against its own declared group, not its receiving interface", async () => {
@@ -908,12 +935,39 @@ test("the exact callback evidence limits preserve the actual annotation reader s
   }
 });
 
-for (const [scenario, annotation, optional, admitted] of [
-  ["direct required", "(value: T, index: number) => boolean", "", true],
-  ["direct optional", "(value: T, index: number) => boolean", "?", true],
-  ["required union", "((value: T, index: number) => boolean) | undefined", "", false],
-  ["required alias", "Identity<(value: T, index: number) => boolean>", "", false],
-  ["required overloads", "{ (value: T): boolean; (value: T, index: number): boolean; }", "", false],
+async function checkedSelectedMethods(fixture, snapshot, module = snapshot.entryPoint) {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { membersOf, memberTypeOf } = await import("../../packages/host/dist/decls/index.js");
+  const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const { modules, types, typeWork, interfaceDescriptionOf } = captured.value;
+  const { module: source } = modules.find(row => row.module.module === module);
+  const checked = { modules, types, typeWork, interfaceDescriptionOf, typeExpansion: input.limits.instantiation.typeExpansion };
+  const typeOf = type => fixture.types.readType(types, type);
+  const signatureOf = signature => fixture.types.readSignature(types, signature);
+  const methodOf = (receiver, name) => {
+    const inventory = membersOf(checked, receiver).value;
+    assert.equal(inventory.kind, "ok");
+    const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === name);
+    assert.ok(member >= 0);
+    const offered = memberTypeOf(checked, { receiver, member, access: "read" }).value;
+    assert.equal(offered.kind, "ok");
+    const callable = typeOf(offered.value.read);
+    assert.equal(callable.kind, "callable");
+    assert.equal(callable.calls.length, 1);
+    return signatureOf(callable.calls[0]);
+  };
+  return { source, typeOf, signatureOf, methodOf };
+}
+
+for (const [scenario, annotation, optional, wrapper] of [
+  ["direct required", "(value: T, index: number) => boolean", "", "callable"],
+  ["direct optional", "(value: T, index: number) => boolean", "?", "optional"],
+  ["required union", "((value: T, index: number) => boolean) | undefined", "", "optional"],
+  ["required alias", "Identity<(value: T, index: number) => boolean>", "", "callable"],
+  ["required overloads", "{ (value: T): boolean; (value: T, index: number): boolean; }", "", "callable"],
 ]) {
   test(`changed-shape ${scenario} callback keeps only its proved authored input`, async () => {
     const fixture = await loadFrontFixture();
@@ -921,10 +975,10 @@ for (const [scenario, annotation, optional, admitted] of [
       export type Identity<X> = X;
       export interface Box<T> { find(predicate${optional}: ${annotation}): boolean; }
       export interface Box<T> {}
-      export interface Holder<U> {}
+      export interface Holder<U> { alternate: Box<U>; }
       export interface Holder<U> { chosen: Box<U>; }
     ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-    const { deps, program } = fixture.openAndCapture(snapshot);
+    const { program } = fixture.openAndCapture(snapshot);
     const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
     const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
     const file = OpenedProgram.file(program, module).file;
@@ -958,29 +1012,32 @@ for (const [scenario, annotation, optional, admitted] of [
     }
     if (scenario === "required union") assert.equal(typeShape.isUnion(applied.type), true);
 
-    if (!admitted) {
-      assert.throws(() => captureSingleModule(fixture.front, deps, program, module), /a merged type parameter requires its actual selected declaration association/);
-      return;
+    const { source, typeOf, signatureOf, methodOf } = await checkedSelectedMethods(fixture, snapshot);
+    const [, originalBox, , firstHolder, secondHolder] = source.tree.statements.nodes;
+    const signedMethod = originalBox.members.nodes[0].tsonic.definition;
+    const instances = [];
+    for (const holder of [firstHolder, secondHolder]) {
+      const receiver = holder.members.nodes[0].type.tsonic.type.value;
+      const bound = holder.typeParameters.nodes[0].tsonic.definition;
+      const signature = methodOf(receiver, "find");
+      assert.equal(signature.declaration, signedMethod);
+      assert.equal(signature.parameters[0].kind, optional ? "optional" : "required");
+      const parameter = typeOf(signature.parameters[0].type);
+      assert.equal(parameter.kind, wrapper);
+      const callback = parameter.kind === "optional" ? typeOf(parameter.value)
+        : parameter.kind === "union" ? parameter.members.map(typeOf).find(row => row.kind === "callable") : parameter;
+      assert.equal(callback.kind, "callable");
+      assert.equal(callback.calls.length, originals.length);
+      const rows = callback.calls.map(signatureOf);
+      for (const [index, row] of rows.entries()) {
+        assert.equal(row.parameters.length, typeShape.getSignatureParameterInfos(originals[index]).length);
+        assert.deepEqual(typeOf(row.parameters[0].type), { kind: "param", parameter: bound });
+        if (row.parameters.length === 2) assert.deepEqual(typeOf(row.parameters[1].type), { kind: "primitive", primitive: "float64" });
+      }
+      instances.push(rows);
     }
-    const captured = captureSingleModule(fixture.front, deps, program, module);
-    assert.equal(captured.kind, "ok");
-    const raw = captured.value;
-    const ids = OpenedProgram.syntax(program).get("/project/src/main.ts").outcome.numbering.ids;
-    const inventory = type => raw.types.members[type.form.value.inventory];
-    const authored = raw.types.types.find(type => type.authoredTypeNode?.node === ids.get(use));
-    const read = inventory(authored).members.find(row => row.name === "find").read.value;
-    const signature = raw.types.signatures[inventory(raw.types.types[read]).calls[0]];
-    const parameter = raw.types.types[signature.parameters[0].type];
-    const callbackType = optional ? parameter.form.value.members.map(id => raw.types.types[id])
-      .find(row => row.form.value.kind === "structure") : parameter;
-    assert.equal(parameter.form.value.kind, optional ? "union" : "structure");
-    const callback = raw.types.signatures[inventory(callbackType).calls[0]];
-    const sourceCallback = raw.types.signatures[callback.target];
-    const originalBinder = { module, node: ids.get(ast.typeParameters(interfaces[0])[0]) };
-    const selectedBinder = { module, node: ids.get(ast.typeParameters(interfaces[3])[0]) };
-    assert.deepEqual(raw.types.types[sourceCallback.parameters[0].type].form.value.parameter, originalBinder);
-    assert.deepEqual(raw.types.types[callback.parameters[0].type].form.value.parameter, selectedBinder);
-    assert.deepEqual(raw.types.types[callback.parameters[1].type].form.value, { kind: "scalar", scalar: "number" });
+    assert.equal(instances[0].some((row, position) => row.id === instances[1][position].id), false);
+    assert.deepEqual(instances[0].map(row => row.declaration), instances[1].map(row => row.declaration));
   });
 }
 
@@ -1036,18 +1093,20 @@ for (const annotation of ["T[]", "Identity<T[]>"]) {
     assert.equal(captured.kind, "ok");
     const raw = captured.value;
     const ids = OpenedProgram.syntax(program).get("/checker/lib.es2023.array.d.ts").outcome.numbering.ids;
-    const inventory = type => raw.types.members[type.form.value.inventory];
     const authored = raw.types.types.find(type => type.authoredTypeNode?.node === ids.get(use));
-    const root = inventory(authored);
-    const read = root.members.find(row => row.name === "find").read.value;
-    const signature = raw.types.signatures[inventory(raw.types.types[read]).calls[0]];
-    const predicate = raw.types.signatures[inventory(raw.types.types[signature.parameters[0].type]).calls[0]];
-    assert.notEqual(predicate.target, null);
-    assert.deepEqual(raw.types.types[predicate.parameters[0].type].form.value.parameter,
-      { module, node: ids.get(ast.typeParameters(declaration)[0]) });
-    const projected = raw.types.types[predicate.parameters[2].type];
-    assert.equal(projected.authoredTypeNode, null);
-    assert.equal(inventory(projected).id, root.id);
+    assert.equal(authored.form.value.kind, "merged-interface-dependency");
+    const { source: checkedSource, typeOf, signatureOf, methodOf } = await checkedSelectedMethods(fixture, snapshot, module);
+    const owner = checkedSource.tree.statements.nodes.find(node => node.id === ids.get(declaration));
+    const property = owner.members.nodes.find(node => node.type?.id === ids.get(use));
+    const applied = property.type.tsonic.type.value;
+    const signature = methodOf(applied, "find");
+    const checkedCallback = typeOf(signature.parameters[0].type);
+    assert.equal(checkedCallback.kind, "callable");
+    assert.equal(checkedCallback.calls.length, 1);
+    const predicate = signatureOf(checkedCallback.calls[0]);
+    assert.deepEqual(typeOf(predicate.parameters[0].type), { kind: "param", parameter: owner.typeParameters.nodes[0].tsonic.definition });
+    assert.equal(predicate.parameters[2].type, applied);
+    assert.equal(methodOf(predicate.parameters[2].type, "find").id, signature.id);
   });
 }
 
@@ -1059,7 +1118,7 @@ test("an applied callback return retains the original callable and the selected 
     export interface Holder<U> {}
     export interface Holder<U> { chosen: Box<U>; }
   ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const { captured, deps, interner, opened } = fixture.captureModulesOf(snapshot);
+  const { captured, opened } = fixture.captureModulesOf(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const { raw } = captured.find(entry => entry.module === module);
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
@@ -1073,23 +1132,24 @@ test("an applied callback return retains the original callable and the selected 
   const original = checker.getSignatureFromDeclaration(annotation);
   const authored = checker.getTypeFromTypeNode(ast.typeNode(annotation)).type;
   assert.equal(checker.getReturnTypeOfSignature(original)?.type === authored, true);
+  const { source, typeOf, signatureOf, methodOf } = await checkedSelectedMethods(fixture, snapshot);
+  const [checkedLeft, checkedRight, , checkedHolder] = source.tree.statements.nodes;
+  const declared = checkedLeft.members.nodes.find(member => member.name.text === "fold");
+  const originalType = declared.parameters.nodes[0].type;
   const native = [];
   const capturedCallbacks = [];
-  const inventory = row => raw.types.members[row.form.value.inventory];
-  const { createTypeConversion, convertRawType } = await import("../../packages/host/dist/front/type-conversion.js");
-  const conversion = createTypeConversion(deps, raw);
   function verifyResult(signature, owner) {
-    assert.deepEqual(signature.declaration, { module, node: numbering.ids.get(annotation) });
-    const row = raw.types.types[signature.result.value];
-    const parameter = { module, node: owner.typeParameters.nodes[0].id };
-    assert.equal(row.authoredTypeNode, null);
-    assert.deepEqual(row.form.value.parameter, parameter);
-    const result = convertRawType(conversion, row.id);
-    assert.equal(result.kind, "complete");
-    assert.deepEqual(fixture.types.readType(interner, result.value.type), { kind: "param", parameter: deps.definitionOf(parameter) });
-    return result.value.type;
+    assert.equal(signature.declaration, originalType.tsonic.definition);
+    const parameter = owner.typeParameters.nodes[0].tsonic.definition;
+    assert.deepEqual(typeOf(signature.result), { kind: "param", parameter });
+    assert.deepEqual(signature.parameters.map(formal => typeOf(formal.type)),
+      [{ kind: "param", parameter }, { kind: "param", parameter }]);
+    return parameter;
   }
-  for (const [owner, property] of [[left, "left"], [right, "right"], [holder, "chosen"]]) {
+  const actualOriginal = signatureOf(typeOf(originalType.tsonic.type.value).calls[0]);
+  assert.equal(actualOriginal.result, originalType.type.tsonic.type.value);
+  const expected = verifyResult(actualOriginal, checkedLeft);
+  for (const [owner, checkedOwner, property] of [[left, checkedLeft, "left"], [right, checkedRight, "right"], [holder, checkedHolder, "chosen"]]) {
     const node = numbering.nodes[owner.members.nodes.find(member => member.name.text === property).id];
     const syntax = ast.typeNode(node);
     const receiver = checker.getTypeFromTypeNode(syntax).type;
@@ -1102,17 +1162,19 @@ test("an applied callback return retains the original callable and the selected 
     assert.equal(argument.parameter === authored && checker.getReturnTypeOfSignature(callback)?.type === argument.argument, true);
     assert.equal(argument.argument === authored, owner !== holder);
     native.push(callback);
-    const root = raw.types.types.find(row => row.authoredTypeNode?.node === numbering.ids.get(syntax));
-    const folded = inventory(raw.types.types[inventory(root).members.find(member => member.name === "fold").read.value]);
-    const outer = raw.types.signatures[folded.calls[0]];
-    const [selectedId] = inventory(raw.types.types[outer.parameters[0].type]).calls;
-    const selectedCallback = raw.types.signatures[selectedId];
+    const checkedReceiver = checkedOwner.members.nodes.find(member => member.name.text === property).type.tsonic.type.value;
+    const outer = methodOf(checkedReceiver, "fold");
+    assert.equal(outer.declaration, declared.tsonic.definition);
+    const receiverCallback = typeOf(outer.parameters[0].type);
+    assert.equal(receiverCallback.kind, "callable");
+    assert.equal(receiverCallback.calls.length, 1);
+    const selectedCallback = signatureOf(receiverCallback.calls[0]);
     capturedCallbacks.push(selectedCallback);
-    assert.equal(verifyResult(selectedCallback, owner) === verifyResult(raw.types.signatures[selectedCallback.target], left), owner === left);
+    assert.equal(verifyResult(selectedCallback, checkedOwner) === expected, owner === left);
   }
   assert.equal(native[0] === native[1], true);
   assert.notEqual(capturedCallbacks[0].id, capturedCallbacks[1].id);
-  assert.equal(capturedCallbacks[0].target, capturedCallbacks[1].target);
+  assert.equal(capturedCallbacks[0].declaration, capturedCallbacks[1].declaration);
 });
 
 for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped callback return cannot borrow the same native binder" :
@@ -1211,7 +1273,7 @@ test("a direct undefined union retains the original result binder and each appli
     export interface Holder<U> {}
     export interface Holder<U> { chosen: Box<U>; }
   ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const { captured, deps, opened } = fixture.captureModulesOf(snapshot);
+  const { captured, opened } = fixture.captureModulesOf(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const { raw } = captured.find(entry => entry.module === module);
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
@@ -1227,19 +1289,23 @@ test("a direct undefined union retains the original result binder and each appli
   const authored = ast.as.AsUnionTypeNode(ast.typeNode(declaration)).Types.Nodes;
   assert.equal(checker.getTypeFromTypeNode(authored[0]).type === sourceArms[1], true);
   assert.equal(checker.getTypeFromTypeNode(authored[1]).type === sourceArms[0], true);
+  const { source: checked, typeOf, signatureOf, methodOf } = await checkedSelectedMethods(fixture, snapshot);
+  const [checkedLeft, checkedRight, , checkedHolder] = checked.tree.statements.nodes;
+  const originalMethod = checkedLeft.members.nodes[0];
   const nat = [];
   const rows = [];
-  const inventory = type => raw.types.members[type.form.value.inventory];
-  function verifyResult(signature, binder) {
-    const result = raw.types.types[signature.result.value];
-    assert.equal(result.authoredTypeNode, null);
-    const arms = result.form.value.members.map(id => raw.types.types[id]);
-    assert.deepEqual(arms.find(row => row.form.value.kind === "scalar").form.value, { kind: "scalar", scalar: "undefined" });
-    const value = arms.find(row => row.form.value.kind === "parameter");
-    assert.deepEqual(value.form.value.parameter, binder);
-    return deps.definitionOf(binder);
+  function verifyResult(signature, owner) {
+    assert.equal(signature.declaration, originalMethod.tsonic.definition);
+    const result = typeOf(signature.result);
+    assert.equal(result.kind, "optional");
+    const binder = owner.typeParameters.nodes[0].tsonic.definition;
+    assert.deepEqual(typeOf(result.value), { kind: "param", parameter: binder });
+    return binder;
   }
-  for (const [owner, name] of [[left, "left"], [right, "right"], [holder, "chosen"]]) {
+  const declared = signatureOf(originalMethod.tsonic.signatures[0].signature);
+  assert.equal(declared.result, originalMethod.type.tsonic.type.value);
+  const originalBinder = verifyResult(declared, checkedLeft);
+  for (const [owner, checkedOwner, name] of [[left, checkedLeft, "left"], [right, checkedRight, "right"], [holder, checkedHolder, "chosen"]]) {
     const member = owner.members.nodes.find(row => row.name.text === name);
     const syntax = ast.typeNode(numbered.nodes[member.id]);
     const receiver = checker.getTypeFromTypeNode(syntax).type;
@@ -1251,17 +1317,14 @@ test("a direct undefined union retains the original result binder and each appli
     assert.equal(selected.includes(mapping.argument) && selected.includes(sourceArms[0]), true);
     assert.equal(returned === source, owner !== holder);
     nat.push(signature);
-    const root = raw.types.types.find(row => row.authoredTypeNode?.node === numbered.ids.get(syntax));
-    const read = inventory(root).members.find(row => row.name === "at").read.value;
-    const selectedRow = raw.types.signatures[inventory(raw.types.types[read]).calls[0]];
+    const selectedType = checkedOwner.members.nodes.find(node => node.name.text === name).type.tsonic.type.value;
+    const selectedRow = methodOf(selectedType, "at");
     rows.push(selectedRow);
-    const originalDef = verifyResult(raw.types.signatures[selectedRow.target], { module, node: left.typeParameters.nodes[0].id });
-    const selectedDef = verifyResult(selectedRow, { module, node: owner.typeParameters.nodes[0].id });
-    assert.equal(originalDef === selectedDef, owner === left);
+    assert.equal(originalBinder === verifyResult(selectedRow, checkedOwner), owner === left);
   }
   assert.equal(nat[0] === nat[1], true);
   assert.notEqual(rows[0].id, rows[1].id);
-  assert.equal(rows[0].target, rows[1].target);
+  assert.equal(rows[0].declaration, rows[1].declaration);
 });
 
 test("a declared result keeps the original authored argument and each selected receiver binder", async () => {
@@ -1273,14 +1336,14 @@ test("a declared result keeps the original authored argument and each selected r
     export interface Holder<U> {}
     export interface Holder<U> { chosen: Box<U>; }
   ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const { captured, deps, interner, opened } = fixture.captureModulesOf(snapshot);
+  const { captured, opened } = fixture.captureModulesOf(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const { raw } = captured.find(entry => entry.module === module);
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const { ast, getSourceFileQueries } = OpenedProgram.checked(opened.program);
   const { checker, typeShape } = getSourceFileQueries(OpenedProgram.file(opened.program, module).file);
   const numbered = OpenedProgram.syntax(opened.program).get("/project/src/main.ts").outcome.numbering;
-  const [endpoint, left, right, , holder] = raw.tree.statements.nodes;
+  const [, left, right, , holder] = raw.tree.statements.nodes;
   const method = numbered.nodes[left.members.nodes[0].id];
   const original = checker.getSignatureFromDeclaration(method);
   const syntax = ast.as.AsTypeReferenceNode(ast.typeNode(method));
@@ -1290,36 +1353,28 @@ test("a declared result keeps the original authored argument and each selected r
   const authored = { module, node: numbered.ids.get(syntax.TypeArguments.Nodes[0]) };
   assert.equal(oldArgument.argument === source, true);
   assert.equal(checker.getTypeFromTypeNode(ast.typeNode(method)).type === oldResult, true);
+  const { source: checked, typeOf, signatureOf, methodOf } = await checkedSelectedMethods(fixture, snapshot);
+  const [endpoint, checkedLeft, checkedRight, , checkedHolder] = checked.tree.statements.nodes;
+  const originalMethod = checkedLeft.members.nodes[0];
   const native = [];
   const rows = [];
-  const inventory = row => raw.types.members[row.form.value.inventory];
-  const parameter = { module, node: endpoint.typeParameters.nodes[0].id };
-  const { createTypeConversion, convertRawType } = await import("../../packages/host/dist/front/type-conversion.js");
-  const conversion = createTypeConversion(deps, raw);
   function verifyResult(signature, owner) {
-    const result = raw.types.types[signature.result.value];
-    assert.equal(result.authoredTypeNode, null);
-    assert.equal(result.form.value.kind, "declared");
-    assert.deepEqual(result.form.value.declaration, { module, node: endpoint.id });
-    const [argument] = result.form.value.arguments;
-    assert.deepEqual(argument.parameter, parameter);
-    assert.deepEqual(argument.explicitTypeNode, authored);
-    const associated = raw.types.types[argument.argument.value];
-    assert.deepEqual(raw.types.components[associated.component].path?.step, { kind: "argument-place", index: 0 });
-    const binder = associated.form.value;
-    assert.deepEqual(binder, { kind: "parameter", parameter: { module, node: owner.typeParameters.nodes[0].id }, constraint: null, default: null });
-    const expected = deps.definitionOf(binder.parameter);
-    const converted = convertRawType(conversion, result.id);
-    assert.equal(converted.kind, "complete");
-    const { terms } = fixture.types.viewTypes(interner);
-    const retained = terms[converted.value.type];
+    assert.equal(signature.declaration, originalMethod.tsonic.definition);
+    const retained = typeOf(signature.result);
     assert.equal(retained.kind, "declared");
-    assert.equal(retained.definition, deps.definitionOf(result.form.value.declaration));
+    assert.equal(retained.definition, endpoint.tsonic.definition);
     assert.equal(retained.arguments.length, 1);
-    assert.deepEqual(terms[retained.arguments[0]], { kind: "param", parameter: expected });
-    return expected;
+    const binder = owner.typeParameters.nodes[0].tsonic.definition;
+    assert.deepEqual(typeOf(retained.arguments[0]), { kind: "param", parameter: binder });
+    return binder;
   }
-  for (const [owner, name] of [[left, "left"], [right, "right"], [holder, "chosen"]]) {
+  const declared = signatureOf(originalMethod.tsonic.signatures[0].signature);
+  assert.equal(declared.result, originalMethod.type.tsonic.type.value);
+  const argumentNode = originalMethod.type.typeArguments.nodes[0];
+  assert.deepEqual({ module: argumentNode.origin.module, node: argumentNode.id }, authored);
+  assert.equal(typeOf(declared.result).arguments[0], argumentNode.tsonic.type.value);
+  const originalBinder = verifyResult(declared, checkedLeft);
+  for (const [owner, checkedOwner, name] of [[left, checkedLeft, "left"], [right, checkedRight, "right"], [holder, checkedHolder, "chosen"]]) {
     const member = owner.members.nodes.find(row => row.name.text === name);
     const annotation = ast.typeNode(numbered.nodes[member.id]);
     const receiver = checker.getTypeFromTypeNode(annotation).type;
@@ -1332,15 +1387,14 @@ test("a declared result keeps the original authored argument and each selected r
     assert.equal(argument.parameter === oldArgument.parameter && argument.argument === mapping.argument, true);
     assert.equal(returned === oldResult, owner !== holder);
     native.push(signature);
-    const root = raw.types.types.find(row => row.authoredTypeNode?.node === numbered.ids.get(annotation));
-    const read = inventory(root).members.find(row => row.name === "values").read.value;
-    const applied = raw.types.signatures[inventory(raw.types.types[read]).calls[0]];
+    const selectedType = checkedOwner.members.nodes.find(node => node.name.text === name).type.tsonic.type.value;
+    const applied = methodOf(selectedType, "values");
     rows.push(applied);
-    assert.equal(verifyResult(raw.types.signatures[applied.target], left) === verifyResult(applied, owner), owner === left);
+    assert.equal(originalBinder === verifyResult(applied, checkedOwner), owner === left);
   }
   assert.equal(native[0] === native[1], true);
   assert.notEqual(rows[0].id, rows[1].id);
-  assert.equal(rows[0].target, rows[1].target);
+  assert.equal(rows[0].declaration, rows[1].declaration);
 });
 
 for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped self result cannot borrow the native receiver" :
@@ -1535,23 +1589,24 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer wrapped rest
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
   const numbered = OpenedProgram.syntax(program).get("/checker/" + library).outcome.numbering;
+  const { source: checkedSource, typeOf, methodOf } = await checkedSelectedMethods(fixture, snapshot, module);
+  const declaration = checkedSource.tree.statements.nodes.find(node => node.id === numbered.ids.get(owner));
+  const property = declaration.members.nodes.find(member => member.name.text === "anchor");
+  const actualReceiver = property.type.tsonic.type.value;
   const root = raw.types.types.find(row => row.authoredTypeNode?.node === numbered.ids.get(anchor));
-  const inventory = row => raw.types.members[row.form.value.inventory];
-  function memberSignature(row, name) {
-    const child = inventory(row).members.find(member => member.name === name).read.value;
-    return raw.types.signatures[inventory(raw.types.types[child]).calls[0]];
-  }
-  const applied = memberSignature(root, "patch");
+  assert.equal(root.form.value.kind, "merged-interface-dependency");
+  const applied = methodOf(actualReceiver, "patch");
   const parameter = applied.parameters[1];
   assert.equal(parameter.kind, "rest");
   assert.equal(applied.parameters.length, 2);
-  assert.deepEqual(parameter.declaration, { module, node: numbered.ids.get(originalRest.declaration) });
-  const whole = raw.types.types[parameter.type];
-  assert.equal(whole.authoredTypeNode, null);
-  assert.equal(whole.form.value.kind, "structure");
-  assert.equal(memberSignature(whole, "patch").id, applied.id);
-  const later = memberSignature(whole, "with").parameters[1];
-  assert.deepEqual(raw.types.types[later.type].form.value.parameter, { module, node: numbered.ids.get(ast.typeParameters(owner)[0]) });
+  const patch = declaration.members.nodes.find(member => member.name.text === "patch");
+  const formal = patch.parameters.nodes[1].tsonic.declaration;
+  assert.equal(formal.kind, "definition");
+  assert.equal(parameter.declaration, formal.definition);
+  assert.equal(parameter.type, actualReceiver);
+  assert.equal(methodOf(parameter.type, "patch").id, applied.id);
+  const later = methodOf(parameter.type, "with").parameters[1];
+  assert.deepEqual(typeOf(later.type), { kind: "param", parameter: declaration.typeParameters.nodes[0].tsonic.definition });
 });
 
 test("a composed rest preserves original and applied native arm orders and their distinct authored arguments", async () => {
@@ -1578,11 +1633,6 @@ test("a composed rest preserves original and applied native arm orders and their
   const { checker, typeShape } = checked.getSourceFileQueries(OpenedProgram.file(opened.program, module).file);
   const numbered = OpenedProgram.syntax(opened.program).get("/project/src/main.ts").outcome.numbering;
   const [wrapper, left, right, , holder] = raw.tree.statements.nodes;
-  const inventory = row => raw.types.members[row.form.value.inventory];
-  function member(rawType, name) {
-    const property = inventory(rawType).members.find(member => member.name === name);
-    return raw.types.signatures[inventory(raw.types.types[property.read.value]).calls[0]];
-  }
   function recordedUnion(row, type, bare, argumentNode, expectedOwner) {
     assert.equal(row.form.value.kind, "union");
     const native = typeShape.getUnionOrIntersectionTypes(type);
@@ -1606,13 +1656,15 @@ test("a composed rest preserves original and applied native arm orders and their
     }
     assert.equal(deps.definitionOf({ module, node: expectedOwner.typeParameters.nodes[0].id }) !== undefined, true);
   }
+  const { source, typeOf, methodOf } = await checkedSelectedMethods(fixture, snapshot);
+  const [checkedWrapper, checkedLeft, checkedRight, , checkedHolder] = source.tree.statements.nodes;
   const nativeWith = [];
-  const rawWith = [];
-  for (const [owner, property] of [[left, "left"], [right, "right"], [holder, "chosen"]]) {
+  const boundVectors = [];
+  for (const [owner, checkedOwner, property] of [[left, checkedLeft, "left"], [right, checkedRight, "right"], [holder, checkedHolder, "chosen"]]) {
     const receiverNode = ast.typeNode(numbered.nodes[owner.members.nodes.find(row => row.name.text === property).id]);
     const receiver = checker.getTypeFromTypeNode(receiverNode).type;
     const [argument] = typeShape.getTypeReferenceArgumentInfos(receiver);
-    const root = raw.types.types.find(row => row.authoredTypeNode?.node === numbered.ids.get(receiverNode));
+    const actualReceiver = checkedOwner.members.nodes.find(row => row.name.text === property).type.tsonic.type.value;
     const nativeMembers = propertyRows(typeShape, receiver);
     for (const name of ["first", "second"]) {
       const method = numbered.nodes[left.members.nodes.find(row => row.name.text === name).id];
@@ -1633,21 +1685,37 @@ test("a composed rest preserves original and applied native arm orders and their
       const branchTypes = typeShape.getUnionOrIntersectionTypes(originalUnion);
       assert.equal(checker.getTypeFromTypeNode(arms[0]).type === branchTypes[0], name !== "first");
       assert.equal(originalUnion === selectedUnion, owner !== holder);
-      const rawSignature = member(root, name);
-      const rawOriginal = raw.types.signatures[rawSignature.target];
-      const parent = member(raw.types.types[rawOriginal.parameters[0].type], "with");
-      const applied = member(raw.types.types[rawSignature.parameters[0].type], "with");
-      recordedUnion(raw.types.types[parent.parameters[1].type], originalUnion, argument.parameter, argumentNode, left);
-      recordedUnion(raw.types.types[applied.parameters[1].type], selectedUnion, argument.argument, argumentNode, owner);
+      const rawOriginal = raw.types.signatures.find(row => row.target === null && row.declaration?.node === numbered.ids.get(method));
+      const originalRest = raw.types.types[rawOriginal.parameters[0].type];
+      assert.equal(originalRest.form.value.kind, "merged-interface-dependency");
+      recordedUnion(raw.types.types[originalRest.form.value.arguments[0]], originalUnion, argument.parameter, argumentNode, left);
+      const signature = methodOf(actualReceiver, name);
+      assert.equal(signature.declaration, checkedLeft.members.nodes.find(row => row.name.text === name).tsonic.definition);
+      assert.equal(signature.parameters[0].kind, "rest");
+      const appliedRest = typeOf(signature.parameters[0].type);
+      assert.equal(appliedRest.kind, "merged-interface");
+      assert.equal(appliedRest.arguments.length, 1);
+      const selectedWith = methodOf(signature.parameters[0].type, "with");
+      assert.equal(selectedWith.parameters[1].type, appliedRest.arguments[0]);
+      const boundUnion = typeOf(selectedWith.parameters[1].type);
+      assert.equal(boundUnion.kind, "union");
+      assert.equal(boundUnion.members.length, 2);
+      const bare = boundUnion.members.find(arm => typeOf(arm).kind === "param");
+      assert.deepEqual(typeOf(bare), { kind: "param", parameter: checkedOwner.typeParameters.nodes[0].tsonic.definition });
+      assert.deepEqual(typeOf(boundUnion.members.find(arm => arm !== bare)), {
+        kind: "declared", definition: checkedWrapper.tsonic.definition, facet: "instance", extent: null, arguments: [bare],
+      });
+      boundVectors.push(selectedWith.parameters[1].type);
       if (owner === left) {
         const property = propertyRows(typeShape, selectedFormal.type).find(row => row.name === "with");
         nativeWith.push(typeShape.getCallSignatures(property.type)[0]);
-        rawWith.push(applied.id);
       }
     }
   }
   assert.equal(nativeWith[0] === nativeWith[1], true);
-  assert.notEqual(rawWith[0], rawWith[1]);
+  assert.equal(boundVectors[0], boundVectors[1]);
+  assert.notEqual(boundVectors[0], boundVectors[2]);
+  assert.notEqual(boundVectors[2], boundVectors[4]);
 });
 
 test("a crossed rest arm cannot borrow the same native declared reference through an alias", async () => {
@@ -1895,7 +1963,6 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
 
   const { createTypeConversion, convertRawType } = await import("../../packages/host/dist/front/type-conversion.js");
   const conversion = createTypeConversion(deps, raw);
-  const inventory = row => raw.types.members[row.form.value.inventory];
   const authoredRow = node => raw.types.types.find(row => row.authoredTypeNode?.module === module && row.authoredTypeNode.node === node);
   function verifyTuple(signature, owner) {
     const result = raw.types.types[signature.result.value];
@@ -1932,7 +1999,12 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
   }
   const signatures = [];
   const selectedTuples = [];
-  for (const [owner, name] of [[left, "left"], [right, "right"], [holder, "chosen"]]) {
+  const originalRow = raw.types.signatures.find(row => row.target === null && row.declaration?.node === left.members.nodes[0].id);
+  const originalRawTuple = verifyTuple(originalRow, left);
+  const { source: checkedSource, typeOf, methodOf } = await checkedSelectedMethods(fixture, snapshot);
+  const [endpoint, checkedLeft, checkedRight, , checkedHolder] = checkedSource.tree.statements.nodes;
+  const originalDefinition = checkedLeft.members.nodes[0].tsonic.definition;
+  for (const [owner, checkedOwner, name] of [[left, checkedLeft, "left"], [right, checkedRight, "right"], [holder, checkedHolder, "chosen"]]) {
     const member = owner.members.nodes.find(row => row.name.text === name);
     const annotation = ast.typeNode(numbered.nodes[member.id]);
     const receiver = checker.getTypeFromTypeNode(annotation).type;
@@ -1945,12 +2017,25 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
     assert.equal(slots[0].type === oldSlots[0].type && slots[1].type === binding.argument, true);
     assert.equal(argument.argument === originalTuple, owner !== holder);
     signatures.push(signature);
-    const read = inventory(authoredRow(numbered.ids.get(annotation))).members.find(row => row.name === "entries").read.value;
-    const applied = raw.types.signatures[inventory(raw.types.types[read]).calls[0]];
-    verifyTuple(raw.types.signatures[applied.target], left);
-    selectedTuples.push(verifyTuple(applied, owner));
+    const checkedReceiver = checkedOwner.members.nodes.find(row => row.name.text === name).type.tsonic.type.value;
+    const applied = methodOf(checkedReceiver, "entries");
+    assert.equal(applied.declaration, originalDefinition);
+    const result = typeOf(applied.result);
+    assert.equal(result.kind, "declared");
+    assert.equal(result.definition, endpoint.tsonic.definition);
+    assert.equal(result.arguments.length, 1);
+    const [identity] = result.arguments;
+    const tuple = typeOf(identity);
+    assert.equal(tuple.kind, "tuple");
+    assert.equal(tuple.readonly, false);
+    assert.deepEqual(tuple.elements.map(slot => [slot.kind, slot.declaration, typeOf(slot.type)]), [
+      ["required", null, { kind: "primitive", primitive: "float64" }],
+      ["required", null, { kind: "param", parameter: checkedOwner.typeParameters.nodes[0].tsonic.definition }],
+    ]);
+    selectedTuples.push(identity);
   }
   assert.equal(signatures[0] === signatures[1], true);
+  assert.equal(new Set(selectedTuples).size, selectedTuples.length);
   const pairType = checker.getTypeFromTypeNode(numbered.nodes[pair.type.id]).type;
   const readonlyType = checker.getTypeFromTypeNode(numbered.nodes[readonly.type.id]).type;
   const objectType = checker.getTypeFromTypeNode(numbered.nodes[lookalike.type.id]).type;
@@ -1982,9 +2067,9 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
   assert.notDeepEqual(originalComponent.path, appliedComponent.path);
   assert.notDeepEqual(raw.types.components[foreign.component].root, raw.types.components[tuple.component].root);
   for (const [owner, elements, error] of [
-    [tuple, [undefined, second], /actual required or optional unlabelled slots/u],
-    [tuple, [{ ...first, kind: "optional" }, second], /actual required or optional unlabelled slots/u],
-    [tuple, [{ ...first, acceptsOmission: true }, second], /actual required or optional unlabelled slots/u],
+    [tuple, [undefined, second], /a captured tuple requires its actual ordered unlabelled slots/u],
+    [tuple, [{ ...first, kind: "optional" }, second], /a captured tuple requires its actual ordered unlabelled slots/u],
+    [tuple, [{ ...first, acceptsOmission: true }, second], /a captured tuple requires its actual ordered unlabelled slots/u],
     [tuple, [{ ...first, type: second.type }, second], /actual type component/u],
     [tuple, [second, first], /actual type component/u],
     [tuple, foreign.form.value.elements, /actual type component/u],
@@ -2017,7 +2102,7 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
   assert.equal(crossedConversion.convertedTypes.size + crossedConversion.convertedSignatures.size, 0);
   const clonedComponents = createTypeConversion(deps, { ...raw,
     types: { ...raw.types, components: raw.types.components.map(component => structuredClone(component)) } });
-  assert.equal(convertRawType(clonedComponents, selectedTuples[0].id).kind, "complete");
+  assert.equal(convertRawType(clonedComponents, originalRawTuple.id).kind, "complete");
 
   const [firstNested] = nestedLeft.form.value.elements;
   const originalPosition = raw.types.components[firstNested.component];

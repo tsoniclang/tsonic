@@ -15278,7 +15278,7 @@ export function Checker_getTypeFromIndexedAccessTypeNode(receiver, node) {
         const objectType = Checker_getTypeFromTypeNode(receiver, AsIndexedAccessTypeNode(node).ObjectType);
         const indexType = Checker_getTypeFromTypeNode(receiver, AsIndexedAccessTypeNode(node).IndexType);
         const potentialAlias = Checker_getAliasForTypeNode(receiver, node);
-        const source = { value: undefined };
+        const source = { receiver: objectType, index: indexType, value: undefined };
         links.resolvedType = indexedAccessTypeEx(receiver, objectType, indexType, AccessFlagsNone, node, potentialAlias, source);
         if (source.value !== undefined)
             links.resolvedTypeSource = source.value;
@@ -17598,7 +17598,20 @@ function getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objec
                     Checker_getParentOfSymbol(receiver, indexType.symbol) === objectType.symbol)) {
                 return Checker_getUnionType(receiver, [indexInfo.valueType, receiver.missingType]);
             }
-            return indexInfo.valueType;
+            const result = indexInfo.valueType;
+            if (source !== undefined && accessNode !== undefined && IsIndexedAccessTypeNode(accessNode)
+                && (accessFlags & AccessFlagsWriting) === 0 && indexType === fullIndexType
+                && source.receiver !== undefined && source.index !== undefined && result !== undefined
+                && ((result.flags & TypeFlagsTypeParameter) !== 0 || isTupleType(result))) {
+                admitNativeChecker(receiver, "work");
+                const declaration = indexInfo.declaration;
+                if (declaration !== undefined) {
+                    admitNativeChecker(receiver, "retained");
+                    source.value = { kind: "declared-index-read", annotation: accessNode, receiver: source.receiver,
+                        index: source.index, declaration, result };
+                }
+            }
+            return result;
         }
         if ((indexType.flags & TypeFlagsNever) !== 0) {
             return receiver.neverType;

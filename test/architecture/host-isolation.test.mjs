@@ -492,7 +492,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "text-model.ts", "text-body.ts", "text-phase-values.ts", "text-phase-declarations.ts", "text-type-values.ts",
       "text-rule-decisions.ts", "text-rule-inputs.ts", "text-captures.ts", "text-causes.ts", "text-memory.ts", "text-syntax-values.ts",
       "text-syntax-statements.ts", "text-syntax-types.ts", "text-syntax-jsx.ts", "text-syntax-docs.ts",
-      "verify.ts", "verify-occurrences.ts", "verify-applications.ts", "verify-instances.ts", "chapter-syntax.ts", "selection-key.ts", "syntax-compare.ts",
+      "verify.ts", "verify-occurrences.ts", "verify-applications.ts", "verify-instances.ts", "verify-interface.ts", "chapter-syntax.ts", "selection-key.ts", "syntax-compare.ts",
       ...["common", "docs", "jsx", "statements", "types", "values"].map(name => `syntax-compare-${name}.ts`)].map(name => `${host}/ir-tir/${name}`),
     ...["capture-law.ts", "index.ts", "inferred-parts.ts", "parse.ts", "print.ts", "text-capture-values.ts", "text-captures.ts", "text-errors.ts",
       "text-constraints.ts", "text-contributions.ts", "text-data.ts", "text-decision-values.ts",

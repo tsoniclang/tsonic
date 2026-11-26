@@ -802,7 +802,7 @@ export interface TirVerifierInput extends HirBindingViews {
 
 export type TirRule = "binding-element-role-exact" | "binding-capture-owner" | "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
   | "parent-reference" | "local-dense" | "local-storage" | "binding-storage" | "type-closed"
-  | "capture-qualified" | "capture-rows-agree" | "cross-owner-qualified" | "parameter-order"
+  | "capture-qualified" | "capture-rows-agree" | "cross-owner-qualified" | "parameter-order" | "interface-instance-exact"
   | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence" | "intrinsic-value-use" | "static-reference-exact" | "enum-reference-exact"
   | "argument-total" | "argument-parameter-order" | "argument-passing" | "omission-valid"
   | "authored-order-preserved" | "empty-spread-preserved" | "call-endpoints" | "completion-endpoint"

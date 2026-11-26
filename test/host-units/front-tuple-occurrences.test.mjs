@@ -195,6 +195,167 @@ async function checkedTupleReceivers(text) {
   return { build, form, signatureOf, declaration, selectedMethod, receivers };
 }
 
+test("an indexed tuple retains the written slot of the actually selected declared index", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", `
+    interface Matrix<Key, Value> { [index: number]: Value; }
+    interface Matrix<Key, Value> { marker: Key; }
+    export type Equal<A, B> = Matrix<readonly [A, B], readonly [A, B]>[number];
+    export type Distinct<A, B> = Matrix<readonly [B, A], readonly [A, B]>[number];
+    export type Bracketed<A, B> = (readonly [A, B])[][number];
+    export type ReadonlyBracketed<A, B> = (readonly (readonly [A, B])[])[number];
+  `);
+  const { deps, program, set } = fixture.openAndCapture(input.snapshot);
+  const module = input.snapshot.entryPoint;
+  const captured = captureSingleModule(fixture.front, deps, program, module);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const raw = captured.value;
+  const headers = raw.tree.statements.nodes;
+  for (const declaration of headers.slice(2)) {
+    const annotation = declaration.type;
+    let object = annotation.objectType;
+    while (object.kind === "ParenthesizedType" || object.kind === "TypeOperator") object = object.type;
+    const selected = object.kind === "TypeReference" ? object.typeArguments.nodes[1] : object.elementType;
+    const written = selected.kind === "ParenthesizedType" ? selected.type.type : selected.type;
+    assert.equal(written.kind, "TupleType");
+    const root = raw.annotations.find(row => row.node === annotation.id);
+    const result = raw.types.types[root.type];
+    assert.equal(result.form.value.kind, "tuple");
+    assert.equal(result.form.value.readonly, true);
+    assert.deepEqual(result.authoredTypeNode, { module, node: annotation.id });
+    for (const [index, slot] of result.form.value.elements.entries()) {
+      const child = raw.types.types[slot.type];
+      assert.equal(written.elements.nodes[index].kind, "TypeReference");
+      assert.deepEqual(child.form.value.parameter, { module, node: declaration.typeParameters.nodes[index].id });
+      const position = raw.types.components[child.component];
+      assert.deepEqual(position.root, { module, node: annotation.id });
+      assert.deepEqual(rawComponentPath(raw.types.components, position), [{ kind: "tuple-element", index }]);
+    }
+  }
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const firstType = headers[2].type.objectType;
+  const file = OpenedProgram.file(program, module).file;
+  const checked = OpenedProgram.checked(program);
+  const numbered = OpenedProgram.syntax(program).get("/project/src/main.ts").outcome.numbering.nodes;
+  const [unrelated, actual] = firstType.typeArguments.nodes.map(node => numbered[node.id]);
+  const original = checked.getSourceFileQueries(file).checker;
+  assert.equal(original.getTypeFromTypeNode(unrelated).type === original.getTypeFromTypeNode(actual).type, true);
+  const stop = new Error("the actual indexed argument source is reached first");
+  const reads = [];
+  const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
+    const queries = checked.getSourceFileQueries(sourceFile);
+    if (sourceFile !== file) return queries;
+    return { ...queries, checker: { ...queries.checker, acquireSourceType: observeSourceType(queries.checker, request => {
+      if (request.kind !== "annotation") return;
+      if (request.node === unrelated) reads.push("unrelated");
+      if (request.node === actual) { reads.push("actual"); throw stop; }
+    }) } };
+  } }, OpenedProgram.table(program), set.modules.map(entry =>
+    OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
+  OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
+  assert.throws(() => captureSingleModule(fixture.front, deps, observed, module), error => error === stop);
+  assert.deepEqual(reads, ["actual"]);
+  const composed = analyzeHostProgram(input);
+  assert.equal(composed.kind, "ok", JSON.stringify(composed.diagnostics));
+});
+
+test("a tuple value read and its written return context keep independent qualified components", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function retained<Key, Value>(value: readonly [Key, Value]): (readonly [Key, Value]) {
+      return value;
+    }
+    export function array<Key, Value>(values: readonly (readonly [Key, Value])[]): boolean {
+      values;
+      return true;
+    }
+  `);
+  const { deps, program } = fixture.openAndCapture(input.snapshot);
+  const module = input.snapshot.entryPoint;
+  const capture = captureSingleModule(fixture.front, deps, program, module);
+  assert.equal(capture.kind, "ok", JSON.stringify(capture.diagnostics));
+  const raw = capture.value;
+  const [fn] = raw.tree.statements.nodes;
+  const occurrence = fn.body.statements.nodes[0].expression;
+  const views = raw.checkerViews.find(row => row.node.node === occurrence.id);
+  const [read, context] = [views.read, views.contextual].map(view => raw.types.types[view.value]);
+  assert.notEqual(read.component, context.component);
+  for (const type of [read, context]) {
+    assert.equal(type.authoredTypeNode, null);
+    assert.equal(type.form.value.kind, "tuple");
+    assert.equal(type.form.value.readonly, true);
+    assert.deepEqual(raw.types.components[type.component].root, { module, node: occurrence.id });
+    assert.deepEqual(type.form.value.elements.map(element => raw.types.types[element.type].form.value.parameter),
+      fn.typeParameters.nodes.map(parameter => ({ module, node: parameter.id })));
+  }
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+});
+
+test("a first-class selected method consumes one occurrence and only its proved tuple source", async () => {
+  const fixture = await loadFrontFixture();
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  for (const receiver of ["readonly (readonly [K, V])[]", "ReadonlyArray<readonly [K, V]>"]) {
+    for (const authored of [true, false]) {
+      const source = `export function inspect<K,V>(values: ${receiver}):boolean { values.produce; return true; }`;
+      const library = fixture.sdk.barebonesLibContent + " type Alias<T> = T[]; "
+        + `interface ReadonlyArray<T> { produce(): ${authored ? "T[]" : "Alias<T>"}; }`
+        + " interface ReadonlyArray<T> { marker:boolean; }";
+      const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: [{ name: "lib.es5.d.ts", text: library }] });
+      const { deps, program, set } = fixture.openAndCapture(snapshot);
+      const module = snapshot.entryPoint;
+      const checked = OpenedProgram.checked(program);
+      const file = OpenedProgram.file(program, module).file;
+      const [declaration] = checked.ast.statements(file);
+      const [statement] = checked.ast.statements(checked.ast.body(declaration));
+      const occurrence = checked.ast.as.AsExpressionStatement(statement).Expression;
+      assert.equal(checked.ast.kindName(occurrence), "KindPropertyAccessExpression");
+      let selected = 0;
+      const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
+        const queries = checked.getSourceFileQueries(sourceFile);
+        if (sourceFile !== file) return queries;
+        return { ...queries, checker: { ...queries.checker, acquireResolvedPropertyAccess(node, admit) {
+          assert.equal(node === occurrence, true);
+          ++selected;
+          return queries.checker.acquireResolvedPropertyAccess(node, admit);
+        } } };
+      } }, OpenedProgram.table(program), set.modules.map(entry =>
+        OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
+      OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
+      const capture = captureSingleModule(fixture.front, deps, observed, module);
+      assert.equal(capture.kind, "ok", JSON.stringify(capture.diagnostics));
+      assert.equal(selected, 1);
+      const raw = capture.value;
+      const [fn] = raw.tree.statements.nodes;
+      const [use] = raw.memberUses;
+      const read = raw.checkerViews.find(row => row.node.node === use.occurrence.node);
+      assert.equal(read.read.value, use.read);
+      const callable = raw.types.types[use.read];
+      const [method] = raw.types.members[callable.form.value.inventory].calls.map(identity => raw.types.signatures[identity]);
+      assert.deepEqual(method.declaration, use.selectedDeclaration);
+      assert.notEqual(method.target, null);
+      const result = raw.types.types[method.result.value];
+      assert.equal(result.form.value.kind, "declared");
+      const [argument] = result.form.value.arguments;
+      if (authored) {
+        const annotation = fn.parameters.nodes[0].type;
+        let tuple = annotation.kind === "TypeReference" ? annotation.typeArguments.nodes[0] : annotation.type.elementType;
+        while (tuple.kind === "ParenthesizedType") tuple = tuple.type;
+        assert.deepEqual(argument.explicitTypeNode, { module, node: tuple.id });
+      } else assert.equal(argument.explicitTypeNode, null);
+      const tuple = raw.types.types[argument.argument.value];
+      assert.equal(tuple.form.value.kind, "tuple");
+      assert.equal(tuple.form.value.readonly, true);
+      assert.deepEqual(tuple.form.value.elements.map(element => raw.types.types[element.type].form.value.parameter),
+        fn.typeParameters.nodes.map(node => ({ module, node: node.id })));
+    }
+  }
+});
+
 async function checkedTupleMembers(text, memberName) {
   const { build, form, signatureOf, declaration, selectedMethod, receivers } = await checkedTupleReceivers(text);
   const produce = declaration("ReadonlyArray", "produce");
@@ -742,46 +903,41 @@ async function restDependencyProbe(second = "K,V") {
     assert.equal(arguments_[index].parameter === parameters[index].parameter && arguments_[index].scope === "local", true);
     assert.equal(probe.typeShape.getUnionOrIntersectionTypes(arguments_[index].argument).includes(parameters[index].argument), true);
   }
-  return { ...probe, rest, parameters, arguments_, element, foreignTarget };
+  return { ...probe, source, rest, parameters, arguments_, element, foreignTarget };
 }
 
 test("the changed merged dependency retains each actual composed rest union's own tuple use", async () => {
-  const { capture, typeShape, rest, parameters, arguments_ } = await restDependencyProbe();
-  assert.equal(rest[0].type === rest[1].type, true);
-  const result = capture({});
-  assert.equal(result.kind, "ok");
-  const raw = result.value;
-  const signatures = memberSelections(raw);
-  assert.equal(signatures.length, 2);
-  const sources = [];
-  for (const [index, signature] of signatures.entries()) {
-    const dependency = raw.types.types[signature.parameters[0].type];
-    assert.equal(dependency.authoredTypeNode, null);
-    assert.equal(dependency.form.value.kind, "merged-interface-dependency");
-    assert.equal(dependency.form.value.arguments.length, 1);
-    const [argument] = dependency.form.value.arguments;
-    assert.equal(dependency.form.value.group.evidence.slots[0].scope, "local");
-    assert.equal(dependency.form.value.group.evidence.slots[0].parameters.length, 2);
-    const union = raw.types.types[argument];
-    assert.equal(union.authoredTypeNode, null);
-    assert.equal(union.form.value.kind, "union");
-    assert.deepEqual(raw.types.components[union.component].path,
-      { prefix: dependency.component, step: { kind: "argument-place", index: 0 } });
-    const arms = typeShape.getUnionOrIntersectionTypes(arguments_[index].argument);
-    assert.equal(arms.length, 2);
-    const bare = arms.indexOf(parameters[index].argument);
-    const bareId = union.form.value.members[bare];
-    const wrapped = raw.types.types[union.form.value.members[1 - bare]];
-    assert.deepEqual(raw.types.components[raw.types.types[bareId].component].path,
-      { prefix: union.component, step: { kind: "union-member", index: bare } });
-    expectTupleResult(raw, bareId);
-    assert.equal(wrapped.form.value.kind, "declared");
-    const [binding] = wrapped.form.value.arguments;
-    expectTupleResult(raw, binding.argument.value);
-    assert.notEqual(binding.argument.value, bareId);
-    sources.push(bareId);
+  for (const second of ["K,V", "V,K"]) {
+    const { source, typeShape, rest, parameters, arguments_ } = await restDependencyProbe(second);
+    assert.equal(rest[0].type === rest[1].type, second === "K,V");
+    const { build, form, declaration, selectedMethod, receivers } = await checkedTupleReceivers(source);
+    const method = declaration("Array", "take");
+    for (const [index, receiver] of receivers.entries()) {
+      const signature = selectedMethod(receiver, "take", method);
+      assert.equal(signature.parameters.length, 1);
+      assert.equal(signature.parameters[0].kind, "rest");
+      const dependency = form(signature.parameters[0].type);
+      assert.equal(dependency.kind, "merged-interface");
+      assert.deepEqual(dependency.definitions, form(receiver).definitions);
+      assert.equal(dependency.arguments.length, 1);
+      const union = form(dependency.arguments[0]);
+      assert.equal(union.kind, "union");
+      const arms = typeShape.getUnionOrIntersectionTypes(arguments_[index].argument);
+      assert.equal(arms.length, 2);
+      assert.equal(arms.includes(parameters[index].argument), true);
+      assert.equal(union.members.length, 2);
+      const bare = union.members.find(arm => form(arm).kind === "tuple");
+      assert.equal(bare, form(receiver).arguments[0]);
+      const wrapped = form(union.members.find(arm => arm !== bare));
+      assert.equal(wrapped.kind, "declared");
+      assert.deepEqual(wrapped.arguments, [bare]);
+      const tuple = form(bare);
+      assert.equal(tuple.readonly, true);
+      const binders = build.typeParameters.nodes.map(parameter => parameter.tsonic.definition);
+      assert.deepEqual(tuple.elements.map(slot => form(slot.type).parameter),
+        index === 1 && second === "V,K" ? [...binders].reverse() : binders);
+    }
   }
-  assert.notEqual(sources[0], sources[1]);
 });
 
 test("a crossed changed target or slot cannot carry the earlier proved tuple into a different dependency", async () => {
@@ -874,7 +1030,7 @@ async function declaredRestProbe(annotation, second) {
 }
 
 test("a directly declared rest element retains two ordered argument components without a union", async () => {
-  const { ast, checker, typeShape, arrays, original, selectedFormals, outer, inner, written, capture } = await declaredRestProbe();
+  const { ast, checker, typeShape, arrays, original, selectedFormals, outer, inner, written, capture, reference } = await declaredRestProbe();
   const before = typeShape.getTypeReferenceArgumentInfos(arrays[0])[0];
   assert.equal(inner[0].argument === before.parameter && inner[1].argument === before.argument, true);
   assert.equal(checker.getTypeFromTypeNode(written).type === original.type && original.declaration === selectedFormals[0].declaration, true);
@@ -886,32 +1042,44 @@ test("a directly declared rest element retains two ordered argument components w
   assert.equal(result.kind, "ok");
   const raw = result.value;
   const wrapped = raw.tree.statements.nodes.find(node => node.name?.text === "Wrapped");
-  const member = raw.tree.statements.nodes.filter(node => node.name?.text === "Array")[1].members.nodes[0];
-  const binder = member.parameters.nodes[0].type.elementType.typeArguments.nodes[0];
-  const tuples = [];
-  for (const signature of memberSelections(raw)) {
-    const parameter = signature.parameters[0];
-    assert.equal(parameter.kind, "rest");
-    const rest = raw.types.types[parameter.type];
-    assert.equal(rest.authoredTypeNode, null);
-    assert.equal(rest.form.value.kind, "merged-interface-dependency");
-    const [application] = rest.form.value.arguments;
-    const innerRow = raw.types.types[application];
-    assert.deepEqual(raw.types.components[innerRow.component].path,
-      { prefix: rest.component, step: { kind: "argument-place", index: 0 } });
-    assert.equal(innerRow.authoredTypeNode, null);
-    assert.equal(innerRow.form.value.kind, "declared");
-    assert.deepEqual(innerRow.form.value.declaration, { module: raw.module, node: wrapped.id });
-    const [binding] = innerRow.form.value.arguments;
-    assert.deepEqual(binding.explicitTypeNode, { module: raw.module, node: binder.id });
-    const tuple = raw.types.types[binding.argument.value];
-    assert.deepEqual(raw.types.components[tuple.component].path,
-      { prefix: innerRow.component, step: { kind: "argument-place", index: 0 } });
-    expectTupleResult(raw, tuple.id);
-    tuples.push(tuple.id);
+  const authored = reference(ast.parent(original.declaration));
+  const neutral = raw.types.signatures.find(signature => signature.target === null && signature.declaration?.module === authored.module
+    && signature.declaration.node === authored.node);
+  const formal = neutral.parameters[0];
+  assert.equal(formal.kind, "rest");
+  const rawRest = raw.types.types[formal.type];
+  assert.equal(rawRest.form.value.kind, "merged-interface-dependency");
+  const rawWrapper = raw.types.types[rawRest.form.value.arguments[0]];
+  assert.equal(rawWrapper.form.value.kind, "declared");
+  assert.deepEqual(rawWrapper.form.value.declaration, { module: raw.module, node: wrapped.id });
+  const binder = ast.as.AsTypeReferenceNode(ast.as.AsArrayTypeNode(written).ElementType).TypeArguments.Nodes[0];
+  const [binding] = rawWrapper.form.value.arguments;
+  assert.deepEqual(binding.explicitTypeNode, reference(binder));
+  const rawBinder = raw.types.types[binding.argument.value];
+  const rootPath = rawComponentPath(raw.types.components, raw.types.components[rawRest.component]);
+  assert.deepEqual(rawComponentPath(raw.types.components, raw.types.components[rawBinder.component]), [
+    ...rootPath, { kind: "argument-place", index: 0 }, { kind: "argument-place", index: 0 },
+  ]);
+
+  const { build, form, declaration, selectedMethod, receivers } = await checkedTupleReceivers(declaredRestSource());
+  const selected = declaration("Array", "take");
+  const parameters = build.typeParameters.nodes.map(parameter => parameter.tsonic.definition);
+  for (const receiver of receivers) {
+    const signature = selectedMethod(receiver, "take", selected);
+    assert.equal(signature.parameters.length, 1);
+    assert.equal(signature.parameters[0].kind, "rest");
+    const rest = form(signature.parameters[0].type);
+    assert.equal(rest.kind, "merged-interface");
+    assert.deepEqual(rest.definitions, form(receiver).definitions);
+    assert.equal(rest.arguments.length, 1);
+    const inner = form(rest.arguments[0]);
+    assert.equal(inner.kind, "declared");
+    assert.deepEqual(inner.arguments, form(receiver).arguments);
+    const tuple = form(inner.arguments[0]);
+    assert.equal(tuple.kind, "tuple");
+    assert.equal(tuple.readonly, true);
+    assert.deepEqual(tuple.elements.map(element => form(element.type).parameter), parameters);
   }
-  assert.equal(tuples.length, 2);
-  assert.notEqual(tuples[0], tuples[1]);
 });
 
 test("crossed declared rest outer or inner targets and slots do not read the written binder", async () => {
