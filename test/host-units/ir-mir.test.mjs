@@ -1065,6 +1065,76 @@ test("MIR execution occurrences exclude actual unopened checked module declarati
   assert.equal(nodes.has(declaration.node.body.id), false);
 });
 
+test("MIR verification refuses crossed, unearned and omitted required cleanup transfers", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { verifyMir } = await import("../../packages/host/dist/ir-mir/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `export function run(flag: boolean): boolean {
+    try { flag = !flag; } finally { flag = !flag; }
+    try { return flag; } finally { flag = !flag; }
+  }`);
+  const published = analyzeHostProgram(input);
+  assert.equal(published.kind, "ok");
+  const body = published.value.modules.flatMap(row => row.bodies)
+    .find(row => row.kind === "selected" && row.instance.body.includes(";run];function;0]"));
+  assert.ok(body);
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok");
+  const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const context = { selectedNativeFacts: input.snapshot.nativeFacts, source: body.tir, types: published.value.index.types,
+    limits: input.limits.mirVerification, requiredEntries: body.mir.entries.map(row => row.provided), declarationOf: typed.value.declarationOf,
+    bodyOwner: identity => fixture.ids.decodeBodyId(identity).value.owner, bodyOf: () => null };
+  assert.deepEqual(verifyMir(body.mir, context), { kind: "complete", violations: [] });
+  let refused = 0;
+  let admitted = context.limits.maximumWork;
+  const at = maximumWork => verifyMir(body.mir, { ...context, limits: { maximumWork } });
+  while (admitted - refused > 1) {
+    const middle = refused + Math.floor((admitted - refused) / 2);
+    if (at(middle).kind === "resource-limit") refused = middle;
+    else admitted = middle;
+  }
+  for (let maximumWork = 0; maximumWork < admitted; maximumWork += 1)
+    assert.deepEqual(at(maximumWork), { kind: "resource-limit", body: body.instance.body, dimension: "work", maximum: maximumWork });
+  assert.deepEqual(at(admitted), { kind: "complete", violations: [] });
+  const [first, second] = body.mir.blocks.filter(row => row.terminator.kind === "cleanup-enter");
+  assert.ok(first && second);
+  assert.notEqual(first.terminator.entry, second.terminator.entry);
+  for (const [terminator, reason] of [
+    [{ ...first.terminator, entry: second.terminator.entry }, "cleanup-source-region"],
+    [{ ...first.terminator, transfer: "unwind" }, "entry-transfer"],
+  ]) {
+    const corrupted = { ...body.mir, blocks: body.mir.blocks.map(row => row !== first ? row : { ...row, terminator }) };
+    const verification = verifyMir(corrupted, context);
+    assert.equal(verification.kind, "complete");
+    assert.deepEqual(verification.violations, [{ rule: "cleanup-control-exact",
+      site: { kind: "instruction", body: body.instance.body, block: first.id, statement: null },
+      detail: [{ kind: "text", value: reason }] }]);
+  }
+  const [normal, returned] = [first, second].map(block => body.mir.blocks[block.terminator.continuation]);
+  assert.equal(returned.terminator.kind, "return");
+  const rows = [
+    [second.id, body.mir.blocks.map(row => row === second ? { ...row, terminator: returned.terminator } : row)],
+    [first.id, body.mir.blocks.map(row => {
+      const { terminator } = row;
+      if (row === first) return { ...row, terminator: { ...terminator, kind: "goto", target: normal.id } };
+      if (row === second) return { ...row, terminator: returned.terminator };
+      if (terminator.kind === "cleanup-resume") return { ...row, terminator: { ...terminator, kind: "unreachable" } };
+      return row;
+    })],
+  ];
+  for (const [block, blocks] of rows) {
+    const verification = verifyMir({ ...body.mir, blocks }, context);
+    assert.equal(verification.kind, "complete");
+    assert.deepEqual(verification.violations, [{ rule: "cleanup-control-exact",
+      site: { kind: "instruction", body: body.instance.body, block, statement: null },
+      detail: [{ kind: "text", value: "required-cleanup" }] }]);
+  }
+});
+
 function verified(body, context) {
   const outcome = product.verifyMir(body, context);
   assert.equal(outcome.kind, "complete", "the body was verified to the end, not refused for resources");

@@ -3575,64 +3575,6 @@ test("authored finally preserves call-thrown origins but does not publish an ove
   }
 });
 
-test("MIR verification refuses crossed, unearned and omitted required cleanup transfers", async () => {
-  const fixture = await loadFrontFixture();
-  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
-  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
-  const { verifyMir } = await import("../../packages/host/dist/ir-mir/index.js");
-  const input = analysisInput(fixture, "sdk-minimal", `export function run(flag: boolean): boolean {
-    try { flag = !flag; } finally { flag = !flag; }
-    try { return flag; } finally { flag = !flag; }
-  }`);
-  const published = analyzeHostProgram(input);
-  assert.equal(published.kind, "ok");
-  const body = published.value.modules.flatMap(row => row.bodies)
-    .find(row => row.kind === "selected" && row.instance.body.includes(";run];function;0]"));
-  assert.ok(body);
-  const source = captureSourceBarrier(input);
-  assert.equal(source.kind, "ok");
-  const typed = typeSourceBarrier(input, source.value, createTypedAccount(input));
-  assert.equal(typed.kind, "ok");
-  const context = { selectedNativeFacts: input.snapshot.nativeFacts, source: body.tir, types: published.value.index.types,
-    limits: input.limits.mirVerification, requiredEntries: body.mir.entries.map(row => row.provided), declarationOf: typed.value.declarationOf,
-    bodyOwner: identity => fixture.ids.decodeBodyId(identity).value.owner, bodyOf: () => null };
-  assert.deepEqual(verifyMir(body.mir, context), { kind: "complete", violations: [] });
-  const [first, second] = body.mir.blocks.filter(row => row.terminator.kind === "cleanup-enter");
-  assert.ok(first && second);
-  assert.notEqual(first.terminator.entry, second.terminator.entry);
-  for (const [terminator, reason] of [
-    [{ ...first.terminator, entry: second.terminator.entry }, "cleanup-source-region"],
-    [{ ...first.terminator, transfer: "unwind" }, "entry-transfer"],
-  ]) {
-    const corrupted = { ...body.mir, blocks: body.mir.blocks.map(row => row !== first ? row : { ...row, terminator }) };
-    const verification = verifyMir(corrupted, context);
-    assert.equal(verification.kind, "complete");
-    assert.deepEqual(verification.violations, [{ rule: "cleanup-control-exact",
-      site: { kind: "instruction", body: body.instance.body, block: first.id, statement: null },
-      detail: [{ kind: "text", value: reason }] }]);
-  }
-  const [normal, returned] = [first, second].map(block => body.mir.blocks[block.terminator.continuation]);
-  assert.equal(returned.terminator.kind, "return");
-  const rows = [
-    [second.id, body.mir.blocks.map(row => row === second ? { ...row, terminator: returned.terminator } : row)],
-    [first.id, body.mir.blocks.map(row => {
-      const { terminator } = row;
-      if (row === first) return { ...row, terminator: { ...terminator, kind: "goto", target: normal.id } };
-      if (row === second) return { ...row, terminator: returned.terminator };
-      if (terminator.kind === "cleanup-resume") return { ...row, terminator: { ...terminator, kind: "unreachable" } };
-      return row;
-    })],
-  ];
-  for (const [block, blocks] of rows) {
-    const verification = verifyMir({ ...body.mir, blocks }, context);
-    assert.equal(verification.kind, "complete");
-    assert.deepEqual(verification.violations, [{ rule: "cleanup-control-exact",
-      site: { kind: "instruction", body: body.instance.body, block, statement: null },
-      detail: [{ kind: "text", value: "required-cleanup" }] }]);
-  }
-});
-
 test("an authored unbound handler catches the actual call and ends only the exited lexical storage", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
