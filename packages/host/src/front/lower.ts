@@ -865,7 +865,7 @@ function indexedUse(lowering: Lowering, node: Hir.ElementAccessExpression<Syntax
       || !sameSource(components[arm.key]?.root, expected(node.argumentExpression.id))
       || (selected.read === null ? arm.read !== null : types[selected.read]?.component !== arm.read)
       || (selected.write === null ? arm.write !== null : types[selected.write]?.component !== arm.write)
-      || arm.selection.kind !== "index-signature" || arm.selection.declarations.length !== 1
+      || (arm.selection.kind !== "index-signature" && arm.selection.kind !== "array-element") || arm.selection.declarations.length !== 1
       || selected.selectedDeclaration === null || !sameSource(arm.selection.declarations[0], selected.selectedDeclaration))
       return throwInvariant(invariant("An indexed access requires its actual selected index declaration and components."));
     const declaration = arm.selection.declarations[0];

@@ -2834,6 +2834,7 @@ test("Front captures each original indexed operand and selected read or write", 
   assert.deepEqual(captured.memberUses.map(use => use.access), ["write", "read"]);
   for (const use of captured.memberUses) {
     assert.equal(use.arms[0].kind, "index");
+    assert.equal(use.arms[0].selection.kind, "array-element", "only the actual native checker receiver supplies an array-element selection");
     assert.equal(use.key.module, captured.module);
     assert.deepEqual(captured.core[use.key.node].node, use.key);
     assert.notEqual(use.selectedDeclaration.module, captured.module, "the actual array index comes from the bundled declaration");

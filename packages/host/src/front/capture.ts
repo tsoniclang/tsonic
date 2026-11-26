@@ -3164,7 +3164,8 @@ function capturedIndexUse(scope: CaptureScope, occurrence: RawNodeRef, info: Res
     callCallee: info.callCallee, optionalChain: info.optionalChain, chainContinuation: false, selectedDeclaration: selected,
     selectedDeclarations: [selected], readDeclarations: read === null ? [] : [selected],
     writeDeclarations: write === null ? [] : [selected], read, write,
-    arms: [{ kind: "index", receiver: receiverComponent, selection: { kind: "index-signature", declarations: [selected] },
+    arms: [{ kind: "index", receiver: receiverComponent,
+      selection: { kind: info.nativeArray === null ? "index-signature" : "array-element", declarations: [selected] },
       key: keyComponent, read: readComponent, write: writeComponent, readonly: !info.writable }] };
 }
 

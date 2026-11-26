@@ -68,8 +68,13 @@ export type ResolvedSourcePropertyAccessInfo = (PublicSelectedPropertyAccess<Che
     readonly kind: "module-exported-value";
     readonly target: Symbol | undefined;
 };
+export interface ResolvedNativeArrayIndex {
+    readonly element: Type;
+    readonly readonly: boolean;
+}
 export type ResolvedSourceElementAccessInfo = CheckerResolvedSourceElementAccessInfo & {
     readonly receiver: CheckerResolvedSourceElementAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;
+    readonly nativeArray: ResolvedNativeArrayIndex | null;
 };
 export type ResolvedSourceIterationInfo = ExtensionCheckedIterationSelection;
 export type ResolvedSourceObjectLiteralElementKind = "property" | "shorthand" | "method" | "get" | "set";

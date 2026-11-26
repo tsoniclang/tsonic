@@ -21,7 +21,7 @@ import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_Resolve
 import { Checker_getCompletedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal, getNumberLiteralValue } from "../internal/checker/checker/state.js";
 import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclarationOfAliasSymbol, Checker_getDeclaredTypeOfSymbol, Checker_getEffectivePropertyNameForPropertyNameNode, Checker_getExportSymbolOfValueSymbolIfExported, Checker_getIdentifierAssignmentError, Checker_getImmediateAliasedSymbol, Checker_getLiteralTypeFromPropertyName, Checker_getTypeOfPropertyOfContextualTypeEx, Checker_getResolvedSymbolOrNil, Checker_getModuleSpecifierForImportOrExport, Checker_getExportsOfModule, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, isSourceModuleBinding, retainedAliasFailure, } from "../internal/checker/checker/symbols.js";
-import { Checker_getApparentTypeOfContextualType, Checker_getAwaitedType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
+import { Checker_getApparentTypeOfContextualType, Checker_getAwaitedType, Checker_getElementTypeOfArrayType, Checker_GetTypeAtLocation, Checker_isReadonlyArrayType, } from "../internal/checker/checker/types.js";
 import { Checker_isAssignmentToReadonlyEntity } from "../internal/checker/checker/relations.js";
 import { AssignmentKindDefinite, AssignmentKindNone, getAssignmentTargetKind, isReservedMemberName } from "../internal/checker/utilities.js";
 import { Checker_getResolvedSourceIterationInfo } from "../internal/checker/checker/syntax-checking.js";
@@ -109,11 +109,13 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             const selected = Checker_getResolvedSourceElementAccessInfo(checker, node);
             if (selected === undefined || isSyntheticDefaultMember(checker, selected.sourceSymbol))
                 return undefined;
-            const offered = withResolvedSourceReceiverValueEvidence(checker, selected);
-            if (offered !== undefined) {
-                admitNativeChecker(checker, "retained");
-                elementAccessInfos.set(node, offered);
-            }
+            const resolved = withResolvedSourceReceiverValueEvidence(checker, selected);
+            if (resolved === undefined)
+                return undefined;
+            const nativeArray = nativeArrayIndexOf(checker, selected);
+            admitNativeChecker(checker, "retained", 2);
+            const offered = Object.freeze({ ...resolved, nativeArray });
+            elementAccessInfos.set(node, offered);
             return offered;
         }));
         if (result === undefined || result.kind === "unavailable")
@@ -641,6 +643,25 @@ function withResolvedPropertyAccessEvidence(checker, selected) {
         }),
     };
     return value;
+}
+function nativeArrayIndexOf(checker, selected) {
+    admitNativeChecker(checker, "work");
+    if (selected.sourceSymbol !== undefined || selected.optionalChain || selected.selectedDeclaration === undefined)
+        return null;
+    admitNativeChecker(checker, "work");
+    const receiver = selected.receiver.type;
+    const element = Checker_getElementTypeOfArrayType(checker, receiver);
+    if (element === undefined)
+        return null;
+    admitNativeChecker(checker, "work");
+    if ((selected.sourceReadType !== undefined && selected.sourceReadType !== element)
+        || (selected.sourceWriteType !== undefined && selected.sourceWriteType !== element))
+        return null;
+    const readonly = Checker_isReadonlyArrayType(checker, receiver);
+    if (readonly === selected.writable)
+        return null;
+    admitNativeChecker(checker, "retained");
+    return Object.freeze({ element, readonly });
 }
 function withResolvedSourceReceiverValueEvidence(checker, selected) {
     if (checker === undefined || selected === undefined) {
