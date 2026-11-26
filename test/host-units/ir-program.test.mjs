@@ -1340,8 +1340,9 @@ test("standalone Instantiate skips only a rowless missing artifact and pays each
   const metadata = { kind: "data-layout", key: { definition: fixture.definition, bindings: { kind: "parametric" } },
     occurrence: { kind: "item", value: { owner: fixture.definition, node: 0 } }, fingerprint: "native64-le", byteOrder: "little", addressWidth: 64 };
   const metadataRef = { kind: "metadata", definition: fixture.definition };
-  const exactWork = 1 + 5 + 8 + 4 + 4 + 1;
-  const exactRecords = 5 + 8 + 4 + 4 + 1;
+  const emptySeed = 5 + 10;
+  const exactWork = 1 + emptySeed;
+  const exactRecords = emptySeed;
   const match = (maximumWork, maximumCreatedRecords) => product.instantiate({ ...index, metadata: [metadata] }, module,
     metadataRef, bindings, { ...limits, maximumWork, maximumCreatedRecords });
   assert.deepEqual(match(exactWork - 1, exactRecords), stop(exactWork - 1));
@@ -2827,7 +2828,10 @@ for (const kind of ["literal", "definition", "observation", "place", "closure-pa
     const missing = (path, key) => ({ rule: "binding-artifact-present", site, detail: [{ kind: "text", value: path }, { kind: "text", value: key }] });
     if (kind === "literal") mir.constants[0].value = { kind: "literal", value: { kind: "number", token: "1", value: { numerator: 1n, denominator: 1n, negativeZero: false } } };
     else if (kind === "definition") mir.constants[0].value = { kind, definition: first.definition, bindings: { kind: "instantiated", bindings } };
-    else if (kind === "observation") mir.constants[0].value = { kind, at: { body: first.bodyId, node: 0 } };
+    else if (kind === "observation") {
+      mir.constants[0].value = { kind, at: { body: first.bodyId, node: 0 } };
+      expected.push({ rule: "mir-valid", site, detail: [{ kind: "text", value: "observation-source-exact" }] });
+    }
     else if (kind === "place") mir.blocks[0].statements[1].value = { kind: "use", operand: { kind: "place", place: 0 } };
     else if (kind.startsWith("closure-")) {
       const instance = kind === "closure-parametric" ? second.template.instance : second.instance;
