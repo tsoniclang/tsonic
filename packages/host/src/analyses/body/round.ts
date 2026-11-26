@@ -959,8 +959,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         operation: "initialization", destination: "binding", targets: [], owner: null,
         values: [{ source: terminator.tir, origins: empty, reason: null }], boundaries: [] });
     }
-    const escapesThrow = terminator.kind === "throw" && terminator.unwind.kind === "escape";
-    if (flow !== null && (terminator.kind === "return" || escapesThrow)) {
+    const escapesExecution = (terminator.kind === "throw" || terminator.kind === "invoke") && terminator.unwind.kind === "escape";
+    if (flow !== null && (terminator.kind === "return" || escapesExecution)) {
       const state = flow.value.exit[block.id];
       const origins = requirePresent(state?.origins, { owner: "analyses/body", query: null, origin: terminator.origin,
         message: "An actual finite exit retains its solved current cell values." });
@@ -984,10 +984,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           { kind: "return" }, origins, arena, escapes, retention, copiedEntries);
         if (retained !== null) return retained;
       }
-    } else if (escapesThrow) {
+    } else if (escapesExecution) {
       const state = cellMustAtExit(deps, boundarySlots, assigned.written, unwindAssigned);
       if (state.kind !== "complete") return state;
       unwindAssigned = state.value;
+      if (terminator.kind !== "throw") continue;
       const origins = originsOf(terminator.operand);
       const joined = joinOrigins(deps, values.value, thrownOrigins, origins, admitUnion);
       if (typeof joined !== "number") return joined;

@@ -13,7 +13,7 @@ import { shaped } from "./fixtures/lower-mir/programs/first.mjs";
 import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "machine", "integer", "comparison", "conversions", "budget", "pause"].map(name => resolve(repository, `packages/host/dist/evaluate/${name}.js`));
+const runtimeFiles = ["index", "machine", "integer", "comparison", "conversions", "budget", "pause", "execution"].map(name => resolve(repository, `packages/host/dist/evaluate/${name}.js`));
 const limits = { maximumSteps: 100, maximumIntermediateBits: 256, maximumResultBits: 256, maximumArithmeticWork: 256 };
 const declareType = (name, term) => {
   const existing = TABLE.terms.findIndex(actual => isDeepStrictEqual(actual, term));
@@ -43,6 +43,14 @@ before(async () => {
 
 function same(actual, expected, label) {
   assert.equal(isDeepStrictEqual(actual, expected), true, label);
+}
+
+function assertNativeFaultNotConstant(output, faultingBody) {
+  const site = faultingBody.blocks.find(block => block.terminator.kind === "invoke").terminator;
+  same(output, { kind: "done", value: { kind: "ok",
+    value: { kind: "not-constant", at: site.tir, reason: "external-operation" }, diagnostics: [],
+    positions: [{ position: { kind: "result" }, error: null }], emissions: [] } },
+  "a required but unreified native fault value is neither a constant nor a synthetic diagnostic");
 }
 
 function fixture(name, type = T.bool, makeRoot = b => b.block(b.returns(b.keyword("TrueKeyword", T.bool))), rows = [], nativeFacts = nativeFactsFixture()) {
@@ -1268,7 +1276,7 @@ test("integer remainder zero follows its own selected failure without borrowing 
   const value = remainderFixture("evaluate-remainder.caught-value", carrier, type, 1n, 0n);
   const body = structuredClone(value.body);
   body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
-  assert.throws(() => value.run(value.deps, body), /actual selected remainder-by-zero fault value/u);
+  assertNativeFaultNotConstant(value.run(value.deps, body), value.body);
 });
 
 test("integer remainder admits every width-dependent operation before the original finite allowance", () => {
@@ -1483,7 +1491,7 @@ test("integer division keeps zero and signed quotient overflow on their distinct
   const zero = divisionFixture("evaluate-division.caught-value", carrier, type, 1n, 0n);
   const body = structuredClone(zero.body);
   body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
-  assert.throws(() => zero.run(zero.deps, body), /actual selected division-by-zero fault value/u);
+  assertNativeFaultNotConstant(zero.run(zero.deps, body), zero.body);
   const native = comparisonTypes.find(row => row[0] === "native-int");
   const oneBit = divisionFixture("evaluate-division.onebit", native[0], native[1], -1n, -1n);
   assert.equal(oneBit.run({ ...oneBit.deps, selectedNativeFacts: { ...oneBit.deps.selectedNativeFacts,
@@ -1612,7 +1620,7 @@ test("integer multiplication applies the complete product's selected result and 
   const trapped = multiplicationFixture("evaluate-multiplication.caught-value", carrier, type, 127n, 2n, "unwind");
   const body = structuredClone(trapped.body);
   body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
-  assert.throws(() => trapped.run(trapped.deps, body), /actual selected overflow fault value/u);
+  assertNativeFaultNotConstant(trapped.run(trapped.deps, body), trapped.body);
 });
 
 test("integer multiplication admits quadratic work and temporary magnitude before building a product", () => {
@@ -1714,7 +1722,7 @@ test("integer subtraction bounds complete results under supplied widening, narro
   const trapped = subtractionFixture("evaluate-subtraction.caught-fault", carrier, type, -128n, 1n, "unwind");
   const body = structuredClone(trapped.body);
   body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
-  assert.throws(() => trapped.run(trapped.deps, body), /actual selected overflow fault value/u);
+  assertNativeFaultNotConstant(trapped.run(trapped.deps, body), trapped.body);
 });
 
 test("integer subtraction admits each represented operation on the original arithmetic and bit allowances", () => {
@@ -1864,7 +1872,7 @@ test("integer negation retains supplied result geometry and real failure arms wi
     if (law === "unwind") {
       const body = structuredClone(overflow.body);
       body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
-      assert.throws(() => overflow.run(overflow.deps, body), /actual selected overflow fault value/u);
+      assertNativeFaultNotConstant(overflow.run(overflow.deps, body), overflow.body);
     }
   }
 });
@@ -1989,7 +1997,7 @@ test("integer addition retains selected widening and original escaping failure r
     invoke.unwind = { kind: law === "abort" ? "escape" : "abort" };
     assert.throws(() => overflowing.run(overflowing.deps, body), /failure arm disagree/u);
     invoke.unwind = { kind: "handler", target: 0, exception: 0 };
-    if (law === "unwind") assert.throws(() => overflowing.run(overflowing.deps, body), /actual selected overflow fault value/u);
+    if (law === "unwind") assertNativeFaultNotConstant(overflowing.run(overflowing.deps, body), overflowing.body);
   }
 });
 
@@ -2043,7 +2051,7 @@ test("an escaping native overflow respects its actual caller handlers and the sa
     body.blocks[0].terminator.unwind = arm === "handler" ? { kind: "handler", target: 1, exception: 0 } : { kind: arm };
     const paused = product.evaluate(deps, bridge.entry, body, [], "compile-time", bridge.unit);
     const resume = () => product.resumeEvaluate(deps, paused.paused, [{ kind: "mir-body", body: child.body }]);
-    if (arm === "handler") assert.throws(resume, /actual selected overflow fault value/u);
+    if (arm === "handler") assertNativeFaultNotConstant(resume(), child.body);
     else if (arm === "none" || arm === "abort") assert.throws(resume, /actual unwinding arm/u);
     else {
       const result = resume();
@@ -2597,8 +2605,9 @@ test("a thrown scalar is caught by its actual caller handler or yields exactly o
       : discard ? { ...block, terminator: { ...block.terminator, value: { kind: "constant", constant } } } : block) };
     const paused = product.evaluate(bridge.deps, bridge.entry, body, [], "compile-time", bridge.unit);
     assert.equal(paused.kind, "paused");
-    if (failure.kind === "none") {
-      assert.throws(() => product.resumeEvaluate(bridge.deps, paused.paused, [{ kind: "mir-body", body: childBody }]), /unable to fail/u);
+    if (failure.kind === "none" || failure.kind === "abort") {
+      const diagnostic = failure.kind === "none" ? /unable to fail/u : /actual unwinding arm/u;
+      assert.throws(() => product.resumeEvaluate(bridge.deps, paused.paused, [{ kind: "mir-body", body: childBody }]), diagnostic);
       continue;
     }
     const result = product.resumeEvaluate(bridge.deps, paused.paused, [{ kind: "mir-body", body: childBody }]);

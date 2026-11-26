@@ -2,7 +2,7 @@ import type { DataflowAccount, DataflowResult, DataflowStop, ForwardProblem, Lat
 import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../dataflow/index.js";
 import { requirePresent } from "../../diag/index.js";
 import type { BlockId, LocalId, PlaceId } from "../../ids/contract.js";
-import type { MirBody, MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
+import type { MirBody, MirOperand, MirStatement, MirTerminator, MirUnwind } from "../../ir-mir/contract.js";
 import type { LogicalCellLifetime, Summary } from "../../ir-facts/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput, RoundCallRead } from "./contract.js";
@@ -205,29 +205,37 @@ function assignDestination(body: MirBody, place: PlaceId, state: AssignedState, 
   return { written, taint };
 }
 
-function abortingPrimitiveDestination(deps: BodyRoundDeps, body: MirBody,
+function nativePrimitiveDestination(deps: BodyRoundDeps, body: MirBody,
   invoke: Extract<MirTerminator, { readonly kind: "invoke" }>): DataflowResult<PlaceId> {
   const { account } = deps;
   const admitted = chargeWork(account, 1);
   if (admitted !== null) return admitted;
   const { operation, execution, result } = invoke.operation.decision;
   const destination = invoke.destination;
-  if (operation.kind !== "native-operator" || execution.kind !== "invocation" || execution.failure !== "abort"
-    || execution.writesStorage || invoke.unwind.kind !== "abort" || invoke.step !== null || destination === null)
+  if (operation.kind !== "native-operator" || execution.kind !== "invocation" || execution.failure === "none"
+    || (execution.failure === "abort" ? invoke.unwind.kind !== "abort" : invoke.unwind.kind !== "handler" && invoke.unwind.kind !== "escape")
+    || execution.writesStorage || invoke.step !== null || destination === null)
     return bodyFrontier("BodyAnalysis needs the selected call, failure or suspension transport for this terminator.");
   const place = body.places[destination];
   if (place?.base.kind !== "local" || place.storage !== result)
-    return bodyFrontier("A process-ending native value operation needs its exact local result place.");
+    return bodyFrontier("A native value operation needs its exact local result place.");
   const localWork = chargeWork(account, 1);
   if (localWork !== null) return localWork;
   const local = body.locals[place.base.local];
   if (local?.role.kind !== "temporary" || local.mode !== "local" || local.storage !== result)
-    return bodyFrontier("A process-ending native value operation needs its own temporary result.");
+    return bodyFrontier("A native value operation needs its own temporary result.");
   const kind = valueKind(deps, result);
   const stop = accountFailure(account);
   if (stop !== null) return stop;
-  if (kind !== "primitive") return bodyFrontier("A process-ending native value operation needs its selected primitive result.");
+  if (kind !== "primitive") return bodyFrontier("A native value operation needs its selected primitive result.");
   return { kind: "complete", value: destination };
+}
+
+function assignedHandler(body: MirBody, unwind: Extract<MirUnwind, { readonly kind: "handler" }>,
+  state: AssignedState, account: DataflowAccount, statics: StaticSlots): { readonly target: BlockId; readonly state: AssignedState } | null {
+  if (chargeWork(account, 1) !== null || chargeResultEntries(account, 1) !== null) return null;
+  const assigned = unwind.exception === null ? state : assignDestination(body, unwind.exception, state, account, statics, false);
+  return accountFailure(account) === null ? { target: unwind.target, state: assigned } : null;
 }
 
 function selectError(left: CallError | null, right: CallError, account: DataflowAccount): CallError {
@@ -374,9 +382,13 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
         let next = state;
         let failure: { readonly target: BlockId; readonly state: AssignedState } | null = null;
         if (terminator.kind === "invoke") {
-          const destination = abortingPrimitiveDestination(deps, body, terminator);
+          const destination = nativePrimitiveDestination(deps, body, terminator);
           if (destination.kind !== "complete") return [];
           next = assignDestination(body, destination.value, state, borrowed, statics, false);
+          if (terminator.unwind.kind === "handler") {
+            failure = assignedHandler(body, terminator.unwind, state, borrowed, statics);
+            if (failure === null) return [];
+          }
         } else {
           if (chargeWork(borrowed, 1) !== null) return [];
           if (calls === null || answers === null) {
@@ -422,10 +434,8 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
         return failure === null ? [normal] : [normal, failure];
       }
       if (terminator.kind === "throw" && terminator.unwind.kind === "handler") {
-        if (state === null || chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 1) !== null) return [];
-        const unwind = terminator.unwind;
-        return [{ target: unwind.target, state: unwind.exception === null ? state
-          : assignDestination(body, unwind.exception, state, borrowed, statics, false) }];
+        const handled = state === null ? null : assignedHandler(body, terminator.unwind, state, borrowed, statics);
+        return handled === null ? [] : [handled];
       }
       const count = terminator.kind === "switch" ? terminator.targets.length + 1 : terminator.kind === "goto" ? 1 : 0;
       if (chargeWork(borrowed, count) !== null || chargeResultEntries(borrowed, count) !== null) return [];

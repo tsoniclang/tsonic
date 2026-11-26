@@ -283,8 +283,9 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         return true;
       };
       if (terminator.kind === "goto") edge(terminator.target, state);
-      else if (terminator.kind === "invoke") edge(terminator.next, state);
-      else if (terminator.kind === "throw" && terminator.unwind.kind === "handler") {
+      else if (terminator.kind === "invoke" || terminator.kind === "throw") {
+        if (terminator.kind === "invoke" && !edge(terminator.next, state)) return outgoing;
+        if (terminator.unwind.kind !== "handler") return outgoing;
         const { exception, target } = terminator.unwind;
         if (exception === null) edge(target, state);
         else {
@@ -292,7 +293,8 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
             || chargeResultEntries(account, state.origins.length + 2) !== null) return outgoing;
           const local = rootSlot(input.mir, exception, statics);
           const written = [...state.origins];
-          written[local] = operandOrigins(input, constants, state.origins, terminator.operand, statics, fields);
+          written[local] = terminator.kind === "throw" ? operandOrigins(input, constants, state.origins, terminator.operand, statics, fields)
+            : originsId(0);
           const contents = tracked.has(local) ? currentContent(deps, state.contents, local, true) : null;
           if (contents !== null && contents.kind !== "complete") return outgoing;
           edge(target, { origins: written, contents: contents?.value ?? state.contents });

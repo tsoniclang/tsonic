@@ -3370,6 +3370,73 @@ test("real public Host analysis preserves every repeated callee occurrence acros
   assert.deepEqual(caller.facts.map(facts => facts.execution.provided), [1]);
 });
 
+test("authored native faults take their selected abort, handler and call-unwind continuations", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { evaluate, resumeEvaluate } = await import("../../packages/host/dist/evaluate/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function remainder(left = 5, right = 2) { return left % right; }
+    export function direct(left = 5, right = 2) { try { return left % right; } catch { return left; } }
+    export function called(left = 5, right = 2) { try { return remainder(left, right); } catch { return left; } }
+    export function bound(left = 5, right = 2) { try { return left % right; } catch (error) { return left; } }`);
+  for (const law of ["abort", "unwind"]) {
+    const nativeFacts = { ...input.snapshot.nativeFacts, remainderSign: [{ carrier: "int64", sign: "dividend" }],
+      remainderByZero: [{ carrier: "int64", law }] };
+    const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts } });
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index, modules } = result.value;
+    const selected = name => modules.flatMap(chapter => chapter.bodies).find(row => row.kind === "selected"
+      && row.instance.body.includes(`;${name}];function;0]`));
+    const remainder = selected("remainder");
+    const direct = selected("direct");
+    const called = selected("called");
+    const bound = selected("bound");
+    assert.ok(remainder && direct && called && bound);
+    for (const body of [remainder, direct, called, bound]) {
+      const summary = index.summaries.find(row => row.key.execution.instance.body === body.instance.body && row.key.execution.provided === 2);
+      assert.ok(summary);
+      assert.equal(summary.returns, true);
+      assert.equal(summary.unwinds, law === "unwind" && body === remainder);
+      assert.deepEqual(summary.arena.origins[summary.thrown].producers, []);
+      const operationOwner = body === called ? remainder : body;
+      const operation = operationOwner.mir.blocks.find(row => row.terminator.kind === "invoke").terminator;
+      const arm = law === "abort" ? "abort" : operationOwner === remainder ? "escape" : "handler";
+      assert.equal(operation.unwind.kind, arm);
+      if (arm === "handler") assert.equal(operation.unwind.exception === null, body !== bound);
+      const { types } = index;
+      const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
+        selectedNativeFacts: nativeFacts, limits: input.limits.evaluation };
+      const type = body.mir.result;
+      const number = numerator => ({ kind: "number", type, value: { numerator, denominator: 1n, negativeZero: false } });
+      for (const divisor of [2n, 0n]) {
+        let execution = evaluate(deps, body.instance, body.mir, [number(5n), number(divisor)], "compile-time",
+          { query: "constValue", key: [body.instance, "compile-time"] });
+        if (body === called) {
+          assert.equal(execution.kind, "paused");
+          assert.deepEqual(execution.requests, [{ kind: "mir-body", instance: remainder.instance }]);
+          execution = resumeEvaluate(deps, execution.paused, [{ kind: "mir-body", body: remainder.mir }]);
+        }
+        assert.equal(execution.kind, "done");
+        assert.equal(execution.value.kind, "ok");
+        if (divisor !== 0n || law === "unwind" && (body === direct || body === called)) {
+          assert.deepEqual(execution.value.value, { kind: "value", value: number(divisor === 0n ? 5n : 1n) });
+          assert.deepEqual(execution.value.diagnostics, []);
+        } else if (law === "unwind" && body === bound) {
+          assert.deepEqual(execution.value.value, { kind: "not-constant", at: operation.tir, reason: "external-operation" });
+          assert.deepEqual(execution.value.diagnostics, []);
+        } else {
+          assert.deepEqual(execution.value.value, { kind: "value", value: { kind: "error", type } });
+          const [failure] = execution.value.diagnostics;
+          assert.equal(execution.value.diagnostics.length, 1);
+          assert.equal(failure.code.name, "TSONIC_CONSTANT_EVALUATION_FAILED");
+          assert.match(failure.message, law === "abort" ? /process-ending integer remainder by zero/u : /integer remainder by zero escaped/u);
+          assert.deepEqual(failure.site, { kind: "source", origin: operation.origin });
+        }
+      }
+    }
+  }
+});
+
 test("an authored unbound handler catches the actual call and ends only the exited lexical storage", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

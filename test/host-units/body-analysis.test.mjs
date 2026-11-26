@@ -1037,7 +1037,7 @@ test("an omitted actual boolean default calls its separately analyzed scalar ini
   checkedPair(supplied, analyzeBodyRound(supplied.deps, supplied.input));
 });
 
-test("an aborting native value uses the verified normal destination and the existing round account", () => {
+test("native faults initialize only the verified normal destination and preserve the round account", () => {
   const type = declareType("body-native-int64", { kind: "primitive", primitive: "int64" });
   const makeBody = failure => {
     const name = `body-round.native-add.${failure}`;
@@ -1067,21 +1067,28 @@ test("an aborting native value uses the verified normal destination and the exis
   assert.equal(live.kind, "complete");
   assert.ok(live.value[invoke.next] !== null);
 
-  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
-    let complete = false;
-    for (let maximum = 0; maximum < 2000; maximum += 1) {
-      const account = createAccount({ ...limits, [dimension]: maximum });
-      const result = analyzeBodyRound({ ...current.deps, account }, current.input);
-      if (result.kind === "complete") {
-        assert.deepEqual(result.value.value, whole);
-        complete = true;
-        break;
+  const unwind = makeBody("unwind");
+  const unwinding = checkedPair(unwind, analyzeBodyRound(unwind.deps, unwind.input));
+  assert.equal(unwinding.summary.returns, true);
+  assert.equal(unwinding.summary.unwinds, true);
+  assert.equal(unwinding.summary.thrown, whole.summary.thrown, "A native scalar fault invents no source value origins.");
+  for (const [fixture, expected] of [[current, whole], [unwind, unwinding]]) {
+    for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+      let complete = false;
+      for (let maximum = 0; maximum < 2000; maximum += 1) {
+        const account = createAccount({ ...limits, [dimension]: maximum });
+        const result = analyzeBodyRound({ ...fixture.deps, account }, fixture.input);
+        if (result.kind === "complete") {
+          assert.deepEqual(result.value.value, expected);
+          complete = true;
+          break;
+        }
+        assert.equal(result, accountFailure(account));
+        assert.equal(analyzeBodyRound({ ...fixture.deps, account },
+          new Proxy({}, { get() { assert.fail("No input after the original operation stop."); } })), result);
       }
-      assert.equal(result, accountFailure(account));
-      assert.equal(analyzeBodyRound({ ...current.deps, account },
-        new Proxy({}, { get() { assert.fail("No input after the original operation stop."); } })), result);
+      assert.equal(complete, true);
     }
-    assert.equal(complete, true);
   }
   const stopped = createAccount(limits);
   const refusal = { kind: "refused", diagnostics: [] };
@@ -1091,9 +1098,9 @@ test("an aborting native value uses the verified normal destination and the exis
   } }, current.input);
   assert.equal(stoppedReader, refusal);
 
-  const unwind = makeBody("unwind");
-  assert.throws(() => solveAssigned(unwind.deps, unwind.input), /selected call, failure or suspension transport/u);
   for (const [change, failure] of [
+    [candidate => { candidate.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "escape" }; },
+      /selected call, failure or suspension transport/u],
     [candidate => { candidate.blocks.find(block => block.terminator.kind === "invoke").terminator.destination = null; },
       /selected call, failure or suspension transport/u],
     [candidate => { candidate.places[invoke.destination].storage = T.bool; }, /exact local result place/u],

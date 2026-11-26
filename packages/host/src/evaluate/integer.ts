@@ -6,8 +6,9 @@ import { isNativeBinaryFloatPrimitive, nativeCarrierOf, nativeIntegerGeometryOf 
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { EvaluateDeps } from "./contract.js";
 import type { Machine as EvaluationMachine } from "./pause.js";
-import { arithmetic, evaluationFault, limit, selectedFloatingWidth } from "./budget.js";
+import { arithmetic, limit, selectedFloatingWidth } from "./budget.js";
 import { compareFloating, compareOrdered, floatingSignBit, isNumericComparison } from "./comparison.js";
+import { enterUnwind } from "./execution.js";
 
 type Machine = EvaluationMachine<EvaluateDeps>;
 type NativeNumericSelection = Extract<OperationIdentity, { readonly kind: "native-operator" }>;
@@ -65,23 +66,8 @@ function integerFault(machine: Machine, law: Exclude<NativeOverflowLaw, "wrap">,
     : reason === "remainder-by-zero" ? "integer remainder by zero" : "invalid integer shift count";
   if (unwind === null || unwind.kind === "none") return fail(`An ${fault} reached an operation marked unable to fail.`, site.origin);
   if ((law === "abort") !== (unwind.kind === "abort")) return fail(`The ${fault} and its selected failure arm disagree.`, site.origin);
-  if (law === "abort") {
-    evaluationFault(machine, site.origin, `A process-ending ${fault} occurred during constant evaluation.`);
-    return null;
-  }
-  let next: MirUnwind = unwind;
-  for (let position = machine.frames.length - 1;; position -= 1) {
-    if (!arithmetic(machine, 1, site.origin)) return null;
-    if (next.kind === "handler") return fail(`Evaluate needs the actual selected ${reason} fault value for its handler.`, site.origin);
-    if (next.kind !== "escape") return fail(`A call's ${reason} continuation must retain its actual unwinding arm.`, site.origin);
-    const frame = requirePresent(machine.frames[position], { owner: "evaluate", query: null, origin: site.origin,
-      message: `An escaping ${reason} retains its actual caller frame.` });
-    if (frame.caller === null) {
-      evaluationFault(machine, site.origin, `An ${fault} escaped constant evaluation.`);
-      return null;
-    }
-    next = frame.caller.unwind;
-  }
+  enterUnwind(machine, unwind, site, fault);
+  return null;
 }
 
 function carrierRow<Row extends { readonly carrier: NativePrimitive | "bigint" }>(machine: Machine, rows: readonly Row[],

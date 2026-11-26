@@ -8,9 +8,9 @@ import type { OperationIdentity } from "../ir-infer/contract.js";
 import type { BodyInstance, ConstValue, ExactRational } from "../ir-types/contract.js";
 import { nativeCarrierOf, sameInstance } from "../ir-types/index.js";
 import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
-import type { EvaluationResult } from "./data.js";
 import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task } from "./pause.js";
 import { arithmetic, evaluationFault, limit, selectedFloatingFormat, selectedOptionalDomain, step, validateLimits, valueFits } from "./budget.js";
+import { current, enterUnwind, finish, notConstant } from "./execution.js";
 import { EvaluationSuspension } from "./pause.js";
 import { nativeNumericOperation } from "./integer.js";
 import { packFloat64Literal, selectedConversion } from "./conversions.js";
@@ -18,17 +18,6 @@ import { packFloat64Literal, selectedConversion } from "./conversions.js";
 type Machine = EvaluationMachine<EvaluateDeps>;
 
 const fail = (message: string, origin: Origin | null = null): never => throwInvariant({ owner: "evaluate", query: null, origin, message });
-const current = (machine: Machine): Frame => requirePresent(machine.frames.at(-1), { owner: "evaluate", query: null, origin: null,
-  message: "An active evaluation must have an executing frame." });
-
-function finish(machine: Machine, value: EvaluationResult): void {
-  machine.result = { kind: "ok", value, diagnostics: [], positions: [{ position: { kind: "result" }, error: null }], emissions: [] };
-}
-
-function notConstant(machine: Machine, site: MirSite, reason: Extract<EvaluationResult, { readonly kind: "not-constant" }>["reason"]): void {
-  finish(machine, { kind: "not-constant", at: site.tir, reason });
-}
-
 function absorb(machine: Machine, unit: UnitRef, error: ErrorValue): void {
   if (error.causes.length === 0) return fail("An incoming error must have its original grounded cause.");
   const frame = machine.frames[0];
@@ -159,30 +148,6 @@ function returnValue(machine: Machine, value: ConstValue | null, site: MirSite):
   if (caller.destination === null) return;
   if (value === null) return fail("A call destination requires its actual returned value.", site.origin);
   put(machine, value, site);
-}
-
-function unwind(machine: Machine, value: ConstValue, failure: MirUnwind, site: MirSite): void {
-  for (;;) {
-    if (failure.kind === "none") return fail("An operation marked unable to fail reached its failure arm.", site.origin);
-    if (failure.kind === "abort") { evaluationFault(machine, site.origin, "A process-ending failure occurred during constant evaluation."); return; }
-    if (failure.kind === "handler") {
-      const frame = current(machine);
-      if (failure.exception !== null) {
-        const local = localPlace(machine, failure.exception, site);
-        if (local === null) return;
-        store(machine, local, value);
-      }
-      frame.work.length = 0;
-      frame.values = [];
-      frame.block = failure.target;
-      frame.statement = 0;
-      return;
-    }
-    const caller = current(machine).caller;
-    if (caller === null) { evaluationFault(machine, site.origin, "A thrown value escaped constant evaluation."); return; }
-    machine.frames.pop();
-    failure = caller.unwind;
-  }
 }
 
 function selectBranch(machine: Machine, terminator: Extract<MirTerminator, { readonly kind: "switch" }>): void {
@@ -316,7 +281,11 @@ function execute(machine: Machine): void {
     else if (task.kind === "throw") {
       const value = requirePresent(current(machine).values.at(-1), { owner: "evaluate", query: null, origin: task.site.origin,
         message: "A throw continuation must retain its actual evaluated value." });
-      unwind(machine, value, task.unwind, task.site);
+      const handler = enterUnwind(machine, task.unwind, task.site, null);
+      if (handler !== null && handler.exception !== null) {
+        const local = localPlace(machine, handler.exception, task.site);
+        if (local !== null) store(machine, local, value);
+      }
     }
     else {
       const value = requirePresent(current(machine).values.at(-1), { owner: "evaluate", query: null, origin: task.site.origin,
