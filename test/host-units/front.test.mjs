@@ -885,6 +885,32 @@ test("selected native layout geometry reaches verified Program through the real 
     row.site.kind === "source" && row.message.includes("unknown")), true);
 });
 
+test("layout geometry keeps the selected native carrier of an enum operand and its computed result", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
+  const { create } = layoutInput(await loadFrontFixture());
+  const result = analyzeHostProgram(create(`export enum Width { Word = 8, Padded = 16 }
+    const first = make<boolean>({ datalayout: Abi, bytealignment: 8, fields: [], bytesize: (Width.Word), stride: 8 });
+    const second = make<boolean>({ datalayout: Abi, bytealignment: 8, fields: [], bytesize: Width.Word + Width.Word, stride: 16 });
+    export const small = measure(first);
+    export const large = measure(second);`));
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const order = (left, right) => left === right ? 0 : left < right ? -1 : 1;
+  const geometry = index.metadata.filter(row => row.kind === "memory-layout").map(row => row.layouts[row.root]);
+  assert.equal(geometry.length, 2);
+  assert.equal(geometry[0].source, geometry[1].source);
+  assert.deepEqual(geometry.map(row => [row.byteSize, row.stride]).sort((left, right) => order(left[0], right[0])), [[8n, 8n], [16n, 16n]]);
+  const constants = index.constants.filter(row => row.reference.context === "compile-time");
+  assert.equal(constants.length, 6);
+  const native = constants.filter(row => row.value.kind === "number");
+  assert.deepEqual(native.map(row => row.value.value.numerator).sort(order), [8n, 16n]);
+  assert.ok(native.every(row => row.value.value.denominator === 1n && index.types.terms[row.value.type].primitive === "int64"));
+  assert.equal(constants.filter(row => row.value.kind === "floating").length, 4);
+  const observed = modules.flatMap(chapter => chapter.bodies.flatMap(row => row.observations?.rows ?? []));
+  assert.deepEqual(observed.map(row => row.value).sort(order), [8n, 16n]);
+});
+
 test("selected array layouts publish the actual number and wider-than-number bigint extent", async () => {
   const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

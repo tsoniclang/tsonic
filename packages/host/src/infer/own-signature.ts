@@ -1,6 +1,7 @@
 import type { HirBody, HirNode } from "../ir-hir/contract.js";
 import type { DefId, TyId } from "../ids/contract.js";
 import { decodeBodyId } from "../ids/index.js";
+import type { TypeInterner } from "../ir-types/contract.js";
 import { readSignature, readType } from "../ir-types/index.js";
 import type { DeclaredSignatureRequest, GroupDeps, InferenceInputs } from "./contract.js";
 import { callerDefect, notInferredYet } from "./frontier.js";
@@ -10,13 +11,15 @@ export function isLayoutOperand(body: HirBody): boolean {
   return decoded.kind === "decoded" && decoded.value.role === "layout-operand";
 }
 
-export function layoutOperandType(node: HirNode, view: "read" | "contextual"): TyId | null {
+export function layoutOperandCompletion(types: TypeInterner, node: HirNode, operand: TyId): TyId | null {
   const checked = node.tsonic;
   if (checked === null) return null;
   const value = "value" in checked ? checked.value : checked;
   if (!("views" in value)) return null;
-  const selected = view === "read" ? value.views.read : value.views.contextual;
-  return selected.kind === "available" ? selected.value : null;
+  const context = value.views.contextual;
+  if (context.kind !== "available" || context.value === null) return null;
+  const source = readType(types, operand);
+  return source.kind === "literal" && source.base === context.value ? context.value : operand;
 }
 
 export function ownSignatureRequest(deps: GroupDeps, body: HirBody, port: string,

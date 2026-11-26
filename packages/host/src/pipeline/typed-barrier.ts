@@ -8,7 +8,7 @@ import { resolveCheckedLayoutAlias } from "../ir-hir/index.js";
 import type { InferenceDeclaration, InferenceGroup, InferSite, PlacedSignature } from "../ir-infer/contract.js";
 import { inferenceBindingSites, inferredPartKey } from "../ir-infer/index.js";
 import type { BindingScope, BodyInstance, Signature, SignatureRequest } from "../ir-types/contract.js";
-import { instanceKey, readSignature, readType, signatureRequestKey, typePublicationRefusalOf, verifyBindings, viewTypes } from "../ir-types/index.js";
+import { instanceKey, internType, readSignature, readType, signatureRequestKey, typePublicationRefusalOf, verifyBindings, viewTypes } from "../ir-types/index.js";
 import type { ProgramEvidenceInput, ProgramMemberEvidence, ProgramStaticStorageEvidence, ProgramVerificationWork, TirSpecializationPlacement } from "../ir-program/contract.js";
 import { createProgramVerificationWork, specializeTir, tirReadyReadAdmission } from "../ir-program/index.js";
 import type { StaticStorageOf, TirBindingOwnerVisit, TirBindingTarget, TirBody, TirModule, TirVerifierInput } from "../ir-tir/contract.js";
@@ -17,7 +17,7 @@ import type { HostAnalysisInputs } from "./contract.js";
 import type { ScopedInferencePublication, SourceSemanticInputs, SourceSemanticWitness } from "./semantic-queries.js";
 import type { Database } from "../query/contract.js";
 import type { DeclaredSignatureErrorData } from "../decls/contract.js";
-import type { ElaborationChild, ElaborationNoResult } from "../elaborate/contract.js";
+import type { ElaborateDeps, ElaborationChild, ElaborationNoResult } from "../elaborate/contract.js";
 import type { QueryRefusal } from "../query/contract.js";
 import type { FormDiagnosticSite } from "../validate/contract.js";
 import type { SourceBarrier, SourceModule } from "./source-barrier.js";
@@ -244,8 +244,21 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     const finalized = publication.solution.variables[variable.id];
     return finalized?.variable === variable.id && finalized.error === null ? finalized.value.type : null;
   };
+  const enumValueTypeOf: ElaborateDeps<never>["enumValueTypeOf"] = member => {
+    const initializer = member.tsonic.valueSource;
+    if (initializer === null) return internType(source.types, { kind: "primitive", primitive: "int64" });
+    const owner = sources.bodies.get(initializer.body);
+    if (owner === undefined || owner.owner !== initializer.definition) return null;
+    const publication = groupOf.get(initializer.body)?.result;
+    if (publication === undefined || "kind" in publication) return null;
+    const placed = publication.placed.get(initializer.body);
+    const origin = placed?.signature.owner;
+    if (placed === undefined || placed.request !== null || origin?.kind !== "body"
+      || origin.value.body !== owner.body || origin.value.node !== owner.root.id) return null;
+    return readType(source.types, placed.signature.result).kind !== "error" ? placed.signature.result : null;
+  };
   const elaboration = { cuts, types: source.types, typeWork: source.typeWork, rules: inference.rules, nodeOf: sources.nodeOf, itemOf,
-    bindingOf: source.bindingOf, nominalOf: source.nominalOf, bindingScopeOf: scopeOf, staticStorageOf,
+    bindingOf: source.bindingOf, nominalOf: source.nominalOf, bindingScopeOf: scopeOf, staticStorageOf, enumValueTypeOf,
     typeOf: (type: Parameters<typeof readType>[1]) => readType(source.types, type),
     signatureOf: (signature: Parameters<typeof readSignature>[1]) => readSignature(source.types, signature),
     checkerDiagnosticsOf };

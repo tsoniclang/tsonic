@@ -612,6 +612,7 @@ test("real bodyless call, method, construct and index formals retain definitions
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
+    enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const orderedBodies = [...program.checked.bodies.filter(body => body.root.kind !== "SourceFile"),
     ...program.checked.bodies.filter(body => body.root.kind === "SourceFile")];
@@ -696,6 +697,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
+    enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = (body, nestedBodies) => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
     scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null,
@@ -1247,6 +1249,7 @@ test("real explicit and inferred calls retain their original endpoint, applied c
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
     staticStorageOf: () => null,
+    enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const typed = wiring.elaborate.elaborate(deps, { instance: { body: body.body, bindings: { kind: "parametric" } },
     scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null, typing: readyTyping(publication.constraints.constraints[0], publication.solution),
@@ -1340,6 +1343,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
+    enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const elaborate = source => {
     const record = records.get(source.body);
@@ -1456,6 +1460,7 @@ test("actual plain local assignment retains the RHS embedding and writable targe
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
     staticStorageOf: () => null,
+    enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const input = { instance: { body: body.body, bindings: { kind: "parametric" } }, scope: program.descriptions.get(body.owner).generics,
     body, layoutAlias: null, typing: readyTyping(constraints, completed.value.solution), nestedBodies: [], initializers: [] };
@@ -1542,6 +1547,7 @@ test("throwing an actual string formal retains the value channel without a retur
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
     staticStorageOf: () => null,
+    enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const input = { instance: { body: body.body, bindings: { kind: "parametric" } }, scope: program.descriptions.get(body.owner).generics,
     body, layoutAlias: null, typing: readyTyping(constraints, completed.value.solution), nestedBodies: [], initializers: [] };
@@ -1630,6 +1636,7 @@ for (const [authored, annotation, kind, expected] of [
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
+    enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const elaborate = body => {
     const record = records.get(body.body);
@@ -1715,6 +1722,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
+    enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = body => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
     scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null,
@@ -1834,6 +1842,7 @@ test("an actual null return completes its inferred declaration and selected body
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     staticStorageOf: () => null,
+    enumValueTypeOf: () => assert.fail("This fixture has no enum value occurrence."),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = body => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
     scope: program.descriptions.get(body.owner).generics, body, layoutAlias: null,

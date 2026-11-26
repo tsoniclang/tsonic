@@ -10,7 +10,7 @@ import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDom
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { binaryOperatorOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
-import { checkedVoidCompletion, isLayoutOperand, layoutOperandType, ownSignatureRequest } from "./own-signature.js";
+import { checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
 
 const PORT = "ConstraintsOf";
@@ -338,9 +338,10 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
         || candidate.part.kind === "variable" || candidate.part.kind === "field" || candidate.part.kind === "enum-member-value");
       if (part === undefined) {
         if (isLayoutOperand(body)) {
-          const target = layoutOperandType(body.root, "contextual");
+          const operand = present(readySlotType(generation, typeAt(walk, body.root)), "the actual layout operand type slot");
+          const target = layoutOperandCompletion(deps.types, body.root, operand);
           if (target === null) return notInferredYet(PORT, "a layout operand without its actual checked parameter type", body.root.origin);
-          flow(walk, body.root, typeAt(walk, body.root), target, "initialization", { kind: "body", value: refOf(walk, body.root) });
+          flow(walk, body.root, operand, target, "initialization", { kind: "body", value: refOf(walk, body.root) });
           continue;
         }
         const owner = deps.itemOf(body.owner);

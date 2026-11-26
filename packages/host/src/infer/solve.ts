@@ -8,12 +8,12 @@ import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep
   PlacementPaused, ResumeSolveGroup, SelectionConstraintContext, SolveAnswer, SolveGroup, SolveRequest } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { admitTypePublicationStep, internType, refuseTypeConstruction } from "../ir-types/index.js";
+import { admitTypePublicationStep, internType, readType, refuseTypeConstruction } from "../ir-types/index.js";
 import { checkedSourceObjectFieldOf } from "../ir-hir/index.js";
 import type { BodyInstance, MemberInventory, TypePublicationStop } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
-import { checkedVoidCompletion, isLayoutOperand, layoutOperandType, ownSignatureRequest } from "./own-signature.js";
+import { checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { bodyCaptureModes } from "./captures.js";
 import { issueMemberSolve, takeMemberSolve } from "./member-pause.js";
 import type { Enumerated, Reached, SolveFrame } from "./member-pause.js";
@@ -361,22 +361,28 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
       if (completion === undefined) {
         if (!layout && initializer?.kind === "EnumMember")
           return callerDefect(PORT, "an authored enum initializer retains its solved inferred result");
-        const target = layout ? layoutOperandType(body.root, "contextual") : initializer?.tsonic.initializer === reference &&
-          initializer.tsonic.declaredType.kind === "available" ? initializer.tsonic.declaredType.value : null;
-        if (target === null) return callerDefect(PORT, layout ? "a layout operand completion requires its actual checked parameter type"
-          : "an annotated initializer completion requires its actual checked declaration type");
         const set = present(sets[position], "the actual initializer constraint system");
         const index = set.constraints.findIndex(constraint => constraint.kind === "flow" && constraint.role === "initialization"
           && constraint.occurrence.body === reference && constraint.occurrence.node === body.root.id);
         const constraint = set.constraints[index];
         const decision = decisions.get(reference)?.get(index);
-        if (constraint?.kind !== "flow" || constraint.to !== target
-          || decision === undefined || decision.kind !== "flow" && decision.kind !== "error")
+        if (constraint?.kind !== "flow" || decision === undefined || decision.kind !== "flow" && decision.kind !== "error")
           return callerDefect(PORT, "the annotated initializer requires its actual completed initialization flow");
+        const target = layout ? layoutOperandCompletion(deps.types, body.root, constraint.from) :
+          initializer?.tsonic.initializer === reference && initializer.tsonic.declaredType.kind === "available"
+            ? initializer.tsonic.declaredType.value : null;
+        if (target === null || constraint.to !== target)
+          return callerDefect(PORT, layout ? "a layout operand completion requires its actual solved operand flow"
+            : "an annotated initializer completion requires its actual checked declaration type");
         if (decision.kind === "flow" && decision.embedding.kind === "refused")
           return notInferredYet(PORT, "the actual incompatible initializer diagnostic", body.root.origin);
-        completion = decision.kind === "flow" ? { type: constraint.to, error: null }
-          : { type: internType(deps.types, { kind: "error" }), error: { kind: "error", causes: [{ kind: "unit",
+        if (decision.kind === "flow") {
+          const term = layout ? readType(deps.types, target) : null;
+          if (term?.kind === "open" && term.group !== group.id)
+            return callerDefect(PORT, "a layout operand completion must retain its own finalized result variable");
+          const type = term?.kind === "open" ? present(finalized[term.variable], "the solved layout operand").value.type : target;
+          completion = { type, error: null };
+        } else completion = { type: internType(deps.types, { kind: "error" }), error: { kind: "error", causes: [{ kind: "unit",
             unit: { request: unit, position: { kind: "source-node", node: { kind: "body", value: constraint.occurrence } } } }] } };
       }
       return { kind: "placeSignature", placement: { kind: "execution-body", instance, completion: completion.type,

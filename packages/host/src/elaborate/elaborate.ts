@@ -232,22 +232,6 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (term.group !== solution.group) return callerDefect("a flow references an inference variable of another group", origin);
     return finals[term.variable] ?? callerDefect("a flow references an unfinalized inference variable", origin);
   };
-  let enumEvidence: Map<NodeId, TyId[]> | null = null;
-  const evidenceOfEnumRead = (node: NodeId): readonly TyId[] | undefined => {
-    if (enumEvidence === null) {
-      enumEvidence = new Map();
-      for (const { value, error } of constraints.evidence) {
-        if (error !== null || value.component.kind !== "body" || value.component.value.body !== body.body) continue;
-        const occurrence = value.component.value;
-        const source = nodes[nodePosition(occurrence.node)];
-        if (source?.kind !== "Identifier" && (source?.kind !== "PropertyAccessExpression" || source.tsonic.role !== "enum-member")) continue;
-        const prior = enumEvidence.get(occurrence.node);
-        if (prior === undefined) enumEvidence.set(occurrence.node, [value.type]);
-        else prior.push(value.type);
-      }
-    }
-    return enumEvidence.get(node);
-  };
   for (const solved of solution.constraints) {
     if (solved.constraint.body !== body.body) continue;
     const constraint = constraints.constraints[solved.constraint.index]
@@ -504,15 +488,12 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     { readonly resolution: TirEnumResolution; readonly storage: TyId } => {
     const item = deps.itemOf(declaration.owner);
     const parent = item.kind !== "EnumMember" || item.tsonic.parent === null ? null : deps.itemOf(item.tsonic.parent);
-    const evidence = evidenceOfEnumRead(node.id);
-    const first = evidence?.[0];
     if (item.kind !== "EnumMember" || parent?.kind !== "EnumDeclaration" || item.id !== declaration.node
-      || item.tsonic.declaration.kind !== "definition" || item.tsonic.declaration.definition !== declaration.owner
-      || evidence === undefined || first === undefined)
-      return callerDefect("an enum constant read requires its actual closed member and inferred value type", node.origin);
-    const storage = finalType(first, node.origin);
-    if (evidence.some(type => finalType(type, node.origin) !== storage))
-      return callerDefect("an enum constant read carries competing inferred value types", node.origin);
+      || item.tsonic.declaration.kind !== "definition" || item.tsonic.declaration.definition !== declaration.owner)
+      return callerDefect("an enum constant read requires its actual closed member", node.origin);
+    const storage = deps.enumValueTypeOf(item);
+    if (storage === null)
+      return callerDefect("an enum constant read requires the completed value type of its actual member", node.origin);
     return { storage, resolution: { kind: "enum-member", declaration,
       bindings: { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }, aliases } };
   };

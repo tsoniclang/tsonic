@@ -1,7 +1,7 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import type { DefId, ModuleId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
+import type { DefId, ModuleId, NodeId, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { ArtifactBindings, BindingScope, BodyInstance, NominalDefinition, SignatureOf, TypeOf, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
-import type { CheckedLayoutAlias, CheckedTypingCut, CheckedTypingCuts, HirBindingViews, HirBody, HirNode } from "../ir-hir/contract.js";
+import type { CheckedLayoutAlias, CheckedPhase, CheckedTypingCut, CheckedTypingCuts, EnumMember, HirBindingViews, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, ConstraintSet, RuleTable, Solution } from "../ir-infer/contract.js";
 import type { StaticStorageOf, TirApplication, TirBody, TirFormal, TirFormalInitializer } from "../ir-tir/contract.js";
 
@@ -19,6 +19,7 @@ export interface ElaborateDeps<State> extends HirBindingViews {
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly bindingScopeOf: (definition: DefId) => BindingScope;
   readonly staticStorageOf: StaticStorageOf;
+  readonly enumValueTypeOf: (member: EnumMember<CheckedPhase>) => TyId | null;
 
   readonly checkerDiagnosticsOf: (module: ModuleId) => readonly Diagnostic[];
 }
