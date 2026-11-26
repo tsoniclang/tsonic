@@ -402,11 +402,16 @@ test("a named result alias is not a directly written bracketed result", async ()
 });
 
 async function demandedResultProbe(result = "T[]", other = "crossed(): readonly T[];") {
+  const source = "export function observe<K,V>(first: readonly (readonly [K,V])[], second: readonly (readonly [V,K])[]):boolean { first.produce; return true; }";
+  const probe = await demandedTupleProperty(source, "produce", " type Alias<V> = V[]; "
+    + `interface ReadonlyArray<T> { produce(): ${result}; ${other} } interface ReadonlyArray<T> { flag: boolean; }`);
+  return { ...probe, produce: probe.method };
+}
+
+async function demandedTupleProperty(source, name, declarations, includeArrayIndex = true) {
   const fixture = await loadFrontFixture();
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
-  const source = "export function observe<K,V>(first: readonly (readonly [K,V])[], second: readonly (readonly [V,K])[]):boolean { first.produce; return true; }";
-  const library = fixture.sdk.barebonesLibContent + " type Alias<V> = V[]; "
-    + `interface ReadonlyArray<T> { produce(): ${result}; ${other} } interface ReadonlyArray<T> { flag: boolean; }`;
+  const library = (includeArrayIndex ? fixture.sdk.barebonesLibContent : fixture.sdk.barebonesLibContent.replace("[n: number]: T;", "")) + declarations;
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: [{ name: "lib.es5.d.ts", text: library }] });
   const { deps, program, set } = fixture.openAndCapture(snapshot);
   const module = snapshot.entryPoint;
@@ -417,7 +422,7 @@ async function demandedResultProbe(result = "T[]", other = "crossed(): readonly 
   const [owner] = ast.statements(file);
   const arrays = ast.parameters(owner).map(formal => checker.getTypeFromTypeNode(ast.typeNode(formal)).type);
   const selected = (receiver, name) => typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === name).type)[0];
-  const produce = selected(arrays[0], "produce");
+  const method = selected(arrays[0], name);
   const capture = (query, limits = deps.navigationCapture) => {
     const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
       const queries = checked.getSourceFileQueries(sourceFile);
@@ -427,7 +432,7 @@ async function demandedResultProbe(result = "T[]", other = "crossed(): readonly 
     OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
     return captureSingleModule(fixture.front, { ...deps, navigationCapture: limits }, observed, module);
   };
-  return { ast, checker, typeShape, arrays, selected, produce, capture, limits: deps.navigationCapture };
+  return { ast, checker, typeShape, arrays, selected, method, capture, limits: deps.navigationCapture };
 }
 
 async function resultProbe(source, observedMethod = "produce", foreignSource) {
@@ -533,6 +538,18 @@ async function comparatorProbe(signature) {
   return { ...probe, receiver, applied, formal: typeShape.getSignatureParameterInfos(applied) };
 }
 
+async function demandedComparatorProbe(signature) {
+  const source = "export function inspect<K,V>(values:(readonly [K,V])[]):boolean { values.sort; return true; }";
+  const declarations = "type Identity<X>=X; type Comparator<X>=(value:X)=>number; "
+    + `interface Array<T>{sort(compare?: ${signature}):boolean;} interface Array<T>{flag:boolean;}`;
+  const probe = await demandedTupleProperty(source, "sort", declarations, false);
+  const { typeShape, method } = probe;
+  const comparator = typeShape.getSignatureParameterInfos(method)[0].type;
+  const callable = typeShape.getUnionOrIntersectionTypes(comparator).find(arm => !typeShape.isNullish(arm));
+  const [applied] = typeShape.getCallSignatures(callable);
+  return { ...probe, applied, formal: typeShape.getSignatureParameterInfos(applied) };
+}
+
 test("both actual required comparator formals retain the independently qualified tuple occurrences", async () => {
   const syntax = "(left: T, right: T) => number";
   const { typeShape, receiver, applied, formal } = await comparatorProbe(syntax);
@@ -556,16 +573,17 @@ test("both actual required comparator formals retain the independently qualified
 });
 
 test("an optional, alias-wrapped, composite or result occurrence gains no callback-formal authority", async () => {
-  for (const [signature, suffix] of [
-    ["(value?: T) => number", ""],
-    ["(value: Identity<T>) => number", "type Identity<Value> = Value;"],
-    ["Comparator<T>", "type Comparator<Value> = (value: Value) => number;"],
-    ["((left: T) => number) & ((right: T) => number)", ""],
-    ["(value: T) => Identity<T>", "type Identity<Value> = Value;"],
+  const missingTuple = /a tuple requires its actual authored, projected or inferred destructuring association/u;
+  const missingDeclaration = /a merged type parameter requires its actual selected declaration association/u;
+  for (const [signature, rule] of [
+    ["(value?: T) => number", missingTuple],
+    ["(value: Identity<T>) => number", missingDeclaration],
+    ["Comparator<T>", missingTuple],
+    ["((left: T) => number) & ((right: T) => number)", missingTuple],
+    ["(value: T) => Identity<T>", missingDeclaration],
   ]) {
-    const { fixture, program, deps, module } = await opened(withComparator(signature) + suffix, false);
-    assert.throws(() => captureSingleModule(fixture.front, deps, program, module),
-      /a tuple requires its actual authored, projected or inferred destructuring association/u, signature);
+    const { capture } = await demandedComparatorProbe(signature);
+    assert.throws(() => capture({}), rule, signature);
   }
 });
 
@@ -586,7 +604,7 @@ test("an unexpanded rest remains one rest array, not a required tuple formal", a
 });
 
 test("another actual callback parameter root cannot qualify the selected required formal", async () => {
-  const { capture, checker, applied, formal } = await comparatorProbe("(left: T, right: T) => number");
+  const { capture, checker, applied, formal } = await demandedComparatorProbe("(left: T, right: T) => number");
   const [left, right] = formal;
   const [originalLeft, originalRight] = applied.target.parameters;
   assert.notEqual(originalLeft, originalRight);
@@ -603,28 +621,27 @@ test("another actual callback parameter root cannot qualify the selected require
 });
 
 test("the callback formal proof stops at its actual original root without reading the next formal", async () => {
-  const { capture, checker, formal, limits } = await comparatorProbe("(left: T, right: T) => number");
-  const [left, right] = formal.map(parameter => parameter.sourceSymbol);
   const stop = new Error("actual callback formal root reader stopped");
-  const reads = [];
-  const overrides = { getRootSymbols(symbol) {
-    if (symbol === right) reads.push("right");
-    if (symbol === left) { reads.push("left"); throw stop; }
-    return checker.getRootSymbols(symbol);
-  } };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 258], ["maximumCapturedEdgesPerModule", 460]]) {
-    const run = cap => capture(overrides, { ...limits, [dimension]: cap });
-    primeCaptureReader(run, limits[dimension], stop);
-    reads.length = 0;
+  const run = async (dimension, cap, reads) => {
+    const { capture, checker, formal, limits } = await demandedComparatorProbe("(left: T, right: T) => number");
+    const [left, right] = formal.map(parameter => parameter.sourceSymbol);
+    return capture({ getRootSymbols(symbol) {
+      if (symbol === right) reads.push("right");
+      if (symbol === left) { reads.push("left"); throw stop; }
+      return checker.getRootSymbols(symbol);
+    } }, { ...limits, [dimension]: cap });
+  };
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 344], ["maximumCapturedEdgesPerModule", 484]]) {
     for (let cap = 0; cap < exact; cap += 1) {
-      const result = run(cap);
+      const reads = [];
+      const result = await run(dimension, cap, reads);
       assert.equal(result.kind, "refused", `${dimension} ${cap}`);
       assert.equal(result.diagnostics.at(-1).code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
       assert.deepEqual(reads, [], `${dimension} ${cap}`);
     }
-    assert.throws(() => run(exact), error => error === stop, `${dimension} ${exact}`);
+    const reads = [];
+    await assert.rejects(run(dimension, exact, reads), error => error === stop, `${dimension} ${exact}`);
     assert.deepEqual(reads, ["left"]);
-    reads.length = 0;
   }
 });
 
