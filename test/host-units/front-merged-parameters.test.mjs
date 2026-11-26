@@ -1406,38 +1406,46 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped self resul
     assert.equal(selectedReads, 1);
     return;
   }
-  const captured = captureSingleModule(fixture.front, opened.deps, opened.program, module);
-  assert.equal(captured.kind, "ok");
-  const raw = captured.value;
+  assert.equal(captureSingleModule(fixture.front, opened.deps, opened.program, module).kind, "ok");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { membersOf, memberTypeOf } = await import("../../packages/host/dist/decls/index.js");
+  const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const { modules, types, typeWork, interfaceDescriptionOf } = captured.value;
+  const { nodes } = modules.find(row => row.module.module === module);
   const numbered = OpenedProgram.syntax(opened.program).get("/project/src/main.ts").outcome.numbering;
-  const definitions = identifySingleModule(fixture.front, { module: raw,
-    componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === module) });
-  assert.equal(definitions.kind, "ok");
-  const interner = fixture.types.createTypeInterner();
-  const deps = fixture.lowerDepsFor(definitions.value, interner, snapshot.source.input.packages.files.find(file => file.path === "/project/src/main.ts").text);
-  const { createTypeConversion, convertRawType } = await import("../../packages/host/dist/front/type-conversion.js");
-  const conversion = createTypeConversion(deps, raw);
-  const inventory = row => raw.types.members[row.form.value.inventory];
-  const originalOwner = { module, node: numbered.ids.get(owner) };
-  function memberSignature(row, name) {
-    const child = inventory(row).members.find(member => member.name === name).read.value;
-    return raw.types.signatures[inventory(raw.types.types[child]).calls[0]];
+  const deps = { modules, types, typeWork, interfaceDescriptionOf, typeExpansion: input.limits.instantiation.typeExpansion };
+  const typeOf = type => fixture.types.readType(types, type);
+  const signatureOf = signature => fixture.types.readSignature(types, signature);
+  const originalNode = nodes[numbered.ids.get(method)];
+  const originalSignature = signatureOf(originalNode.tsonic.signatures[0].signature);
+  assert.deepEqual(typeOf(originalSignature.result), { kind: "self", owner: nodes[numbered.ids.get(owner)].tsonic.definition });
+  function memberSignature(receiver, name) {
+    const inventory = membersOf(deps, receiver).value;
+    assert.equal(inventory.kind, "ok");
+    const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === name);
+    assert.ok(member >= 0);
+    const selected = memberTypeOf(deps, { receiver, member }).value;
+    assert.equal(selected.kind, "ok");
+    const callable = typeOf(selected.value.read);
+    assert.equal(callable.kind, "callable");
+    assert.equal(callable.calls.length, 1);
+    return signatureOf(callable.calls[0]);
   }
+  const receivers = [];
   for (const { receiverNode, binder } of natives) {
-    const origin = raw.types.types.find(row => row.authoredTypeNode?.node === numbered.ids.get(receiverNode));
-    const method = memberSignature(origin, "revisit");
-    const selected = raw.types.types[method.result.value];
-    assert.equal(selected.authoredTypeNode, null);
-    assert.equal(selected.form.value.kind, "structure");
-    assert.equal(memberSignature(selected, "revisit").id, method.id);
-    const formal = memberSignature(selected, "change").parameters[1];
-    assert.deepEqual(raw.types.types[formal.type].form.value.parameter, { module, node: numbered.ids.get(binder) });
-    const originalResult = raw.types.types[raw.types.signatures[method.target].result.value];
-    assert.deepEqual(originalResult.form.value, { kind: "self", owner: originalOwner });
-    const published = convertRawType(conversion, originalResult.id);
-    assert.equal(published.kind, "complete");
-    assert.deepEqual(fixture.types.readType(interner, published.value.type), { kind: "self", owner: deps.definitionOf(originalOwner) });
+    const receiver = nodes[numbered.ids.get(receiverNode)].tsonic.type.value;
+    receivers.push(receiver);
+    const selected = memberSignature(receiver, "revisit");
+    assert.equal(selected.declaration, originalSignature.declaration);
+    assert.equal(selected.result, receiver);
+    assert.equal(memberSignature(selected.result, "revisit").id, selected.id);
+    const formal = memberSignature(selected.result, "change").parameters[1];
+    assert.deepEqual(typeOf(formal.type), { kind: "param", parameter: nodes[numbered.ids.get(binder)].tsonic.definition });
   }
+  assert.equal(new Set(receivers).size, receivers.length);
 });
 
 test("a nested callback annotation keeps the self owner of its actual interface", async () => {

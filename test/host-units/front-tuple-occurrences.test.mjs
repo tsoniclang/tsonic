@@ -153,7 +153,7 @@ test("an aliased element or a collapsed written arm cannot borrow the direct tup
   }
 });
 
-async function checkedTupleMembers(text, memberName) {
+async function checkedTupleReceivers(text) {
   const { fixture, module, snapshot } = await opened(text, false);
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
@@ -165,10 +165,8 @@ async function checkedTupleMembers(text, memberName) {
   const deps = { modules, types, typeWork, interfaceDescriptionOf, typeExpansion: input.limits.instantiation.typeExpansion };
   const statements = modules.find(row => row.module.module === module).module.tree.statements.nodes;
   const build = statements.find(node => node.name?.text === "Build").members.nodes[0];
-  const produce = statements.find(node => node.name?.text === "ReadonlyArray" && node.members.nodes.some(member => member.name?.text === "produce"))
-    .members.nodes.find(member => member.name?.text === "produce");
-  const member = statements.find(node => node.name?.text === "Array" && node.members.nodes.some(member => member.name?.text === memberName))
-    .members.nodes.find(member => member.name?.text === memberName);
+  const declaration = (owner, name) => statements.find(node => node.name?.text === owner
+    && node.members.nodes.some(member => member.name?.text === name)).members.nodes.find(member => member.name?.text === name);
   const form = id => fixture.types.readType(types, id);
   const signatureOf = id => fixture.types.readSignature(types, id);
   const selectedMethod = (receiver, name, source) => {
@@ -188,13 +186,23 @@ async function checkedTupleMembers(text, memberName) {
   const construct = signatureOf(build.tsonic.signatures[0].signature);
   assert.equal(construct.parameters.length, 2);
   assert.notEqual(build.parameters.nodes[0].type.id, build.parameters.nodes[1].type.id);
-  const selected = construct.parameters.map(({ type }) => {
+  const receivers = construct.parameters.map(({ type }) => {
     const optional = form(type);
     assert.equal(optional.kind, "optional");
-    const original = form(optional.value);
-    const method = selectedMethod(optional.value, "produce", produce);
+    assert.equal(form(optional.value).kind, "merged-interface");
+    return optional.value;
+  });
+  return { build, form, signatureOf, declaration, selectedMethod, receivers };
+}
+
+async function checkedTupleMembers(text, memberName) {
+  const { build, form, signatureOf, declaration, selectedMethod, receivers } = await checkedTupleReceivers(text);
+  const produce = declaration("ReadonlyArray", "produce");
+  const member = declaration("Array", memberName);
+  const selected = receivers.map(receiver => {
+    const original = form(receiver);
+    const method = selectedMethod(receiver, "produce", produce);
     const returned = form(method.result);
-    assert.equal(original.kind, "merged-interface");
     assert.equal(returned.kind, "merged-interface");
     assert.notDeepEqual(returned.definitions, original.definitions);
     return { receiver: method.result, method: selectedMethod(method.result, memberName, member) };
@@ -553,22 +561,29 @@ function memberSelections(raw) {
 
 test("the direct member and callback results qualify independently of their unrelated formals", async () => {
   for (const callback of [false, true]) {
-    const { capture } = await resultProbe(directMutableMembers(callback
-      ? "take(compare?: (value: number) => T): boolean;" : "take(value: number): T;"), "take");
-    const result = capture({});
-    assert.equal(result.kind, "ok");
-    const raw = result.value;
-    const form = id => raw.types.types[id].form.value;
-    const members = memberSelections(raw);
-    assert.equal(members.length, 2);
+    const text = directMutableMembers(callback ? "take(compare?: (value: number) => T): boolean;" : "take(value: number): T;")
+      .replace("first?: (readonly [K,V])[]", "first?: (readonly [V,K])[]");
+    const { build, form, signatureOf, declaration, selectedMethod, receivers } = await checkedTupleReceivers(text);
+    const source = declaration("Array", "take");
+    const members = receivers.map(receiver => selectedMethod(receiver, "take", source));
     const signatures = callback ? members.map(method => {
-      const compare = form(method.parameters[0].type).members.map(form).find(arm => arm.kind === "structure");
-      return raw.types.signatures[raw.types.members[compare.inventory].calls[0]];
+      const optional = form(method.parameters[0].type);
+      assert.equal(optional.kind, "optional");
+      const compare = form(optional.value);
+      assert.equal(compare.kind, "callable");
+      assert.equal(compare.calls.length, 1);
+      return signatureOf(compare.calls[0]);
     }) : members;
     assert.notEqual(signatures[0].id, signatures[1].id);
-    for (const signature of signatures) {
-      assert.deepEqual(raw.types.types[signature.parameters[0].type].form.value, { kind: "scalar", scalar: "number" });
-      expectTupleResult(raw, signature.result.value);
+    const binders = build.typeParameters.nodes.map(node => node.tsonic.definition);
+    for (const [position, signature] of signatures.entries()) {
+      const expected = position === 0 ? [...binders].reverse() : binders;
+      assert.deepEqual(form(signature.parameters[0].type), { kind: "primitive", primitive: "float64" });
+      const tuple = form(signature.result);
+      assert.equal(tuple.kind, "tuple");
+      assert.equal(tuple.readonly, true);
+      assert.deepEqual(tuple.elements.map(element => form(element.type)),
+        expected.map(parameter => ({ kind: "param", parameter })));
     }
   }
 });
@@ -1082,7 +1097,7 @@ test("equal native multi-slot receivers in different merged owners retain both a
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
-  const { program, deps } = fixture.openAndCapture(snapshot);
+  const { program } = fixture.openAndCapture(snapshot);
   const module = snapshot.entryPoint;
   const checked = OpenedProgram.checked(program);
   const file = OpenedProgram.file(program, module).file;
@@ -1097,20 +1112,34 @@ test("equal native multi-slot receivers in different merged owners retain both a
   const slots = typeShape.getTypeReferenceArgumentInfos(first);
   assert.equal(slots.length, 2);
   assert.equal(slots.every(slot => slot.scope === "local" && slot.parameter === slot.argument), true);
-  const captured = captureSingleModule(fixture.front, deps, program, module);
-  assert.equal(captured.kind, "ok");
-  const raw = captured.value;
-  const owners = raw.tree.statements.nodes;
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { membersOf, memberTypeOf } = await import("../../packages/host/dist/decls/index.js");
+  const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const { modules, types, typeWork, interfaceDescriptionOf } = captured.value;
+  const deps = { modules, types, typeWork, interfaceDescriptionOf, typeExpansion: input.limits.instantiation.typeExpansion };
+  const owners = modules.find(row => row.module.module === module).module.tree.statements.nodes;
   const declaration = owners[0].members.nodes[1];
   const signatures = owners.map(owner => {
     const [property] = owner.members.nodes;
-    const row = raw.types.types.find(type => type.authoredTypeNode?.module === module && type.authoredTypeNode.node === property.type.id);
-    const signature = signatureForMember(raw, row, { module, node: declaration.id });
-    assert.deepEqual(signature.parameters.map(formal => raw.types.types[formal.type].form.value.parameter),
-      owner.typeParameters.nodes.map(parameter => ({ module, node: parameter.id })));
+    const receiver = property.type.tsonic.type.value;
+    const inventory = membersOf(deps, receiver).value;
+    assert.equal(inventory.kind, "ok");
+    const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "consult");
+    assert.ok(member >= 0);
+    const selected = memberTypeOf(deps, { receiver, member }).value;
+    assert.equal(selected.kind, "ok");
+    const callable = fixture.types.readType(types, selected.value.read);
+    assert.equal(callable.kind, "callable");
+    assert.equal(callable.calls.length, 1);
+    const signature = fixture.types.readSignature(types, callable.calls[0]);
+    assert.equal(signature.declaration, declaration.tsonic.definition);
+    assert.deepEqual(signature.parameters.map(formal => fixture.types.readType(types, formal.type)),
+      owner.typeParameters.nodes.map(parameter => ({ kind: "param", parameter: parameter.tsonic.definition })));
     return signature;
   });
-  assert.equal(signatures[0].target, signatures[1].target);
   assert.notEqual(signatures[0].id, signatures[1].id);
 });
 
