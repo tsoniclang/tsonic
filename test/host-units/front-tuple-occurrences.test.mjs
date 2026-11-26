@@ -2,6 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { captureSingleModule, primeCaptureReader, propertyRows, loadFrontFixture, observeSourceType, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
+function traceFirstCaptureStop(run, maximum, stop, label) {
+  let lower = 0;
+  let upper = maximum;
+  while (lower < upper) {
+    const cap = Math.floor((lower + upper) / 2);
+    try { run(cap); lower = cap + 1; }
+    catch (error) { if (error !== stop) throw error; upper = cap; }
+  }
+  process.stdout.write(`first actual reader ${label}: ${lower}\n`);
+}
+
 async function opened(source, includeArrayIndex = true, foreignSource) {
   const fixture = await loadFrontFixture();
   const library = includeArrayIndex ? fixture.sdk.barebonesLibContent
@@ -423,16 +434,21 @@ async function demandedTupleProperty(source, name, declarations, includeArrayInd
   const arrays = ast.parameters(owner).map(formal => checker.getTypeFromTypeNode(ast.typeNode(formal)).type);
   const selected = (receiver, name) => typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === name).type)[0];
   const method = selected(arrays[0], name);
-  const capture = (query, limits = deps.navigationCapture) => {
-    const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
+  let observed = program;
+  const capture = (query, limits = deps.navigationCapture, shape = {}) => {
+    observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
       const queries = checked.getSourceFileQueries(sourceFile);
-      return sourceFile === file ? { ...queries, checker: { ...queries.checker, ...query } } : queries;
+      return sourceFile === file ? { ...queries, checker: { ...queries.checker, ...query }, typeShape: { ...queries.typeShape, ...shape } } : queries;
     } }, OpenedProgram.table(program), set.modules.map(entry =>
       OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
     OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
     return captureSingleModule(fixture.front, { ...deps, navigationCapture: limits }, observed, module);
   };
-  return { ast, checker, typeShape, arrays, selected, method, capture, limits: deps.navigationCapture };
+  const reference = node => {
+    const path = ast.getFileName(ast.getSourceFile(node));
+    return { module: OpenedProgram.moduleAt(observed, path), node: OpenedProgram.syntax(observed).get(path).outcome.numbering.ids.get(node) };
+  };
+  return { ast, checker, typeShape, arrays, selected, method, capture, reference, owner, limits: deps.navigationCapture };
 }
 
 async function resultProbe(source, observedMethod = "produce", foreignSource) {
@@ -798,15 +814,9 @@ function directMutableMembers(members) {
   return bracketed("boolean").replaceAll(direct, "(readonly [K,V])[]").replace("take(value: T): boolean;", members);
 }
 
-function demandedMutableMember(members) {
-  const source = "export function observe<K,V>(first:(readonly [K,V])[], second:(readonly [V,K])[]):boolean { first.take; return true; }";
-  return demandedTupleProperty(source, "take", `interface Array<T> { ${members} } interface Array<T> { flag:boolean; }`, false);
-}
-
-function memberSelections(raw) {
-  const build = raw.tree.statements.nodes.find(node => node.name?.text === "Build").members.nodes[0];
-  const member = raw.tree.statements.nodes.filter(node => node.name?.text === "Array")[1].members.nodes[0];
-  return raw.types.signatures.filter(row => row.target !== null && row.owner.node === build.id && row.declaration?.node === member.id);
+function demandedMutableMember(members, { otherTuple = "V,K", declarations = "", name = "take", demand = `first.${name};` } = {}) {
+  const source = `export function observe<K,V>(first:(readonly [K,V])[], second:(readonly [${otherTuple}])[]):boolean { ${demand} return true; }`;
+  return demandedTupleProperty(source, name, `${declarations} interface Array<T> { ${members} } interface Array<T> { flag:boolean; }`, false);
 }
 
 test("the direct member and callback results qualify independently of their unrelated formals", async () => {
@@ -874,31 +884,61 @@ test("the selected callback result cannot borrow the differently bound tuple fro
   assert.equal(reads, 1);
 });
 
-function withIndexes() {
-  return bracketed("boolean").replace(`second?: null | ${direct}`, "second?: null | (readonly [K,V])[]")
-    .replace("take(value: T): boolean;", "take(value: T): boolean; [position: number]: T;")
-    .replace("flag: boolean; }", "flag: boolean; readonly [position: number]: T; }");
+async function indexedTupleProbe(readonly) {
+  const fixture = await loadFrontFixture();
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const declarations = `
+    interface Selected<Key,Value> { ${readonly ? "readonly " : ""}[position: number]: Value; }
+    interface Selected<Key,Value> { marker: Key; }
+  `;
+  const snapshot = fixture.projectSnapshot({
+    sourceFiles: { "main.ts": "export type Read<A,B> = Selected<readonly [B,A], readonly [A,B]>[number];" },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent + declarations }],
+  });
+  const { deps, program, set } = fixture.openAndCapture(snapshot);
+  const module = snapshot.entryPoint;
+  const checked = OpenedProgram.checked(program);
+  const file = OpenedProgram.file(program, module).file;
+  const { ast } = checked;
+  const { checker, typeShape } = checked.getSourceFileQueries(file);
+  const [use] = ast.statements(file);
+  const annotation = ast.typeNode(use);
+  const syntax = ast.as.AsIndexedAccessTypeNode(annotation);
+  const receipt = checker.getTypeFromTypeNode(annotation).indexedRead;
+  assert.equal(fixture.sdk.hasDeclaredIndexReadEvidence(receipt), true);
+  const capture = (query, limits = deps.navigationCapture) => {
+    const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
+      const queries = checked.getSourceFileQueries(sourceFile);
+      return sourceFile === file ? { ...queries, checker: { ...queries.checker, ...query } } : queries;
+    } }, OpenedProgram.table(program), set.modules.map(entry =>
+      OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
+    OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
+    return captureSingleModule(fixture.front, { ...deps, navigationCapture: limits }, observed, module);
+  };
+  return { ast, checker, typeShape, receipt, syntax, capture, module, limits: deps.navigationCapture };
 }
 
 test("the exact mutable and readonly index values retain the tuple without assigning it to their keys", async () => {
-  const { capture, typeShape, arrays } = await resultProbe(withIndexes());
-  for (const [index, receiver] of arrays.entries()) {
+  for (const readonly of [false, true]) {
+    const { capture, typeShape, receipt, module } = await indexedTupleProbe(readonly);
+    const { receiver } = receipt;
     const [applied] = typeShape.getIndexInfos(receiver);
     const [original] = typeShape.getIndexInfos(typeShape.getTypeReferenceTarget(receiver));
-    const [slot] = typeShape.getTypeReferenceArgumentInfos(receiver);
-    assert.equal(applied.declaration === original.declaration && applied.keyType === original.keyType, true);
-    assert.equal(applied.readonly === original.readonly && applied.readonly === (index === 0), true);
+    const [keySlot, slot] = typeShape.getTypeReferenceArgumentInfos(receiver);
+    assert.equal(applied.declaration === original.declaration && applied.declaration === receipt.declaration && applied.keyType === receipt.index, true);
+    assert.equal(applied.readonly === original.readonly && applied.readonly === readonly, true);
     assert.equal(original.valueType === slot.parameter && applied.valueType === slot.argument, true);
-  }
-  const result = capture({});
-  assert.equal(result.kind, "ok");
-  const raw = result.value;
-  const indexes = raw.types.members.flatMap(table => table.indexes).filter(row => raw.types.types[row.value].form.value.kind === "tuple");
-  assert.equal(new Set(indexes.map(row => row.origin.node)).size, 2);
-  assert.deepEqual([...new Set(indexes.map(row => row.readonly))].sort(), [false, true]);
-  for (const row of indexes) {
-    expectTupleResult(raw, row.value);
-    assert.deepEqual(raw.types.types[row.key].form.value, { kind: "scalar", scalar: "number" });
+    assert.equal(keySlot.argument === slot.argument, false);
+    const result = capture({});
+    assert.equal(result.kind, "ok");
+    const raw = result.value;
+    const [use] = raw.tree.statements.nodes;
+    const selected = raw.types.types[raw.annotations.find(row => row.node === use.type.id).type].form.value;
+    const key = raw.types.types[raw.annotations.find(row => row.node === use.type.indexType.id).type].form.value;
+    assert.deepEqual(key, { kind: "scalar", scalar: "number" });
+    assert.equal(selected.kind, "tuple");
+    assert.deepEqual(selected.elements.map(element => raw.types.types[element.type].form.value.parameter),
+      use.typeParameters.nodes.map(parameter => ({ module, node: parameter.id })));
   }
 });
 
@@ -957,16 +997,16 @@ test("a selected index from the wrong owner or a crossed template row does not q
 });
 
 test("direct result and index value binders preserve the exact paid stops", async () => {
-  const member = await resultProbe(directMutableMembers("take(value: number): T;"), "take");
-  const callback = await resultProbe(directMutableMembers("take(compare?: (value: number) => T): boolean;"), "take");
-  const index = await resultProbe(withIndexes());
-  const callbackOwner = callback.checker.getSignatureDeclaration(callback.produce.target);
+  const member = await demandedMutableMember("take(value: number): T;");
+  const callback = await demandedMutableMember("take(compare?: (value: number) => T): boolean;");
+  const index = await indexedTupleProbe(false);
+  const callbackOwner = callback.checker.getSignatureDeclaration(callback.method.target);
   const callbackAnnotation = callback.ast.typeNode(callback.ast.parameters(callbackOwner)[0]);
-  const indexDeclaration = index.typeShape.getIndexInfos(index.arrays[0])[0].declaration;
+  const indexDeclaration = index.receipt.declaration;
   const endpoints = [
-    [member, member.checker.getSignatureDeclaration(member.produce.target), undefined, 135, 276],
-    [callback, callbackAnnotation, undefined, 158, 314],
-    [index, indexDeclaration, index.ast.typeNode(index.ast.parameters(indexDeclaration)[0]), 96, 248],
+    [member, member.checker.getSignatureDeclaration(member.method.target), undefined, 281, 448],
+    [callback, callbackAnnotation, undefined, 340, 522],
+    [index, indexDeclaration, index.syntax.IndexType, 7, 27],
   ];
   for (const [probe, declaration, key, facts, edges] of endpoints) {
     const binder = probe.ast.typeNode(declaration);
@@ -994,11 +1034,13 @@ test("direct result and index value binders preserve the exact paid stops", asyn
   }
 });
 
-async function restDependencyProbe(second = "K,V") {
+async function restDependencyProbe(second = "K,V", demanded = false) {
   const source = "interface Wrapped<Value> {}" +
     directMutableMembers("take(...items: (Wrapped<T> | T)[]): boolean;")
       .replace("second?: null | (readonly [K,V])[]", `second?: null | (readonly [${second}])[]`);
-  const probe = await resultProbe(source, "take");
+  const probe = demanded ? await demandedMutableMember("take(...items: (Wrapped<T> | T)[]): boolean;", {
+    otherTuple: second, declarations: "interface Wrapped<Value> {} interface ReadonlyArray<T> { other: T; }",
+  }) : await resultProbe(source, "take");
   const selected = probe.arrays.map(receiver => probe.selected(receiver, "take"));
   const original = probe.typeShape.getSignatureParameterInfos(selected[0].target)[0];
   const rest = selected.map(signature => probe.typeShape.getSignatureParameterInfos(signature)[0]);
@@ -1007,9 +1049,8 @@ async function restDependencyProbe(second = "K,V") {
   const annotation = probe.ast.typeNode(original.declaration);
   const { ast, checker } = probe;
   const declarations = ast.statements(ast.getSourceFile(annotation)).filter(node => ast.kindName(node) === "KindInterfaceDeclaration");
-  const build = declarations.find(node => ast.text(ast.name(node)) === "Build");
-  const firstFormal = ast.typeNode(ast.parameters(ast.members(build)[0])[0]);
-  const [firstArm] = ast.as.AsUnionTypeNode(firstFormal).Types.Nodes;
+  const firstFormal = ast.typeNode(ast.parameters(demanded ? probe.owner : ast.members(declarations.find(node => ast.text(ast.name(node)) === "Build"))[0])[0]);
+  const firstArm = demanded ? firstFormal : ast.as.AsUnionTypeNode(firstFormal).Types.Nodes[0];
   const tuple = ast.as.AsParenthesizedTypeNode(ast.as.AsArrayTypeNode(firstArm).ElementType).Type;
   const [element] = ast.as.AsTupleTypeNode(ast.as.AsTypeOperatorNode(tuple).Type).Elements.Nodes;
   const otherOwner = declarations.find(node => ast.text(ast.name(node)) === "ReadonlyArray");
@@ -1060,7 +1101,7 @@ test("the changed merged dependency retains each actual composed rest union's ow
 
 test("a crossed changed target or slot cannot carry the earlier proved tuple into a different dependency", async () => {
   const { rest: [first, second], arguments_, checker, typeShape, foreignTarget, element, capture, limits } =
-    await restDependencyProbe("V,K");
+    await restDependencyProbe("V,K", true);
   assert.equal(typeShape.getTypeReferenceTarget(first.type) === foreignTarget, false);
   assert.equal(first.type === second.type, false);
   assert.equal(arguments_[0].parameter === arguments_[1].parameter && arguments_[0].argument !== arguments_[1].argument, true);
@@ -1070,20 +1111,32 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
     const run = () => capture({ acquireSourceType: observeSourceType(checker, request => {
       if (changedRead && request.kind === "annotation" && request.node === element) elementReads += 1;
     }) }, limits, {
-      acquireInterfaceApplication(type, admit) {
-        const result = typeShape.acquireInterfaceApplication(type, admit);
+      getTypeReferenceTarget(type) {
+        if (kind === "target" && type === first.type) { changedRead = true; return foreignTarget; }
+        return typeShape.getTypeReferenceTarget(type);
+      },
+      acquireInterfaceArguments(type, target, admit) {
+        const result = typeShape.acquireInterfaceArguments(type, target, admit);
         if (type !== first.type || result.kind !== "complete") return result;
         changedRead = true;
-        if (kind === "target") return { ...result, value: { ...result.value, target: foreignTarget } };
-        if (kind === "slot") return { ...result, value: { ...result.value, arguments: [arguments_[1]] } };
+        if (kind === "slot") return { ...result, value: [arguments_[1]] };
         return result;
       },
     });
     if (kind === "actual") {
-      assert.equal(run().kind, "ok");
-      assert.ok(elementReads > 0);
+      const result = run();
+      assert.equal(result.kind, "ok");
+      const raw = result.value;
+      const [use] = raw.memberUses;
+      const [method] = raw.types.members[raw.types.types[use.read].form.value.inventory].calls;
+      const formal = raw.types.types[raw.types.signatures[method].parameters[0].type].form.value;
+      assert.equal(formal.kind, "merged-interface-dependency");
+      assert.deepEqual(raw.types.types[formal.arguments[0]].form.value.members.map(id => raw.types.types[id].form.value.kind).sort(),
+        ["declared", "tuple"]);
     } else {
-      assert.throws(run, /a tuple requires its actual authored, projected or inferred destructuring association/u);
+      const message = kind === "target" ? "A merged interface must borrow its actual native declaration application."
+        : "front: a tuple requires its actual authored, projected or inferred destructuring association";
+      assert.throws(run, { message }, kind);
       assert.equal(elementReads, 0, kind);
     }
     assert.equal(changedRead, true);
@@ -1091,28 +1144,23 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
 });
 
 test("the changed dependency application preserves the original stop before its target and completed vector", async () => {
-  const { rest: [first], capture, limits, typeShape, checker, element } = await restDependencyProbe();
-  const targetFacts = 151;
-  const targetEdges = 337;
-  const fragmentCount = 2;
-  const slotCount = 1;
-  const vectorFacts = targetFacts + 1 + fragmentCount + 1 + 2 * slotCount + 1;
-  const vectorEdges = targetEdges + fragmentCount + slotCount;
-  for (const [reader, facts, edges] of [["target", targetFacts, targetEdges], ["vector", vectorFacts, vectorEdges]]) {
+  const { rest: [first], capture, limits, typeShape, checker, element } = await restDependencyProbe("K,V", true);
+  for (const [reader, facts, edges] of [["target", 318, 594], ["vector", 336 - 13, 622 - 2]]) {
     const stop = new Error(`actual changed dependency ${reader} reader stopped`);
     const run = navigationCapture => {
       let stopped = false;
       return capture({ acquireSourceType: observeSourceType(checker, request => {
         if (stopped && request.kind === "annotation") assert.equal(request.node === element, false);
       }) }, navigationCapture, {
-        acquireInterfaceApplication(type, admit) {
+        getTypeReferenceTarget(type) {
           assert.equal(stopped, false);
-          if (type !== first.type) return typeShape.acquireInterfaceApplication(type, admit);
-          const result = typeShape.acquireInterfaceApplication(type, (axis, count) => {
-            const refused = admit(axis, count);
-            if (refused === null && reader === "target") { stopped = true; throw stop; }
-            return refused;
-          });
+          if (type === first.type && reader === "target") { stopped = true; throw stop; }
+          return typeShape.getTypeReferenceTarget(type);
+        },
+        acquireInterfaceArguments(type, target, admit) {
+          assert.equal(stopped, false);
+          const result = typeShape.acquireInterfaceArguments(type, target, admit);
+          if (type !== first.type || reader !== "vector") return result;
           if (result.kind === "complete") { stopped = true; throw stop; }
           return result;
         },
@@ -1136,8 +1184,10 @@ function declaredRestSource(annotation = "Wrapped<T>[]", second = "K,V") {
       .replace("second?: null | (readonly [K,V])[]", `second?: null | (readonly [${second}])[]`);
 }
 
-async function declaredRestProbe(annotation, second) {
-  const probe = await resultProbe(declaredRestSource(annotation, second), "take");
+async function declaredRestProbe(annotation = "Wrapped<T>[]", second = "K,V", demanded = false) {
+  const probe = demanded ? await demandedMutableMember(`take(...items: ${annotation}): boolean;`, { otherTuple: second,
+    declarations: "interface Wrapped<Value> {} interface Unrelated<Value> {} type Alias<Value> = Wrapped<Value>; interface ReadonlyArray<T> { other:T; }",
+  }) : await resultProbe(declaredRestSource(annotation, second), "take");
   const selected = probe.arrays.map(receiver => probe.selected(receiver, "take"));
   const original = probe.typeShape.getSignatureParameterInfos(selected[0].target)[0];
   const selectedFormals = selected.map(signature => probe.typeShape.getSignatureParameterInfos(signature)[0]);
@@ -1201,7 +1251,7 @@ test("a directly declared rest element retains two ordered argument components w
 });
 
 test("crossed declared rest outer or inner targets and slots do not read the written binder", async () => {
-  const probe = await declaredRestProbe(undefined, "V,K");
+  const probe = await declaredRestProbe(undefined, "V,K", true);
   const { ast, checker, typeShape, capture, limits, selectedFormals, outer, inner, written } = probe;
   const element = ast.as.AsArrayTypeNode(written).ElementType;
   const [binder] = ast.as.AsTypeReferenceNode(element).TypeArguments.Nodes;
@@ -1234,7 +1284,7 @@ test("crossed declared rest outer or inner targets and slots do not read the wri
 });
 
 test("an alias spelling of the declared rest element supplies no authored slot relation", async () => {
-  const { ast, checker, typeShape, outer, inner, written, capture } = await declaredRestProbe("Alias<T>[]");
+  const { ast, checker, typeShape, outer, inner, written, capture } = await declaredRestProbe("Alias<T>[]", "K,V", true);
   const element = ast.as.AsArrayTypeNode(written).ElementType;
   const name = ast.as.AsTypeReferenceNode(element).TypeName;
   const target = typeShape.getTypeReferenceTarget(outer[1].argument);
@@ -1245,7 +1295,7 @@ test("an alias spelling of the declared rest element supplies no authored slot r
 });
 
 test("the original declared rest inner target stop is paid before selected slots or the written binder", async () => {
-  const { ast, checker, typeShape, outer, written, capture, limits } = await declaredRestProbe();
+  const { ast, checker, typeShape, outer, written, capture, limits } = await declaredRestProbe(undefined, "K,V", true);
   const element = ast.as.AsArrayTypeNode(written).ElementType;
   const [binder] = ast.as.AsTypeReferenceNode(element).TypeArguments.Nodes;
   const selected = outer[1].argument;
@@ -1265,7 +1315,7 @@ test("the original declared rest inner target stop is paid before selected slots
       },
     });
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 150], ["maximumCapturedEdgesPerModule", 334]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 301], ["maximumCapturedEdgesPerModule", 528]]) {
     primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
       const result = run({ ...limits, [dimension]: cap });
@@ -1277,15 +1327,17 @@ test("the original declared rest inner target stop is paid before selected slots
 });
 
 function recursiveTupleProbe(right = "T[]") {
-  const original = "interface Build { new<K,V>(first?: (readonly [K,V])[] | null): boolean; } type Same<Value> = Value;";
-  return resultProbe(original, "left", `interface Array<T> { left(): T[]; right(): ${right}; consume(value: T): T; }`);
+  return demandedMutableMember(`left(): T[]; right(): ${right}; consume(value: T): T;`, {
+    name: "left", demand: "first.left; first.right;", declarations: "type Same<Value> = Value;",
+  });
 }
 
-function signatureForMember(raw, receiver, declaration) {
-  const slot = raw.types.members[receiver.form.value.inventory].members.find(member => member.declarations.some(ref =>
-    ref.node === declaration.node && ref.module === declaration.module));
-  const call = raw.types.members[raw.types.types[slot.read.value].form.value.inventory].calls[0];
-  return raw.types.signatures[call];
+function selectedRawMethod(raw, use) {
+  const callable = raw.types.types[use.read].form.value;
+  assert.equal(callable.kind, "structure");
+  const table = raw.types.members[callable.inventory];
+  assert.equal(table.calls.length, 1);
+  return raw.types.signatures[table.calls[0]];
 }
 
 test("recursive results with the same native receiver and tuple still own distinct callable application evidence", async () => {
@@ -1301,38 +1353,33 @@ test("recursive results with the same native receiver and tuple still own distin
   const captured = capture({});
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
-  const build = raw.tree.statements.nodes.find(node => node.name?.text === "Build").members.nodes[0];
-  const [leftDeclaration, rightDeclaration, consumeDeclaration] = [leftOwner, rightOwner,
-    checker.getSignatureDeclaration(selected(receiver, "consume").target)].map(reference);
-  const rootSignature = raw.types.signatures.find(signature => signature.target === null && signature.declaration?.node === build.id);
-  const union = raw.types.types[rootSignature.parameters[0].type].form.value;
-  const root = union.members.map(id => raw.types.types[id]).find(row => row.form.value.kind === "structure");
-  const left = signatureForMember(raw, root, leftDeclaration);
-  const leftResult = raw.types.types[left.result.value];
-  const firstBranch = raw.types.types[signatureForMember(raw, root, rightDeclaration).result.value];
-  const leftInFirstBranch = signatureForMember(raw, firstBranch, leftDeclaration);
-  const completed = raw.types.types[leftInFirstBranch.result.value];
-  const leftAgain = signatureForMember(raw, completed, leftDeclaration);
-  const leftAgainResult = raw.types.types[leftAgain.result.value];
-  const right = signatureForMember(raw, leftResult, rightDeclaration);
-  const rightResult = raw.types.types[right.result.value];
-  assert.deepEqual(left.declaration, leftDeclaration);
-  assert.deepEqual(leftAgain.declaration, leftDeclaration);
-  assert.deepEqual(right.declaration, rightDeclaration);
-  assert.equal(new Set([leftResult.component, completed.component, leftAgainResult.component, rightResult.component]).size, 4);
-  assert.equal(leftAgainResult.form.value.inventory, completed.form.value.inventory, "the exact active application reuses its ordinary inventory");
-  assert.notEqual(rightResult.form.value.inventory, leftResult.form.value.inventory, "another authored application cannot borrow the active inventory");
-  for (const [signature, result] of [[left, leftResult], [leftInFirstBranch, completed], [leftAgain, leftAgainResult], [right, rightResult]]) {
-    assert.deepEqual(raw.types.components[result.component].path?.step, { kind: "result", signature: signature.id });
-  }
-  assert.notEqual(completed.form.value.inventory, leftResult.form.value.inventory, "a completed exact sibling is not active evidence");
-  const leftConsume = signatureForMember(raw, leftResult, consumeDeclaration);
-  const rightConsume = signatureForMember(raw, rightResult, consumeDeclaration);
-  assert.equal(leftConsume.target !== null && leftConsume.target === rightConsume.target, true);
-  assert.notEqual(leftConsume.id, rightConsume.id, "an active receiver cannot lend another result application's signature evidence");
-  for (const signature of [leftConsume, rightConsume]) {
-    expectTupleResult(raw, signature.parameters[0].type);
-    expectTupleResult(raw, signature.result.value);
+  assert.equal(raw.memberUses.length, 2);
+  const applied = [leftOwner, rightOwner].map(owner => {
+    const ref = reference(owner);
+    const use = raw.memberUses.find(entry => entry.selectedDeclaration.module === ref.module && entry.selectedDeclaration.node === ref.node);
+    assert.ok(use);
+    const method = selectedRawMethod(raw, use);
+    assert.deepEqual(method.declaration, ref);
+    const row = raw.types.types[method.result.value];
+    const position = raw.types.components[row.component];
+    assert.deepEqual(position.root, use.occurrence);
+    assert.deepEqual(position.path.step, { kind: "result", signature: method.id });
+    assert.equal(row.form.value.kind, "merged-interface-dependency");
+    assert.equal(row.form.value.arguments.length, 1);
+    return { method, row, argument: row.form.value.arguments[0] };
+  });
+  const [left, right] = applied;
+  assert.notEqual(left.method.id, right.method.id);
+  assert.notEqual(left.row.component, right.row.component);
+  assert.equal(left.row.form.value.group === right.row.form.value.group, true);
+  assert.notEqual(left.argument, right.argument);
+  const [fn] = raw.tree.statements.nodes;
+  for (const { argument } of applied) {
+    const tuple = raw.types.types[argument].form.value;
+    assert.equal(tuple.kind, "tuple");
+    assert.equal(tuple.readonly, true);
+    assert.deepEqual(tuple.elements.map(element => raw.types.types[element.type].form.value.parameter),
+      fn.typeParameters.nodes.map(parameter => ({ module: raw.module, node: parameter.id })));
   }
 });
 
@@ -1347,29 +1394,37 @@ test("an equal native recursive result with an unproved authored owner cannot us
   assert.throws(() => capture({}), /a tuple requires its actual authored, projected or inferred destructuring association/u);
 });
 
-test("an active inventory key is paid before the next native inventory reader and retains its original stop", async () => {
+test("two qualified receiver applications share one paid neutral native description", async () => {
   const { arrays: [receiver], typeShape, capture, limits } = await recursiveTupleProbe();
-  const stop = new Error("the first projected native inventory reader stopped");
-  let reads = 0;
-  const run = navigationCapture => {
-    reads = 0;
+  const target = typeShape.getTypeReferenceTarget(receiver);
+  assert.equal(receiver === target, false);
+  const stop = new Error("the actual neutral description reader stopped");
+  const reads = [];
+  const run = (navigationCapture, refuse) => {
+    reads.length = 0;
     return capture({}, navigationCapture, {
       getStructuredInventory(type, admit) {
-        if (type === receiver && ++reads === 2) throw stop;
+        if (type === receiver) reads.push("projected");
+        if (type === target) { reads.push("neutral"); if (refuse) throw stop; }
         return typeShape.getStructuredInventory(type, admit);
       },
     });
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 209], ["maximumCapturedEdgesPerModule", 435]]) {
-    primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
+  const complete = run(limits, false);
+  assert.equal(complete.kind, "ok");
+  assert.deepEqual(reads, ["neutral"]);
+  assert.equal(complete.value.memberUses.length, 2);
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 56], ["maximumCapturedEdgesPerModule", 83]]) {
+    const attempt = cap => run({ ...limits, [dimension]: cap }, true);
+    primeCaptureReader(attempt, limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
-      const result = run({ ...limits, [dimension]: cap });
+      const result = attempt(cap);
       assert.equal(result.kind, "refused", `${dimension} ${cap}`);
       assert.equal(result.diagnostics.at(-1).code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
-      assert.ok(reads < 2, `${dimension} ${cap}`);
+      assert.deepEqual(reads, [], `${dimension} ${cap}`);
     }
-    assert.throws(() => run({ ...limits, [dimension]: exact }), error => error === stop, dimension);
-    assert.equal(reads, 2);
+    assert.throws(() => attempt(exact), error => error === stop, dimension);
+    assert.deepEqual(reads, ["neutral"]);
   }
   assert.equal(capture({}).kind, "ok", "a stopped capture leaves no inventory in the next capture");
 });
@@ -1430,8 +1485,9 @@ test("equal native multi-slot receivers in different merged owners retain both a
 });
 
 async function jointRestResultProbe() {
-  const probe = await resultProbe("interface Wrapped<Value> {} interface Build { new<K,V>(first?: (readonly [K,V])[] | null): boolean; }", "take",
-    "interface Array<T> { take(...items: Wrapped<T>[]): T[]; other(): T[]; }");
+  const probe = await demandedMutableMember("take(...items: Wrapped<T>[]): T[]; other(): T[];", {
+    declarations: "interface Wrapped<Value> {}",
+  });
   const { ast, arrays: [receiver], checker, selected, typeShape } = probe;
   const signature = selected(receiver, "take");
   const actualDeclaration = checker.getSignatureDeclaration(signature.target);
@@ -1451,17 +1507,22 @@ test("wrapped rest and a bracketed result retain their own occurrences under one
   const result = capture({});
   assert.equal(result.kind, "ok");
   const raw = result.value;
-  const build = raw.tree.statements.nodes.find(node => node.name?.text === "Build").members.nodes[0];
-  const rootSignature = raw.types.signatures.find(row => row.target === null && row.declaration?.node === build.id);
-  const union = raw.types.types[rootSignature.parameters[0].type].form.value;
-  const root = union.members.map(id => raw.types.types[id]).find(row => row.form.value.kind === "structure");
-  const applied = signatureForMember(raw, root, reference(actualDeclaration));
+  const [use] = raw.memberUses;
+  const applied = selectedRawMethod(raw, use);
+  assert.deepEqual(applied.declaration, reference(actualDeclaration));
   const rest = raw.types.types[applied.parameters[0].type];
   const answer = raw.types.types[applied.result.value];
   assert.equal(rest.form.value.kind, "merged-interface-dependency");
   const wrapper = raw.types.types[rest.form.value.arguments[0]];
-  expectTupleResult(raw, wrapper.form.value.arguments[0].argument.value);
-  assert.equal(answer.form.value.kind, "structure");
+  const restTuple = raw.types.types[wrapper.form.value.arguments[0].argument.value];
+  assert.equal(restTuple.form.value.kind, "tuple");
+  assert.equal(restTuple.form.value.readonly, true);
+  assert.equal(answer.form.value.kind, "merged-interface-dependency");
+  const resultTuple = raw.types.types[answer.form.value.arguments[0]];
+  assert.equal(resultTuple.form.value.kind, "tuple");
+  assert.notEqual(restTuple.component, resultTuple.component);
+  assert.deepEqual(restTuple.form.value.elements.map(slot => raw.types.types[slot.type].form.value.parameter),
+    resultTuple.form.value.elements.map(slot => raw.types.types[slot.type].form.value.parameter));
   assert.notEqual(rest.component, answer.component);
   assert.equal(checker.getReturnTypeOfSignature(signature).type === receiver, true);
   let crossed = 0;
@@ -1492,7 +1553,7 @@ test("the joint rest and result declaration proof keeps its first paid reader st
       }),
     }, navigationCapture);
   };
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 216], ["maximumCapturedEdgesPerModule", 394]]) {
+  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 350], ["maximumCapturedEdgesPerModule", 643]]) {
     primeCaptureReader(cap => run({ ...limits, [dimension]: cap }), limits[dimension], stop);
     for (let cap = 0; cap < exact; cap += 1) {
       const result = run({ ...limits, [dimension]: cap });

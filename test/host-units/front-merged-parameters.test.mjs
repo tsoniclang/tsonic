@@ -258,7 +258,7 @@ test("unchanged selected signature arguments retain their actual foreign lexical
     [1, 0].map(index => ({ kind: "param", parameter: original.typeParameters.nodes[index].tsonic.definition })));
 });
 
-test("a genuine first receiver slot does not authorize an alias-wrapped second slot", async () => {
+test("a forwarded second slot retains its own declaration in the neutral receiver recipe", async () => {
   const fixture = await loadFrontFixture();
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
     export type Identity<T> = T;
@@ -276,8 +276,19 @@ test("a genuine first receiver slot does not authorize an alias-wrapped second s
   const original = checker.getTypeFromTypeNode(ast.typeNode(direct));
   const opposite = checker.getTypeFromTypeNode(ast.typeNode(wrapped));
   assert.equal(original !== undefined && original.type === opposite?.type, true, "the whole native receiver is genuinely shared");
-  assert.throws(() => captureSingleModule(fixture.front, deps, program, module),
-    /a merged type parameter requires its actual selected declaration association/u);
+  const captured = captureSingleModule(fixture.front, deps, program, module);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const numbering = OpenedProgram.syntax(program).get("/project/src/main.ts").outcome.numbering.ids;
+  for (const [property, owner] of [[direct, first], [wrapped, second]]) {
+    const type = raw.annotations.find(row => row.node === numbering.get(ast.typeNode(property))).type;
+    const recipe = raw.types.types[type].form.value;
+    assert.equal(recipe.kind, "merged-interface-dependency");
+    assert.equal(recipe.arguments.length, 2);
+    assert.deepEqual(recipe.arguments.map(id => raw.types.types[id].form.value), ast.typeParameters(owner).map(node => ({
+      kind: "parameter", parameter: { module, node: numbering.get(node) }, constraint: null, default: null,
+    })));
+  }
 });
 
 test("a recursively re-entered merged interface retains its changed argument and complete owning group", async () => {
@@ -676,11 +687,6 @@ for (const nested of ["(Box<T>)", "Identity<Box<T>>", "Box<Identity<T>>"]) {
       OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
     OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
     const run = () => captureSingleModule(fixture.front, deps, observed, module);
-    if (nested === "Box<Identity<T>>") {
-      assert.throws(run, { name: "TypeError", message: "front: a merged type parameter requires its actual selected declaration association" });
-      assert.equal(reachedLater, false);
-      return;
-    }
     const result = run();
     assert.equal(result.kind, "ok");
     const raw = result.value;
@@ -695,8 +701,12 @@ for (const nested of ["(Box<T>)", "Identity<Box<T>>", "Box<Identity<T>>"]) {
     assert.deepEqual(raw.types.types[proved.arguments[0]].form.value,
       { kind: "parameter", parameter: parameters[0], constraint: null, default: null });
     const retained = raw.types.types[wrapped.arguments[0]];
-    assert.equal(retained.authoredTypeNode, null);
-    assert.deepEqual(retained.form.value, { kind: "merged-slot-parameter", declarations: parameters });
+    if (nested === "Box<Identity<T>>") {
+      assert.deepEqual(retained.form.value, { kind: "parameter", parameter: parameters[1], constraint: null, default: null });
+    } else {
+      assert.equal(retained.authoredTypeNode, null);
+      assert.deepEqual(retained.form.value, { kind: "merged-slot-parameter", declarations: parameters });
+    }
     assert.equal(reachedLater, true);
   });
 }

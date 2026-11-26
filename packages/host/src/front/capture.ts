@@ -80,8 +80,7 @@ interface CaptureTables {
   readonly signatureIds: Map<Signature, RawSignatureId>;
   readonly qualifiedSignatures: Map<Signature, Map<Node, Map<Type, Map<Node, Map<string, RawSignatureId>>>>>;
   readonly activeTypes: Map<Type, RawTypeId>;
-  readonly activeQualifiedTypes: Map<ActiveQualifiedKey, Map<Type, RawTypeId>>;
-  activeReceiverKeys: ActiveReceiverKey | null;
+  readonly activeQualifiedTypes: Map<BindingUse, Map<Type, RawTypeId>>;
   readonly activeIndexedAliases: Set<Node>;
   readonly activeMergedInventories: Map<CheckerSymbol, Type>;
   readonly activeMergedArguments: Set<RawTypeId>;
@@ -110,22 +109,6 @@ interface ReceiverSlotUse {
   readonly source: Node;
   readonly declaration: Node | null;
   readonly composition?: ComposedUnionUse;
-}
-
-type ActiveReceiverKeyPart = Type | CheckerSymbol | Node | ComposedUnionUse | ModuleId | NodeId | null;
-
-interface ActiveReceiverKey {
-  readonly kind: "active-receiver-key";
-  readonly parent: ActiveReceiverKey | null;
-  readonly part: ActiveReceiverKeyPart;
-  readonly children: Map<ActiveReceiverKeyPart, ActiveReceiverKey>;
-}
-
-type ActiveQualifiedKey = BindingUse | ActiveReceiverKey;
-
-interface ActiveReceiverCandidate {
-  readonly key: ActiveReceiverKey;
-  ordinary: boolean;
 }
 
 interface MemberBindingUse {
@@ -297,7 +280,7 @@ interface SignatureBindingUse {
 type CaptureTask =
   | { readonly kind: "type"; readonly id: RawTypeId; readonly answer: ResolvedSourceTypeInfo; readonly position: RawComponentId;
       readonly originalUse: OriginalTypeUse | null; readonly bindingUse: TypeBindingUse | null; readonly literalNode: Node | null }
-  | { readonly kind: "leave-type"; readonly id: RawTypeId; readonly type: Type; key: ActiveQualifiedKey | null }
+  | { readonly kind: "leave-type"; readonly id: RawTypeId; readonly type: Type; readonly key: BindingUse | null }
   | { readonly kind: "indexed-alias-scope"; readonly declaration: Node; readonly enter: boolean }
   | { readonly kind: "merged-inventory-scope"; readonly symbol: CheckerSymbol; readonly type: Type; readonly enter: boolean }
   | { readonly kind: "signature"; readonly id: RawSignatureId; readonly signature: Signature; readonly owner: RawNodeRef; readonly signatureKind: "call" | "construct"; readonly use: SignatureBindingUse | null }
@@ -718,7 +701,7 @@ function capturedMappedMember(scope: CaptureScope, property: TypePropertyInfo,
     optional: property.optional, readonly: property.readonly, read: available(read), write: available(write) };
 }
 
-function capturedDeclaredMember(scope: CaptureScope, property: TypePropertyHeader, primary: Node, active: ActiveReceiverCandidate | null):
+function capturedDeclaredMember(scope: CaptureScope, property: TypePropertyHeader, primary: Node):
   { readonly header: RawMemberHeader; readonly origin: RawNodeRef; readonly declarations: ReadonlySet<Node>; readonly setter: Node | undefined } | null {
   const key = capturedInventoryKey(scope, primary);
   if (scope.meter.refusal !== null) return null;
@@ -746,8 +729,6 @@ function capturedDeclaredMember(scope: CaptureScope, property: TypePropertyHeade
       seen.add(source);
       const kind = scope.checked.ast.kindName(source);
       if (kind === "KindInterfaceDeclaration" || kind === "KindTypeAliasDeclaration") continue;
-      if (active?.ordinary === true && kind !== "KindPropertySignature" && kind !== "KindMethodSignature" &&
-        kind !== "KindGetAccessor" && kind !== "KindSetAccessor") active.ordinary = false;
       if (kind !== "KindVariableDeclaration" && kind !== "KindFunctionDeclaration" && kind !== "KindModuleDeclaration"
         && kind !== "KindPropertyDeclaration" && kind !== "KindPropertyAssignment"
         && kind !== "KindPropertySignature" && kind !== "KindMethodDeclaration" && kind !== "KindMethodSignature"
@@ -778,7 +759,7 @@ function capturedDeclaredMember(scope: CaptureScope, property: TypePropertyHeade
 }
 
 function capturedMembers(scope: CaptureScope, type: Type, properties: TypePropertyInventory<Diagnostic>,
-  position: RawComponentId, receiver: ReceiverUse | null, active: ActiveReceiverCandidate | null): readonly RawMember[] | null {
+  position: RawComponentId, receiver: ReceiverUse | null): readonly RawMember[] | null {
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A member inventory requires its actual captured source component."));
   const members: RawMember[] = [];
@@ -797,7 +778,6 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
     const readType = (type: Type, step: RawComponentStep, use: BindingUse | null = null, typeSource?: Node): RawTypeId | null =>
       rawType(scope, () => withoutTypeCause(type, typeSource), appendComponent(scope, parent, step), null, use);
     if (property.mapped !== undefined) {
-      if (active !== null) active.ordinary = false;
       mapped ??= mappedOwner(scope, type, property.mapped.declaration);
       if (mapped === null) return null;
       const member = capturedMappedMember(scope, property, mapped, position, readType);
@@ -807,7 +787,6 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
     }
     const primary = scope.checker.getSymbolValueDeclaration(property.symbol);
     if (primary === undefined) {
-      if (active !== null) active.ordinary = false;
       if (property.classPrototype !== undefined) {
         if (!admit(scope, "edges")) return null;
         const declaration = referenceTo(scope, scope.program, property.classPrototype);
@@ -870,7 +849,7 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
         read: available(read), write: available(write), readKind: "property" });
       continue;
     }
-    const captured = capturedDeclaredMember(scope, property, primary, active);
+    const captured = capturedDeclaredMember(scope, property, primary);
     if (captured === null) return null;
     const { header, origin, setter } = captured;
     const use: BindingUse | null = receiver === null ? null
@@ -995,64 +974,6 @@ function receiverSignatureSelector(receiver: ReceiverUse, sole: ReceiverSlotUse 
   const binder = sole?.declaration ?? sole?.source ?? receiver.application;
   const source = sole?.composition?.syntax ?? (sole?.declaration === null ? receiver.application : binder);
   return { binder, source };
-}
-
-function activeReceiverKey(parent: ActiveReceiverKey | null, part: ActiveReceiverKeyPart): ActiveReceiverKey {
-  return { kind: "active-receiver-key", parent, part, children: new Map() };
-}
-
-function activeReceiverBranch(scope: CaptureScope, parent: ActiveReceiverKey, part: ActiveReceiverKeyPart): ActiveReceiverKey | null {
-  let branch = parent.children.get(part);
-  if (branch === undefined) {
-    if (!admit(scope, "facts")) return null;
-    parent.children.set(part, branch = activeReceiverKey(parent, part));
-  }
-  return branch;
-}
-
-function projectedInventoryCandidate(scope: CaptureScope, position: RawComponentId, receiver: ReceiverUse): ActiveReceiverCandidate | null {
-  if (!admit(scope, "edges")) return null;
-  const component = scope.tables.components[position];
-  if (component === undefined) return throwInvariant(invariant("An active receiver inventory requires its actual capture root."));
-  const { module, node } = component.root;
-  let branch = scope.tables.activeReceiverKeys;
-  if (branch === null) {
-    if (!admit(scope, "facts")) return null;
-    scope.tables.activeReceiverKeys = branch = activeReceiverKey(null, null);
-  }
-  for (const part of [receiver.type, receiver.nativeTarget, receiver.target, module, node]) {
-    branch = activeReceiverBranch(scope, branch, part);
-    if (branch === null) return null;
-  }
-  const slots = receiver.slots.entries();
-  let sole: ReceiverSlotUse | undefined;
-  for (let index = 0; index < receiver.slots.size; index += 1) {
-    if (!admit(scope, "edges")) return null;
-    const entry = slots.next().value;
-    if (entry === undefined || entry[0] !== entry[1].parameter)
-      return throwInvariant(invariant("An active receiver requires its actual ordered local evidence."));
-    const slot = entry[1];
-    if (receiver.slots.size === 1) sole = slot;
-    for (const part of [slot.parameter, slot.argument, slot.source, slot.declaration, slot.composition ?? null]) {
-      branch = activeReceiverBranch(scope, branch, part);
-      if (branch === null) return null;
-    }
-  }
-  const { binder, source } = receiverSignatureSelector(receiver, sole);
-  const selected = activeReceiverBranch(scope, branch, binder);
-  if (selected === null) return null;
-  branch = activeReceiverBranch(scope, selected, source);
-  if (branch === null) return null;
-  return { key: branch, ordinary: false };
-}
-
-function releaseReceiverKey(scope: CaptureScope, key: ActiveReceiverKey): void {
-  let branch = key;
-  while (branch.parent !== null && branch.children.size === 0 && !scope.tables.activeQualifiedTypes.has(branch)) {
-    const parent = branch.parent;
-    parent.children.delete(branch.part);
-    branch = parent;
-  }
 }
 
 function unparenthesizedType(scope: CaptureScope, node: Node | undefined): Node | undefined {
@@ -2791,7 +2712,7 @@ function sourceEnvironment(scope: CaptureScope, type: Type): RawTypeForm | null 
 }
 
 function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUse: OriginalTypeUse | null,
-  bindingUse: BindingUse | null, projection: ProjectedOperandUse | null, active: ActiveReceiverCandidate | null): RawTypeForm | null {
+  bindingUse: BindingUse | null, projection: ProjectedOperandUse | null): RawTypeForm | null {
   const { position } = task;
   const shape = scope.shape;
   const syntax = originalUse === null ? undefined : admittedTypeUse(scope, originalUse);
@@ -2896,7 +2817,6 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
   let interfaceFragments = 0;
   let interfaceFragment: Node | undefined;
   let classFacet = false;
-  let valueFragment: Node | undefined;
   for (let index = 0; index < declarations.length; index += 1) {
     if (!admit(scope, "edges")) return null;
     const candidate = declarations[index];
@@ -2904,7 +2824,6 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
     const kind = scope.checked.ast.kindName(candidate);
     if (kind === "KindInterfaceDeclaration") { interfaceFragments += 1; interfaceFragment = candidate; }
     if (kind === "KindClassDeclaration") classFacet = true;
-    if (active !== null && kind === "KindVariableDeclaration") valueFragment = candidate;
     if (kind !== "KindTypeParameter") continue;
     if (declarations.length > 1 && originalUse !== null && syntax === undefined)
       return throwInvariant(invariant("An authored type occurrence must retain its actual numbered checker node."));
@@ -3136,13 +3055,6 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
     const constructSignatures = captureSignatures(callSignatureCount, signatures.length, "construct");
     if (constructSignatures === null) return null;
     const indexes: RawIndexSignature[] = [];
-    if (active !== null) {
-      active.ordinary = interfaceFragments !== 0 && interfaceFragments === declarations.length;
-      if (!active.ordinary && interfaceFragments !== 0 && interfaceFragments + 1 === declarations.length && valueFragment !== undefined && symbol !== undefined) {
-        if (!admit(scope, "edges")) return null;
-        active.ordinary = scope.checker.getSymbolValueDeclaration(symbol) === valueFragment;
-      }
-    }
     const parent = scope.tables.components[position];
     if (parent === undefined) return throwInvariant(invariant("An index inventory requires its actual captured type component."));
     const receiver = bindingUse?.kind === "receiver" && bindingUse.type === type ? bindingUse : null;
@@ -3156,7 +3068,6 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
       const mapped = declarations.length === 1 ? declarations[0] : undefined;
       const declaration = selected.declaration ?? (mapped !== undefined && scope.checked.ast.kindName(mapped) === "KindMappedType" ? mapped : undefined);
       if (declaration === undefined) throw new TypeError("front: a selected index without its actual declared or mapped source origin is not implemented");
-      if (active?.ordinary === true && scope.checked.ast.kindName(declaration) !== "KindIndexSignature") active.ordinary = false;
       const origin = referenceTo(scope, scope.program, declaration);
       if (scope.meter.refusal !== null) return null;
       if (origin === null) return throwInvariant(invariant("A selected index origin must belong to the actual captured source domain."));
@@ -3190,7 +3101,7 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
       if (value === null) return null;
       indexes.push({ origin, key, value, readonly: selected.readonly });
     }
-    const members = capturedMembers(scope, type, properties, position, bindingUse?.kind === "receiver" ? bindingUse : null, active);
+    const members = capturedMembers(scope, type, properties, position, bindingUse?.kind === "receiver" ? bindingUse : null);
     if (members === null) return null;
     if (!hasInventory && !authoredObject && members.length === 0 && !preparing)
       throw new TypeError(`front: the captured form of the checker type ${scope.checker.typeToString(type)} is not implemented`);
@@ -3279,7 +3190,7 @@ function capturedMemberUse(scope: CaptureScope, occurrence: RawNodeRef, info: Ch
   if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
   const primary = scope.checker.getSymbolValueDeclaration(property.symbol);
   if (primary === undefined) throw new TypeError("front: selected property transport requires its original member declaration");
-  const captured = capturedDeclaredMember(scope, property, primary, null);
+  const captured = capturedDeclaredMember(scope, property, primary);
   if (captured === null) return null;
   const member = captured.header;
   if (selector !== undefined) {
@@ -3765,7 +3676,6 @@ function captureFacts(scope: CaptureScope): void {
         const active = scope.tables.activeQualifiedTypes.get(next.key);
         active?.delete(next.type);
         if (active?.size === 0) scope.tables.activeQualifiedTypes.delete(next.key);
-        if (next.key.kind === "active-receiver-key") releaseReceiverKey(scope, next.key);
       }
     } else if (next.kind === "indexed-alias-scope") {
       const { declaration, enter } = next;
@@ -3853,14 +3763,7 @@ function captureFacts(scope: CaptureScope): void {
             authoredComposedUnion(scope, base, next.originalUse) ?? (scope.meter.refusal === null ? unionArmUse(scope, base, next.originalUse, null) : null))
           : receiverBindingUse(scope, base, next.originalUse));
         if (scope.meter.refusal !== null) return;
-        let ancestor = use === null ? scope.tables.activeTypes.get(type) : scope.tables.activeQualifiedTypes.get(use)?.get(type);
-        let candidate: ActiveReceiverCandidate | null = null;
-        if (ancestor === undefined && use?.kind === "receiver" && use.type === type && next.originalUse === null &&
-          projection === null && literal === null && type.alias === undefined) {
-          candidate = projectedInventoryCandidate(scope, next.position, use);
-          if (candidate === null) return;
-          ancestor = scope.tables.activeQualifiedTypes.get(candidate.key)?.get(type);
-        }
+        const ancestor = use === null ? scope.tables.activeTypes.get(type) : scope.tables.activeQualifiedTypes.get(use)?.get(type);
         let captured: RawTypeForm | null;
         if (ancestor === undefined) {
           const exit: Extract<CaptureTask, { readonly kind: "leave-type" }> = { kind: "leave-type", id: next.id, type, key: use };
@@ -3886,12 +3789,8 @@ function captureFacts(scope: CaptureScope): void {
               alias = available(selected.alias);
               captured = selected.form;
             }
-          } else captured = typeForm(scope, base, next, source, use, projection, candidate);
+          } else captured = typeForm(scope, base, next, source, use, projection);
           if (captured === null) return;
-          if (candidate !== null) {
-            if (candidate.ordinary) exit.key = candidate.key;
-            else releaseReceiverKey(scope, candidate.key);
-          }
           if (exit.key === null) scope.tables.activeTypes.set(type, next.id);
           else {
             const active = scope.tables.activeQualifiedTypes.get(exit.key);
@@ -5014,7 +4913,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       interfaceGroups: { byTarget: new Map(), rows: [] }, interfaceCapture,
       interfaceDescriptions: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),
-      qualifiedSignatures: new Map(), activeTypes: new Map(), activeQualifiedTypes: new Map(), activeReceiverKeys: null,
+      qualifiedSignatures: new Map(), activeTypes: new Map(), activeQualifiedTypes: new Map(),
       activeIndexedAliases: new Set(),
       activeMergedInventories: new Map(), activeMergedArguments: new Set(),
       mergedParameterOwners: undefined,
