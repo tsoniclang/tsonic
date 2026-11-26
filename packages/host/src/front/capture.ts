@@ -1351,6 +1351,48 @@ function directReceiverRecurrence(scope: CaptureScope, receiver: ReceiverUse, se
   return typeNode !== undefined && directReceiverSource(scope, receiver, typeNode) !== undefined;
 }
 
+function writtenSelfOperand(scope: CaptureScope, type: Type, syntax: Node | undefined): Node | undefined {
+  const ast = scope.checked.ast;
+  let current = syntax;
+  while (current !== undefined) {
+    const kind = ast.kindName(current);
+    if (kind === "KindThisType") return current;
+    if (kind !== "KindTypeReference" || scope.shape.isTypeReference(type) || scope.checker.getTypeSymbol(type) === undefined) return undefined;
+    const reference = ast.as.AsTypeReferenceNode(current);
+    const arguments_ = reference?.TypeArguments?.Nodes;
+    if (reference?.TypeName === undefined || arguments_ === undefined || arguments_.length === 0 || !admit(scope, "edges")) return undefined;
+    const written = scope.checker.getSymbolAtLocation(reference.TypeName);
+    if (written === undefined) return undefined;
+    const alias = scope.checker.getAliasStep(written)?.kind === "symbol" ? scope.checker.getAliasedSymbol(written) : written;
+    if (alias === undefined || !admit(scope, "edges")) return undefined;
+    const declarations = scope.checker.getSymbolDeclarations(alias);
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || ast.kindName(declaration) !== "KindTypeAliasDeclaration") return undefined;
+    const result = ast.typeNode(declaration);
+    const parameterName = result === undefined ? undefined : parameterReferenceName(scope, result);
+    if (parameterName === undefined || !admit(scope, "edges")) return undefined;
+    const selected = scope.checker.getSymbolAtLocation(parameterName);
+    if (selected === undefined) return undefined;
+    const parameters = ast.typeParameters(declaration);
+    let argument: Node | undefined;
+    for (let index = 0; index < parameters.length; ++index) {
+      if (!admit(scope, "edges")) return undefined;
+      const parameter = parameters[index];
+      if (parameter === undefined) return throwInvariant(invariant("A written alias must retain its actual parameter inventory."));
+      if (scope.checker.getSymbolAtLocation(ast.name(parameter)) === selected) {
+        if (!admit(scope, "edges")) return undefined;
+        argument = arguments_[index];
+        break;
+      }
+    }
+    if (argument === undefined) return undefined;
+    const checked = sourceType(scope, { kind: "annotation", node: current });
+    if (checked?.type !== type || checked.causes.length !== 0) return undefined;
+    current = argument;
+  }
+  return undefined;
+}
+
 function authoredSelfOwner(scope: CaptureScope, type: Type, syntax: Node): Node | undefined {
   const ast = scope.checked.ast;
   let annotation = syntax;
@@ -2822,12 +2864,14 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     const alias = deferredAliasApplication(scope, type, selected, syntax);
     if (alias !== null || scope.meter.refusal !== null) return alias;
   }
-  if (syntax !== undefined && scope.checked.ast.kindName(syntax) === "KindThisType") {
+  const self = writtenSelfOperand(scope, type, syntax);
+  if (scope.meter.refusal !== null) return null;
+  if (self !== undefined) {
     if (!admit(scope, "edges")) return null;
-    const owner = authoredSelfOwner(scope, type, syntax);
+    const owner = authoredSelfOwner(scope, type, self);
     if (scope.meter.refusal !== null) return null;
     if (owner === undefined) throw new TypeError("front: a self type requires its actual authored interface method owner");
-    const authored = sourceType(scope, { kind: "annotation", node: syntax });
+    const authored = sourceType(scope, { kind: "annotation", node: self });
     if (scope.meter.refusal !== null) return null;
     if (authored?.type !== type || authored.causes.length !== 0)
       throw new TypeError("front: a self type requires its actual authored checker answer");

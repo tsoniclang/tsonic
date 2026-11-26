@@ -1454,10 +1454,14 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped self resul
     } }, OpenedProgram.table(opened.program), opened.set.modules.map(entry =>
       OpenedProgram.file(opened.program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
     OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
-    assert.throws(() => captureSingleModule(fixture.front, opened.deps, program, module),
-      /a merged type parameter requires its actual selected declaration association/u);
-    assert.equal(sourceReads, 0);
+    const result = captureSingleModule(fixture.front, opened.deps, program, module);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    assert.equal(sourceReads, 1);
     assert.equal(selectedReads, 1);
+    const raw = result.value;
+    const position = OpenedProgram.syntax(program).get("/project/src/main.ts").outcome.numbering.ids;
+    const signature = raw.types.signatures.find(row => row.target === null && row.declaration?.node === position.get(method));
+    assert.deepEqual(raw.types.types[signature.result.value].form.value, { kind: "self", owner: { module, node: position.get(owner) } });
     return;
   }
   assert.equal(captureSingleModule(fixture.front, opened.deps, opened.program, module).kind, "ok");
@@ -1539,6 +1543,47 @@ test("a checked interface method keeps its actual self result owner", async () =
   const result = owner.members.nodes[0].type;
   assert.equal(result.kind, "ThisType");
   assert.deepEqual(fixture.types.readType(actual.interner, result.tsonic.type.value), { kind: "self", owner: owner.tsonic.definition });
+});
+
+test("a transparent self alias follows its actual forwarded formal before reading an equal sibling", async () => {
+  const fixture = await loadFrontFixture();
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    type Pick<Unused, Selected> = Selected;
+    type Forward<Value> = Value;
+    export interface Box<T> { revisit(): Pick<this, Forward<this>>; }
+    export interface Box<T> { tag: T; }
+  `);
+  const { deps, program, set } = fixture.openAndCapture(input.snapshot);
+  const module = input.snapshot.entryPoint;
+  const checked = OpenedProgram.checked(program);
+  const file = OpenedProgram.file(program, module).file;
+  const { ast, getSourceFileQueries } = checked;
+  const owner = ast.statements(file)[2];
+  const method = ast.members(owner)[0];
+  const [other, forwarded] = ast.as.AsTypeReferenceNode(ast.typeNode(method)).TypeArguments.Nodes;
+  const actual = ast.as.AsTypeReferenceNode(forwarded).TypeArguments.Nodes[0];
+  const original = getSourceFileQueries(file).checker;
+  assert.equal(original.getTypeFromTypeNode(other).type === original.getTypeFromTypeNode(actual).type, true);
+  const stop = new Error("the actual forwarded self operand was reached");
+  const reads = [];
+  const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
+    const queries = getSourceFileQueries(sourceFile);
+    if (sourceFile !== file) return queries;
+    return { ...queries, checker: { ...queries.checker, acquireSourceType: observeSourceType(queries.checker, request => {
+      if (request.kind !== "annotation") return;
+      if (request.node === other) reads.push("other");
+      if (request.node === actual) { reads.push("actual"); throw stop; }
+    }) } };
+  } }, OpenedProgram.table(program), set.modules.map(entry =>
+    OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
+  OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
+  assert.throws(() => captureSingleModule(fixture.front, deps, observed, module), error => error === stop);
+  assert.deepEqual(reads, ["actual"]);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
 });
 
 for (const wrapped of [false, true]) test(wrapped ? "a same-pointer wrapped rest array cannot borrow a receiver backedge" :
