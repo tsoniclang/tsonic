@@ -2596,6 +2596,7 @@ test("authored native scalar array effects retain the checked parameter and reac
   const source = `
     function key() { return 0; }
     function next(value: number): number { return value; }
+    function take(values: number[]): number[] { return values; }
     export function exchange(values: boolean[], value: boolean): boolean {
       const alias = values;
       alias[0] = value;
@@ -2608,6 +2609,18 @@ test("authored native scalar array effects retain the checked parameter and reac
     export function guarded(values: boolean[], value: boolean): boolean {
       try { values[0] = value; } catch { return false; }
       return true;
+    }
+    export function evaluated(values: number[], value: number): number {
+      take(values)[key()] = next(value);
+      return values[1];
+    }
+    function edit(values: number[], value: number): void {
+      values[0] = value;
+      values[key()] += value;
+    }
+    export function forwarded(ignored: number[], values: number[], value: number): number {
+      edit(values, value);
+      return value;
     }
   `;
   const stock = fixture.bundled().filter(library => library.name === "lib.es5.d.ts"
@@ -2659,6 +2672,43 @@ test("authored native scalar array effects retain the checked parameter and reac
     if (check.unwind.kind === "handler") assert.notEqual(check.unwind.target, write.point.block);
     assert.equal(summaryOf(guarded).returns, true);
     assert.equal(summaryOf(guarded).unwinds, false);
+
+    const evaluated = selected("evaluated");
+    const assignment = evaluated.tir.root.statements.nodes[0].expression;
+    const sequence = [];
+    let block = evaluated.mir.blocks[evaluated.mir.entries[0].block];
+    while (block !== undefined) {
+      assert.ok(sequence.length < evaluated.mir.blocks.length);
+      sequence.push(block.terminator);
+      block = block.terminator.kind === "return" ? undefined : evaluated.mir.blocks[block.terminator.next];
+    }
+    const calls = sequence.filter(row => row.kind === "call");
+    assert.deepEqual(calls.map(row => row.tir.node), [assignment.left.expression.id, assignment.left.argumentExpression.id, assignment.right.id]);
+    const storeChecks = sequence.filter(row => row.kind === "check" && row.tir.node === assignment.left.id);
+    assert.equal(storeChecks.length, 2);
+    assert.equal(storeChecks[0].place, storeChecks[1].place);
+    const location = evaluated.mir.places[storeChecks[0].place];
+    assert.equal(location.base.place, calls[0].destination);
+    const [effect, returned] = evaluated.facts[0].arena.projections;
+    assert.deepEqual(effect.projection, { kind: "element" });
+    assert.deepEqual(returned.projection, { kind: "index", constant: 1n });
+    const [formalEffect] = summaryOf(evaluated).parameters;
+    assert.deepEqual(formalEffect.writes, { kind: "complete", paths: [effect.id] });
+
+    const forwarded = selected("forwarded");
+    const summary = summaryOf(forwarded);
+    const [ignored, affected] = summary.parameters;
+    assert.deepEqual(ignored.writes, { kind: "complete", paths: [] });
+    assert.deepEqual(ignored.reads, { kind: "complete", paths: [] });
+    assert.deepEqual(affected.slot, { kind: "parameter", index: 1 });
+    assert.equal(affected.reads.kind, "complete");
+    assert.equal(affected.writes.kind, "complete");
+    assert.deepEqual(affected.reads.paths.map(id => summary.arena.projections[id].projection), [{ kind: "element" }]);
+    const contributions = affected.writes.paths.map(id => summary.arena.projections[id].projection);
+    assert.equal(contributions.length, 2);
+    assert.deepEqual(contributions.find(path => path.kind === "index"), { kind: "index", constant: 0n });
+    assert.deepEqual(contributions.find(path => path.kind === "element"), { kind: "element" });
+    assert.equal(forwarded.facts[0].origins.writes.some(row => row.destination === "element"), false);
   }
 });
 
@@ -4515,14 +4565,14 @@ test("unsupported projections, parameter writes and external retention remain ex
   const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0].origins }];
   const apply = value => {
     const deps = { ...current.deps, account: createAccount(limits) };
-    const fields = projectionEffects(deps, new Set(), () => assert.fail("An unsupported read must not retain a projection."));
+    const fields = projectionEffects(deps, new Map(), () => assert.fail("An unsupported read must not retain a projection."));
     return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
-      (access, parameter) => fields.call(access, parameter, value.arena, arena));
+      (access, parameter) => fields.call(access, parameter, value, arena));
   };
   for (const field of ["reads", "writes"]) assert.throws(() => apply({ ...summary,
     arena: { ...summary.arena, projections: [{ id: 0, parent: null, projection: { kind: "element" } }] },
     parameters: summary.parameters.map(row => ({ ...row, [field]: { kind: "complete", paths: [0] } })),
-  }), /actual direct callee field projection/);
+  }), /actual selected array formal/);
   assert.throws(() => apply({ ...summary, retention: summary.retention.map(row => ({ ...row, into: { kind: "parameter", index: 0, path: null } })) }),
     /external retention transport/);
   assert.throws(() => apply({ ...summary, initialization: { ...summary.initialization,
@@ -4558,7 +4608,7 @@ test("one held field joins its independently selected arms at paid cuts without 
   for (const [first, next] of [["read", "write"], ["write", "read"]]) {
     const run = maxima => {
       const account = createAccount(maxima);
-      const fields = projectionEffects({ account }, new Set([0, 1]), () => null);
+      const fields = projectionEffects({ account }, new Map([[0, "field"], [1, "field"]]), () => null);
       const observe = role => fields.observe(role, { kind: "field", member: selections[role] }, subjects[role], arena.boundProducers, arena.producers);
       assert.equal(observe(first), null);
       const prefix = { ...InvocationAccount.stateOf(account) };

@@ -114,7 +114,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const preparedProjections = preparedSource === null || projectedPlaces === null ? null : heldProjections(deps, input, preparedSource.value, projectedPlaces);
   if (preparedProjections !== null && preparedProjections.kind !== "complete") return preparedProjections;
   const projections = preparedProjections?.value ?? null;
-  let objectFormals: Set<number> | null = null;
+  let referenceFormals: Map<number, "field" | "array"> | null = null;
   let objectValues: Set<LocalId> | null = null;
   for (const local of mir.locals) {
     if (local.role.kind === "capture") {
@@ -151,10 +151,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (formal.kind !== "complete") return formal;
       if (formal.value) {
         if (local.role.kind === "parameter") {
-          const retained = chargeResultEntries(account, objectFormals === null ? 2 : 1);
+          const retained = chargeResultEntries(account, referenceFormals === null ? 2 : 1);
           if (retained !== null) return retained;
-          objectFormals ??= new Set();
-          objectFormals.add(local.role.index);
+          referenceFormals ??= new Map();
+          referenceFormals.set(local.role.index, "field");
         } else {
           const retained = chargeResultEntries(account, objectValues === null ? 2 : 1);
           if (retained !== null) return retained;
@@ -164,19 +164,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         kind = "reference";
       }
     }
-    if (kind === "reference" && projections?.hasIndexes === true && local.role.kind === "parameter" && local.mode === "by-value"
-      && objectFormals?.has(local.role.index) !== true) {
-      const read = chargeWork(account, 1);
-      if (read !== null) return read;
-      const carrier = deps.typeOf(local.storage);
-      const stopped = accountFailure(account);
-      if (stopped !== null) return stopped;
-      if (carrier.kind === "array") {
-        const retained = chargeResultEntries(account, objectFormals === null ? 2 : 1);
-        if (retained !== null) return retained;
-        objectFormals ??= new Set();
-        objectFormals.add(local.role.index);
-      }
+    if (kind === "array-reference" && local.role.kind === "parameter" && local.mode === "by-value") {
+      const retained = chargeResultEntries(account, referenceFormals === null ? 2 : 1);
+      if (retained !== null) return retained;
+      referenceFormals ??= new Map();
+      referenceFormals.set(local.role.index, "array");
     }
     if (kind === null) return bodyFrontier("BodyAnalysis requires the actual Origins reference/cell producer for this selected local.");
     if (kind === "primitive-optional" || kind === "reference-optional") {
@@ -184,7 +176,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         return bodyFrontier("BodyAnalysis requires the actual optional receiver value binding.");
       hasOptional = true;
     }
-    if (kind === "reference" || kind === "reference-optional" || kind === "primitive-optional") {
+    if (kind === "reference" || kind === "array-reference" || kind === "reference-optional" || kind === "primitive-optional") {
       hasReference ||= kind !== "primitive-optional";
       if (local.role.kind === "capture") valueCaptureCount += 1;
       const entry = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
@@ -263,7 +255,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       continue;
     }
     const isAbsence = constant.value.kind === "literal" && constant.value.value.kind === "absence";
-    if (constant.value.kind !== "literal" || kind === null || kind === "reference"
+    if (constant.value.kind !== "literal" || kind === null || kind === "reference" || kind === "array-reference"
       || (isAbsence ? kind !== "absence" && kind !== "primitive-optional" && kind !== "reference-optional"
         : kind === "absence" || kind === "reference-optional")) {
       const stop = accountFailure(account);
@@ -384,7 +376,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       message: "An actual capture retains its selected local storage." }).storage);
     const classified = accountFailure(account);
     if (classified !== null) return classified;
-    if (kind === "reference" || kind === "reference-optional" || kind === "primitive-optional") {
+    if (kind === "reference" || kind === "array-reference" || kind === "reference-optional" || kind === "primitive-optional") {
       const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
       if (growth !== null) return growth;
       if (kind === "primitive-optional") {
@@ -415,11 +407,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     arguments: signature.parameters.map((_, index) => index >= execution.provided ? { kind: "omitted" }
       : { kind: "provided", origins: requirePresent(parameterOrigins[index],
         { owner: "analyses/body", query: null, origin: null, message: "Every supplied formal retains its entry origins." }) }), captures: entryCaptures }];
-  if (projections !== null && objectFormals === null)
+  if (projections !== null && referenceFormals === null)
     return bodyFrontier("A held projection needs its independently verified reference formal.");
-  const projectionSetup = objectFormals === null ? null : chargeResultEntries(account, 3);
+  const projectionSetup = referenceFormals === null ? null : chargeResultEntries(account, 3);
   if (projectionSetup !== null) return projectionSetup;
-  const projectionEffects = objectFormals === null ? null : createProjectionEffects(deps, objectFormals, (records, references): DataflowStop | null => {
+  const projectionEffects = referenceFormals === null ? null : createProjectionEffects(deps, referenceFormals, (records, references): DataflowStop | null => {
     const stop = bounded("maximumRelationalRecordsPerBody", records, arena.cells.length + arena.boundProducers.length
       + arena.producers.length + arena.contexts.length + arena.origins.length + arena.boundaries.length + arena.projections.length + lifetimeRecords)
       ?? bounded("maximumRelationalReferencesPerBody", references, contextReferences);
@@ -856,7 +848,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       contexts.push({ id: context, receiver: null, arguments: arguments_, captures: environment.value });
       const applied = applyScalarCall(deps, input, terminator, point, summary, arena, context, entryBindings, cellBindings,
         (access, parameter) => projectionEffects === null ? bodyFrontier("An applied field access has no verified caller reference producer.")
-          : projectionEffects.call(access, parameter, summary.arena, arena));
+          : projectionEffects.call(access, parameter, summary, arena));
       if (applied.kind !== "complete") return applied;
       const boundary = transport?.forCall(terminator, summary) ?? noCallBoundary;
       if (typeof boundary !== "function") return boundary;

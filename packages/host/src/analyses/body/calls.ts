@@ -381,7 +381,7 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     const classified = accountFailure(deps.account);
     if (classified !== null) return classified;
     if (kind === null) return frontier(operation, "BodyAnalysis requires the actual selected call-result representation and Origins producer.");
-    usePrimitiveContents = kind !== "reference" && kind !== "primitive-optional" && kind !== "reference-optional";
+    usePrimitiveContents = kind !== "reference" && kind !== "array-reference" && kind !== "primitive-optional" && kind !== "reference-optional";
   }
   const unwind = operation.unwind;
   const handled = summary.unwinds && unwind.kind === "handler";

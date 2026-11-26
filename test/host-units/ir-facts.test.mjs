@@ -936,6 +936,10 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     reads.length = 0;
     assert.deepEqual(completeVerification(verifyRelationalArena(input.arena, identity, supplied.context, createAccount(limits))), []);
     assert.deepEqual(reads, [128n, -128n]);
+    const sparse = { ...input.arena, projections: input.arena.projections.slice() };
+    delete sparse.projections[ordinal];
+    assert.deepEqual(completeVerification(verifyRelationalArena(sparse, identity, supplied.context, createAccount(limits))),
+      [violation("projection-id-dense", arenaSite("projection", "projection", ordinal), "Projection IDs must equal their dense arena positions.")]);
   });
   const basicCases = [
     ["body-instance-exact", (value, supplied) => { supplied.mir.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, bodySite(),

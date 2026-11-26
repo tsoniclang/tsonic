@@ -256,7 +256,7 @@ export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, consta
       const kind = valueKind(deps, storage.storage);
       const stopped = accountFailure(deps.account);
       if (stopped !== null) return stopped;
-      if (kind === "reference") return bodyFrontier("BodyAnalysis requires the actual selected reference operation value producer.");
+      if (kind === "reference" || kind === "array-reference") return bodyFrontier("BodyAnalysis requires the actual selected reference operation value producer.");
       if (kind === "primitive-optional" || kind === "reference-optional") {
         const value = statement.value;
         if (value.kind !== "convert" || value.operation.decision.kind !== "selected"

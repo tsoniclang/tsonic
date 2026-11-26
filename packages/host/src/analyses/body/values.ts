@@ -100,7 +100,7 @@ function mergeReferences<Reference extends number>(left: readonly Reference[], r
   return output;
 }
 
-export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absence" | "reference" | "primitive-optional" | "reference-optional" | null {
+export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absence" | "reference" | "array-reference" | "primitive-optional" | "reference-optional" | null {
   const read = (current: TyId) => {
     if (chargeWork(deps.account, 1) !== null) return null;
     const term = deps.typeOf(current);
@@ -115,7 +115,8 @@ export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absen
     const domain = optionalValueDomainOf(term, read);
     if (domain.kind === "optional-value") return domain.payload === "string" ? "reference-optional" : "primitive-optional";
   }
-  return term.kind === "string" || term.kind === "array" ? "reference" : term.kind === "intrinsic" && term.intrinsic === "absence" ? "absence" : null;
+  return term.kind === "array" ? "array-reference" : term.kind === "string" ? "reference"
+    : term.kind === "intrinsic" && term.intrinsic === "absence" ? "absence" : null;
 }
 
 export function joinOrigins(deps: BodyRoundDeps, values: ValueOrigins, left: OriginsId, right: OriginsId,

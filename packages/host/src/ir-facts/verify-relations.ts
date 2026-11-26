@@ -1,11 +1,10 @@
 import { summaryKey } from "./summary-key.js";
 import type { Violation } from "../diag/contract.js";
-import { requirePresent } from "../diag/index.js";
 import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import { admitBindingIdentity, admitOwnerIdentity, admitSelectionIdentity, recordFinding } from "./verification.js";
 import type { KeyData, SourceNodeRef } from "../ids/contract.js";
-import { admitIntegerKey, encodeKey } from "../ids/index.js";
+import { admitIntegerKey, encodeKey, projectionPathId } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import { memberSelectionKey } from "../ir-tir/index.js";
@@ -308,8 +307,13 @@ export const verifyRelationalArena = (
   for (let index = 0; index < arena.projections.length; index += 1) {
     const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
     if (step !== null) return step;
-    const path = requirePresent(arena.projections[index], { owner: "ir-facts", query: null, origin: null,
-      message: "The relational projection vector must be dense." });
+    const path = arena.projections[index];
+    if (path === undefined) {
+      const stop = report("projection-id-dense", { kind: "projection", owner, projection: projectionPathId(index) },
+        "Projection IDs must equal their dense arena positions.");
+      if (stop !== null) return stop;
+      continue;
+    }
     const site: FactsSite = { kind: "projection", owner, projection: path.id };
     if (path.id !== index || !validIndex(path.id, arena.projections.length)) { const stop = report("projection-id-dense", site, "Projection IDs must equal their dense arena positions."); if (stop !== null) return stop; }
     if (path.parent !== null && (!validIndex(path.parent, index) || !Object.is(arena.projections[path.parent]?.id, path.parent))) {
