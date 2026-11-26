@@ -15,7 +15,7 @@ import { inferredPartKey } from "../ir-infer/index.js";
 import type { InstantiationLimits } from "../ir-program/contract.js";
 import type { BindingScope, MemberInventory, MemberTypeRequest, MemberTypes, Signature, SignatureRequest, TypeEvidence,
   TypeProductionRequest } from "../ir-types/contract.js";
-import { signatureRequestData, typeProductionRequestData, verifyBindings, viewTypes } from "../ir-types/index.js";
+import { memberTypeRequestData, signatureRequestData, typeProductionRequestData, verifyBindings, viewTypes } from "../ir-types/index.js";
 import type { ClassifyCycle, ClosedCycle, CycleOutcome, Database, Query, QueryLimits } from "../query/contract.js";
 import { createDatabase } from "../query/index.js";
 import type { DeclaredSignatureErrorData } from "../decls/contract.js";
@@ -347,7 +347,7 @@ export function createSourceSemanticQueries(base: SourceSemanticInputs, ready: S
 
   const memberTypeOf: SourceSemanticQueries["memberTypeOf"] = defineQuery<SourceSemanticInputs, MemberTypeRequest, MemberTypes,
     never, never, never, SourceSemanticWitness, DeclaredSignatureErrorData>({
-    name: "memberTypeOf", keyData: request => [request.receiver, request.member],
+    name: "memberTypeOf", keyData: memberTypeRequestData,
     producer: { start: (actual, request) => {
       sameInputs(actual);
       const step = pipelineWiring.decls.memberTypeOf(inputs.declarations, request);

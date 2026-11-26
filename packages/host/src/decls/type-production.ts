@@ -4,7 +4,7 @@ import type { SourceNodeRef, TyId } from "../ids/contract.js";
 import { encodeKey, tyId } from "../ids/index.js";
 import type { HirNode } from "../ir-hir/contract.js";
 import type { CategoryEvidence, LiteralTypeValue, MemberInventory, MemberKey, MemberTypeRequest, SourceCategory, TypeTerm } from "../ir-types/contract.js";
-import { admitTypePublicationStep, compareMemberKeys, internType, internTypeGraph, joinSourceChoice, readType, refuseTypeConstruction,
+import { admitTypePublicationStep, compareMemberKeys, internType, internTypeGraph, joinSourceChoice, memberTypeRequestData, readType, refuseTypeConstruction,
   substitute, typeProductionRequestData, viewTypes } from "../ir-types/index.js";
 import type { DeclsDeps, ProduceType, ResumeProduceType, SelectedIndexedRead, TypeProductionPause, TypeProductionStep } from "./contract.js";
 
@@ -112,7 +112,7 @@ function indexedMembers(site: Site, inventory: MemberInventory, keys: readonly M
       const comparison = compareMemberKeys(entry.key, key);
       if (comparison > 0) return unavailable(site, noIndexedMember(inventory));
       if (comparison === 0) {
-        requests.push({ receiver: inventory.receiver, member });
+        requests.push({ receiver: inventory.receiver, member, access: "read" });
         member += 1;
         break;
       }
@@ -283,11 +283,14 @@ export const resumeProduceType: ResumeProduceType = (deps, paused, answers) => {
     return indexedMembers(paused, answer.value, paused.keys);
   }
   const selected = paused.requests[paused.next];
-  if (selected === undefined || answer.kind !== "memberTypeOf" || answer.request.receiver !== selected.receiver || answer.request.member !== selected.member)
+  if (selected === undefined || answer.kind !== "memberTypeOf" || answer.request.receiver !== selected.receiver
+    || answer.request.member !== selected.member || answer.request.access !== selected.access || answer.value.access !== "read")
     return fail("Indexed production requires its actual selected member answer.");
   const { request, position } = answer.origin;
-  if (position.kind !== "result" || request.query !== "memberTypeOf" || !Array.isArray(request.key)
-    || request.key.length !== 2 || request.key[0] !== selected.receiver || request.key[1] !== selected.member)
+  const key = request.key;
+  const expected = memberTypeRequestData(selected);
+  if (position.kind !== "result" || request.query !== "memberTypeOf" || !Array.isArray(key)
+    || key.length !== expected.length || expected.some((part, index) => key[index] !== part))
     return fail("Indexed production requires its actual completed member result position.");
   const type = answer.value.read;
   if (type === null) return unavailable(paused, "The selected indexed property has no read type.");

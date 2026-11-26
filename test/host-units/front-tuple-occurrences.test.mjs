@@ -174,7 +174,7 @@ async function checkedTupleReceivers(text) {
     assert.equal(inventory.kind, "ok");
     const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === name);
     assert.ok(member >= 0);
-    const selected = memberTypeOf(deps, { receiver, member }).value;
+    const selected = memberTypeOf(deps, { receiver, member, access: "read" }).value;
     assert.equal(selected.kind, "ok");
     const callable = form(selected.value.read);
     assert.equal(callable.kind, "callable");
@@ -1129,7 +1129,7 @@ test("equal native multi-slot receivers in different merged owners retain both a
     assert.equal(inventory.kind, "ok");
     const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "consult");
     assert.ok(member >= 0);
-    const selected = memberTypeOf(deps, { receiver, member }).value;
+    const selected = memberTypeOf(deps, { receiver, member, access: "read" }).value;
     assert.equal(selected.kind, "ok");
     const callable = fixture.types.readType(types, selected.value.read);
     assert.equal(callable.kind, "callable");

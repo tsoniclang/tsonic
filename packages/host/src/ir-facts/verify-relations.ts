@@ -11,9 +11,9 @@ import { memberSelectionKey } from "../ir-tir/index.js";
 import type {
   ArtifactBindings, MemberKey, MemberStorageSelection,
 } from "../ir-types/contract.js";
-import { artifactBindingsKey, bindingVectorData, executionKey } from "../ir-types/index.js";
+import { artifactBindingsKey, bindingVectorData, executionKey, memberStorageData } from "../ir-types/index.js";
 import type {
-  EscapeTarget, FactsRule, FactsSite, FactsVerification, FactsVerificationContext, MetadataVerificationContext,
+  EscapeTarget, FactsRule, FactsSite, FactsVerification, FactsVerificationContext, FieldProjectionIdentityData, MetadataVerificationContext,
   RelationalArena, RelationalOwner, RelationalSite,
 } from "./contract.js";
 
@@ -26,6 +26,15 @@ export const compareNumbers = (left: number, right: number): number => {
   if (Number.isNaN(right)) return -1;
   if (left === right) return Object.is(left, -0) ? -1 : 1;
   return left < right ? -1 : 1;
+};
+
+export const fieldProjectionIdentityData: FieldProjectionIdentityData = member => {
+  const { decision } = member;
+  const { location } = decision;
+  return location.kind === "data" && location.receiver === "by-reference" && location.check.kind === "none"
+    && member.getter === null && member.setter === null && decision.getter === null && decision.setter === null
+    ? ["storage", memberStorageData(decision)]
+    : ["selection", memberSelectionKey(member)];
 };
 
 export const relationalUsage = (arena: RelationalArena, account: DataflowAccount): DataflowResult<{
@@ -311,9 +320,9 @@ export const verifyRelationalArena = (
       const stop = admitSelectionIdentity(projection.member, account);
       if (stop !== null) return stop;
     }
-    const data: KeyData = projection.kind === "field" || projection.kind === "method-value"
-      ? [projection.kind, memberSelectionKey(projection.member)]
-      : projection.kind === "index" ? [projection.kind, projection.constant] : [projection.kind];
+    const data: KeyData = projection.kind === "field" ? [projection.kind, fieldProjectionIdentityData(projection.member)]
+      : projection.kind === "method-value" ? [projection.kind, memberSelectionKey(projection.member)]
+        : projection.kind === "index" ? [projection.kind, projection.constant] : [projection.kind];
     const key = encodeKey([path.parent, data]);
     if (projections.has(key)) { const stop = report("projection-unique", site, "A parent and selected projection must identify exactly one arena row."); if (stop !== null) return stop; }
     projections.add(key);

@@ -1422,7 +1422,7 @@ test("a bound singleton indexed access demands its actual nested keyof and share
     assert.equal(result.value.type, shape.type.members.nodes[0].type.tsonic.type.value);
     assert.deepEqual(result.value.category, { kind: "known", category: "boolean" });
     assert.deepEqual(reads, [
-      ["type", open.type.id], ["type", open.type.indexType.id], ["inventory", receiver], ["member", { receiver, member: 0 }],
+      ["type", open.type.id], ["type", open.type.indexType.id], ["inventory", receiver], ["member", { receiver, member: 0, access: "read" }],
     ]);
   } finally {
     Object.assign(pipelineWiring.decls, { produceType, membersOf, memberTypeOf });

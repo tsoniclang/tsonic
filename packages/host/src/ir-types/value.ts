@@ -1,7 +1,7 @@
 import type { DefId, KeyData, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { ArtifactBindings, BindingVector, BodyInstance, ConstantReference, Execution, SelfBinding, TypeBinding } from "./data.js";
-import type { DeclaredExecution, ReadBindingVectorKey, RigidBindings, SignatureRequest, TypeTableAdmissionStop } from "./contract.js";
+import type { DeclaredExecution, MemberTypeRequestData, ReadBindingVectorKey, RigidBindings, SignatureRequest, TypeTableAdmissionStop } from "./contract.js";
 import type { IndexInventoryEntry, MemberKey, MemberOrigin, MemberStorageSelection } from "./data.js";
 export { tyId as typeIdentifier, sigId as signatureIdentifier } from "../ids/index.js";
 
@@ -77,6 +77,13 @@ export const signatureRequestData = (request: SignatureRequest): readonly KeyDat
   [request.definition, request.endpoint, request.ordinal, artifactBindingsData(request.bindings)];
 
 export const signatureRequestKeyOf = (request: SignatureRequest): string => encodeKey(signatureRequestData(request));
+
+export const memberTypeRequestData: MemberTypeRequestData = request => {
+  const { receiver, member, access } = request;
+  if (access !== "read" && access !== "write" && access !== "read-write")
+    throw new TypeError("ir-types: a member type request requires its exact access.");
+  return [receiver, member, access];
+};
 
 const instanceData = (instance: BodyInstance): KeyData => [instance.body, artifactBindingsData(instance.bindings)];
 

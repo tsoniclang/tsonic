@@ -4374,6 +4374,67 @@ test("unsupported projections, parameter writes and external retention remain ex
     rows: [{ point: 0, cell: null, condition: 0 }] } }), /actual supplied cell and completion-event bindings/);
 });
 
+test("one held field joins its independently selected arms at paid cuts without joining effect subjects", async () => {
+  const { fieldEffects } = await import("../../packages/host/dist/analyses/body/field-effects.js");
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { admitSelectionIdentity } = await import("../../packages/host/dist/ir-facts/index.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+    export type Box = { flag: boolean };
+    export function touch(before: Box, after: Box, value: boolean): boolean {
+      after.flag = value;
+      return before.flag;
+    }
+  `);
+  const program = analyzeHostProgram(input);
+  assert.equal(program.kind, "ok");
+  const selected = program.value.modules.find(module => module.module === input.snapshot.entryPoint)
+    .bodies.find(row => row.kind === "selected" && row.tir.params.length === 3);
+  const [assigned, returned] = selected.tir.root.statements.nodes;
+  const selections = { write: assigned.expression.left.tsonic.selection.decision, read: returned.expression.tsonic.selection.decision };
+  const { arena } = selected.facts.find(row => row.execution.provided === 3);
+  const [before, after] = arena.contexts[0].arguments;
+  const subjects = { read: arena.origins[before.origins], write: arena.origins[after.origins] };
+  assert.equal(selections.read.decision.write, null);
+  assert.equal(selections.write.decision.read, null);
+  for (const [first, next] of [["read", "write"], ["write", "read"]]) {
+    const run = maxima => {
+      const account = createAccount(maxima);
+      const fields = fieldEffects({ account }, new Set([0, 1]), () => null);
+      const observe = role => fields.observe(role, selections[role], subjects[role], arena.boundProducers, arena.producers);
+      assert.equal(observe(first), null);
+      const prefix = { ...InvocationAccount.stateOf(account) };
+      return { fields, account, prefix, observe, projection: fields.projections[0] };
+    };
+    const complete = run(limits);
+    assert.equal(complete.observe(next), null);
+    assert.equal(complete.fields.projections.length, 1);
+    const merged = complete.fields.projections[0].projection.member.decision;
+    assert.equal(merged.read, selections.read.decision.read);
+    assert.equal(merged.write, selections.write.decision.write);
+    assert.deepEqual([...complete.fields.paths("read", 0)], [0]);
+    assert.deepEqual([...complete.fields.paths("write", 1)], [0]);
+    assert.equal(complete.fields.paths("read", 1), undefined);
+    assert.equal(complete.fields.paths("write", 0), undefined);
+    const identity = createAccount(limits);
+    assert.equal(admitSelectionIdentity(selections[next], identity), null);
+    const charge = InvocationAccount.stateOf(identity);
+    for (const [maxima, dimension] of [
+      [{ ...limits, maximumWork: complete.prefix.work + charge.work + 1 + 4 + 10 - 1 }, "work"],
+      [{ ...limits, maximumResultEntries: complete.prefix.entries + charge.entries + 4 - 1 }, "result-entries"],
+    ]) {
+      const stopped = run(maxima);
+      const refusal = stopped.observe(next);
+      assert.equal(refusal.dimension, dimension);
+      assert.strictEqual(refusal, accountFailure(stopped.account));
+      assert.ok(stopped.fields.projections[0] === stopped.projection);
+      assert.strictEqual(stopped.observe(next), refusal);
+    }
+  }
+});
+
 test("selected reference-call helpers keep genuine unsupported inputs explicit and stop before reader payloads", () => {
   const { current, pair, operation, point, summary, state, initial } = referenceRound("body-round.reference-boundaries");
   const invoke = (changed = operation, answer = summary, overrides = {}) => callValueEffects({ ...current.deps,

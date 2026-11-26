@@ -345,16 +345,19 @@ export interface MemberInventory {
     | { readonly kind: "open"; readonly reasons: readonly [MemberUnavailableReason, ...MemberUnavailableReason[]] };
 }
 
+export type MemberTypeAccess = "read" | "write" | "read-write";
+
 export interface MemberTypeRequest {
   readonly receiver: TyId;
   /** Position in this exact receiver's canonical member inventory, not a declaration or source position. */
   readonly member: number;
+  readonly access: MemberTypeAccess;
 }
 
-export interface MemberTypes {
-  readonly read: TyId | null;
-  readonly write: TyId | null;
-}
+export type MemberTypes =
+  | { readonly access: "read"; readonly read: TyId | null }
+  | { readonly access: "write"; readonly write: TyId | null }
+  | { readonly access: "read-write"; readonly read: TyId | null; readonly write: TyId | null };
 
 export interface SourceObjectHolding {
   readonly local: LocalRef;

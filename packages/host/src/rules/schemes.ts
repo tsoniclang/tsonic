@@ -6,7 +6,7 @@ import type {
   OperatorConstraint, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
-import { compareMemberKeys, internType, readType } from "../ir-types/index.js";
+import { compareMemberKeys, internType, memberTypeRequestData, readType } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
 import { at as where, callerDefect, notDecidedYet } from "./frontier.js";
@@ -132,21 +132,28 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
           return callerDefect("a member read must retain its original readable declaration", origin);
         if (phase.access !== "read" && !member.writeOrigins.some(actual => actual.kind === "declared" && actual.declaration === phase.declaration))
           return callerDefect("a member write must retain its original writable declaration", origin);
-        return MemberSuspension.pause(owner, { kind: "type", request: { receiver: inventory.receiver, member: middle },
-          inventory: member, access: phase.access, storage: phase.storage, bindings: phase.bindings }, destination, origin);
+        return MemberSuspension.pause(owner, { kind: "type", request: { receiver: inventory.receiver, member: middle, access: phase.access },
+          inventory: member, storage: phase.storage, bindings: phase.bindings }, destination, origin);
       }
     }
     return callerDefect("the original member key is missing from its complete receiver inventory", origin);
   }
-  if (answers.length !== 1 || answer?.kind !== "memberTypeOf"
-    || answer.request.receiver !== phase.request.receiver || answer.request.member !== phase.request.member)
+  const { access, receiver, member } = phase.request;
+  if (answers.length !== 1 || answer?.kind !== "memberTypeOf" || answer.request.receiver !== receiver
+    || answer.request.member !== member || answer.request.access !== access || answer.value.access !== access)
     return callerDefect("a member read must resume with its actual selected member type", origin);
-  const { read, write } = answer.value;
-  if (phase.access !== "write" && read === null)
+  const key = answer.origin.request.key;
+  const expected = memberTypeRequestData(phase.request);
+  if (answer.origin.position.kind !== "result" || answer.origin.request.query !== "memberTypeOf" || !Array.isArray(key)
+    || key.length !== expected.length || expected.some((part, index) => key[index] !== part))
+    return callerDefect("a member type requires its actual completed result position", origin);
+  const read = answer.value.access === "write" ? null : answer.value.read;
+  const write = answer.value.access === "read" ? null : answer.value.write;
+  if (access !== "write" && read === null)
     return callerDefect("a selected readable member requires its actual read type", origin);
-  if (phase.access !== "read" && write === null)
+  if (access !== "read" && write === null)
     return callerDefect("a selected writable member requires its actual write type", origin);
-  const selected = phase.access === "write" ? write : read;
+  const selected = access === "write" ? write : read;
   if (selected === null || (readType(deps.types, selected).kind === "error") !== (answer.error !== null))
     return callerDefect("a member access must retain the cause of its own actual type answer", origin);
   if (answer.error !== null)

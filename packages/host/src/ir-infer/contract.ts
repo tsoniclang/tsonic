@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, UnitRequest, Violation } from "../diag/contract.js";
-import type { CheckFailure, HandleActivation, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
+import type { CheckFailure, HandleActivation, MemberTypeAccess, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
 import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 import type { Step } from "../step/contract.js";
@@ -50,7 +50,7 @@ export type InferenceVariable = { readonly id: number; readonly occurrence: Node
 
 export type FlowRole = "initialization" | "assignment" | "argument" | "return" | "receiver" | "yield" | "member-write";
 export type AccessRole = "read" | "write" | "call";
-export type MemberAccessRole = AccessRole | "read-write";
+export type MemberAccessRole = MemberTypeAccess | "call";
 export type ProtocolKind = "iterate" | "await" | "yield" | "delegate" | "dispose" | "spread" | "argument-passing" | "pointer";
 export type RuleIdentity = "embed" | "domain-fit" | "memory-equivalent" | "member" | "index"
   | "construct-literal" | "candidate" | "operator" | "literal-fit" | "protocol" | "refinement" | "library" | "core" | "closure";

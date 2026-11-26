@@ -115,6 +115,9 @@ test("one checked interface recipe supplies two distinct selected values without
         const poison = () => { ++unread; assert.fail("the unrelated member type must stay unopened"); };
         Object.defineProperty(member, "read", { get: poison });
         Object.defineProperty(member, "write", { get: poison });
+        const selected = raw.types.members[form.inventory].members.find(row => row.name === "value");
+        assert.ok(selected !== undefined);
+        Object.defineProperty(selected, "write", { get() { assert.fail("a read must not open the selected member's write type"); } });
       }
     }
     return outcome;
@@ -138,10 +141,10 @@ test("one checked interface recipe supplies two distinct selected values without
     const inventory = membersOf(deps, receiver).value;
     assert.equal(inventory.kind, "ok");
     assert.deepEqual(inventory.value.members.map(row => row.key.value), ["unopened", "value"]);
-    const selected = memberTypeOf(deps, { receiver, member: 1 }).value;
+    const selected = memberTypeOf(deps, { receiver, member: 1, access: "read" }).value;
     assert.equal(selected.kind, "ok");
     assert.deepEqual(fixture.types.readType(source.types, selected.value.read), expected);
-    assert.deepEqual(fixture.types.readType(source.types, selected.value.write), expected);
+    assert.deepEqual(selected.value, { access: "read", read: selected.value.read });
     const projected = database.run(queries.produceType, {
       component: { root: { kind: "item", value: { owner, node: indexed.type.id } }, path: [] },
       bindings: { classBindings: [{ kind: "bound", parameter, type: receiver }], methodBindings: [], capturedBindings: [], selfBindings: [] },

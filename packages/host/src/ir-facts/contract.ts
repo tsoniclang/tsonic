@@ -1,6 +1,6 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type {
-  BlockId, BodyId, BoundProducerId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
+  BlockId, BodyId, BoundProducerId, DefId, KeyData, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclarationRequest, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
@@ -44,6 +44,7 @@ export type AdmitArtifactIdentity = (bindings: ArtifactBindings, account: Datafl
 export type AdmitBindingIdentity = (bindings: BindingVector, account: DataflowAccount) => DataflowStop | null;
 export type AdmitStorageIdentity = (member: MemberStorageSelection, account: DataflowAccount) => DataflowStop | null;
 export type AdmitSelectionIdentity = (selection: MemberSelection, account: DataflowAccount) => DataflowStop | null;
+export type FieldProjectionIdentityData = (member: MemberSelection) => KeyData;
 export type ArgumentTransportKey = (transport: ArgumentTransport | null, account: DataflowAccount) => DataflowResult<string>;
 export type CompareBoundActivations = (left: BoundActivation, leftInstance: string, leftTransport: string,
   right: BoundActivation, rightInstance: string, rightTransport: string) => number;

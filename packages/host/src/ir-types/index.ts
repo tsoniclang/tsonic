@@ -1,7 +1,7 @@
 import type { NativeFactsKey, IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, FloatingBitsFit, ExactFloat64LiteralFit, FloatingFormatWidth, NativeCarrierOf, OptionalValueDomainOf, LiteralCompatibilityOf, NativeIntegerGeometryOf, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, AdmitTypeTable, InternType, ReadType, ReadSignature, ViewTypes,
   ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, CompareIndexSignatures, CompareMemberKeys, InstanceKey, SameInstance, ExecutionKey,
   DeclaredExecutionKey, BindingVectorKey, ReadBindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
-  SignatureRequestData, SignatureRequestKey, TypeProductionRequestData, ConstantReferenceKey, ProjectBindingValues, HasLexicalTypeDependency, ReadLexicalTypeSupport, RigidBindings,
+  SignatureRequestData, SignatureRequestKey, MemberTypeRequestData, TypeProductionRequestData, ConstantReferenceKey, ProjectBindingValues, HasLexicalTypeDependency, ReadLexicalTypeSupport, RigidBindings,
   AdmitTypePublicationStep, CreateTypePublicationWork, InternTypeGraph, RefuseTypeConstruction, TypePublicationRefusalOf } from "./contract.js";
 import { createTypeInterner as create, admitTypeTable as adopt, internType as intern,
   readType as read, readSignature as readCallable, viewTypes as view, exportTypes as publish } from "./interner.js";
@@ -24,7 +24,8 @@ import { selectorPathKey, typeProductionRequestData as projectTypeProductionRequ
 import { compareMemberKeys as compareMembers } from "./canonical.js";
 import { compareIndexSignatures as compareIndexes, artifactBindingsData as projectArtifactBindings, artifactBindingsKeyOf, bindingVectorData as projectBindingVector,
   bindingVectorKeyOf, readBindingVectorKey as readBindingKey, declaredExecutionKeyOf, executionKeyOf, instanceKeyOf, sameInstanceAs,
-  signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, constantReferenceKeyOf, rigidBindings as rigid, memberStorageData as projectMemberStorage } from "./value.js";
+  signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, memberTypeRequestData as projectMemberTypeRequest,
+  constantReferenceKeyOf, rigidBindings as rigid, memberStorageData as projectMemberStorage } from "./value.js";
 
 export const createTypeInterner: CreateTypeInterner = create;
 export const createTypePublicationWork: CreateTypePublicationWork = publicationWork;
@@ -79,4 +80,5 @@ export const bindingVectorData: BindingVectorData = projectBindingVector;
 export const artifactBindingsData: ArtifactBindingsData = projectArtifactBindings;
 export const signatureRequestData: SignatureRequestData = projectSignatureRequest;
 export const signatureRequestKey: SignatureRequestKey = signatureRequestKeyOf;
+export const memberTypeRequestData: MemberTypeRequestData = projectMemberTypeRequest;
 export const rigidBindings: RigidBindings = rigid;

@@ -15,7 +15,6 @@ export type MemberPhase =
       readonly access: Exclude<MemberAccessRole, "call">;
       readonly storage: SourceObjectField | null; readonly bindings: BindingVector }
   | { readonly kind: "type"; readonly request: MemberTypeRequest; readonly inventory: MemberInventoryEntry;
-      readonly access: Exclude<MemberAccessRole, "call">;
       readonly storage: SourceObjectField | null; readonly bindings: BindingVector };
 
 export type MemberStep = MemberRuleStep<MemberRuleCompletion, MemberSuspension>;

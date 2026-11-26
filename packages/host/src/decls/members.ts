@@ -1,9 +1,9 @@
 import type { Result, UnitRequest, UnitResult } from "../diag/contract.js";
 import type { DefId, SigId, TyId } from "../ids/contract.js";
-import { admitTypePublicationStep, compareIndexSignatures, internType, readSignature, readType, refuseTypeConstruction,
+import { admitTypePublicationStep, compareIndexSignatures, internType, memberTypeRequestData, readSignature, readType, refuseTypeConstruction,
   substitute, substituteSignature } from "../ir-types/index.js";
 import type { AccessorCorrespondence, BindingVector, ConstructorCorrespondence, InterfaceDescriptionInventory, InterfaceDescriptionRecipe,
-  MemberInventory, MemberTypes, MemberUnavailableReason, TypeBinding, TypeTerm } from "../ir-types/contract.js";
+  MemberInventory, MemberTypeAccess, MemberTypes, MemberUnavailableReason, TypeBinding, TypeTerm } from "../ir-types/contract.js";
 import type { HirNode } from "../ir-hir/contract.js";
 import type { DeclsDeps, MembersOf, MemberTypeOf } from "./contract.js";
 import { findAscending, finishTypeTransform, moduleOf } from "./signatures.js";
@@ -56,11 +56,19 @@ function mergedBindings(deps: DeclsDeps, term: MergedType, unit: UnitRequest): R
   return ready({ recipe, bindings: { classBindings, capturedBindings, methodBindings: [], selfBindings: [] } });
 }
 
+function selectMemberTypes(access: MemberTypeAccess, type: (role: "read" | "write") => TyId | null): MemberTypes {
+  if (access === "read") return { access, read: type("read") };
+  if (access === "write") return { access, write: type("write") };
+  return { access, read: type("read"), write: type("write") };
+}
+
 function bindMemberValues(deps: DeclsDeps, values: MemberTypes, selected: { readonly recipe: InterfaceDescriptionRecipe; readonly bindings: BindingVector },
   unit: UnitRequest): Result<MemberTypes> {
+  const read = values.access === "write" ? null : values.read;
+  const write = values.access === "read" ? null : values.write;
   const roots: TyId[] = [];
-  if (values.read !== null) roots.push(values.read);
-  if (values.write !== null && values.write !== values.read) roots.push(values.write);
+  if (read !== null) roots.push(read);
+  if (write !== null && write !== read) roots.push(write);
   const result = finishTypeTransform(deps, substitute(deps.types, roots, selected.bindings, deps.typeExpansion, deps.typeWork),
     selected.recipe.origin, unit);
   if (result.kind === "refused") return result;
@@ -69,8 +77,8 @@ function bindMemberValues(deps: DeclsDeps, values: MemberTypes, selected: { read
     if (value === undefined) throw new TypeError("decls: an actual member value must retain its bound type");
     return value;
   };
-  return ready({ read: values.read === null ? null : at(0),
-    write: values.write === null ? null : at(values.read === null || values.read === values.write ? 0 : 1) });
+  return ready(selectMemberTypes(values.access, role => role === "read" ? read === null ? null : at(0)
+    : write === null ? null : at(read === null || read === write ? 0 : 1)));
 }
 
 function declarationNode(deps: DeclsDeps, declaration: DefId, unit: UnitRequest): HirNode {
@@ -170,13 +178,15 @@ export const membersOf: MembersOf = (deps, receiver) => {
 };
 
 export const memberTypeOf: MemberTypeOf = (deps, request) => {
+  const unit: UnitRequest = { query: "memberTypeOf", key: memberTypeRequestData(request) };
   const receiver = readType(deps.types, request.receiver);
-  const unit: UnitRequest = { query: "memberTypeOf", key: [request.receiver, request.member] };
   if (receiver.kind === "merged-interface") {
     const selected = mergedBindings(deps, receiver, unit);
     if (selected.kind === "refused") return settle(selected);
-    const values = selected.value.recipe.member(unit, request.member);
-    return settle(values.kind === "refused" ? values : bindMemberValues(deps, values.value, selected.value, unit));
+    const values = selected.value.recipe.member(unit, request.member, request.access);
+    if (values.kind === "refused") return settle(values);
+    if (values.value.access !== request.access) throw new TypeError("decls: a selected interface member must retain its exact requested access");
+    return settle(bindMemberValues(deps, values.value, selected.value, unit));
   }
   if (receiver.kind !== "shape" && receiver.kind !== "source-environment")
     throw new TypeError("decls: memberTypeOf requires an actual retained typed member inventory");
@@ -188,19 +198,22 @@ export const memberTypeOf: MemberTypeOf = (deps, request) => {
   if (member.kind !== "property" || member.origins.length === 0)
     throw new TypeError("decls: memberTypeOf requires the retained type producer for this member kind");
   if (receiver.kind === "source-environment") {
-    const origin = member.readOrigins.length === 1 ? member.readOrigins[0] : undefined;
-    let read;
-    if (origin?.kind === "intrinsic") read = origin.symbol === "global-this" ? request.receiver
-      : internType(deps.types, { kind: "intrinsic", intrinsic: "absence" });
-    else if (origin?.kind === "declared") {
-      const node = declarationNode(deps, origin.declaration, unit);
-      if (node.kind === "VariableDeclaration" && node.tsonic.declaredType.kind === "available")
-        read = node.tsonic.declaredType.value ?? undefined;
-    }
-    if (read === undefined || readType(deps.types, read).kind === "error")
-      throw new TypeError("decls: a global member requires its exact checked selected value");
-    return { kind: "done", value: { kind: "ok", value: { read, write: member.readonly ? null : read },
-      positions: [{ position: { kind: "result" }, error: null }], diagnostics: [], emissions: [] } };
+    return settle(ready(selectMemberTypes(request.access, role => {
+      if (role === "write" && member.readonly) return null;
+      const origins = role === "read" ? member.readOrigins : member.writeOrigins;
+      const origin = origins.length === 1 ? origins[0] : undefined;
+      let type;
+      if (origin?.kind === "intrinsic") type = origin.symbol === "global-this" ? request.receiver
+        : internType(deps.types, { kind: "intrinsic", intrinsic: "absence" });
+      else if (origin?.kind === "declared") {
+        const node = declarationNode(deps, origin.declaration, unit);
+        if (node.kind === "VariableDeclaration" && node.tsonic.declaredType.kind === "available")
+          type = node.tsonic.declaredType.value ?? undefined;
+      }
+      if (type === undefined || readType(deps.types, type).kind === "error")
+        throw new TypeError("decls: a global member requires its exact checked selected value");
+      return type;
+    })));
   }
   for (const origin of member.origins) {
     if (origin.kind !== "declared")
@@ -210,11 +223,11 @@ export const memberTypeOf: MemberTypeOf = (deps, request) => {
       throw new TypeError("decls: memberTypeOf requires the actual type of this property's declaration or inferred part");
   }
   if (!("read" in member)) throw new TypeError("decls: a structural field requires its checked read and write types");
-  const { read, write } = member;
-  if (read === null) throw new TypeError("decls: a declared structural field requires its actual read type");
-  if (readType(deps.types, read).kind === "error"
-    || (write !== null && write !== read && readType(deps.types, write).kind === "error"))
-    throw new TypeError("decls: memberTypeOf cannot publish an error type without its actual cause");
-  return { kind: "done", value: { kind: "ok", value: { read, write },
-    positions: [{ position: { kind: "result" }, error: null }], diagnostics: [], emissions: [] } };
+  return settle(ready(selectMemberTypes(request.access, role => {
+    const type = role === "read" ? member.read : member.write;
+    if (role === "read" && type === null) throw new TypeError("decls: a declared structural field requires its actual read type");
+    if (type !== null && readType(deps.types, type).kind === "error")
+      throw new TypeError("decls: memberTypeOf cannot publish an error type without its actual cause");
+    return type;
+  })));
 };

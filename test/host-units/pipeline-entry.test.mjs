@@ -339,7 +339,7 @@ test("checked Source verifies the actual foreign generic scope before declaratio
     pipelineWiring.front.lowerModule = (deps, raw) => {
       const result = lower(deps, raw);
       if (result.kind !== "ok") return result;
-      modules.set(raw.module, result.value);
+      modules.set(raw.module, result.value.module);
       if (!crossed && modules.has(snapshot.entryPoint) && modules.has(native) && modules.has(foreign)) {
         const original = modules.get(native).tree.statements.nodes[0].typeParameters.nodes[0];
         const substitute = modules.get(foreign).tree.statements.nodes[0].typeParameters.nodes[0];
@@ -1531,6 +1531,8 @@ test("real public Host analysis reads a declared structural field through its ac
   const read = caller.tir.root.statements.nodes[0].expression;
   assert.equal(read.kind, "PropertyAccessExpression");
   const selection = read.tsonic.selection.decision.decision;
+  assert.equal(selection.read, read.tsonic.convertedType);
+  assert.equal(selection.write, null);
   assert.deepEqual(selection.location, { kind: "data", receiver: "by-reference", check: { kind: "none" } });
   assert.deepEqual(result.value.index.types.terms[read.tsonic.convertedType], { kind: "primitive", primitive: "bool" });
   const place = caller.mir.places.find(place => place.base.kind === "place"
@@ -1585,6 +1587,9 @@ test("a written ordinary field updates the referent and carries its exact parame
     if (name !== "write") continue;
     const assignment = body.tir.root.statements.nodes[1].expression;
     assert.equal(assignment.left.tsonic.access.kind, "write");
+    const selection = assignment.left.tsonic.selection.decision.decision;
+    assert.equal(selection.read, null);
+    assert.equal(selection.write, assignment.left.tsonic.access.storage);
     const [event] = facts.origins.writes.filter(row => row.destination === "member");
     assert.equal(event.operation, "mutation");
     assert.equal(event.node, assignment.id);
@@ -1615,6 +1620,9 @@ test("a conditional field assignment retains the same qualified read and write p
   const expression = body.tir.root.statements.nodes[0].expression;
   assert.equal(expression.tsonic.selection.kind, "or");
   assert.equal(expression.left.tsonic.access.kind, "read-write");
+  const selection = expression.left.tsonic.selection.decision.decision;
+  assert.equal(selection.read, expression.left.tsonic.access.read);
+  assert.equal(selection.write, expression.left.tsonic.access.storage);
   const facts = body.facts.find(row => row.execution.provided === 2);
   const summary = index.summaries.find(row => row.key.kind === "body"
     && fixture.types.executionKey(row.key.execution) === fixture.types.executionKey(facts.execution));
@@ -1733,7 +1741,11 @@ for (const annotation of [": Box", ""]) test(`a mutable reference slot${annotati
     && fixture.types.executionKey(row.key.execution) === fixture.types.executionKey(facts.execution));
   assert.equal(summary.parameters.length, 3);
   const [field] = summary.parameters[1].writes.paths;
-  assert.equal(summary.arena.projections[field].projection.member.decision.key.value, "flag");
+  const selected = summary.arena.projections[field].projection.member.decision;
+  assert.equal(selected.key.value, "flag");
+  assert.equal(summary.arena.projections.length, 1);
+  assert.notEqual(selected.read, null);
+  assert.notEqual(selected.write, null);
   assert.deepEqual(summary.parameters.map(parameter => parameter.reads), [
     { kind: "complete", paths: [field] }, { kind: "complete", paths: [] }, { kind: "complete", paths: [] },
   ]);

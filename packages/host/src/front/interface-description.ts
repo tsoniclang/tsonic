@@ -1,6 +1,6 @@
 import type { Result, UnitRequest } from "../diag/contract.js";
 import type { Origin, RawTypeId, SigId, TyId } from "../ids/contract.js";
-import type { IndexInventoryEntry, InterfaceDescriptionInventory, InterfaceDescriptionRecipe, MemberInventoryEntry, MemberTypes } from "../ir-types/contract.js";
+import type { IndexInventoryEntry, InterfaceDescriptionInventory, InterfaceDescriptionRecipe, MemberInventoryEntry } from "../ir-types/contract.js";
 import { admitTypePublicationStep, compareIndexSignatures, compareMemberKeys, refuseTypeConstruction } from "../ir-types/index.js";
 import { sourceOccurrence } from "./bindings.js";
 import type { RawFact, RawMember, RawMemberTable } from "./contract.js";
@@ -92,7 +92,9 @@ export function interfaceDescriptionRecipe(conversion: TypeConversion, original:
       calls: calls.value, constructs: constructs.value };
     return done(inventory);
   };
-  const member = (unit: UnitRequest, ordinal: number): Result<MemberTypes> => {
+  const member: InterfaceDescriptionRecipe["member"] = (unit, ordinal, access) => {
+    if (access !== "read" && access !== "write" && access !== "read-write")
+      throw new TypeError("front: a selected interface member requires its exact requested access");
     const rows = headerRows(unit);
     if (rows.kind !== "ok") return rows;
     const stop = admit(unit);
@@ -107,10 +109,15 @@ export function interfaceDescriptionRecipe(conversion: TypeConversion, original:
       if (fact.kind !== "available") throw new TypeError("front: an opened member must retain its actual selected type");
       return fact.value === null ? done(null) : typeOf(unit, fact.value);
     };
+    if (access === "write") {
+      const write = role(() => row.source.write);
+      return write.kind === "ok" ? done({ access, write: write.value }) : write;
+    }
     const read = role(() => row.source.read);
     if (read.kind !== "ok") return read;
+    if (access === "read") return done({ access, read: read.value });
     const write = role(() => row.source.write);
-    return write.kind === "ok" ? done({ read: read.value, write: write.value }) : write;
+    return write.kind === "ok" ? done({ access, read: read.value, write: write.value }) : write;
   };
   return { origin, inventory: inventoryOf, member };
 }

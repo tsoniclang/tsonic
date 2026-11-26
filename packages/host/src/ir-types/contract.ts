@@ -1,6 +1,7 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef, Origin } from "../ids/contract.js";
 import type { Result, TextParseResult, UnitRequest, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BodyInstance, CategoryEvidence, ConstantReference, ExactRational, Execution, IndexInventoryEntry, LiteralTypeValue, MemberInventoryEntry, MemberKey, MemberStorageSelection, MemberTypes, NativeBinaryFloatPrimitive, NativeIntegerPrimitive, NativeSignedIntegerPrimitive, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeEvidence, TypeProductionRequest } from "./data.js";
+import type { MemberTypeAccess, MemberTypeRequest } from "./data.js";
 import type { TypeArena } from "./arena.js";
 import type { LimitStop, PublicationAccount, TypePublicationLimits, TypePublicationStop } from "./work.js";
 export type { TypePublicationLimits, TypePublicationStop } from "./work.js";
@@ -91,6 +92,7 @@ export interface DeclaredExecution {
 export type BindingVectorData = (vector: BindingVector) => KeyData;
 export type ArtifactBindingsData = (bindings: ArtifactBindings) => KeyData;
 export type SignatureRequestData = (request: SignatureRequest) => KeyData;
+export type MemberTypeRequestData = (request: MemberTypeRequest) => readonly [TyId, number, MemberTypeAccess];
 export type TypeProductionRequestData = (request: TypeProductionRequest) => KeyData;
 export type SignatureRequestKey = (request: SignatureRequest) => string;
 export type BindingVectorKey = (vector: BindingVector) => string;
@@ -250,7 +252,7 @@ export interface InterfaceDescriptionInventory {
 export interface InterfaceDescriptionRecipe {
   readonly origin: Origin;
   readonly inventory: (unit: UnitRequest) => Result<InterfaceDescriptionInventory>;
-  readonly member: (unit: UnitRequest, ordinal: number) => Result<MemberTypes>;
+  readonly member: (unit: UnitRequest, ordinal: number, access: MemberTypeAccess) => Result<MemberTypes>;
 }
 
 export interface CheckedInterfaceDescription {

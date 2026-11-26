@@ -46,7 +46,7 @@ test("the checked source barrier preserves a recursive merged application", asyn
   assert.equal(answer.kind, "ok");
   const member = answer.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "next");
   assert.ok(member >= 0);
-  const selected = memberTypeOf(deps, { receiver, member }).value;
+  const selected = memberTypeOf(deps, { receiver, member, access: "read" }).value;
   assert.equal(selected.kind, "ok");
   const callable = fixture.types.readType(types, selected.value.read);
   assert.equal(callable.kind, "callable");
@@ -67,7 +67,7 @@ test("the checked source barrier preserves a recursive merged application", asyn
   const crossedSource = crossed.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
   const crossedReceiver = crossedSource.module.tree.statements.nodes[2].type.tsonic.type.value;
   assert.throws(() => memberTypeOf({ ...deps, modules: crossed.value.modules, types: crossed.value.types, typeWork: crossed.value.typeWork,
-    interfaceDescriptionOf: crossed.value.interfaceDescriptionOf }, { receiver: crossedReceiver, member }),
+    interfaceDescriptionOf: crossed.value.interfaceDescriptionOf }, { receiver: crossedReceiver, member, access: "read" }),
   /a merged interface backedge must name its actual earlier application/u);
 });
 
@@ -117,12 +117,12 @@ test("the checked symbolic slot verifies against its own declared group, not its
   const parameters = fragments => fragments.map(fragment => fragment.typeParameters.nodes[0].tsonic.definition);
   const description = checked.value.interfaceDescriptionOf(holder.tsonic.definition);
   assert.ok(description);
-  const unit = { query: "memberTypeOf", key: [holder.tsonic.definition, "selected"] };
+  const unit = { query: "memberTypeOf", key: [holder.tsonic.definition, "selected", "read"] };
   const inventory = description.recipe.inventory(unit);
   assert.equal(inventory.kind, "ok");
   const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "selected");
   assert.ok(member >= 0);
-  const properties = description.recipe.member(unit, member);
+  const properties = description.recipe.member(unit, member, "read");
   assert.equal(properties.kind, "ok");
   const table = fixture.types.viewTypes(checked.value.types);
   const application = table.terms[properties.value.read];
@@ -220,7 +220,7 @@ test("unchanged selected signature arguments retain their actual foreign lexical
   assert.equal(answer.kind, "ok");
   const member = answer.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "set");
   assert.ok(member >= 0);
-  const selectedMember = memberTypeOf(deps, { receiver, member }).value;
+  const selectedMember = memberTypeOf(deps, { receiver, member, access: "read" }).value;
   assert.equal(selectedMember.kind, "ok");
   const methodType = fixture.types.readType(types, selectedMember.value.read);
   assert.equal(methodType.kind, "callable");
@@ -524,7 +524,7 @@ test("applied method formals follow the authored receiver argument even when nat
     assert.equal(inventory.kind, "ok");
     const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === name);
     assert.ok(member >= 0);
-    const selected = memberTypeOf(deps, { receiver, member }).value;
+    const selected = memberTypeOf(deps, { receiver, member, access: "read-write" }).value;
     assert.equal(selected.kind, "ok");
     return selected.value;
   };
@@ -562,7 +562,7 @@ test("applied method formals follow the authored receiver argument even when nat
     capturedRows.push(row);
     if (fragment !== aliasHost) {
       assert.equal(propertyRows(typeShape, receiver).find(entry => entry.name === "left").type === receiver, true);
-      assert.deepEqual(readMember(checkedReceiver, "left"), { read: checkedReceiver, write: checkedReceiver });
+      assert.deepEqual(readMember(checkedReceiver, "left"), { access: "read-write", read: checkedReceiver, write: checkedReceiver });
 
       const [nativeLoop] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(entry => entry.name === "loop").type);
       assert.equal(checker.getReturnTypeOfSignature(nativeLoop)?.type === receiver, true);
@@ -796,7 +796,7 @@ test("a direct optional callback keeps the selected receiver binder in each qual
     assert.equal(inventory.kind, "ok");
     const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "sort");
     assert.ok(member >= 0);
-    const value = memberTypeOf(deps, { receiver: checkedReceiver, member }).value;
+    const value = memberTypeOf(deps, { receiver: checkedReceiver, member, access: "read" }).value;
     assert.equal(value.kind, "ok");
     const callable = typeOf(value.value.read);
     assert.equal(callable.kind, "callable");
@@ -1427,7 +1427,7 @@ for (const wrapped of [false, true]) test(wrapped ? "an alias-wrapped self resul
     assert.equal(inventory.kind, "ok");
     const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === name);
     assert.ok(member >= 0);
-    const selected = memberTypeOf(deps, { receiver, member }).value;
+    const selected = memberTypeOf(deps, { receiver, member, access: "read" }).value;
     assert.equal(selected.kind, "ok");
     const callable = typeOf(selected.value.read);
     assert.equal(callable.kind, "callable");

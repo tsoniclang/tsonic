@@ -3,10 +3,9 @@ import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/
 import type { LocalId, LocalRef, NodeId, PlaceId, ProjectionPathId } from "../../ids/contract.js";
 import { encodeKey, projectionPathId } from "../../ids/index.js";
 import type { AppliedSummary, BoundProducer, Origins, Producer, ProjectionPath, RelationalArena } from "../../ir-facts/contract.js";
-import { admitSelectionIdentity } from "../../ir-facts/index.js";
+import { admitSelectionIdentity, fieldProjectionIdentityData } from "../../ir-facts/index.js";
 import type { MirPlace } from "../../ir-mir/contract.js";
 import type { MemberSelection, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
-import { memberSelectionKey } from "../../ir-tir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { bodyFrontier } from "./places.js";
 import { valueKind } from "./values.js";
@@ -121,7 +120,7 @@ export function fieldEffects(deps: BodyRoundDeps, objectFormals: ReadonlySet<num
     const { account } = deps;
     const admission = admitSelectionIdentity(member, account);
     if (admission !== null) return admission;
-    const key = encodeKey(memberSelectionKey(member));
+    const key = encodeKey(fieldProjectionIdentityData(member));
     let id = paths.get(key);
     if (id === undefined) {
       const retained = grow(1, 0) ?? chargeResultEntries(account, 3);
@@ -129,6 +128,32 @@ export function fieldEffects(deps: BodyRoundDeps, objectFormals: ReadonlySet<num
       id = projectionPathId(projections.length);
       projections.push({ id, parent: null, projection: { kind: "field", member } });
       paths.set(key, id);
+    } else {
+      const paid = chargeWork(account, 1);
+      if (paid !== null) return paid;
+      const path = projections[id];
+      if (path?.projection.kind !== "field") return bodyFrontier("A field path requires its actual retained field.");
+      const previous = path.projection.member;
+      if (previous !== member) {
+        const offered = chargeWork(account, 4);
+        if (offered !== null) return offered;
+        const first = previous.decision;
+        const { read: firstRead, write: firstWrite } = first;
+        const { read: laterRead, write: laterWrite } = member.decision;
+        if (firstRead !== null && laterRead !== null && firstRead !== laterRead
+          || firstWrite !== null && laterWrite !== null && firstWrite !== laterWrite)
+          return bodyFrontier("The same field path requires agreeing selected types for each reached access.");
+        const read = firstRead ?? laterRead;
+        const write = firstWrite ?? laterWrite;
+        if (read !== firstRead || write !== firstWrite) {
+          const retained = chargeWork(account, 10) ?? chargeResultEntries(account, 4);
+          if (retained !== null) return retained;
+          const { key, origins, selectedDeclarations, primary, bindings, getter, setter, location } = first;
+          const selected = { getter: previous.getter, setter: previous.setter,
+            decision: { key, origins, selectedDeclarations, primary, bindings, read, write, getter, setter, location } };
+          projections[id] = { id, parent: null, projection: { kind: "field", member: selected } };
+        }
+      }
     }
     if (origins.kind !== "complete" || origins.includesAbsence || origins.producers.length === 0)
       return bodyFrontier("A held field access requires the complete actual receiver bindings at the occurrence.");

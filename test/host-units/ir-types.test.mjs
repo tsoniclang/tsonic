@@ -4407,6 +4407,15 @@ test("the complete real ir-types owner compiles against freshly emitted actual a
   assert.deepEqual(report.sourceInventory.map(entry => relative(repository, entry.path)).sort(), [...own, ...ids, ...diag].sort());
 });
 
+test("member type identity includes the exact requested access without a default", async () => {
+  const { memberTypeRequestData } = await import("../../packages/host/dist/ir-types/index.js");
+  const keys = ["read", "write", "read-write"].map(access => memberTypeRequestData({ receiver: 1, member: 0, access }));
+  assert.deepEqual(keys, [[1, 0, "read"], [1, 0, "write"], [1, 0, "read-write"]]);
+  assert.equal(new Set(keys.map(encodeKey)).size, 3);
+  for (const access of [undefined, "call", null])
+    assert.throws(() => memberTypeRequestData({ receiver: 1, member: 0, access }), /requires its exact access/);
+});
+
 test("fresh public declarations admit real strict readers and reject the entire readonly mutation vector", () => {
   const parent = resolve(repository, ".temp/ir-types-declaration-consumer");
   mkdirSync(parent, { recursive: true });
@@ -4437,16 +4446,16 @@ test("fresh public declarations admit real strict readers and reject the entire 
   const invalidGraph = run(resolve(stage, "graph-consumer.json"));
   assert.equal(invalidGraph.status, 1, invalidGraph.diagnostics.slice(-8000));
   assert.equal([...invalidGraph.diagnostics.matchAll(/error TS(\d+):/gu)].length, 6, invalidGraph.diagnostics.slice(-8000));
-  write("index-reader.ts", 'import { compareIndexSignatures, compareMemberKeys, encodeSelectorPath } from "./declarations/ir-types/index.js";\nimport type { CompareIndexSignatures, CompareMemberKeys, ComponentSelector, EncodeSelectorPath, IndexSignature, MemberTypeRequest, MemberTypes } from "./declarations/ir-types/contract.js";\nexport const compare: CompareIndexSignatures = compareIndexSignatures;\nexport const compareMembers: CompareMemberKeys = compareMemberKeys;\nexport const encode: EncodeSelectorPath = encodeSelectorPath;\nexport function selector(index: IndexSignature): ComponentSelector { return { kind: "index-value", origin: index.origin, key: index.key }; }\nexport function memberResult(request: MemberTypeRequest, value: MemberTypes): number | null { return request.member === 0 ? value.read : value.write; }\n');
+  write("index-reader.ts", 'import { compareIndexSignatures, compareMemberKeys, encodeSelectorPath, memberTypeRequestData } from "./declarations/ir-types/index.js";\nimport type { CompareIndexSignatures, CompareMemberKeys, ComponentSelector, EncodeSelectorPath, IndexSignature, MemberTypeRequestData, MemberTypes } from "./declarations/ir-types/contract.js";\nexport const compare: CompareIndexSignatures = compareIndexSignatures;\nexport const compareMembers: CompareMemberKeys = compareMemberKeys;\nexport const encode: EncodeSelectorPath = encodeSelectorPath;\nexport const memberKey: MemberTypeRequestData = memberTypeRequestData;\nexport function selector(index: IndexSignature): ComponentSelector { return { kind: "index-value", origin: index.origin, key: index.key }; }\nexport function memberResult(value: MemberTypes): number | null { return value.access === "write" ? value.write : value.read; }\n');
   write("index-consumer.json", { extends: resolve(repository, "tsconfig.base.json"), compilerOptions: {
     noEmit: true, types: [], skipLibCheck: false, strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true },
     files: [resolve(stage, "index-reader.ts")], include: [] });
   assert.deepEqual(run(resolve(stage, "index-consumer.json")), { status: 0, diagnostics: "" });
-  write("index-reader.ts", 'import { compareMemberKeys } from "./declarations/ir-types/index.js";\nimport type { ComponentSelector, IndexSignature, MemberTypeRequest, MemberTypes } from "./declarations/ir-types/contract.js";\nexport function removed(index: IndexSignature): void { index.declaration; index.origin = index.origin; }\nexport const removedSelector: ComponentSelector = { kind: "index-key", declaration: "retired" };\nexport function wrongMember(request: MemberTypeRequest, value: MemberTypes): void { request.member = 1; value.read = null; compareMemberKeys("spelling", "spelling"); }\n');
+  write("index-reader.ts", 'import { compareMemberKeys, memberTypeRequestData } from "./declarations/ir-types/index.js";\nimport type { ComponentSelector, IndexSignature, MemberTypeRequest, MemberTypes } from "./declarations/ir-types/contract.js";\nexport function removed(index: IndexSignature): void { index.declaration; index.origin = index.origin; }\nexport const removedSelector: ComponentSelector = { kind: "index-key", declaration: "retired" };\nexport function wrongMember(request: MemberTypeRequest, value: MemberTypes): void { request.member = 1; if (value.access !== "write") value.read = null; compareMemberKeys("spelling", "spelling"); memberTypeRequestData({ receiver: request.receiver, member: request.member }); if (value.access === "write") value.read; }\n');
   const invalidIndex = run(resolve(stage, "index-consumer.json"));
   assert.equal(invalidIndex.status, 1, invalidIndex.diagnostics.slice(-8000));
   assert.deepEqual([...invalidIndex.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
-    [2339, 2540, 2353, 2540, 2540, 2345], invalidIndex.diagnostics.slice(-8000));
+    [2339, 2540, 2353, 2540, 2540, 2345, 2741, 2339], invalidIndex.diagnostics.slice(-8000));
   write("index-reader.ts", 'import type { TypeParameter, TypeParameterIdentity } from "./declarations/ir-types/contract.js";\nexport type Removed = TypeParameterIdentity;\nexport function retired(parameter: TypeParameter): void { parameter.identity; parameter.declaration = parameter.declaration; }\n');
   const invalidParameter = run(resolve(stage, "index-consumer.json"));
   assert.equal(invalidParameter.status, 1, invalidParameter.diagnostics.slice(-8000));

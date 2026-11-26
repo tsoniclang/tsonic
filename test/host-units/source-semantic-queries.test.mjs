@@ -2310,7 +2310,7 @@ test("the real member contribution derives both declaration dependencies and kee
   const field = body.root.statements.nodes[0].expression;
   const group = program.inputs.groups.find(candidate => candidate.bodies.includes(body.body));
   const receiver = field.expression.tsonic.value.views.read.value;
-  const expected = { receiver, member: 0 };
+  const expected = [receiver, 0, "read"];
   const solved = program.database.run(program.queries.solutionOf, group.id);
   assert.equal(solved.kind, "completed");
   const decisions = solved.value.solution.constraints.filter(row => row.constraint.body === body.body)
@@ -2322,8 +2322,8 @@ test("the real member contribution derives both declaration dependencies and kee
   const trace = program.database.trace();
   const starts = trace.filter(event => event.kind === "start" && (event.fact.query === "membersOf" || event.fact.query === "memberTypeOf"));
   assert.deepEqual(starts.map(event => [event.fact.query, event.fact.key]),
-    [["membersOf", receiver], ["memberTypeOf", [expected.receiver, expected.member]]]);
-  const information = program.database.errorOf({ request: { query: "memberTypeOf", key: [expected.receiver, expected.member] },
+    [["membersOf", receiver], ["memberTypeOf", expected]]);
+  const information = program.database.errorOf({ request: { query: "memberTypeOf", key: expected },
     position: { kind: "result" } });
   assert.deepEqual(information, { kind: "completed", error: null });
 });
@@ -2421,7 +2421,7 @@ test("the owning solve resumes the exact member contribution once and rejects cr
   first.paused.suspension.state = { consumed: false };
   assert.throws(() => rules.resumeMember(rulesPause, unread), /actual rule table/);
   assert.throws(() => wiring.infer.resumeSolveGroup(inputs, first.paused, unread), /active member contribution once/);
-  assert.deepEqual(second.requests, [{ kind: "memberTypeOf", request: { receiver: source.value.receiver, member: 1 } }]);
+  assert.deepEqual(second.requests, [{ kind: "memberTypeOf", request: { receiver: source.value.receiver, member: 1, access: "read" } }]);
   const wrong = start();
   const otherType = fixture.types.readType(program.interner, source.value.receiver).members[0].read;
   assert.notEqual(otherType, source.value.receiver);
@@ -2430,11 +2430,26 @@ test("the owning solve resumes the exact member contribution once and rejects cr
   const typed = program.database.run(program.queries.memberTypeOf, second.requests[0].request);
   assert.equal(typed.kind, "completed");
   assert.deepEqual(fixture.types.readType(program.interner, typed.value.read), { kind: "primitive", primitive: "bool" });
-  const origin = { request: { query: "memberTypeOf", key: [source.value.receiver, 1] }, position: { kind: "result" } };
+  const origin = { request: { query: "memberTypeOf", key: [source.value.receiver, 1, "read"] }, position: { kind: "result" } };
   const answer = { kind: "memberTypeOf", request: second.requests[0].request, value: typed.value,
     origin, error: null };
   assert.throws(() => wiring.infer.resumeSolveGroup(inputs, second.paused, [{ ...answer,
     request: { ...answer.request, member: 0 } }]), /actual selected member type/);
+  const writeRequest = { ...answer.request, access: "write" };
+  const write = program.database.run(program.queries.memberTypeOf, writeRequest);
+  assert.equal(write.kind, "completed");
+  assert.deepEqual(write.value, { access: "write", write: typed.value.read });
+  const writeOrigin = { request: { query: "memberTypeOf", key: [source.value.receiver, 1, "write"] }, position: { kind: "result" } };
+  assert.deepEqual(program.database.errorOf(writeOrigin), { kind: "completed", error: null });
+  for (const [crossed, cause] of [
+    [{ ...answer, request: writeRequest, value: write.value, origin: writeOrigin }, /actual selected member type/],
+    [{ ...answer, value: write.value }, /actual selected member type/],
+    [{ ...answer, origin: writeOrigin }, /actual completed result position/],
+  ]) {
+    const inventory = start();
+    const pending = wiring.infer.resumeSolveGroup(inputs, inventory.paused, [supplied]);
+    assert.throws(() => wiring.infer.resumeSolveGroup(inputs, pending.paused, [crossed]), cause);
+  }
 });
 
 test("successive checked member contributions resume the same solver cursor without replay, using isolated typed errors", () => {
@@ -2480,10 +2495,10 @@ test("successive checked member contributions resume the same solver cursor with
     assert.throws(() => wiring.infer.resumeSolveGroup(inputs, inventoryPause, []), /active member contribution once/);
     assert.equal(step.kind, "paused");
     const request = step.requests[0].request;
-    assert.deepEqual(request, { receiver: found.value.receiver, member: ordinal });
+    assert.deepEqual(request, { receiver: found.value.receiver, member: ordinal, access: "read" });
     const original = program.database.run(program.queries.memberTypeOf, request);
     assert.equal(original.kind, "completed");
-    const origin = { request: { query: "memberTypeOf", key: [request.receiver, request.member] }, position: { kind: "result" } };
+    const origin = { request: { query: "memberTypeOf", key: [request.receiver, request.member, request.access] }, position: { kind: "result" } };
     origins.push(origin);
     const error = { kind: "error", causes: [{ kind: "unit", unit: {
       request: { query: "isolated-member-owner", key: ordinal }, position: { kind: "result" },

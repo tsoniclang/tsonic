@@ -215,11 +215,16 @@ test("actual intrinsic environment members keep their native origins and the lib
   assert.equal(inventory.value.value.completeness.kind, "complete");
   assert.deepEqual(inventory.value.value.members, shape.members);
   const member = inventory.value.value.members.findIndex(item => item.key.kind === "text" && item.key.value === "globalThis");
-  const read = memberTypeOf({ types: interner }, { receiver, member }).value.value.read;
+  const read = memberTypeOf({ types: interner }, { receiver, member, access: "read" }).value.value.read;
   assert.equal(read, receiver, "the actual intrinsic global member refers back to the identical environment");
   const absent = inventory.value.value.members.findIndex(item => item.key.kind === "text" && item.key.value === "undefined");
-  const absence = memberTypeOf({ types: interner }, { receiver, member: absent }).value.value.read;
+  const absence = memberTypeOf({ types: interner }, { receiver, member: absent, access: "read" }).value.value.read;
   assert.deepEqual(fixture.types.readType(interner, absence), { kind: "intrinsic", intrinsic: "absence" });
+  for (const [ordinal, actual] of [[member, read], [absent, absence]]) {
+    const request = { receiver, member: ordinal, access: "write" };
+    const value = memberTypeOf({ types: interner }, request).value.value;
+    assert.deepEqual(value, { access: "write", write: shape.members[ordinal].readonly ? null : actual });
+  }
   assert.equal(isDeepStrictEqual(fixture.types.parseTypes(fixture.types.printTypes(table)), { kind: "parsed", value: table }), true);
 });
 

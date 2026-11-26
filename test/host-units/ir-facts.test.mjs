@@ -319,7 +319,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   }
   await textCase("one real call component", graph(), graphText, product.printDependencyInventory, product.parseDependencyInventory);
   await suite.test("every exported value is an exact current own-contract port", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["admitArtifactIdentity", "admitBindingIdentity", "admitSelectionIdentity", "admitStorageIdentity", "admitSummaryIdentity", "applySummary", "argumentTransportKey", "bindInitialization", "compareBoundActivations", "compareConstructionAlternatives", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "escapeTargetKey", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "staticDeclarationKey", "staticInitializationCellOf", "staticInitializationOf", "summaryEquals", "summaryKey", "summaryPositionKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
+    assert.deepEqual(Object.keys(product).sort(), ["admitArtifactIdentity", "admitBindingIdentity", "admitSelectionIdentity", "admitStorageIdentity", "admitSummaryIdentity", "applySummary", "argumentTransportKey", "bindInitialization", "compareBoundActivations", "compareConstructionAlternatives", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "escapeTargetKey", "fieldProjectionIdentityData", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "staticDeclarationKey", "staticInitializationCellOf", "staticInitializationOf", "summaryEquals", "summaryKey", "summaryPositionKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
   });
   await suite.test("required verifier accounts retain exact measured path budgets and the original first stop", async () => {
     const flow = await import("../../packages/host/dist/dataflow/index.js");
@@ -2881,6 +2881,21 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
 
   const member = (primary = definitions.field) => ({ decision: { key: { kind: "text", value: "value" }, origins: [{ kind: "declared", declaration: primary }],
     selectedDeclarations: [primary], primary, read: 0, write: 0, getter: null, setter: null, bindings: emptyBindings(), location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null });
+  await factOpposite("physical field path uniqueness is independent of the selected access arms", (input, supplied) => {
+    const read = member();
+    read.decision.location.receiver = "by-reference";
+    read.decision.write = null;
+    const write = member(definitions.other);
+    write.decision.location.receiver = "by-reference";
+    write.decision.read = null;
+    input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: read } },
+      { id: 3, parent: null, projection: { kind: "field", member: write } });
+    supplied.scopeRows.body = [emptyScope(), emptyScope()];
+  }, input => {
+    const read = input.arena.projections[2].projection.member;
+    const write = input.arena.projections[3].projection.member;
+    write.decision = { ...read.decision, read: null, write: write.decision.write };
+  }, [violation("projection-unique", arenaSite("projection", "projection", 3), "A parent and selected projection must identify exactly one arena row.")]);
   const memoryField = (id = 0, primary = definitions.field) => ({ id, occurrence: itemRef(primary), owner: 3,
     selector: itemRef(primary), selection: itemRef(primary), member: { key: { kind: "text", value: "value" },
       origins: [{ kind: "declared", declaration: primary }], selectedDeclarations: [primary], primary, bindings: emptyBindings() },
