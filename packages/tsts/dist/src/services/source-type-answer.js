@@ -46,14 +46,17 @@ function selectedSignatureReturn(checker, signature, type, admits) {
     if (answer === undefined || answer.causes.length !== 0 || signature === undefined || type === undefined
         || type.checker !== checker)
         return answer;
-    const parameter = (type.flags & TypeFlagsTypeParameter) !== 0;
     const target = signature.target;
-    const receiverAnnotation = parameter || !IsTupleType(type) ? undefined : Node_Type(target?.declaration);
+    const declaration = target?.declaration;
+    if (target === undefined || declaration === undefined)
+        return answer;
+    const parameter = (type.flags & TypeFlagsTypeParameter) !== 0;
+    const receiverAnnotation = parameter || !IsTupleType(type) ? undefined : Node_Type(declaration);
     if (!parameter && receiverAnnotation?.Kind !== KindThisType)
         return answer;
     admitNativeChecker(checker, "work");
     const mapper = signature.mapper;
-    if (signature.composite !== undefined || target === undefined || mapper === undefined || target.checkerId !== checker.id
+    if (signature.composite !== undefined || mapper === undefined || target.checkerId !== checker.id
         || signature.resolvedReturnType !== type)
         return answer;
     const original = target.resolvedReturnType;
@@ -62,10 +65,10 @@ function selectedSignatureReturn(checker, signature, type, admits) {
     const kind = TypeMapper_Kind(mapper);
     if (kind !== TypeMapperKindArray && kind !== TypeMapperKindSimple || TypeMapper_Map(mapper, original) !== type)
         return answer;
-    const declaration = originalSignatureDeclaration(checker, target);
+    if (originalSignatureDeclaration(checker, target) !== declaration || signature.declaration !== declaration)
+        return answer;
     const annotation = parameter ? Node_Type(declaration) : receiverAnnotation;
-    if (declaration === undefined || signature.declaration !== declaration || annotation === undefined
-        || completedAnnotationSource(checker, annotation, original) !== annotation)
+    if (annotation === undefined || completedAnnotationSource(checker, annotation, original) !== annotation)
         return answer;
     admitNativeChecker(checker, "retained", 2);
     return { ...answer, projectedReturn: { kind: parameter ? "parameter" : "receiver", declaration, annotation, original, selected: type } };

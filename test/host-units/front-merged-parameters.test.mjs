@@ -732,11 +732,14 @@ test("recursive receiver admission preserves the actual source-reader stop befor
 
 test("a direct optional callback keeps the selected receiver binder in each qualified applied signature", async () => {
   const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { membersOf, memberTypeOf } = await import("../../packages/host/dist/decls/index.js");
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
     export interface Box<T> { sort(compareFn?: (a: T, b: T) => boolean): boolean; left: Box<T>; }
     export interface Box<T> { right: Box<T>; }
   ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const { captured, deps, opened } = fixture.captureModulesOf(snapshot);
+  const { captured, opened } = fixture.captureModulesOf(snapshot);
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const { raw } = captured.find(entry => entry.module === module);
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
@@ -750,10 +753,29 @@ test("a direct optional callback keeps the selected receiver binder in each qual
   const originalCallback = checker.getSignatureFromDeclaration(originalSyntax);
   const originalType = checker.getTypeFromTypeNode(originalSyntax).type;
   assert.equal(typeShape.getUnionOrIntersectionTypes(formal.type).includes(originalType), true);
-  const originalBinder = { module, node: left.typeParameters.nodes[0].id };
+  const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
+  const capturedSource = captureSourceBarrier(input);
+  assert.equal(capturedSource.kind, "ok", JSON.stringify(capturedSource.diagnostics));
+  const { modules, types, typeWork, interfaceDescriptionOf } = capturedSource.value;
+  const { nodes } = modules.find(row => row.module.module === module);
+  const deps = { modules, types, typeWork, interfaceDescriptionOf, typeExpansion: input.limits.instantiation.typeExpansion };
+  const typeOf = type => fixture.types.readType(types, type);
+  const signatureOf = signature => fixture.types.readSignature(types, signature);
+  const callbackOf = selected => {
+    assert.equal(selected.parameters.length, 1);
+    assert.equal(selected.parameters[0].acceptsOmission, true);
+    const optional = typeOf(selected.parameters[0].type);
+    assert.equal(optional.kind, "optional");
+    const callable = typeOf(optional.value);
+    assert.equal(callable.kind, "callable");
+    assert.equal(callable.calls.length, 1);
+    return signatureOf(callable.calls[0]);
+  };
+  const original = signatureOf(nodes[left.members.nodes[0].id].tsonic.signatures[0].signature);
+  const originalRow = callbackOf(original);
+  const originalBinder = nodes[left.typeParameters.nodes[0].id].tsonic.definition;
   const native = [];
   const checkedRows = [];
-  const fromStructure = type => raw.types.members[type.form.value.inventory];
   for (const [fragment, name] of [[left, "left"], [right, "right"]]) {
     const property = fragment.members.nodes.find(member => member.name.text === name);
     const syntax = ast.typeNode(numbered.nodes[property.id]);
@@ -769,28 +791,31 @@ test("a direct optional callback keeps the selected receiver binder in each qual
     assert.equal(callback.derivation.kind === "member" && callback.derivation.owner === selectedType, true);
     native.push({ receiver, callback });
 
-    const authored = raw.types.types.find(entry => entry.authoredTypeNode?.node === numbered.ids.get(syntax));
-    const member = fromStructure(authored).members.find(entry => entry.name === "sort");
-    const rawMethod = raw.types.signatures[fromStructure(raw.types.types[member.read.value]).calls[0]];
-    const arms = raw.types.types[rawMethod.parameters[0].type].form.value.members.map(id => raw.types.types[id]);
-    assert.deepEqual(arms.find(arm => arm.form.value.kind === "scalar").form.value, { kind: "scalar", scalar: "undefined" });
-    const selectedRow = raw.types.signatures[fromStructure(arms.find(arm => arm.form.value.kind === "structure")).calls[0]];
-    const originalRow = raw.types.signatures[selectedRow.target];
-    const expected = { module, node: fragment.typeParameters.nodes[0].id };
+    const checkedReceiver = nodes[property.type.id].tsonic.type.value;
+    const inventory = membersOf(deps, checkedReceiver).value;
+    assert.equal(inventory.kind, "ok");
+    const member = inventory.value.members.findIndex(row => row.key.kind === "text" && row.key.value === "sort");
+    assert.ok(member >= 0);
+    const value = memberTypeOf(deps, { receiver: checkedReceiver, member }).value;
+    assert.equal(value.kind, "ok");
+    const callable = typeOf(value.value.read);
+    assert.equal(callable.kind, "callable");
+    assert.equal(callable.calls.length, 1);
+    const selectedMethod = signatureOf(callable.calls[0]);
+    assert.equal(selectedMethod.declaration, original.declaration);
+    const selectedRow = callbackOf(selectedMethod);
+    assert.deepEqual(selectedRow.owner, originalRow.owner);
+    const expected = nodes[fragment.typeParameters.nodes[0].id].tsonic.definition;
     for (const [signature, binder] of [[selectedRow, expected], [originalRow, originalBinder]]) {
       assert.equal(signature.parameters.length, 2);
-      for (const parameter of signature.parameters) {
-        const type = raw.types.types[parameter.type];
-        assert.equal(type.authoredTypeNode, null);
-        assert.deepEqual(type.form.value, { kind: "parameter", parameter: binder, constraint: null, default: null });
-        assert.equal(deps.definitionOf(type.form.value.parameter), deps.definitionOf(binder));
-      }
+      for (const parameter of signature.parameters)
+        assert.deepEqual(typeOf(parameter.type), { kind: "param", parameter: binder });
     }
     checkedRows.push(selectedRow);
   }
   assert.equal(native[0].receiver === native[1].receiver && native[0].callback === native[1].callback, true);
   assert.notEqual(checkedRows[0].id, checkedRows[1].id);
-  assert.equal(checkedRows[0].target, checkedRows[1].target);
+  assert.deepEqual(checkedRows[0].owner, checkedRows[1].owner);
 });
 
 test("an alias-wrapped callback cannot borrow its inner FunctionType by native pointer", async () => {

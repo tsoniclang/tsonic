@@ -4274,9 +4274,12 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
     }
   }
   const resultKind = scope.checked.ast.kindName(resultSyntax);
-  const authored = resultSyntax !== undefined && answer?.typeSource === resultSyntax &&
+  const tupleResult = resultSyntax !== undefined && answer?.typeSource !== undefined && scope.shape.isTuple(answer.type)
+    && (answer.typeSource === resultSyntax || answer.typeSource === unparenthesizedType(scope, resultSyntax));
+  if (scope.meter.refusal !== null) return;
+  const authored = resultSyntax !== undefined && (tupleResult || answer?.typeSource === resultSyntax &&
     (resultKind === "KindArrayType" || resultKind === "KindUnionType" || resultKind === "KindIntersectionType" ||
-      resultKind === "KindTypeReference" || resultKind === "KindMappedType")
+      resultKind === "KindTypeReference" || resultKind === "KindMappedType"))
     ? referenceTo(scope, program, resultSyntax) : null;
   if (scope.meter.refusal !== null) return;
   const result = enqueueRawType(scope, answer, resultPosition, operator ?? authored ?? originalUse ?? direct, use, null);

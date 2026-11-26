@@ -35,6 +35,32 @@ const bracketed = (result = "T[]", other = "") =>
    interface ReadonlyArray<T> { produce(): ${result}; select(value: T): boolean; ${other} }
    interface ReadonlyArray<T> { flag: boolean; }`;
 
+test("the checked signature of an ordinary function retains its written tuple result", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function mutable(flag: boolean): [boolean, number] { throw flag; }
+    export function wrapped(flag: boolean): (readonly [boolean, number]) { throw flag; }
+  `);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const { modules, types } = captured.value;
+  const { module } = modules.find(row => row.module.module === input.snapshot.entryPoint);
+  assert.equal(module.tree.statements.nodes.length, 2);
+  for (const [index, declaration] of module.tree.statements.nodes.entries()) {
+    const [endpoint] = declaration.tsonic.signatures;
+    const signature = fixture.types.readSignature(types, endpoint.signature);
+    assert.equal(signature.declaration, declaration.tsonic.definition);
+    assert.equal(signature.result, declaration.type.tsonic.type.value);
+    const tuple = fixture.types.readType(types, signature.result);
+    assert.equal(tuple.kind, "tuple");
+    assert.equal(tuple.readonly, index === 1);
+    assert.deepEqual(tuple.elements.map(element => [element.kind, fixture.types.readType(types, element.type)]),
+      [["required", { kind: "primitive", primitive: "bool" }], ["required", { kind: "primitive", primitive: "float64" }]]);
+  }
+});
+
 test("actual optional formal arms and separate equal native tuple occurrences preserve their own selected formals", async () => {
   const result = await capture(receiver +
     `interface Build { new<K,V>(first?: ${direct} | null, second?: null | ${direct}): boolean; }`, (ast, queries, file) => {
