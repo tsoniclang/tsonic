@@ -176,7 +176,8 @@ export function statementBefore(analysis: Analysis, statement: MirStatement, aft
   }
   return orInto(analysis, state, uses) && orInto(analysis, state, analysis.escaped) ? state : after;
 }
-export function terminatorShape(analysis: Analysis, terminator: MirTerminator, uses: Bits): readonly Edge[] {
+export function terminatorShape(analysis: Analysis, terminator: MirTerminator, uses: Bits,
+  resumed: readonly BlockId[] = []): readonly Edge[] {
   if (!work(analysis)) return [];
   const edges: Edge[] = [];
   const edge = (target: BlockId, writes: number | null, role: StoreEdge | null): boolean => {
@@ -185,9 +186,16 @@ export function terminatorShape(analysis: Analysis, terminator: MirTerminator, u
     edges.push({ target, writes, role });
     return true;
   };
-  const unwind = (value: MirUnwind): boolean => value.kind !== "handler" || edge(value.target, value.exception, "unwind");
+  const unwind = (value: MirUnwind): boolean => value.kind === "carry" ? edge(value.target, null, null)
+    : value.kind !== "handler" || edge(value.target, value.exception, "unwind");
   switch (terminator.kind) {
     case "goto": edge(terminator.target, null, null); break;
+    case "cleanup-enter": edge(terminator.entry, null, null); break;
+    case "cleanup-discard": edge(terminator.target, null, null); break;
+    case "cleanup-resume":
+      for (const target of resumed) if (!edge(target, null, null)) return [];
+      break;
+    case "unwind-propagate": unwind(terminator.unwind); break;
     case "switch":
       if (!operandReads(analysis, uses, terminator.operand)) return [];
       for (const row of terminator.targets) if (!edge(row.target, null, null)) return [];
@@ -240,10 +248,11 @@ export function terminatorShape(analysis: Analysis, terminator: MirTerminator, u
   }
   return stopped(analysis) ? [] : edges;
 }
-export function terminatorBefore(analysis: Analysis, terminator: MirTerminator, entryOf: (target: BlockId) => Bits): Bits {
+export function terminatorBefore(analysis: Analysis, terminator: MirTerminator, entryOf: (target: BlockId) => Bits,
+  resumed: readonly BlockId[] = []): Bits {
   const uses = emptyBits(analysis);
   if (stopped(analysis)) return analysis.zero;
-  const edges = terminatorShape(analysis, terminator, uses);
+  const edges = terminatorShape(analysis, terminator, uses, resumed);
   if (stopped(analysis)) return analysis.zero;
   const state = emptyBits(analysis);
   if (stopped(analysis)) return analysis.zero;

@@ -4,7 +4,7 @@ import type { CallExpression, Expression, NewExpression } from "../ir-hir/contra
 import type { MirCallArgument } from "../ir-mir/contract.js";
 import type { TypedApplication, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { Lowering, Work } from "./model.js";
-import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
+import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf, workNode } from "./model.js";
 import { exposeLocal, held, popOperand, pushOperand, saveBeforeControl, temporary } from "./operands.js";
 import { enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
 import { unwindToHandler } from "./bindings.js";
@@ -133,7 +133,7 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
   const needsDestination = !returnsVoid && nextWork.kind !== "discard";
   const result = needsDestination ? temporary(lowering, decision.result, site) : null;
   if (needsDestination && result === null) return false;
-  const next = newBlock(lowering.state, siteOf(lowering.body, nextWork.node));
+  const next = newBlock(lowering.state, siteOf(lowering.body, workNode(nextWork)));
   if (next === null) return false;
   const unwind = unwindToHandler(lowering, node);
   if (unwind === null) return false;

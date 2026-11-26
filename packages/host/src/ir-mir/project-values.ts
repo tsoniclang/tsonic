@@ -89,6 +89,7 @@ export const projectMirValues: ProjectMirValues = (ops, constantOf) => {
     const value = read();
     switch (value.kind) {
       case "goto": case "check": case "unreachable": return copied(value);
+      case "cleanup-enter": case "cleanup-resume": case "cleanup-discard": case "unwind-propagate": return copied(value);
       case "switch": return ops.record(6, () => then(operand(() => value.operand), operand =>
         then(ops.orderedRows(value.targets, readTarget => ops.record(2, () => {
           const target = readTarget();

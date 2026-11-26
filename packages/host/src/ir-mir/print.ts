@@ -5,7 +5,7 @@ import type {
   MirAggregate, MirAggregateField, MirBlock, MirBody, MirCallArgument, MirCallee,
   MirClosureCapture, MirConstant, MirConstantValue, MirEntry, MirLocal, MirLocalRole, MirLocalStorageMode,
   MirOperand, MirPlace, MirPlaceBase, MirProjection, MirRvalue, MirSite,
-  MirStatement, MirStepRef, MirSuspensionReturn, MirSwitchTarget, MirTerminator, MirUnwind,
+  MirCleanupTransfer, MirStatement, MirStepRef, MirSuspensionReturn, MirSwitchTarget, MirTerminator, MirUnwind,
 } from "./contract.js";
 import { createDecisionWires } from "./text-decisions.js";
 import { choice, field, finish, literals, nullable, record, variants, vector, wireText } from "./text.js";
@@ -262,17 +262,21 @@ export function createBodyWire(): Wire<MirBody> {
     field("exception", () => nullable(() => placeWire), value => value.exception, exception =>
       field("target", () => blockWire, value => value.target, target => finish(() => ({ kind: "handler", exception, target })))));
 
+  const carryUnwind = record<MirUnwind & { readonly kind: "carry" }>("carry", () =>
+    field("target", () => blockWire, value => value.target, target => finish(() => ({ kind: "carry", target }))));
+
   const escapeUnwind = record<MirUnwind & { readonly kind: "escape" }>("escape", () => finish(() => ({ kind: "escape" })));
 
   const abortUnwind = record<MirUnwind & { readonly kind: "abort" }>("abort", () => finish(() => ({ kind: "abort" })));
 
   const noneUnwind = record<MirUnwind & { readonly kind: "none" }>("none", () => finish(() => ({ kind: "none" })));
 
-  const unwindWire: Wire<MirUnwind> = variants([choice("handler", () => handlerUnwind), choice("escape", () => escapeUnwind),
+  const unwindWire: Wire<MirUnwind> = variants([choice("handler", () => handlerUnwind), choice("carry", () => carryUnwind), choice("escape", () => escapeUnwind),
     choice("abort", () => abortUnwind), choice("none", () => noneUnwind)],
     (value, path, next) => {
       switch (value.kind) {
         case "handler": return handlerUnwind.write(value, path, next);
+        case "carry": return carryUnwind.write(value, path, next);
         case "escape": return escapeUnwind.write(value, path, next);
         case "abort": return abortUnwind.write(value, path, next);
         case "none": return noneUnwind.write(value, path, next);
@@ -392,6 +396,22 @@ export function createBodyWire(): Wire<MirBody> {
     field("operand", () => operandWire, value => value.operand, operand =>
       field("unwind", () => unwindWire, value => value.unwind, unwind => finish(() => ({ origin, tir, kind: "throw", operand, unwind }))))));
 
+  const cleanupEnter = record<MirTerminator & { readonly kind: "cleanup-enter" }>("cleanup-enter", () => siteFields((origin, tir) =>
+    field("entry", () => blockWire, value => value.entry, entry =>
+      field("continuation", () => blockWire, value => value.continuation, continuation =>
+        field("transfer", () => literals<MirCleanupTransfer>(["control", "unwind"]), value => value.transfer, transfer =>
+          finish(() => ({ origin, tir, kind: "cleanup-enter", entry, continuation, transfer })))))));
+
+  const cleanupResume = record<MirTerminator & { readonly kind: "cleanup-resume" }>("cleanup-resume", () => siteFields((origin, tir) =>
+    field("entry", () => blockWire, value => value.entry, entry => finish(() => ({ origin, tir, kind: "cleanup-resume", entry })))));
+
+  const cleanupDiscard = record<MirTerminator & { readonly kind: "cleanup-discard" }>("cleanup-discard", () => siteFields((origin, tir) =>
+    field("entry", () => blockWire, value => value.entry, entry =>
+      field("target", () => blockWire, value => value.target, target => finish(() => ({ origin, tir, kind: "cleanup-discard", entry, target }))))));
+
+  const unwindPropagate = record<MirTerminator & { readonly kind: "unwind-propagate" }>("unwind-propagate", () => siteFields((origin, tir) =>
+    field("unwind", () => unwindWire, value => value.unwind, unwind => finish(() => ({ origin, tir, kind: "unwind-propagate", unwind })))));
+
   const returnTerminator = record<MirTerminator & { readonly kind: "return" }>("return", () => siteFields((origin, tir) =>
     field("value", () => nullable(() => operandWire), value => value.value, value => finish(() => ({ origin, tir, kind: "return", value })))));
 
@@ -402,6 +422,8 @@ export function createBodyWire(): Wire<MirBody> {
     choice("goto", () => gotoTerminator), choice("switch", () => switchTerminator), choice("check", () => checkTerminator),
     choice("call", () => callTerminator), choice("invoke", () => invokeTerminator),
     choice("await", () => awaitTerminator), choice("yield", () => yieldTerminator), choice("delegate", () => delegateTerminator), choice("throw", () => throwTerminator),
+    choice("cleanup-enter", () => cleanupEnter), choice("cleanup-resume", () => cleanupResume), choice("cleanup-discard", () => cleanupDiscard),
+    choice("unwind-propagate", () => unwindPropagate),
     choice("return", () => returnTerminator), choice("unreachable", () => unreachableTerminator),
   ], (value, path, next) => {
     switch (value.kind) {
@@ -414,6 +436,10 @@ export function createBodyWire(): Wire<MirBody> {
       case "yield": return yieldTerminator.write(value, path, next);
       case "delegate": return delegateTerminator.write(value, path, next);
       case "throw": return throwTerminator.write(value, path, next);
+      case "cleanup-enter": return cleanupEnter.write(value, path, next);
+      case "cleanup-resume": return cleanupResume.write(value, path, next);
+      case "cleanup-discard": return cleanupDiscard.write(value, path, next);
+      case "unwind-propagate": return unwindPropagate.write(value, path, next);
       case "return": return returnTerminator.write(value, path, next);
       case "unreachable": return unreachableTerminator.write(value, path, next);
     }

@@ -1,7 +1,7 @@
 import { throwInvariant } from "../diag/index.js";
 import type { UnitRequest, UnitResult } from "../diag/contract.js";
 import type { BlockId, BodyId, LocalId, TyId } from "../ids/contract.js";
-import type { MirBody, MirOperand, MirSite, MirTerminator, MirUnwind } from "../ir-mir/contract.js";
+import type { MirBody, MirOperand, MirPendingCompletion, MirSite, MirTerminator, MirUnwind } from "../ir-mir/contract.js";
 import type { TypedOperation } from "../ir-tir/contract.js";
 import type { BodyInstance, ConstantContext, ConstValue } from "../ir-types/contract.js";
 import type { EvaluateRequest, EvaluationResult } from "./data.js";
@@ -27,12 +27,19 @@ export interface ReadyCall {
   readonly captures: ReadonlyMap<BodyId, ReadonlyMap<LocalId, Cell>>;
 }
 
+export type UnwindSignal = { readonly site: MirSite } & (
+  | { readonly kind: "value"; readonly value: ConstValue }
+  | { readonly kind: "native"; readonly description: string }
+);
+
 export interface Frame {
   readonly instance: BodyInstance;
   readonly body: MirBody;
   readonly cells: Map<LocalId, Cell>;
   readonly work: Task[];
   readonly caller: Extract<MirTerminator, { readonly kind: "call" }> | null;
+  cleanups: MirPendingCompletion<UnwindSignal> | null;
+  carriedFailure: UnwindSignal | null;
   values: ConstValue[];
   block: BlockId;
   statement: number;

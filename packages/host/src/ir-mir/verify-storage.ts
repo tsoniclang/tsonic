@@ -6,8 +6,8 @@ import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ExactRational, LiteralValue, TypeTerm } from "../ir-types/contract.js";
 import { literalCompatibilityOf } from "../ir-types/index.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { chargeWork, controlAt, densePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
-import type { ControlEdge, ControlInventory, SourceNode, WorkMeter } from "./verify-control.js";
+import { chargeWork, densePosition, edgePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
+import type { ControlEdge, ControlFlow, SourceNode, WorkMeter } from "./verify-control.js";
 import type { SignatureReference, TypeReference } from "./verify-types.js";
 import { ownershipOfMode } from "./local-ownership.js";
 
@@ -28,7 +28,7 @@ export function rvalueOperands(value: MirRvalue): readonly MirOperand[] {
 export function terminatorOperands(terminator: MirTerminator): readonly MirOperand[] {
   const operands: MirOperand[] = [];
   switch (terminator.kind) {
-    case "goto": case "unreachable": return operands;
+    case "goto": case "unreachable": case "cleanup-enter": case "cleanup-resume": case "cleanup-discard": return operands;
     case "return": if (terminator.value !== null) operands.push(terminator.value); return operands;
     case "switch": return [terminator.operand];
     case "call":
@@ -55,6 +55,7 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
       operands.push(terminator.iterator, { kind: "place", place: terminator.destination }, { kind: "place", place: terminator.return.destination });
       break;
     case "throw": operands.push(terminator.operand); break;
+    case "unwind-propagate": break;
   }
   if (terminator.unwind.kind === "handler" && terminator.unwind.exception !== null)
     operands.push({ kind: "place", place: terminator.unwind.exception });
@@ -363,7 +364,7 @@ interface StorageReading {
  * outgoing edge of a block read again. When the account is exhausted nothing is reported.
  */
 export function verifyStorage(
-  body: MirBody, places: ReadonlyMap<PlaceId, PlaceLocation>, control: ControlInventory, meter: WorkMeter,
+  body: MirBody, places: ReadonlyMap<PlaceId, PlaceLocation>, control: ControlFlow, meter: WorkMeter,
 ): readonly Violation<MirRule, MirViolationSite>[] {
   // The empty set of the body's width, one node for each level, each charged before it is made; the locals present
   // where an execution starts; and the locals each place's use reaches.
@@ -393,8 +394,8 @@ export function verifyStorage(
     ({ rule: "storage-live-before-use", site, detail: [{ kind: "number", value: local }] });
   // An execution starts at block 0 or at the block of any entry. A block that does not stand at its own position is
   // not read, so what is reachable only through it gets no start and is not judged.
-  const starts = [0, ...body.entries.map(entry => entry.block)];
-  const rankOf = new Int32Array(body.blocks.length).fill(-1);
+  const starts = control.qualified ? control.entries : [0, ...control.entries];
+  const rankOf = new Int32Array(control.length).fill(-1);
   const readings: StorageReading[] = [];
   // Per local, for the block or the record being read: `markedIn` and `usedIn` hold the number of the block and of
   // the record that last marked and last used the local, `liveAfter` what its last marker left.
@@ -403,9 +404,9 @@ export function verifyStorage(
   const usedIn = new Int32Array(body.locals.length);
   let record = 0;
   let last: StorageReading | null = null;
-  for (const ordered of reversePostorder(body, starts, control)) {
+  for (const ordered of reversePostorder(control, starts)) {
     const block = ordered.block;
-    if (!Object.is(block.id, ordered.position)) continue;
+    if (!control.qualified && !Object.is(block.id, ordered.position)) continue;
     const serial = readings.length + 1;
     const marked: LocalId[] = [];
     const decided: Violation<MirRule, MirViolationSite>[] = [];
@@ -447,7 +448,7 @@ export function verifyStorage(
     if (!use(terminatorOperands(block.terminator), { kind: "instruction", body: body.body, block: block.id, statement: null })) return [];
     rankOf[ordered.position] = readings.length;
     const reading: StorageReading = { rank: readings.length, block, changes: marked.map(local => ({ local, live: liveAfter[local] === 1 })),
-      decided, awaiting, start: null, waiting: null, read: false, edges: controlAt(control, ordered.position), next: null };
+      decided, awaiting, start: null, waiting: null, read: false, edges: control.edgesAt(ordered.position), next: null };
     if (last !== null) last.next = reading;
     last = reading;
     readings.push(reading);
@@ -479,7 +480,7 @@ export function verifyStorage(
         leaving = changed;
       }
       for (const edge of edges) {
-        const target = readings[read(rankOf, edge.target, -1)];
+        const target = readings[read(rankOf, edgePosition(edge), -1)];
         if (target === undefined) continue;
         const before = target.start;
         const met = before === null ? leaving : meetLive(sets, before, leaving);
@@ -502,7 +503,7 @@ export function verifyStorage(
   const late: Violation<MirRule, MirViolationSite>[] = [];
   const answeredIn = new Int32Array(body.locals.length);
   const answer = new Uint8Array(body.locals.length);
-  for (const position of body.blocks.keys()) {
+  for (let position = 0; position < control.length; position += 1) {
     const reading = readings[read(rankOf, position, -1)];
     if (reading === undefined || reading.start === null) continue;
     for (const violation of reading.decided) violations.push(violation);
@@ -960,8 +961,7 @@ export function verifyValues(
       }
       case "throw": operandType(terminator.operand, site); break;
     }
-    if (terminator.kind !== "goto" && terminator.kind !== "switch" && terminator.kind !== "return" && terminator.kind !== "unreachable"
-      && terminator.unwind.kind === "handler" && terminator.unwind.exception !== null) {
+    if ("unwind" in terminator && terminator.unwind.kind === "handler" && terminator.unwind.exception !== null) {
       const storage = placeType(terminator.unwind.exception, site);
       if (storage !== null) {
         const selected = term(storage);

@@ -5,9 +5,9 @@ import type { BlockId, NodeId, PlaceId } from "../ids/contract.js";
 import type {
   MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlaceBase, MirProjection, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,
 } from "./contract.js";
-import { controlAt, densePosition, findSourceNode, readContinuation } from "./verify-control.js";
+import { controlAt, densePosition, edgePosition, findSourceNode, readContinuation } from "./verify-control.js";
 import { chargeWork, read, reversePostorder } from "./verify-control.js";
-import type { ControlInventory, SourceNode, SourceStep, WireTexts, WorkMeter } from "./verify-control.js";
+import type { ControlFlow, SourceNode, SourceStep, WireTexts, WorkMeter } from "./verify-control.js";
 import type { PlaceLocation } from "./verify-storage.js";
 import { ownershipOfMode } from "./local-ownership.js";
 
@@ -18,7 +18,7 @@ import { ownershipOfMode } from "./local-ownership.js";
 // and selects none of it. Law 3 is enforced for every checked place as the contract states it.
 export function verifyLaws(
   body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, texts: WireTexts,
-  places: ReadonlyMap<PlaceId, PlaceLocation>, control: ControlInventory, meter: WorkMeter,
+  places: ReadonlyMap<PlaceId, PlaceLocation>, control: ControlFlow, meter: WorkMeter,
 ): readonly Violation<MirRule, MirViolationSite>[] {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   // A site record is built only when a finding is reported.
@@ -240,16 +240,19 @@ export function verifyLaws(
   // Law 3: a checked place is used only where its check is known to have succeeded. Availability is read forwards
   // as the contract states it, and the contract states the cost. Each block and record is visited once; a use is
   // one test of a stamp; within a chain of blocks a set is ended by advancing a counter.
-  const incoming = new Uint32Array(body.blocks.length);
-  const edge = (target: BlockId): void => { incoming[target] = read(incoming, target, 0) + 1; };
-  for (const entry of body.entries) edge(entry.block);
-  for (const row of control) if (row !== undefined) for (const out of row) edge(out.target);
+  const incoming = new Uint32Array(control.length);
+  const edge = (target: number): void => { incoming[target] = read(incoming, target, 0) + 1; };
+  for (const entry of control.entries) edge(entry);
+  for (let position = 0; position < control.length; position += 1) {
+    if (control.blockAt(position) !== undefined) for (const out of control.edgesAt(position)) edge(edgePosition(out));
+  }
   /** The block a terminator continues to, or -1. */
   const continues = (block: MirBlock, position: number): number => {
     switch (block.terminator.kind) {
       case "goto": case "check": case "call": case "invoke": case "await": case "yield": case "delegate":
+      case "cleanup-enter": case "cleanup-discard": case "cleanup-resume":
         return readContinuation(control, position);
-      case "switch": case "throw": case "return": case "unreachable": return -1;
+      case "switch": case "throw": case "return": case "unreachable": case "unwind-propagate": return -1;
     }
   };
   /** That block when it has no other incoming edge and is not an entry: it is read as part of the same chain. */
@@ -257,8 +260,9 @@ export function verifyLaws(
     const target = continues(block, position);
     return densePosition(target, incoming.length) && incoming[target] === 1 ? target : -1;
   };
-  const inherits = new Uint8Array(body.blocks.length);
-  for (const [position, block] of body.blocks.entries()) {
+  const inherits = new Uint8Array(control.length);
+  for (let position = 0; position < control.length; position += 1) {
+    const block = control.blockAt(position);
     if (block === undefined) continue;
     const next = continuation(block, position);
     if (next >= 0) inherits[next] = 1;
@@ -422,7 +426,7 @@ export function verifyLaws(
     const root = rootOf(place);
     return root !== null && stableLocals[root] === stableNow ? nothing : now;
   };
-  const visited = new Uint8Array(body.blocks.length);
+  const visited = new Uint8Array(control.length);
   const arrivals = new Uint32Array(body.places.length);
   const arrivedAt = new Uint32Array(body.places.length);
   let merges = 0;
@@ -476,9 +480,9 @@ export function verifyLaws(
     if (!enter(head)) return false;
     for (let position = head; position >= 0 && visited[position] !== 1;) {
       visited[position] = 1;
-      const block = body.blocks[position];
+      const block = control.blockAt(position);
       if (block === undefined) return true;
-      const edges = controlAt(control, position);
+      const edges = control.edgesAt(position);
       for (const [index, statement] of block.statements.entries()) {
         if (statement.kind === "assign") {
           useValue(statement.value, block.id, index);
@@ -491,7 +495,7 @@ export function verifyLaws(
         case "goto": case "unreachable": break;
         case "switch":
           useOperand(terminator.operand, block.id, null);
-          for (const edge of edges) give(edge.target, snapshot());
+          for (const edge of edges) give(edgePosition(edge), snapshot());
           break;
         case "return": useOperand(terminator.value, block.id, null); break;
         case "throw": useOperand(terminator.operand, block.id, null); break;
@@ -525,9 +529,9 @@ export function verifyLaws(
       // The failure edge and the return edge of a suspension leave before the effect; the place of a failing
       // check is not available on its failure edge.
       const failure = edges.at(-1);
-      if (failure?.kind === "unwind") give(failure.target, carried(snapshot(), failure.destination, block.id));
+      if (failure?.kind === "unwind" || failure?.kind === "carry") give(edgePosition(failure), carried(snapshot(), failure.destination, block.id));
       const completed = edges[1];
-      if (completed?.kind === "suspension-return") give(completed.target, carried(snapshot(), completed.destination, block.id));
+      if (completed?.kind === "suspension-return") give(edgePosition(completed), carried(snapshot(), completed.destination, block.id));
       switch (terminator.kind) {
         case "invoke": {
           // An invocation that only reads ends nothing; one that writes existing storage ends mutable availability.
@@ -556,13 +560,14 @@ export function verifyLaws(
   // Blocks are read in reverse postorder of the control edges, from the entries and then from every block not
   // reached, so that the sources of a block's forward edges are read before it. A chain is read from its head.
   const roots: number[] = [];
-  for (const entry of body.entries) roots.push(entry.block);
-  for (const position of body.blocks.keys()) roots.push(position);
-  for (const ordered of reversePostorder(body, roots, control)) {
+  for (const entry of control.entries) roots.push(entry);
+  for (let position = 0; position < control.length; position += 1) roots.push(position);
+  for (const ordered of reversePostorder(control, roots)) {
     if (inherits[ordered.position] !== 1 && visited[ordered.position] !== 1 && !chain(ordered.position)) return violations;
   }
   // Blocks left over form a closed ring that nothing enters; each is read once all the same.
-  for (const [position, block] of body.blocks.entries()) {
+  for (let position = 0; position < control.length; position += 1) {
+    const block = control.blockAt(position);
     if (block !== undefined && visited[position] !== 1 && !chain(position)) return violations;
   }
 
@@ -640,8 +645,9 @@ export function verifyLaws(
         if (failure === 1 && terminator.unwind.kind === "abort" || failure === 2 && terminator.unwind.kind !== "abort") reportAt("failure-kind-exact", block.id, null);
         break;
       }
-      case "call": case "await": case "yield": case "delegate": case "throw":
-        if (terminator.unwind.kind !== "handler" && terminator.unwind.kind !== "escape") reportAt("failure-kind-exact", block.id, null);
+      case "call": case "await": case "yield": case "delegate": case "throw": case "unwind-propagate":
+        if (terminator.unwind.kind !== "handler" && terminator.unwind.kind !== "escape" && terminator.unwind.kind !== "carry")
+          reportAt("failure-kind-exact", block.id, null);
         break;
       case "invoke": {
         // Laws 1 and 2: a control point executes an operation whose decision says it is an invocation, and fails as
@@ -649,7 +655,8 @@ export function verifyLaws(
         const execution = terminator.operation.decision.execution;
         if (execution.kind === "pure") reportAt("statement-pure", block.id, null);
         else if (execution.failure === "none" ? terminator.unwind.kind !== "none" : execution.failure === "abort" ? terminator.unwind.kind !== "abort"
-          : terminator.unwind.kind !== "handler" && terminator.unwind.kind !== "escape") reportAt("failure-kind-exact", block.id, null);
+          : terminator.unwind.kind !== "handler" && terminator.unwind.kind !== "escape" && terminator.unwind.kind !== "carry")
+          reportAt("failure-kind-exact", block.id, null);
         break;
       }
       case "goto": case "switch": case "return": case "unreachable": break;
@@ -721,7 +728,7 @@ export function verifyLaws(
         const constant = only !== undefined && densePosition(only.constant, body.constants.length) ? body.constants[only.constant] : undefined;
         const complete = constant !== undefined && constant.value.kind === "literal" && constant.value.value.kind === "boolean"
           && constant.value.value.value === true;
-        const edges = controlAt(control, blockPosition);
+        const edges = controlAt(control.fixed, blockPosition);
         if (only === undefined || !complete || Object.is(edges[0]?.target, edges[1]?.target)) reportAt("completion-branch-canonical", block.id, null);
         // Law 5: the completion of a handle is one record, so a step has one completion branch.
         occurrence = "completion";

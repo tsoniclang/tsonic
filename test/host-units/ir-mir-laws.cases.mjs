@@ -541,7 +541,7 @@ test("law 3: fixed inner bounds retain the actual enclosing checked-location dep
     assert.deepEqual(found(body, given).map(finding => finding.rule), storage === T.int32Fixed4Grid ? [] : ["checked-place-available"]);
     const sparse = structuredClone(body);
     sparse.places[0] = undefined;
-    assert.doesNotThrow(() => verifyLaws(sparse, given, sourceNodes(given.source, texts), texts, placeLocations(sparse), verifyEdges(sparse).control,
+    assert.doesNotThrow(() => verifyLaws(sparse, given, sourceNodes(given.source, texts).nodes, texts, placeLocations(sparse), verifyEdges(sparse).ordinary,
       { spent: 0, maximum: 100000, exhausted: false }));
   }
 });
@@ -716,7 +716,7 @@ async function referenceWorkOf(body, context) {
   const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
   const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
   const meter = { spent: 0, maximum: 1000000, exhausted: false };
-  const nodes = sourceNodes(context.source, createWireTexts(createDecisionWires(createScalarWires())));
+  const { nodes } = sourceNodes(context.source, createWireTexts(createDecisionWires(createScalarWires())));
   const values = verifyValues(body, context, nodes, placeLocations(body), meter);
   const types = values.types, signatures = values.signatures;
   decisionReferences(body, context, types, signatures, meter);
@@ -897,7 +897,7 @@ test("law 3 under every limit: once the account refuses, the law pass charges no
   const { createDecisionWires } = await import(`${dist}/text-decisions.js`);
   const { createScalarWires } = await import(`${dist}/text.js`);
   const texts = createWireTexts(createDecisionWires(createScalarWires()));
-  const nodes = sourceNodes(context.source, texts);
+  const { nodes } = sourceNodes(context.source, texts);
   // A meter that records every charge: the account is a plain record whose `spent` the pass adds to.
   const recording = maximum => {
     const meter = { maximum, exhausted: false, charges: 0, afterRefusal: 0, total: 0,
@@ -920,9 +920,9 @@ test("law 3 under every limit: once the account refuses, the law pass charges no
   const scan = [three, ...boundaryBodies(), ...fixedBoundaryBodies()];
   for (const [position, body] of scan.entries()) {
     const given = position < 3 ? context : fixedContext;
-    const selectedNodes = position < 3 ? nodes : sourceNodes(given.source, texts);
+    const selectedNodes = position < 3 ? nodes : sourceNodes(given.source, texts).nodes;
     const places = placeLocations(body);
-    const control = verifyEdges(body).control;
+    const control = verifyEdges(body).ordinary;
     const unlimited = recording(1000000);
     verifyLaws(body, given, selectedNodes, texts, places, control, unlimited);
     // The law pass's own need on this body; below it every limit refuses inside the pass, and no charge follows.
@@ -947,7 +947,7 @@ test("law 3 stops private copies, stamps and handoffs immediately after a charge
   const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
   const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
   const texts = createWireTexts(createDecisionWires(createScalarWires()));
-  const nodes = sourceNodes(context.source, texts);
+  const { nodes } = sourceNodes(context.source, texts);
   const lines = readFileSync(runtime, "utf8").split("\n");
   const debuggerSession = new Session();
   debuggerSession.connect();
@@ -991,10 +991,10 @@ test("law 3 stops private copies, stamps and handoffs immediately after a charge
     const bodies = [...boundaryBodies(), ring, ...fixedBoundaryBodies()];
     for (const [position, body] of bodies.entries()) {
       const given = position < 3 ? context : fixedContext;
-      const selectedNodes = position < 3 ? nodes : sourceNodes(given.source, texts);
+      const selectedNodes = position < 3 ? nodes : sourceNodes(given.source, texts).nodes;
       const places = placeLocations(body);
       const unlimited = { spent: 0, maximum: 1000000, exhausted: false };
-      const control = verifyEdges(body).control;
+      const control = verifyEdges(body).ordinary;
       verifyLaws(body, given, selectedNodes, texts, places, control, unlimited);
       const required = unlimited.spent;
       assert.equal(required, [8, 10, 1, 12, 15][position]);
@@ -1025,7 +1025,7 @@ test("law 3: an index chain shared by two checked places is walked once in a mut
   const { createDecisionWires } = await import(`${dist}/text-decisions.js`);
   const { createScalarWires } = await import(`${dist}/text.js`);
   const texts = createWireTexts(createDecisionWires(createScalarWires()));
-  const nodes = sourceNodes(context.source, texts);
+  const { nodes } = sourceNodes(context.source, texts);
   const recording = maximum => ({ maximum, exhausted: false, afterRefusal: 0, total: 0,
     get spent() { return this.total; }, set spent(value) { if (this.exhausted) this.afterRefusal += 1; this.total = value; } });
   // rows[i][j] over a local rows: X = rows[i] (chain i), Y = X[j] (chain j then the node of i, shared with X).
@@ -1051,7 +1051,7 @@ test("law 3: an index chain shared by two checked places is walked once in a mut
   });
   const need = body => {
     const meter = recording(1000000);
-    verifyLaws(body, context, nodes, texts, placeLocations(body), verifyEdges(body).control, meter);
+    verifyLaws(body, context, nodes, texts, placeLocations(body), verifyEdges(body).ordinary, meter);
     return meter.total;
   };
   // ACQUIRE only reads: one mutable span; the second check of X and the check of Y stop at the shared node of i.
@@ -1066,7 +1066,7 @@ test("law 3: an index chain shared by two checked places is walked once in a mut
   const total = need(writing);
   for (let maximum = 0; maximum <= total; maximum += 1) {
     const meter = recording(maximum);
-    verifyLaws(writing, context, nodes, texts, placeLocations(writing), verifyEdges(writing).control, meter);
+    verifyLaws(writing, context, nodes, texts, placeLocations(writing), verifyEdges(writing).ordinary, meter);
     assert.equal(meter.exhausted, maximum < total, `under ${maximum}`);
     assert.equal(meter.afterRefusal, 0, `under ${maximum}: a charge after the refusal`);
   }

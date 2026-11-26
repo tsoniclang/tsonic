@@ -10,11 +10,11 @@ import { layoutObservationOf, rawValueTypeOf as rawType } from "../ir-tir/index.
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { ControlScope, Discard, Evaluated, Lowering, Work } from "./model.js";
-import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
+import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf, workNode } from "./model.js";
 import { held, holdReceiver, observePendingRead, popOperand, pushOperand, readPlace, saveBeforeControl, saveBeforeStore, saveRead, temporary } from "./operands.js";
-import { breaks, continues, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endHandler, endLabel, endProtected, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterProtected, enterShortCircuit, enterSwitch, enterWhile, finishSwitchTest, loopCondition, nextFor, nextSwitchClause } from "./control.js";
+import { breaks, continues, endCleanup, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endHandler, endLabel, endProtected, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterProtected, enterShortCircuit, enterSwitch, enterWhile, finishSwitchTest, loopCondition, nextFor, nextSwitchClause } from "./control.js";
 import { argumentPlace, enterCall, finishCall } from "./calls.js";
-import { beginLocalScope, declareLocal, declarations, endLocalScope, enterLocalBlock, initializeAbsence, initializeLocal, nextDeclaration, prepareFunctionLocals, unwindToHandler } from "./bindings.js";
+import { beginLocalScope, declareLocal, declarations, endLocalScope, enterLocalBlock, initializeAbsence, initializeLocal, leaveProtectedScopes, nextDeclaration, prepareFunctionLocals, unwindToHandler } from "./bindings.js";
 import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, placeOfStatic, terminate } from "./state.js";
 
 // The lowering of one typed body into its MIR graph.
@@ -53,7 +53,7 @@ export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly 
   const lowering: Lowering = { state: createState(body.body, body.bindings, body.completion, deps.limits), typeOf: deps.typeOf,
     signatureOf: deps.signatureOf, internal, internalOf: null, body, work: [], operands: [],
     exposed: new Set(), reads: new Map(), sharedReads: new Set(), selections: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null,
-    outerLocals: new Map(), scope: null, handler: null };
+    outerLocals: new Map(), scope: null, protection: null };
   const mir = enter(lowering, root) && walk(lowering) ? finish(lowering, provided) : null;
   return mir === null ? { kind: "refused", diagnostics: [sizeLimit(deps, body)] } : { kind: "ok", value: mir, diagnostics: [] };
 }
@@ -182,6 +182,7 @@ function walk(lowering: Lowering): boolean {
                             : next.kind === "if-else-end" ? endElse(lowering, next)
                               : next.kind === "protected-end" ? endProtected(lowering, next)
                                 : next.kind === "handler-end" ? endHandler(lowering, next)
+                                  : next.kind === "cleanup-end" ? endCleanup(lowering, next)
                               : next.kind === "while-condition" || next.kind === "for-condition" || next.kind === "do-condition" ? loopCondition(lowering, next)
                                 : next.kind === "while-end" ? endWhile(lowering, next)
                                   : next.kind === "do-end" ? endDo(lowering, next) : complete(lowering, next);
@@ -266,7 +267,8 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
         lowering.work.push({ kind: "statement", node: node.statement });
         return true;
       }
-      const scope: Extract<ControlScope, { readonly kind: "label" }> = { kind: "label", node, exit: null, continuation: null, locals: lowering.scope };
+      const scope: Extract<ControlScope, { readonly kind: "label" }> = { kind: "label", node, exit: null, continuation: null,
+        locals: lowering.scope, protection: lowering.protection };
       lowering.labels.set(target.node, scope);
       lowering.work.push({ kind: "label-end", node, scope }, { kind: "statement", node: node.statement });
       return true;
@@ -298,10 +300,7 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
     case "VariableStatement": return declarations(lowering, node.declarationList);
     case "Block": return enterLocalBlock(lowering, node);
     case "ReturnStatement":
-      if (node.expression === null) {
-        terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "return", value: null });
-        return true;
-      }
+      if (node.expression === null) return finishReturn(lowering, node, null);
       lowering.work.push({ kind: "complete", node, result: "value" }, { kind: "expression", node: node.expression });
       return true;
     case "ThrowStatement":
@@ -705,7 +704,7 @@ function operation(lowering: Lowering, pendingOperation: Extract<Work, { readonl
   // The block the control point continues to starts the evaluation of whatever is pending next.
   // A value is always pushed above the work that consumes it, so that work is pending.
   const pending = requirePresent(lowering.work.at(-1), failure("a value was evaluated with nothing to consume it", node.origin));
-  const next = newBlock(state, siteOf(body, pending.node));
+  const next = newBlock(state, siteOf(body, workNode(pending)));
   if (next === null) return false;
   const unwind: MirUnwind | null = execution.failure === "none" ? { kind: "none" }
     : execution.failure === "abort" ? { kind: "abort" } : unwindToHandler(lowering, node);
@@ -739,7 +738,7 @@ function narrow(lowering: Lowering, node: NodeHeader, decision: Extract<NonNulla
   const checked = newPlace(state, { kind: "checked", place: parent, projection: { kind: "refined" }, tir: site.tir }, decision.result, node.origin);
   if (checked === null) return false;
   const pending = requirePresent(consumer, failure("a narrowed value was evaluated with nothing to consume it", node.origin));
-  const next = newBlock(state, siteOf(body, pending.node));
+  const next = newBlock(state, siteOf(body, workNode(pending)));
   if (next === null) return false;
   const unwind: MirUnwind | null = decision.failure === "abort" ? { kind: "abort" } : unwindToHandler(lowering, node);
   if (unwind === null) return false;
@@ -800,16 +799,27 @@ function discard(lowering: Lowering, pending: Discard): boolean {
 }
 
 function complete(lowering: Lowering, { node, result: transport }: Extract<Work, { readonly kind: "complete" }>): boolean {
-  if (transport === "void") {
-    terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "return", value: null });
-    return true;
-  }
+  if (transport === "void") return finishReturn(lowering, node, null);
   const result = popOperand(lowering, failure("a completion was reached without its value", node.origin));
   const site = siteOf(lowering.body, node);
   if (node.kind === "ThrowStatement") {
     const unwind = unwindToHandler(lowering, node);
     if (unwind === null) return false;
     terminate(lowering.state, { ...site, kind: "throw", operand: result.operand, unwind });
-  } else terminate(lowering.state, { ...site, kind: "return", value: result.operand });
+  } else return finishReturn(lowering, node, result);
+  return true;
+}
+
+function finishReturn(lowering: Lowering, node: NodeHeader, result: Evaluated | null): boolean {
+  let cleanup = lowering.protection;
+  while (cleanup !== null && cleanup.cleanup === null) cleanup = cleanup.outer;
+  if (cleanup !== null) {
+    const heldResult = result?.pendingRead !== true ? result : result.kind === "plain"
+      ? readPlace(lowering, result.operand.place, result.storage, result.site) : saveRead(lowering, result);
+    if (result !== null && heldResult === null) return false;
+    if (!leaveProtectedScopes(lowering, null, null, node, "control")) return false;
+    result = heldResult;
+  }
+  terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "return", value: result?.operand ?? null });
   return true;
 }

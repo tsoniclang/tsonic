@@ -23,7 +23,7 @@ const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8")).areas.map(area => area.directory);
 const names = ["index", "print", "parse", "verify", "verify-control", "verify-laws", "verify-storage", "verify-types", "local-ownership", "text", "text-decisions",
-  "constant-projection", "project-values"];
+  "completion", "constant-projection", "project-values", "verify-departure"];
 const runtimeFiles = names.map(name => resolve(repository, `packages/host/dist/ir-mir/${name}.js`));
 const sourceFiles = [...names, "contract"].map(name => `packages/host/src/ir-mir/${name}.ts`);
 const evidenceDirectory = resolve(repository, ".analysis/20261111-f-ir-mir/unit-proof");
@@ -452,8 +452,9 @@ for (const level of ["function", "verifier"]) for (const name of readdirSync(res
 }
 
 test("MIR public index has exactly the current wire, verification and projection ports", () => {
-  same(Object.keys(product).sort(), ["constantKeyOfMir", "localOwnershipOfMir", "parseMir", "printMir", "projectMirConstantKey",
-    "projectMirConstantOrdinals", "projectMirValues", "verifyMir", "visitMirControlEdges"], "exact public value inventory");
+  same(Object.keys(product).sort(), ["constantKeyOfMir", "isMirCompletionControl", "localOwnershipOfMir", "parseMir", "prepareMirExecutionGraph",
+    "printMir", "projectMirConstantKey", "projectMirConstantOrdinals", "projectMirValues", "transferMirCompletion", "verifyMir", "visitMirControlEdges"],
+  "exact public value inventory");
 });
 
 test("MIR storage modes preserve their exact scalar transport and one ownership projection", () => {
@@ -963,12 +964,12 @@ test("MIR selected header roots retain their occurrence and exclude separately-o
     flags: [], loc: parameter.loc, kind: "FalseKeyword", tsonic: { type: identities.tyId(1), convertedType: identities.tyId(1),
       conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" }, role: "value" } } };
   const source = { ...context.source, params: [parameter] };
-  const nodes = control.sourceNodes(source, texts);
+  const { nodes } = control.sourceNodes(source, texts);
   assert.equal(nodes.get(parameter.id).node, parameter, "the selected original parameter is an eligible MIR occurrence");
   assert.equal(nodes.get(parameter.name.id).node, parameter.name, "the header's eligible child is retained");
   assert.equal(nodes.has(parameter.initializer.root.id), false, "the separate initializer body is not callable execution");
   assert.equal(nodes.get(parameter.id).bodies.has(initializer), true, "the actual placed initializer identity stays on its header");
-  assert.equal(control.sourceNodes({ ...source, params: [parameter, parameter] }, texts).size, nodes.size,
+  assert.equal(control.sourceNodes({ ...source, params: [parameter, parameter] }, texts).nodes.size, nodes.size,
     "the same canonical object can be reached twice without a second occurrence");
   assert.throws(() => control.sourceNodes({ ...source, params: [parameter, structuredClone(parameter)] }, texts),
     /conflicting syntax occurrences/);
@@ -988,7 +989,7 @@ test("MIR execution occurrences exclude actual unopened checked module declarati
   const [declaration] = body.tir.root.statements.nodes;
   assert.equal(declaration.kind, "checked-declaration");
   assert.equal(declaration.node.kind, "FunctionDeclaration");
-  const nodes = control.sourceNodes(body.tir, control.createWireTexts(decisions.createDecisionWires(text.createScalarWires())));
+  const { nodes } = control.sourceNodes(body.tir, control.createWireTexts(decisions.createDecisionWires(text.createScalarWires())));
   assert.equal(nodes.get(body.tir.root.id)?.node === body.tir.root, true);
   assert.equal(nodes.has(declaration.node.id), false);
   assert.equal(nodes.has(declaration.node.body.id), false);

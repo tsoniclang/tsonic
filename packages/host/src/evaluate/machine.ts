@@ -8,9 +8,9 @@ import type { OperationIdentity } from "../ir-infer/contract.js";
 import type { BodyInstance, ConstValue, ExactRational } from "../ir-types/contract.js";
 import { nativeCarrierOf, sameInstance } from "../ir-types/index.js";
 import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
-import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task } from "./pause.js";
+import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task, UnwindSignal } from "./pause.js";
 import { arithmetic, evaluationFault, limit, selectedFloatingFormat, selectedOptionalDomain, step, validateLimits, valueFits } from "./budget.js";
-import { current, enterUnwind, finish, notConstant } from "./execution.js";
+import { current, enterUnwind, finish, notConstant, takeCarriedFailure, transferCleanup } from "./execution.js";
 import { EvaluationSuspension } from "./pause.js";
 import { nativeNumericOperation } from "./integer.js";
 import { packFloat64Literal, selectedConversion } from "./conversions.js";
@@ -127,6 +127,7 @@ function store(machine: Machine, local: LocalId, value: ConstValue): void {
 
 function returnValue(machine: Machine, value: ConstValue | null, site: MirSite): void {
   const frame = current(machine);
+  if (frame.cleanups !== null || frame.carriedFailure !== null) return fail("A return cannot bypass a pending completion.", site.origin);
   const caller = frame.caller;
   if (caller === null) {
     let result: ConstValue = value ?? { kind: "absence", type: frame.body.result };
@@ -148,6 +149,13 @@ function returnValue(machine: Machine, value: ConstValue | null, site: MirSite):
   if (caller.destination === null) return;
   if (value === null) return fail("A call destination requires its actual returned value.", site.origin);
   put(machine, value, site);
+}
+
+function unwindValue(machine: Machine, failure: MirUnwind, signal: UnwindSignal): void {
+  const handler = enterUnwind(machine, failure, signal);
+  if (handler === null || handler.exception === null || signal.kind !== "value") return;
+  const local = localPlace(machine, handler.exception, signal.site);
+  if (local !== null) store(machine, local, signal.value);
 }
 
 function selectBranch(machine: Machine, terminator: Extract<MirTerminator, { readonly kind: "switch" }>): void {
@@ -246,7 +254,8 @@ function enter(machine: Machine, instance: BodyInstance, body: MirBody, ready: R
   while (provided > 0 && ready.arguments[provided - 1] === null) provided -= 1;
   const entry = body.entries.find(entry => entry.provided === provided);
   if (entry === undefined) return fail("A selected call must name an actually admissible provided entry.", ready.terminator.origin);
-  const frame: Frame = { instance, body, cells: new Map(), work: [], values: [], caller: ready.terminator, block: entry.block, statement: 0 };
+  const frame: Frame = { instance, body, cells: new Map(), work: [], values: [], caller: ready.terminator, block: entry.block, statement: 0,
+    cleanups: null, carriedFailure: null };
   let parameters = 0;
   for (const local of body.locals) {
     let cell: Cell | null | undefined;
@@ -281,11 +290,7 @@ function execute(machine: Machine): void {
     else if (task.kind === "throw") {
       const value = requirePresent(current(machine).values.at(-1), { owner: "evaluate", query: null, origin: task.site.origin,
         message: "A throw continuation must retain its actual evaluated value." });
-      const handler = enterUnwind(machine, task.unwind, task.site, null);
-      if (handler !== null && handler.exception !== null) {
-        const local = localPlace(machine, handler.exception, task.site);
-        if (local !== null) store(machine, local, value);
-      }
+      unwindValue(machine, task.unwind, { kind: "value", value, site: task.site });
     }
     else {
       const value = requirePresent(current(machine).values.at(-1), { owner: "evaluate", query: null, origin: task.site.origin,
@@ -334,6 +339,8 @@ function execute(machine: Machine): void {
     case "throw":
       frame.work.push({ kind: "throw", site: terminator, unwind: terminator.unwind }, { kind: "read", operand: terminator.operand, site: terminator });
       return;
+    case "cleanup-enter": case "cleanup-resume": case "cleanup-discard": transferCleanup(frame, terminator); return;
+    case "unwind-propagate": unwindValue(machine, terminator.unwind, takeCarriedFailure(frame, terminator)); return;
     case "await": case "yield": case "delegate": notConstant(machine, terminator, "suspension"); return;
     case "call":
       frame.work.push({ kind: "call", terminator });
@@ -469,7 +476,8 @@ export const evaluate: Evaluate = (deps, entry, body, arguments_, context, unit)
   let selected: BlockId | null = null;
   for (const entry of body.entries) if (entry.provided === arguments_.length) selected = entry.block;
   if (selected === null) return fail("The constant invocation must name an actually provided entry.");
-  const frame: Frame = { instance: entry, body, cells: new Map(), work: [], values: [], caller: null, block: selected, statement: 0 };
+  const frame: Frame = { instance: entry, body, cells: new Map(), work: [], values: [], caller: null, block: selected, statement: 0,
+    cleanups: null, carriedFailure: null };
   const machine: Machine = { deps, context, unit, frames: [frame], steps: 0, arithmetic: 0,
     pendingNumericLiterals: null, result: null, pending: null };
   for (const local of body.locals) {

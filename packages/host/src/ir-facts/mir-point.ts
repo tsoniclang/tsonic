@@ -6,7 +6,7 @@ export const hasStoreEdge = (terminator: MirTerminator, edge: StoreEdge): boolea
     case "check": case "call": case "invoke": return edge === "continue" || edge === "unwind" && terminator.unwind.kind === "handler";
     case "await": return edge === "resume" || edge === "unwind" && terminator.unwind.kind === "handler";
     case "yield": case "delegate": return edge === "resume" || edge === "return" || edge === "unwind" && terminator.unwind.kind === "handler";
-    case "throw": return edge === "unwind" && terminator.unwind.kind === "handler";
-    case "goto": case "switch": case "return": case "unreachable": return false;
+    case "throw": case "unwind-propagate": return edge === "unwind" && terminator.unwind.kind === "handler";
+    case "goto": case "switch": case "return": case "unreachable": case "cleanup-enter": case "cleanup-resume": case "cleanup-discard": return false;
   }
 };

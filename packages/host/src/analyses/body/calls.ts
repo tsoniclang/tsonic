@@ -215,7 +215,7 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
     return frontier(operation, "A placed initializer retains its actual selected destination storage and result type.");
   if (selected.suspends)
     return frontier(operation, "BodyAnalysis requires the actual suspension transport of this selected callee.");
-  if (selected.unwinds && operation.unwind.kind !== "escape" && operation.unwind.kind !== "handler")
+  if (selected.unwinds && operation.unwind.kind !== "escape" && operation.unwind.kind !== "handler" && operation.unwind.kind !== "carry")
     return frontier(operation, "BodyAnalysis requires the actual selected callee failure continuation and its handled state transport.");
   return { kind: "complete", value: selected };
 }
@@ -385,7 +385,7 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
   }
   const unwind = operation.unwind;
   const handled = summary.unwinds && unwind.kind === "handler";
-  if (usePrimitiveContents && (!handled || unwind.exception === null)) {
+  if (usePrimitiveContents && !(summary.unwinds && unwind.kind === "carry") && (!handled || unwind.exception === null)) {
     const contents = primitiveExitLocals(deps, input, operation, summary, "return");
     if (contents.kind !== "complete") return contents;
     if (contents.value !== null) {

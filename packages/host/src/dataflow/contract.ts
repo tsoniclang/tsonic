@@ -35,7 +35,8 @@ export interface ProblemBase<State> {
 
 export interface ForwardProblem<State> extends ProblemBase<State> {
   readonly direction: "forward";
-  readonly terminator: (terminator: MirTerminator, state: State, account: DataflowAccount, block: BlockId) => readonly BlockState<State>[];
+  readonly terminator: (terminator: MirTerminator, state: State, account: DataflowAccount, block: BlockId,
+    resumed: BlockId | null) => readonly BlockState<State>[];
 }
 
 export interface BackwardProblem<State> extends ProblemBase<State> {
@@ -56,10 +57,15 @@ export interface FlowSolution<State> {
   readonly entry: readonly State[];
   readonly exit: readonly State[];
   readonly reachable: readonly boolean[];
+  readonly qualifiedSuccessors?: readonly (readonly BlockState<State>[] | undefined)[];
 }
 
 export interface DirectedGraph {
   readonly successors: readonly (readonly number[])[];
+}
+
+export interface MirDirectedGraph extends DirectedGraph {
+  readonly qualification?: { readonly blocks: readonly BlockId[]; readonly entries: readonly number[] };
 }
 
 export interface GraphOrdering {
@@ -94,7 +100,7 @@ export type Solve = <State>(
   account: DataflowAccount,
 ) => DataflowResult<FlowSolution<State>>;
 
-export type GraphOfMir = (body: MirBody, account: DataflowAccount) => DataflowResult<DirectedGraph>;
+export type GraphOfMir = (body: MirBody, account: DataflowAccount) => DataflowResult<MirDirectedGraph>;
 export type Predecessors = (
   graph: DirectedGraph,
   account: DataflowAccount,

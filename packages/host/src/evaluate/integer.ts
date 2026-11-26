@@ -6,7 +6,7 @@ import { isNativeBinaryFloatPrimitive, nativeCarrierOf, nativeIntegerGeometryOf 
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { EvaluateDeps } from "./contract.js";
 import type { Machine as EvaluationMachine } from "./pause.js";
-import { arithmetic, limit, selectedFloatingWidth } from "./budget.js";
+import { arithmetic, evaluationFault, limit, selectedFloatingWidth } from "./budget.js";
 import { compareFloating, compareOrdered, floatingSignBit, isNumericComparison } from "./comparison.js";
 import { enterUnwind } from "./execution.js";
 
@@ -66,7 +66,8 @@ function integerFault(machine: Machine, law: Exclude<NativeOverflowLaw, "wrap">,
     : reason === "remainder-by-zero" ? "integer remainder by zero" : "invalid integer shift count";
   if (unwind === null || unwind.kind === "none") return fail(`An ${fault} reached an operation marked unable to fail.`, site.origin);
   if ((law === "abort") !== (unwind.kind === "abort")) return fail(`The ${fault} and its selected failure arm disagree.`, site.origin);
-  enterUnwind(machine, unwind, site, fault);
+  if (law === "abort") evaluationFault(machine, site.origin, `A process-ending ${fault} occurred during constant evaluation.`);
+  else enterUnwind(machine, unwind, { kind: "native", description: fault, site });
   return null;
 }
 

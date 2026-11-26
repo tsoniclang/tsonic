@@ -8,18 +8,17 @@ import type { ChapterSyntaxSlots, MemberSelection, ResolvedCallee, TirBody, TirC
 import { chapterSyntaxSlots, indexChapterSyntax, layoutObservationOf, rawValueTypeOf, tirBodySyntaxOf } from "../ir-tir/index.js";
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
-import type { MirBlock, MirBody, MirControlEdgeKind, MirControlProjection, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite, VisitMirControlEdges } from "./contract.js";
+import type { MirBlock, MirBody, MirControlEdgeKind, MirControlProjection, MirExecutionEdge, MirExecutionPoint, MirFixedControlEdge, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite, VisitMirControlEdges } from "./contract.js";
+import { prepareExecutionGraph } from "./completion.js";
+import type { CleanupDeparture } from "./verify-departure.js";
+import { verifyRequiredDepartures } from "./verify-departure.js";
 
 interface EndpointFamily {
   readonly overloaded: boolean;
   readonly members: ReadonlySet<string>;
 }
 
-export interface ControlEdge {
-  readonly kind: MirControlEdgeKind;
-  readonly target: BlockId;
-  readonly destination: PlaceId | null;
-}
+export type ControlEdge = MirFixedControlEdge | MirExecutionEdge;
 
 export type ControlInventory = readonly (readonly ControlEdge[] | undefined)[];
 
@@ -29,33 +28,64 @@ export function controlAt(control: ControlInventory, position: number): readonly
   return row;
 }
 
-export function readContinuation(control: ControlInventory, position: number): BlockId {
-  const edge = controlAt(control, position)[0];
+export function edgePosition(edge: ControlEdge): number {
+  return "point" in edge ? edge.point : edge.target;
+}
+
+export interface ControlFlow {
+  readonly qualified: boolean;
+  readonly fixed: ControlInventory;
+  readonly length: number;
+  readonly entries: readonly number[];
+  readonly blockAt: (position: number) => MirBlock | undefined;
+  readonly edgesAt: (position: number) => readonly ControlEdge[];
+}
+
+export function ordinaryControl(body: MirBody, control: ControlInventory): ControlFlow {
+  return { qualified: false, fixed: control, length: body.blocks.length, entries: body.entries.map(entry => entry.block),
+    blockAt: position => body.blocks[position], edgesAt: position => controlAt(control, position) };
+}
+
+function qualifiedControl(fixed: ControlInventory, points: readonly MirExecutionPoint[], roots: readonly number[]): ControlFlow {
+  return { qualified: true, fixed, length: points.length, entries: roots,
+    blockAt: position => points[position]?.block,
+    edgesAt: position => {
+      const point = points[position];
+      if (point === undefined) throw new TypeError("A qualified MIR point requires its complete successor row.");
+      return point.edges;
+    } };
+}
+
+export function readContinuation(control: ControlFlow, position: number): number {
+  const edge = control.edgesAt(position)[0];
   if (edge === undefined) throw new TypeError("A continuing terminator requires its retained successor.");
-  return edge.target;
+  return edgePosition(edge);
 }
 
 function visitUnwindEdge<Stop>(unwind: MirUnwind, projection: MirControlProjection<Stop>): Stop | null {
-  if (unwind.kind !== "handler") return null;
+  if (unwind.kind !== "handler" && unwind.kind !== "carry") return null;
   const stop = projection.admit();
   if (stop !== null) return stop;
   if (projection.kind === "targets") projection.visit(unwind.target);
-  else projection.visit("unwind", unwind.target, unwind.exception);
+  else if (projection.kind === "topology") projection.visit(unwind.kind === "carry" ? "carry" : "unwind", unwind.target);
+  else if (unwind.kind === "handler") projection.visit("unwind", unwind.target, unwind.exception);
+  else projection.visit("carry", unwind.target, null);
   return null;
 }
 
 function visitAdmittedEdge<Stop>(projection: MirControlProjection<Stop>, kind: Exclude<MirControlEdgeKind, "unwind">,
   target: BlockId, write: { readonly destination: PlaceId | null } | null): void {
   if (projection.kind === "targets") projection.visit(target);
+  else if (projection.kind === "topology") projection.visit(kind, target);
   else projection.visit(kind, target, write === null ? null : write.destination);
 }
 
 export const visitControlEdges: VisitMirControlEdges = (terminator, projection) => {
   switch (terminator.kind) {
-    case "goto": {
+    case "goto": case "cleanup-enter": case "cleanup-discard": {
       const stop = projection.admit();
       if (stop !== null) return stop;
-      visitAdmittedEdge(projection, "normal", terminator.target, null);
+      visitAdmittedEdge(projection, "normal", terminator.kind === "cleanup-enter" ? terminator.entry : terminator.target, null);
       return null;
     }
     case "switch": {
@@ -90,8 +120,8 @@ export const visitControlEdges: VisitMirControlEdges = (terminator, projection) 
       }
       return visitUnwindEdge(terminator.unwind, projection);
     }
-    case "throw": return visitUnwindEdge(terminator.unwind, projection);
-    case "return": case "unreachable": return null;
+    case "throw": case "unwind-propagate": return visitUnwindEdge(terminator.unwind, projection);
+    case "cleanup-resume": case "return": case "unreachable": return null;
   }
 };
 
@@ -113,14 +143,14 @@ export interface OrderedBlock {
  * after the source of each of its edges that is not a back edge of that walk. Roots are taken in the order given; a
  * position that holds no block is skipped.
  */
-export function reversePostorder(body: MirBody, roots: readonly number[], control: ControlInventory): readonly OrderedBlock[] {
+export function reversePostorder(control: ControlFlow, roots: readonly number[]): readonly OrderedBlock[] {
   const postorder: OrderedBlock[] = [];
-  const reached = new Uint8Array(body.blocks.length);
+  const reached = new Uint8Array(control.length);
   for (const root of roots) {
-    const start = densePosition(root, reached.length) ? body.blocks[root] : undefined;
+    const start = densePosition(root, reached.length) ? control.blockAt(root) : undefined;
     if (start === undefined || reached[root] === 1) continue;
     reached[root] = 1;
-    const frames: SearchFrame[] = [{ position: root, block: start, edges: controlAt(control, root), next: 0 }];
+    const frames: SearchFrame[] = [{ position: root, block: start, edges: control.edgesAt(root), next: 0 }];
     for (let frame = frames.at(-1); frame !== undefined; frame = frames.at(-1)) {
       const candidate = frame.edges[frame.next];
       if (candidate === undefined) {
@@ -129,10 +159,11 @@ export function reversePostorder(body: MirBody, roots: readonly number[], contro
         continue;
       }
       frame.next += 1;
-      const block = densePosition(candidate.target, reached.length) ? body.blocks[candidate.target] : undefined;
-      if (block === undefined || reached[candidate.target] === 1) continue;
-      reached[candidate.target] = 1;
-      frames.push({ position: candidate.target, block, edges: controlAt(control, candidate.target), next: 0 });
+      const target = edgePosition(candidate);
+      const block = densePosition(target, reached.length) ? control.blockAt(target) : undefined;
+      if (block === undefined || reached[target] === 1) continue;
+      reached[target] = 1;
+      frames.push({ position: target, block, edges: control.edgesAt(target), next: 0 });
     }
   }
   return postorder.reverse();
@@ -162,10 +193,13 @@ export function densePosition(value: number, length: number): boolean {
 
 export function verifyEdges(body: MirBody): {
   readonly control: ControlInventory;
+  readonly ordinary: ControlFlow;
+  readonly completion: boolean;
   readonly violations: readonly Violation<MirRule, MirViolationSite>[];
 } {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const control: (readonly ControlEdge[] | undefined)[] = [];
+  let completion = false;
   const entry = body.blocks[0];
   if (entry === undefined || !Object.is(entry.id, 0)) violations.push({ rule: "entry-block-zero",
     site: { kind: "body", body: body.body }, detail: [] });
@@ -173,6 +207,7 @@ export function verifyEdges(body: MirBody): {
     if (block === undefined) continue;
     const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: null };
     const row = controlEdges(block.terminator);
+    completion ||= isCompletionControl(block.terminator);
     control[position] = row;
     for (const edge of row) {
       const target = densePosition(edge.target, body.blocks.length) ? body.blocks[edge.target] : undefined;
@@ -192,7 +227,88 @@ export function verifyEdges(body: MirBody): {
       previous = target.constant;
     }
   }
-  return { control, violations };
+  return { control, ordinary: ordinaryControl(body, control), completion, violations };
+}
+
+export function isCompletionControl(terminator: MirTerminator): boolean {
+  return terminator.kind === "cleanup-enter" || terminator.kind === "cleanup-resume" || terminator.kind === "cleanup-discard"
+    || terminator.kind === "unwind-propagate" || "unwind" in terminator && terminator.unwind.kind === "carry";
+}
+
+export function verifyCompletionControl(body: MirBody, control: ControlInventory, nodes: ReadonlyMap<NodeId, SourceNode>, meter: WorkMeter):
+  { readonly kind: "complete"; readonly control: ControlFlow } | { readonly kind: "invalid"; readonly violation: Violation<MirRule, MirViolationSite> }
+  | { readonly kind: "resource-stop" } {
+  const invalid = (block: BlockId, reason: string): { readonly kind: "invalid"; readonly violation: Violation<MirRule, MirViolationSite> } =>
+    ({ kind: "invalid", violation: { rule: "cleanup-control-exact", site: { kind: "instruction", body: body.body, block, statement: null },
+      detail: [{ kind: "text", value: reason }] } });
+  const admit = (work: number, retained: number): "stop" | null => {
+    chargeWork(meter, work + retained);
+    return meter.exhausted ? "stop" : null;
+  };
+  if (admit(1, 3) !== null) return { kind: "resource-stop" };
+  const entries = new Map<NodeId, BlockId>();
+  const departures = new Map<BlockId, CleanupDeparture>();
+  const roots: BlockId[] = [];
+  for (let position = 0; position < body.entries.length; position += 1) {
+    if (admit(1, 1) !== null) return { kind: "resource-stop" };
+    const row = body.entries[position];
+    if (row === undefined) continue;
+    roots.push(row.block);
+  }
+  for (let position = 0; position < body.blocks.length; position += 1) {
+    if (admit(1, 0) !== null) return { kind: "resource-stop" };
+    const block = body.blocks[position];
+    if (block === undefined) continue;
+    const terminator = block.terminator;
+    if (terminator.kind !== "cleanup-enter" && terminator.kind !== "cleanup-resume" && terminator.kind !== "cleanup-discard") continue;
+    if (admit(5, 0) !== null) return { kind: "resource-stop" };
+    const target = body.blocks[terminator.entry];
+    const node = target?.tir.body === body.body ? nodes.get(target.tir.node)?.node : undefined;
+    const owner = node?.parent === null || node?.parent === undefined ? undefined : nodes.get(node.parent)?.node;
+    if (target?.id !== terminator.entry || node?.kind !== "Block" || owner?.kind !== "TryStatement" || owner.finallyBlock !== node)
+      return invalid(block.id, "source-cleanup-entry");
+    if (terminator.tir.body !== body.body) return invalid(block.id, "cleanup-source-owner");
+    if (terminator.kind === "cleanup-resume") {
+      if (terminator.tir.node !== owner.id) return invalid(block.id, "source-cleanup-resume");
+    } else {
+      if (admit(1, 0) !== null) return { kind: "resource-stop" };
+      let site = nodes.get(terminator.tir.node)?.node;
+      while (site !== undefined && site.id !== owner.id && site.parent !== owner.id && site.parent !== null) {
+        if (admit(1, 0) !== null) return { kind: "resource-stop" };
+        site = nodes.get(site.parent)?.node;
+      }
+      const isProtected = site === owner || site === owner.tryBlock || site === owner.catchClause;
+      if (terminator.kind === "cleanup-enter" ? !isProtected : site !== node) return invalid(block.id, "cleanup-source-region");
+    }
+    const entry = entries.get(node.id);
+    if (entry !== undefined && entry !== target.id) return invalid(block.id, "duplicate-source-entry");
+    if (entry === undefined) {
+      if (admit(1, 1) !== null) return { kind: "resource-stop" };
+      entries.set(node.id, target.id);
+    }
+    if (terminator.kind !== "cleanup-resume") {
+      if (admit(2, 0) !== null) return { kind: "resource-stop" };
+      const continuation = terminator.kind === "cleanup-enter" ? terminator.continuation : terminator.target;
+      const destination = body.blocks[continuation];
+      if (destination?.tir.body !== body.body || destination.tir.node !== terminator.tir.node)
+        return invalid(block.id, "cleanup-continuation-source");
+      const previous = departures.get(continuation);
+      if (previous !== undefined) {
+        if (previous.kind !== "cleanup-enter" || terminator.kind !== "cleanup-enter" || previous.entry !== target.id
+          || previous.source !== terminator.tir.node) return invalid(block.id, "cleanup-continuation-source");
+        continue;
+      }
+      if (admit(1, 2) !== null) return { kind: "resource-stop" };
+      departures.set(continuation, { from: block.id, entry: target.id, source: terminator.tir.node, owner, kind: terminator.kind });
+    }
+  }
+  const result = prepareExecutionGraph(body, roots, block => controlAt(control, block), admit);
+  if (result.kind === "resource-stop") return { kind: "resource-stop" };
+  if (result.kind === "invalid") return invalid(result.block, result.reason);
+  const departure = verifyRequiredDepartures(body.body, result.points, result.roots, id => nodes.get(id)?.node, entries, departures, admit);
+  if (departure === "stop") return { kind: "resource-stop" };
+  if (departure !== null) return invalid(departure.block, departure.reason);
+  return { kind: "complete", control: qualifiedControl(control, result.points, result.roots) };
 }
 
 export interface SourceNode {
@@ -268,15 +384,17 @@ const mirOccurrenceSlots: ChapterSyntaxSlots = function* (subject) {
   }
 };
 
-export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<NodeId, SourceNode> {
+export function sourceNodes(source: TirBody, texts: WireTexts): { readonly nodes: ReadonlyMap<NodeId, SourceNode>; readonly cleanup: boolean } {
   function* roots(): Generator<TirChapterSyntax> {
     yield tirBodySyntaxOf(source.root);
     for (const node of source.params) yield { kind: "formal", node };
   }
   const nodes = new Map<NodeId, SourceNode>();
+  let cleanup = false;
   for (const subject of indexChapterSyntax(roots(), mirOccurrenceSlots)) {
     if (subject.kind === "checked") continue;
     const node = subject.node;
+    cleanup ||= node.kind === "TryStatement" && node.finallyBlock !== null;
     if (nodes.has(node.id)) throw new TypeError("The selected source roots contain conflicting syntax occurrences.");
     const operations = new Set<string>();
     const callees = new Set<string>();
@@ -322,7 +440,7 @@ export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<Node
     }
     nodes.set(node.id, { node, operations, callees, protocols, steps, bodies });
   }
-  return nodes;
+  return { nodes, cleanup };
 }
 
 export function validOrigin(origin: Origin): boolean {

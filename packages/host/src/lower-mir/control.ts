@@ -4,10 +4,10 @@ import type { BinaryExpression, BreakStatement, ConditionalExpression, ContinueS
 import type { MirOperand, MirStatement } from "../ir-mir/contract.js";
 import type { TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import { rawValueTypeOf as rawType } from "../ir-tir/index.js";
-import type { ConditionalDestination, ControlScope, Discard, Evaluated, LoopContinuation, Lowering, SwitchDispatch, SwitchTarget, Work } from "./model.js";
+import type { ConditionalDestination, ControlScope, Discard, Evaluated, HandlerScope, LoopContinuation, Lowering, ProtectedScope, SwitchDispatch, SwitchTarget, Work } from "./model.js";
 import { callerDefect, executingValue, failure, notLoweredYet, siteOf } from "./model.js";
 import { held, observePendingRead, popOperand, pushOperand, readPlace, saveRead, temporary } from "./operands.js";
-import { beginLocalScope, declareCatchLocal, endLocalScope, leaveLocalScopes, prepareCaseLocals } from "./bindings.js";
+import { beginLocalScope, cleanupEntry, declareCatchLocal, endLocalScope, leaveLocalScopes, leaveProtectedScopes, prepareCaseLocals } from "./bindings.js";
 import { constantOperand, emitBeforeTerminator, emitStatement, enterBlock, newBlock, terminate } from "./state.js";
 
 export function enterConditional(lowering: Lowering, node: ConditionalExpression<TypedPhase>): boolean {
@@ -264,48 +264,81 @@ export function endElse(lowering: Lowering, pending: Extract<Work, { readonly ki
 }
 
 export function enterProtected(lowering: Lowering, node: TryStatement<TypedPhase>): boolean {
-  const handler = node.catchClause;
-  if (node.finallyBlock !== null) return notLoweredYet("an authored finally cleanup", node.origin);
-  if (handler === null) return callerDefect("a protected block requires its selected handler or cleanup", node.origin);
-  const variable = handler.variableDeclaration;
-  const payloadScope = variable === null ? null : beginLocalScope(lowering);
-  const exception = variable === null || payloadScope === null ? null : declareCatchLocal(lowering, payloadScope, variable);
-  if (variable !== null && exception === null) return false;
-  const scope = { block: handler.block, locals: lowering.scope, entry: null, payloadScope, exception };
-  lowering.work.push({ kind: "protected-end", node, handler: scope, outer: lowering.handler },
-    { kind: "statement", node: node.tryBlock });
-  lowering.handler = scope;
-  return true;
-}
-
-export function endProtected(lowering: Lowering, pending: Extract<Work, { readonly kind: "protected-end" }>): boolean {
-  const { state, body } = lowering;
-  const { handler, node } = pending;
-  lowering.handler = pending.outer;
-  if (handler.entry === null) return handler.payloadScope === null || endLocalScope(lowering, node, handler.payloadScope);
-  const site = siteOf(body, node);
-  let exit: BlockId | null = null;
-  if (state.current !== null) {
-    if (handler.payloadScope !== null && !leaveLocalScopes(lowering, handler.payloadScope.parent, node)) return false;
-    exit = newBlock(state, site);
-    if (exit === null) return false;
-    terminate(state, { ...site, kind: "goto", target: exit });
+  const clause = node.catchClause;
+  const cleanup = node.finallyBlock === null ? null : { block: node.finallyBlock, entry: null };
+  if (clause === null && cleanup === null) return callerDefect("a protected block requires its selected handler or cleanup", node.origin);
+  const locals = lowering.scope;
+  let handler: HandlerScope | null = null;
+  if (clause !== null) {
+    const variable = clause.variableDeclaration;
+    const payloadScope = variable === null ? null : beginLocalScope(lowering);
+    const exception = variable === null || payloadScope === null ? null : declareCatchLocal(lowering, payloadScope, variable);
+    if (variable !== null && exception === null) return false;
+    handler = { block: clause.block, locals: lowering.scope, entry: null, payloadScope, exception };
   }
-  enterBlock(state, handler.entry);
-  lowering.work.push({ kind: "handler-end", node, exit, payloadScope: handler.payloadScope }, { kind: "statement", node: handler.block });
+  const scope: ProtectedScope = { node, outer: lowering.protection, locals, handler, cleanup, phase: "try", normal: null };
+  lowering.work.push({ kind: "protected-end", scope }, { kind: "statement", node: node.tryBlock });
+  lowering.protection = scope;
   return true;
 }
 
-export function endHandler(lowering: Lowering, pending: Extract<Work, { readonly kind: "handler-end" }>): boolean {
-  if (pending.payloadScope !== null && !endLocalScope(lowering, pending.node, pending.payloadScope)) return false;
-  let exit = pending.exit;
+function protectedNormal(lowering: Lowering, scope: ProtectedScope): boolean {
+  const site = siteOf(lowering.body, scope.node);
+  const target = scope.normal ?? newBlock(lowering.state, site);
+  if (target === null) return false;
+  scope.normal = target;
+  if (scope.cleanup === null) terminate(lowering.state, { ...site, kind: "goto", target });
+  else {
+    const entry = cleanupEntry(lowering, scope.cleanup);
+    if (entry === null) return false;
+    terminate(lowering.state, { ...site, kind: "cleanup-enter", entry, continuation: target, transfer: "control" });
+  }
+  return true;
+}
+
+function afterProtected(lowering: Lowering, scope: ProtectedScope): boolean {
+  const cleanup = scope.cleanup;
+  if (cleanup !== null && cleanup.entry !== null) {
+    scope.phase = "cleanup";
+    enterBlock(lowering.state, cleanup.entry);
+    lowering.work.push({ kind: "cleanup-end", scope, entry: cleanup.entry }, { kind: "statement", node: cleanup.block });
+  } else {
+    lowering.protection = scope.outer;
+    if (scope.normal !== null) enterBlock(lowering.state, scope.normal);
+  }
+  return true;
+}
+
+export function endProtected(lowering: Lowering, { scope }: Extract<Work, { readonly kind: "protected-end" }>): boolean {
+  const { handler, node } = scope;
+  if (handler === null || handler.entry === null) {
+    if (handler !== null && handler.payloadScope !== null && !endLocalScope(lowering, node, handler.payloadScope)) return false;
+    if (scope.cleanup !== null && lowering.state.current !== null && !protectedNormal(lowering, scope)) return false;
+    return afterProtected(lowering, scope);
+  }
   if (lowering.state.current !== null) {
-    const site = siteOf(lowering.body, pending.node);
-    exit ??= newBlock(lowering.state, site);
-    if (exit === null) return false;
-    terminate(lowering.state, { ...site, kind: "goto", target: exit });
+    if (!leaveLocalScopes(lowering, scope.locals, node) || !protectedNormal(lowering, scope)) return false;
   }
-  if (exit !== null) enterBlock(lowering.state, exit);
+  scope.phase = "catch";
+  enterBlock(lowering.state, handler.entry);
+  lowering.work.push({ kind: "handler-end", scope }, { kind: "statement", node: handler.block });
+  return true;
+}
+
+export function endHandler(lowering: Lowering, { scope }: Extract<Work, { readonly kind: "handler-end" }>): boolean {
+  const handler = scope.handler;
+  if (handler === null) return callerDefect("a catch completion requires its selected handler", scope.node.origin);
+  if (handler.payloadScope !== null && !endLocalScope(lowering, scope.node, handler.payloadScope)) return false;
+  if (lowering.state.current !== null && !protectedNormal(lowering, scope)) return false;
+  return afterProtected(lowering, scope);
+}
+
+export function endCleanup(lowering: Lowering, { scope, entry }: Extract<Work, { readonly kind: "cleanup-end" }>): boolean {
+  lowering.protection = scope.outer;
+  if (lowering.state.current !== null) {
+    terminate(lowering.state, { ...siteOf(lowering.body, scope.node), kind: "cleanup-resume", entry });
+    if (scope.normal !== null) enterBlock(lowering.state, scope.normal);
+  }
   return true;
 }
 
@@ -340,7 +373,8 @@ export function enterSwitch(lowering: Lowering, node: SwitchStatement<TypedPhase
   const site = siteOf(lowering.body, node);
   const enclosing = lowering.scope;
   if (!prepareCaseLocals(lowering, node.caseBlock)) return false;
-  const scope: Extract<ControlScope, { readonly kind: "switch" }> = { kind: "switch", node, exit: null, continuation: null, locals: lowering.scope };
+  const scope: Extract<ControlScope, { readonly kind: "switch" }> = { kind: "switch", node, exit: null, continuation: null,
+    locals: lowering.scope, protection: lowering.protection };
   const dispatch: SwitchDispatch = { node, scope, enclosing, entries: new Map() };
   lowering.labels.set(node.id, scope);
   lowering.work.push({ kind: "switch-clause", ...dispatch, position: 0 });
@@ -492,7 +526,7 @@ export function breaks(lowering: Lowering, node: BreakStatement<TypedPhase>): bo
     if (exit === null) return false;
     scope.exit = exit;
   }
-  if (!leaveLocalScopes(lowering, scope.locals, node)) return false;
+  if (!leaveProtectedScopes(lowering, scope.protection, scope.locals, node, "control")) return false;
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: scope.exit });
   return true;
 }
@@ -513,7 +547,7 @@ export function continues(lowering: Lowering, node: ContinueStatement<TypedPhase
   if (scope === undefined || scope.continuation === null) return callerDefect("a continue has no active loop target", node.origin);
   const next = continuationTarget(lowering, scope.continuation);
   if (next === null) return false;
-  if (!leaveLocalScopes(lowering, scope.continuation.locals, node)) return false;
+  if (!leaveProtectedScopes(lowering, scope.continuation.protection, scope.continuation.locals, node, "control")) return false;
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: next });
   return true;
 }
@@ -524,7 +558,7 @@ export function enterFor(lowering: Lowering, { node, headerScope }: Extract<Work
   if (head === null) return false;
   terminate(state, { ...siteOf(body, node), kind: "goto", target: head });
   enterBlock(state, head);
-  const continuation: LoopContinuation = { head, locals: lowering.scope,
+  const continuation: LoopContinuation = { head, locals: lowering.scope, protection: lowering.protection,
     update: node.incrementor === null ? null : { expression: node.incrementor, block: null } };
   const { scope, previous } = placeLoop(lowering, node, continuation);
   if (headerScope !== null) lowering.work.push({ kind: "scope-end", node, scope: headerScope });
@@ -543,7 +577,8 @@ function placeLoop(lowering: Lowering, node: ForStatement<TypedPhase> | WhileSta
     child = pending.node;
   }
   const previous = lowering.labels.get(node.id);
-  const scope: Extract<ControlScope, { readonly kind: "loop" }> = { kind: "loop", node, exit: null, continuation, locals: continuation.locals };
+  const scope: Extract<ControlScope, { readonly kind: "loop" }> = { kind: "loop", node, exit: null, continuation,
+    locals: continuation.locals, protection: continuation.protection };
   lowering.labels.set(node.id, scope);
   return { scope, previous };
 }
@@ -587,7 +622,7 @@ export function enterWhile(lowering: Lowering, node: WhileStatement<TypedPhase>)
   if (head === null) return false;
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: head });
   enterBlock(lowering.state, head);
-  const { scope, previous } = placeLoop(lowering, node, { head, update: null, locals: lowering.scope });
+  const { scope, previous } = placeLoop(lowering, node, { head, update: null, locals: lowering.scope, protection: lowering.protection });
   lowering.work.push({ kind: "while-condition", node, scope, previous }, { kind: "expression", node: node.expression });
   return true;
 }
@@ -628,7 +663,7 @@ export function enterDo(lowering: Lowering, node: DoStatement<TypedPhase>): bool
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: head });
   enterBlock(lowering.state, head);
   const condition: NonNullable<LoopContinuation["update"]> = { expression: node.expression, block: null };
-  const { scope, previous } = placeLoop(lowering, node, { head, update: condition, locals: lowering.scope });
+  const { scope, previous } = placeLoop(lowering, node, { head, update: condition, locals: lowering.scope, protection: lowering.protection });
   lowering.work.push({ kind: "do-end", node, scope, previous, condition }, { kind: "statement", node: node.statement });
   return true;
 }

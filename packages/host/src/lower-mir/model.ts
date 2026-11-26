@@ -90,14 +90,22 @@ export type Work =
   | ({ readonly kind: "switch-clause"; readonly position: number } & SwitchDispatch)
   | { readonly kind: "if-then-end"; readonly node: IfStatement<TypedPhase>; readonly otherwise: BlockId; readonly exit: BlockId | null }
   | { readonly kind: "if-else-end"; readonly node: IfStatement<TypedPhase>; readonly exit: BlockId | null }
-  | { readonly kind: "protected-end"; readonly node: TryStatement<TypedPhase>; readonly handler: HandlerScope; readonly outer: HandlerScope | null }
-  | { readonly kind: "handler-end"; readonly node: TryStatement<TypedPhase>; readonly exit: BlockId | null; readonly payloadScope: LocalScope | null }
+  | { readonly kind: "protected-end"; readonly scope: ProtectedScope }
+  | { readonly kind: "handler-end"; readonly scope: ProtectedScope }
+  | { readonly kind: "cleanup-end"; readonly scope: ProtectedScope; readonly entry: BlockId }
   | { readonly kind: "while-condition"; readonly node: WhileStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "while-end"; readonly node: WhileStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "do-end"; readonly node: DoStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined; readonly condition: NonNullable<LoopContinuation["update"]> }
   | { readonly kind: "do-condition"; readonly node: DoStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "complete"; readonly node: ReturnStatement<TypedPhase> | ThrowStatement<TypedPhase> | Expression<TypedPhase>;
       readonly result: "value" | "void" };
+
+export function workNode(work: Work): NodeHeader {
+  switch (work.kind) {
+    case "protected-end": case "handler-end": case "cleanup-end": return work.scope.node;
+    default: return work.node;
+  }
+}
 
 type PlaceOperand = Extract<MirOperand, { readonly kind: "place" }>;
 
@@ -114,6 +122,7 @@ export type Evaluated = {
 interface TargetScope {
   exit: BlockId | null;
   readonly locals: LocalScope | null;
+  readonly protection: ProtectedScope | null;
 }
 
 export interface LocalScope {
@@ -130,10 +139,26 @@ export interface HandlerScope {
   entry: BlockId | null;
 }
 
+export interface CleanupScope {
+  readonly block: Block<TypedPhase>;
+  entry: BlockId | null;
+}
+
+export interface ProtectedScope {
+  readonly node: TryStatement<TypedPhase>;
+  readonly outer: ProtectedScope | null;
+  readonly locals: LocalScope | null;
+  readonly handler: HandlerScope | null;
+  readonly cleanup: CleanupScope | null;
+  phase: "try" | "catch" | "cleanup";
+  normal: BlockId | null;
+}
+
 export interface LoopContinuation {
   readonly head: BlockId;
   readonly update: { readonly expression: Expression<TypedPhase>; block: BlockId | null } | null;
   readonly locals: LocalScope | null;
+  readonly protection: ProtectedScope | null;
 }
 
 export type ControlScope = TargetScope & (
@@ -165,7 +190,7 @@ export interface Lowering {
   readonly preservedLocals: Set<LocalId>;
   readonly outerLocals: Map<BodyId, Map<LocalId, LocalId>>;
   scope: LocalScope | null;
-  handler: HandlerScope | null;
+  protection: ProtectedScope | null;
   receiver: LocalId | null;
 }
 

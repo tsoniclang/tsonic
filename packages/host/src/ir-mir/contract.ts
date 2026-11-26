@@ -207,6 +207,7 @@ export type MirStatement = MirSite & (
 // `await`, `yield`, `delegate` and `throw` unwind.
 export type MirUnwind =
   | { readonly kind: "handler"; readonly exception: PlaceId | null; readonly target: BlockId }
+  | { readonly kind: "carry"; readonly target: BlockId }
   | { readonly kind: "escape" }
   | { readonly kind: "abort" }
   | { readonly kind: "none" };
@@ -215,6 +216,8 @@ export interface MirSuspensionReturn {
   readonly destination: PlaceId;
   readonly target: BlockId;
 }
+
+export type MirCleanupTransfer = "control" | "unwind";
 
 export interface MirSwitchTarget {
   readonly constant: ConstId;
@@ -267,18 +270,69 @@ export type MirTerminator = MirSite & (
   | { readonly kind: "delegate"; readonly iterator: MirOperand; readonly destination: PlaceId;
       readonly resume: BlockId; readonly return: MirSuspensionReturn; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "throw"; readonly operand: MirOperand; readonly unwind: MirUnwind }
+  | { readonly kind: "cleanup-enter"; readonly entry: BlockId; readonly continuation: BlockId; readonly transfer: MirCleanupTransfer }
+  | { readonly kind: "cleanup-resume"; readonly entry: BlockId }
+  | { readonly kind: "cleanup-discard"; readonly entry: BlockId; readonly target: BlockId }
+  | { readonly kind: "unwind-propagate"; readonly unwind: MirUnwind }
   | { readonly kind: "return"; readonly value: MirOperand | null }
   | { readonly kind: "unreachable" }
 );
 
-export type MirControlEdgeKind = "normal" | "unwind" | "resume" | "suspension-return";
+export type MirControlEdgeKind = "normal" | "unwind" | "carry" | "resume" | "suspension-return";
+
+export type MirCleanupTerminator = Extract<MirTerminator, {
+  readonly kind: "cleanup-enter" | "cleanup-resume" | "cleanup-discard";
+}>;
+
+export interface MirPendingCompletion<Signal> {
+  readonly entry: BlockId;
+  readonly continuation: BlockId;
+  readonly failure: Signal | null;
+  readonly outer: MirPendingCompletion<Signal> | null;
+}
+
+export interface MirCompletionState<Signal> {
+  readonly active: MirPendingCompletion<Signal> | null;
+  readonly carried: Signal | null;
+}
+
+export type TransferMirCompletion = <Signal>(terminator: MirCleanupTerminator, state: MirCompletionState<Signal>) =>
+  | { readonly kind: "next"; readonly target: BlockId; readonly state: MirCompletionState<Signal> }
+  | { readonly kind: "failure"; readonly reason: "entry-transfer" | "active-entry" | "carried-on-resume" };
+
+export interface MirFixedControlEdge {
+  readonly kind: MirControlEdgeKind;
+  readonly target: BlockId;
+  readonly destination: PlaceId | null;
+}
+
+export interface MirExecutionEdge extends MirFixedControlEdge {
+  readonly point: number;
+}
+
+export interface MirExecutionPoint {
+  readonly id: number;
+  readonly block: MirBlock;
+  readonly edges: readonly MirExecutionEdge[];
+}
+
+export type MirCompletionFault = "entry-transfer" | "active-entry" | "carried-on-resume" | "duplicate-active-entry"
+  | "carried-propagation" | "pending-exit" | "ambiguous-successor" | "position-resolves";
+
+export type PrepareMirExecutionGraph = <Stop>(body: MirBody, roots: readonly BlockId[],
+  controls: (block: BlockId) => readonly MirFixedControlEdge[], admit: (work: number, records: number) => Stop | null) =>
+  | { readonly kind: "complete"; readonly points: readonly MirExecutionPoint[]; readonly roots: readonly number[] }
+  | { readonly kind: "invalid"; readonly block: BlockId; readonly reason: MirCompletionFault }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
 
 export type MirControlProjection<Stop> = { readonly admit: () => Stop | null } & (
   | { readonly kind: "targets"; readonly visit: (target: BlockId) => void }
+  | { readonly kind: "topology"; readonly visit: (kind: MirControlEdgeKind, target: BlockId) => void }
   | { readonly kind: "edges"; readonly visit: (kind: MirControlEdgeKind, target: BlockId, destination: PlaceId | null) => void }
 );
 
 export type VisitMirControlEdges = <Stop>(terminator: MirTerminator, projection: MirControlProjection<Stop>) => Stop | null;
+export type IsMirCompletionControl = (terminator: MirTerminator) => boolean;
 
 export interface MirBlock extends MirSite {
   readonly id: BlockId;
@@ -329,6 +383,7 @@ export type MirRule =
   | "static-read-exact" | "static-write-exact"
   | "operation-selected"
   | "edge-target-resolves"
+  | "cleanup-control-exact"
   | "switch-target-unique"
   | "call-receiver-exact"
   | "body-receiver-exact"

@@ -6,7 +6,7 @@ import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, instan
 import type { ApplicationDecision, EmbeddingDecision, InferenceDeclaration } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
 import type { MirBody, MirConstantValue, MirRule, MirVerification, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { chargeWork, createWireTexts, densePosition, sourceNodes, validOrigin, verifyEdges, verifySelections } from "./verify-control.js";
+import { chargeWork, createWireTexts, densePosition, sourceNodes, validOrigin, verifyCompletionControl, verifyEdges, verifySelections } from "./verify-control.js";
 import type { WorkMeter } from "./verify-control.js";
 import { placeLocations, verifyStorage, verifyValues } from "./verify-storage.js";
 import { verifyLaws } from "./verify-laws.js";
@@ -428,7 +428,7 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
     source: context.source, bodyOf: context.bodyOf, types: context.types, declarationOf, bodyOwner, requiredEntries: context.requiredEntries };
   const wires = createDecisionWires(createScalarWires());
   const texts = createWireTexts(wires);
-  const nodes = sourceNodes(input.source, texts);
+  const { nodes, cleanup } = sourceNodes(input.source, texts);
   const rows = verifyRows(body, input.source, input.types, declarationOf);
   const places = placeLocations(body);
   const values = verifyValues(body, input, nodes, places, meter);
@@ -462,9 +462,17 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
     return target ?? undefined;
   }, meter);
   if (meter.exhausted) return refusal;
-  const storage = verifyStorage(body, places, edges.control, meter);
+  let control = edges.ordinary;
+  if (cleanup || edges.completion) {
+    const execution = verifyCompletionControl(body, edges.control, nodes, meter);
+    if (execution.kind === "resource-stop") return refusal;
+    if (execution.kind === "invalid")
+      return { kind: "complete", violations: [...rows, ...values.violations, ...edges.violations, ...selections, execution.violation, ...decisions] };
+    control = execution.control;
+  }
+  const storage = verifyStorage(body, places, control, meter);
   if (meter.exhausted) return refusal;
-  const laws = verifyLaws(body, input, nodes, texts, places, edges.control, meter);
+  const laws = verifyLaws(body, input, nodes, texts, places, control, meter);
   // Past the limit the body is neither accepted nor found invalid: the findings gathered so far are not an answer,
   // and the remaining passes are not run.
   if (meter.exhausted) return refusal;

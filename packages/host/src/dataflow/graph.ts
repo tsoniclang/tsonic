@@ -1,7 +1,7 @@
 import type { BlockId } from "../ids/contract.js";
-import type { MirBlock, MirBody } from "../ir-mir/contract.js";
-import { visitMirControlEdges } from "../ir-mir/index.js";
-import type { DataflowAccount, DataflowResult, DataflowStop, DirectedGraph, OrderRows } from "./contract.js";
+import type { MirBlock, MirBody, MirFixedControlEdge } from "../ir-mir/contract.js";
+import { isMirCompletionControl, prepareMirExecutionGraph, visitMirControlEdges } from "../ir-mir/index.js";
+import type { DataflowAccount, DataflowResult, DataflowStop, DirectedGraph, MirDirectedGraph, OrderRows } from "./contract.js";
 import { takeWork, takeEntries } from "./account.js";
 
 export interface GraphNode<Value> {
@@ -14,6 +14,12 @@ export interface GraphNode<Value> {
 export interface GraphView<Value> {
   readonly nodes: readonly GraphNode<Value>[];
   readonly byIndex: ReadonlyMap<number, GraphNode<Value>>;
+}
+
+export interface MirGraphView extends GraphView<MirBlock> {
+  readonly qualified: boolean;
+  readonly startOf: (block: BlockId) => number;
+  readonly originalPositionOf: (node: GraphNode<MirBlock>) => number;
 }
 
 export function requireCallerValue<Value>(value: Value | undefined, name: string): Value {
@@ -63,9 +69,9 @@ export const orderRows: OrderRows = (values, compare, account) => {
   return room ?? sortRecords(values, compare, account);
 };
 
-function graphFromRows<Value extends {}>(
+function createGraphRows<Value extends {}>(
   rows: Iterable<readonly [number, Value]>,
-  successors: (value: Value, visit: (index: number | undefined) => void) => DataflowStop | null,
+  inspect: (value: Value) => void,
   meter: DataflowAccount,
 ): DataflowResult<GraphView<Value>> {
   const nodes: GraphNode<Value>[] = [];
@@ -77,23 +83,30 @@ function graphFromRows<Value extends {}>(
     const node: GraphNode<Value> = { index, value, successors: [], predecessors: new Map<number, GraphNode<Value>>() };
     nodes.push(node);
     byIndex.set(index, node);
+    inspect(value);
   }
-  const graph: GraphView<Value> = { nodes, byIndex };
-  for (const node of nodes) {
+  return { kind: "complete", value: { nodes, byIndex } };
+}
+
+function wireGraph<Value>(graph: GraphView<Value>, successors: (node: GraphNode<Value>, visit: (index: number | undefined) => void) => DataflowStop | null,
+  meter: DataflowAccount): DataflowStop | null {
+  for (const node of graph.nodes) {
     const rowStop = takeWork(meter);
     if (rowStop !== null) return rowStop;
-    const edgeStop = successors(node.value, index => {
+    const edgeStop = successors(node, index => {
       const target = graphNode(graph, index, "edge target");
       node.successors.push(target);
       target.predecessors.set(node.index, node);
     });
     if (edgeStop !== null) return edgeStop;
   }
-  return { kind: "complete", value: graph };
+  return null;
 }
 
 export function buildGraph(input: DirectedGraph, meter: DataflowAccount): DataflowResult<GraphView<readonly number[]>> {
-  return graphFromRows(input.successors.entries(), (row, visit) => {
+  const graph = createGraphRows(input.successors.entries(), () => {}, meter);
+  if (graph.kind !== "complete") return graph;
+  const failure = wireGraph(graph.value, ({ value: row }, visit) => {
     for (let index = 0; index < row.length; index += 1) {
       const stop = takeWork(meter);
       if (stop !== null) return stop;
@@ -101,11 +114,74 @@ export function buildGraph(input: DirectedGraph, meter: DataflowAccount): Datafl
     }
     return null;
   }, meter);
+  return failure ?? graph;
 }
 
-export function buildMirGraph(body: MirBody, meter: DataflowAccount): DataflowResult<GraphView<MirBlock>> {
-  return graphFromRows(body.blocks.entries(),
-    (block, visit) => visitMirControlEdges(block.terminator, { kind: "targets", admit: () => takeWork(meter), visit }), meter);
+function executionRoots(body: MirBody, meter: DataflowAccount): DataflowResult<BlockId[]> {
+  const capacity = takeEntries(meter, 1);
+  if (capacity !== null) return capacity;
+  const roots: BlockId[] = [];
+  for (let index = 0; index < body.entries.length; index += 1) {
+    const stop = takeWork(meter) ?? takeEntries(meter, 1);
+    if (stop !== null) return stop;
+    roots.push(requireCallerValue(body.entries[index], "MIR execution entry").block);
+  }
+  return { kind: "complete", value: roots };
+}
+
+function completionGraph(body: MirBody, physical: GraphView<MirBlock>, meter: DataflowAccount): DataflowResult<MirGraphView> {
+  const capacity = takeEntries(meter, 2);
+  if (capacity !== null) return capacity;
+  const controls: MirFixedControlEdge[][] = [];
+  for (const node of physical.nodes) {
+    const blockRoom = takeWork(meter) ?? takeEntries(meter, 1);
+    if (blockRoom !== null) return blockRoom;
+    const edges: MirFixedControlEdge[] = [];
+    const stopped = visitMirControlEdges(node.value.terminator, { kind: "topology", admit: () => takeWork(meter) ?? takeEntries(meter, 1),
+      visit: (kind, target) => { edges.push({ kind, target, destination: null }); } });
+    if (stopped !== null) return stopped;
+    controls[node.index] = edges;
+  }
+  const offered = executionRoots(body, meter);
+  if (offered.kind !== "complete") return offered;
+  const roots = offered.value;
+  const prepared = prepareMirExecutionGraph(body, roots, block => requireCallerValue(controls[block], "MIR ordered successors"),
+    (work, records) => takeWork(meter, work) ?? takeEntries(meter, records));
+  if (prepared.kind === "resource-stop") return prepared.stop;
+  if (prepared.kind === "invalid") throw new TypeError(`Invalid cleanup graph at block ${prepared.block}: ${prepared.reason}`);
+  const rows = function* (): IterableIterator<readonly [number, MirBlock]> {
+    for (const point of prepared.points) yield [point.id, point.block];
+  };
+  const graph = createGraphRows(rows(), () => {}, meter);
+  if (graph.kind !== "complete") return graph;
+  const wired = wireGraph(graph.value, (node, visit) => {
+    const point = requireCallerValue(prepared.points[node.index], "qualified MIR point");
+    for (const edge of point.edges) {
+      const stopped = takeWork(meter);
+      if (stopped !== null) return stopped;
+      visit(edge.point);
+    }
+    return null;
+  }, meter);
+  if (wired !== null) return wired;
+  const starts = new Map<BlockId, number>();
+  for (let index = 0; index < roots.length; index += 1) {
+    const stopped = takeWork(meter) ?? takeEntries(meter, 1);
+    if (stopped !== null) return stopped;
+    starts.set(requireCallerValue(roots[index], "original MIR root"), requireCallerValue(prepared.roots[index], "qualified MIR root"));
+  }
+  return { kind: "complete", value: { ...graph.value, qualified: true, startOf: root => requireCallerValue(starts.get(root), "qualified MIR entry"),
+    originalPositionOf: node => node.value.id } };
+}
+
+export function buildMirGraph(body: MirBody, meter: DataflowAccount): DataflowResult<MirGraphView> {
+  let qualified = false;
+  const graph = createGraphRows(body.blocks.entries(), block => { qualified ||= isMirCompletionControl(block.terminator); }, meter);
+  if (graph.kind !== "complete") return graph;
+  if (qualified) return completionGraph(body, graph.value, meter);
+  const wired = wireGraph(graph.value, ({ value: block }, visit) =>
+    visitMirControlEdges(block.terminator, { kind: "targets", admit: () => takeWork(meter), visit }), meter);
+  return wired ?? { kind: "complete", value: { ...graph.value, qualified: false, startOf: block => block, originalPositionOf: node => node.index } };
 }
 
 export function predecessorsOfGraph(
@@ -129,20 +205,62 @@ export function predecessorsOfGraph(
   return { kind: "complete", value };
 }
 
-export function mirGraph(body: MirBody, meter: DataflowAccount): DataflowResult<DirectedGraph> {
+export function mirGraph(body: MirBody, meter: DataflowAccount): DataflowResult<MirDirectedGraph> {
   const priorStop = takeWork(meter, 0);
   if (priorStop !== null) return priorStop;
-  const successors: (readonly number[])[] = [];
-  for (const block of body.blocks) {
+  const successors: BlockId[][] = [];
+  let carriers: Set<number> | null = null;
+  let qualified = false;
+  for (let index = 0; index < body.blocks.length; index += 1) {
     const stop = takeWork(meter);
     if (stop !== null) return stop;
     const rowStop = takeEntries(meter, 1);
     if (rowStop !== null) return rowStop;
+    const block = requireCallerValue(body.blocks[index], "MIR graph block");
+    const terminator = block.terminator;
+    qualified ||= isMirCompletionControl(terminator);
     const row: BlockId[] = [];
-    const edgeStop = visitMirControlEdges(block.terminator, { kind: "targets",
-      admit: () => takeWork(meter) ?? takeEntries(meter, 1), visit: target => { row.push(target); } });
+    const carries = "unwind" in terminator && terminator.unwind.kind === "carry";
+    if (carries) {
+      const carry = takeEntries(meter, carriers === null ? 2 : 1);
+      if (carry !== null) return carry;
+      (carriers ??= new Set()).add(index);
+    }
+    const edgeStop = visitMirControlEdges(terminator, { kind: "targets", admit: () => takeWork(meter) ?? takeEntries(meter, 1),
+      visit: target => { row.push(target); } });
     if (edgeStop !== null) return edgeStop;
     successors.push(row);
   }
-  return { kind: "complete", value: { successors } };
+  if (!qualified) return { kind: "complete", value: { successors } };
+  const preparedRoom = takeEntries(meter, 1);
+  if (preparedRoom !== null) return preparedRoom;
+  const controls: MirFixedControlEdge[][] = [];
+  for (let index = 0; index < successors.length; index += 1) {
+    const read = takeWork(meter);
+    if (read !== null) return read;
+    const row = requireCallerValue(successors[index], "retained physical successor row");
+    const room = takeWork(meter, row.length) ?? takeEntries(meter, row.length + 1);
+    if (room !== null) return room;
+    controls.push(row.map((target, position) => ({ kind: position === row.length - 1 && carriers?.has(index) === true ? "carry" : "normal",
+      target, destination: null })));
+  }
+  const roots = executionRoots(body, meter);
+  if (roots.kind !== "complete") return roots;
+  const prepared = prepareMirExecutionGraph(body, roots.value, block => requireCallerValue(controls[block], "MIR graph successors"),
+    (work, retained) => takeWork(meter, work) ?? takeEntries(meter, retained));
+  if (prepared.kind === "resource-stop") return prepared.stop;
+  if (prepared.kind === "invalid") throw new TypeError(`Invalid cleanup graph at block ${prepared.block}: ${prepared.reason}`);
+  const result = takeEntries(meter, prepared.points.length * 3 + 3);
+  if (result !== null) return result;
+  const qualifiedSuccessors: number[][] = [], blocks: BlockId[] = [];
+  for (let position = 0; position < prepared.points.length; position += 1) {
+    const read = takeWork(meter);
+    if (read !== null) return read;
+    const point = requireCallerValue(prepared.points[position], "qualified MIR graph point");
+    const room = takeWork(meter, point.edges.length) ?? takeEntries(meter, point.edges.length);
+    if (room !== null) return room;
+    qualifiedSuccessors.push(point.edges.map(edge => edge.point));
+    blocks.push(point.block.id);
+  }
+  return { kind: "complete", value: { successors: qualifiedSuccessors, qualification: { blocks, entries: prepared.roots } } };
 }

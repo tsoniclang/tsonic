@@ -91,7 +91,7 @@ const found = body => {
 /** The pass alone under an account of the case: its findings, the units it charged, and whether it ran out. */
 const pass = (body, maximum = Number.MAX_SAFE_INTEGER) => {
   const meter = { spent: 0, maximum, exhausted: false };
-  const findings = verifyStorage(body, placeLocations(body), verifyEdges(body).control, meter);
+  const findings = verifyStorage(body, placeLocations(body), verifyEdges(body).ordinary, meter);
   return { findings, units: meter.spent, exhausted: meter.exhausted };
 };
 /** Every limit below `units` is a refusal that reports nothing; `units` itself is the complete answer. */
@@ -252,7 +252,7 @@ async function referenceWorkOf(body, context) {
   const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
   const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
   const meter = { spent: 0, maximum: 1000000, exhausted: false };
-  const nodes = sourceNodes(context.source, createWireTexts(createDecisionWires(createScalarWires())));
+  const { nodes } = sourceNodes(context.source, createWireTexts(createDecisionWires(createScalarWires())));
   const values = verifyValues(body, context, nodes, placeLocations(body), meter);
   const types = values.types, signatures = values.signatures;
   decisionReferences(body, context, types, signatures, meter);
@@ -288,7 +288,7 @@ test("a lowered static load and authored store use the actual declaration and se
     && statement.value.kind === "use" && statement.value.operand.kind === "place" && statement.value.operand.place === selected.id);
   const store = mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign" && statement.place === selected.id);
   assert.equal(store.value.operand.kind, "place");
-  const nodes = sourceNodes(tir, createWireTexts(createDecisionWires(createScalarWires())));
+  const { nodes } = sourceNodes(tir, createWireTexts(createDecisionWires(createScalarWires())));
   const context = { ...contextOf(1000000), source: tir, types: result.value.index.types };
   const check = (body, syntax = nodes) => verifyValues(body, context, syntax, placeLocations(body), {
     spent: 0, maximum: 1000000, exhausted: false,

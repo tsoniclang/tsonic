@@ -1,5 +1,5 @@
 import type {
-  ConstantKeyOfMir, LocalOwnershipOfMir, ParseMir, PrintMir, ProjectMirConstantKey, ProjectMirConstantOrdinals, ProjectMirValues, VerifyMir, VisitMirControlEdges,
+  ConstantKeyOfMir, IsMirCompletionControl, LocalOwnershipOfMir, ParseMir, PrepareMirExecutionGraph, PrintMir, ProjectMirConstantKey, ProjectMirConstantOrdinals, ProjectMirValues, TransferMirCompletion, VerifyMir, VisitMirControlEdges,
 } from "./contract.js";
 import { ownershipOfMode } from "./local-ownership.js";
 import { parseBody } from "./parse.js";
@@ -7,7 +7,8 @@ import { printBody } from "./print.js";
 import { constantKey, verifyBody } from "./verify.js";
 import { projectMirConstantKey as constantKeyProjection, projectMirConstantOrdinals as constantOrdinalProjection } from "./constant-projection.js";
 import { projectMirValues as valuesProjection } from "./project-values.js";
-import { visitControlEdges } from "./verify-control.js";
+import { isCompletionControl, visitControlEdges } from "./verify-control.js";
+import { prepareExecutionGraph, transferCompletion } from "./completion.js";
 
 export const printMir: PrintMir = body => printBody(body);
 export const parseMir: ParseMir = text => parseBody(text);
@@ -18,3 +19,6 @@ export const projectMirConstantKey: ProjectMirConstantKey = constantKeyProjectio
 export const projectMirConstantOrdinals: ProjectMirConstantOrdinals = constantOrdinalProjection;
 export const projectMirValues: ProjectMirValues = valuesProjection;
 export const visitMirControlEdges: VisitMirControlEdges = visitControlEdges;
+export const isMirCompletionControl: IsMirCompletionControl = isCompletionControl;
+export const transferMirCompletion: TransferMirCompletion = transferCompletion;
+export const prepareMirExecutionGraph: PrepareMirExecutionGraph = prepareExecutionGraph;

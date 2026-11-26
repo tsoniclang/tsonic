@@ -5,7 +5,8 @@ import type { BlockId, LocalId, OriginsId } from "../../ids/contract.js";
 import { originsId } from "../../ids/index.js";
 import type { AppliedSummary, RelationalArena } from "../../ir-facts/contract.js";
 import type { CallCaptureTransport } from "./calls.js";
-import type { MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
+import type { MirCompletionState, MirOperand, MirPendingCompletion, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
+import { transferMirCompletion } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { callValueEffects, isCallError, isLeastCall } from "./calls.js";
 import type { SelectedCall } from "./calls.js";
@@ -13,7 +14,7 @@ import type { StaticCalleeCells } from "./static-calls.js";
 import { bodyFrontier, rootSlot } from "./places.js";
 import type { StaticSlots } from "./places.js";
 import type { HeldFields } from "./field-effects.js";
-import { selectedCallAt } from "./storage.js";
+import { cleanupTarget, selectedCallAt } from "./storage.js";
 import { appliedOrigins, joinOrigins, valueKind } from "./values.js";
 import type { OpenCallTransport, ReadCallBoundary } from "./open-calls.js";
 import { noCallBoundary } from "./open-calls.js";
@@ -22,8 +23,70 @@ import type { AdmitOrigins, ValueOrigins } from "./values.js";
 export interface CurrentValues {
   readonly origins: readonly OriginsId[];
   readonly contents: ReadonlySet<number>;
+  readonly completion?: MirCompletionState<OriginsId>;
 }
 export type ValueState = CurrentValues | null;
+
+function withValues(state: ValueState | undefined, origins: readonly OriginsId[], contents: ReadonlySet<number>): CurrentValues {
+  const completion = state?.completion;
+  return completion === undefined ? { origins, contents } : { origins, contents, completion };
+}
+
+function withCompletion(state: CurrentValues, completion: MirCompletionState<OriginsId>): CurrentValues {
+  return completion.active === null && completion.carried === null ? { origins: state.origins, contents: state.contents }
+    : { origins: state.origins, contents: state.contents, completion };
+}
+
+function sameCompletion(account: BodyRoundDeps["account"], first: MirCompletionState<OriginsId> | undefined,
+  second: MirCompletionState<OriginsId> | undefined): boolean {
+  if (first === second) return true;
+  if (first?.carried !== second?.carried) return false;
+  for (let left = first?.active ?? null, right = second?.active ?? null; left !== right; left = left.outer, right = right.outer) {
+    if (chargeWork(account, 1) !== null) return true;
+    if (left === null || right === null || left.entry !== right.entry || left.continuation !== right.continuation || left.failure !== right.failure)
+      return false;
+  }
+  return true;
+}
+
+function joinCompletion(deps: BodyRoundDeps, values: ValueOrigins, admit: AdmitOrigins, first: MirCompletionState<OriginsId> | undefined,
+  second: MirCompletionState<OriginsId> | undefined): DataflowResult<MirCompletionState<OriginsId>> {
+  const { account } = deps;
+  if (first === undefined && second !== undefined) return { kind: "complete", value: second };
+  if (second === undefined && first !== undefined) return { kind: "complete", value: first };
+  if (first === undefined || second === undefined) return bodyFrontier("A completion join requires at least one actual carried state.");
+  const left = first, right = second;
+  if (left === right) return { kind: "complete", value: left };
+  const setup = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
+  if (setup !== null) return setup;
+  const joinValue = (before: OriginsId | null, after: OriginsId | null): OriginsId | null | DataflowStop =>
+    before === null ? after : after === null ? before : joinOrigins(deps, values, before, after, admit);
+  const carried = joinValue(left.carried, right.carried);
+  if (carried !== null && typeof carried !== "number") return carried;
+  const frames: { readonly entry: BlockId; readonly continuation: BlockId; readonly failure: OriginsId | null }[] = [];
+  let previous = left.active, next = right.active;
+  while (previous !== next) {
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    if (previous === null || next === null || previous.entry !== next.entry || previous.continuation !== next.continuation)
+      return { kind: "complete", value: { active: null, carried } };
+    const failure = joinValue(previous.failure, next.failure);
+    if (failure !== null && typeof failure !== "number") return failure;
+    const retained = chargeResultEntries(account, 2);
+    if (retained !== null) return retained;
+    frames.push({ entry: previous.entry, continuation: previous.continuation, failure });
+    previous = previous.outer;
+    next = next.outer;
+  }
+  let active: MirPendingCompletion<OriginsId> | null = previous;
+  for (let position = frames.length - 1; position >= 0; position -= 1) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    const frame = requirePresent(frames[position], { owner: "analyses/body", query: null, origin: null, message: "A completion join retains every admitted frame." });
+    active = { ...frame, outer: active };
+  }
+  return { kind: "complete", value: { active, carried } };
+}
 
 function currentContent(deps: BodyRoundDeps, state: ReadonlySet<number>, local: number,
   written: boolean): DataflowResult<ReadonlySet<number>> {
@@ -119,7 +182,7 @@ export function applyExitContents(deps: BodyRoundDeps,
   if (contents.kind !== "complete") return contents;
   const output = chargeResultEntries(deps.account, 1);
   if (output !== null) return output;
-  return { kind: "complete", value: { origins: next ?? origins, contents: contents.value } };
+  return { kind: "complete", value: withValues(state, next ?? origins, contents.value) };
 }
 
 export function collectExitContents(deps: BodyRoundDeps, origins: readonly OriginsId[], entry: readonly OriginsId[], contents: ReadonlySet<number>, cells: readonly number[],
@@ -238,7 +301,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
           if (chargeWork(account, 1) !== null) return true;
           if (!right.contents.has(local)) return false;
         }
-        return true;
+        return sameCompletion(account, left.completion, right.completion);
       },
       join: (left, right, account) => {
         if (accountFailure(account) !== null) return left;
@@ -255,7 +318,9 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         }
         const contents = mergeContents(deps, left.contents, right.contents, null);
         if (contents.kind !== "complete") return left;
-        return { origins: next, contents: contents.value };
+        if (left.completion === undefined && right.completion === undefined) return { origins: next, contents: contents.value };
+        const completion = joinCompletion(deps, values, admit, left.completion, right.completion);
+        return completion.kind === "complete" ? withCompletion({ origins: next, contents: contents.value }, completion.value) : left;
       },
     },
     statement: (statement, state) => {
@@ -268,9 +333,9 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         ? null : rootSlot(input.mir, statement.place, statics) : statement.local;
       const changed = local !== null && tracked.has(local) ? currentContent(deps, state.contents, local, statement.kind === "assign") : null;
       if (changed !== null && changed.kind !== "complete") return state;
-      return { origins: next.value, contents: changed === null ? state.contents : changed.value };
+      return withValues(state, next.value, changed === null ? state.contents : changed.value);
     },
-    terminator: (terminator, state, account, block) => {
+    terminator: (terminator, state, account, block, resumed) => {
       if (state === null) return [];
       const work = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
       if (work !== null) return [];
@@ -282,22 +347,40 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         outgoing.push({ target, state: values });
         return true;
       };
-      if (terminator.kind === "goto") edge(terminator.target, state);
-      else if (terminator.kind === "invoke" || terminator.kind === "throw") {
+      const carry = (target: BlockId, origins: OriginsId, incoming: CurrentValues): boolean => {
+        if (chargeWork(account, 1) !== null || chargeResultEntries(account, 2) !== null) return false;
+        if (incoming.completion?.carried != null) return bodyFrontier("An unwind cannot overwrite an in-flight failure.");
+        return edge(target, withCompletion(incoming, { active: incoming.completion?.active ?? null, carried: origins }));
+      };
+      if (terminator.kind === "cleanup-enter" || terminator.kind === "cleanup-resume" || terminator.kind === "cleanup-discard") {
+        if (chargeWork(account, 1) !== null || chargeResultEntries(account, terminator.kind === "cleanup-enter" ? 3 : 2) !== null) return outgoing;
+        const moved = transferMirCompletion(terminator, state.completion ?? { active: null, carried: null });
+        if (moved.kind !== "next" || cleanupTarget(terminator, resumed) !== moved.target)
+          return bodyFrontier("A value transfer must retain its exact qualified cleanup continuation.");
+        edge(moved.target, withCompletion(state, moved.state));
+      } else if (terminator.kind === "goto") edge(terminator.target, state);
+      else if (terminator.kind === "invoke" || terminator.kind === "throw" || terminator.kind === "unwind-propagate") {
         if (terminator.kind === "invoke" && !edge(terminator.next, state)) return outgoing;
+        const propagating = terminator.kind === "unwind-propagate";
+        const payload = () => terminator.kind === "throw" ? operandOrigins(input, constants, state.origins, terminator.operand, statics, fields)
+          : propagating ? state.completion?.carried ?? bodyFrontier("A propagated unwind has its actual carried origins.") : originsId(0);
+        const from = propagating ? withCompletion(state, { active: state.completion?.active ?? null, carried: null }) : state;
+        if (terminator.unwind.kind === "carry") {
+          carry(terminator.unwind.target, payload(), from);
+          return outgoing;
+        }
         if (terminator.unwind.kind !== "handler") return outgoing;
         const { exception, target } = terminator.unwind;
-        if (exception === null) edge(target, state);
+        if (exception === null) edge(target, from);
         else {
           if (chargeWork(account, state.origins.length + 1) !== null
             || chargeResultEntries(account, state.origins.length + 2) !== null) return outgoing;
           const local = rootSlot(input.mir, exception, statics);
           const written = [...state.origins];
-          written[local] = terminator.kind === "throw" ? operandOrigins(input, constants, state.origins, terminator.operand, statics, fields)
-            : originsId(0);
+          written[local] = payload();
           const contents = tracked.has(local) ? currentContent(deps, state.contents, local, true) : null;
           if (contents !== null && contents.kind !== "complete") return outgoing;
-          edge(target, { origins: written, contents: contents?.value ?? state.contents });
+          edge(target, withValues(from, written, contents?.value ?? state.contents));
         }
       }
       else if (terminator.kind === "switch") {
@@ -308,7 +391,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         const selected = selectedCallAt(calls, block);
         if (isLeastCall(selected)) return outgoing;
         if (isCallError(selected)) return bodyFrontier("A solved value call retains its already-completed semantic answer.");
-        const unwind = selected.unwinds && terminator.unwind.kind === "handler" ? terminator.unwind : null;
+        const unwind = selected.unwinds && (terminator.unwind.kind === "handler" || terminator.unwind.kind === "carry") ? terminator.unwind : null;
         if (!selected.returns && unwind === null) return outgoing;
         const destination = terminator.destination === null ? null : rootSlot(input.mir, terminator.destination, statics);
         const result = callValueEffects(deps, input, terminator, { block, statement: null }, selected,
@@ -326,13 +409,17 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
             if (applied.kind !== "complete" || !edge(terminator.next, applied.value)) return outgoing;
           }
           if (unwind !== null) {
-            const descriptor = chargeResultEntries(account, unwind.exception === null ? 0 : 1);
+            const place = unwind.kind === "handler" ? unwind.exception : null;
+            const descriptor = chargeResultEntries(account, place === null ? 0 : 1);
             if (descriptor !== null) return outgoing;
-            const exception = unwind.exception === null ? null : rootSlot(input.mir, unwind.exception, statics);
+            const exception = place === null ? null : rootSlot(input.mir, place, statics);
             const applied = applyExitContents(deps, terminator, result.value.value, cellSlots, "unwind", state, values, admit,
               exception === null ? null : { local: exception, tracked: tracked.has(exception) }, boundary);
             if (applied.kind !== "complete") return outgoing;
-            edge(unwind.target, applied.value);
+            if (unwind.kind === "carry") {
+              const origins = appliedOrigins(deps, values, result.value.value.thrown, admit, boundary);
+              if (typeof origins === "number") carry(unwind.target, origins, applied.value);
+            } else edge(unwind.target, applied.value);
           }
           return outgoing;
         }
@@ -340,8 +427,9 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
           const locals = requirePresent(result.value.unwound ?? undefined, { owner: "analyses/body", query: null, origin: terminator.origin,
             message: "A primitive handled call retains its actual unwind contents." });
           const contents = mergeContents(deps, state.contents, locals, null);
-          if (contents.kind !== "complete" || chargeResultEntries(account, 1) !== null
-            || !edge(unwind.target, { origins: state.origins, contents: contents.value })) return outgoing;
+          if (contents.kind !== "complete" || chargeResultEntries(account, 1) !== null) return outgoing;
+          const incoming = withValues(state, state.origins, contents.value);
+          if (!(unwind.kind === "carry" ? carry(unwind.target, originsId(0), incoming) : edge(unwind.target, incoming))) return outgoing;
         }
         if (!selected.returns) return outgoing;
         let next = state;
@@ -353,12 +441,12 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
           const written = [...state.origins];
           written[destination] = produced;
           writtenLocal = tracked.has(destination) ? destination : null;
-          next = { origins: written, contents: state.contents };
+          next = withValues(state, written, state.contents);
         }
         const contents = mergeContents(deps, next.contents, result.value.contents, writtenLocal);
         if (contents.kind !== "complete") return outgoing;
         if (chargeResultEntries(account, 1) !== null) return outgoing;
-        next = { origins: next.origins, contents: contents.value };
+        next = withValues(next, next.origins, contents.value);
         edge(terminator.next, next);
       }
       return outgoing;

@@ -1,11 +1,11 @@
 import { requirePresent } from "../diag/index.js";
-import type { BodyId, LocalId, LocalRef, PlaceId, TyId } from "../ids/contract.js";
+import type { BlockId, BodyId, LocalId, LocalRef, PlaceId, TyId } from "../ids/contract.js";
 import type { Block, CaseBlock, NodeHeader, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
-import type { MirClosureCapture, MirUnwind } from "../ir-mir/contract.js";
+import type { MirCleanupTransfer, MirClosureCapture, MirUnwind } from "../ir-mir/contract.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
 import { layoutBindingOf } from "../ir-tir/index.js";
 import type { InternalBodyInput } from "./contract.js";
-import type { LocalScope, Lowering, Work } from "./model.js";
+import type { CleanupScope, HandlerScope, LocalScope, Lowering, ProtectedScope, Work } from "./model.js";
 import { callerDefect, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
 import { exposeLocal, saveBeforeControl } from "./operands.js";
 import { buildDetachedBlock, constantOperand, emitStatement, enterBlock, newBlock, newLocal, placeOfLocal, placeOfStatic, terminate } from "./state.js";
@@ -25,7 +25,11 @@ export function enterLocalBlock(lowering: Lowering, node: Block<TypedPhase>): bo
 }
 
 export function leaveLocalScopes(lowering: Lowering, target: LocalScope | null, node: NodeHeader): boolean {
-  for (let scope = lowering.scope; scope !== target; scope = scope.parent) {
+  return leaveLocalScopesFrom(lowering, lowering.scope, target, node);
+}
+
+function leaveLocalScopesFrom(lowering: Lowering, start: LocalScope | null, target: LocalScope | null, node: NodeHeader): boolean {
+  for (let scope = start; scope !== target; scope = scope.parent) {
     if (scope === null) return callerDefect("a storage transfer leaves an unrelated lexical scope", node.origin);
     for (let index = scope.locals.length - 1; index >= 0; index -= 1) {
       const local = requirePresent(scope.locals[index], failure("a lexical storage list has a hole", node.origin));
@@ -35,13 +39,64 @@ export function leaveLocalScopes(lowering: Lowering, target: LocalScope | null, 
   return true;
 }
 
+export function cleanupEntry(lowering: Lowering, scope: CleanupScope): BlockId | null {
+  scope.entry ??= newBlock(lowering.state, siteOf(lowering.body, scope.block));
+  return scope.entry;
+}
+
+export function leaveProtectedScopes(lowering: Lowering, target: ProtectedScope | null, locals: LocalScope | null,
+  node: NodeHeader, transfer: MirCleanupTransfer): boolean {
+  let currentLocals = lowering.scope;
+  const site = siteOf(lowering.body, node);
+  for (let scope = lowering.protection; scope !== target; scope = scope.outer) {
+    if (scope === null) return callerDefect("a control transfer leaves an unrelated protected scope", node.origin);
+    const cleanup = scope.cleanup;
+    if (cleanup === null) continue;
+    if (!leaveLocalScopesFrom(lowering, currentLocals, scope.locals, node)) return false;
+    currentLocals = scope.locals;
+    const entry = cleanupEntry(lowering, cleanup);
+    if (entry === null) return false;
+    const continuation = newBlock(lowering.state, site);
+    if (continuation === null) return false;
+    terminate(lowering.state, scope.phase === "cleanup" ? { ...site, kind: "cleanup-discard", entry, target: continuation }
+      : { ...site, kind: "cleanup-enter", entry, continuation, transfer });
+    enterBlock(lowering.state, continuation);
+  }
+  return leaveLocalScopesFrom(lowering, currentLocals, locals, node);
+}
+
+function handlerEntry(lowering: Lowering, handler: HandlerScope): BlockId | null {
+  handler.entry ??= newBlock(lowering.state, siteOf(lowering.body, handler.block));
+  return handler.entry;
+}
+
+function unwindThroughCleanup(lowering: Lowering, node: NodeHeader, chosen: ProtectedScope | null, handler: HandlerScope | null): MirUnwind | null {
+  const target = handler === null ? null : handlerEntry(lowering, handler);
+  if (handler !== null && target === null) return null;
+  const site = siteOf(lowering.body, node);
+  const landing = newBlock(lowering.state, site);
+  if (landing === null || !buildDetachedBlock(lowering.state, landing, () => {
+    if (!leaveProtectedScopes(lowering, chosen, handler?.locals ?? null, node, "unwind")) return false;
+    const unwind: MirUnwind = target === null ? { kind: "escape" } : { kind: "handler", target, exception: handler?.exception ?? null };
+    terminate(lowering.state, { ...site, kind: "unwind-propagate", unwind });
+    return true;
+  })) return null;
+  return { kind: "carry", target: landing };
+}
+
 export function unwindToHandler(lowering: Lowering, node: NodeHeader): MirUnwind | null {
-  const handler = lowering.handler;
+  let chosen = lowering.protection;
+  let crossesCleanup = false;
+  while (chosen !== null && (chosen.phase !== "try" || chosen.handler === null)) {
+    crossesCleanup ||= chosen.cleanup !== null;
+    chosen = chosen.outer;
+  }
+  const handler = chosen?.handler ?? null;
+  if (crossesCleanup) return unwindThroughCleanup(lowering, node, chosen, handler);
   if (handler === null) return { kind: "escape" };
   const state = lowering.state;
-  const target = handler.entry ?? newBlock(state, siteOf(lowering.body, handler.block));
+  const target = handlerEntry(lowering, handler);
   if (target === null) return null;
-  handler.entry = target;
   for (let scope = lowering.scope; scope !== handler.locals; scope = scope.parent) {
     if (scope === null) return callerDefect("an unwind leaves an unrelated lexical scope", node.origin);
     if (scope.locals.length === 0) continue;

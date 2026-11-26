@@ -3437,6 +3437,202 @@ test("authored native faults take their selected abort, handler and call-unwind 
   }
 });
 
+test("authored finally uses one cleanup graph while preserving the exact pending completion", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
+  const { parseMir, printMir } = await import("../../packages/host/dist/ir-mir/index.js");
+  const { accountFailure, createAccount, graphOfMir } = await import("../../packages/host/dist/dataflow/index.js");
+  for (const [statements, expected, entryCount] of [
+    ["try { return flag; } finally { flag = !flag; }", [false, true], 1],
+    ["let result: boolean; try { if (flag) return true; result = flag; } finally { flag = !flag; } return result;", [false, true], 2],
+    ["try { return flag; } finally { return !flag; }", [true, false], 1],
+    ["try { try { throw flag; } catch { flag = !flag; } } finally { flag = !flag; } return flag;", [false, true], 1],
+    ["try { try { throw flag; } finally { flag = !flag; } } catch { return flag; }", [true, false], 1],
+    ["let result: boolean; result = false; outer: while (flag) { try { if (result) break outer; continue outer; } finally { result = !result; } } return result;",
+      [false, false], 2],
+  ]) {
+    const input = analysisInput(fixture, "sdk-minimal", `export function run(flag: boolean): boolean { ${statements} }`);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", statements);
+    const body = result.value.modules.flatMap(module => module.bodies)
+      .find(row => row.kind === "selected" && row.instance.body.includes(";run];function;0]"));
+    assert.ok(body, statements);
+    const entries = body.mir.blocks.map(row => row.terminator).filter(row => row.kind === "cleanup-enter");
+    assert.equal(entries.length, entryCount, statements);
+    assert.equal(new Set(entries.map(row => row.entry)).size, 1, statements);
+    if (entryCount === 2) assert.equal(new Set(entries.map(row => row.continuation)).size, 2, statements);
+    const wire = parseMir(printMir(body.mir));
+    assert.equal(wire.kind, "parsed", statements);
+    assert.deepEqual(wire.value, body.mir, statements);
+    const graph = graphOfMir(body.mir, createAccount(input.limits.dataflow));
+    assert.equal(graph.kind, "complete", statements);
+    const { blocks, entries: roots } = graph.value.qualification;
+    assert.deepEqual(roots.map(root => blocks[root]), body.mir.entries.map(row => row.block), statements);
+    const resume = body.mir.blocks.find(row => row.terminator.kind === "cleanup-resume");
+    if (resume !== undefined) {
+      const exits = blocks.flatMap((block, point) => block === resume.id
+        ? graph.value.successors[point].map(target => blocks[target]) : []);
+      assert.deepEqual(exits.toSorted((left, right) => left - right), entries.map(row => row.continuation).toSorted((left, right) => left - right), statements);
+    }
+    for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+      const limit = createAccount({ ...input.limits.dataflow, [dimension]: 0 });
+      assert.equal(graphOfMir(body.mir, limit), accountFailure(limit), statements);
+    }
+    const { types } = result.value.index;
+    const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
+      selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
+    for (const [index, flag] of [false, true].entries()) {
+      const execution = evaluate(deps, body.instance, wire.value, [{ kind: "boolean", type: body.mir.result, value: flag }],
+        "compile-time", { query: "constValue", key: [body.instance, "compile-time"] });
+      assert.equal(execution.kind, "done", statements);
+      assert.equal(execution.value.kind, "ok", statements);
+      assert.deepEqual(execution.value.value, { kind: "value", value: { kind: "boolean", type: body.mir.result, value: expected[index] } }, statements);
+      assert.deepEqual(execution.value.diagnostics, [], statements);
+    }
+  }
+  const reading = analyzeHostProgram(analysisInput(fixture, "sdk-minimal",
+    "export function run(flag: boolean): boolean { let result: boolean; try { if (flag) return true; result = flag; } finally { flag = result; } return result; }"));
+  assert.equal(reading.kind, "refused");
+  assert.deepEqual(reading.diagnostics.map(row => row.code.name), ["TSONIC_READ_BEFORE_INITIALIZATION"]);
+});
+
+test("authored finally does not lend the normal continuation's live stores to a returning predecessor", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function run(flag: boolean): boolean {
+      let observed: boolean;
+      observed = flag;
+      try {
+        if (flag) { observed = !flag; return flag; }
+      } finally { flag = !flag; }
+      return observed;
+    }`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const selected = result.value.modules.flatMap(row => row.bodies)
+    .find(row => row.kind === "selected" && row.instance.body.includes(";run];function;0]"));
+  assert.ok(selected);
+  const local = selected.tir.locals.find(row => row.name === "observed");
+  const storage = selected.mir.locals.find(row => row.source?.local === local.id);
+  const place = selected.mir.places.find(row => row.base.kind === "local" && row.base.local === storage.id);
+  const stores = selected.facts[0].liveness.stores.filter(({ point }) => {
+    if (point.statement === null) return false;
+    const statement = selected.mir.blocks[point.block].statements[point.statement];
+    return statement.kind === "assign" && statement.place === place.id;
+  });
+  assert.deepEqual(stores.map(row => row.observed), [true, false]);
+});
+
+test("authored finally preserves call-thrown origins but does not publish an overridden unwind", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { evaluate, resumeEvaluate } = await import("../../packages/host/dist/evaluate/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function fail(value: string): string { throw value; }
+    export function escapes(value: string, replacement: string): string {
+      try { return fail(value); } finally { value = replacement; }
+    }
+    export function overrides(value: string, replacement: string): string {
+      try { return fail(value); } finally { return replacement; }
+    }`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const selected = result.value.modules.flatMap(module => module.bodies).filter(row => row.kind === "selected");
+  const named = name => selected.find(row => row.instance.body.includes(`;${name}];function;0]`));
+  const failed = named("fail");
+  assert.ok(failed);
+  const { types } = result.value.index;
+  const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
+    selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
+  for (const [name, overrides] of [["escapes", false], ["overrides", true]]) {
+    const body = named(name);
+    assert.ok(body);
+    const facts = body.facts[0];
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+      && fixture.types.executionKey(row.key.execution) === fixture.types.executionKey(facts.execution));
+    assert.ok(summary);
+    assert.equal(summary.unwinds, !overrides);
+    assert.equal(summary.returns, overrides);
+    const outcome = summary.arena.origins[overrides ? summary.result : summary.thrown];
+    assert.equal(outcome.kind, "complete");
+    assert.equal(outcome.producers.length, 1);
+    const origin = summary.arena.boundProducers[outcome.producers[0]];
+    assert.deepEqual(summary.arena.producers[origin.producer], { id: origin.producer, kind: "parameter", index: overrides ? 1 : 0, path: null });
+    const type = body.mir.result;
+    const paused = evaluate(deps, body.instance, body.mir, [{ kind: "string", type, value: "original" }, { kind: "string", type, value: "replacement" }],
+      "compile-time", { query: "constValue", key: [body.instance, "compile-time"] });
+    assert.equal(paused.kind, "paused");
+    assert.deepEqual(paused.requests, [{ kind: "mir-body", instance: failed.instance }]);
+    const evaluation = resumeEvaluate(deps, paused.paused, [{ kind: "mir-body", body: failed.mir }]);
+    assert.equal(evaluation.kind, "done");
+    assert.equal(evaluation.value.kind, "ok");
+    assert.deepEqual(evaluation.value.value, { kind: "value",
+      value: overrides ? { kind: "string", type, value: "replacement" } : { kind: "error", type } });
+    assert.deepEqual(evaluation.value.diagnostics.map(row => row.site.origin),
+      overrides ? [] : [failed.mir.blocks.find(block => block.terminator.kind === "throw").terminator.origin]);
+  }
+});
+
+test("MIR verification refuses crossed, unearned and omitted required cleanup transfers", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { verifyMir } = await import("../../packages/host/dist/ir-mir/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `export function run(flag: boolean): boolean {
+    try { flag = !flag; } finally { flag = !flag; }
+    try { return flag; } finally { flag = !flag; }
+  }`);
+  const published = analyzeHostProgram(input);
+  assert.equal(published.kind, "ok");
+  const body = published.value.modules.flatMap(row => row.bodies)
+    .find(row => row.kind === "selected" && row.instance.body.includes(";run];function;0]"));
+  assert.ok(body);
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok");
+  const typed = typeSourceBarrier(input, source.value, createTypedAccount(input));
+  assert.equal(typed.kind, "ok");
+  const context = { selectedNativeFacts: input.snapshot.nativeFacts, source: body.tir, types: published.value.index.types,
+    limits: input.limits.mirVerification, requiredEntries: body.mir.entries.map(row => row.provided), declarationOf: typed.value.declarationOf,
+    bodyOwner: identity => fixture.ids.decodeBodyId(identity).value.owner, bodyOf: () => null };
+  assert.deepEqual(verifyMir(body.mir, context), { kind: "complete", violations: [] });
+  const [first, second] = body.mir.blocks.filter(row => row.terminator.kind === "cleanup-enter");
+  assert.ok(first && second);
+  assert.notEqual(first.terminator.entry, second.terminator.entry);
+  for (const [terminator, reason] of [
+    [{ ...first.terminator, entry: second.terminator.entry }, "cleanup-source-region"],
+    [{ ...first.terminator, transfer: "unwind" }, "entry-transfer"],
+  ]) {
+    const corrupted = { ...body.mir, blocks: body.mir.blocks.map(row => row !== first ? row : { ...row, terminator }) };
+    const verification = verifyMir(corrupted, context);
+    assert.equal(verification.kind, "complete");
+    assert.deepEqual(verification.violations, [{ rule: "cleanup-control-exact",
+      site: { kind: "instruction", body: body.instance.body, block: first.id, statement: null },
+      detail: [{ kind: "text", value: reason }] }]);
+  }
+  const [normal, returned] = [first, second].map(block => body.mir.blocks[block.terminator.continuation]);
+  assert.equal(returned.terminator.kind, "return");
+  const rows = [
+    [second.id, body.mir.blocks.map(row => row === second ? { ...row, terminator: returned.terminator } : row)],
+    [first.id, body.mir.blocks.map(row => {
+      const { terminator } = row;
+      if (row === first) return { ...row, terminator: { ...terminator, kind: "goto", target: normal.id } };
+      if (row === second) return { ...row, terminator: returned.terminator };
+      if (terminator.kind === "cleanup-resume") return { ...row, terminator: { ...terminator, kind: "unreachable" } };
+      return row;
+    })],
+  ];
+  for (const [block, blocks] of rows) {
+    const verification = verifyMir({ ...body.mir, blocks }, context);
+    assert.equal(verification.kind, "complete");
+    assert.deepEqual(verification.violations, [{ rule: "cleanup-control-exact",
+      site: { kind: "instruction", body: body.instance.body, block, statement: null },
+      detail: [{ kind: "text", value: "required-cleanup" }] }]);
+  }
+});
+
 test("an authored unbound handler catches the actual call and ends only the exited lexical storage", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

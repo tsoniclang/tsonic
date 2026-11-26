@@ -133,9 +133,9 @@ function storeEdges(analysis: Analysis, terminator: MirTerminator, edges: readon
   return true;
 }
 function scanBlock(analysis: Analysis, blockIndex: number, entryOf: (target: BlockId) => Bits, segments: LiveSegment[][],
-  stores: StoreLiveness[], reads: boolean[], writes: boolean[]): boolean {
+  stores: StoreLiveness[], reads: boolean[], writes: boolean[], resumed: readonly BlockId[]): boolean {
   const block = required(analysis.body.blocks[blockIndex], "a replay block is missing");
-  let current = terminatorBefore(analysis, block.terminator, entryOf);
+  let current = terminatorBefore(analysis, block.terminator, entryOf, resumed);
   if (stopped(analysis) || !work(analysis, analysis.body.locals.length)) return false;
   const ends = new Int32Array(analysis.body.locals.length).fill(-1);
   const firstSegments = new Map<number, number>();
@@ -186,7 +186,7 @@ function scanBlock(analysis: Analysis, blockIndex: number, entryOf: (target: Blo
   if (!reverseRows(analysis, stores, firstStore)) return false;
   const uses = emptyBits(analysis);
   if (stopped(analysis)) return false;
-  const edges = terminatorShape(analysis, block.terminator, uses);
+  const edges = terminatorShape(analysis, block.terminator, uses, resumed);
   return !stopped(analysis) && captureReads(analysis, uses, reads) && storeEdges(analysis, block.terminator, edges, entryOf, block.id, stores, writes);
 }
 function orderCaptures(analysis: Analysis, rows: readonly CaptureFact[]): readonly CaptureFact[] {
@@ -242,8 +242,9 @@ export function analyzeBodyStorageUse(deps: StorageUseDeps, input: StorageUseInp
     if ((addressTaken[local.id] === true || ownership === "external") && !setBit(analysis, analysis.escaped, local.id))
       return stoppedResult(input, account);
   }
+  const values = lattice(analysis);
   const solution = solve(body, execution.provided, {
-    direction: "backward", lattice: lattice(analysis), boundary: zero,
+    direction: "backward", lattice: values, boundary: zero,
     statement: (statement, state) => {
       const uses = emptyBits(analysis);
       if (stopped(analysis) || !statementReads(analysis, statement, uses)) return state;
@@ -252,7 +253,8 @@ export function analyzeBodyStorageUse(deps: StorageUseDeps, input: StorageUseInp
     terminator: (terminator, successors) => {
       if (!work(analysis, successors.length)) return zero;
       const entries = new Map(successors.map(row => [row.target, row.state]));
-      return terminatorBefore(analysis, terminator, target => required(entries.get(target), "a terminator successor has no entry state"));
+      return terminatorBefore(analysis, terminator, target => required(entries.get(target), "a terminator successor has no entry state"),
+        terminator.kind === "cleanup-resume" ? successors.map(row => row.target) : []);
     },
   }, account);
   if (solution.kind !== "complete") return refusalOf(execution, solution);
@@ -263,7 +265,35 @@ export function analyzeBodyStorageUse(deps: StorageUseDeps, input: StorageUseInp
   for (const [index] of body.blocks.entries()) {
     if (!work(analysis)) return stoppedResult(input, account);
     if (solution.value.reachable[index] !== true) continue;
-    if (!scanBlock(analysis, index, entryOf, segments, stores, reads, writes)) return stoppedResult(input, account);
+    const qualified = solution.value.qualifiedSuccessors;
+    if (qualified === undefined) {
+      if (!scanBlock(analysis, index, entryOf, segments, stores, reads, writes, [])) return stoppedResult(input, account);
+    } else {
+      if (!resultRow(analysis)) return stoppedResult(input, account);
+      const states = new Map<BlockId, Bits>();
+      const rows = qualified[index] ?? [];
+      for (let ordinal = 0; ordinal < rows.length; ordinal += 1) {
+        if (!work(analysis)) return stoppedResult(input, account);
+        const row = required(rows[ordinal], "a qualified successor state is missing");
+        const prior = states.get(row.target);
+        if (prior === undefined) {
+          if (!resultRow(analysis)) return stoppedResult(input, account);
+          states.set(row.target, row.state);
+        } else {
+          const selected = values.join(prior, row.state, account);
+          if (stopped(analysis)) return stoppedResult(input, account);
+          states.set(row.target, selected);
+        }
+      }
+      const block = required(body.blocks[index], "a qualified replay block is missing");
+      let resumed: BlockId[] = [];
+      if (block.terminator.kind === "cleanup-resume") {
+        if (!resultRow(analysis, 1 + states.size)) return stoppedResult(input, account);
+        resumed = [...states.keys()];
+      }
+      if (!scanBlock(analysis, index, target => required(states.get(target), "a qualified successor has no retained entry state"),
+        segments, stores, reads, writes, resumed)) return stoppedResult(input, account);
+    }
   }
   const locals: LivenessFacts["locals"][number][] = [];
   const bindings: LivenessFacts["bindings"][number][] = [];

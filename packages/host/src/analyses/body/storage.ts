@@ -107,7 +107,7 @@ export function solveStorageLive(input: Pick<BodyRoundInput, "execution" | "mir"
       else next.delete(statement.local);
       return next;
     },
-    terminator: (terminator, state, borrowed) => {
+    terminator: (terminator, state, borrowed, _block, resumed) => {
       if (state === null) return [];
       if (chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 1) !== null) return [];
       const outgoing: { readonly target: BlockId; readonly state: StorageLive }[] = [];
@@ -118,8 +118,15 @@ export function solveStorageLive(input: Pick<BodyRoundInput, "execution" | "mir"
         outgoing.push({ target, state });
         return true;
       };
-      if (terminator.kind === "goto") edge(terminator.target);
-      else if (terminator.kind === "call" || terminator.kind === "invoke") edge(terminator.next);
+      const cleanup = cleanupTarget(terminator, resumed);
+      if (cleanup !== null) edge(cleanup);
+      else if (terminator.kind === "goto") edge(terminator.target);
+      else if (terminator.kind === "call" || terminator.kind === "invoke") {
+        if (!edge(terminator.next)) return outgoing;
+        if (terminator.unwind.kind === "carry" || terminator.unwind.kind === "handler") edge(terminator.unwind.target);
+      } else if (terminator.kind === "throw" || terminator.kind === "unwind-propagate") {
+        if (terminator.unwind.kind === "carry" || terminator.unwind.kind === "handler") edge(terminator.unwind.target);
+      }
       else if (terminator.kind === "switch") {
         for (let position = 0; position < terminator.targets.length; position += 1) {
           if (chargeWork(borrowed, 1) !== null) return outgoing;
@@ -158,16 +165,25 @@ export function statementOperands(statement: MirStatement): readonly MirOperand[
   }
 }
 
+export function cleanupTarget(terminator: MirTerminator, resumed: BlockId | null): BlockId | null {
+  switch (terminator.kind) {
+    case "cleanup-enter": return terminator.entry;
+    case "cleanup-discard": return terminator.target;
+    case "cleanup-resume": return resumed ?? bodyFrontier("A cleanup has its actual qualified continuation.");
+    default: return null;
+  }
+}
+
 export function terminatorOperands(terminator: MirTerminator): readonly MirOperand[] {
   switch (terminator.kind) {
     case "return": return terminator.value === null ? [] : [terminator.value];
     case "throw":
-      if (terminator.unwind.kind !== "escape" && terminator.unwind.kind !== "handler")
+      if (terminator.unwind.kind !== "escape" && terminator.unwind.kind !== "handler" && terminator.unwind.kind !== "carry")
         return bodyFrontier("BodyAnalysis requires the actual selected handler or process-ending throw transport.");
       return [terminator.operand];
     case "switch": return [terminator.operand];
     case "invoke": return terminator.operands;
-    case "goto": case "unreachable": return [];
+    case "goto": case "unreachable": case "cleanup-enter": case "cleanup-resume": case "cleanup-discard": case "unwind-propagate": return [];
     default: return bodyFrontier("BodyAnalysis needs the selected call, failure or suspension transport for this terminator.");
   }
 }
@@ -213,7 +229,7 @@ function nativePrimitiveDestination(deps: BodyRoundDeps, body: MirBody,
   const { operation, execution, result } = invoke.operation.decision;
   const destination = invoke.destination;
   if (operation.kind !== "native-operator" || execution.kind !== "invocation" || execution.failure === "none"
-    || (execution.failure === "abort" ? invoke.unwind.kind !== "abort" : invoke.unwind.kind !== "handler" && invoke.unwind.kind !== "escape")
+    || (execution.failure === "abort" ? invoke.unwind.kind !== "abort" : invoke.unwind.kind !== "handler" && invoke.unwind.kind !== "escape" && invoke.unwind.kind !== "carry")
     || execution.writesStorage || invoke.step !== null || destination === null)
     return bodyFrontier("BodyAnalysis needs the selected call, failure or suspension transport for this terminator.");
   const place = body.places[destination];
@@ -231,10 +247,10 @@ function nativePrimitiveDestination(deps: BodyRoundDeps, body: MirBody,
   return { kind: "complete", value: destination };
 }
 
-function assignedHandler(body: MirBody, unwind: Extract<MirUnwind, { readonly kind: "handler" }>,
+function assignedHandler(body: MirBody, unwind: Extract<MirUnwind, { readonly kind: "handler" | "carry" }>,
   state: AssignedState, account: DataflowAccount, statics: StaticSlots): { readonly target: BlockId; readonly state: AssignedState } | null {
   if (chargeWork(account, 1) !== null || chargeResultEntries(account, 1) !== null) return null;
-  const assigned = unwind.exception === null ? state : assignDestination(body, unwind.exception, state, account, statics, false);
+  const assigned = unwind.kind === "carry" || unwind.exception === null ? state : assignDestination(body, unwind.exception, state, account, statics, false);
   return accountFailure(account) === null ? { target: unwind.target, state: assigned } : null;
 }
 
@@ -376,7 +392,7 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
     direction: "forward", boundary: { written: boundary, taint: null },
     lattice: assignedLattice(body.locals.length + (statics?.size ?? 0) + 1),
     statement: (statement, state, borrowed) => transferAssigned(body, statement, state, borrowed, statics),
-    terminator: (terminator, state, borrowed, block) => {
+    terminator: (terminator, state, borrowed, block, resumed) => {
       if (terminator.kind === "call" || terminator.kind === "invoke") {
         if (state === null) return [];
         let next = state;
@@ -385,7 +401,7 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
           const destination = nativePrimitiveDestination(deps, body, terminator);
           if (destination.kind !== "complete") return [];
           next = assignDestination(body, destination.value, state, borrowed, statics, false);
-          if (terminator.unwind.kind === "handler") {
+          if (terminator.unwind.kind === "handler" || terminator.unwind.kind === "carry") {
             failure = assignedHandler(body, terminator.unwind, state, borrowed, statics);
             if (failure === null) return [];
           }
@@ -411,12 +427,12 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
             next = taintUnwritten(state, selected, borrowed);
           } else {
             const unwind = terminator.unwind;
-            if (selected.unwinds && unwind.kind === "handler") {
+            if (selected.unwinds && (unwind.kind === "handler" || unwind.kind === "carry")) {
               const initialized = callExitAssigned(deps, body, terminator, selected, state.written, "unwind", staticSlot);
               if (initialized.kind !== "complete") return [];
               if (chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 2) !== null) return [];
               const incoming = { written: initialized.value, taint: state.taint };
-              failure = { target: unwind.target, state: unwind.exception === null ? incoming
+              failure = { target: unwind.target, state: unwind.kind === "carry" || unwind.exception === null ? incoming
                 : assignDestination(body, unwind.exception, incoming, borrowed, statics, false) };
             }
             if (!selected.returns) return failure === null ? [] : [failure];
@@ -433,13 +449,16 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
         const normal = { target: terminator.next, state: next };
         return failure === null ? [normal] : [normal, failure];
       }
-      if (terminator.kind === "throw" && terminator.unwind.kind === "handler") {
+      if ((terminator.kind === "throw" || terminator.kind === "unwind-propagate")
+        && (terminator.unwind.kind === "handler" || terminator.unwind.kind === "carry")) {
         const handled = state === null ? null : assignedHandler(body, terminator.unwind, state, borrowed, statics);
         return handled === null ? [] : [handled];
       }
-      const count = terminator.kind === "switch" ? terminator.targets.length + 1 : terminator.kind === "goto" ? 1 : 0;
+      const target = cleanupTarget(terminator, resumed);
+      const count = terminator.kind === "switch" ? terminator.targets.length + 1 : terminator.kind === "goto" || target !== null ? 1 : 0;
       if (chargeWork(borrowed, count) !== null || chargeResultEntries(borrowed, count) !== null) return [];
       if (terminator.kind === "goto") return [{ target: terminator.target, state }];
+      if (target !== null) return [{ target, state }];
       if (terminator.kind === "switch") return [...terminator.targets.map(target => ({ target: target.target, state })),
         { target: terminator.otherwise, state }];
       terminatorOperands(terminator);

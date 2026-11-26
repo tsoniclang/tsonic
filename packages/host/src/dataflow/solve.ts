@@ -207,7 +207,7 @@ function forwardEdges<State>(context: Context<State>): DataflowResult<ReadonlyMa
     for (const successor of row.item.cell.vertex.successors) {
       const edgeStop = takeWork(context.meter);
       if (edgeStop !== null) return edgeStop;
-      row.targets.set(successor.index, requirePresent(edges.get(successor.index), missingForwardTargetEdgeRow));
+      row.targets.set(successor.value.id, requirePresent(edges.get(successor.index), missingForwardTargetEdgeRow));
     }
   }
   return { kind: "complete", value: edges };
@@ -256,7 +256,10 @@ function forwardStep<State>(
   cell.exit = state;
   const terminatorWork = takeWork(context.meter);
   if (terminatorWork !== null) return terminatorWork;
-  const outputs = problem.terminator(cell.block.terminator, state, context.meter, cell.block.id);
+  const terminator = cell.block.terminator;
+  const resumed = terminator.kind === "cleanup-resume"
+    ? requireCallerValue(cell.vertex.successors[0], "actual cleanup continuation").value.id : null;
+  const outputs = problem.terminator(terminator, state, context.meter, cell.block.id, resumed);
   const callbackStop = failureOf(context.meter);
   if (callbackStop !== null) return callbackStop;
   const next = new Map<number, StateBox<State>>();
@@ -282,7 +285,7 @@ function forwardStep<State>(
     if (edgeStop !== null) return edgeStop;
     const inputs = target.inputs;
     const previous = inputs.get(cell.vertex.index);
-    const current = next.get(target.item.cell.vertex.index);
+    const current = next.get(target.item.cell.block.id);
     let previousState = problem.lattice.bottom;
     let currentState = problem.lattice.bottom;
     if (previous !== undefined) previousState = previous.value;
@@ -379,7 +382,7 @@ export function solveProblem<State>(
     if (stop !== null) return stop;
     if (Object.is(entry.provided, provided)) { selected = entry; break; }
   }
-  const start = requirePresent(selected, missingEntry).block;
+  const start = graph.value.startOf(requirePresent(selected, missingEntry).block);
   const traversal = walkGraph(graph.value, [start], meter, false);
   if (traversal.kind !== "complete") return traversal;
   const context = createContext(graph.value, traversal.value, start, problem, meter);
@@ -389,12 +392,58 @@ export function solveProblem<State>(
   const entryStates: State[] = [];
   const exitStates: State[] = [];
   const reachable: boolean[] = [];
+  let qualifiedSuccessors: (BlockState<State>[] | undefined)[] | undefined;
+  if (graph.value.qualified && problem.direction === "backward") {
+    const retained = takeEntries(meter, 1);
+    if (retained !== null) return retained;
+    qualifiedSuccessors = [];
+  }
   for (const cell of context.value.cells.values()) {
     const stop = takeWork(meter);
     if (stop !== null) return stop;
-    entryStates.push(cell.entry);
-    exitStates.push(cell.exit);
-    reachable.push(context.value.reachable.has(cell.vertex.index));
+    const position = graph.value.originalPositionOf(cell.vertex);
+    const reaches = context.value.reachable.has(cell.vertex.index);
+    if (reaches && qualifiedSuccessors !== undefined && cell.vertex.successors.length !== 0) {
+      let rows = qualifiedSuccessors[position];
+      if (rows === undefined) {
+        const room = takeEntries(meter, 2);
+        if (room !== null) return room;
+        rows = [];
+        qualifiedSuccessors[position] = rows;
+      }
+      for (let ordinal = 0; ordinal < cell.vertex.successors.length; ordinal += 1) {
+        const read = takeWork(meter);
+        if (read !== null) return read;
+        const next = requireCallerValue(cell.vertex.successors[ordinal], "the qualified successor");
+        const target = requireCallerValue(context.value.cells.get(next.index), "the qualified successor state");
+        const growth = takeEntries(meter, 2);
+        if (growth !== null) return growth;
+        rows.push({ target: target.block.id, state: target.entry });
+      }
+    }
+    if (reachable[position] === undefined || !reachable[position]) {
+      entryStates[position] = cell.entry;
+      exitStates[position] = cell.exit;
+      reachable[position] = reaches;
+    } else if (reaches) {
+      const previousEntry = requireCallerValue(entryStates[position], "projected entry state");
+      const previousExit = requireCallerValue(exitStates[position], "projected exit state");
+      const entry = joined(problem.lattice, previousEntry, cell.entry, meter);
+      if (entry.kind !== "complete") return entry;
+      const exit = joined(problem.lattice, previousExit, cell.exit, meter);
+      if (exit.kind !== "complete") return exit;
+      entryStates[position] = entry.value;
+      exitStates[position] = exit.value;
+    }
   }
-  return { kind: "complete", value: { entry: entryStates, exit: exitStates, reachable } };
+  for (let position = 0; position < body.blocks.length; position += 1) {
+    if (reachable[position] !== undefined) continue;
+    const room = takeWork(meter);
+    if (room !== null) return room;
+    reachable[position] = false;
+    entryStates[position] = problem.lattice.bottom;
+    exitStates[position] = problem.lattice.bottom;
+  }
+  const states = { entry: entryStates, exit: exitStates, reachable };
+  return { kind: "complete", value: qualifiedSuccessors === undefined ? states : { ...states, qualifiedSuccessors } };
 }
