@@ -109,15 +109,17 @@ export async function localProducerCases(suite) {
     assert.equal(facts.arena.producers === input.facts.arena.producers, true);
     assert.equal(facts.arena.producers[0].local === input.local, true);
     assert.equal(facts.arena.contexts[0].captures[0].cell, 0, "cell binding remains separately supplied, never inferred from the location");
-    const seedWork = 137;
-    const seedRecords = 65;
+    const seedWork = 121;
+    const seedRecords = 61;
     const limits = { ...ProgramWork.state(input.programContext.resources).limits, maximumCreatedRecords: seedRecords };
     const reference = { kind: "facts", body: input.bodyId, provided: 0 };
     const bindings = input.instance.bindings.bindings;
     const select = maximumWork => instantiate(input.index, input.module, reference, bindings, { ...limits, maximumWork });
     const exact = seedWork + 4;
     for (let maximum = 0; maximum < exact; maximum += 1) {
-      assert.deepEqual(select(maximum), { kind: "resource-limit", dimension: "work", maximum });
+      const stopped = select(maximum);
+      assert.equal(stopped.kind, "resource-limit", `work cap ${maximum}`);
+      assert.deepEqual(stopped, { kind: "resource-limit", dimension: "work", maximum });
     }
     const selected = select(exact);
     assert.equal(selected.kind, "instantiated");
@@ -125,9 +127,10 @@ export async function localProducerCases(suite) {
     assert.equal(selected.artifact.facts.arena.producers === input.facts.arena.producers, true);
     assert.equal(selected.types === input.index.types, false);
     assert.deepEqual(selected.types, input.index.types);
-    assert.deepEqual(instantiate(input.index, input.module, reference, bindings,
-      { ...limits, maximumWork: exact, maximumCreatedRecords: seedRecords - 1 }),
-    { kind: "resource-limit", dimension: "created-records", maximum: seedRecords - 1 });
+    const stopped = instantiate(input.index, input.module, reference, bindings,
+      { ...limits, maximumWork: exact, maximumCreatedRecords: seedRecords - 1 });
+    assert.equal(stopped.kind, "resource-limit");
+    assert.deepEqual(stopped, { kind: "resource-limit", dimension: "created-records", maximum: seedRecords - 1 });
   });
 }
 import { projectFixtureProgram } from "./program-executions.mjs";

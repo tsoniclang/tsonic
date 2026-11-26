@@ -327,8 +327,8 @@ function restoreSnapshots(snapshots) {
         const currentSignature = snapshot.links.resolvedSignature;
         if (currentSignature !== snapshot.resolvedSignature) {
             if (currentSelection !== undefined && snapshot.links.resolvedCallEvidenceSignature === currentSignature) {
-                if (snapshot.links.resolvedCallEvidence !== undefined
-                    && snapshot.links.resolvedCallEvidence.kind !== currentSelection.kind) {
+                const recorded = snapshot.links.resolvedCallEvidence;
+                if (recorded !== undefined && (recorded.kind === "circular-result" ? "applicable" : recorded.kind) !== currentSelection.kind) {
                     throw new Error("Selected-call evidence rollback found final evidence for a different cached signature.");
                 }
                 continue;

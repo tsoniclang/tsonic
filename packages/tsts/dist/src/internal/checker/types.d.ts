@@ -968,9 +968,12 @@ export type ResolvedCallInferenceEvidence = {
 } | {
     readonly kind: "unavailable";
 };
+export type RecordedCallEvidence = ResolvedCallEvidence | {
+    readonly kind: "circular-result";
+};
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::SignatureLinks","kind":"type","status":"implemented","sigHash":"a347e845fe887e23f08134d6a7c13472dcdb4602c6c632618c72b27e056bdc28","bodyHash":"4bf2baf0e113cf93bff152edafa4b1d395e4fdfca289065c748d902c87e78b3e"}
- * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Cache immutable selected call evidence beside TS-Go's resolvedSignature without changing signature resolution or cache semantics.","goSignature":"interface{decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}","tsSignature":"interface{checkedCallSelectionSeed:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::CheckedCallSelectionSeed>;decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedCallEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/selected-call-contracts.ts::ResolvedCallEvidence>;resolvedCallEvidenceSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedCallSelectionEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/selected-call-contracts.ts::ResolvedCallSelectionEvidence>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Cache immutable selected call evidence beside TS-Go's resolvedSignature without changing signature resolution or cache semantics.","goSignature":"interface{decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}","tsSignature":"interface{checkedCallSelectionSeed:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::CheckedCallSelectionSeed>;decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedCallEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::RecordedCallEvidence>;resolvedCallEvidenceSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedCallSelectionEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/selected-call-contracts.ts::ResolvedCallSelectionEvidence>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}"}
  *
  * Go source:
  * SignatureLinks struct {
@@ -986,7 +989,7 @@ export interface SignatureLinks {
     checkedCallSelectionSeed: GoPtr<CheckedCallSelectionSeed>;
     resolvedCallSelectionEvidence: GoPtr<ResolvedCallSelectionEvidence>;
     resolvedCallEvidenceSignature: GoPtr<Signature>;
-    resolvedCallEvidence: GoPtr<ResolvedCallEvidence>;
+    resolvedCallEvidence: GoPtr<RecordedCallEvidence>;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::TypeFlags","kind":"type","status":"implemented","sigHash":"f25175c625db0f67dfd7e928ddb1b660e03ad62f59d0c4ee937cfa78968b53ec","bodyHash":"06d2339bb07513679d9db9d3361917653e5f784b5a3d9fda1db10a4184c759c9"}
