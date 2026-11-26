@@ -51,6 +51,57 @@ before(async () => {
   ({ childrenOfSyntax, indexSyntaxTree, walkSyntaxTree } = product);
 });
 
+test("a mutable reference holds only its actual closed source declarations and selected field", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  for (const sourceType of ["Box", "Twin"]) {
+    const source = `type Box = { flag:boolean }; type Twin = { flag:boolean };
+      export function read(first:Box, second:${sourceType}, value:boolean):boolean {
+        let alias = first; alias = second; alias.flag = value; return alias.flag;
+      }`;
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+    const { checked, modules } = captured.value;
+    const { module } = modules.find(row => row.module.module === input.snapshot.entryPoint);
+    const [box, twin, callable] = module.tree.statements.nodes;
+    const body = checked.bodies.get(callable.tsonic.body);
+    const [ , reassignment, write, returned ] = body.root.statements.nodes;
+    const place = write.expression.left;
+    const read = returned.expression;
+    const local = read.expression.tsonic.resolution.local;
+    const itemOf = definition => checked.nodeOf(checked.declarationSourceOf(definition));
+    const slot = body.locals[local.local];
+    const bound = checked.nodeOf(slot.declaration).tsonic.inferredTypeBound;
+    const sources = body.params.slice(0, 2).map(formal => formal.local);
+    assert.equal(reassignment.expression.right.tsonic.resolution.local.local, sources[1]);
+    assert.equal(box.tsonic.definition === twin.tsonic.definition, false);
+    if (sourceType === "Twin") {
+      assert.equal(product.checkedSourceObjectFieldOf(body, read, checked.nodeOf, itemOf, () => true), null);
+      continue;
+    }
+    assert.equal(bound.kind, "available");
+    assert.deepEqual(bound.value.sources, sources);
+    const expectedField = { local, declaration: box.tsonic.definition, receiver: slot.checkerSlot.value,
+      occurrence: { body: body.body, node: place.id }, field: place.tsonic.origins.value[0].declaration };
+    for (const [cap, expected] of [[0, []], [1, [slot.declaration]], [2, [slot.declaration]],
+      [3, [slot.declaration]], [4, [slot.declaration, body.locals[sources[1]].declaration]],
+      [5, [slot.declaration, body.locals[sources[1]].declaration, body.locals[sources[0]].declaration]]]) {
+      let remaining = cap;
+      const reads = [];
+      const proof = product.checkedSourceObjectFieldOf(body, place, reference => {
+        reads.push(reference);
+        return checked.nodeOf(reference);
+      }, itemOf, () => remaining-- > 0);
+      assert.deepEqual(reads, expected, `prefix at ${cap}`);
+      assert.deepEqual(proof, cap === 5 ? expectedField : null);
+    }
+    assert.deepEqual(product.checkedSourceObjectFieldOf(body, read, checked.nodeOf, itemOf, () => true),
+      { ...expectedField, occurrence: { body: body.body, node: read.id } });
+  }
+});
+
 test("layout descriptors retain actual authored operands and admit each field before reading it", async () => {
   const fixture = await loadFrontFixture();
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
