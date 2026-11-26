@@ -760,8 +760,8 @@ test("the changed merged dependency retains each actual composed rest union's ow
     assert.equal(dependency.form.value.kind, "merged-interface-dependency");
     assert.equal(dependency.form.value.arguments.length, 1);
     const [argument] = dependency.form.value.arguments;
-    assert.equal(dependency.form.value.group.slots[0].scope, "local");
-    assert.equal(dependency.form.value.group.slots[0].parameters.length, 2);
+    assert.equal(dependency.form.value.group.evidence.slots[0].scope, "local");
+    assert.equal(dependency.form.value.group.evidence.slots[0].parameters.length, 2);
     const union = raw.types.types[argument];
     assert.equal(union.authoredTypeNode, null);
     assert.equal(union.form.value.kind, "union");

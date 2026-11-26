@@ -307,6 +307,10 @@ export interface RawInterfaceDescription {
 
 export interface RawInterfaceGroup {
   readonly ordinal: number;
+  readonly evidence: RawInterfaceGroupEvidence;
+}
+
+export interface RawInterfaceGroupEvidence {
   readonly declarations: readonly [RawNodeRef, RawNodeRef, ...RawNodeRef[]];
   readonly slots: readonly { readonly scope: "outer" | "local"; readonly parameters: readonly [RawNodeRef, ...RawNodeRef[]] }[];
 }

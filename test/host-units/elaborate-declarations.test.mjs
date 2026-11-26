@@ -2,6 +2,8 @@ import { fixtureTypeWork, admitFixtureTable } from "./fixtures/types-constructio
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { lowerSingleCheckedModule, captureSingleModule, identifySingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { analysisInput } from "./fixtures/front/analysis-input.mjs";
+import { readyModuleRoot, readyModuleStatements } from "./fixtures/chapter-syntax.mjs";
 
 async function checked(source) {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -23,7 +25,9 @@ async function checked(source) {
   assert.equal(fixture.verifyChecked(result.value, interner).length, 0);
   const table = fixture.types.viewTypes(interner);
   const declarations = await import("../../packages/host/dist/elaborate/declarations.js");
-  const projection = { types: interner, typeWork: fixtureTypeWork(fixture.types), checkerDiagnosticsOf: owner => {
+  const scopes = fixture.hir.deriveDeclarationScopes(result.value, fixture.hir.indexSyntaxTree(result.value.tree));
+  const projection = { types: interner, typeWork: fixtureTypeWork(fixture.types), nominalOf: scopes.nominalOf,
+    bindingScopeOf: scopes.bindingScopeOf, checkerDiagnosticsOf: owner => {
     assert.equal(owner, result.value.module);
     return result.value.checkerDiagnostics;
   }, signatureOf: id => {
@@ -75,6 +79,95 @@ test("actual alias and interface members retain checked types, declarations and 
   assert.equal(keys.members.nodes[0].kind, "IndexSignature");
   assert.equal(keys.members.nodes[0].parameters.nodes[0].tsonic.local, null);
   assert.equal(keys.members.nodes[0].parameters.nodes[0].tsonic.passing, null);
+});
+
+test("checked interface fragments retain one nominal group before any application and through final publication", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const [formals, first, second, use] of [
+    ["", "first: boolean;", "second: string;", ""],
+    ["<Item>", "[key: number]: Item;", "tag: boolean;", ""],
+    ["<Item>", "[key: number]: Item;", "tag: boolean;", "export type Use = Pair<boolean>[7];"],
+  ]) for (const fragments of [[first, second], [second, first]]) {
+    const input = analysisInput(fixture, "sdk-minimal", fragments.map(members =>
+      `export interface Pair${formals} { ${members} }`).join("\n") + "\n" + use);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+    const initial = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+    const pair = initial.tree.statements.nodes.slice(0, 2);
+    const ids = pair.map(node => node.tsonic.definition);
+    const group = captured.value.nominalOf(ids[0]);
+    assert.equal(group.kind, "merged-interface");
+    assert.equal(captured.value.nominalOf(ids[1]) === group, true);
+    assert.deepEqual(new Set(group.definitions), new Set(ids));
+    if (use === "") assert.equal(captured.value.interfaceDescriptionOf(ids[0]), null);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const published = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const statements = readyModuleStatements(readyModuleRoot(published.tree));
+    assert.equal(statements[0].tsonic.type, statements[1].tsonic.type);
+    const table = result.value.index.types;
+    const instance = table.terms[statements[0].tsonic.type];
+    assert.equal(instance.kind, "merged-interface");
+    assert.deepEqual(instance.definitions, group.definitions);
+    assert.deepEqual(statements.slice(0, 2).map(node => node.tsonic.definition), ids);
+    assert.deepEqual(statements.slice(0, 2).map(node => node.tsonic.members), pair.map(node => node.tsonic.members));
+    assert.deepEqual(instance.arguments.map(type => table.terms[type]), group.slots.map(slot =>
+      ({ kind: "merged-parameter", parameters: slot.parameters })));
+    if (use !== "") assert.deepEqual(table.terms[statements[2].tsonic.type], { kind: "primitive", primitive: "bool" });
+  }
+});
+
+test("different checked modules borrow one completed native group without conflating their local ordinals", async tester => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const input = analysisInput(fixture, "sdk-minimal");
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": "export type Control = boolean;" }, libraries: [
+    { name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent
+      + "\ninterface Shared<Item> { first: Item; } interface Different { one: boolean; }" },
+    { name: "lib.es2015.core.d.ts", text: "interface Different { two: string; } interface Shared<Item> { second: Item; }" },
+  ] });
+  const owner = fixture.packageOf("/checker");
+  const first = fixture.moduleOf(owner, "lib.es5.d.ts");
+  const second = fixture.moduleOf(owner, "lib.es2015.core.d.ts");
+  const capture = pipelineWiring.front.captureModules;
+  tester.mock.method(pipelineWiring.front, "captureModules", (...args) => {
+    const caught = capture(...args);
+    assert.equal(caught.kind, "ok");
+    const [one, different] = caught.value.find(row => row.module === first).types.interfaceGroups;
+    const [another, two] = caught.value.find(row => row.module === second).types.interfaceGroups;
+    assert.equal(one.ordinal, 0);
+    assert.equal(two.ordinal, 1);
+    assert.equal(one === two, false);
+    assert.equal(one.evidence === two.evidence, true);
+    assert.equal(different.evidence === another.evidence, true);
+    assert.equal(one.evidence === different.evidence, false);
+    return caught;
+  });
+  const captured = captureSourceBarrier({ ...input, snapshot });
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const named = module => new Map(captured.value.modules.find(row => row.module.module === module).module.tree.statements.nodes
+    .filter(node => node.kind === "InterfaceDeclaration")
+    .map(node => [node.name.text, captured.value.nominalOf(node.tsonic.definition)]));
+  const firstGroups = named(first);
+  const secondGroups = named(second);
+  assert.equal(firstGroups.get("Shared") === secondGroups.get("Shared"), true);
+  assert.equal(firstGroups.get("Different") === secondGroups.get("Different"), true);
+  assert.equal(firstGroups.get("Shared") === firstGroups.get("Different"), false);
+  const { declarationInterface } = await import("../../packages/host/dist/elaborate/declarations.js");
+  const library = captured.value.modules.find(row => row.module.module === first);
+  const actual = library.module.tree.statements.nodes.find(node => node.kind === "InterfaceDeclaration" && node.name.text === "Shared");
+  const deps = { types: captured.value.types, typeWork: fixtureTypeWork(fixture.types),
+    nominalOf: () => firstGroups.get("Different"),
+    bindingScopeOf: () => assert.fail("a crossed fragment must not reach its binding scope") };
+  assert.throws(() => declarationInterface(deps, actual), /must contain the actual checked fragment/u);
+  const typeWork = fixture.types.createTypePublicationWork({ maximumWork: 0, maximumCreatedRecords: 1000 });
+  const refused = declarationInterface({ ...deps, typeWork,
+    nominalOf: () => assert.fail("a stopped projection must not open the nominal reader") }, actual);
+  assert.equal(refused.kind, "refused");
+  assert.equal(refused === fixture.types.typePublicationRefusalOf(typeWork), true);
 });
 
 test("a zero-formal accessor still requires its genuine endpoint and original reader failure", async () => {

@@ -1,8 +1,9 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { DefId, NodeId, TyId } from "../ids/contract.js";
+import { tyId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
-import type { SignatureParameter, TypeInterner } from "../ir-types/contract.js";
+import type { SignatureParameter, TypeInterner, TypeTerm } from "../ir-types/contract.js";
 import { admitTypePublicationStep, internType, internTypeGraph, literalTypeValuesEqual, readType, refuseTypeConstruction, viewTypes } from "../ir-types/index.js";
 import type { DeclarationNameExpression, TypedPhase } from "../ir-tir/contract.js";
 import type { ElaborateDeps } from "./contract.js";
@@ -448,28 +449,95 @@ function typeElement<State>(deps: ElaborateDeps<State>, member: Hir.TypeElement<
     return fail(`The ${member.kind} declaration requires its actual typed key and passing producer.`);
 }
 
+function interfaceInstance<State>(deps: ElaborateDeps<State>, node: Hir.InterfaceDeclaration<Checked>): Result<TyId> {
+  const checked = node.tsonic;
+  const unit = { query: "elaborate", key: checked.definition };
+  const admit = (count = 1) => {
+    const stop = admitTypePublicationStep(deps.typeWork, count);
+    return stop === null ? null : refuseTypeConstruction(deps.typeWork, stop, node.origin, unit);
+  };
+  const entered = admit();
+  if (entered !== null) return entered;
+  const nominal = deps.nominalOf(checked.definition);
+  if (nominal?.kind !== "merged-interface" && (nominal?.kind !== "declared" || !nominal.facets.includes("instance")))
+    return fail("An interface declaration requires its actual checked instance facet.");
+  const terms: TypeTerm[] = [];
+  let instance: TypeTerm;
+  if (nominal.kind === "merged-interface") {
+    const paid = admit(nominal.definitions.length);
+    if (paid !== null) return paid;
+    const fragment = nominal.definitions.indexOf(checked.definition);
+    if (fragment === -1) return fail("A merged interface must contain the actual checked fragment.");
+    const arguments_: TyId[] = [];
+    let captured: readonly DefId[] | undefined;
+    let local = 0;
+    const base = viewTypes(deps.types).terms.length;
+    for (let position = 0; position < nominal.slots.length; ++position) {
+      const paid = admit();
+      if (paid !== null) return paid;
+      const slot = nominal.slots[position];
+      if (slot === undefined) return fail("A merged interface must retain each actual rigid slot.");
+      if (slot.scope === "local") {
+        const paid = admit();
+        if (paid !== null) return paid;
+        if (slot.parameters.length !== nominal.definitions.length || slot.parameters[fragment] !== checked.parameters[local]?.declaration)
+          return fail("A merged interface local slot must match this fragment's actual parameter.");
+        ++local;
+        terms.push({ kind: "merged-parameter", parameters: slot.parameters });
+      } else {
+        if (captured === undefined) {
+          const scoped = admit();
+          if (scoped !== null) return scoped;
+          captured = deps.bindingScopeOf(checked.definition).capturedParameters;
+        }
+        let binder: DefId | undefined;
+        for (let position = 0; position < slot.parameters.length; ++position) {
+          const paid = admit(1 + captured.length);
+          if (paid !== null) return paid;
+          const parameter = slot.parameters[position];
+          if (parameter === undefined) return fail("A merged interface outer slot must retain its actual parameter.");
+          if (!captured.includes(parameter)) continue;
+          if (binder !== undefined) return fail("A merged interface outer slot requires one actual captured binder.");
+          binder = parameter;
+        }
+        if (binder === undefined) return fail("A merged interface outer slot requires its actual captured binder.");
+        terms.push({ kind: "param", parameter: binder });
+      }
+      arguments_.push(tyId(base + position));
+    }
+    if (local !== checked.parameters.length) return fail("A merged instance must retain every actual local parameter.");
+    instance = { kind: "merged-interface", definitions: nominal.definitions, arguments: arguments_ };
+  } else {
+    const paid = admit(checked.parameters.length);
+    if (paid !== null) return paid;
+    const arguments_ = checked.parameters.map(parameter => internType(deps.types, { kind: "param", parameter: parameter.declaration }));
+    instance = { kind: "declared", definition: checked.definition, facet: "instance", extent: null, arguments: arguments_ };
+  }
+  const table = viewTypes(deps.types);
+  const root = terms.length;
+  terms.push(instance);
+  const result = internTypeGraph({ types: deps.types, work: deps.typeWork }, {
+    typeBase: table.terms.length, signatureBase: table.signatures.length, signatures: [],
+    terms,
+  });
+  if (result.kind !== "complete") return refuseTypeConstruction(deps.typeWork, result, node.origin, unit);
+  const type = result.value.types[root];
+  if (type === undefined) return fail("The admitted interface has one exact Types result.");
+  return { kind: "ok", diagnostics: [], value: type };
+}
+
 export function declarationInterface<State>(deps: ElaborateDeps<State>, node: Hir.InterfaceDeclaration<Checked>): Result<Hir.InterfaceDeclaration<TypedPhase>> {
   if (node.heritageClauses !== null) return fail("Interface heritage requires its actual selected declared type projection.");
   const projected = projectDeclaration(deps, [node]);
   if (projected.kind === "refused") return projected;
+  const instance = interfaceInstance(deps, node);
+  if (instance.kind === "refused") return instance;
   const checked = node.tsonic;
-  const unit = { query: "elaborate", key: checked.definition };
-  const stop = admitTypePublicationStep(deps.typeWork, checked.parameters.length);
-  if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, node.origin, unit);
-  const arguments_ = checked.parameters.map(parameter => internType(deps.types, { kind: "param", parameter: parameter.declaration }));
-  const table = viewTypes(deps.types);
-  const result = internTypeGraph({ types: deps.types, work: deps.typeWork }, {
-    typeBase: table.terms.length, signatureBase: table.signatures.length, signatures: [],
-    terms: [{ kind: "declared", definition: checked.definition, facet: "instance", extent: null, arguments: arguments_ }],
-  });
-  if (result.kind !== "complete") return refuseTypeConstruction(deps.typeWork, result, node.origin, unit);
-  const type = result.value.types[0];
-  if (type === undefined) return fail("The admitted interface has one exact Types result.");
   const read: TypeReader = annotation => annotation === null ? null : projected.value.typeOf(annotation);
   return { kind: "ok", diagnostics: [], value: { ...node, name: declarationName(node.name, null), modifiers: declarationModifiers(node.modifiers),
     typeParameters: typeParameters(node.typeParameters, read), heritageClauses: null,
     members: { ...node.members, nodes: node.members.nodes.map(projected.value.memberOf) },
-    tsonic: { definition: checked.definition, parameters: checked.parameters, type, members: checked.members } } };
+    tsonic: { definition: checked.definition, parameters: checked.parameters, type: instance.value, members: checked.members } } };
 }
 
 export function declarationAlias<State>(deps: ElaborateDeps<State>, node: Hir.TypeAliasDeclaration<Checked>): Result<Hir.TypeAliasDeclaration<TypedPhase>> {

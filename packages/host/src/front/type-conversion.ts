@@ -412,7 +412,7 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       owner = source;
     } else applied = form;
     if (applied.kind !== "alias-application" &&
-      (raw.types.interfaceGroups[applied.group.ordinal] !== applied.group || applied.group.slots.length !== applied.arguments.length))
+      (raw.types.interfaceGroups[applied.group.ordinal] !== applied.group || applied.group.evidence.slots.length !== applied.arguments.length))
       throw new TypeError("front: a merged application requires its independently retained declaration and slot group");
     const argumentsOf: TyId[] = [];
     for (let index = 0; index < applied.arguments.length; ++index) {
@@ -428,7 +428,7 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
       argumentsOf.push(reference(argument));
     }
     term = applied.kind === "merged-interface-dependency"
-      ? { kind: "merged-interface", definitions: applied.group.declarations.map(deps.definitionOf), arguments: argumentsOf }
+      ? { kind: "merged-interface", definitions: applied.group.evidence.declarations.map(deps.definitionOf), arguments: argumentsOf }
       : { kind: "alias-application", declaration: deps.definitionOf(applied.declaration), arguments: argumentsOf };
   } else if (form.kind === "declared") {
     if (form.arguments.length !== form.parameters.length)

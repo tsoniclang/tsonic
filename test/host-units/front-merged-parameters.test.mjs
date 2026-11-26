@@ -285,11 +285,11 @@ test("a recursively re-entered merged interface retains its changed argument and
     assert.equal(form.kind, "merged-interface-dependency");
     assert.equal(form.group === group, true);
     assert.equal(raw.types.interfaceGroups[form.group.ordinal] === form.group, true);
-    assert.deepEqual(form.group.declarations, [qualified(first), qualified(second)]);
+    assert.deepEqual(form.group.evidence.declarations, [qualified(first), qualified(second)]);
     assert.equal(form.arguments.length, 1);
     const [argument] = form.arguments;
-    assert.equal(form.group.slots[0].scope, "local");
-    assert.deepEqual(form.group.slots[0].parameters, [qualified(first.typeParameters.nodes[0]), qualified(second.typeParameters.nodes[0])]);
+    assert.equal(form.group.evidence.slots[0].scope, "local");
+    assert.deepEqual(form.group.evidence.slots[0].parameters, [qualified(first.typeParameters.nodes[0]), qualified(second.typeParameters.nodes[0])]);
     const captured = raw.types.types[argument];
     assert.deepEqual(captured.form, { kind: "available", value: { kind: "scalar", scalar } });
     assert.deepEqual(raw.types.components[captured.component].path,
@@ -712,7 +712,7 @@ test("recursive receiver admission preserves the actual source-reader stop befor
   } }, OpenedProgram.table(program), set.modules.map(entry =>
     OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
   OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 170], ["maximumCapturedEdgesPerModule", 231]]) {
+  for (const [limit, exact] of [["maximumCapturedFactsPerModule", 173], ["maximumCapturedEdgesPerModule", 232]]) {
     const captureAt = maximum => captureSingleModule(fixture.front, { ...deps,
       navigationCapture: { ...deps.navigationCapture, [limit]: maximum } }, observed, module);
     primeCaptureReader(captureAt, deps.navigationCapture[limit], stop);

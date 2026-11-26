@@ -3,7 +3,7 @@ import type { Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, NodeId } from "../ids/contract.js";
 import { decodeBodyId, decodeModuleId } from "../ids/index.js";
-import type { LowerDeps, LoweredModule, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawModule, RawNodeRef } from "../front/contract.js";
+import type { LowerDeps, LoweredModule, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawInterfaceGroupEvidence, RawModule, RawNodeRef } from "../front/contract.js";
 import type { CheckedPhase, EnumDeclaration, HirBindingViews, HirDeclarationScopes, HirModule } from "../ir-hir/contract.js";
 import { createModuleBindingViews, deriveDeclarationScopes, indexSyntaxTree, resolveModuleExport, verifyHir } from "../ir-hir/index.js";
 import type { AdmittedNativeGuarantee, Libraries, ProviderLibraryModel, ProviderLibraryOrigin, ProviderLibraryText } from "../libraries/contract.js";
@@ -173,6 +173,14 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
   const bindingScopeOf = (definition: DefId) => scopesOf(definition)?.bindingScopeOf(definition) ?? null;
   const groups = new Map<DefId, InterfaceGroup>();
   const interfaceDescriptions = new Map<InterfaceGroup, CheckedInterfaceDescription>();
+  const exactGroups = new Map<RawInterfaceGroupEvidence, InterfaceGroup>();
+  const retainDescription = (group: InterfaceGroup, recipe: InterfaceDescriptionRecipe | undefined): void => {
+    if (recipe === undefined) return;
+    const previous = interfaceDescriptions.get(group);
+    if (previous !== undefined && previous.recipe !== recipe)
+      return fail("One checked declaration group cannot supply different neutral descriptions.");
+    if (previous === undefined) interfaceDescriptions.set(group, { group, recipe });
+  };
   for (const captured of raw.values()) {
     const groupRows = captured.types.interfaceGroups;
     const completed = descriptionsByModule.get(captured.module) ?? fail("A captured module must have its actual lowered descriptions.");
@@ -196,11 +204,15 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
       if (stopped !== null) return stopped;
       const group = groupRows[position];
       if (group === undefined || group.ordinal !== position) return fail("A captured type group must retain its actual dense position.");
+      const evidence = group.evidence;
+      const recipe = localDescriptions.get(position);
+      const exact = exactGroups.get(evidence);
+      if (exact !== undefined) { retainDescription(exact, recipe); continue; }
       const definitionsInGroup: DefId[] = [];
-      for (let index = 0; index < group.declarations.length; ++index) {
+      for (let index = 0; index < evidence.declarations.length; ++index) {
         const step = admit();
         if (step !== null) return step;
-        const reference = group.declarations[index];
+        const reference = evidence.declarations[index];
         if (reference === undefined) return fail("A merged interface retains every original fragment.");
         const definition = definitionOf(reference);
         const node = sources.nodeOf({ kind: "item", value: { owner: definition, node: reference.node } });
@@ -210,10 +222,10 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
       }
       const slots: InterfaceGroup["slots"][number][] = [];
       let local = 0;
-      for (let index = 0; index < group.slots.length; ++index) {
+      for (let index = 0; index < evidence.slots.length; ++index) {
         const step = admit();
         if (step !== null) return step;
-        const slot = group.slots[index];
+        const slot = evidence.slots[index];
         if (slot === undefined || slot.scope === "outer" && local !== 0)
           return fail("A merged interface retains its outer and local slots in native order.");
         const parameters: DefId[] = [];
@@ -260,19 +272,16 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
         if (prior !== undefined && recorded !== prior) return fail("Completed merged interface groups cannot overlap.");
         prior = recorded;
       }
+      const remember = admit();
+      if (remember !== null) return remember;
       if (prior !== undefined) {
         const step = admit(definitionsInGroup.length + slots.length + slots.reduce((count, slot) => count + slot.parameters.length, 0));
         if (step !== null) return step;
         if (!sameGroup(prior, result)) return fail("Repeated capture must retain one exact checked declaration group.");
       } else for (const definition of definitionsInGroup) groups.set(definition, result);
-      const recipe = localDescriptions.get(position);
-      if (recipe !== undefined) {
-        const authority = prior ?? result;
-        const priorDescription = interfaceDescriptions.get(authority);
-        if (priorDescription !== undefined && priorDescription.recipe !== recipe)
-          return fail("One checked declaration group cannot supply different neutral descriptions.");
-        if (priorDescription === undefined) interfaceDescriptions.set(authority, { group: authority, recipe });
-      }
+      const authority = prior ?? result;
+      exactGroups.set(evidence, authority);
+      retainDescription(authority, recipe);
     }
   }
   const nominalOf = (definition: DefId) => groups.get(definition) ?? scopesOf(definition)?.nominalOf(definition) ?? null;

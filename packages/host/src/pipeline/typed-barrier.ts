@@ -245,7 +245,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     return finalized?.variable === variable.id && finalized.error === null ? finalized.value.type : null;
   };
   const elaboration = { cuts, types: source.types, typeWork: source.typeWork, rules: inference.rules, nodeOf: sources.nodeOf, itemOf,
-    bindingOf: source.bindingOf, staticStorageOf,
+    bindingOf: source.bindingOf, nominalOf: source.nominalOf, bindingScopeOf: scopeOf, staticStorageOf,
     typeOf: (type: Parameters<typeof readType>[1]) => readType(source.types, type),
     signatureOf: (signature: Parameters<typeof readSignature>[1]) => readSignature(source.types, signature),
     checkerDiagnosticsOf };

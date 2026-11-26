@@ -12,7 +12,7 @@ import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
 import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember,
-  RawFieldMarker, RawInterfaceDescription, RawInterfaceGroup, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawLayoutSelector,
+  RawFieldMarker, RawInterfaceDescription, RawInterfaceGroup, RawInterfaceGroupEvidence, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawLayoutSelector,
   RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { projectProviderModel } from "./provider-model.js";
@@ -55,6 +55,7 @@ interface InterfaceCaptureSession {
   descriptions: Set<Type> | null;
   declarations: Map<Type, readonly [Node, ...Node[]]> | null;
   applications: Map<Type, TypeInterfaceApplication> | null;
+  groups: Map<Type, RawInterfaceGroupEvidence> | null;
 }
 
 /**
@@ -2321,7 +2322,17 @@ function retainInterfaceGroup(scope: CaptureScope, application: TypeInterfaceApp
   const { byTarget, rows } = scope.tables.interfaceGroups;
   const known = byTarget.get(application.target);
   if (known !== undefined) return known;
-  if (!admit(scope, "facts", 5)) return null;
+  const { interfaceCapture } = scope.tables;
+  const register = (evidence: RawInterfaceGroupEvidence): RawInterfaceGroup => {
+    const group: RawInterfaceGroup = { ordinal: rows.length, evidence };
+    byTarget.set(application.target, group);
+    rows.push(group);
+    return group;
+  };
+  if (!admit(scope, "edges")) return null;
+  const recorded = interfaceCapture.groups?.get(application.target);
+  if (recorded !== undefined) return admit(scope, "facts", 3) ? register(recorded) : null;
+  if (!admit(scope, "facts", interfaceCapture.groups === null ? 8 : 7)) return null;
   const captureDeclaration = (index: number): RawNodeRef | null => {
     if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
     const source = application.declarations[index];
@@ -2340,7 +2351,7 @@ function retainInterfaceGroup(scope: CaptureScope, application: TypeInterfaceApp
     if (reference === null) return null;
     declarations.push(reference);
   }
-  const slots: RawInterfaceGroup["slots"][number][] = [];
+  const slots: RawInterfaceGroupEvidence["slots"][number][] = [];
   for (let index = 0; index < application.arguments.length; ++index) {
     if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
     const selected = application.arguments[index];
@@ -2353,10 +2364,28 @@ function retainInterfaceGroup(scope: CaptureScope, application: TypeInterfaceApp
       return throwInvariant(invariant("A merged interface slot must retain its actual admitted parameter declarations."));
     slots.push({ scope: selected.scope, parameters });
   }
-  const group: RawInterfaceGroup = { ordinal: rows.length, declarations, slots };
-  byTarget.set(application.target, group);
-  rows.push(group);
-  return group;
+  const evidence: RawInterfaceGroupEvidence = { declarations, slots };
+  (interfaceCapture.groups ??= new Map()).set(application.target, evidence);
+  return register(evidence);
+}
+
+function captureDeclaredInterfaceGroup(scope: CaptureScope, declaration: Node): boolean {
+  if (!admit(scope, "edges")) return false;
+  const name = scope.checked.ast.name(declaration);
+  const symbol = scope.checker.getSymbolAtLocation(name);
+  if (symbol === undefined || scope.checker.getSymbolDeclarations(symbol).length < 2) return true;
+  const checked = sourceType(scope, { kind: "expression", node: name });
+  if (scope.meter.refusal !== null) return false;
+  if (checked === undefined || scope.checker.getTypeSymbol(checked.type) !== symbol)
+    return throwInvariant(invariant("An interface declaration must retain its actual native instance target."));
+  const target = scope.shape.getTypeReferenceTarget(checked.type) ?? checked.type;
+  const declarations = nativeInterfaceDeclarations(scope, target);
+  if (declarations === null) return false;
+  if (declarations === undefined)
+    return throwInvariant(invariant("An interface declaration must retain its actual native declaration inventory."));
+  if (declarations.length < 2) return true;
+  const application = nativeInterfaceApplication(scope, target);
+  return application !== null && retainInterfaceGroup(scope, application) !== null;
 }
 
 function captureMergedParameter(scope: CaptureScope, declarations: readonly [RawNodeRef, ...RawNodeRef[]]): RawTypeForm | null {
@@ -2378,9 +2407,9 @@ function captureMergedParameter(scope: CaptureScope, declarations: readonly [Raw
     if (retained === null) return null;
     sourceGroup = retained;
   }
-  for (let index = 0; index < sourceGroup.slots.length; ++index) {
+  for (let index = 0; index < sourceGroup.evidence.slots.length; ++index) {
     if (!admit(scope, "edges")) return null;
-    const slot = sourceGroup.slots[index];
+    const slot = sourceGroup.evidence.slots[index];
     if (slot === undefined) return throwInvariant(invariant("A retained merged group must have dense native slots."));
     if (slot.scope !== "local" || slot.parameters.length !== declarations.length) continue;
     let agrees = true;
@@ -2418,7 +2447,7 @@ function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId
   if (scope.tables.interfaceCapture.descriptions?.has(application.target) !== true &&
     !scope.tables.interfaceDescriptions.has(application.target)) {
     if (!admit(scope, "facts", 3)) return null;
-    const anchor = component(scope, group.declarations[0], null);
+    const anchor = component(scope, group.evidence.declarations[0], null);
     const description = rawType(scope, () => withoutTypeCause(application.target), anchor, null,
       { kind: "interface-description", target: application.target });
     if (description === null) return null;
@@ -2444,7 +2473,7 @@ function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId
   for (let index = 0; index < application.arguments.length; index += 1) {
     if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
     const selected = application.arguments[index];
-    const slot = group.slots[index];
+    const slot = group.evidence.slots[index];
     if (selected === undefined || slot === undefined || selected.scope !== slot.scope)
       return throwInvariant(invariant("A recursive merged interface must retain each actual parameter slot."));
     const writtenIndex = selected.scope === "local" ? local++ : null;
@@ -5047,6 +5076,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
     if (!admit(scope, "facts")) break;
     const reference = { module, node: id };
     const kind = ast.kindName(node);
+    if (kind === "KindInterfaceDeclaration" && !captureDeclaredInterfaceGroup(scope, node)) break;
     const provider = providerDeclaration(scope, node, reference);
     if (provider === null) break;
     if (provider !== undefined) {
@@ -5144,7 +5174,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
 export function captureRawModules(deps: CaptureDeps, program: CheckedProgram, modules: readonly ModuleId[]): Result<readonly RawModule[]> {
   const prepared: RawModule[] = [];
   const diagnostics: Diagnostic[] = [];
-  const interfaceCapture: InterfaceCaptureSession = { descriptions: null, declarations: null, applications: null };
+  const interfaceCapture: InterfaceCaptureSession = { descriptions: null, declarations: null, applications: null, groups: null };
   for (const module of modules) {
     const captured = captureRawModule(deps, program, module, interfaceCapture);
     if (captured.kind === "refused") return captured;
