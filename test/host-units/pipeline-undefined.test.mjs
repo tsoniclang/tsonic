@@ -214,52 +214,52 @@ test("capture only reads a paid incomplete reference and requires its exact SDK 
 export function supplied(): undefined { return undefined; }
 export function shadow(undefined: undefined): undefined { return undefined; }` },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const opened = fixture.openAndCapture(snapshot);
   const module = snapshot.entryPoint;
-  const checked = OpenedProgram.checked(opened.program);
-  const entry = OpenedProgram.file(opened.program, module);
-  const programWith = read => OpenedProgram.create({ ...checked, getSourceFileQueries(file) {
-    const queries = checked.getSourceFileQueries(file);
-    return file !== entry.file ? queries : { ...queries, checker: { ...queries.checker,
-      getResolvedIntrinsicValueInfo: node => read(node, queries) } };
-  } }, OpenedProgram.table(opened.program), OpenedProgram.modules(opened.program).modules.map(origin =>
-    OpenedProgram.file(opened.program, origin.kind === "snapshot" ? origin.module : origin.document.module)),
-  OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
-  const capture = (program, navigationCapture = opened.deps.navigationCapture) =>
-    captureSingleModule(fixture.front, { ...opened.deps, navigationCapture }, program, module);
+  const capture = (read, allowance = {}) => {
+    const opened = fixture.openAndCapture(snapshot);
+    const checked = OpenedProgram.checked(opened.program);
+    const entry = OpenedProgram.file(opened.program, module);
+    const program = OpenedProgram.create({ ...checked, getSourceFileQueries(file) {
+      const queries = checked.getSourceFileQueries(file);
+      return file !== entry.file ? queries : { ...queries, checker: { ...queries.checker,
+        getResolvedIntrinsicValueInfo: node => read(node, queries, file) } };
+    } }, OpenedProgram.table(opened.program), opened.set.modules.map(origin =>
+      OpenedProgram.file(opened.program, origin.kind === "snapshot" ? origin.module : origin.document.module)),
+    OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
+    return captureSingleModule(fixture.front, { ...opened.deps, navigationCapture: { ...opened.deps.navigationCapture, ...allowance } }, program, module);
+  };
   const stop = new Error("the actual intrinsic reference reader stopped");
   let reads = 0;
-  const guarded = programWith(() => { reads += 1; throw stop; });
-  for (const [limit, firstRead] of [["maximumCapturedEdgesPerModule", 1], ["maximumCapturedFactsPerModule", 12]]) {
+  const guarded = () => { reads += 1; throw stop; };
+  for (const [limit, firstRead] of [["maximumCapturedEdgesPerModule", 18], ["maximumCapturedFactsPerModule", 16]]) {
     for (let maximum = 0; maximum < firstRead; maximum += 1) {
       reads = 0;
-      assert.deepEqual(capture(guarded, { ...opened.deps.navigationCapture, [limit]: maximum }),
+      assert.deepEqual(capture(guarded, { [limit]: maximum }),
         { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front", limit: `front.${limit}`, maximum,
           site: { kind: "file", path: "/project/src/main.ts" },
           unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
       assert.equal(reads, 0);
     }
     reads = 0;
-    assert.throws(() => capture(guarded, { ...opened.deps.navigationCapture, [limit]: firstRead }), error => error === stop);
+    assert.throws(() => capture(guarded, { [limit]: firstRead }), error => error === stop);
     assert.equal(reads, 1);
   }
   reads = 0;
-  const absent = capture(programWith((node, { checker }) => {
+  const absent = capture((node, { checker }) => {
     reads += 1;
     assert.equal(checker.getResolvedIntrinsicValueInfo(node)?.symbol === checker.getSymbolAtLocation(node), true);
     return undefined;
-  }));
+  });
   assert.equal(absent.kind, "ok");
   assert.equal(reads, 1, "the genuine same-type local never asks for an intrinsic answer");
   assert.deepEqual(absent.value.references.map(row => row.target.kind === "available" ? row.target.value.kind : row.target.reason),
     ["incomplete-association", "declarations"]);
-  const crossed = programWith((node, { ast, checker }) => {
+  assert.throws(() => capture((node, { ast, checker }, file) => {
     const actual = checker.getResolvedIntrinsicValueInfo(node);
     assert.equal(actual?.kind, "undefined");
-    const shadow = ast.statements(entry.file).find(declaration => ast.text(ast.name(declaration)) === "shadow");
+    const shadow = ast.statements(file).find(declaration => ast.text(ast.name(declaration)) === "shadow");
     const symbol = checker.getSymbolAtLocation(ast.name(ast.parameters(shadow)[0]));
     assert.equal(symbol !== undefined && symbol !== actual.symbol, true);
     return { kind: actual.kind, symbol };
-  });
-  assert.throws(() => capture(crossed), /same actual checked symbol/u);
+  }), /same actual checked symbol/u);
 });

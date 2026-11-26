@@ -82,7 +82,7 @@ test("constructed dependency ready readers preserve their original refusal befor
   const operation = node("PrefixUnaryExpression", 2, { tsonic: { role: "value", operation: selected({ decision: { operation: { kind: "core" } } }) } });
   const cases = [
     ["callableEntriesAt", callable], ["callableEntriesAt", name], ["calleeAt", call([])],
-    ["initializerAt", node("VariableDeclaration", 2, { tsonic: { initializer: execution.instance.body } })],
+    ["initializerAt", node("VariableDeclaration", 2, { initializer: null, tsonic: { initializer: execution.instance.body } })],
     ["initializerAt", call([{ kind: "omitted", value: { kind: "initializer", instance: execution.instance } }])],
     ["operationEntriesAt", operation],
     ["dispatchEntriesAt", node("NewExpression", 2, { tsonic: { application: selected(application([])) } })],
