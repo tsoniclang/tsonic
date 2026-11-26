@@ -16,7 +16,7 @@ async function captured(source) {
   const raw = captured.value;
   const definitions = identifySingleModule(fixture.front, { module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(definitions.kind, "ok");
-  return { fixture, source, module, raw, opened, definitions: definitions.value };
+  return { fixture, source, snapshot, module, raw, opened, definitions: definitions.value };
 }
 
 test("a real declared recursive member retains a finite raw graph and its original qualified declaration", async () => {
@@ -156,54 +156,51 @@ test("a finite raw graph preserves an independently failed alias's original publ
   assert.equal(raw.checkerDiagnostics[reference.diagnostic.index].message, fixture.sdk.flattenDiagnosticMessageText(original));
 });
 
-const recursiveInventoryRows = 2;
-const capturedNativeFacts = recursiveInventoryRows * (3 + 2);
-const capturedNativeEdges = recursiveInventoryRows * (2 + 5);
-
 test("finite raw graph capture admits the exact fact and edge counts including native acquisition", async () => {
-  const { fixture, raw, module, opened } = await captured("export type Link={next:Link};\n");
-  const capturedSourceAnswers = { facts: 7, edges: 21 };
-  const frontFacts = 36 + capturedSourceAnswers.facts;
-  const frontEdges = 13 - recursiveInventoryRows + capturedSourceAnswers.edges;
+  const { fixture, raw, module, snapshot } = await captured("export type Link={next:Link};\n");
+  const run = (dimension, maximum) => {
+    const opened = fixture.openAndCapture(snapshot);
+    return captureSingleModule(fixture.front, { ...opened.deps,
+      navigationCapture: { ...opened.deps.navigationCapture, [dimension]: maximum } }, opened.program, module);
+  };
   for (const [dimension, exact] of [
-    ["maximumCapturedFactsPerModule", frontFacts + capturedNativeFacts],
-    ["maximumCapturedEdgesPerModule", frontEdges + capturedNativeEdges],
+    ["maximumCapturedFactsPerModule", 56],
+    ["maximumCapturedEdgesPerModule", 42],
   ]) {
     for (let maximum = 0; maximum < exact; maximum += 1) {
-      const result = captureSingleModule(fixture.front, { ...opened.deps,
-        navigationCapture: { ...opened.deps.navigationCapture, [dimension]: maximum } }, opened.program, module);
+      const result = run(dimension, maximum);
       assert.equal(result.kind, "refused", `${dimension} under ${maximum}`);
       assert.equal(result.diagnostics.at(-1).code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
     }
-    const result = captureSingleModule(fixture.front, { ...opened.deps,
-      navigationCapture: { ...opened.deps.navigationCapture, [dimension]: exact } }, opened.program, module);
+    const result = run(dimension, exact);
     assert.equal(result.kind, "ok", `${dimension} exact ${exact}`);
     assert.equal(result.value.types.types.length, raw.types.types.length);
   }
 });
 
 test("finite raw graph capture returns the original limit before a later actual annotation read", async () => {
-  const { fixture, raw, module, opened } = await captured("export type Link={next:Link};type Later={flag:boolean};\n");
+  const { fixture, raw, module, snapshot } = await captured("export type Link={next:Link};type Later={flag:boolean};\n");
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
-  const checked = OpenedProgram.checked(opened.program);
-  const numbering = OpenedProgram.syntax(opened.program).get("/project/src/main.ts").outcome.numbering;
   const later = raw.tree.statements.nodes[1].type;
-  const syntax = numbering.nodes.find(node => numbering.ids.get(node) === later.id);
-  assert.equal(syntax !== undefined, true);
   const original = new Error("the actual later annotation reader failed");
   let reads = 0;
-  const guarded = OpenedProgram.create({ ...checked, getSourceFileQueries(file) {
-    const queries = checked.getSourceFileQueries(file);
-    return { ...queries, checker: { ...queries.checker, acquireSourceType: observeSourceType(queries.checker, request => {
-      if (request.kind === "annotation" && request.node === syntax) { reads += 1; throw original; }
-    }) } };
-  } }, OpenedProgram.table(opened.program), OpenedProgram.modules(opened.program).modules.map(origin =>
-    OpenedProgram.file(opened.program, origin.kind === "snapshot" ? origin.module : origin.document.module)),
-  OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
-  const run = maximum => captureSingleModule(fixture.front, { ...opened.deps, navigationCapture: {
-    ...opened.deps.navigationCapture, maximumCapturedFactsPerModule: maximum } }, guarded, module);
-  const beforeLater = 35 + capturedNativeFacts;
+  const run = maximum => {
+    const opened = fixture.openAndCapture(snapshot);
+    const checked = OpenedProgram.checked(opened.program);
+    const guarded = OpenedProgram.create({ ...checked, getSourceFileQueries(file) {
+      const queries = checked.getSourceFileQueries(file);
+      return { ...queries, checker: { ...queries.checker, acquireSourceType: observeSourceType(queries.checker, request => {
+        const numbering = OpenedProgram.syntax(guarded).get("/project/src/main.ts").outcome.numbering;
+        if (request.kind === "annotation" && numbering.ids.get(request.node) === later.id) { reads += 1; throw original; }
+      }) } };
+    } }, OpenedProgram.table(opened.program), OpenedProgram.modules(opened.program).modules.map(origin =>
+      OpenedProgram.file(opened.program, origin.kind === "snapshot" ? origin.module : origin.document.module)),
+    OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
+    return captureSingleModule(fixture.front, { ...opened.deps, navigationCapture: {
+      ...opened.deps.navigationCapture, maximumCapturedFactsPerModule: maximum } }, guarded, module);
+  };
+  const beforeLater = 48;
   for (let maximum = 0; maximum < beforeLater; maximum += 1) {
     assert.deepEqual(run(maximum), { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
       limit: "front.maximumCapturedFactsPerModule", maximum, site: { kind: "file", path: "/project/src/main.ts" },
