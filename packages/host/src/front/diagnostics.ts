@@ -48,12 +48,17 @@ export function importDiagnostic(input: PreparedImportDiagnostic,
   const note = (entry: Pick<PreparedImportDiagnostic, "code" | "message" | "site">): RelatedDiagnostic => {
     const site = entry.site;
     const file = site === null ? undefined : resolve(site.fileName);
-    return { code: { kind: "checker", number: entry.code, rendered: `TS${entry.code}` }, message: entry.message,
-      site: site === null ? { kind: "none" } : file === undefined ? { kind: "file", path: site.fileName }
-        : { kind: "source", origin: { module: file.module, start: site.start + file.displacement, length: site.length, derived: [] } } };
+    const code: RelatedDiagnostic["code"] = { kind: "checker", number: entry.code, rendered: `TS${entry.code}` };
+    const message = entry.message;
+    const origin: RelatedDiagnostic["site"] = site === null ? { kind: "none" } : file === undefined ? { kind: "file", path: site.fileName }
+      : { kind: "source", origin: Object.freeze({ module: file.module, start: site.start + file.displacement, length: site.length, derived: Object.freeze([]) }) };
+    return Object.freeze({ code: Object.freeze(code), message, site: Object.freeze(origin) });
   };
-  return { ...note(input), severity: severityOf(input.category), source: null, evidence: [],
-    arguments: input.arguments.map(value => ({ kind: "text", value })), related: input.related.map(note), fix: null };
+  const root = note(input);
+  const severity = severityOf(input.category);
+  const arguments_ = input.arguments.map((value): Diagnostic["arguments"][number] => Object.freeze({ kind: "text", value }));
+  return Object.freeze({ ...root, severity, source: null, evidence: Object.freeze([]),
+    arguments: Object.freeze(arguments_), related: Object.freeze(input.related.map(note)), fix: null });
 }
 
 export function captureCheckerDiagnostic(program: CheckedProgram, diagnostic: CheckerDiagnostic, charge: () => boolean): Diagnostic | null {

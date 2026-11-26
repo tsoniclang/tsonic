@@ -6,7 +6,7 @@ import type { ModuleId, PackageId } from "../ids/contract.js";
 import { encodeKey, encodeModuleId } from "../ids/index.js";
 import type { PlatformFacts, PlatformLayout } from "../ir-types/contract.js";
 import { platformDeclarationKey } from "../ir-types/index.js";
-import type { ExtensionReference, ExtensionReferenceEntry, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
+import type { ExtensionReference, ExtensionReferenceEntry, ImportPreparation, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
 import { verifyPreparedSource } from "../snapshot/index.js";
 import type { CaptureDeps, CheckedProgram, CheckerExtensions, CheckerRegistration, PrepareSourceImports, ProgramModuleSet, SessionDocument } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
@@ -79,9 +79,30 @@ export interface SessionInputs {
   readonly files: ReadonlyMap<string, string>;
   readonly rootFiles: readonly string[];
   readonly selectedLibraries: ReadonlyMap<string, string>;
+  readonly installedDeclarations: SourcePreparationInput["declarationPolicy"]["installedDeclarations"];
   readonly options: Readonly<Record<string, boolean | string | readonly string[]>>;
   readonly modules: ReadonlyMap<string, ModuleId>;
   readonly packageNames: ReadonlyMap<PackageId, string | null>;
+}
+
+function sameEntries<Key, Value>(left: ReadonlyMap<Key, Value>, right: ReadonlyMap<Key, Value>): boolean {
+  if (left.size !== right.size) return false;
+  for (const [key, value] of left) if (right.get(key) !== value) return false;
+  return true;
+}
+
+const completedPreparations = new WeakMap<PreparedSource, SessionInputs>();
+
+function openingInputs(source: PreparedSource): SessionInputs | null {
+  const prepared = completedPreparations.get(source);
+  if (prepared === undefined) return null;
+  const presented = sessionInputs(source.input);
+  if (presented.installedDeclarations !== prepared.installedDeclarations || presented.currentDirectory !== prepared.currentDirectory
+    || presented.useCaseSensitiveFileNames !== prepared.useCaseSensitiveFileNames
+    || presented.rootFiles.length !== prepared.rootFiles.length || presented.rootFiles.some((file, index) => file !== prepared.rootFiles[index])
+    || !sameEntries(prepared.selectedLibraries, presented.selectedLibraries) || !sameEntries(prepared.files, presented.files)
+    || !sameEntries(prepared.modules, presented.modules) || !sameEntries(prepared.packageNames, presented.packageNames)) return null;
+  return prepared;
 }
 
 /**
@@ -125,9 +146,10 @@ export function sessionInputs(source: SourcePreparationInput): SessionInputs {
     selectedLibraries.set(binding.name, root(paths.get(binding.module)));
   });
   const options: Record<string, boolean | string | readonly string[]> = {};
-  optionSet(source.declarationPolicy.installedDeclarations).forEach(option => { options[option.name] = option.value; });
+  const installedDeclarations = source.declarationPolicy.installedDeclarations;
+  optionSet(installedDeclarations).forEach(option => { options[option.name] = option.value; });
   return { currentDirectory: source.currentDirectory, useCaseSensitiveFileNames: source.caseSensitive,
-    files, rootFiles, selectedLibraries, options, modules, packageNames };
+    files, rootFiles, selectedLibraries, installedDeclarations, options, modules, packageNames };
 }
 
 function compilerFiles(inputs: SessionInputs) {
@@ -136,14 +158,16 @@ function compilerFiles(inputs: SessionInputs) {
     useCaseSensitiveFileNames: inputs.useCaseSensitiveFileNames };
 }
 
-function preparedFailure(source: PreparedSource): { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] } | null {
-  const first = verifyPreparedSource(source)[0];
-  if (first === undefined) return null;
+function preparedRefusal(site: Diagnostic["site"], message: string): { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] } {
   const code = hostDiagnosticCode("TSONIC_SOURCE_PREPARATION_INVALID");
   return { kind: "refused", diagnostics: [{ code: { kind: "host", name: code, rendered: code },
-    severity: "error", site: first.site.kind === "file" ? first.site : { kind: "none" }, source: "front", evidence: [],
-    message: `The prepared source does not match the captured project (${first.rule}).`,
-    arguments: [], related: [], fix: null }] };
+    severity: "error", site, source: "front", evidence: [], message, arguments: [], related: [], fix: null }] };
+}
+
+function preparedFailure(source: PreparedSource): ReturnType<typeof preparedRefusal> | null {
+  const first = verifyPreparedSource(source)[0];
+  return first === undefined ? null : preparedRefusal(first.site.kind === "file" ? first.site : { kind: "none" },
+    `The prepared source does not match the captured project (${first.rule}).`);
 }
 
 export const prepareImports: PrepareSourceImports = ({ navigationCapture }, input) => {
@@ -156,15 +180,27 @@ export const prepareImports: PrepareSourceImports = ({ navigationCapture }, inpu
       site: { kind: "file", path: file.fileName },
       unit: { request: { query: "prepareSourceImports", key: file.fileName }, position: { kind: "result" } },
     })] };
+    for (const reference of file.references) {
+      Object.freeze(reference.resolution);
+      Object.freeze(reference);
+    }
+    Object.freeze(file.references);
+    Object.freeze(file);
   }
+  for (const root of prepared.roots) Object.freeze(root);
   const diagnostics = prepared.diagnostics.map(entry => importDiagnostic(entry, path => {
     const module = inputs.modules.get(path);
     const text = inputs.files.get(path);
     return module === undefined || text === undefined ? undefined
       : { module, displacement: text.charCodeAt(0) === 0xfeff ? 1 : 0 };
   }));
-  const source = { input, preparation: { roots: prepared.roots, files: prepared.files, diagnostics } };
-  return preparedFailure(source) ?? { kind: "ok", value: source, diagnostics: [] };
+  const preparation: ImportPreparation = Object.freeze({ roots: Object.freeze(prepared.roots),
+    files: Object.freeze(prepared.files), diagnostics: Object.freeze(diagnostics) });
+  const source: PreparedSource = Object.freeze({ input, preparation });
+  const mismatch = preparedFailure(source);
+  if (mismatch !== null) return mismatch;
+  completedPreparations.set(source, inputs);
+  return { kind: "ok", value: source, diagnostics: [] };
 };
 
 /**
@@ -175,7 +211,8 @@ export const prepareImports: PrepareSourceImports = ({ navigationCapture }, inpu
 export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot): Result<CheckedProgram> {
   const mismatch = preparedFailure(snapshot.source);
   if (mismatch !== null) return mismatch;
-  const inputs = sessionInputs(snapshot.source.input);
+  const inputs = openingInputs(snapshot.source);
+  if (inputs === null) return preparedRefusal({ kind: "none" }, "The prepared source does not retain its actual completed compiler input.");
   const session = createCompilerSessionFromFiles({
     ...compilerFiles(inputs),
     extensionHostOptions: {

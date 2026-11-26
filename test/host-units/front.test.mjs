@@ -1969,6 +1969,78 @@ test("the public import boundary prepares distinct configured roots from the sam
   assert.equal(refused.diagnostics[0].code.name, "TSONIC_SOURCE_PREPARATION_INVALID");
 });
 
+test("the same roots and source spans cannot reuse a different completed import graph", () => {
+  const libraries = [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }];
+  const source = entry => `import { choice } from "./${entry}.mjs"; export const selected: boolean = choice;`;
+  const graph = entry => {
+    const snapshot = projectSnapshot({ sourceFiles: { "main.mts": source(entry),
+      "alpha.mts": "export const choice: boolean = true;", "bravo.mts": "export const choice: boolean = false;" }, libraries });
+    return { ...snapshot, source: preparedSource({ ...snapshot.source.input, roots: [snapshot.entryPoint] }) };
+  };
+  const alpha = graph("alpha");
+  const bravo = graph("bravo");
+  assert.deepEqual(alpha.source.preparation.roots, bravo.source.preparation.roots);
+  const actual = snapshot => snapshot.source.preparation.files.find(file => file.fileName === "/project/src/main.mts").references[0];
+  assert.deepEqual([actual(alpha).start, actual(alpha).length], [actual(bravo).start, actual(bravo).length]);
+  const { deps } = openAndCapture(alpha);
+  for (const [snapshot, expected, other] of [[alpha, "alpha", "bravo"], [bravo, "bravo", "alpha"]]) {
+    const mod = entry => moduleOf(packageOf("/project"), `src/${entry}.mts`);
+    const opened = front.openCheckedProgram(deps, snapshot);
+    assert.equal(opened.kind, "ok");
+    const loaded = front.captureProgramModules(deps, opened.value).modules;
+    assert.equal(loaded.some(row => row.kind === "snapshot" && row.module === mod(expected)), true);
+    assert.equal(loaded.some(row => row.kind === "snapshot" && row.module === mod(other)), false);
+  }
+  const withoutOpening = snapshot => ({ ...snapshot, contributions: { ...snapshot.contributions,
+    get requiredProviderModules() { assert.fail("rejected source preparation must not open the checker"); } } });
+  const crossed = { ...bravo, source: { input: bravo.source.input, preparation: alpha.source.preparation } };
+  assert.deepEqual(snapshots.verifyPreparedSource(crossed.source), [], "both captured paths and all source spans are structurally valid");
+  const copied = Object.create(Object.getPrototypeOf(alpha.source), Object.getOwnPropertyDescriptors(alpha.source));
+  for (const candidate of [crossed, { ...alpha, source: copied }]) {
+    const refused = front.openCheckedProgram(deps, withoutOpening(candidate));
+    assert.equal(refused.kind, "refused");
+    assert.equal(refused.diagnostics[0].code.name, "TSONIC_SOURCE_PREPARATION_INVALID");
+    assert.match(refused.diagnostics[0].message, /actual completed compiler input/u);
+  }
+  assert.throws(() => { actual(alpha).resolution.fileName = actual(bravo).resolution.fileName; }, TypeError);
+  const file = alpha.source.input.packages.files.find(row => row.path === "/project/src/main.mts");
+  file.text = source("bravo");
+  const reused = front.openCheckedProgram(deps, withoutOpening(alpha));
+  assert.equal(reused.kind, "refused");
+  assert.equal(reused.diagnostics[0].message, "The prepared source does not retain its actual completed compiler input.");
+});
+
+test("the compiler input cannot borrow a root from another captured module catalogue", () => {
+  const libraries = [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }];
+  const first = projectSnapshot({ sourceFiles: { "first.mts": "export const first = true;" }, libraries });
+  const second = projectSnapshot({ sourceFiles: { "second.mts": "export const second = true;" }, libraries });
+  assert.notEqual(first.entryPoint, second.entryPoint);
+  assert.throws(() => checkerModule.sessionInputs({ ...first.source.input, roots: [second.entryPoint] }), {
+    name: "TypeError", message: "front: a root, contributed declaration or bundled library of the snapshot names no module of the snapshot",
+  });
+});
+
+test("an actual import report retains a file-only site or no site independently of source ownership", async () => {
+  const { importDiagnostic } = await import("../../packages/host/dist/front/diagnostics.js");
+  const path = "/project/main.mts";
+  const rootFiles = [path];
+  const currentDirectory = "/project";
+  const files = new Map([[path, "export function broken() {"]]);
+  const [syntax] = sdk.prepareSourceImports({ currentDirectory, rootFiles, files, compilerOptions: { noLib: true } }).diagnostics;
+  assert.equal(syntax.code, 1005);
+  const withoutOwner = importDiagnostic(syntax, () => undefined);
+  assert.deepEqual(withoutOwner.site, { kind: "file", path });
+  assert.deepEqual(withoutOwner.related.map(row => [row.code.number, row.site]), [[1007, { kind: "file", path }]]);
+  assert.equal(Object.isFrozen(withoutOwner.related[0].site), true);
+  const [option] = sdk.prepareSourceImports({ currentDirectory, rootFiles, files,
+    compilerOptions: { noLib: true, unknownInheritedOption: true } }).diagnostics;
+  assert.equal(option.code, 5023);
+  const withoutSite = importDiagnostic(option, () => assert.fail("a site-less report does not read the source resolver"));
+  assert.deepEqual(withoutSite.site, { kind: "none" });
+  assert.equal(withoutSite.code.rendered, "TS5023");
+  assert.equal(Object.isFrozen(withoutSite.arguments), true);
+});
+
 test("prepared file identity comes from the actual captured file, not the spelling of its import", () => {
   const text = "\uFEFF/* 🚀 */ export function broken() { return true;";
   const snapshot = projectSnapshot({ sourceFiles: {
