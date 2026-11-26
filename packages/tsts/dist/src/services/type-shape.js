@@ -501,14 +501,6 @@ function getTypeSignatureParameterInfos(checker, signature) {
     const restIndex = signatureHasRestParameter(signature)
         ? sourceParameters.length - 1
         : -1;
-    let effectiveParameters = sourceParameters;
-    if (restIndex >= 0) {
-        const expandedGroups = Checker_GetExpandedParameters(checker, signature, true);
-        if (expandedGroups.length !== 1 || expandedGroups[0] === undefined) {
-            throw new Error("The checker must return one effective parameter group when union expansion is disabled.");
-        }
-        effectiveParameters = expandedGroups[0];
-    }
     if (restIndex >= 0)
         admitNativeChecker(checker, "work");
     const restSymbol = restIndex < 0 ? undefined : sourceParameters[restIndex];
@@ -516,7 +508,24 @@ function getTypeSignatureParameterInfos(checker, signature) {
         ? undefined
         : Checker_getTypeOfSymbol(checker, restSymbol);
     const tupleElements = getTypeTupleInfo(checker, restType)?.elements ?? [];
-    const tupleExpanded = restIndex >= 0 && tupleElements.length > 0 &&
+    let openTuple = false;
+    for (let position = 0; position < tupleElements.length; position += 1) {
+        admitNativeChecker(checker, "work");
+        const slot = tupleElements[position];
+        if (slot?.elementKind === "rest" || slot?.elementKind === "variadic") {
+            openTuple = true;
+            break;
+        }
+    }
+    let effectiveParameters = sourceParameters;
+    if (restIndex >= 0 && !openTuple) {
+        const expandedGroups = Checker_GetExpandedParameters(checker, signature, true);
+        if (expandedGroups.length !== 1 || expandedGroups[0] === undefined) {
+            throw new Error("The checker must return one effective parameter group when union expansion is disabled.");
+        }
+        effectiveParameters = expandedGroups[0];
+    }
+    const tupleExpanded = restIndex >= 0 && !openTuple && tupleElements.length > 0 &&
         effectiveParameters.length === restIndex + tupleElements.length;
     const minimumArgumentCount = Checker_getMinArgumentCount(checker, signature);
     const owner = originalSignatureDeclaration(checker, signature);
@@ -551,9 +560,7 @@ function getTypeSignatureParameterInfos(checker, signature) {
                 Checker_isOptionalParameter(checker, declaration)) ||
             (parameter.CheckFlags & CheckFlagsOptionalParameter) !== 0
             ? "optional"
-            : unexpandedRest || tupleElement?.elementKind === "rest" ||
-                tupleElement?.elementKind === "variadic" ||
-                (parameter.CheckFlags & CheckFlagsRestParameter) !== 0
+            : unexpandedRest || (parameter.CheckFlags & CheckFlagsRestParameter) !== 0
                 ? "rest"
                 : "required";
         const typeSource = owner !== undefined && declaration?.Parent === owner && parameterKind === "required"

@@ -4261,8 +4261,17 @@ function captureSignatureParameter(scope: CaptureScope, draft: SignatureDraft, i
         () => scope.shape.getUnionOrIntersectionTypes(parameter.type)) : null;
     if (scope.meter.refusal !== null) return;
     const use = draft.use?.formals?.get(index) ?? authoredArms ?? undefined;
+    let origin = operator ?? originalUse;
+    if (use === undefined && originalUse !== null && operator === null && parameter.parameterKind === "rest"
+      && parameterSyntax?.DotDotDotToken !== undefined && scope.shape.isTuple(parameter.type)) {
+      if (!admit(scope, "edges")) return;
+      const source = referenceTo(scope, program, originalUse);
+      if (scope.meter.refusal !== null) return;
+      if (source === null) return throwInvariant(invariant("A rest tuple must retain its actual authored annotation."));
+      origin = source;
+    }
     const type = rawType(scope, () => withoutTypeCause(parameter.type, parameter.typeSource), position,
-      use !== undefined && "Kind" in use ? use : operator ?? originalUse, use !== undefined && !("Kind" in use) ? use : null);
+      use !== undefined && "Kind" in use ? use : origin, use !== undefined && !("Kind" in use) ? use : null);
     if (type === null) return;
     const initializerNode = parameterSyntax?.Initializer;
     const initializer = initializerNode === undefined ? null : referenceTo(scope, program, initializerNode);

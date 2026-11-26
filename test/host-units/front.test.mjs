@@ -2881,6 +2881,30 @@ test("Checked indexed assignment retains its actual receiver and key, and reject
   assert.notEqual(ids.decodeDefId(indexOrigin.declaration).value.module, main.module);
 });
 
+test("installed ES2024 carries open bind tuples through verified inference as one authored rest formal", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const input = analysisInput(fixture, "es2024", "type Box = {flag: boolean}; export function get(box: Box): boolean { return box.flag; }");
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const types = fixture.types.viewTypes(checked.value.types);
+  for (const name of ["CallableFunction", "NewableFunction"]) {
+    const bind = types.signatures.find(signature => signature.declaration?.includes(`;${name}/bind#1/this/`));
+    assert.ok(bind, name);
+    assert.equal(bind.parameters.length, 1, name);
+    const [formal] = bind.parameters;
+    assert.equal(formal.kind, "rest");
+    const sequence = types.terms[formal.type];
+    assert.equal(sequence.kind, "tuple");
+    assert.deepEqual(sequence.elements.map(slot => slot.kind), ["variadic", "variadic"]);
+  }
+  const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+});
+
 test("the frontier check names the first unwritten form in preorder (R3 L-2)", async () => {
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const sourceText = "export function m(a: number, b: number): number { return (a) ** b; }\n";
