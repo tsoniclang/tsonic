@@ -1,6 +1,7 @@
 import type { Origin } from "../ids/contract.js";
-import type { DataflowAccount } from "../dataflow/contract.js";
-import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import type { ReadyEnumValueOf } from "../analyses/body/contract.js";
+import type { DataflowAccount, DataflowResult } from "../dataflow/contract.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { EnumMemberInput, EnumMemberReference, EnumOfDeps, EnumValueAnswer, EnumValuePause, EnumValueRequest } from "../decls/contract.js";
 import type { DeclaredSignatureErrorData } from "../decls/contract.js";
 import type { Result, UnitErrorRead, UnitRef, UnitRequest, UnitResult } from "../diag/contract.js";
@@ -54,14 +55,29 @@ interface StaticValues {
   readonly constants: readonly ConstantRecord[];
   readonly metadata: readonly MetadataRecord[];
   readonly rows: readonly { readonly instance: BodyInstance; readonly observation: ObservationFact; readonly evidence: ObservationSourceEvidence }[];
+  readonly enumValueOf: ReadyEnumValueOf;
 }
+
+function admittedEnumKey(account: DataflowAccount, reference: EnumMemberReference): DataflowResult<string> {
+  const previous = accountFailure(account);
+  if (previous !== null) return previous;
+  const member = reference.member;
+  const identity = chargeWork(account, member.length);
+  if (identity !== null) return identity;
+  const bindings = reference.bindings;
+  const stop = admitArtifactIdentity(bindings, account);
+  return stop ?? { kind: "complete", value: constantReferenceKey({ context: "enum-member", member, bindings }) };
+}
+
+const noEnumValue: ReadyEnumValueOf = account => accountFailure(account) ?? { kind: "complete", value: null };
 
 export function produceStaticValues(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, table: TypeTable,
   mir: ReadonlyMap<string, MirBody>, constantMir: ReadonlyMap<string, MirBody> | null,
   layoutMir: (instance: BodyInstance, identity: string) => Result<MirBody>, demands: readonly ObservationDemand[] | null,
   account: DataflowAccount, unit: UnitRequest): Result<StaticValues> {
   const { source, database } = typed;
-  if (source.enums.length === 0 && demands === null) return { kind: "ok", value: { constants: [], metadata: [], rows: [] }, diagnostics: [] };
+  if (source.enums.length === 0 && demands === null)
+    return { kind: "ok", value: { constants: [], metadata: [], rows: [], enumValueOf: noEnumValue }, diagnostics: [] };
   const admit = (work: number, records: number): Refusal | null => {
     const stop = chargeWork(account, work) ?? (records === 0 ? null : chargeResultEntries(account, records));
     return stop === null ? null : analysisStop(stop, unit);
@@ -71,8 +87,8 @@ export function produceStaticValues(inputs: HostAnalysisInputs, typed: TypedSour
   const members = new Map<string, EnumMemberInput>();
   const roots: NamedKey[] = [];
   function name(reference: EnumMemberReference): Result<NamedKey> {
-    const stop = chargeWork(account, reference.member.length) ?? admitArtifactIdentity(reference.bindings, account);
-    return stop === null ? { kind: "ok", value: { reference, key: constantReferenceKey(reference) }, diagnostics: [] } : analysisStop(stop, unit);
+    const key = admittedEnumKey(account, reference);
+    return key.kind === "complete" ? { kind: "ok", value: { reference, key: key.value }, diagnostics: [] } : analysisStop(key, unit);
   }
   for (let index = 0; index < source.enums.length; index += 1) {
     const row = admit(1, 0);
@@ -100,7 +116,8 @@ export function produceStaticValues(inputs: HostAnalysisInputs, typed: TypedSour
       roots.push(keyed.value);
     }
   }
-  if (roots.length === 0 && demands === null) return { kind: "ok", value: { constants: [], metadata: [], rows: [] }, diagnostics: [] };
+  if (roots.length === 0 && demands === null)
+    return { kind: "ok", value: { constants: [], metadata: [], rows: [], enumValueOf: noEnumValue }, diagnostics: [] };
   let enumDeps: EnumOfDeps | null = null;
   const enumInputs = (): EnumOfDeps => enumDeps ??= { types: table, nativeFacts: inputs.snapshot.nativeFacts, admit,
     integerType: internType(source.types, { kind: "primitive", primitive: "int64" }) };
@@ -233,8 +250,9 @@ export function produceStaticValues(inputs: HostAnalysisInputs, typed: TypedSour
   const retained = admit(0, 1);
   if (retained !== null) return retained;
   const constants: ConstantRecord[] = [];
+  let namedConstants: Map<string, ConstantRecord> | null = null;
   for (let index = 0; index < roots.length; index += 1) {
-    const step = admit(1, 2);
+    const step = admit(1, namedConstants === null ? 4 : 3);
     if (step !== null) return step;
     const key = roots[index];
     if (key === undefined) return fail("The actual named constant roots are dense.");
@@ -245,7 +263,9 @@ export function produceStaticValues(inputs: HostAnalysisInputs, typed: TypedSour
       if (first === undefined) return fail("An error-valued enum requires its original evaluated diagnostic.");
       return { kind: "refused", diagnostics: [first, ...rest] };
     }
-    constants.push({ reference: key.reference, value: selected.value });
+    const record = { reference: key.reference, value: selected.value };
+    constants.push(record);
+    (namedConstants ??= new Map()).set(key.key, record);
   }
   const metadata: MetadataRecord[] = [];
   const rows: StaticValues["rows"][number][] = [];
@@ -337,5 +357,14 @@ export function produceStaticValues(inputs: HostAnalysisInputs, typed: TypedSour
       return fail("A published geometry constant retains its actual completed evaluation.");
     constants.push({ reference: row.reference, value: settled.value.value });
   }
-  return { kind: "ok", value: { constants, metadata, rows }, diagnostics: [] };
+  const readyConstants = namedConstants;
+  if (readyConstants === null) return { kind: "ok", value: { constants, metadata, rows, enumValueOf: noEnumValue }, diagnostics: [] };
+  const ready = admit(0, 1);
+  if (ready !== null) return ready;
+  const enumValueOf: ReadyEnumValueOf = (meter, reference) => {
+    const key = admittedEnumKey(meter, reference);
+    if (key.kind !== "complete") return key;
+    return { kind: "complete", value: readyConstants.get(key.value)?.value ?? null };
+  };
+  return { kind: "ok", value: { constants, metadata, rows, enumValueOf }, diagnostics: [] };
 }

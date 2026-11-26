@@ -4,7 +4,9 @@ import type { DefId, LocalRef, ModuleId, NodeRef, Origin, SigId, SourceNodeRef, 
 import type { AnalysisLimits, BodyFacts, LivenessFacts, ModuleStaticCellRef, ObservationFact, Summary, SummaryAnswer, SummaryKey, SummaryPosition } from "../../ir-facts/contract.js";
 import type { MirBody, MirEntry } from "../../ir-mir/contract.js";
 import type { TirBody } from "../../ir-tir/contract.js";
-import type { ArtifactBindings, BodyInstance, Execution, SignatureOf, TypeOf, TypeTable } from "../../ir-types/contract.js";
+import type { ArtifactBindings, BodyInstance, ConstantReference, ConstValue, Execution, SignatureOf, TypeOf, TypeTable } from "../../ir-types/contract.js";
+
+export type ReadyEnumValueOf = (account: DataflowAccount, reference: Extract<ConstantReference, { readonly context: "enum-member" }>) => DataflowResult<ConstValue | null>;
 
 export interface BodyRoundEnvironment {
   readonly types: TypeTable;
@@ -14,6 +16,7 @@ export interface BodyRoundEnvironment {
   readonly staticTypeOf: (declaration: SourceNodeRef) => TyId | null;
   readonly sourceObjectHolding: (account: DataflowAccount, local: LocalRef, storage: TyId) => DataflowResult<boolean>;
   readonly observationOf: (account: DataflowAccount, instance: BodyInstance, at: NodeRef) => DataflowResult<ObservationFact | null>;
+  readonly enumValueOf: ReadyEnumValueOf;
   readonly limits: AnalysisLimits;
 }
 

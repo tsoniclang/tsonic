@@ -343,6 +343,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
           signatureOf: signature => readSignature(source.types, signature),
           staticModuleBindingsOf: module => moduleExecutions.get(module)?.instance.bindings ?? null,
           staticTypeOf: reference => reference.kind === "item" ? typed.staticStorageOf(reference.value) : null,
+          enumValueOf: staticValues.value.enumValueOf,
           observationOf: (meter, instance, at) => {
             const paid = chargeWork(meter, 1 + instance.body.length) ?? admitArtifactIdentity(instance.bindings, meter);
             if (paid !== null) return paid;

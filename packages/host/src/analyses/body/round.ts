@@ -212,6 +212,18 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     return bodyFrontier("BodyAnalysis requires the actual association for every selected captured execution slot.");
   for (const constant of mir.constants) {
     const kind = valueKind(deps, constant.type);
+    if (constant.value.kind === "constant" && constant.value.reference.context === "enum-member") {
+      const stopped = accountFailure(account) ?? chargeWork(account, 1);
+      if (stopped !== null) return stopped;
+      const ready = deps.enumValueOf(account, constant.value.reference);
+      if (ready.kind !== "complete") return ready;
+      const value = ready.value;
+      if (value === null || value.type !== constant.type || kind !== "primitive"
+        || value.kind !== "number" && value.kind !== "floating" && value.kind !== "bigint")
+        return bodyFrontier("BodyAnalysis requires the completed numeric enum constant at its actual selected carrier.");
+      constantOrigins.push(empty);
+      continue;
+    }
     if (constant.value.kind === "observation") {
       const stopped = accountFailure(account) ?? chargeWork(account, 1);
       if (stopped !== null) return stopped;

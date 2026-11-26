@@ -137,6 +137,7 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
   const deps = { types: TABLE, typeOf, signatureOf, sourceObjectHolding: () => ({ kind: "complete", value: false }),
+    enumValueOf: meter => accountFailure(meter) ?? { kind: "complete", value: null },
     summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
     declaredAt: () => null,
     account, limits: analysisLimits, unit };
@@ -2748,6 +2749,78 @@ test("a module static destination is written only by a returning placed initiali
     ]);
     exerciseCuts();
   } finally { pipelineWiring.summaries.convergeComponent = converge; }
+});
+
+test("ready enum constants retain their own scalar carrier while two layouts keep independent geometry", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { create } = layoutInput(await loadFrontFixture());
+  const fixture = create(`export enum Width { Word = 8, Padded = 16 }
+    const first = make<boolean>({ datalayout: Abi, bytealignment: 8, fields: [], bytesize: 8, stride: 8 });
+    const second = make<boolean>({ datalayout: Abi, bytealignment: 8, fields: [], bytesize: 16, stride: 16 });
+    export const small = measure(first); export const large = measure(second); export const enumValue = Width.Padded;`);
+  const original = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+  let observed;
+  let result;
+  try {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, input) => {
+      const constant = input.mir.constants.find(row => row.value.kind === "constant" && row.value.reference.context === "enum-member");
+      if (constant !== undefined) observed = { deps, input, constant };
+      return original(deps, input);
+    };
+    result = analyzeHostProgram(fixture);
+  } finally { pipelineWiring.bodyAnalysis.analyzeBodyRound = original; }
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  assert.ok(observed);
+  const { index, modules } = result.value;
+  const layouts = index.metadata.filter(row => row.kind === "memory-layout");
+  assert.equal(layouts.length, 2);
+  const geometry = layouts.map(row => row.layouts[row.root]);
+  assert.equal(geometry[0].source, geometry[1].source);
+  assert.deepEqual(geometry.map(row => [row.byteSize, row.stride]).sort((left, right) => left[0] < right[0] ? -1 : 1), [[8n, 8n], [16n, 16n]]);
+  const observations = modules.flatMap(chapter => chapter.bodies.flatMap(row => row.observations?.rows ?? []));
+  assert.equal(observations.length, 2);
+  for (const observation of observations) {
+    const layout = layouts.find(row => row.key.definition === observation.layout.metadata.definition);
+    assert.equal(observation.value, layout.layouts[observation.layout.layout].byteSize);
+  }
+  const named = index.constants.filter(row => row.reference.context === "enum-member");
+  assert.equal(named.length, 2);
+  const { deps, input, constant } = observed;
+  const reference = constant.value.reference;
+  const meter = createAccount(limits);
+  const reads = [];
+  const read = deps.enumValueOf(meter, {
+    context: "enum-member",
+    get member() { reads.push("member"); return reference.member; },
+    get bindings() { reads.push("bindings"); return reference.bindings; },
+  });
+  assert.equal(read.kind, "complete");
+  assert.deepEqual(reads, ["member", "bindings"]);
+  assert.equal(read.value.type, constant.type);
+  assert.equal(read.value.kind, "number");
+  assert.deepEqual(read.value.value, { numerator: 16n, denominator: 1n, negativeZero: false });
+  const { work } = InvocationAccount.stateOf(meter);
+  for (let maximumWork = 0; maximumWork < work; maximumWork += 1) {
+    const account = createAccount({ ...limits, maximumWork });
+    const stopped = deps.enumValueOf(account, reference);
+    assert.equal(stopped === accountFailure(account), true, maximumWork);
+    assert.equal(deps.enumValueOf(account, { get member() { assert.fail("an exhausted read must not access the next enum identity"); } }) === stopped, true);
+  }
+  const settled = original({ ...deps, account: createAccount(limits) }, input);
+  assert.equal(settled.kind, "complete");
+  assert.equal(settled.value.kind, "ok");
+  const summary = settled.value.value.summary;
+  assert.deepEqual(summary.arena.origins[summary.result].producers, []);
+  const booleanType = deps.types.terms.findIndex(term => term.kind === "primitive" && term.primitive === "bool");
+  assert.ok(booleanType >= 0 && booleanType !== constant.type);
+  for (const value of [null, { ...read.value, type: booleanType }]) {
+    assert.throws(() => original({ ...deps, account: createAccount(limits), enumValueOf: () => ({ kind: "complete", value }) }, input),
+      error => error.cause?.message === "BodyAnalysis requires the completed numeric enum constant at its actual selected carrier.");
+  }
 });
 
 test("module static reads use one actual cell per declaration and preserve the declaring execution binding", async () => {
