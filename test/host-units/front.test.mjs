@@ -911,6 +911,29 @@ test("layout geometry keeps the selected native carrier of an enum operand and i
   assert.deepEqual(observed.map(row => row.value).sort(order), [8n, 16n]);
 });
 
+test("a mixed enum and layout cycle refuses once without publishing partial geometry", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
+  const { create } = layoutInput(await loadFrontFixture());
+  const descriptor = (name, bytes) =>
+    `const ${name}: boolean = make<boolean>({ datalayout: Abi, bytesize: ${bytes}, bytealignment: 8, stride: 8, fields: [] });`;
+  const enumOf = target => `export enum Width { Measured = measure(${target}) }`;
+  const layout = descriptor("deck", "Width.Measured");
+  const observe = "export const size = measure(deck);";
+  const ordinary = analyzeHostProgram(create([descriptor("base", "8"), enumOf("base"), layout, observe].join("\n")));
+  assert.equal(ordinary.kind, "ok", JSON.stringify(ordinary.diagnostics));
+  assert.equal(ordinary.value.index.metadata.filter(row => row.kind === "memory-layout").length, 2);
+  const [load] = ordinary.value.modules.flatMap(chapter => chapter.bodies.flatMap(row => row.observations?.rows ?? []));
+  assert.equal(load.value, 8n);
+  for (const source of [[enumOf("deck"), layout, observe], [layout, enumOf("deck"), observe]]) {
+    const result = analyzeHostProgram(create(source.join("\n")));
+    assert.equal(result.kind, "refused");
+    assert.equal("value" in result, false);
+    assert.deepEqual(result.diagnostics.map(row => [row.source, row.code.name, row.message]),
+      [["decls", "TSONIC_CONSTANT_EVALUATION_FAILED", "The constant value depends on its own completion."]]);
+  }
+});
+
 test("selected array layouts publish the actual number and wider-than-number bigint extent", async () => {
   const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
