@@ -1,5 +1,5 @@
 import type {
-  ConstantKeyOfMir, LocalOwnershipOfMir, ParseMir, PrintMir, ProjectMirConstantKey, ProjectMirConstantOrdinals, ProjectMirValues, VerifyMir,
+  ConstantKeyOfMir, LocalOwnershipOfMir, ParseMir, PrintMir, ProjectMirConstantKey, ProjectMirConstantOrdinals, ProjectMirValues, VerifyMir, VisitMirControlEdges,
 } from "./contract.js";
 import { ownershipOfMode } from "./local-ownership.js";
 import { parseBody } from "./parse.js";
@@ -7,6 +7,7 @@ import { printBody } from "./print.js";
 import { constantKey, verifyBody } from "./verify.js";
 import { projectMirConstantKey as constantKeyProjection, projectMirConstantOrdinals as constantOrdinalProjection } from "./constant-projection.js";
 import { projectMirValues as valuesProjection } from "./project-values.js";
+import { visitControlEdges } from "./verify-control.js";
 
 export const printMir: PrintMir = body => printBody(body);
 export const parseMir: ParseMir = text => parseBody(text);
@@ -16,3 +17,4 @@ export const localOwnershipOfMir: LocalOwnershipOfMir = ownershipOfMode;
 export const projectMirConstantKey: ProjectMirConstantKey = constantKeyProjection;
 export const projectMirConstantOrdinals: ProjectMirConstantOrdinals = constantOrdinalProjection;
 export const projectMirValues: ProjectMirValues = valuesProjection;
+export const visitMirControlEdges: VisitMirControlEdges = visitControlEdges;

@@ -8,7 +8,7 @@ import type { ChapterSyntaxSlots, MemberSelection, ResolvedCallee, TirBody, TirC
 import { chapterSyntaxSlots, indexChapterSyntax, layoutObservationOf, rawValueTypeOf, tirBodySyntaxOf } from "../ir-tir/index.js";
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
-import type { MirBlock, MirBody, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite } from "./contract.js";
+import type { MirBlock, MirBody, MirControlEdgeKind, MirControlProjection, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite, VisitMirControlEdges } from "./contract.js";
 
 interface EndpointFamily {
   readonly overloaded: boolean;
@@ -16,37 +16,76 @@ interface EndpointFamily {
 }
 
 export interface ControlEdge {
-  readonly kind: "normal" | "unwind" | "resume" | "suspension-return";
+  readonly kind: MirControlEdgeKind;
   readonly target: BlockId;
   readonly destination: PlaceId | null;
 }
 
-function unwindEdge(unwind: MirUnwind): readonly ControlEdge[] {
-  return unwind.kind === "handler" ? [{ kind: "unwind", target: unwind.target, destination: unwind.exception }] : [];
+function visitUnwindEdge<Stop>(unwind: MirUnwind, projection: MirControlProjection<Stop>): Stop | null {
+  if (unwind.kind !== "handler") return null;
+  const stop = projection.admit();
+  if (stop !== null) return stop;
+  if (projection.kind === "targets") projection.visit(unwind.target);
+  else projection.visit("unwind", unwind.target, unwind.exception);
+  return null;
 }
 
-export function controlEdges(terminator: MirTerminator): readonly ControlEdge[] {
+function visitAdmittedEdge<Stop>(projection: MirControlProjection<Stop>, kind: Exclude<MirControlEdgeKind, "unwind">,
+  target: BlockId, write: { readonly destination: PlaceId | null } | null): void {
+  if (projection.kind === "targets") projection.visit(target);
+  else projection.visit(kind, target, write === null ? null : write.destination);
+}
+
+export const visitControlEdges: VisitMirControlEdges = (terminator, projection) => {
   switch (terminator.kind) {
-    case "goto": return [{ kind: "normal", target: terminator.target, destination: null }];
-    case "switch": return [
-      ...terminator.targets.map((target): ControlEdge => ({ kind: "normal", target: target.target, destination: null })),
-      { kind: "normal", target: terminator.otherwise, destination: null },
-    ];
-    case "check": return [{ kind: "normal", target: terminator.next, destination: null }, ...unwindEdge(terminator.unwind)];
-    case "call": case "invoke": return [
-      { kind: "normal", target: terminator.next, destination: terminator.destination }, ...unwindEdge(terminator.unwind),
-    ];
-    case "await": return [
-      { kind: "resume", target: terminator.resume, destination: terminator.destination }, ...unwindEdge(terminator.unwind),
-    ];
-    case "yield": case "delegate": return [
-      { kind: "resume", target: terminator.resume, destination: terminator.destination },
-      { kind: "suspension-return", target: terminator.return.target, destination: terminator.return.destination },
-      ...unwindEdge(terminator.unwind),
-    ];
-    case "throw": return unwindEdge(terminator.unwind);
-    case "return": case "unreachable": return [];
+    case "goto": {
+      const stop = projection.admit();
+      if (stop !== null) return stop;
+      visitAdmittedEdge(projection, "normal", terminator.target, null);
+      return null;
+    }
+    case "switch": {
+      const targets = terminator.targets;
+      for (let index = 0; index < targets.length; index += 1) {
+        const stop = projection.admit();
+        if (stop !== null) return stop;
+        const target = targets[index];
+        if (target === undefined) throw new TypeError("A MIR switch requires its actual indexed successor.");
+        visitAdmittedEdge(projection, "normal", target.target, null);
+      }
+      const stop = projection.admit();
+      if (stop !== null) return stop;
+      visitAdmittedEdge(projection, "normal", terminator.otherwise, null);
+      return null;
+    }
+    case "check": case "call": case "invoke": {
+      const stop = projection.admit();
+      if (stop !== null) return stop;
+      visitAdmittedEdge(projection, "normal", terminator.next, terminator.kind === "check" ? null : terminator);
+      return visitUnwindEdge(terminator.unwind, projection);
+    }
+    case "await": case "yield": case "delegate": {
+      const stop = projection.admit();
+      if (stop !== null) return stop;
+      visitAdmittedEdge(projection, "resume", terminator.resume, terminator);
+      if (terminator.kind !== "await") {
+        const endStop = projection.admit();
+        if (endStop !== null) return endStop;
+        const returned = terminator.return;
+        visitAdmittedEdge(projection, "suspension-return", returned.target, returned);
+      }
+      return visitUnwindEdge(terminator.unwind, projection);
+    }
+    case "throw": return visitUnwindEdge(terminator.unwind, projection);
+    case "return": case "unreachable": return null;
   }
+};
+
+export function controlEdges(terminator: MirTerminator): readonly ControlEdge[] {
+  const edges: ControlEdge[] = [];
+  visitControlEdges(terminator, { kind: "edges", admit: () => null,
+    visit: (kind, target, destination) => { edges.push({ kind, target, destination }); } });
+  return edges;
 }
 
 /** A block with its position in the body. */

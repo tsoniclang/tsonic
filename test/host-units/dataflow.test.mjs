@@ -25,13 +25,7 @@ const casePaths = readdirSync(resolve(repository, caseDirectory)).filter(name =>
 const limits = { maximumWork: 1_000_000, maximumResultEntries: 1_000_000 };
 const interfaceNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "step"];
 const interfaceSources = [...interfaceNames.map(name => `packages/host/src/${name}/contract.ts`),
-  "packages/host/src/diag/index.ts"];
-const declarationSources = [...interfaceSources,
-  "packages/host/src/ir-hir/binding-data.ts", "packages/host/src/ir-hir/capture-data.ts",
-  "packages/host/src/ir-types/native-facts-data.ts", "packages/host/src/ir-types/work.ts",
-  "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts",
-  "packages/host/src/diag/invariant.ts", "packages/host/src/diag/order.ts",
-  "packages/host/src/ids/index.ts", "packages/host/src/ids/identity.ts", "packages/host/src/ids/key.ts"];
+  "packages/host/src/diag/index.ts", "packages/host/src/ir-mir/index.ts"];
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"))
   .areas.map(area => area.directory);
 const session = new Session();
@@ -146,6 +140,35 @@ function resolution() {
     activation: null,
   };
 }
+
+test("the actual MIR graph admits each case row and target before reading either", () => {
+  const makeBody = () => parsedBody([{ kind: "switch", operand: { kind: "constant", constant: 0 },
+    targets: [{ constant: 0, target: 1 }, { constant: 1, target: 2 }], otherwise: 1 },
+  { kind: "return", value: null }, { kind: "return", value: null }], [[], [], []]);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    for (let maximum = 0; maximum <= 6; maximum += 1) {
+      const body = makeBody();
+      const first = body.blocks[0].terminator;
+      const reads = [];
+      const rows = first.targets.map((row, index) => ({ ...row, get target() { reads.push(`target:${index}`); return row.target; } }));
+      first.targets = new Proxy(rows, { get(target, property) {
+        if (property === "0" || property === "1") reads.push(`row:${property}`);
+        return Reflect.get(target, property);
+      } });
+      const fallback = first.otherwise;
+      Object.defineProperty(first, "otherwise", { get() { reads.push("otherwise"); return fallback; } });
+      const account = product.createAccount({ maximumWork: 6, maximumResultEntries: 6, [dimension]: maximum });
+      const result = product.graphOfMir(body, account);
+      assert.deepEqual(reads, ["row:0", "target:0", "row:1", "target:1", "otherwise"]
+        .slice(0, maximum < 2 ? 0 : maximum < 3 ? 2 : maximum < 4 ? 4 : 5));
+      if (maximum === 6) complete(result, { kind: "complete", value: { successors: [[1, 2, 1], [], []] } }, "same original MIR edges");
+      else {
+        assert.equal(result, product.accountFailure(account));
+        assert.equal(product.graphOfMir(new Proxy({}, { get() { assert.fail("A sticky stop does not read another body."); } }), account), result);
+      }
+    }
+  }
+});
 
 test("graphOfMir covers every terminator and every failure arm in declared order", () => {
   const operand = { kind: "constant", constant: identities.constId(0) };
@@ -1131,6 +1154,19 @@ test("exact account-owned public inventory and complete nine-source owner compil
     "stronglyConnectedComponents", "createAccount", "chargeWork", "chargeResultEntries", "accountFailure", "remainingWork", "refuseAccount"].sort(), "no legacy public path or unreceived runtime port");
   const deps = isolationDeps(tooling, quarantineRoots);
   const module = hostCatalogue.find(module => module.name === "dataflow");
+  const allowed = new Set(module.imports);
+  for (const name of module.imports) for (const dependency of hostCatalogue.find(owner => owner.name === name).imports) allowed.add(dependency);
+  const inputs = new Map();
+  for (const owner of hostCatalogue) {
+    if (owner !== module && !allowed.has(owner.name)) continue;
+    for (const path of deps.enumerate(resolve(repository, owner.directory))) {
+      if (path.endsWith(".ts")) inputs.set(relative(repository, path), readFileSync(path, "utf8"));
+    }
+  }
+  const graph = deps.graph(inputs);
+  const required = new Set([...sourceFiles, ...interfaceSources]);
+  for (const path of required) for (const edge of graph) if (edge.source === path && edge.target !== null) required.add(edge.target);
+  const declarationSources = [...required].filter(path => !sourceFiles.includes(path));
   const report = await compileIsolated(deps, module, { root: repository, sourceFiles,
     interfaceSources, declarationSources, outputDirectory: ".temp/dataflow-isolation" });
   writeFileSync(resolve(repository, ".temp/dataflow-isolation-report.json"), `${JSON.stringify(report, null, 2)}\n`);

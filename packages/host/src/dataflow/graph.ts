@@ -1,5 +1,6 @@
 import type { BlockId } from "../ids/contract.js";
-import type { MirBlock, MirBody, MirSwitchTarget, MirTerminator, MirUnwind } from "../ir-mir/contract.js";
+import type { MirBlock, MirBody } from "../ir-mir/contract.js";
+import { visitMirControlEdges } from "../ir-mir/index.js";
 import type { DataflowAccount, DataflowResult, DataflowStop, DirectedGraph, OrderRows } from "./contract.js";
 import { takeWork, takeEntries } from "./account.js";
 
@@ -20,8 +21,8 @@ export function requireCallerValue<Value>(value: Value | undefined, name: string
   return value;
 }
 
-export function graphNode<Value>(graph: GraphView<Value>, index: number, name: string): GraphNode<Value> {
-  return requireCallerValue(graph.byIndex.get(index), `${name} ${index}`);
+export function graphNode<Value>(graph: GraphView<Value>, index: number | undefined, name: string): GraphNode<Value> {
+  return requireCallerValue(index === undefined ? undefined : graph.byIndex.get(index), `${name} ${index}`);
 }
 
 export function sortRecords<Value>(values: readonly Value[], compare: (left: Value, right: Value) => number | DataflowStop,
@@ -64,7 +65,7 @@ export const orderRows: OrderRows = (values, compare, account) => {
 
 function graphFromRows<Value extends {}>(
   rows: Iterable<readonly [number, Value]>,
-  successors: (node: GraphNode<Value>) => Iterable<number>,
+  successors: (value: Value, visit: (index: number | undefined) => void) => DataflowStop | null,
   meter: DataflowAccount,
 ): DataflowResult<GraphView<Value>> {
   const nodes: GraphNode<Value>[] = [];
@@ -81,25 +82,30 @@ function graphFromRows<Value extends {}>(
   for (const node of nodes) {
     const rowStop = takeWork(meter);
     if (rowStop !== null) return rowStop;
-    const targets = successors(node);
-    for (const index of targets) {
-      const edgeStop = takeWork(meter);
-      if (edgeStop !== null) return edgeStop;
+    const edgeStop = successors(node.value, index => {
       const target = graphNode(graph, index, "edge target");
       node.successors.push(target);
       target.predecessors.set(node.index, node);
-    }
+    });
+    if (edgeStop !== null) return edgeStop;
   }
   return { kind: "complete", value: graph };
 }
 
 export function buildGraph(input: DirectedGraph, meter: DataflowAccount): DataflowResult<GraphView<readonly number[]>> {
-  return graphFromRows(input.successors.entries(), node => node.value, meter);
+  return graphFromRows(input.successors.entries(), (row, visit) => {
+    for (let index = 0; index < row.length; index += 1) {
+      const stop = takeWork(meter);
+      if (stop !== null) return stop;
+      visit(row[index]);
+    }
+    return null;
+  }, meter);
 }
 
 export function buildMirGraph(body: MirBody, meter: DataflowAccount): DataflowResult<GraphView<MirBlock>> {
   return graphFromRows(body.blocks.entries(),
-    node => terminatorTargets(node.value.terminator), meter);
+    (block, visit) => visitMirControlEdges(block.terminator, { kind: "targets", admit: () => takeWork(meter), visit }), meter);
 }
 
 export function predecessorsOfGraph(
@@ -123,35 +129,6 @@ export function predecessorsOfGraph(
   return { kind: "complete", value };
 }
 
-function unwindTargets(unwind: MirUnwind): readonly BlockId[] {
-  switch (unwind.kind) {
-    case "handler": return [unwind.target];
-    // A failure that leaves the body, one that ends the process, and a control point that cannot fail have no edge.
-    case "escape": case "abort": case "none": return [];
-  }
-}
-
-function* switchTargets(targets: readonly MirSwitchTarget[], otherwise: BlockId): IterableIterator<BlockId> {
-  for (const target of targets) yield target.target;
-  yield otherwise;
-}
-
-export function terminatorTargets(terminator: MirTerminator): Iterable<BlockId> {
-  switch (terminator.kind) {
-    case "goto": return [terminator.target];
-    case "switch": return switchTargets(terminator.targets, terminator.otherwise);
-    case "check":
-    case "call":
-    case "invoke": return [terminator.next, ...unwindTargets(terminator.unwind)];
-    case "await": return [terminator.resume, ...unwindTargets(terminator.unwind)];
-    case "yield":
-    case "delegate": return [terminator.resume, terminator.return.target, ...unwindTargets(terminator.unwind)];
-    case "throw": return unwindTargets(terminator.unwind);
-    case "return":
-    case "unreachable": return [];
-  }
-}
-
 export function mirGraph(body: MirBody, meter: DataflowAccount): DataflowResult<DirectedGraph> {
   const priorStop = takeWork(meter, 0);
   if (priorStop !== null) return priorStop;
@@ -161,12 +138,10 @@ export function mirGraph(body: MirBody, meter: DataflowAccount): DataflowResult<
     if (stop !== null) return stop;
     const rowStop = takeEntries(meter, 1);
     if (rowStop !== null) return rowStop;
-    const row: number[] = [];
-    for (const target of terminatorTargets(block.terminator)) {
-      const edgeStop = takeWork(meter) ?? takeEntries(meter, 1);
-      if (edgeStop !== null) return edgeStop;
-      row.push(target);
-    }
+    const row: BlockId[] = [];
+    const edgeStop = visitMirControlEdges(block.terminator, { kind: "targets",
+      admit: () => takeWork(meter) ?? takeEntries(meter, 1), visit: target => { row.push(target); } });
+    if (edgeStop !== null) return edgeStop;
     successors.push(row);
   }
   return { kind: "complete", value: { successors } };

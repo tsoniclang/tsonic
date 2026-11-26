@@ -271,6 +271,15 @@ export type MirTerminator = MirSite & (
   | { readonly kind: "unreachable" }
 );
 
+export type MirControlEdgeKind = "normal" | "unwind" | "resume" | "suspension-return";
+
+export type MirControlProjection<Stop> = { readonly admit: () => Stop | null } & (
+  | { readonly kind: "targets"; readonly visit: (target: BlockId) => void }
+  | { readonly kind: "edges"; readonly visit: (kind: MirControlEdgeKind, target: BlockId, destination: PlaceId | null) => void }
+);
+
+export type VisitMirControlEdges = <Stop>(terminator: MirTerminator, projection: MirControlProjection<Stop>) => Stop | null;
+
 export interface MirBlock extends MirSite {
   readonly id: BlockId;
   readonly statements: readonly MirStatement[];

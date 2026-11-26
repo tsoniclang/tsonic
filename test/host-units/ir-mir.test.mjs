@@ -762,6 +762,33 @@ for (const [value, text] of [
   });
 }
 
+test("MIR projects the same ordered suspension successors without reading an unrequested destination", () => {
+  const terminator = { ...site, kind: "yield", step: null, operand: null, destination: 0, resume: 1,
+    return: { destination: 2, target: 3 }, unwind: { kind: "handler", exception: 4, target: 5 } };
+  const encoded = product.printMir({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [], terminator }] });
+  const decoded = product.parseMir(encoded);
+  assert.equal(decoded.kind, "parsed");
+  const selected = decoded.value.blocks[0].terminator;
+  const edges = [];
+  assert.equal(product.visitMirControlEdges(selected, { kind: "edges", admit: () => null,
+    visit: (kind, target, destination) => edges.push([kind, target, destination]) }), null);
+  assert.deepEqual(edges, [["resume", 1, 0], ["suspension-return", 3, 2], ["unwind", 5, 4]]);
+  const reject = () => { assert.fail("A destination is not part of a target-only projection."); };
+  Object.defineProperty(selected, "destination", { get: reject });
+  Object.defineProperty(selected.return, "destination", { get: reject });
+  Object.defineProperty(selected.unwind, "exception", { get: reject });
+  for (let maximum = 0; maximum <= edges.length; maximum += 1) {
+    const refusal = { kind: "work-stop", maximum };
+    const targets = [];
+    let admitted = 0;
+    const result = product.visitMirControlEdges(selected, { kind: "targets", admit: () => admitted++ === maximum ? refusal : null,
+      visit: target => targets.push(target) });
+    assert.equal(result, maximum < edges.length ? refusal : null);
+    assert.deepEqual(targets, [1, 3, 5].slice(0, maximum));
+    assert.equal(admitted, Math.min(maximum + 1, edges.length));
+  }
+});
+
 test("MIR missing API signatures retain physical receiver and every argument reference", () => {
   for (const passing of ["by-value", "borrow-shared"]) {
     const { body, context } = callSetup(passing, 0, 1);
@@ -4072,7 +4099,7 @@ test("MIR complete module isolates against real original public dependency value
   for (const path of interfaceSources) assert.equal(report.provenance.some(item => item.source === resolve(repository, path)), true, `real interface producer ${path}`);
 });
 
-test("MIR actual fresh public declarations accept all three ports and reject the removed four-argument port and five deleted rules", () => {
+test("MIR actual fresh public declarations accept wire, verification and control ports and reject the removed forms", () => {
   const deps = isolationDeps(tooling, quarantineRoots);
   const parent = resolve(repository, ".temp/ir-mir-consumer");
   mkdirSync(parent, { recursive: true });
@@ -4115,7 +4142,9 @@ declare const selectedNativeFacts: MirVerificationContext["selectedNativeFacts"]
 export const context: MirVerificationContext = { selectedNativeFacts, limits: { maximumWork: 0 }, requiredEntries: [0], source, bodyOf: () => null, types, bodyOwner: selected => selected === identity ? definition : null,
   declarationOf: selected => selected === definition ? {
   scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0, endpoints: [] } : null };
+const visit: import("./ir-mir/contract.js").VisitMirControlEdges = Mir.visitMirControlEdges;
 const ports: readonly [PrintMir, ParseMir, VerifyMir] = [Mir.printMir, Mir.parseMir, Mir.verifyMir];
+void visit(body.blocks[0]!.terminator, { kind: "targets", admit: () => null, visit: target => { void target; } });
 void ports; void Mir.parseMir(Mir.printMir(body)); void Mir.verifyMir(body, context);
 `);
   const expected = [];
