@@ -1,6 +1,6 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
 import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedSourcePropertyAccessInfo, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
-import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
+import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, hasDeclaredIndexReadEvidence, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { hostDiagnosticCode, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
@@ -3681,10 +3681,12 @@ function indexedTupleArgument(scope: CaptureScope, receiver: Type, object: Node,
 function declaredIndexResult(scope: CaptureScope, task: TypeCapture, type: Type): RawTypeForm | null | undefined {
   const receipt = task.answer.indexedRead;
   if (receipt?.kind !== "declared-index-read") return undefined;
+  if (!admit(scope, "edges")) return null;
+  if (!hasDeclaredIndexReadEvidence(receipt))
+    return throwInvariant(invariant("An indexed result requires its actual native declared-index receipt."));
   const tuple = scope.shape.isTuple(type);
   const declarations = tuple ? null : mergedArgumentGroup(scope, type);
   if (!tuple && declarations === null) return scope.meter.refusal === null ? undefined : null;
-  if (!admit(scope, "edges")) return null;
   const written = task.originalUse === null ? undefined : admittedTypeUse(scope, task.originalUse);
   if (scope.meter.refusal !== null) return null;
   const ast = scope.checked.ast;

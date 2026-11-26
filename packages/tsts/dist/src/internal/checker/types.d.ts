@@ -14,6 +14,7 @@ import type { Result } from "../evaluator/evaluator.js";
 import type { CacheHashKey, Checker, CheckMode } from "./checker/state.js";
 import type { TypeMapper } from "./mapper.js";
 import type { LiteralCreation, LiteralCreatorInput } from "./checker/literal-creation.js";
+import type { DeclaredIndexReadSource } from "./declared-index-evidence.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::ParseFlags","kind":"type","status":"implemented","sigHash":"351ebf721cd2754016dc44fcbdf16dc89d33b4fc6a92eed1f9db4696eed47fcd","bodyHash":"ec2c138c6126fd16db739ef0b467090e9d970a145b42a30cb3dfebf6b442776b"}
  *
@@ -773,14 +774,7 @@ export type IndexedTypeReadSource = {
     readonly kind: "indexed-read";
     readonly annotation: Node;
     readonly properties: readonly [Node, Node, ...Node[]];
-} | {
-    readonly kind: "declared-index-read";
-    readonly annotation: Node;
-    readonly receiver: Type;
-    readonly index: Type;
-    readonly declaration: Node;
-    readonly result: Type;
-};
+} | DeclaredIndexReadSource;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::EnumMemberLinks","kind":"type","status":"implemented","sigHash":"36404442f2fc2ca29651dc60685cdfa474dd7436f67a79886b11574ead3c754f","bodyHash":"300bf7a1da89d657d940c8095bddf33f21118e8b3fea24006d4bd8e40c4fb3f9"}
  *

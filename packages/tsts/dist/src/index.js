@@ -14,6 +14,7 @@ export * from "./internal/core/languagevariant.js";
 export { LanguageVariant_String } from "./internal/core/languagevariant_stringer_generated.js";
 export { CommentDirectiveKindExpectError, CommentDirectiveKindIgnore, CommentDirectiveKindUnknown } from "./internal/ast/ast.js";
 export { readOriginalSignature } from "./internal/checker/original-signature-evidence.js";
+export { hasDeclaredIndexReadEvidence } from "./internal/checker/declared-index-evidence.js";
 export { ContextFlagsSkipBindingPatterns, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "./internal/checker/types.js";
 export { prepareSourceImports } from "./services/compiler-session.js";
 //# sourceMappingURL=index.js.map

@@ -2341,6 +2341,7 @@ export function getTemplateTypeKey(texts, types) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::func::getConditionalTypeKey","kind":"func","status":"implemented","sigHash":"9b3e2d5b37ddb9e6dbeb9a1213512254dd56df13cbc3d1e3c256c9fc7a1932f8","bodyHash":"459ab74ac49c3a8ad555511191dac749a3324ce8f80437fd26245a9093e324ab"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body","signature"],"reason":"Charge the actual key operands through their owning checker before hashing without changing the canonical key.","goSignature":"func(packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::TypeAlias>,packages/tsts/src/go/scalars.ts::bool)=>packages/tsts/src/internal/checker/checker/state.ts::CacheHashKey","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::TypeAlias>,packages/tsts/src/go/scalars.ts::bool)=>packages/tsts/src/internal/checker/checker/state.ts::CacheHashKey"}
  *
  * Go source:
  * func getConditionalTypeKey(typeArguments []*Type, alias *TypeAlias, forConstraint bool) CacheHashKey {
@@ -2512,6 +2513,7 @@ export const thisAssignmentDeclarationConstructor = 2; // at least one in the co
 export const thisAssignmentDeclarationMethod = 3; // methods only; look in base first, and if not found, union all declaration types plus undefined
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::func::findIndexInfo","kind":"func","status":"implemented","sigHash":"c3e78c4e61d79929ed7834364eea7ab2eab39d364216c57eebd6a0780010efd5","bodyHash":"66b6b613494e0f5d2ecfebedc3594ed8e89dfb7496ced41434374956d4bbabc4"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body","signature"],"reason":"Charge each reached index row through the owning checker before the unchanged first-match test.","goSignature":"func(packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::IndexInfo>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::IndexInfo>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::IndexInfo>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::IndexInfo>"}
  *
  * Go source:
  * func findIndexInfo(indexInfos []*IndexInfo, keyType *Type) *IndexInfo {
@@ -3281,6 +3283,7 @@ export function getConstituentCountOfTypes(types) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::func::forEachType","kind":"func","status":"implemented","sigHash":"da8ee53965d035316d96375c5eb1d7fac838e4b6f805a8d18da6baa99f49b1f1","bodyHash":"8e5fc0e619c6fe27d13eb2f5e4c545fc4a2b6e129a7eecb349c941407dd7d3e0"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body","signature"],"reason":"Admit each reached constituent through the owning checker before handing it to the original visitor.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>,(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>)=>void)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>,(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>)=>void)=>void"}
  *
  * Go source:
  * func forEachType(t *Type, f func(t *Type)) {

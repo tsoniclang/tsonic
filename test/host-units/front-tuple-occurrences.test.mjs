@@ -903,25 +903,56 @@ test("the exact mutable and readonly index values retain the tuple without assig
 });
 
 test("a selected index from the wrong owner or a crossed template row does not qualify its tuple value", async () => {
-  const { capture, typeShape, arrays: [readonly, mutable], limits } = await resultProbe(withIndexes());
-  const mutableTarget = typeShape.getTypeReferenceTarget(mutable);
-  const readonlyTarget = typeShape.getTypeReferenceTarget(readonly);
-  const [expected] = typeShape.getIndexInfos(mutable);
-  const [crossed] = typeShape.getIndexInfos(readonly);
-  assert.equal(crossed.valueType === expected.valueType && crossed.keyType === expected.keyType, true);
-  assert.equal(crossed.readonly !== expected.readonly && crossed.declaration !== expected.declaration, true);
-  for (const [subject, replacement] of [[mutable, readonly], [mutableTarget, readonlyTarget]]) {
-    let reads = 0;
-    assert.throws(() => capture({}, limits, { getIndexInfos(type) {
-      if (type === subject) { reads += 1; return typeShape.getIndexInfos(replacement); }
-      return typeShape.getIndexInfos(type);
-    }, getStructuredInventory(type, admit) {
-      const selected = typeShape.getStructuredInventory(type, admit);
-      if (type !== subject || selected.kind !== "complete") return selected;
-      reads += 1;
-      return { kind: "complete", value: { ...selected.value, indexes: typeShape.getIndexInfos(replacement) } };
-    } }), /a tuple requires its actual authored, projected or inferred destructuring association/u);
-    assert.ok(reads > 0);
+  const fixture = await loadFrontFixture();
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
+    interface Matrix<Value> { [numeric: number]: Value; readonly [text: string]: Value; }
+    interface Matrix<Value> {}
+    interface Foreign<Value> { [numeric: number]: Value; }
+    export type Read<A,B> = Matrix<readonly [A,B]>[number];
+  ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const { deps, program, set } = fixture.openAndCapture(snapshot);
+  const module = snapshot.entryPoint;
+  const checked = OpenedProgram.checked(program);
+  const file = OpenedProgram.file(program, module).file;
+  const { ast } = checked;
+  const { checker, typeShape } = checked.getSourceFileQueries(file);
+  const [owner, , foreign, use] = ast.statements(file);
+  const [numeric, text] = ast.members(owner);
+  const annotation = ast.typeNode(use);
+  const receipt = checker.getTypeFromTypeNode(annotation).indexedRead;
+  assert.equal(fixture.sdk.hasDeclaredIndexReadEvidence(receipt), true);
+  assert.equal(receipt.declaration === numeric, true);
+  const inventory = typeShape.getStructuredInventory(receipt.receiver, () => null);
+  assert.equal(inventory.kind, "complete");
+  const [fromNumber, fromString] = [numeric, text].map(declaration => inventory.value.indexes.find(row => row.declaration === declaration));
+  assert.equal(fromNumber.valueType === receipt.result && fromString.valueType === receipt.result, true);
+  assert.notEqual(fromNumber.keyType, fromString.keyType);
+  assert.equal(fromNumber.readonly, false);
+  assert.equal(fromString.readonly, true);
+  assert.equal(captureSingleModule(fixture.front, deps, program, module).kind, "ok");
+  const object = ast.as.AsIndexedAccessTypeNode(annotation).ObjectType;
+  const [operand] = ast.as.AsTypeReferenceNode(object).TypeArguments.Nodes;
+  for (const replacement of [text, ast.members(foreign)[0]]) {
+    let selected = 0;
+    let later = 0;
+    const crossed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
+      const queries = checked.getSourceFileQueries(sourceFile);
+      return sourceFile !== file ? queries : { ...queries, checker: { ...queries.checker, acquireSourceType: observeSourceType(checker, (request, actual) => {
+        if (request.kind !== "annotation") return;
+        if (request.node === operand) later += 1;
+        if (request.node === annotation) {
+          assert.equal(actual.indexedRead === receipt, true);
+          selected += 1;
+          return { ...actual, indexedRead: { ...receipt, declaration: replacement } };
+        }
+      }) } };
+    } }, OpenedProgram.table(program), set.modules.map(entry =>
+      OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
+    OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
+    assert.throws(() => captureSingleModule(fixture.front, deps, crossed, module), /its actual native declared-index receipt/u);
+    assert.equal(selected, 1);
+    assert.equal(later, 0);
   }
 });
 
