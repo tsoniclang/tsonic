@@ -1351,16 +1351,19 @@ function directReceiverRecurrence(scope: CaptureScope, receiver: ReceiverUse, se
   return typeNode !== undefined && directReceiverSource(scope, receiver, typeNode) !== undefined;
 }
 
-function writtenSelfOperand(scope: CaptureScope, type: Type, syntax: Node | undefined): Node | undefined {
+function writtenBinderOperand(scope: CaptureScope, type: Type, syntax: Node | undefined): Node | undefined {
   const ast = scope.checked.ast;
   let current = syntax;
   while (current !== undefined) {
     const kind = ast.kindName(current);
     if (kind === "KindThisType") return current;
-    if (kind !== "KindTypeReference" || scope.shape.isTypeReference(type) || scope.checker.getTypeSymbol(type) === undefined) return undefined;
+    if (kind !== "KindTypeReference") return undefined;
     const reference = ast.as.AsTypeReferenceNode(current);
-    const arguments_ = reference?.TypeArguments?.Nodes;
-    if (reference?.TypeName === undefined || arguments_ === undefined || arguments_.length === 0 || !admit(scope, "edges")) return undefined;
+    if (reference?.TypeName === undefined) return undefined;
+    const arguments_ = reference.TypeArguments?.Nodes;
+    if (arguments_ === undefined) return current;
+    if (scope.shape.isTypeReference(type) || scope.checker.getTypeSymbol(type) === undefined || arguments_.length === 0 ||
+      !admit(scope, "edges")) return undefined;
     const written = scope.checker.getSymbolAtLocation(reference.TypeName);
     if (written === undefined) return undefined;
     const alias = scope.checker.getAliasStep(written)?.kind === "symbol" ? scope.checker.getAliasedSymbol(written) : written;
@@ -1925,14 +1928,11 @@ function selectedMergedIndexArgument(scope: CaptureScope, reference: Type, selec
 }
 
 function selectMergedParameter(scope: CaptureScope, symbol: CheckerSymbol, declarations: readonly (Node | undefined)[],
-  originalUse: OriginalTypeUse | null): Node | undefined {
-  if (originalUse === null || !admit(scope, "edges")) return undefined;
+  source: Node | undefined): Node | undefined {
+  if (source === undefined || !admit(scope, "edges")) return undefined;
   const ast = scope.checked.ast;
-  const source = admittedTypeUse(scope, originalUse);
-  if (source === undefined) return throwInvariant(invariant("An authored type occurrence must retain its actual numbered checker node."));
-  if (ast.kindName(source) !== "KindTypeReference") return undefined;
-  const reference = ast.as.AsTypeReferenceNode(source);
-  if (reference === undefined || scope.checker.getSymbolAtLocation(reference.TypeName) !== symbol) return undefined;
+  const name = parameterReferenceName(scope, source);
+  if (name === undefined || scope.checker.getSymbolAtLocation(name) !== symbol) return undefined;
   let byOwner = scope.tables.mergedParameterOwners?.get(symbol);
   if (byOwner === undefined) {
     if (!admit(scope, "edges")) return undefined;
@@ -2874,14 +2874,14 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
     const alias = deferredAliasApplication(scope, type, selected, syntax);
     if (alias !== null || scope.meter.refusal !== null) return alias;
   }
-  const self = writtenSelfOperand(scope, type, syntax);
+  const binder = writtenBinderOperand(scope, type, syntax);
   if (scope.meter.refusal !== null) return null;
-  if (self !== undefined) {
+  if (binder !== undefined && scope.checked.ast.kindName(binder) === "KindThisType") {
     if (!admit(scope, "edges")) return null;
-    const owner = authoredSelfOwner(scope, type, self);
+    const owner = authoredSelfOwner(scope, type, binder);
     if (scope.meter.refusal !== null) return null;
     if (owner === undefined) throw new TypeError("front: a self type requires its actual authored interface method owner");
-    const authored = sourceType(scope, { kind: "annotation", node: self });
+    const authored = sourceType(scope, { kind: "annotation", node: binder });
     if (scope.meter.refusal !== null) return null;
     if (authored?.type !== type || authored.causes.length !== 0)
       throw new TypeError("front: a self type requires its actual authored checker answer");
@@ -2906,7 +2906,9 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
     if (kind === "KindClassDeclaration") classFacet = true;
     if (active !== null && kind === "KindVariableDeclaration") valueFragment = candidate;
     if (kind !== "KindTypeParameter") continue;
-    const declaration = declarations.length === 1 ? candidate : symbol === undefined ? undefined : selectMergedParameter(scope, symbol, declarations, originalUse);
+    if (declarations.length > 1 && originalUse !== null && syntax === undefined)
+      return throwInvariant(invariant("An authored type occurrence must retain its actual numbered checker node."));
+    const declaration = declarations.length === 1 ? candidate : symbol === undefined ? undefined : selectMergedParameter(scope, symbol, declarations, binder);
     if (scope.meter.refusal !== null) return null;
     if (declaration === undefined) {
       if (symbol !== undefined && originalUse === null && bindingUse === null && scope.tables.activeMergedArguments.size !== 0) {
