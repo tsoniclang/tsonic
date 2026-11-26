@@ -40,7 +40,7 @@ function ready(source) {
   const inputs = { modules: [{ module: checked, nodes }], types: interner, typeWork, typeExpansion: EXPANSION };
   const partition = wiring.infer.groupsOf(deps, checked.bodies.map(body => body.body));
   assert.equal(partition.kind, "ok");
-  return { checked, interner, domain, descriptions, deps, inputs, items, groups: partition.value };
+  return { checked, interner, domain, descriptions, deps, inputs, items, nativeFacts: snapshot.nativeFacts, groups: partition.value };
 }
 
 function verificationViews(program, record) {
@@ -56,7 +56,7 @@ function verificationViews(program, record) {
       parameterCount: "parameters" in node && "nodes" in node.parameters ? node.parameters.nodes.length : null,
       endpoints: "signatures" in node.tsonic ? node.tsonic.signatures : [] };
   };
-  return { types, declarationOf, nominalOf: () => null,
+  return { types, selectedNativeFacts: program.nativeFacts, declarationOf, nominalOf: () => null,
     bindingScopes: irInfer.inferenceBindingSites({ group, constraints, solution: record.solution }).map(binding =>
       program.descriptions.get(binding.definition ?? program.domain.bodyOf.get(binding.site.kind === "body" ? binding.site.body
         : binding.site.kind === "constraint" ? binding.site.constraint.body : assert.fail("This fixture requires its actual binding owner.")).owner).generics),
@@ -258,6 +258,56 @@ test("an actual numeric assignment selects against ready native storage without 
     bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
   literal: constraint.value, destination: destination.value });
   assert.deepEqual(selected.value, { kind: "decided", decision: { kind: "identity" } });
+});
+
+test("native index Rules use the solved key, reached access and carrier's own bounds failure", () => {
+  const program = ready("export function keep(flag: boolean): boolean { return flag; }");
+  const checked = program.checked.tree.statements.nodes[0];
+  const group = program.groups.find(row => row.bodies.includes(checked.tsonic.body));
+  assert.notEqual(group, undefined);
+  const occurrence = { body: checked.tsonic.body, node: checked.body.statements.nodes[0].expression.id };
+  const add = term => insertFixtureType(fixture.types, program.interner, term);
+  const element = add({ kind: "primitive", primitive: "bool" });
+  const integral = add({ kind: "primitive", primitive: "uint64" });
+  const open = add({ kind: "open", group: group.id, variable: 0 });
+  const array = add({ kind: "array", element, readonly: false });
+  const frozen = add({ kind: "array", element, readonly: true });
+  const fixed = add({ kind: "fixed-array", element, extent: { length: 4n, runtimeBase: "number" } });
+  const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const context = { occurrence, origin: checked.origin, bindings };
+  const value = type => ({ type, component: { kind: "body", value: occurrence }, category: { kind: "dynamic" },
+    numeric: null, sum: null, nominal: null, pointer: null });
+
+  for (const [carrier, receiver, access, failure] of [
+    ["array", array, "write", program.nativeFacts.arrayIndexFailure],
+    ["array", frozen, "read", program.nativeFacts.arrayIndexFailure],
+    ["fixed-array", fixed, "read-write", program.nativeFacts.fixedArrayIndexFailure],
+  ]) {
+    const scheme = program.deps.rules.constraints.index;
+    const reference = { body: occurrence.body, index: 0 };
+    const constraint = { kind: "index", occurrence, receiver, key: open, access, result: element, bindings };
+    const listed = scheme.enumerate({ constraint, group: group.id, variables: [], reference });
+    assert.equal(listed.kind, "ok");
+    const [contribution] = listed.value;
+    assert.deepEqual(contribution.reads, [0]);
+    assert.deepEqual(contribution.bounds, []);
+    const expected = { carrier, receiver, key: integral, read: access === "write" ? null : element,
+      write: access === "read" ? null : element, failure };
+    const input = { constraint, contribution, evidence: [receiver, open, element].map(type => ({ value: value(type), error: null })),
+      reads: [{ variable: 0, value: value(integral), error: null }], origin: checked.origin };
+    const solved = scheme.evaluate(input);
+    assert.deepEqual(solved, { kind: "ok", diagnostics: [], value: {
+      bounds: [], selectedCandidate: null, decision: { kind: "index", index: expected },
+    } });
+    assert.deepEqual(program.deps.rules.index({ context, receiver: value(receiver), key: value(integral), access, result: element }).value,
+      { kind: "decided", decision: expected });
+    assert.throws(() => scheme.evaluate({ ...input, reads: [] }), /final value of each declared read/);
+  }
+  for (const [receiver, key, access, result] of [
+    [element, integral, "read", element], [array, element, "read", element],
+    [frozen, integral, "write", element], [array, integral, "read", integral],
+  ]) assert.throws(() => program.deps.rules.index({ context, receiver: value(receiver), key: value(key), access, result }),
+    error => error.cause.owner === "rules" && /not decided yet:/.test(error.message));
 });
 
 test("a supplied argument retains its outside inferred part and its actual use occurrence", () => {

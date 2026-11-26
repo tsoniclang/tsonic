@@ -129,12 +129,13 @@ export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, acc
 
 export const checkedMemberStorageOf: CheckedMemberStorageOf = access => {
   const target = access.tsonic;
-  if (target.role !== "assignment-target" || target.place.kind !== "available" || access.questionDotToken !== null
-    || access.name.kind !== "Identifier" || access.name.tsonic.role !== "property-name" || access.name.tsonic.key.kind !== "available")
-    return null;
+  if (target.role !== "assignment-target" || target.place.kind !== "available" || access.questionDotToken !== null) return null;
   const { base, step, read, write } = target.place.value;
-  if (base.kind !== "receiver" || base.node !== access.expression.id || step?.kind !== "member"
-    || compareMemberKeys(step.key, access.name.tsonic.key.value) !== 0 || write.kind !== "available" || write.value === null) return null;
+  if (base.kind !== "receiver" || base.node !== access.expression.id || write.kind !== "available" || write.value === null) return null;
+  if (access.kind === "ElementAccessExpression") {
+    if (step?.kind !== "index" || step.expression !== access.argumentExpression.id) return null;
+  } else if (step?.kind !== "member" || access.name.kind !== "Identifier" || access.name.tsonic.role !== "property-name"
+    || access.name.tsonic.key.kind !== "available" || compareMemberKeys(step.key, access.name.tsonic.key.value) !== 0) return null;
   return target.access === "read-write"
     ? read.kind === "available" ? { read: read.value, write: write.value } : null
     : read.kind === "unavailable" && read.reason === "not-provided" ? { read: null, write: write.value } : null;

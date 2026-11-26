@@ -4,10 +4,11 @@ import type { BindingVector, TypeEvidence } from "../ir-types/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type {
   ApplicationArgument, ApplicationDecision, BodyTyping, ConstraintDecision, ConstraintRef, DeferredDecision, EmbeddingDecision, EmbeddingProof, InferRule, InferSite,
-  InferenceBindingInput, InferVerificationInput, MemberDecision, OperationDecision, OperatorConstraint, SolvedConstraint,
+  IndexConstraint, IndexDecision, InferenceBindingInput, InferVerificationInput, MemberDecision, OperationDecision, OperatorConstraint, SolvedConstraint,
 } from "./contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
+import { isNativeIntegerPrimitive } from "../ir-types/index.js";
 import { requiresLocation, sameSource } from "./capture-law.js";
 import { printDocument } from "./print.js";
 import { candidateKey, compareContribution, compareNumber, compareText, constraintKey, contributionKey, emit, nodeKey, ordinal } from "./verify-contributions.js";
@@ -170,7 +171,7 @@ function deferredReferences(context: SolutionContext, record: DeferredDecision, 
         const original = value.origins[index];
         return original !== undefined && printDocument({ kind: "MemberOrigin", value: origin }) === printDocument({ kind: "MemberOrigin", value: original });
       }); break;
-    case "index": matches = value.kind === "index" && invocation.input.access === value.access; break;
+    case "index": matches = value.kind === "index" && invocation.input.access === value.access && invocation.input.result === value.result; break;
     case "construct-literal": matches = value.kind === "construct-literal" && invocation.input.construction === value.construction &&
       invocation.input.result.component.kind === "body" &&
       sameNode(invocation.input.result.component.value, value.occurrence) &&
@@ -273,7 +274,7 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
       else if (decision.operation?.kind === "deferred") deferredReferences(context, decision.operation.deferred, constraint, site, output);
       break;
     case "op": case "construct-literal": case "protocol": pending.push({ kind: "operation", value: decision.operation }); break;
-    case "member": case "index": memberReferences(input, decision.member, site, endpoints, output); break;
+    case "member": memberReferences(input, decision.member, site, endpoints, output); break;
     case "refine": if (decision.refinement.kind === "narrowed") pending.push({ kind: "proof", value: decision.refinement.proof }); break;
     case "discharge":
       if (constraint?.value.kind === "discharge" &&
@@ -371,6 +372,28 @@ function decisionMatches(decision: ConstraintDecision, constraint: OwnedConstrai
   return decision.kind === "error" || decision.kind === "deferred" || decision.kind === constraint.value.kind;
 }
 
+function indexTypes(input: InferVerificationInput, finals: ReadonlyMap<number, TypeEvidence>, constraint: IndexConstraint,
+  selected: IndexDecision, site: InferSite, output: Violation<InferRule, InferSite>[]): void {
+  const expected = (type: TyId): TyId | null => {
+    const term = input.types.terms[type];
+    if (term === undefined) return null;
+    return term.kind === "open" ? term.group === input.group.id ? finals.get(term.variable)?.type ?? null : null : type;
+  };
+  if (expected(constraint.receiver) !== selected.receiver || expected(constraint.key) !== selected.key) {
+    emit(output, "operation-types", site, "index");
+    return;
+  }
+  const receiver = input.types.terms[selected.receiver];
+  const key = input.types.terms[selected.key];
+  const { access, result } = constraint;
+  if ((receiver?.kind !== "array" && receiver?.kind !== "fixed-array") || receiver.kind !== selected.carrier
+    || key?.kind !== "primitive" || !isNativeIntegerPrimitive(key.primitive)
+    || receiver.element !== result || (receiver.kind === "array" && receiver.readonly && access !== "read")
+    || selected.read !== (access === "write" ? null : result) || selected.write !== (access === "read" ? null : result)
+    || selected.failure !== (receiver.kind === "array" ? input.selectedNativeFacts.arrayIndexFailure : input.selectedNativeFacts.fixedArrayIndexFailure))
+    emit(output, "operation-types", site, "index");
+}
+
 export function verifySolution(input: InferVerificationInput, inventory: Inventory,
   output: Violation<InferRule, InferSite>[]): void {
   const solution = input.solution;
@@ -409,6 +432,7 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
     solved.add(key); previous = record;
     decisionRecords(context, record, target, output);
     if (target !== undefined && target.value.kind === "op" && record.decision.kind === "op") operationTypes(input, finals, target.value, record.decision.operation, site, output);
+    if (target?.value.kind === "index" && record.decision.kind === "index") indexTypes(input, finals, target.value, record.decision.index, site, output);
     if (target?.value.kind === "default" && target.value.rule === "literal-native-default" && target.value.type === null
       && record.decision.kind === "default" && record.decision.type !== finals.get(target.value.variable)?.type)
       emit(output, "decision-kind", site, "decision");
@@ -550,7 +574,7 @@ export function visitBindings(input: InferenceBindingInput,
       vector(task.value.implementationBindings, task.value.api.declaration);
     } else if (task.kind === "decision") {
       const value = task.value;
-      if (value.kind === "member" || value.kind === "index") children.push({ kind: "member", value: value.member, site: task.site });
+      if (value.kind === "member") children.push({ kind: "member", value: value.member, site: task.site });
       else if (value.kind === "call" || value.kind === "construct") {
         children.push({ kind: "application", value: value.application, site: task.site });
         if (value.operation?.kind === "decided") children.push({ kind: "operation", value: value.operation.decision, site: task.site });

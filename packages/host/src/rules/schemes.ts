@@ -2,11 +2,11 @@ import type { ErrorValue, Result } from "../diag/contract.js";
 import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
   AtomicContribution, ConstraintScheme, ContributionKey, ContributionOutcome, FlowConstraint, InferenceValue,
-  MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
+  IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
   OperatorConstraint, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
-import { compareMemberKeys, internType, memberTypeRequestData, readType } from "../ir-types/index.js";
+import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, readType } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
 import { at as where, callerDefect, notDecidedYet } from "./frontier.js";
@@ -61,6 +61,53 @@ function resultEvidence(deps: RulesDeps, type: TyId, occurrence: NodeRef, operan
 
 function bound(key: ContributionKey, variable: number, kind: VariableBound["kind"], value: InferenceValue): VariableBound {
   return { contribution: key, variable, kind, value: value.value, error: value.error };
+}
+
+export function decideIndex(deps: RulesDeps, input: IndexInput): IndexDecision {
+  const receiver = readType(deps.types, input.receiver.type);
+  if (receiver.kind !== "array" && receiver.kind !== "fixed-array")
+    return notDecidedYet("the selected indexing law of a non-array receiver", input.context.origin);
+  const key = readType(deps.types, input.key.type);
+  if (key.kind !== "primitive" || !isNativeIntegerPrimitive(key.primitive))
+    return notDecidedYet("an array index without a selected native integer", input.context.origin);
+  if (receiver.element !== input.result || (input.access !== "read" && receiver.kind === "array" && receiver.readonly))
+    return notDecidedYet("an indexed view other than its selected array storage", input.context.origin);
+  return { carrier: receiver.kind, receiver: input.receiver.type, key: input.key.type,
+    read: input.access === "write" ? null : input.result, write: input.access === "read" ? null : input.result,
+    failure: receiver.kind === "array" ? deps.selectedNativeFacts.arrayIndexFailure : deps.selectedNativeFacts.fixedArrayIndexFailure };
+}
+
+export function indexScheme(deps: RulesDeps): IndexContributionScheme {
+  return {
+    enumerate: ({ constraint, group, reference }) => {
+      const reads = new Set<number>();
+      for (const type of [constraint.receiver, constraint.key]) {
+        const variable = variableOf(deps, type, constraint.occurrence, group);
+        if (variable !== null) reads.add(variable);
+      }
+      return one({ node: constraint.occurrence, candidate: null, role: { kind: "index" } },
+        [...reads].sort((left, right) => left - right), [], reference);
+    },
+    evaluate: ({ constraint, evidence, reads, origin, contribution }) => {
+      const operands = positions(deps, evidence, [constraint.receiver, constraint.key, constraint.result], constraint.occurrence);
+      const resolve = (value: InferenceValue | undefined): InferenceValue => {
+        if (value === undefined) return callerDefect("an index requires both actual operand positions", origin);
+        const variable = variableOf(deps, value.value.type, constraint.occurrence, null);
+        if (variable === null) return value;
+        const final = reads.find(read => read.variable === variable);
+        if (final === undefined) return callerDefect("an index requires the final value of each declared read", origin);
+        validateValue(deps, final);
+        return { value: { ...final.value, component: value.value.component }, error: final.error };
+      };
+      const receiver = resolve(operands[0]);
+      const key = resolve(operands[1]);
+      const error = mergeErrors([receiver, key]);
+      if (error !== null) return ok({ bounds: [], decision: { kind: "error", error }, selectedCandidate: null });
+      const index = decideIndex(deps, { context: { occurrence: contribution.key.node, bindings: constraint.bindings, origin },
+        receiver: receiver.value, key: key.value, access: constraint.access, result: constraint.result });
+      return ok({ bounds: [], decision: { kind: "index", index }, selectedCandidate: null });
+    },
+  };
 }
 
 export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstraint> {

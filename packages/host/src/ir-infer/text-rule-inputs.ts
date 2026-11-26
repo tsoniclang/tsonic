@@ -221,7 +221,7 @@ export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, cap
   const { diagnosticSchema, hirCallableEndpointSchema } = captureValues;
   const { hirCoreCaptureSchema } = captures;
   const { accessRoleSchema, memberAccessRoleSchema, captureSourceSchema, constructionKindSchema, flowRoleSchema, operatorSchema } = constraints;
-  const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, originSchema, sigSchema } = data;
+  const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, originSchema, sigSchema, tSchema } = data;
   const { typeEvidenceSchema } = evidence;
   const ruleContextSchema = recordSchema<RuleContext>("RuleContext", "RuleContext", read => {
     const occurrence = read("occurrence", () => nodeRefSchema, value => value.occurrence);
@@ -266,7 +266,8 @@ export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, cap
     const receiver = read("receiver", () => typeEvidenceSchema, value => value.receiver);
     const key = read("key", () => typeEvidenceSchema, value => value.key);
     const access = read("access", () => accessRoleSchema, value => value.access);
-    return { fields: [context, receiver, key, access], value: () => ({ context: context.value(), receiver: receiver.value(), key: key.value(), access: access.value() }) };
+    const result = read("result", () => tSchema, value => value.result);
+    return { fields: [context, receiver, key, access, result], value: () => ({ context: context.value(), receiver: receiver.value(), key: key.value(), access: access.value(), result: result.value() }) };
   });
 
   const literalConstructionInputSchema = recordSchema<LiteralConstructionInput>("LiteralConstructionInput", "LiteralConstructionInput", read => {

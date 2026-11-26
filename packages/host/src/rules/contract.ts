@@ -2,8 +2,8 @@ import type { Result } from "../diag/contract.js";
 import type { SelectedNativeFacts, TypeExpansionLimits, TypeInterner, TypeTerm } from "../ir-types/contract.js";
 import type {
   ApplicationDecision, CandidateInput, CaptureModeEvidence, CaptureRow, ClosureDecision, ClosureInput, CoreInput, DomainFitInput, EmbedInput,
-  EmbeddingDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralFitInput,
-  MemberDecision, MemoryEquivalentInput, OperationDecision, OperatorInput,
+  EmbeddingDecision, IndexDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralFitInput,
+  MemoryEquivalentInput, OperationDecision, OperatorInput,
   ProtocolInput, RefinementDecision, RefinementInput, RuleOutcome, RuleTable, TypePatternMatchOutcome,
 } from "../ir-infer/contract.js";
 import type { Libraries } from "../libraries/contract.js";
@@ -39,7 +39,7 @@ export type TypePatternMatch = (check: TypeTerm, pattern: TypeTerm) => TypePatte
 export type LookupIndex = (
   deps: RulesDeps,
   input: IndexInput,
-) => Result<RuleOutcome<MemberDecision>>;
+) => Result<RuleOutcome<IndexDecision>>;
 
 export type ConstructLiteral = (
   deps: RulesDeps,

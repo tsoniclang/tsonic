@@ -3,7 +3,7 @@ import type { Diagnostic } from "../diag/contract.js";
 import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 import type { NativePrimitive, BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
 import type { HirCallableEndpoint, HirUnaryOperator, HirBinaryOperator, HirCoreCapture } from "../ir-hir/contract.js";
-import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, LogicalCapture, CheckRequirement, ClosureCaptureEvidence, ClosureDecision, ClosureInput, FailureKind, OperationExecution, FlowRole, AccessRole, ProtocolKind, RuleContext, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionPart, LiteralConstructionInput, CandidateArgument, CandidateEndpoint, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, ConversionKind, CorrespondenceStep, EmbeddingProof, EmbeddingDecision, MemberDecision, ParameterMapping, CompletionEndpoint, ApplicationDecision, ConstructionPartDecision, ProtocolStepDecision, ProtocolStepOperation, OperationIdentity, OperationDecision, DeferredInvocation, DeferredDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
+import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, LogicalCapture, CheckRequirement, ClosureCaptureEvidence, ClosureDecision, ClosureInput, FailureKind, OperationExecution, FlowRole, ProtocolKind, RuleContext, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionPart, LiteralConstructionInput, CandidateArgument, CandidateEndpoint, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, ConversionKind, CorrespondenceStep, EmbeddingProof, EmbeddingDecision, MemberDecision, ParameterMapping, CompletionEndpoint, ApplicationDecision, ConstructionPartDecision, ProtocolStepDecision, ProtocolStepOperation, OperationIdentity, OperationDecision, DeferredInvocation, DeferredDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
 import type { Cursor, RecordFields, TextStep, TextReader } from "./parse-values.js";
 import { delimiter, readNumber, choice, readBoolean, readStringChoice, readSignatureId, openRecord, closeRecord, readDefinitionId, readBodyId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeEvidenceText, readTypeComponentText, readMemberKeyText, readMemberOriginText, readLiteralValueText, readBindings } from "./parse-types.js";
@@ -422,7 +422,7 @@ export function readMemberInputText<Root>(cursor: Cursor, finish: (value: Member
     fieldText<RuleContext, Root>(cursor, fields, "context", readRuleContextText, contextValue =>
     fieldText<TypeEvidence, Root>(cursor, fields, "receiver", readTypeEvidenceText, receiverValue =>
       fieldText<MemberKey, Root>(cursor, fields, "key", readMemberKeyText, keyValue =>
-        fieldText<AccessRole, Root>(cursor, fields, "access", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["read","write","call"]), done), accessValue =>
+        fieldText<MemberInput["access"], Root>(cursor, fields, "access", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["read","write","read-write","call"]), done), accessValue =>
           fieldText<readonly (MemberOrigin)[], Root>(cursor, fields, "origins", (next, done) => arrayText(next, readMemberOriginText, done), originsValue =>
             atomicText(cursor, next => closeRecord(next, fields), () =>
                 acceptText({ context: contextValue, receiver: receiverValue, key: keyValue, access: accessValue, origins: originsValue }, finish))))))));
@@ -433,9 +433,10 @@ export function readIndexInputText<Root>(cursor: Cursor, finish: (value: IndexIn
     fieldText<RuleContext, Root>(cursor, fields, "context", readRuleContextText, contextValue =>
     fieldText<TypeEvidence, Root>(cursor, fields, "receiver", readTypeEvidenceText, receiverValue =>
       fieldText<TypeEvidence, Root>(cursor, fields, "key", readTypeEvidenceText, keyValue =>
-        fieldText<AccessRole, Root>(cursor, fields, "access", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["read","write","call"]), done), accessValue =>
-          atomicText(cursor, next => closeRecord(next, fields), () =>
-              acceptText({ context: contextValue, receiver: receiverValue, key: keyValue, access: accessValue }, finish)))))));
+        fieldText<IndexInput["access"], Root>(cursor, fields, "access", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["read","write","read-write"]), done), accessValue =>
+          fieldText<TyId, Root>(cursor, fields, "result", (next, done) => atomicText(next, readTypeId, done), resultValue =>
+            atomicText(cursor, next => closeRecord(next, fields), () =>
+              acceptText({ context: contextValue, receiver: receiverValue, key: keyValue, access: accessValue, result: resultValue }, finish))))))));
 }
 
 export function readLiteralConstructionInputText<Root>(cursor: Cursor, finish: (value: LiteralConstructionInput) => TextStep<Root>): TextStep<Root> {

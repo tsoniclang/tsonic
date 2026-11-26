@@ -98,7 +98,7 @@ export type MemberSolveContinuation<State> = MemberSolveSuspension<InferDeps<Sta
 export type SelectionConstraintContext = {
   readonly occurrence: NodeRef;
   readonly origin: Origin;
-} & ({ readonly kind: "member" } | { readonly kind: "call"; readonly scope: BindingScope });
+} & ({ readonly kind: "member" | "index" } | { readonly kind: "call"; readonly scope: BindingScope });
 
 export interface GroupConstraints {
   readonly constraints: readonly ConstraintSet[];

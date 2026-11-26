@@ -121,6 +121,7 @@ function verificationInput(records = {}) {
   const localMap = new Map(locals.map(row => [row.body, new Set(row.ids)]));
   return { group: { id: group, bodies: [body], signatures: [] }, constraints: [constraintSet()], contributions: [], solution: null,
     types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature] }, bindingScopes: [], ...input,
+    selectedNativeFacts: { arrayIndexFailure: "unwind", fixedArrayIndexFailure: "abort" },
     declarationOf: value => declarationMap.get(value) ?? null, nominalOf: value => nominalMap.get(value) ?? null,
     placedSignatureOf: value => placed.get(value) ?? null,
     nodeExists: value => !Object.is(value.value.node, -0) &&
@@ -131,6 +132,54 @@ function verificationInput(records = {}) {
 function violation(rule, site, field) {
   return { rule, site, detail: [{ kind: "text", value: field }] };
 }
+
+test("an index decision keeps its original operands, accessed views and carrier failure", () => {
+  const types = { signatures: [signature], terms: [
+    { kind: "primitive", primitive: "bool" },
+    { kind: "primitive", primitive: "uint64" },
+    { kind: "array", readonly: false, element: 0 },
+    { kind: "fixed-array", element: 0, extent: { length: 3n, runtimeBase: "number" } },
+    { kind: "open", group, variable: 0 },
+    { kind: "array", readonly: true, element: 0 },
+  ] };
+  const constraint = { body, index: 0 };
+  const key = { node: occurrence, candidate: null, role: { kind: "index" } };
+  const variable = { id: 0, occurrence, kind: "local", local: null };
+  const contribution = { key, reads: [0], bounds: [], constraint };
+  const selection = { carrier: "array", receiver: 2, key: 1, read: null, write: 0, failure: "unwind" };
+  const selected = (index, raw = {}, changes = {}) => {
+    const solution = { ...completeSolution(), variables: [{ variable: 0, value: evidence(1), error: null }],
+      constraints: [{ constraint, decision: { kind: "index", index } }] };
+    return verificationInput({ constraints: [constraintSet([{
+      kind: "index", occurrence, receiver: 2, key: 4, access: "write", result: 0, bindings: emptyBindings, ...raw,
+    }], [variable])], types, solution, bindingScopes: [emptyScope], contributions: [contribution], ...changes });
+  };
+  const native = selected(selection);
+  fullEqual(product.verifyInference(native), [], "mutable native array write does not read");
+  const fixed = selected({ ...selection, carrier: "fixed-array", receiver: 3, read: 0, failure: "abort" },
+    { receiver: 3, access: "read-write" });
+  fullEqual(product.verifyInference(fixed), [], "fixed array update uses its own failure and both views");
+  const read = selected({ ...selection, receiver: 5, read: 0, write: null }, { receiver: 5, access: "read" });
+  fullEqual(product.verifyInference(read), [], "a readonly native array has a read but no write");
+  fullEqual(product.parseSolution(product.printSolution(native.solution)), { kind: "parsed", value: native.solution },
+    "a runtime index is data, not a named member key");
+  for (const [index, raw, changes] of [
+    [{ ...selection, read: 0 }], [{ ...selection, failure: "abort" }], [{ ...selection, key: 0 }],
+    [{ ...selection, carrier: "fixed-array" }], [{ ...selection, write: null }],
+    [{ ...selection, receiver: 0 }, { receiver: 0 }],
+    [{ ...selection, key: 0 }, { key: 0 }, { contributions: [{ ...contribution, reads: [] }] }],
+    [{ ...selection, receiver: 5 }, { receiver: 5 }], [selection, { result: 1 }],
+  ]) {
+    fullEqual(product.verifyInference(selected(index, raw, changes)), [violation("operation-types", { kind: "constraint", constraint }, "index")],
+      "crossed index decision cannot authorize this access");
+  }
+  for (const reads of [{ ...contribution, reads: [] }, { ...contribution, bounds: [0] }]) {
+    const forged = selected(selection, {}, { contributions: [reads] });
+    fullEqual(product.verifyInference(forged).filter(found => found.rule === "contribution-footprint-complete"),
+      [violation("contribution-footprint-complete", { kind: "contribution", key }, "bounds")],
+      "the declared work must identify the actual open read and no writeback variable");
+  }
+});
 
 const groupSite = { kind: "group", group };
 const bodySite = { kind: "body", body };
@@ -1606,8 +1655,8 @@ test("all thirteen deferred rule families retain their independently observable 
       { context: changedContext, left: value, right: value }, [emptyScope]],
     [member, { rule: "member", input: { context, receiver: value, key, access: "read", origins: [] } },
       { context, receiver: value, key, access: "write", origins: [] }, [emptyScope, emptyScope]],
-    [index, { rule: "index", input: { context, receiver: value, key: value, access: "read" } },
-      { context, receiver: value, key: value, access: "write" }, [emptyScope, emptyScope]],
+    [index, { rule: "index", input: { context, receiver: value, key: value, access: "read", result: 0 } },
+      { context, receiver: value, key: value, access: "write", result: 0 }, [emptyScope, emptyScope]],
     [construction, { rule: "construct-literal", input: { context, construction: "object", destination: null, result: value,
       parts: [{ kind: "property", occurrence: { body, node: 1 }, key, value }] } },
     { context, construction: "object", destination: null, result: value, parts: [] }, [emptyScope]],
@@ -2367,8 +2416,12 @@ test("all decision, mapping, embedding, operation and protocol-step arms retain 
   ];
   const decisions = [recordGolden("eq", { equivalent: scalarGolden(false) }, "eq"),
     ...embeddings.flatMap(embedding => [recordGolden("flow", { embedding }, "flow"), recordGolden("literal", { embedding }, "literal")]),
-    recordGolden("member", { member }, "member"), recordGolden("index", { member }, "index"),
-    ...dataMembers.flatMap(data => [recordGolden("member", { member: data }, "member"), recordGolden("index", { member: data }, "index")]),
+    recordGolden("member", { member }, "member"),
+    ...dataMembers.map(data => recordGolden("member", { member: data }, "member")),
+    ...["array", "fixed-array"].flatMap(carrier => ["unwind", "abort"].map(failure => recordGolden("index", {
+      index: recordGolden("IndexDecision", { carrier: scalarGolden(carrier), receiver: typeGolden, key: typeGolden,
+        read: carrier === "array" ? nullGolden : typeGolden, write: typeGolden, failure: scalarGolden(failure) }),
+    }, "index"))),
     recordGolden("call", { application, operation: nullGolden }, "call"),
     ...["at-creation", "when-first-driven"].map(activation =>
       recordGolden("call", { application: applicationGolden(mappings, scalarGolden(activation)), operation: nullGolden }, "call")),
@@ -2406,7 +2459,8 @@ test("every saved rule invocation retains its actual closed input rather than on
     deferredGolden("domain-fit", recordGolden("DomainFitInput", { context: contextGolden, value: evidenceGolden, domain: evidenceGolden })),
     deferredGolden("memory-equivalent", recordGolden("MemoryEquivalentInput", { context: contextGolden, left: evidenceGolden, right: evidenceGolden })),
     deferredGolden("member", recordGolden("MemberInput", { context: contextGolden, receiver: evidenceGolden, key: textKeyGolden, access: scalarGolden("call"), origins: emptyGolden })),
-    deferredGolden("index", recordGolden("IndexInput", { context: contextGolden, receiver: evidenceGolden, key: evidenceGolden, access: scalarGolden("read") })),
+    deferredGolden("index", recordGolden("IndexInput", { context: contextGolden, receiver: evidenceGolden, key: evidenceGolden,
+      access: scalarGolden("read-write"), result: typeGolden })),
     deferredGolden("construct-literal", recordGolden("LiteralConstructionInput", { context: contextGolden,
       construction: scalarGolden("array"), parts: arrayGolden(constructionParts), destination: evidenceGolden, result: evidenceGolden })),
     ...["call", "construct", "accessor-get", "accessor-set"].map(kind => deferredGolden("candidate", recordGolden(kind, {

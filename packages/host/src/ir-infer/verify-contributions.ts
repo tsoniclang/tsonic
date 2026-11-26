@@ -308,7 +308,12 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
           if (obligation !== undefined) pending.push(obligation);
         }
         break;
-      case "member": case "index": case "construct-literal": case "call": case "construct": case "protocol": return null;
+      case "index":
+        if (current !== root) return null;
+        if (bounds.size !== 0) return false;
+        types.add(value.receiver); types.add(value.key);
+        break;
+      case "member": case "construct-literal": case "call": case "construct": case "protocol": return null;
     }
   }
   for (const variable of variables) if (!bounds.has(variable)) return false;

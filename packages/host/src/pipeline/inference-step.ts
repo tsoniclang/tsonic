@@ -22,7 +22,7 @@ export interface InferencePublication extends Omit<GroupSolution, "memberInvento
 }
 
 export type InferenceViews = Pick<InferVerificationInput,
-  "types" | "bindingScopes" | "declarationOf" | "nominalOf" | "nodeExists" | "localExists">;
+  "types" | "selectedNativeFacts" | "bindingScopes" | "declarationOf" | "nominalOf" | "nodeExists" | "localExists">;
 
 export interface CompletedPlacement {
   readonly requests: PlacementPaused["requests"];

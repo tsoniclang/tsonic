@@ -23,7 +23,7 @@ import type { EvidenceSchemas } from "./text-evidence.js";
 import type { InvocationsSchemas } from "./text-invocations.js";
 import type { OperationsSchemas } from "./text-operations.js";
 import type { TyId } from "../ids/contract.js";
-import type { InferenceCandidateList } from "./contract.js";
+import type { IndexDecision, InferenceCandidateList } from "./contract.js";
 import type { LiteralValue, MemberKey, MemberOrigin, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
 import type { RecordSchema, Staged } from "./text-data.js";
 import type { Schema } from "./text-data.js";
@@ -70,13 +70,13 @@ export interface LiteralDecisionRecord {
 }
 
 export interface MemberConstraintDecisionRecord {
-  readonly kind: "member" | "index";
+  readonly kind: "member";
   readonly member: MemberDecision;
 }
 
 export interface IndexConstraintDecisionRecord {
-  readonly kind: "member" | "index";
-  readonly member: MemberDecision;
+  readonly kind: "index";
+  readonly index: IndexDecision;
 }
 
 export interface CallDecisionRecord {
@@ -325,9 +325,20 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
     return { fields: [member], value: () => ({ kind: "member", member: member.value() }) };
   });
 
+  const indexCarrierSchema = enumSchema<IndexDecision["carrier"]>("IndexCarrier", ["array","fixed-array"]);
+  const indexDecisionSchema = recordSchema<IndexDecision>("IndexDecision", "IndexDecision", read => {
+    const carrier = read("carrier", () => indexCarrierSchema, value => value.carrier);
+    const receiver = read("receiver", () => tSchema, value => value.receiver);
+    const key = read("key", () => tSchema, value => value.key);
+    const get = read("read", () => nullableSchema(tSchema), value => value.read);
+    const set = read("write", () => nullableSchema(tSchema), value => value.write);
+    const failure = read("failure", () => decisionValues.checkFailureSchema, value => value.failure);
+    return { fields: [carrier, receiver, key, get, set, failure], value: () => ({ carrier: carrier.value(), receiver: receiver.value(),
+      key: key.value(), read: get.value(), write: set.value(), failure: failure.value() }) };
+  });
   const indexConstraintDecisionSchema = recordSchema<IndexConstraintDecisionRecord>("IndexConstraintDecision", "index", read => {
-    const member = read("member", () => memberDecisionSchema, value => value.member);
-    return { fields: [member], value: () => ({ kind: "index", member: member.value() }) };
+    const index = read("index", () => indexDecisionSchema, value => value.index);
+    return { fields: [index], value: () => ({ kind: "index", index: index.value() }) };
   });
 
   const callDecisionSchema = recordSchema<CallDecisionRecord>("CallDecision", "call", read => {

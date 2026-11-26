@@ -10,6 +10,8 @@ const authority: { readonly owner: "infer" } = { owner: "infer" };
 export type Reached =
   | { readonly kind: "member"; readonly constraint: Extract<Constraint, { readonly kind: "member" }>;
       readonly evidence: readonly InferenceValue[]; readonly origin: Origin }
+  | { readonly kind: "index"; readonly constraint: Extract<Constraint, { readonly kind: "index" }>;
+      readonly evidence: readonly InferenceValue[]; readonly origin: Origin }
   | { readonly kind: "op"; readonly constraint: Extract<Constraint, { readonly kind: "op" }>; readonly evidence: readonly InferenceValue[] }
   | { readonly kind: "call"; readonly constraint: Extract<Constraint, { readonly kind: "call" }>;
       readonly evidence: readonly InferenceValue[]; readonly origin: Origin; readonly scope: BindingScope }

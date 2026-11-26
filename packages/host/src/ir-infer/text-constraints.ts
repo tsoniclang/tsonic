@@ -114,7 +114,7 @@ export interface IndexConstraintRecord {
   readonly occurrence: NodeRef;
   readonly receiver: TyId;
   readonly key: TyId;
-  readonly access: "read" | "write" | "call";
+  readonly access: "read" | "write" | "read-write";
   readonly result: TyId;
   readonly bindings: BindingVector;
 }
@@ -249,7 +249,7 @@ export interface ConstraintsSchemas {
   readonly literalVariableSchema: RecordSchema<LiteralVariableRecord>;
   readonly binderFamilySchema: Schema<"captured" | "class" | "method">;
   readonly flowRoleSchema: Schema<"argument" | "assignment" | "initialization" | "member-write" | "receiver" | "return" | "yield">;
-  readonly accessRoleSchema: Schema<"call" | "read" | "write">;
+  readonly accessRoleSchema: Schema<"read" | "read-write" | "write">;
   readonly memberAccessRoleSchema: Schema<"call" | "read" | "read-write" | "write">;
   readonly protocolKindSchema: Schema<"argument-passing" | "await" | "delegate" | "dispose" | "iterate" | "pointer" | "spread" | "yield">;
   readonly ruleIdentitySchema: Schema<"candidate" | "construct-literal" | "core" | "domain-fit" | "embed" | "index" | "library" | "literal-fit" | "member" | "memory-equivalent" | "operator" | "protocol" | "refinement" | "closure">;
@@ -393,7 +393,7 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
 
   const flowRoleSchema = enumSchema("FlowRole", ["initialization","assignment","argument","return","receiver","yield","member-write"]);
 
-  const accessRoleSchema = enumSchema("AccessRole", ["read","write","call"]);
+  const accessRoleSchema = enumSchema("AccessRole", ["read","write","read-write"]);
   const memberAccessRoleSchema = enumSchema("AccessRole", ["read","write","read-write","call"]);
 
   const protocolKindSchema = enumSchema("ProtocolKind", ["iterate","await","yield","delegate","dispose","spread","argument-passing","pointer"]);

@@ -243,15 +243,16 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
     .field("context", "RuleContext", value => work_RuleContext.write(value.context), lazyReader(() => work_RuleContext.reader))
     .field("receiver", "TypeEvidence", value => read.work_TypeEvidence.write(value.receiver), lazyReader(() => read.work_TypeEvidence.reader))
     .field("key", "MemberKey", value => read.work_MemberKey.write(value.key), lazyReader(() => read.work_MemberKey.reader))
-    .field("access", "AccessRole", value => scalarWork("AccessRole", value.access), literalReader<(MemberInput)["access"]>("AccessRole", ["read","write","call"]))
+    .field("access", "AccessRole", value => scalarWork("AccessRole", value.access), literalReader<MemberInput["access"]>("AccessRole", ["read","write","read-write","call"]))
     .field("origins", "[MemberOrigin]", value => sequenceWork("[MemberOrigin]", value.origins, actual => read.work_MemberOrigin.write(actual)), sequenceReader("[MemberOrigin]", lazyReader(() => read.work_MemberOrigin.reader)))
     .finish((field_context, field_receiver, field_key, field_access, field_origins) => ({ context: field_context, receiver: field_receiver, key: field_key, access: field_access, origins: field_origins })));
   const work_IndexInput: TirRecordCodec<IndexInput> = defineRecord<IndexInput>("IndexInput", "IndexInput", null, "IndexInput", null, null, fields => fields
     .field("context", "RuleContext", value => work_RuleContext.write(value.context), lazyReader(() => work_RuleContext.reader))
     .field("receiver", "TypeEvidence", value => read.work_TypeEvidence.write(value.receiver), lazyReader(() => read.work_TypeEvidence.reader))
     .field("key", "TypeEvidence", value => read.work_TypeEvidence.write(value.key), lazyReader(() => read.work_TypeEvidence.reader))
-    .field("access", "AccessRole", value => scalarWork("AccessRole", value.access), literalReader<(IndexInput)["access"]>("AccessRole", ["read","write","call"]))
-    .finish((field_context, field_receiver, field_key, field_access) => ({ context: field_context, receiver: field_receiver, key: field_key, access: field_access })));
+    .field("access", "AccessRole", value => scalarWork("AccessRole", value.access), literalReader<IndexInput["access"]>("AccessRole", ["read","write","read-write"]))
+    .field("result", "t", value => referenceWork("t", value.result), typeReader)
+    .finish((field_context, field_receiver, field_key, field_access, field_result) => ({ context: field_context, receiver: field_receiver, key: field_key, access: field_access, result: field_result })));
   const work_LiteralConstructionInput: TirRecordCodec<LiteralConstructionInput> = defineRecord<LiteralConstructionInput>("LiteralConstructionInput", "LiteralConstructionInput", null, "LiteralConstructionInput", null, null, fields => fields
     .field("context", "RuleContext", value => work_RuleContext.write(value.context), lazyReader(() => work_RuleContext.reader))
     .field("construction", "ConstructionKind", value => scalarWork("ConstructionKind", value.construction), literalReader<(LiteralConstructionInput)["construction"]>("ConstructionKind", ["object","array"]))

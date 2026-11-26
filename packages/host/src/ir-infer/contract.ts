@@ -49,7 +49,6 @@ export type InferenceVariable = { readonly id: number; readonly occurrence: Node
 );
 
 export type FlowRole = "initialization" | "assignment" | "argument" | "return" | "receiver" | "yield" | "member-write";
-export type AccessRole = "read" | "write" | "call";
 export type MemberAccessRole = MemberTypeAccess | "call";
 export type ProtocolKind = "iterate" | "await" | "yield" | "delegate" | "dispose" | "spread" | "argument-passing" | "pointer";
 export type RuleIdentity = "embed" | "domain-fit" | "memory-equivalent" | "member" | "index"
@@ -103,7 +102,7 @@ export interface IndexConstraint {
   readonly occurrence: NodeRef;
   readonly receiver: TyId;
   readonly key: TyId;
-  readonly access: AccessRole;
+  readonly access: MemberTypeAccess;
   readonly result: TyId;
   readonly bindings: BindingVector;
 }
@@ -318,7 +317,8 @@ export interface IndexInput {
   readonly context: RuleContext;
   readonly receiver: TypeEvidence;
   readonly key: TypeEvidence;
-  readonly access: AccessRole;
+  readonly access: MemberTypeAccess;
+  readonly result: TyId;
 }
 
 export type LiteralConstructionPart =
@@ -485,6 +485,15 @@ export interface MemberDecision extends MemberStorageSelection {
   readonly getter: HirCallableEndpoint | null;
   readonly setter: HirCallableEndpoint | null;
   readonly location: AccessLocation;
+}
+
+export interface IndexDecision {
+  readonly carrier: "array" | "fixed-array";
+  readonly receiver: TyId;
+  readonly key: TyId;
+  readonly read: TyId | null;
+  readonly write: TyId | null;
+  readonly failure: CheckFailure;
 }
 
 export type ParameterMapping =
@@ -657,7 +666,8 @@ export type ConstraintDecision =
   | { readonly kind: "error"; readonly error: ErrorValue }
   | { readonly kind: "eq"; readonly equivalent: boolean }
   | { readonly kind: "flow" | "literal"; readonly embedding: EmbeddingDecision }
-  | { readonly kind: "member" | "index"; readonly member: MemberDecision }
+  | { readonly kind: "member"; readonly member: MemberDecision }
+  | { readonly kind: "index"; readonly index: IndexDecision }
   | { readonly kind: "call" | "construct"; readonly application: ApplicationDecision;
       readonly operation: RuleOutcome<OperationDecision> | null }
   | { readonly kind: "op" | "construct-literal" | "protocol"; readonly operation: OperationDecision }
@@ -728,6 +738,11 @@ export interface ConstraintScheme<ConstraintKind extends Constraint> {
   readonly evaluate: (input: ContributionEvaluation<ConstraintKind>) => Result<ContributionOutcome>;
 }
 
+export interface IndexContributionScheme {
+  readonly enumerate: (input: EnumerationInput<IndexConstraint>) => Result<readonly AtomicContribution[]>;
+  readonly evaluate: (input: ContributionEvaluation<IndexConstraint> & { readonly origin: Origin }) => Result<ContributionOutcome>;
+}
+
 export interface CallContributionScheme {
   readonly enumerate: (input: EnumerationInput<CallConstraint>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<CallConstraint> & { readonly origin: Origin;
@@ -740,7 +755,7 @@ export interface ConstraintSchemes<State> {
   readonly literal: ConstraintScheme<LiteralConstraint>;
   readonly op: ConstraintScheme<OperatorConstraint>;
   readonly member: MemberContributionScheme<State>;
-  readonly index: ConstraintScheme<IndexConstraint>;
+  readonly index: IndexContributionScheme;
   readonly call: CallContributionScheme;
   readonly construct: ConstraintScheme<ConstructConstraint>;
   readonly constructLiteral: ConstraintScheme<LiteralConstructionConstraint>;
@@ -765,7 +780,7 @@ export interface RuleTable<State> {
   readonly memoryEquivalent: (input: MemoryEquivalentInput) => Result<RuleOutcome<boolean>>;
   readonly member: (input: MemberInput, storage: SourceObjectField | null) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly resumeMember: (state: State, answers: readonly MemberRuleAnswer[]) => MemberRuleStep<MemberRuleCompletion, State>;
-  readonly index: (input: IndexInput) => Result<RuleOutcome<MemberDecision>>;
+  readonly index: (input: IndexInput) => Result<RuleOutcome<IndexDecision>>;
   readonly constructLiteral: (input: LiteralConstructionInput) => Result<RuleOutcome<OperationDecision>>;
   readonly candidate: (input: CandidateInput) => Result<RuleOutcome<ApplicationDecision>>;
   readonly operator: (input: OperatorInput) => Result<RuleOutcome<OperationDecision>>;
@@ -840,7 +855,13 @@ export interface InferenceBindingInput {
   readonly solution: Solution | null;
 }
 
+export interface IndexFailureFacts {
+  readonly arrayIndexFailure: CheckFailure;
+  readonly fixedArrayIndexFailure: CheckFailure;
+}
+
 export interface InferVerificationInput extends InferenceBindingInput {
+  readonly selectedNativeFacts: IndexFailureFacts;
   readonly contributions: readonly AtomicContribution[];
   readonly types: TypeTable;
   readonly bindingScopes: readonly BindingScope[];

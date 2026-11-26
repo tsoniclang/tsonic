@@ -2,7 +2,7 @@ import type { Diagnostic, Result } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingScope, BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
 import type { CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirLocal, HirNode, HirParam, HirResolution, CheckedPhase } from "../ir-hir/contract.js";
-import type { CallConstraint, DefaultConstraint, FlowConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, OperatorConstraint } from "../ir-infer/contract.js";
+import type { CallConstraint, DefaultConstraint, FlowConstraint, IndexConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, OperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
@@ -42,6 +42,7 @@ type DraftConstraint =
   | Omit<FlowConstraint, "from" | "to"> & { readonly from: Slot; readonly to: Slot }
   | Omit<OperatorConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot }
   | Omit<MemberConstraint, "receiver" | "result"> & { readonly receiver: Slot; readonly result: Slot }
+  | Omit<IndexConstraint, "receiver" | "key"> & { readonly receiver: Slot; readonly key: Slot }
   | Omit<LiteralConstraint, "destination"> & { readonly destination: Slot }
   | Omit<LiteralConstructionConstraint, "parts"> & { readonly parts: readonly DraftProperty[] }
   | DraftCall | DefaultConstraint;
@@ -316,7 +317,8 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
           const child = present(children[index], "a checked syntax child");
           const caseSubject = node.kind === "SwitchStatement" && child === node.caseBlock ? node.expression
             : node.kind === "CaseBlock" && child.kind === "CaseClause" ? frame.caseSubject : undefined;
-          pending.push({ kind: "enter", node: child, nativeDefault: sequence && index === 1 ? frame.nativeDefault : nativeDefault,
+          pending.push({ kind: "enter", node: child, nativeDefault: node.kind === "ElementAccessExpression" && index === 1 ? "owned"
+            : sequence && index === 1 ? frame.nativeDefault : nativeDefault,
             statementList: isStatementListEntry(node, index),
             readWriteTarget: readWriteTarget || (compound || logical) && index === 0,
             ...(caseSubject === undefined ? {} : { caseSubject }) });
@@ -366,6 +368,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
       ? { ...constraint, from: typeOf(constraint.from), to: typeOf(constraint.to) }
       : constraint.kind === "op" ? { ...constraint, operands: constraint.operands.map(typeOf), result: typeOf(constraint.result) }
       : constraint.kind === "member" ? { ...constraint, receiver: typeOf(constraint.receiver), result: typeOf(constraint.result) }
+      : constraint.kind === "index" ? { ...constraint, receiver: typeOf(constraint.receiver), key: typeOf(constraint.key) }
       : constraint.kind === "literal" ? { ...constraint, destination: typeOf(constraint.destination) }
       : constraint.kind === "call" ? { ...constraint, application: { ...constraint.application,
         arguments: constraint.application.arguments.map(argument => ({ ...argument, type: typeOf(argument.type) })) } }
@@ -476,6 +479,7 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
       return notInferredYet(PORT, "an executable ArrowFunction", node.origin);
     case "PropertyAssignment": yield node.initializer; return;
     case "PropertyAccessExpression": if (node.tsonic.role !== "enum-member") yield node.expression; return;
+    case "ElementAccessExpression": yield node.expression; yield node.argumentExpression; return;
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "BigIntLiteral": case "StringLiteral":
     case "NoSubstitutionTemplateLiteral": case "NullKeyword": return;
     default: return notInferredYet(PORT, `a ${node.kind}`, node.origin);
@@ -700,6 +704,26 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     walk.typeOf.set(node.id, type.value);
   }
   else if (node.kind === "ObjectLiteralExpression") objectConstruction(walk, node);
+  else if (node.kind === "ElementAccessExpression") {
+    const selected = node.tsonic;
+    if (selected.role === "enum-member" || node.questionDotToken !== null)
+      return notInferredYet(PORT, "this selected element access", node.origin);
+    const access = selected.role === "value" ? "read" : selected.access;
+    const checked = selected.role === "value" ? selected.value.views.read : null;
+    const storage = selected.role === "assignment-target" ? checkedMemberStorageOf(node) : null;
+    const result = checked?.kind === "available" ? checked.value : storage?.write;
+    if (result === undefined || (access === "read-write" && storage?.read !== result))
+      return notInferredYet(PORT, "the actual checked index result and reached storage types", node.origin);
+    const occurrence = refOf(walk, node);
+    const receiver = typeAt(walk, node.expression);
+    const key = typeAt(walk, node.argumentExpression);
+    walk.generation.selectionContexts.push({ kind: "index", occurrence, origin: node.origin });
+    walk.draft.constraints.push({ kind: "index", occurrence, receiver, key, access, result, bindings: walk.draft.bindings });
+    walk.draft.evidence.push({ type: receiver, node: node.expression, component: { kind: "body", value: refOf(walk, node.expression) } },
+      { type: key, node: node.argumentExpression, component: { kind: "body", value: refOf(walk, node.argumentExpression) } },
+      { type: result, node, component: { kind: "body", value: occurrence } });
+    walk.typeOf.set(node.id, result);
+  }
   else if (node.kind === "PropertyAccessExpression") {
     if (node.tsonic.role === "enum-member") {
       const declaration = node.tsonic.selectedMember;
@@ -761,7 +785,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       const leaf = unparenthesizedExpression<CheckedPhase>(node.left);
       const name = leaf.kind === "Identifier" ? leaf.tsonic : null;
       const storageOf = reads ? readWriteRootStorageOf : writableRootStorageOf;
-      if (leaf.kind === "PropertyAccessExpression") {
+      if (leaf.kind === "PropertyAccessExpression" || leaf.kind === "ElementAccessExpression") {
         const member = leaf.tsonic;
         const storage = checkedMemberStorageOf(leaf);
         if (member.role !== "assignment-target" || member.place !== target || member.access !== (reads ? "read-write" : "write")
@@ -1194,6 +1218,9 @@ function evidenceOf(deps: InferenceInputs, group: InferenceGroup, type: TyId, no
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: term.definition, pointer: null }, error };
   if (term.kind === "callable") return { value: { type, component, category: { kind: "known", category: "callable" },
     numeric: null, sum: null, nominal: null, pointer: null }, error: null };
+  if (term.kind === "array" || term.kind === "fixed-array")
+    return { value: { type, component, category: { kind: "known", category: "object" },
+      numeric: null, sum: null, nominal: null, pointer: null }, error: null };
   if (term.kind === "intrinsic" && term.intrinsic === "absence")
     return { value: { type, component, category: { kind: "known", category: "absence" },
       numeric: null, sum: null, nominal: null, pointer: null }, error: null };

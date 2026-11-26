@@ -379,11 +379,14 @@ function prepareInvocationInput(scan: ProjectionInventory, invocation: DeferredI
         return { kind: "copied", value: image => ({ rule: "member", input: { context: context(image), receiver: receiver(image), key, access, origins } }) };
       });
     });
-    case "index": return paidPhase(scan, 4, () => {
+    case "index": return paidPhase(scan, 5, () => {
       const input = invocation.input;
       return withPlan(evidence(() => input.receiver), receiver => withPlan(evidence(() => input.key), key => {
-        const { access } = input;
-        return { kind: "copied", value: image => ({ rule: "index", input: { context: context(image), receiver: receiver(image), key: key(image), access } }) };
+        const { access, result } = input;
+        const stop = inventoryType(scan, result);
+        return stop === null ? { kind: "copied", value: image => ({ rule: "index", input: {
+          context: context(image), receiver: receiver(image), key: key(image), access, result: image.type(result),
+        } }) } : { kind: "refused", stop };
       }));
     });
     case "construct-literal": return paidPhase(scan, 5, () => {

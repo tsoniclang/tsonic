@@ -6,7 +6,7 @@ import type { CreateRuleTable, RulesDeps, TypePatternMatch } from "./contract.js
 import { decideEmbedding } from "./embed.js";
 import { callerDefect, notDecidedYet } from "./frontier.js";
 import { decideOperator } from "./operators.js";
-import { flowScheme, memberRules, operatorScheme } from "./schemes.js";
+import { decideIndex, flowScheme, indexScheme, memberRules, operatorScheme } from "./schemes.js";
 import { localVariableRule, signatureVariableRule } from "./variables.js";
 import { defaultScheme, literalVariableRule } from "./literal-default.js";
 import { decideLiteralFit, literalScheme } from "./literal-fit.js";
@@ -56,7 +56,7 @@ export const createRuleTable: CreateRuleTable = deps => {
     memoryEquivalent: atContext("memory-equivalent"),
     member,
     resumeMember,
-    index: atContext("index"),
+    index: input => decided(decideIndex(deps, input)),
     constructLiteral: atContext("literal-construction"),
     candidate: input => {
       const selected = decideCandidate(deps, input);
@@ -76,7 +76,7 @@ export const createRuleTable: CreateRuleTable = deps => {
       literal: literalScheme(deps),
       op: operatorScheme(deps),
       member: scheme,
-      index: atConstraint("index"),
+      index: indexScheme(deps),
       call: callScheme(deps),
       construct: atConstraint("construct"),
       constructLiteral: atConstraint("literal-construction"),

@@ -2420,8 +2420,8 @@ const savedInvocationCases = [
     `MemoryEquivalentInput(context=${codecContextWire}, left=${codecEvidenceWire}, right=${codecEvidenceWire})`],
   ["member", { context: codecContext, receiver: codecEvidence, key: codecKey, access: "read", origins: [codecMemberOrigin] },
     `MemberInput(context=${codecContextWire}, receiver=${codecEvidenceWire}, key=${codecKeyWire}, access="read", origins=[${codecMemberOriginWire}])`],
-  ["index", { context: codecContext, receiver: codecEvidence, key: codecEvidence, access: "write" },
-    `IndexInput(context=${codecContextWire}, receiver=${codecEvidenceWire}, key=${codecEvidenceWire}, access="write")`],
+  ["index", { context: codecContext, receiver: codecEvidence, key: codecEvidence, access: "write", result: 0 },
+    `IndexInput(context=${codecContextWire}, receiver=${codecEvidenceWire}, key=${codecEvidenceWire}, access="write", result=t:0)`],
   ["construct-literal", { context: codecContext, construction: "object", parts: [
     { kind: "element", occurrence: codecReference, value: codecEvidence },
     { kind: "property", occurrence: codecReference, key: codecKey, value: codecEvidence },

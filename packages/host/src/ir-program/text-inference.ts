@@ -403,6 +403,7 @@ export function textIndexInput(value: IndexInput): TextWork {
       field("receiver", textTypeEvidence(value.receiver)),
       field("key", textTypeEvidence(value.key)),
       field("access", text(value.access)),
+      field("result", numericIdentity("t", value.result)),
     ]);
   });
 }

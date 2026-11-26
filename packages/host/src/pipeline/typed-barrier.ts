@@ -194,7 +194,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       }
       return fail("A binding occurrence requires its actual qualified inference producer owner.");
     };
-    return { types: viewTypes(source.types), declarationOf, nominalOf: source.nominalOf,
+    return { types: viewTypes(source.types), selectedNativeFacts: inputs.snapshot.nativeFacts, declarationOf, nominalOf: source.nominalOf,
       nodeExists: reference => sources.nodeOf(reference) !== null, localExists: sources.localExists,
       bindingScopes: inferenceBindingSites({ group: _group, constraints: constraints.constraints, solution: result.solution })
         .map(binding => scopeOf(binding.definition ?? ownerAt(binding.site))) };
