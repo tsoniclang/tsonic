@@ -59,7 +59,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "CallSignature", "ConstructSignature", "FunctionType", "ConstructorType", "MethodSignature", "IndexSignature", "GetAccessor", "SetAccessor", "TypeReference", "TypeQuery", "UnionType", "IntersectionType",
   "ArrayType", "TupleType", "OptionalType", "RestType", "TypeOperator", "IndexedAccessType", "ConditionalType", "InferType", "ThisType", "TypePredicate", "LiteralType", "ParenthesizedType", "MappedType",
   "TemplateLiteralType", "TemplateLiteralTypeSpan", "TemplateHead", "TemplateMiddle", "TemplateTail",
-  "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "QuestionToken",
+  "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "ElementAccessExpression", "QuestionToken",
   "ObjectLiteralExpression", "PropertyAssignment"];
 
 function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): string | null {
@@ -842,6 +842,55 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
       ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : { kind: "available", value: null }, place } };
 }
 
+function indexedUse(lowering: Lowering, node: Hir.ElementAccessExpression<Syntax>, value: Hir.CheckedValue):
+  ConversionResult<Hir.CheckedMember> {
+  const access = lowering.assignmentTargets.get(node.id) ?? "read";
+  const selected = lowering.memberUses.get(node.id);
+  const missing: Hir.CapturedFact<never> = value.views.read.kind === "unavailable" && value.views.read.reason === "checker-error"
+    ? value.views.read : { kind: "unavailable", reason: "not-provided", causes: [] };
+  let origins: Hir.CapturedFact<readonly MemberOrigin[]> = missing;
+  let accessor: Hir.CapturedFact<Hir.HirApplication | null> = missing;
+  let place: Hir.CapturedFact<Hir.HirStoragePlace> = missing;
+  if (selected !== undefined) {
+    const expected = (node: NodeId): RawNodeRef => ({ module: lowering.raw.module, node });
+    const components = lowering.raw.types.components;
+    const types = lowering.raw.types.types;
+    if (selected.kind !== "property" || selected.access !== access || selected.optionalChain || selected.chainContinuation
+      || !sameSource(selected.occurrence, expected(node.id)) || !sameSource(selected.receiver, expected(node.expression.id))
+      || !sameSource(selected.key, expected(node.argumentExpression.id)) || selected.arms.length !== 1)
+      return throwInvariant(invariant("An indexed access requires its actual checked role and operand occurrences."));
+    const [arm] = selected.arms;
+    if (arm?.kind !== "index" || arm.receiver !== selected.receiverComponent
+      || types[selected.receiverType]?.component !== arm.receiver || !sameSource(components[arm.receiver]?.root, selected.receiver)
+      || !sameSource(components[arm.key]?.root, expected(node.argumentExpression.id))
+      || (selected.read === null ? arm.read !== null : types[selected.read]?.component !== arm.read)
+      || (selected.write === null ? arm.write !== null : types[selected.write]?.component !== arm.write)
+      || arm.selection.kind !== "index-signature" || arm.selection.declarations.length !== 1
+      || selected.selectedDeclaration === null || !sameSource(arm.selection.declarations[0], selected.selectedDeclaration))
+      return throwInvariant(invariant("An indexed access requires its actual selected index declaration and components."));
+    const declaration = arm.selection.declarations[0];
+    if (declaration === undefined) return throwInvariant(invariant("An indexed access requires its actual selected declaration."));
+    origins = { kind: "available", value: [{ kind: "declared", declaration: lowering.deps.definitionOf(declaration) }] };
+    accessor = { kind: "available", value: null };
+    if (access !== "read") {
+      if (arm.readonly || selected.write === null)
+        return throwInvariant(invariant("A selected indexed write needs its actual writable domain."));
+      const written = typeFactOf(lowering, { kind: "available", value: selected.write });
+      if (written.kind !== "complete") return written;
+      const read: ConversionResult<Hir.CapturedFact<TyId>> = selected.read === null
+        ? { kind: "complete", value: { kind: "unavailable", reason: "not-provided", causes: [] } }
+        : typeFactOf(lowering, { kind: "available", value: selected.read });
+      if (read.kind !== "complete") return read;
+      place = { kind: "available", value: { base: { kind: "receiver", node: node.expression.id },
+        step: { kind: "index", expression: node.argumentExpression.id }, read: read.value, write: written.value } };
+    }
+    lowering.memberUses.delete(node.id);
+  }
+  const core = coreOf(lowering, node.id);
+  return { kind: "complete", value: access === "read" ? { core, origins, accessor, role: "value", value }
+    : { core, origins, accessor, role: "assignment-target", views: value.views, access, place } };
+}
+
 type FieldSelectorContext = {
   readonly kind: "layout-selector";
   readonly role: LayoutSelectorRole;
@@ -1035,7 +1084,8 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
       if (node.operatorToken.kind === "EqualsToken" || writtenCompoundAssignmentKinds.includes(node.operatorToken.kind)) {
         const left = expression(lowering, node.left);
         const leaf = unparenthesizedExpression<Checked>(left);
-        if ((leaf.kind !== "Identifier" && leaf.kind !== "PropertyAccessExpression") || leaf.tsonic.role !== "assignment-target")
+        if ((leaf.kind !== "Identifier" && leaf.kind !== "PropertyAccessExpression" && leaf.kind !== "ElementAccessExpression")
+          || leaf.tsonic.role !== "assignment-target")
           throw new TypeError("front: an assignment requires its actual selected storage target");
         return { kind: "complete", value: { ...headerOf(node), kind: "BinaryExpression", modifiers: null, left, type: null,
           operatorToken: token(node.operatorToken), right: expression(lowering, node.right),
@@ -1107,6 +1157,13 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
       return { kind: "complete", value: { ...headerOf(node), kind: node.kind, multiLine: node.multiLine,
         properties: lowerObjectProperties(node, body, shape.members, property => coreOf(lowering, property), child => expression(lowering, child)),
         tsonic: aggregate } };
+    }
+    case "ElementAccessExpression": {
+      const selected = indexedUse(lowering, node, value.value);
+      if (selected.kind !== "complete") return selected;
+      return { kind: "complete", value: { ...headerOf(node), kind: node.kind, expression: expression(lowering, node.expression),
+        questionDotToken: node.questionDotToken === null ? null : token(node.questionDotToken),
+        argumentExpression: expression(lowering, node.argumentExpression), tsonic: selected.value } };
     }
     case "PropertyAccessExpression": {
       if (node.name.kind !== "Identifier" || context === "execution" && node.questionDotToken !== null)

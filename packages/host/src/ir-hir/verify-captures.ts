@@ -426,8 +426,13 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
     }
     if (entry.place.base.kind === "receiver") {
       const actual = inventory.entriesById.get(entry.place.base.node);
-      if (entry.owner.entry.body === null || node.kind !== "PropertyAccessExpression"
-        || actual?.node !== node.expression || actual.body !== entry.owner.entry.body || entry.place.step?.kind !== "member")
+      const step = entry.place.step;
+      const index = step?.kind === "index" ? inventory.entriesById.get(step.expression) : undefined;
+      const matchingStep = node.kind === "PropertyAccessExpression" && step?.kind === "member"
+        || node.kind === "ElementAccessExpression" && step?.kind === "index" && step.expression === node.argumentExpression.id
+        && index?.node === node.argumentExpression && index.body === entry.owner.entry.body;
+      if (entry.owner.entry.body === null || node.kind !== "PropertyAccessExpression" && node.kind !== "ElementAccessExpression"
+        || actual?.node !== node.expression || actual.body !== entry.owner.entry.body || !matchingStep)
         report("place-access-base-in-receiver", site, "member receiver must be the actual expression in the same body");
       continue;
     }

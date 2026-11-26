@@ -2795,6 +2795,92 @@ test("the checker's boolean is scalar while a union retains its actual separate 
   assert.equal(forms.some(form => form.kind === "scalar" && form.scalar === "boolean"), true);
 });
 
+test("Front captures each original indexed operand and selected read or write", () => {
+  const input = openedModule(`
+    interface Flags { [position: number]: boolean }
+    export function update(values: Flags, index: number, flag: boolean): boolean {
+      values[index] = flag;
+      return values[index];
+    }
+  `);
+  const capture = captureSingleModule(front, input.deps, input.program, input.module);
+  assert.equal(capture.kind, "ok");
+  const raw = capture.value;
+  const [declaration, fn] = raw.tree.statements.nodes;
+  const [write, read] = fn.body.statements.nodes;
+  const sites = [write.expression.left, read.expression];
+  assert.deepEqual(raw.memberUses.map(use => use.access), ["write", "read"]);
+  for (const [position, use] of raw.memberUses.entries()) {
+    const selected = sites[position];
+    const [arm] = use.arms;
+    assert.equal(selected.kind, "ElementAccessExpression");
+    assert.deepEqual(use.occurrence, { module: raw.module, node: selected.id });
+    assert.deepEqual(use.receiver, { module: raw.module, node: selected.expression.id });
+    assert.deepEqual(use.key, { module: raw.module, node: selected.argumentExpression.id });
+    assert.equal(arm.kind, "index");
+    assert.equal(arm.selection.kind, "index-signature");
+    assert.deepEqual(arm.selection.declarations, [{ module: raw.module, node: declaration.members.nodes[0].id }]);
+    assert.deepEqual(raw.types.components[arm.key].root, use.key);
+    assert.deepEqual(raw.types.components[arm.receiver].root, use.receiver);
+    assert.equal(use.read === null, position === 0, "a write-only access does not fabricate a checked read");
+    assert.equal(use.write === null, position === 1, "a read does not fabricate a checked write");
+    assert.equal(arm.read === null, position === 0);
+    assert.equal(arm.write === null, position === 1);
+  }
+  const array = openedModule("export function update(values: boolean[], flag: boolean): boolean { values[0] = flag; return values[0]; }");
+  const indexed = captureSingleModule(front, array.deps, array.program, array.module);
+  assert.equal(indexed.kind, "ok");
+  const captured = indexed.value;
+  assert.deepEqual(captured.memberUses.map(use => use.access), ["write", "read"]);
+  for (const use of captured.memberUses) {
+    assert.equal(use.arms[0].kind, "index");
+    assert.equal(use.key.module, captured.module);
+    assert.deepEqual(captured.core[use.key.node].node, use.key);
+    assert.notEqual(use.selectedDeclaration.module, captured.module, "the actual array index comes from the bundled declaration");
+  }
+});
+
+test("Checked indexed assignment retains its actual receiver and key, and rejects a crossed key", async () => {
+  const { checked, interner } = checkedModuleOf(`
+    interface Flags { [position: number]: boolean }
+    export function update(values: Flags, index: number, flag: boolean): boolean {
+      values[index] = flag;
+      return values[index];
+    }
+  `);
+  assert.deepEqual(verifyChecked(checked, interner), []);
+  const selected = checked.tree.statements.nodes[1].body.statements.nodes[0].expression;
+  const target = selected.left;
+  assert.equal(target.tsonic.role, "assignment-target");
+  assert.equal(selected.tsonic.target === target.tsonic.place, true);
+  assert.equal(target.tsonic.place.kind, "available");
+  assert.deepEqual(target.tsonic.place.value.base, { kind: "receiver", node: target.expression.id });
+  assert.deepEqual(target.tsonic.place.value.step, { kind: "index", expression: target.argumentExpression.id });
+  assert.equal(target.tsonic.place.value.write.kind, "available");
+  const read = checked.tree.statements.nodes[1].body.statements.nodes[1].expression;
+  assert.equal(read.tsonic.role, "value");
+  assert.deepEqual(read.tsonic.origins, target.tsonic.origins);
+  assert.equal(read.tsonic.value.views.read.value, target.tsonic.place.value.write.value);
+  const crossed = structuredClone(checked);
+  const other = crossed.tree.statements.nodes[1].body.statements.nodes[0].expression;
+  other.left.tsonic.place.value.step.expression = other.right.id;
+  assert.equal(verifyChecked(crossed, interner).some(finding => finding.rule === "place-access-base-in-receiver"), true);
+
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const input = analysisInput(await loadFrontFixture(), "es2024",
+    "export function update(values: boolean[], flag: boolean): boolean { values[0] = flag; return flag; }");
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const main = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const array = main.tree.statements.nodes[0].body.statements.nodes[0].expression.left;
+  assert.equal(array.tsonic.place.kind, "available");
+  assert.deepEqual(array.tsonic.place.value.step, { kind: "index", expression: array.argumentExpression.id });
+  const [indexOrigin] = array.tsonic.origins.value;
+  assert.equal(indexOrigin.kind, "declared");
+  assert.notEqual(ids.decodeDefId(indexOrigin.declaration).value.module, main.module);
+});
+
 test("the frontier check names the first unwritten form in preorder (R3 L-2)", async () => {
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const sourceText = "export function m(a: number, b: number): number { return (a) ** b; }\n";

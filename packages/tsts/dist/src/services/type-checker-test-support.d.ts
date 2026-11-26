@@ -1,4 +1,4 @@
-import type { ResolvedSourceCallInfo, ResolvedSourcePropertyAccessInfo, TypeCheckerQueries } from "./type-checker.js";
+import type { ResolvedSourceCallInfo, ResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo, TypeCheckerQueries } from "./type-checker.js";
 import type { TypePropertyInfo, TypeShapeQueries } from "./type-shape.js";
 import type { RetainedTypeAliasApplication } from "./type-applications.js";
 import type { Type } from "../internal/checker/types.js";
@@ -11,6 +11,7 @@ export declare function requireApplicableCallInfo(evidence: ResolvedSourceCallIn
 export declare function propertyRows(shape: TypeShapeQueries, type: GoPtr<Type>): readonly TypePropertyInfo[];
 export declare function aliasApplication(shape: TypeShapeQueries, type: GoPtr<Type>): RetainedTypeAliasApplication | undefined;
 export declare function propertyAccess(checker: TypeCheckerQueries, node: GoPtr<Node>): GoPtr<ResolvedSourcePropertyAccessInfo>;
+export declare function elementAccess(checker: TypeCheckerQueries, node: GoPtr<Node>): GoPtr<ResolvedSourceElementAccessInfo>;
 export declare function createProgram(sourceText: string, settings?: {
     readonly noLib?: boolean;
     readonly fileName?: "index.ts" | "index.js";

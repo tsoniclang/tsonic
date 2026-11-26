@@ -175,7 +175,7 @@ export interface TypeCheckerQueries {
     readonly getResolvedCallInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceCallInfo>;
     readonly acquireResolvedCall: <Stop extends object>(node: GoPtr<Node>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<ResolvedSourceCallInfo, Stop>;
     readonly acquireResolvedPropertyAccess: <Stop extends object>(node: GoPtr<Node>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<ResolvedSourcePropertyAccessInfo, Stop>;
-    readonly getResolvedElementAccessInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceElementAccessInfo>;
+    readonly acquireResolvedElementAccess: <Stop extends object>(node: GoPtr<Node>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<ResolvedSourceElementAccessInfo, Stop>;
     readonly getResolvedIterationInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceIterationInfo>;
     readonly getResolvedObjectLiteralElementInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceObjectLiteralElementInfo>;
     readonly getResolvedStorageInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceStorageInfo>;

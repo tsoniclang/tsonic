@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedSourcePropertyAccessInfo, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, hasDeclaredIndexReadEvidence, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -3124,6 +3124,50 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
 
 type CheckedMember = Extract<ResolvedSourcePropertyAccessInfo, { readonly kind: "member" }>;
 
+function capturedIndexUse(scope: CaptureScope, occurrence: RawNodeRef, info: ResolvedSourceElementAccessInfo,
+  declaration: Node, viewRead: { readonly position: RawComponentId; readonly answer: ResolvedSourceTypeInfo } | null):
+  Extract<RawMemberUse, { readonly kind: "property" }> | null {
+  if (!admit(scope, "edges")) return null;
+  const selected = referenceTo(scope, scope.program, declaration);
+  if (scope.meter.refusal !== null) return null;
+  if (!admit(scope, "edges")) return null;
+  const receiver = referenceTo(scope, scope.program, info.receiver.expression);
+  if (scope.meter.refusal !== null) return null;
+  if (!admit(scope, "edges")) return null;
+  const key = referenceTo(scope, scope.program, info.argument.expression);
+  if (scope.meter.refusal !== null) return null;
+  if (selected === null || receiver === null || key === null)
+    return throwInvariant(invariant("An indexed access must name its actual checked declaration and operand occurrences."));
+
+  const receiverComponent = component(scope, receiver, null);
+  if (receiverComponent === null) return null;
+  const receiverType = rawType(scope, () => withoutTypeCause(info.receiver.type), receiverComponent, null);
+  if (receiverType === null) return null;
+  const keyComponent = component(scope, key, null);
+  if (keyComponent === null) return null;
+  const keyKind = scope.checked.ast.kindName(info.argument.expression);
+  if (rawType(scope, () => withoutTypeCause(info.argument.type), keyComponent, null, null,
+    keyKind === "KindNumericLiteral" || keyKind === "KindBigIntLiteral" ? info.argument.expression : null) === null) return null;
+
+  const readComponent = info.sourceReadType === undefined ? null : viewRead?.position ?? component(scope, occurrence, null);
+  if (scope.meter.refusal !== null) return null;
+  const read = info.sourceReadType === undefined ? null
+    : rawType(scope, () => viewRead?.answer ?? withoutTypeCause(info.sourceReadType), readComponent, null);
+  if (scope.meter.refusal !== null) return null;
+  const writeComponent = info.sourceWriteType === undefined ? null : component(scope, occurrence, null);
+  if (scope.meter.refusal !== null) return null;
+  const write = info.sourceWriteType === undefined ? null
+    : rawType(scope, () => withoutTypeCause(info.sourceWriteType), writeComponent, null);
+  if (scope.meter.refusal !== null || !admit(scope, "facts") || !admit(scope, "edges")) return null;
+
+  return { kind: "property", occurrence, receiver, receiverComponent, receiverType, key, access: info.accessMode,
+    callCallee: info.callCallee, optionalChain: info.optionalChain, chainContinuation: false, selectedDeclaration: selected,
+    selectedDeclarations: [selected], readDeclarations: read === null ? [] : [selected],
+    writeDeclarations: write === null ? [] : [selected], read, write,
+    arms: [{ kind: "index", receiver: receiverComponent, selection: { kind: "index-signature", declarations: [selected] },
+      key: keyComponent, read: readComponent, write: writeComponent, readonly: !info.writable }] };
+}
+
 function selectedMemberOf(scope: CaptureScope, node: Node, occurrence: RawNodeRef): CheckedMember | null {
   if (!admit(scope, "facts")) return null;
   const selector = scope.fieldSelectors?.get(occurrence.node);
@@ -5072,7 +5116,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       const answer = sourceType(scope, { kind: "expression", node });
       if (scope.meter.refusal !== null) break;
       if (answer === undefined) return throwInvariant(invariant("The checker returned no type at a position that has one."));
-      failedSelection = answer.causes.length !== 0 && (kind === "KindPropertyAccessExpression" || kind === "KindCallExpression")
+      failedSelection = answer.causes.length !== 0 && (kind === "KindPropertyAccessExpression" || kind === "KindElementAccessExpression" || kind === "KindCallExpression")
         && scope.shape.isError(answer.type);
       const contextual = sourceType(scope, { kind: "contextual", node });
       if (scope.meter.refusal !== null) break;
@@ -5097,6 +5141,27 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
           (enumQualifiers ??= new Set()).add(use.receiver.node);
         } else if (sameRead) sharedRead = use.read;
         memberUses.push(use);
+      } else if (kind === "KindElementAccessExpression" && declarationNameRoot === null && !failedSelection) {
+        const acquired = scope.checker.acquireResolvedElementAccess(node, nativeCaptureAdmission(scope));
+        if (acquired.kind === "refused") {
+          if (acquired.stop !== scope.meter.refusal)
+            return throwInvariant(invariant("An indexed access acquisition must retain its actual first refusal."));
+          break;
+        }
+        if (acquired.kind === "complete") {
+          const selected = acquired.value;
+          if (selected.expression !== node)
+            return throwInvariant(invariant("An indexed access acquisition must retain its actual expression."));
+          const declaration = selected.selectedDeclaration;
+          if (selected.sourceSymbol === undefined && !selected.optionalChain && declaration !== undefined
+            && scope.checked.ast.kindName(declaration) === "KindIndexSignature") {
+            const sameRead = answer.causes.length === 0 && selected.sourceReadType === answer.type;
+            const use = capturedIndexUse(scope, reference, selected, declaration, sameRead ? { position: readPosition, answer } : null);
+            if (use === null) break;
+            if (sameRead) sharedRead = use.read;
+            memberUses.push(use);
+          }
+        }
       }
       const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tuple,
         kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);

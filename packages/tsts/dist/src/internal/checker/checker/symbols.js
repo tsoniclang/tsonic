@@ -5417,7 +5417,8 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
     if (receiver === undefined || node === undefined || node.Kind !== KindElementAccessExpression) {
         return undefined;
     }
-    const selected = createSelectedElementAccessCheck();
+    admitNativeChecker(receiver, "work");
+    const selected = createSelectedElementAccessCheck(receiver);
     let sourceResultType;
     if ((node.Flags & NodeFlagsOptionalChain) !== 0) {
         sourceResultType = checkElementAccessChainWithEvidence(receiver, node, CheckModeNormal, selected);
@@ -5441,26 +5442,28 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
     }
     const accessMode = checkedAccessMode(node);
     const receiverSymbol = Checker_getResolvedSymbolOrNil(receiver, receiverExpression);
-    return Object.freeze({
+    const writable = selectedElementAccessIsWritable(receiver, node, selected);
+    admitNativeChecker(receiver, "retained", 4);
+    return {
         expression: node,
-        receiver: Object.freeze({
+        receiver: {
             expression: receiverExpression,
             type: selected.receiverType,
             ...(receiverSymbol === undefined ? {} : { symbol: receiverSymbol }),
             ...(receiverSymbol?.ValueDeclaration === undefined
                 ? {}
                 : { declaration: receiverSymbol.ValueDeclaration }),
-        }),
-        argument: Object.freeze({
+        },
+        argument: {
             expression: argumentExpression,
             type: selected.argumentType,
-        }),
+        },
         ...(selected.sourceSymbol === undefined ? {} : { sourceSymbol: selected.sourceSymbol }),
         ...(selected.sourceDeclaration === undefined ? {} : { sourceDeclaration: selected.sourceDeclaration }),
         ...(selected.selectedSymbol === undefined ? {} : { selectedSymbol: selected.selectedSymbol }),
         ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
         ...(selected.selectedElementIndex === undefined ? {} : { selectedElementIndex: selected.selectedElementIndex }),
-        writable: selectedElementAccessIsWritable(receiver, node, selected),
+        writable,
         ...resolvedSourceAccessTypes(accessMode, accessMode === "read-write"
             ? selected.readType
             : accessMode === "read" || accessMode === "delete" ? sourceResultType : undefined, accessMode === "write" || accessMode === "read-write"
@@ -5468,14 +5471,19 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
             : undefined),
         optionalChain: IsOptionalChain(node),
         callCallee: Checker_isMethodAccessForCall(receiver, node),
-    });
+    };
 }
 function selectedElementAccessIsWritable(receiver, node, selected) {
     if (selected.selectedSymbol !== undefined) {
         return !Checker_isAssignmentToReadonlyEntity(receiver, node, selected.selectedSymbol, AssignmentKindDefinite);
     }
-    return selected.indexSelections.length > 0
-        && selected.indexSelections.every((selection) => selection.indexInfo?.isReadonly !== true);
+    const selections = selected.indexSelections;
+    for (let position = 0; position < selections.length; position += 1) {
+        admitNativeChecker(receiver, "work");
+        if (selections[position]?.indexInfo?.isReadonly === true)
+            return false;
+    }
+    return selections.length !== 0;
 }
 function checkElementAccessExpressionWithEvidence(receiver, node, exprType, checkMode, selected) {
     const objectType = selectedElementAccessReceiverType(receiver, node, exprType);
@@ -5518,12 +5526,14 @@ function checkElementAccessExpressionWithEvidence(receiver, node, exprType, chec
             throw new Error("Checked element access lost the alias target selected during TS-Go checking.");
         }
         selected.sourceSymbol = selectedSymbol;
-        selected.sourceDeclaration = selectedSymbol?.ValueDeclaration
-            ?? selectedIndexAccessDeclaration(selected.indexSelections);
+        const sourceDeclaration = selectedSymbol?.ValueDeclaration;
+        const targetDeclaration = targetSelectedSymbol?.ValueDeclaration;
+        const indexDeclaration = sourceDeclaration !== undefined && targetDeclaration !== undefined
+            ? undefined : selectedIndexAccessDeclaration(receiver, selected.indexSelections);
+        selected.sourceDeclaration = sourceDeclaration ?? indexDeclaration;
         selected.selectedSymbol = targetSelectedSymbol;
-        selected.selectedDeclaration = targetSelectedSymbol?.ValueDeclaration
-            ?? selectedIndexAccessDeclaration(selected.indexSelections);
-        const selectedElementIndex = getSelectedFixedTupleElementIndex(objectType, effectiveIndexType);
+        selected.selectedDeclaration = targetDeclaration ?? indexDeclaration;
+        const selectedElementIndex = getSelectedFixedTupleElementIndex(receiver, objectType, effectiveIndexType);
         if (selectedElementIndex !== undefined) {
             selected.selectedElementIndex = selectedElementIndex;
         }
@@ -5562,9 +5572,10 @@ function recordSelectedElementAccessEvidence(receiver, node, selected, sourceRes
 }
 function selectedElementAccessCapture(receiver, node) {
     const callOwned = callEvidenceWantedForCallee(node);
-    return callOwned ? createSelectedElementAccessCheck() : undefined;
+    return callOwned ? createSelectedElementAccessCheck(receiver) : undefined;
 }
-function createSelectedElementAccessCheck() {
+function createSelectedElementAccessCheck(receiver) {
+    admitNativeChecker(receiver, "retained", 2);
     return {
         selected: false,
         resultType: undefined,
@@ -5578,17 +5589,27 @@ function createSelectedElementAccessCheck() {
         indexSelections: [],
     };
 }
-function retainSelectedIndexAccess(selected, objectType, indexInfo) {
+function retainSelectedIndexAccess(receiver, selected, objectType, indexInfo) {
     if (selected === undefined || objectType === undefined || indexInfo === undefined) {
         return;
     }
-    if (!selected.indexSelections.some((selection) => selection.objectType === objectType && selection.indexInfo === indexInfo)) {
-        selected.indexSelections.push({ objectType, indexInfo });
+    const selections = selected.indexSelections;
+    for (let position = 0; position < selections.length; position += 1) {
+        admitNativeChecker(receiver, "work");
+        const existing = selections[position];
+        if (existing?.objectType === objectType && existing.indexInfo === indexInfo)
+            return;
     }
+    admitNativeChecker(receiver, "retained");
+    selections.push({ objectType, indexInfo });
 }
-function selectedIndexAccessDeclaration(selections) {
+function selectedIndexAccessDeclaration(receiver, selections) {
     let selectedDeclaration;
-    for (const selection of selections) {
+    for (let position = 0; position < selections.length; position += 1) {
+        admitNativeChecker(receiver, "work");
+        const selection = selections[position];
+        if (selection === undefined)
+            throw new Error("A selected element access must retain its actual dense index selections.");
         const declaration = selection.indexInfo?.declaration
             ?? mappedIndexEvidenceDeclaration(selection.objectType);
         if (declaration === undefined) {
@@ -5621,7 +5642,7 @@ function selectedElementAccessArgumentType(receiver, indexExpression, indexType)
         ? receiver.numberType
         : indexType;
 }
-function getSelectedFixedTupleElementIndex(objectType, selectedIndexType) {
+function getSelectedFixedTupleElementIndex(receiver, objectType, selectedIndexType) {
     if (selectedIndexType === undefined) {
         return undefined;
     }
@@ -5637,20 +5658,26 @@ function getSelectedFixedTupleElementIndex(objectType, selectedIndexType) {
     if (index === undefined || index < 0 || index % 1 !== 0) {
         return undefined;
     }
-    if (!typeSelectionProvesFixedTupleIndex(objectType, index)) {
+    if (!typeSelectionProvesFixedTupleIndex(receiver, objectType, index)) {
         return undefined;
     }
     return index;
 }
-function typeSelectionProvesFixedTupleIndex(type, index) {
+function typeSelectionProvesFixedTupleIndex(receiver, type, index) {
+    admitNativeChecker(receiver, "work");
     if (isTupleType(type)) {
         return index < Type_TargetTupleType(type).fixedLength;
     }
-    if ((type.flags & TypeFlagsUnion) !== 0) {
-        return Every(Type_Types(type), (constituent) => typeSelectionProvesFixedTupleIndex(constituent, index));
-    }
-    if ((type.flags & TypeFlagsIntersection) !== 0) {
-        return Some(Type_Types(type), (constituent) => typeSelectionProvesFixedTupleIndex(constituent, index));
+    if ((type.flags & (TypeFlagsUnion | TypeFlagsIntersection)) !== 0) {
+        const union = (type.flags & TypeFlagsUnion) !== 0;
+        const constituents = Type_Types(type) ?? [];
+        for (let position = 0; position < constituents.length; position += 1) {
+            admitNativeChecker(receiver, "work");
+            const matches = typeSelectionProvesFixedTupleIndex(receiver, constituents[position], index);
+            if (matches !== union)
+                return matches;
+        }
+        return union;
     }
     return false;
 }
@@ -17570,7 +17597,7 @@ function getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objec
             indexInfo = Checker_getIndexInfoOfType(receiver, objectType, receiver.stringType);
         }
         if (indexInfo !== undefined) {
-            retainSelectedIndexAccess(selected, objectType, indexInfo);
+            retainSelectedIndexAccess(receiver, selected, objectType, indexInfo);
             if ((accessFlags & AccessFlagsNoIndexSignatures) !== 0 && indexInfo.keyType !== receiver.numberType) {
                 if (accessExpression !== undefined) {
                     if ((accessFlags & AccessFlagsWriting) !== 0) {

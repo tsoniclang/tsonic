@@ -36,6 +36,11 @@ export function propertyAccess(checker, node) {
     assert.notEqual(result.kind, "refused");
     return result.kind === "complete" ? result.value : undefined;
 }
+export function elementAccess(checker, node) {
+    const result = checker.acquireResolvedElementAccess(node, () => null);
+    assert.notEqual(result.kind, "refused");
+    return result.kind === "complete" ? result.value : undefined;
+}
 export function createProgram(sourceText, settings = {}) {
     const fileName = settings.fileName ?? "index.ts";
     const sourcePath = `/src/${fileName}`;

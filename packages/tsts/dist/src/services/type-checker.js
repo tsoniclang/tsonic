@@ -97,6 +97,31 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         return result.value === undefined ? { kind: "unavailable" } : { kind: "complete", value: result.value };
     };
     const elementAccessInfos = new WeakMap();
+    const readElement = (node, admit) => {
+        if (node === undefined || !IsElementAccessExpression(node))
+            return { kind: "unavailable" };
+        const context = defaultOptions.context ?? Background();
+        const result = withSourceFileChecker(program, defaultOptions.sourceFile, GetSourceFileOfNode(node), context, checker => acquireLeasedChecker(checker, WithCheckerLifetime(context, CheckerLifetimeDiagnostics), admit, () => {
+            admitNativeChecker(checker, "work");
+            const known = elementAccessInfos.get(node);
+            if (known !== undefined)
+                return known;
+            const selected = Checker_getResolvedSourceElementAccessInfo(checker, node);
+            if (selected === undefined || isSyntheticDefaultMember(checker, selected.sourceSymbol))
+                return undefined;
+            const offered = withResolvedSourceReceiverValueEvidence(checker, selected);
+            if (offered !== undefined) {
+                admitNativeChecker(checker, "retained");
+                elementAccessInfos.set(node, offered);
+            }
+            return offered;
+        }));
+        if (result === undefined || result.kind === "unavailable")
+            return { kind: "unavailable" };
+        if (result.kind === "refused")
+            return result;
+        return result.value === undefined ? { kind: "unavailable" } : { kind: "complete", value: result.value };
+    };
     const iterationInfos = new WeakMap();
     const objectLiteralElementInfos = new WeakMap();
     const objectLiteralElementSymbols = new WeakMap();
@@ -296,13 +321,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         },
         acquireResolvedCall: (node, admit) => readCall(node, { kind: "ready", admit }),
         acquireResolvedPropertyAccess: readProperty,
-        getResolvedElementAccessInfo: (node) => memoizeResolvedNodeQuery(elementAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
-            const selected = Checker_getResolvedSourceElementAccessInfo(checker, node);
-            // An element access that reads the made default member would name the first module's value: nothing.
-            return isSyntheticDefaultMember(checker, selected?.sourceSymbol)
-                ? undefined
-                : withResolvedSourceReceiverValueEvidence(checker, selected);
-        })),
+        acquireResolvedElementAccess: readElement,
         getResolvedIterationInfo: (node) => memoizeResolvedNodeQuery(iterationInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceIterationInfo(checker, node))),
         getResolvedObjectLiteralElementInfo: (node) => memoizeResolvedNodeQuery(objectLiteralElementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceObjectLiteralElementInfo(checker, node, objectLiteralElementSymbols))),
         getResolvedStorageInfo: (node) => {
