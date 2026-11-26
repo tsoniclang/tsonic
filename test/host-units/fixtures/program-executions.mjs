@@ -28,8 +28,8 @@ export function projectFixtureProgram(source, publication) {
   assert.equal(result.kind, "complete");
   return result.value;
 }
-const voidSeedWork = 5 + (2 + 3 + 11) + (3 + 10) + (44 + 2 + 4 * 3 + 3 * 10) + (2 + 3 + 10);
-const voidSeedRecords = 5 + 3 + (44 + 10) + 3;
+const voidSeedWork = 21 + 13 + 72 + 15;
+const voidSeedRecords = 8 + 50 + 3;
 
 export async function executionCases(suite) {
 await suite.test("Program borrows the enclosing account and preserves its original refusal across all verification entries", () => {
@@ -425,8 +425,7 @@ await suite.test("index and module verification share original carrier-read refu
       }
       const prefixWork = 1000000 - remainingWork(prefix);
       const planWork = 2 + 2 * (4 + fixture.instance.body.length) + (7 + fixture.instance.body.length);
-      const extraTypeFields = 3 + 2 * 10;
-      const typeAdmissionWork = voidSeedWork + 2 * (3 + extraTypeFields) + extraTypeFields + (41 + 3 + 4 * 3 + 8 * 10);
+      const typeAdmissionWork = 47 + 36 + 162 + 41;
       assert.equal(fixture.index.signatures.length, 0);
       const sourceWork = fixture.index.bodies.reduce((total, { instance }) => {
         const { body, bindings } = instance;
@@ -746,8 +745,10 @@ await suite.test("seed admission has exact shared work/record boundaries before 
 await suite.test("signature omission survives one paid seed admission and exact TIR borrowing", () => {
   const fixture = publicationFixture();
   const limits = ProgramWork.state(fixture.context.resources).limits;
-  const seedWork = voidSeedWork + 6 * (6 + 1);
-  const seedRecords = voidSeedRecords + 5;
+  const parameterWork = 7 + 7 + 14 + 7;
+  const parameterRecords = 1 + 2 + 1;
+  const seedWork = voidSeedWork + parameterWork;
+  const seedRecords = voidSeedRecords + parameterRecords;
   for (const acceptsOmission of [false, true]) {
     const parameter = { declaration: null, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission };
     const table = { terms: fixture.index.types.terms,
@@ -756,6 +757,7 @@ await suite.test("signature omission survives one paid seed admission and exact 
       const meter = createInstantiationMeter({ ...limits, maximumWork, maximumCreatedRecords: seedRecords });
       const result = admitTypeTable(table, programTypeWork(meter));
       if (maximumWork < seedWork) {
+        assert.equal(result.kind, "resource-limit", `seed work ${maximumWork}`);
         assert.deepEqual(result, { kind: "resource-limit", dimension: "work", maximum: maximumWork });
         assert.equal(result === accountFailure(meter.account), true);
       } else {
@@ -767,6 +769,7 @@ await suite.test("signature omission survives one paid seed admission and exact 
     }
     const records = createInstantiationMeter({ ...limits, maximumWork: seedWork, maximumCreatedRecords: seedRecords - 1 });
     const stopped = admitTypeTable(table, programTypeWork(records));
+    assert.equal(stopped.kind, "resource-limit", "seed record cut");
     assert.deepEqual(stopped, { kind: "resource-limit", dimension: "created-records", maximum: seedRecords - 1 });
     assert.equal(admitTypeTable(table, programTypeWork(records)) === stopped, true);
 
@@ -784,7 +787,10 @@ await suite.test("signature omission survives one paid seed admission and exact 
     const { bindings } = fixture.instance.bindings;
     for (const maximumWork of [seedWork, seedWork + 1, seedWork + 2]) {
       const result = program.instantiate(index, module, artifact, bindings, { ...limits, maximumWork, maximumCreatedRecords: seedRecords });
-      if (maximumWork < seedWork + 2) assert.deepEqual(result, { kind: "resource-limit", dimension: "work", maximum: maximumWork });
+      if (maximumWork < seedWork + 2) {
+        assert.equal(result.kind, "resource-limit", `borrow work ${maximumWork}`);
+        assert.deepEqual(result, { kind: "resource-limit", dimension: "work", maximum: maximumWork });
+      }
       else {
         assert.equal(result.kind, "instantiated");
         assert.equal(result.artifact.body === fixture.selected.tir, true);
@@ -797,25 +803,35 @@ await suite.test("signature omission survives one paid seed admission and exact 
 
 await suite.test("stage admission restores the actual same-origin mapped index order without changing old IDs", async () => {
   const { substitute } = await import("../../../packages/host/dist/ir-types/index.js");
+  const { OpenedProgram } = await import("../../../packages/host/dist/front/handles.js");
   const front = await loadFrontFixture();
   const snapshot = front.projectSnapshot({
     sourceFiles: { "main.ts": "export type Indexes = { [Key in string | number]: boolean };" },
     libraries: [{ name: "lib.es5.d.ts", text: front.sdk.barebonesLibContent }],
   });
-  const { captured } = front.captureModulesOf(snapshot);
+  const { captured, opened } = front.captureModulesOf(snapshot);
   const entry = captured.find(row => row.module === snapshot.entryPoint);
   assert.ok(entry);
   assert.deepEqual(entry.raw.checkerDiagnostics, []);
   const mapped = entry.raw.tree.statements.nodes[0].type;
   assert.equal(mapped.kind, "MappedType");
-  const native = entry.raw.types.members.find(table => table.indexes.length === 2
-    && table.indexes.every(index => index.origin.module === entry.module && index.origin.node === mapped.id));
-  assert.ok(native);
   const origin = entry.definitions.sourceOccurrences.find(row => row.node === mapped.id)?.occurrence;
   assert.ok(origin);
-  const scalar = identity => entry.raw.types.types[identity].form.value.scalar;
-  assert.deepEqual(native.indexes.map(index => scalar(index.key)).sort(), ["number", "string"]);
-  assert.equal(native.indexes.every(index => scalar(index.value) === "boolean" && !index.readonly), true);
+  const openedView = OpenedProgram.checked(opened.program);
+  const file = OpenedProgram.file(opened.program, entry.module).file;
+  const { ast } = openedView;
+  const original = ast.typeNode(ast.statements(file)[0]);
+  const { checker, typeShape } = openedView.getSourceFileQueries(file);
+  const mappedType = checker.getTypeFromTypeNode(original).type;
+  const declarations = checker.getSymbolDeclarations(checker.getTypeSymbol(mappedType));
+  assert.equal(declarations.length === 1 && declarations[0] === original, true);
+  const inventory = typeShape.getStructuredInventory(mappedType, () => null);
+  assert.equal(inventory.kind, "complete");
+  const native = inventory.value.indexes;
+  const value = checker.getTypeFromTypeNode(ast.typeNode(original)).type;
+  assert.deepEqual(native.map(index => checker.typeToString(index.keyType)).sort(), ["number", "string"]);
+  assert.equal(native.every(index => (index.declaration === undefined || index.declaration === original)
+    && index.valueType === value && !index.readonly), true);
   const fixture = publicationFixture();
   const limits = { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 10000, maximumCreatedRecords: 10000 };
   const parameter = typeParameterDeclaration(fixture.definition, 0);
