@@ -19,6 +19,7 @@ import { before, test } from "node:test";
 import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 import { PARAMETRIC, SELECTED_BINDINGS, T, TABLE, bodyId, builders, def, signature, typedBody } from "./fixtures/lower-mir/typed.mjs";
 
+const preparationMeter = () => ({ spent: 0, maximum: Number.MAX_SAFE_INTEGER, exhausted: false });
 const SIG = signature("storage", [["p", T.int32], ["o", T.optInt32, "optional"]], T.void);
 const b = builders("storage");
 const source = typedBody("storage", { signature: SIG, completion: T.void,
@@ -91,7 +92,7 @@ const found = body => {
 /** The pass alone under an account of the case: its findings, the units it charged, and whether it ran out. */
 const pass = (body, maximum = Number.MAX_SAFE_INTEGER) => {
   const meter = { spent: 0, maximum, exhausted: false };
-  const findings = verifyStorage(body, placeLocations(body), verifyEdges(body).ordinary, meter);
+  const findings = verifyStorage(body, placeLocations(body, preparationMeter()), verifyEdges(body, preparationMeter()).ordinary, meter);
   return { findings, units: meter.spent, exhausted: meter.exhausted };
 };
 /** Every limit below `units` is a refusal that reports nothing; `units` itself is the complete answer. */
@@ -251,14 +252,17 @@ async function referenceWorkOf(body, context) {
   const { createWireTexts, sourceNodes } = await import("../../packages/host/dist/ir-mir/verify-control.js");
   const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
   const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
-  const meter = { spent: 0, maximum: 1000000, exhausted: false };
-  const { nodes } = sourceNodes(context.source, createWireTexts(createDecisionWires(createScalarWires())));
-  const values = verifyValues(body, context, nodes, placeLocations(body), meter);
+  const meter = preparationMeter();
+  const { nodes } = sourceNodes(context.source, createWireTexts(createDecisionWires(createScalarWires())), meter);
+  const values = verifyValues(body, context, nodes, placeLocations(body, meter), meter);
   const types = values.types, signatures = values.signatures;
   decisionReferences(body, context, types, signatures, meter);
   verifyTypeReferences(context.types, types, signatures, meter);
+  assert.notEqual(verifyEdges(body, meter), null);
   assert.equal(meter.exhausted, false);
-  return meter.spent;
+  const candidateRows = 3 * body.locals.length + context.source.params.length + body.constants.length
+    + body.places.length + body.blocks.length;
+  return 2 + candidateRows + meter.spent;
 }
 
 test("storage work: the verifier returns the refusal for a body whose storage pass runs out, and never a finding with it", async () => {
@@ -288,9 +292,9 @@ test("a lowered static load and authored store use the actual declaration and se
     && statement.value.kind === "use" && statement.value.operand.kind === "place" && statement.value.operand.place === selected.id);
   const store = mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign" && statement.place === selected.id);
   assert.equal(store.value.operand.kind, "place");
-  const { nodes } = sourceNodes(tir, createWireTexts(createDecisionWires(createScalarWires())));
+  const { nodes } = sourceNodes(tir, createWireTexts(createDecisionWires(createScalarWires())), preparationMeter());
   const context = { ...contextOf(1000000), source: tir, types: result.value.index.types };
-  const check = (body, syntax = nodes) => verifyValues(body, context, syntax, placeLocations(body), {
+  const check = (body, syntax = nodes) => verifyValues(body, context, syntax, placeLocations(body, preparationMeter()), {
     spent: 0, maximum: 1000000, exhausted: false,
   }).violations;
   const change = operand => ({ ...mir, blocks: mir.blocks.map(block => ({ ...block,

@@ -167,7 +167,7 @@ function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | 
   }
   const tree = module.tree;
   const chapter: TirChapterSyntax = tree.kind === "checked-root" ? { kind: "checked", node: tree.root } : { kind: "module-root", node: tree.root };
-  for (const subject of indexChapterSyntax([chapter], chapterSyntaxSlots)) {
+  for (const subject of indexChapterSyntax([chapter], chapterSyntaxSlots, () => true)) {
     if (subject.kind === "checked") {
       for (const node of walkSyntaxTree(subject.node, [])) admitNode(node);
     } else {

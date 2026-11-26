@@ -426,7 +426,7 @@ export const verifyBindingSlots = <Stop extends object>(
   // closure rule) states nothing yet. Publication order does not matter.
   const creators = new Map<BodyId, TirBody | null>();
   const contains = (root: TirTypedSyntax): TirNode | null => {
-    for (const subject of indexChapterSyntax([root], chapterSyntaxSlots))
+    for (const subject of indexChapterSyntax([root], chapterSyntaxSlots, () => true))
       if (subject.kind === "ordinary" && subject.node.id === body.root.id) return subject.node;
     return null;
   };

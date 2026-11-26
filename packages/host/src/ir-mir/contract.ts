@@ -491,10 +491,11 @@ export type MirLocalOwnership = "body" | "external" | "undecided";
 export type LocalOwnershipOfMir = (mode: MirLocalStorageMode) => MirLocalOwnership;
 export type PrintMir = (body: MirBody) => string;
 export type ParseMir = (text: string) => TextParseResult<MirBody>;
-// The limit of one body's verification. Verification has one account for each body: every pass that does work
-// beyond a constant amount for each record charges it; literal validation charges each rational remainder and decimal
-// factor attempt. Other passes use the units their law text states, and the account starts at zero for
-// each body. `maximumWork` is the most that account may reach. The caller sets it; there is no default.
+// The limit of one body's verification. Preparation and verification share the same account.
+// Source root and child slots, occurrence records, candidate inventory rows and control-edge walks
+// are admitted before their corresponding reads. Literal validation charges each rational remainder
+// and decimal factor attempt. Other passes use the units their law text states. The account starts
+// at zero for each body. `maximumWork` is the most it may reach. The caller sets it; there is no default.
 export interface MirVerificationLimits {
   readonly maximumWork: number;
 }

@@ -163,7 +163,7 @@ export const chapterTransportSlots: ChapterSyntaxSlots = subject => syntaxSlots(
 export const tirBodySyntaxOf: TirBodySyntaxOf = node =>
   node.kind === "SourceFile" ? { kind: "module-root", node } : { kind: "ordinary", node };
 
-export const indexChapterSyntax: IndexChapterSyntax = function* (roots, slots) {
+export const indexChapterSyntax: IndexChapterSyntax = function* (roots, slots, admitEdge) {
   const seen = new Set<object>();
   for (const root of roots) {
     if (seen.has(root.node)) continue;
@@ -174,6 +174,7 @@ export const indexChapterSyntax: IndexChapterSyntax = function* (roots, slots) {
     for (let frame = stack.pop(); frame !== undefined; frame = stack.pop()) {
       const next = frame.next();
       if (next.done) continue;
+      if (!admitEdge()) return;
       stack.push(frame);
       const child = readChapterSyntaxSlot(next.value);
       if (child === null || seen.has(child.node)) continue;

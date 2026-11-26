@@ -112,7 +112,7 @@ function sameChapterFields(subject: TirTypedSyntax, checked: HirNode): boolean {
 
 function chapterNodes(module: TirModule, emit: TirOccurrenceEmit): ReadonlyMap<NodeId, TirSyntaxOccurrence> {
   const typed = new Map<NodeId, TirSyntaxOccurrence>();
-  for (const subject of indexChapterSyntax(chapterRoots(module), chapterSyntaxSlots)) {
+  for (const subject of indexChapterSyntax(chapterRoots(module), chapterSyntaxSlots, () => true)) {
     if (subject.kind === "checked") continue;
     const node = subject.node;
     const previous = typed.get(node.id);
@@ -211,7 +211,7 @@ export const verifySourcePreservation = (
     yield tirBodySyntaxOf(body.root);
     for (const node of body.params) yield { kind: "formal", node };
   }
-  for (const subject of indexChapterSyntax(selectedRoots(), chapterSyntaxSlots)) {
+  for (const subject of indexChapterSyntax(selectedRoots(), chapterSyntaxSlots, () => true)) {
     if (subject.kind !== "checked") ownNodes.push(subject.node);
   }
   const bodyNodes = new Set(original === undefined ? [] : walkSyntaxTree<CheckedPhase>(original.root, []).map((node: HirNode) => node.id));

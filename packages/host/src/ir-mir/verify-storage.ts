@@ -6,7 +6,7 @@ import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ExactRational, LiteralValue, TypeTerm } from "../ir-types/contract.js";
 import { literalCompatibilityOf } from "../ir-types/index.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { chargeWork, densePosition, edgePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
+import { admitWork, chargeWork, densePosition, edgePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
 import type { ControlEdge, ControlFlow, SourceNode, WorkMeter } from "./verify-control.js";
 import type { SignatureReference, TypeReference } from "./verify-types.js";
 import { ownershipOfMode } from "./local-ownership.js";
@@ -72,9 +72,13 @@ export interface PlaceLocation {
   readonly indices: IndexChain | null;
 }
 
-export function placeLocations(body: MirBody): ReadonlyMap<PlaceId, PlaceLocation> {
+export function placeLocations(body: MirBody, meter: WorkMeter): ReadonlyMap<PlaceId, PlaceLocation> | null {
+  if (!admitWork(meter, 1)) return null;
   const locations = new Map<PlaceId, PlaceLocation>();
-  for (const [position, place] of body.places.entries()) {
+  const places = body.places;
+  for (let position = 0; position < places.length; position += 1) {
+    if (!admitWork(meter, 1)) return null;
+    const place = places[position];
     if (place === undefined || !Object.is(place.id, position)) continue;
     switch (place.base.kind) {
       case "static": locations.set(place.id, { root: null, indices: null }); break;

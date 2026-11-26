@@ -19,6 +19,7 @@ import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
+const preparationMeter = () => ({ spent: 0, maximum: Number.MAX_SAFE_INTEGER, exhausted: false });
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8")).areas.map(area => area.directory);
@@ -488,7 +489,8 @@ test("internal capture lookup spends the same verifier account and stops before 
   const call = { ...base.blocks[0].terminator, kind: "call", callee: { kind: "body", instance, captures: [] },
     receiver: null, arguments: [], destination: null, next: 1, unwind: { kind: "escape" }, step: null };
   const body = { ...base, blocks: [{ ...base.blocks[0], terminator: call }, { ...base.blocks[0], id: 1 }] };
-  for (const [maximumWork, expectedQueries] of [[0, 0], [11, 0], [12, 1], [13, 1]]) {
+  const preparation = 12 + 2 + 2;
+  for (const [maximumWork, expectedQueries] of [[0, 0], [11 + preparation, 0], [12 + preparation, 1], [13 + preparation, 1]]) {
     let queries = 0;
     const context = { ...input, limits: { maximumWork }, bodyOf: () => { queries += 1; return input.source; } };
     same(product.verifyMir(body, context), { kind: "resource-limit", body: base.body, dimension: "work", maximum: maximumWork },
@@ -697,10 +699,78 @@ test("MIR verification refuses a limit that is not a count as its caller's defec
   const context = sourceContext(body);
   for (const maximumWork of [NaN, Infinity, -Infinity, -0, -1, 0.5, -0.5, Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => product.verifyMir(body, { ...context, limits: { maximumWork } }),
     { name: "TypeError", message: "ir-mir: maximumWork must be a safe nonnegative count" });
-  for (let maximumWork = 0; maximumWork < 18; maximumWork += 1)
+  const exactWork = 18 + 12;
+  for (let maximumWork = 0; maximumWork < exactWork; maximumWork += 1)
     same(product.verifyMir(body, { ...context, limits: { maximumWork } }), { kind: "resource-limit", body: body.body, dimension: "work", maximum: maximumWork },
-      "four value/root units, two decision visits, one empty storage set and eleven type-graph units share the original account");
-  same(product.verifyMir(body, { ...context, limits: { maximumWork: 18 } }), { kind: "complete", violations: [] }, "exact admitted empty-body work is eighteen");
+      "twelve preparation units share the account with the eighteen downstream units");
+  same(product.verifyMir(body, { ...context, limits: { maximumWork: exactWork } }), { kind: "complete", violations: [] }, "exact admitted empty-body work");
+});
+
+test("MIR preparation admits exact source and body slots before reading them", () => {
+  const base = parsedBody();
+  const context = sourceContext(base);
+  const original = context.source;
+  const [statement] = original.root.statements.nodes;
+  for (let maximumWork = 0; maximumWork <= 6; maximumWork += 1) {
+    const reads = [];
+    const selected = { ...statement, get tsonic() { reads.push("statement payload"); return statement.tsonic; } };
+    const statements = [selected];
+    Object.defineProperty(statements, 0, { get() { reads.push("statement slot"); return selected; } });
+    const root = { ...original.root, statements: { ...original.root.statements, nodes: statements } };
+    const source = { ...original, get root() { reads.push("root"); return root; } };
+    const body = { ...base, get blocks() { assert.fail("candidate rows are not opened during a refused source scan"); } };
+    same(product.verifyMir(body, { ...context, source, limits: { maximumWork } }),
+      { kind: "resource-limit", body: base.body, dimension: "work", maximum: maximumWork }, `source cap ${maximumWork}`);
+    assert.deepEqual(reads, ["root", "statement slot", "statement payload"].slice(0,
+      maximumWork < 3 ? 0 : maximumWork < 5 ? 1 : maximumWork < 6 ? 2 : 3));
+  }
+  for (const maximumWork of [7, 8]) {
+    let reads = 0;
+    const blocks = [base.blocks[0]];
+    Object.defineProperty(blocks, 0, { get() { reads += 1; return base.blocks[0]; } });
+    same(product.verifyMir({ ...base, blocks }, { ...context, limits: { maximumWork } }),
+      { kind: "resource-limit", body: base.body, dimension: "work", maximum: maximumWork }, `row cap ${maximumWork}`);
+    assert.equal(reads, maximumWork - 7);
+  }
+});
+
+test("MIR preparation refuses before pulling a later place or switch target", async () => {
+  const { placeLocations } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
+  const { verifyEdges } = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  const base = parsedBody();
+  const location = { id: 0, storage: 1, base: { kind: "static", definition: sourceContext(base).source.owner },
+    origin: base.blocks[0].origin };
+  const read = (rows, observed) => {
+    const result = [];
+    rows.forEach((row, position) => {
+      Object.defineProperty(result, position, { get() { observed.push(position); return row; } });
+    });
+    return result;
+  };
+  for (let maximum = 0; maximum <= 3; maximum += 1) {
+    const observed = [];
+    const places = read([location, { ...location, id: 1 }], observed);
+    const meter = { spent: 0, maximum, exhausted: false };
+    const result = placeLocations({ ...base, places }, meter);
+    assert.equal(result === null, maximum < 3);
+    assert.deepEqual(observed, [0, 1].slice(0, Math.max(0, maximum - 1)));
+    if (result !== null) assert.deepEqual([...result.keys()], [0, 1]);
+  }
+  for (let maximum = 0; maximum <= 11; maximum += 1) {
+    const observed = [];
+    const targets = read([{ constant: 0, target: 0 }, { constant: 1, target: 0 }], observed);
+    const terminator = { ...base.blocks[0].terminator, kind: "switch", operand: constantOperand, targets, otherwise: 0, step: null };
+    const body = { ...base, blocks: [{ ...base.blocks[0], terminator }] };
+    const meter = { spent: 0, maximum, exhausted: false };
+    const result = verifyEdges(body, meter);
+    assert.equal(result === null, maximum < 11, `switch cap ${maximum}`);
+    const nextRead = maximum < 3 ? 0 : maximum < 4 ? 1 : maximum < 9 ? 2 : maximum < 10 ? 3 : 4;
+    assert.deepEqual(observed, [0, 1, 0, 1].slice(0, nextRead));
+    if (result !== null) {
+      assert.deepEqual(result.violations, []);
+      assert.deepEqual(result.control[0].map(edge => edge.target), [0, 0, 0]);
+    }
+  }
 });
 
 test("MIR decision fields of an operation refuse an unknown value at the value and a missing field at the record's end", () => {
@@ -964,14 +1034,14 @@ test("MIR selected header roots retain their occurrence and exclude separately-o
     flags: [], loc: parameter.loc, kind: "FalseKeyword", tsonic: { type: identities.tyId(1), convertedType: identities.tyId(1),
       conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" }, role: "value" } } };
   const source = { ...context.source, params: [parameter] };
-  const { nodes } = control.sourceNodes(source, texts);
+  const { nodes } = control.sourceNodes(source, texts, preparationMeter());
   assert.equal(nodes.get(parameter.id).node, parameter, "the selected original parameter is an eligible MIR occurrence");
   assert.equal(nodes.get(parameter.name.id).node, parameter.name, "the header's eligible child is retained");
   assert.equal(nodes.has(parameter.initializer.root.id), false, "the separate initializer body is not callable execution");
   assert.equal(nodes.get(parameter.id).bodies.has(initializer), true, "the actual placed initializer identity stays on its header");
-  assert.equal(control.sourceNodes({ ...source, params: [parameter, parameter] }, texts).nodes.size, nodes.size,
+  assert.equal(control.sourceNodes({ ...source, params: [parameter, parameter] }, texts, preparationMeter()).nodes.size, nodes.size,
     "the same canonical object can be reached twice without a second occurrence");
-  assert.throws(() => control.sourceNodes({ ...source, params: [parameter, structuredClone(parameter)] }, texts),
+  assert.throws(() => control.sourceNodes({ ...source, params: [parameter, structuredClone(parameter)] }, texts, preparationMeter()),
     /conflicting syntax occurrences/);
 });
 
@@ -989,7 +1059,7 @@ test("MIR execution occurrences exclude actual unopened checked module declarati
   const [declaration] = body.tir.root.statements.nodes;
   assert.equal(declaration.kind, "checked-declaration");
   assert.equal(declaration.node.kind, "FunctionDeclaration");
-  const { nodes } = control.sourceNodes(body.tir, control.createWireTexts(decisions.createDecisionWires(text.createScalarWires())));
+  const { nodes } = control.sourceNodes(body.tir, control.createWireTexts(decisions.createDecisionWires(text.createScalarWires())), preparationMeter());
   assert.equal(nodes.get(body.tir.root.id)?.node === body.tir.root, true);
   assert.equal(nodes.has(declaration.node.id), false);
   assert.equal(nodes.has(declaration.node.body.id), false);
@@ -2892,13 +2962,14 @@ test("MIR literal validation shares one invocation work account with the remaini
     value: { kind: "literal", value: { kind: "number", token: "n", value: { numerator, denominator, negativeZero: false } } } });
   const boundary = (constants, required, violations = []) => {
     const body = { ...base, constants };
-    for (let maximumWork = 0; maximumWork < required; maximumWork += 1) {
+    const total = required + 12 + constants.length;
+    for (let maximumWork = 0; maximumWork < total; maximumWork += 1) {
       same(product.verifyMir(body, { ...input, limits: { maximumWork } }),
         { kind: "resource-limit", body: body.body, dimension: "work", maximum: maximumWork },
         `literal validation refuses at ${maximumWork} without publishing partial findings`);
     }
-    same(product.verifyMir(body, { ...input, limits: { maximumWork: required } }),
-      { kind: "complete", violations }, `literal validation completes at its exact shared cost ${required}`);
+    same(product.verifyMir(body, { ...input, limits: { maximumWork: total } }),
+      { kind: "complete", violations }, `literal validation completes at its exact shared cost ${total}`);
   };
   boundary([constant(0, broad, 7n, 1n)], 38);
   boundary([constant(0, broad, 1n, 2n)], 40);
@@ -2956,7 +3027,7 @@ test("MIR native integer constant fitting uses actual selected widths and one in
     for (const [value, fits] of [[minimum, true], [maximum, true], [minimum - 1n, false], [maximum + 1n, false]]) {
       const body = { ...base, constants: [constant(value)] };
       const violations = fits ? [] : [expectedViolation("constant-type", { kind: "constant", constant: 0 })];
-      const required = 6 * bits + 41;
+      const required = 6 * bits + 41 + 12 + 1;
       for (let maximumWork = 0; maximumWork < required; maximumWork += 1)
         same(product.verifyMir(body, { ...input, limits: { maximumWork } }),
           { kind: "resource-limit", body: body.body, dimension: "work", maximum: maximumWork },
@@ -4013,7 +4084,9 @@ test("MIR 100000-place parent chain prints, parses, type-checks and reaches its 
   const text = document(`MirLocal(id=l:0, storage=t:5, role=temporary(), mode="local", source=null, origin=${originText})`, "", texts.join(", "),
     `MirBlock(${siteText}, id=b:0, statements=[storage-live(${siteText}, local=l:0), assign(${siteText}, place=p:0, value=use(operand=place(place=p:100000)), step=null)], terminator=return(${returnSiteText}, value=null))`, undefined, undefined, entryText);
   roundtrip(body, text, "complete 100000-level arena-reference chain");
-  const recursiveType = { ...context, types: { ...context.types, terms: [...context.types.terms, { kind: "array", element: identities.tyId(5), readonly: false }] } };
+  const preparation = 12 + 3 * body.locals.length + 2 * places.length;
+  const recursiveType = { ...context, limits: { maximumWork: context.limits.maximumWork + preparation },
+    types: { ...context.types, terms: [...context.types.terms, { kind: "array", element: identities.tyId(5), readonly: false }] } };
   same(verified(body, recursiveType), [], "complete deep verified vector including actual live tail operand");
 });
 
@@ -4209,9 +4282,10 @@ after(async () => {
     writeFileSync(resolve(evidenceDirectory, "coverage.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(evidenceDirectory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, 13, "all thirteen genuine runtime owners need nonempty source-identified raw evidence");
+    assert.deepEqual(result.map(script => script.url).sort(), [...urls].sort(),
+      "every runtime owner needs distinct source-identified raw evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
-    assert.equal(report.files.filter(file => file.status === "covered").length, 13);
+    assert.equal(report.files.filter(file => file.status === "covered").length, runtimeFiles.length);
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1, "only the actual type-only contract is N/A");
     for (const file of report.files.filter(file => file.status === "covered")) {
       assert.equal(file.lines, 100, basename(file.path));

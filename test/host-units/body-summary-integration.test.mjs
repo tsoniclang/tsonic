@@ -33,7 +33,7 @@ function prepared(name) {
   const nodes = new Map();
   const roots = [tirBodySyntaxOf(program.tir.root), ...program.tir.params.map(node => ({ kind: "formal", node }))];
   const nested = new Set(program.tir.nestedBodies);
-  for (const subject of indexChapterSyntax(roots, node => bodyOccurrenceSlots(node, id => nested.has(id))))
+  for (const subject of indexChapterSyntax(roots, node => bodyOccurrenceSlots(node, id => nested.has(id)), () => true))
     if (subject.kind !== "checked") nodes.set(subject.node.id, subject.node);
   const verification = { types: TABLE, limits, diagnostics: [],
     tirBody: instance => instance.body === program.tir.body ? program.tir : null,

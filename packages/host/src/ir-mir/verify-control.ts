@@ -125,13 +125,6 @@ export const visitControlEdges: VisitMirControlEdges = (terminator, projection) 
   }
 };
 
-function controlEdges(terminator: MirTerminator): readonly ControlEdge[] {
-  const edges: ControlEdge[] = [];
-  visitControlEdges(terminator, { kind: "edges", admit: () => null,
-    visit: (kind, target, destination) => { edges.push({ kind, target, destination }); } });
-  return edges;
-}
-
 /** A block with its position in the body. */
 export interface OrderedBlock {
   readonly position: number;
@@ -191,33 +184,47 @@ export function densePosition(value: number, length: number): boolean {
   return Number.isSafeInteger(value) && !Object.is(value, -0) && value >= 0 && value < length;
 }
 
-export function verifyEdges(body: MirBody): {
+export function verifyEdges(body: MirBody, meter: WorkMeter): {
   readonly control: ControlInventory;
   readonly ordinary: ControlFlow;
   readonly completion: boolean;
   readonly violations: readonly Violation<MirRule, MirViolationSite>[];
-} {
+} | null {
+  if (!admitWork(meter, 1)) return null;
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const control: (readonly ControlEdge[] | undefined)[] = [];
   let completion = false;
   const entry = body.blocks[0];
   if (entry === undefined || !Object.is(entry.id, 0)) violations.push({ rule: "entry-block-zero",
     site: { kind: "body", body: body.body }, detail: [] });
-  for (const [position, block] of body.blocks.entries()) {
+  const blocks = body.blocks;
+  for (let position = 0; position < blocks.length; position += 1) {
+    if (!admitWork(meter, 1)) return null;
+    const block = blocks[position];
     if (block === undefined) continue;
     const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: null };
-    const row = controlEdges(block.terminator);
-    completion ||= isCompletionControl(block.terminator);
+    const terminator = block.terminator;
+    const row: ControlEdge[] = [];
+    const stopped = visitControlEdges(terminator, { kind: "edges",
+      admit: () => admitWork(meter, 1) ? null : true,
+      visit: (kind, target, destination) => { row.push({ kind, target, destination }); } });
+    if (stopped !== null) return null;
+    completion ||= isCompletionControl(terminator);
     control[position] = row;
     for (const edge of row) {
-      const target = densePosition(edge.target, body.blocks.length) ? body.blocks[edge.target] : undefined;
+      if (!admitWork(meter, 1)) return null;
+      const target = densePosition(edge.target, blocks.length) ? blocks[edge.target] : undefined;
       if (target === undefined || !Object.is(target.id, edge.target)) violations.push({ rule: "edge-target-resolves", site,
         detail: [{ kind: "text", value: edge.kind }, { kind: "number", value: edge.target }] });
     }
-    if (block.terminator.kind !== "switch") continue;
+    if (terminator.kind !== "switch") continue;
     const selected = new Set<string>();
     let previous: number | null = null;
-    for (const target of block.terminator.targets) {
+    const targets = terminator.targets;
+    for (let index = 0; index < targets.length; index += 1) {
+      if (!admitWork(meter, 1)) return null;
+      const target = targets[index];
+      if (target === undefined) throw new TypeError("A MIR switch requires its actual indexed successor.");
       const key = encodeKey(target.constant);
       if (selected.has(key)) violations.push({ rule: "switch-target-unique", site,
         detail: [{ kind: "number", value: target.constant }] });
@@ -227,6 +234,7 @@ export function verifyEdges(body: MirBody): {
       previous = target.constant;
     }
   }
+  if (!admitWork(meter, body.entries.length)) return null;
   return { control, ordinary: ordinaryControl(body, control), completion, violations };
 }
 
@@ -337,6 +345,11 @@ export function chargeWork(meter: WorkMeter, units: number): void {
   meter.spent += units;
 }
 
+export function admitWork(meter: WorkMeter, units: number): boolean {
+  chargeWork(meter, units);
+  return !meter.exhausted;
+}
+
 export interface SourceStep {
   readonly role: TirProtocolStep["role"];
   readonly operation: string;
@@ -384,15 +397,25 @@ const mirOccurrenceSlots: ChapterSyntaxSlots = function* (subject) {
   }
 };
 
-export function sourceNodes(source: TirBody, texts: WireTexts): { readonly nodes: ReadonlyMap<NodeId, SourceNode>; readonly cleanup: boolean } {
+export function sourceNodes(source: TirBody, texts: WireTexts, meter: WorkMeter):
+  { readonly nodes: ReadonlyMap<NodeId, SourceNode>; readonly cleanup: boolean } | null {
+  if (!admitWork(meter, 1)) return null;
   function* roots(): Generator<TirChapterSyntax> {
+    if (!admitWork(meter, 1)) return;
     yield tirBodySyntaxOf(source.root);
-    for (const node of source.params) yield { kind: "formal", node };
+    const params = source.params;
+    for (let position = 0; position < params.length; position += 1) {
+      if (!admitWork(meter, 1)) return;
+      const node = params[position];
+      if (node === undefined) throw new TypeError("The selected source requires its actual indexed formal.");
+      yield { kind: "formal", node };
+    }
   }
   const nodes = new Map<NodeId, SourceNode>();
   let cleanup = false;
-  for (const subject of indexChapterSyntax(roots(), mirOccurrenceSlots)) {
+  for (const subject of indexChapterSyntax(roots(), mirOccurrenceSlots, () => admitWork(meter, 1))) {
     if (subject.kind === "checked") continue;
+    if (!admitWork(meter, 1)) return null;
     const node = subject.node;
     cleanup ||= node.kind === "TryStatement" && node.finallyBlock !== null;
     if (nodes.has(node.id)) throw new TypeError("The selected source roots contain conflicting syntax occurrences.");
@@ -421,7 +444,14 @@ export function sourceNodes(source: TirBody, texts: WireTexts): { readonly nodes
       }
       if ("member" in payload && payload.member.kind === "decided") selection(payload.member.decision);
       if ("protocol" in payload && payload.protocol.kind === "decided") protocols.push(payload.protocol.decision);
-      if ("protocols" in payload) for (const protocol of payload.protocols) if (protocol.kind === "decided") protocols.push(protocol.decision);
+      if ("protocols" in payload) {
+        const offered = payload.protocols;
+        for (let position = 0; position < offered.length; position += 1) {
+          if (!admitWork(meter, 1)) return null;
+          const protocol = offered[position];
+          if (protocol !== undefined && protocol.kind === "decided") protocols.push(protocol.decision);
+        }
+      }
       // The bodies a node executes by a call of its own: the initializer of the binding, parameter or storage it
       // declares. A template is the body of a closure or a declaration, which a call of an internal body never runs.
       if ("initializer" in payload && payload.initializer !== null) bodies.add(payload.initializer);
@@ -429,7 +459,11 @@ export function sourceNodes(source: TirBody, texts: WireTexts): { readonly nodes
     const steps: SourceStep[][] = [];
     for (const protocol of protocols) {
       const row: SourceStep[] = [];
-      for (const step of protocol.steps) {
+      const selected = protocol.steps;
+      for (let position = 0; position < selected.length; position += 1) {
+        if (!admitWork(meter, 1)) return null;
+        const step = selected[position];
+        if (step === undefined) throw new TypeError("The selected source protocol requires its actual indexed step.");
         const operationText = texts.operation(step.operation);
         const calleeText = step.callee === null ? null : texts.callee(step.callee);
         operations.add(operationText);
@@ -440,7 +474,7 @@ export function sourceNodes(source: TirBody, texts: WireTexts): { readonly nodes
     }
     nodes.set(node.id, { node, operations, callees, protocols, steps, bodies });
   }
-  return { nodes, cleanup };
+  return meter.exhausted ? null : { nodes, cleanup };
 }
 
 export function validOrigin(origin: Origin): boolean {

@@ -6,7 +6,7 @@ import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, instan
 import type { ApplicationDecision, EmbeddingDecision, InferenceDeclaration } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
 import type { MirBody, MirConstantValue, MirRule, MirVerification, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { chargeWork, createWireTexts, densePosition, sourceNodes, validOrigin, verifyCompletionControl, verifyEdges, verifySelections } from "./verify-control.js";
+import { admitWork, chargeWork, createWireTexts, densePosition, sourceNodes, validOrigin, verifyCompletionControl, verifyEdges, verifySelections } from "./verify-control.js";
 import type { WorkMeter } from "./verify-control.js";
 import { placeLocations, verifyStorage, verifyValues } from "./verify-storage.js";
 import { verifyLaws } from "./verify-laws.js";
@@ -64,10 +64,11 @@ function sameLocal(left: LocalRef, right: LocalRef): boolean {
   return left.body === right.body && Object.is(left.local, right.local);
 }
 
-export function verifyRows(
+function verifyRows(
   body: MirBody, source: TirBody, types: TypeTable,
-  declarationOf: (definition: DefId) => InferenceDeclaration | null,
-): readonly Violation<MirRule, MirViolationSite>[] {
+  declarationOf: (definition: DefId) => InferenceDeclaration | null, meter: WorkMeter,
+): readonly Violation<MirRule, MirViolationSite>[] | null {
+  if (!admitWork(meter, 1)) return null;
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const bodySite: MirViolationSite = { kind: "body", body: body.body };
   if (body.body !== source.body)
@@ -81,9 +82,14 @@ export function verifyRows(
     detail: [{ kind: "number", value: source.signature }] });
   let receiverCount = 0;
   let receiverStorage: TyId | null = null;
-  for (const local of body.locals) if (local !== undefined && local.role.kind === "receiver") {
-    receiverCount += 1;
-    receiverStorage = local.storage;
+  const locals = body.locals;
+  for (let position = 0; position < locals.length; position += 1) {
+    if (!admitWork(meter, 1)) return null;
+    const local = locals[position];
+    if (local !== undefined && local.role.kind === "receiver") {
+      receiverCount += 1;
+      receiverStorage = local.storage;
+    }
   }
   if (signature !== undefined && (signature.receiver === null ? receiverCount !== 0
     : receiverCount !== 1 || !Object.is(receiverStorage, signature.receiver)))
@@ -91,7 +97,11 @@ export function verifyRows(
   const parameterModes = new Map<LocalId, PassingMode>();
   let receiverRow: TirBody["params"][number]["tsonic"] | undefined;
   const parameterRows: TirBody["params"][number]["tsonic"][] = [];
-  for (const header of source.params) {
+  const params = source.params;
+  for (let position = 0; position < params.length; position += 1) {
+    if (!admitWork(meter, 1)) return null;
+    const header = params[position];
+    if (header === undefined) throw new TypeError("The selected source requires its actual indexed formal.");
     const parameter = header.tsonic;
     if (parameter.local === null || parameter.passing === null) {
       violations.push({ rule: "parameter-source-exact", site: bodySite, detail: [] });
@@ -101,7 +111,9 @@ export function verifyRows(
     if (parameter.role === "this") receiverRow = parameter;
     else parameterRows.push(parameter);
   }
-  for (const [position, local] of body.locals.entries()) {
+  for (let position = 0; position < locals.length; position += 1) {
+    if (!admitWork(meter, 1)) return null;
+    const local = locals[position];
     if (local === undefined || !Object.is(local.id, position)) violations.push({ rule: "local-id-dense", site: bodySite,
       detail: [{ kind: "number", value: position }] });
     if (local === undefined) continue;
@@ -132,7 +144,9 @@ export function verifyRows(
   }
   // A local of role `receiver` or `parameter` names the source local of its row: the receiver the row of role `this`,
   // parameter i the i-th of the other rows. The laws read from that row whether the local is the caller's storage.
-  for (const local of body.locals) {
+  for (let position = 0; position < locals.length; position += 1) {
+    if (!admitWork(meter, 1)) return null;
+    const local = locals[position];
     if (local === undefined || local.role.kind !== "receiver" && local.role.kind !== "parameter") continue;
     const row = local.role.kind === "receiver" ? receiverRow
       : densePosition(local.role.index, parameterRows.length) ? parameterRows[local.role.index] : undefined;
@@ -141,7 +155,10 @@ export function verifyRows(
   }
   const constants = new Set<string>();
   let previous: string | null = null;
-  for (const [position, constant] of body.constants.entries()) {
+  const constantRows = body.constants;
+  for (let position = 0; position < constantRows.length; position += 1) {
+    if (!admitWork(meter, 1)) return null;
+    const constant = constantRows[position];
     if (constant === undefined || !Object.is(constant.id, position)) violations.push({ rule: "constant-id-dense", site: bodySite,
       detail: [{ kind: "number", value: position }] });
     if (constant === undefined) continue;
@@ -157,7 +174,10 @@ export function verifyRows(
     if (constant.value.kind === "literal" && constant.value.value.kind === "unique-symbol"
       && declarationOf(constant.value.value.declaration) === null) violations.push({ rule: "definition-resolves", site, detail: [] });
   }
-  for (const [position, place] of body.places.entries()) {
+  const places = body.places;
+  for (let position = 0; position < places.length; position += 1) {
+    if (!admitWork(meter, 1)) return null;
+    const place = places[position];
     if (place === undefined || !Object.is(place.id, position)) violations.push({ rule: "place-id-dense", site: bodySite,
       detail: [{ kind: "number", value: position }] });
     if (place === undefined) continue;
@@ -165,7 +185,7 @@ export function verifyRows(
     if (!validOrigin(place.origin)) violations.push({ rule: "origin-valid", site, detail: [] });
     switch (place.base.kind) {
       case "local": {
-        const local = densePosition(place.base.local, body.locals.length) ? body.locals[place.base.local] : undefined;
+        const local = densePosition(place.base.local, locals.length) ? locals[place.base.local] : undefined;
         if (local === undefined || !Object.is(local.id, place.base.local)) violations.push({ rule: "place-root-resolves", site, detail: [] });
         else if (!Object.is(local.storage, place.storage)) violations.push({ rule: "projection-type", site, detail: [] });
         break;
@@ -175,11 +195,14 @@ export function verifyRows(
         break;
       case "place": case "checked":
         if (!densePosition(place.base.place, position)) violations.push({ rule: "place-parent-precedes", site, detail: [] });
-        else if (body.places[place.base.place] === undefined) violations.push({ rule: "place-root-resolves", site, detail: [] });
+        else if (places[place.base.place] === undefined) violations.push({ rule: "place-root-resolves", site, detail: [] });
         break;
     }
   }
-  for (const [position, block] of body.blocks.entries()) {
+  const blocks = body.blocks;
+  for (let position = 0; position < blocks.length; position += 1) {
+    if (!admitWork(meter, 1)) return null;
+    const block = blocks[position];
     if (block === undefined || !Object.is(block.id, position)) violations.push({ rule: "block-id-dense", site: bodySite,
       detail: [{ kind: "number", value: position }] });
   }
@@ -408,6 +431,7 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
   // One account for this body: every pass charges it, and it is not reset between passes.
   const meter: WorkMeter = { spent: 0, maximum: maximumWork, exhausted: false };
   const refusal: MirVerification = { kind: "resource-limit", body: body.body, dimension: "work", maximum: meter.maximum };
+  if (!admitWork(meter, 1)) return refusal;
   const declarations = new Map<DefId, InferenceDeclaration | null>();
   const owners = new Map<BodyId, DefId | null>();
   const declarationOf = (definition: DefId): InferenceDeclaration | null => {
@@ -428,16 +452,21 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
     source: context.source, bodyOf: context.bodyOf, types: context.types, declarationOf, bodyOwner, requiredEntries: context.requiredEntries };
   const wires = createDecisionWires(createScalarWires());
   const texts = createWireTexts(wires);
-  const { nodes, cleanup } = sourceNodes(input.source, texts);
-  const rows = verifyRows(body, input.source, input.types, declarationOf);
-  const places = placeLocations(body);
+  const source = sourceNodes(input.source, texts, meter);
+  if (source === null) return refusal;
+  const { nodes, cleanup } = source;
+  const rows = verifyRows(body, input.source, input.types, declarationOf, meter);
+  if (rows === null) return refusal;
+  const places = placeLocations(body, meter);
+  if (places === null) return refusal;
   const values = verifyValues(body, input, nodes, places, meter);
   if (meter.exhausted) return refusal;
   const types = values.types;
   const signatures = values.signatures;
   const decisions = decisionReferences(body, input, types, signatures, meter);
   if (meter.exhausted) return refusal;
-  const edges = verifyEdges(body);
+  const edges = verifyEdges(body, meter);
+  if (edges === null) return refusal;
   const keyOf = (selected: BodyInstance): string | null => {
     const bindings = selected.bindings;
     const size = bindings.kind === "parametric" ? 0 : bindings.bindings.classBindings.length + bindings.bindings.methodBindings.length

@@ -724,7 +724,8 @@ export type AdmitFormalInitializer = <Stop>(
   slot: TirFormalInitializerSlot, field: () => Stop | null, edge: () => Stop | null,
 ) => { readonly kind: "complete"; readonly value: TirFormalInitializer } | { readonly kind: "refused"; readonly stop: Stop };
 export type TirBodySyntaxOf = (root: TirBodyRoot) => TirTypedSyntax;
-export type IndexChapterSyntax = (roots: Iterable<TirChapterSyntax>, slots: ChapterSyntaxSlots) => Iterable<TirChapterSyntax>;
+export type IndexChapterSyntax = (roots: Iterable<TirChapterSyntax>, slots: ChapterSyntaxSlots,
+  admitEdge: () => boolean) => Iterable<TirChapterSyntax>;
 export type BodyOccurrenceSlots = (subject: TirTypedSyntax, containsNested: (body: BodyId) => boolean) => Iterable<TirChapterSyntaxSlot>;
 
 export interface TirLocal {
