@@ -1,10 +1,11 @@
 import { summaryKey } from "./summary-key.js";
 import type { Violation } from "../diag/contract.js";
+import { requirePresent } from "../diag/index.js";
 import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import { admitBindingIdentity, admitOwnerIdentity, admitSelectionIdentity, recordFinding } from "./verification.js";
 import type { KeyData, SourceNodeRef } from "../ids/contract.js";
-import { encodeKey } from "../ids/index.js";
+import { admitIntegerKey, encodeKey } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import { memberSelectionKey } from "../ir-tir/index.js";
@@ -304,9 +305,11 @@ export const verifyRelationalArena = (
     return null;
   };
   const projections = new Set<string>();
-  for (const [index, path] of arena.projections.entries()) {
+  for (let index = 0; index < arena.projections.length; index += 1) {
     const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
     if (step !== null) return step;
+    const path = requirePresent(arena.projections[index], { owner: "ir-facts", query: null, origin: null,
+      message: "The relational projection vector must be dense." });
     const site: FactsSite = { kind: "projection", owner, projection: path.id };
     if (path.id !== index || !validIndex(path.id, arena.projections.length)) { const stop = report("projection-id-dense", site, "Projection IDs must equal their dense arena positions."); if (stop !== null) return stop; }
     if (path.parent !== null && (!validIndex(path.parent, index) || !Object.is(arena.projections[path.parent]?.id, path.parent))) {
@@ -320,9 +323,17 @@ export const verifyRelationalArena = (
       const stop = admitSelectionIdentity(projection.member, account);
       if (stop !== null) return stop;
     }
+    let constant: bigint | null = null;
+    if (projection.kind === "index") {
+      const beforeRead = chargeWork(account, 1);
+      if (beforeRead !== null) return beforeRead;
+      constant = projection.constant;
+      const width = admitIntegerKey(constant, count => chargeWork(account, count));
+      if (width !== null) return width;
+    }
     const data: KeyData = projection.kind === "field" ? [projection.kind, fieldProjectionIdentityData(projection.member)]
       : projection.kind === "method-value" ? [projection.kind, memberSelectionKey(projection.member)]
-        : projection.kind === "index" ? [projection.kind, projection.constant] : [projection.kind];
+        : constant !== null ? [projection.kind, constant] : [projection.kind];
     const key = encodeKey([path.parent, data]);
     if (projections.has(key)) { const stop = report("projection-unique", site, "A parent and selected projection must identify exactly one arena row."); if (stop !== null) return stop; }
     projections.add(key);

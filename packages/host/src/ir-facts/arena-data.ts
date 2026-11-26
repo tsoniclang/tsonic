@@ -20,7 +20,8 @@ export interface OpenBoundaryRef {
 }
 
 export type Projection =
-  | { readonly kind: "field" | "method-value"; readonly member: MemberSelection }
+  | { readonly kind: "field"; readonly member: MemberSelection }
+  | { readonly kind: "method-value"; readonly member: MemberSelection }
   | { readonly kind: "element" }
   | { readonly kind: "index"; readonly constant: bigint }
   | { readonly kind: "deref" };

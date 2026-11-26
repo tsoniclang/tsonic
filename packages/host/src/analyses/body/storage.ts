@@ -121,7 +121,7 @@ export function solveStorageLive(input: Pick<BodyRoundInput, "execution" | "mir"
       const cleanup = cleanupTarget(terminator, resumed);
       if (cleanup !== null) edge(cleanup);
       else if (terminator.kind === "goto") edge(terminator.target);
-      else if (terminator.kind === "call" || terminator.kind === "invoke") {
+      else if (terminator.kind === "call" || terminator.kind === "invoke" || terminator.kind === "check") {
         if (!edge(terminator.next)) return outgoing;
         if (terminator.unwind.kind === "carry" || terminator.unwind.kind === "handler") edge(terminator.unwind.target);
       } else if (terminator.kind === "throw" || terminator.kind === "unwind-propagate") {
@@ -183,7 +183,7 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
       return [terminator.operand];
     case "switch": return [terminator.operand];
     case "invoke": return terminator.operands;
-    case "goto": case "unreachable": case "cleanup-enter": case "cleanup-resume": case "cleanup-discard": case "unwind-propagate": return [];
+    case "goto": case "unreachable": case "check": case "cleanup-enter": case "cleanup-resume": case "cleanup-discard": case "unwind-propagate": return [];
     default: return bodyFrontier("BodyAnalysis needs the selected call, failure or suspension transport for this terminator.");
   }
 }
@@ -206,7 +206,8 @@ function assignDestination(body: MirBody, place: PlaceId, state: AssignedState, 
   statics: StaticSlots, clearsTaint: boolean): AssignedState {
   if (chargeWork(account, 1) !== null) return state;
   const target = body.places[place]?.base;
-  if (target?.kind === "place" && target.projection.kind === "field") return state;
+  if (target?.kind === "place" && target.projection.kind === "field"
+    || target?.kind === "checked" && target.projection.kind === "index") return state;
   if (chargeWork(account, state.written.size) !== null || chargeResultEntries(account, state.written.size + 2) !== null) return state;
   const local = rootSlot(body, place, statics);
   const written = new Set(state.written);
@@ -393,14 +394,16 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
     lattice: assignedLattice(body.locals.length + (statics?.size ?? 0) + 1),
     statement: (statement, state, borrowed) => transferAssigned(body, statement, state, borrowed, statics),
     terminator: (terminator, state, borrowed, block, resumed) => {
-      if (terminator.kind === "call" || terminator.kind === "invoke") {
+      if (terminator.kind === "call" || terminator.kind === "invoke" || terminator.kind === "check") {
         if (state === null) return [];
         let next = state;
         let failure: { readonly target: BlockId; readonly state: AssignedState } | null = null;
-        if (terminator.kind === "invoke") {
-          const destination = nativePrimitiveDestination(deps, body, terminator);
-          if (destination.kind !== "complete") return [];
-          next = assignDestination(body, destination.value, state, borrowed, statics, false);
+        if (terminator.kind === "invoke" || terminator.kind === "check") {
+          if (terminator.kind === "invoke") {
+            const destination = nativePrimitiveDestination(deps, body, terminator);
+            if (destination.kind !== "complete") return [];
+            next = assignDestination(body, destination.value, state, borrowed, statics, false);
+          }
           if (terminator.unwind.kind === "handler" || terminator.unwind.kind === "carry") {
             failure = assignedHandler(body, terminator.unwind, state, borrowed, statics);
             if (failure === null) return [];

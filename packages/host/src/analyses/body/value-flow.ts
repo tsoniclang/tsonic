@@ -13,7 +13,7 @@ import type { SelectedCall } from "./calls.js";
 import type { StaticCalleeCells } from "./static-calls.js";
 import { bodyFrontier, rootSlot } from "./places.js";
 import type { StaticSlots } from "./places.js";
-import type { HeldFields } from "./field-effects.js";
+import type { HeldProjections } from "./projection-effects.js";
 import { cleanupTarget, selectedCallAt } from "./storage.js";
 import { appliedOrigins, joinOrigins, valueKind } from "./values.js";
 import type { OpenCallTransport, ReadCallBoundary } from "./open-calls.js";
@@ -230,14 +230,14 @@ export function removeUnchangedContents(deps: BodyRoundDeps, output: Map<number,
   return null;
 }
 export function operandOrigins(input: BodyRoundInput, constants: readonly OriginsId[], state: readonly OriginsId[], operand: MirOperand,
-  statics: StaticSlots = null, fields: HeldFields | null = null): OriginsId {
+  statics: StaticSlots = null, fields: HeldProjections | null = null): OriginsId {
   if (operand.kind === "place" && fields?.places.has(operand.place) === true) return originsId(0);
   return requirePresent(operand.kind === "constant" ? constants[operand.constant] : state[rootSlot(input.mir, operand.place, statics)],
     { owner: "analyses/body", query: null, origin: null, message: "An executing operand retains its actual value-flow Origins." });
 }
 
 export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, constants: readonly OriginsId[],
-  initial: readonly OriginsId[], state: readonly OriginsId[], statement: MirStatement, statics: StaticSlots = null, fields: HeldFields | null = null):
+  initial: readonly OriginsId[], state: readonly OriginsId[], statement: MirStatement, statics: StaticSlots = null, fields: HeldProjections | null = null):
   DataflowResult<readonly OriginsId[]> {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
@@ -282,7 +282,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
   transport: OpenCallTransport | null,
-  statics: StaticSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldFields | null = null,
+  statics: StaticSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldProjections | null = null,
   objectValues: ReadonlySet<LocalId> | null = null): ForwardProblem<ValueState> {
   return {
     direction: "forward", boundary,
@@ -359,8 +359,8 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
           return bodyFrontier("A value transfer must retain its exact qualified cleanup continuation.");
         edge(moved.target, withCompletion(state, moved.state));
       } else if (terminator.kind === "goto") edge(terminator.target, state);
-      else if (terminator.kind === "invoke" || terminator.kind === "throw" || terminator.kind === "unwind-propagate") {
-        if (terminator.kind === "invoke" && !edge(terminator.next, state)) return outgoing;
+      else if (terminator.kind === "invoke" || terminator.kind === "check" || terminator.kind === "throw" || terminator.kind === "unwind-propagate") {
+        if ((terminator.kind === "invoke" || terminator.kind === "check") && !edge(terminator.next, state)) return outgoing;
         const propagating = terminator.kind === "unwind-propagate";
         const payload = () => terminator.kind === "throw" ? operandOrigins(input, constants, state.origins, terminator.operand, statics, fields)
           : propagating ? state.completion?.carried ?? bodyFrontier("A propagated unwind has its actual carried origins.") : originsId(0);
@@ -458,7 +458,7 @@ export function solveValueOrigins(deps: BodyRoundDeps, input: BodyRoundInput, ar
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: readonly OriginsId[],
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  statics: StaticSlots, staticCallees: StaticCalleeCells | null, fields: HeldFields | null, objectValues: ReadonlySet<LocalId> | null,
+  statics: StaticSlots, staticCallees: StaticCalleeCells | null, fields: HeldProjections | null, objectValues: ReadonlySet<LocalId> | null,
   transport: OpenCallTransport | null): DataflowResult<FlowSolution<ValueState>> {
   const work = chargeWork(deps.account, 1 + cells.length) ?? chargeResultEntries(deps.account, 4 + cells.length);
   if (work !== null) return work;

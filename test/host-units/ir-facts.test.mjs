@@ -910,6 +910,33 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     input => { input.arena.cells[0].id = 9; },
     [violation("cell-id-dense", { kind: "cell", owner: owner(), cell: 0 },
       "Logical cell IDs equal their dense positions in this exact arena.")]);
+  await suite.test("relational index paths admit the actual signed integer key before the next path", async () => {
+    const { verifyRelationalArena } = await import("../../packages/host/dist/ir-facts/verify-relations.js");
+    const { admitOwnerIdentity } = await import("../../packages/host/dist/ir-facts/verification.js");
+    const { accountFailure, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+    const input = bodyFacts();
+    const ordinal = input.arena.projections.length;
+    const reads = [];
+    for (const value of [128n, -128n]) input.arena.projections.push({ id: input.arena.projections.length, parent: null,
+      projection: { kind: "index", get constant() { reads.push(value); return value; } } });
+    const supplied = setup(input);
+    const identity = owner();
+    const limits = { maximumWork: 10000, maximumResultEntries: 10000 };
+    const ownership = createAccount(limits);
+    assert.equal(admitOwnerIdentity(identity, ownership), null);
+    const prefix = 1 + limits.maximumWork - remainingWork(ownership) + ordinal + 1;
+    const firstKey = 1 + 8 + 16 + 16 + 8;
+    for (let maximumWork = prefix - 1; maximumWork <= prefix + firstKey; maximumWork += 1) {
+      reads.length = 0;
+      const account = createAccount({ ...limits, maximumWork });
+      const stopped = verifyRelationalArena(input.arena, identity, supplied.context, account);
+      assert.equal(stopped, accountFailure(account));
+      assert.deepEqual(reads, maximumWork <= prefix ? [] : [128n]);
+    }
+    reads.length = 0;
+    assert.deepEqual(completeVerification(verifyRelationalArena(input.arena, identity, supplied.context, createAccount(limits))), []);
+    assert.deepEqual(reads, [128n, -128n]);
+  });
   const basicCases = [
     ["body-instance-exact", (value, supplied) => { supplied.mir.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, bodySite(),
       "Facts, TIR and MIR retain one exact body and complete binding environment."],

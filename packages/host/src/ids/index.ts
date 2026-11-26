@@ -1,4 +1,5 @@
 import type {
+  AdmitIntegerKey,
   DecodeBodyId, DecodeComponentId, DecodeDefId, DecodeGroupId, DecodeModuleId,
   DecodePackageId, EncodeBodyId, EncodeComponentId, EncodeDefId, EncodeGroupId,
   EncodeKey, EncodeModuleId, EncodePackageId,
@@ -9,7 +10,7 @@ import {
   encodeBodyIdentity, encodeComponentIdentity, encodeDefinitionIdentity,
   encodeGroupIdentity, encodeModuleIdentity, encodePackageId as encodePackageIdentity,
 } from "./identity.js";
-import { encodeCanonicalKey } from "./key.js";
+import { admitIntegerKey as admitInteger, encodeCanonicalKey } from "./key.js";
 import type {
   RawTypeId, RawTypeIdConstructor,
   RawSymbolId, RawSymbolIdConstructor,
@@ -41,6 +42,7 @@ import type {
 } from "./contract.js";
 
 export const encodeKey: EncodeKey = encodeCanonicalKey;
+export const admitIntegerKey: AdmitIntegerKey = admitInteger;
 export const encodePackageId: EncodePackageId = encodePackageIdentity;
 export const decodePackageId: DecodePackageId = decodePackageIdentity;
 export const encodeModuleId: EncodeModuleId = encodeModuleIdentity;

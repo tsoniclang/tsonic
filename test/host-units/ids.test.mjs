@@ -126,13 +126,33 @@ for (const path of casePaths) {
 }
 
 test("ids exact public value inventory contains the agreed ports", () => {
-  assert.deepEqual(Object.keys(product).sort(), ["decodeBodyId", "decodeComponentId", "decodeDefId", "decodeGroupId",
+  assert.deepEqual(Object.keys(product).sort(), ["admitIntegerKey", "decodeBodyId", "decodeComponentId", "decodeDefId", "decodeGroupId",
     "decodeModuleId", "decodePackageId", "encodeBodyId", "encodeComponentId", "encodeDefId", "encodeGroupId",
     "encodeKey", "encodeModuleId", "encodePackageId", "nodeId", "localId", "blockId", "placeId", "tyId", "sigId", "constId", "candidateListId", "producerId", "boundProducerId", "valueContextId", "originsId", "projectionPathId", "openBoundaryId", "layoutId", "memoryFieldId", "libraryTypeId", "expansionId", "rawTypeId", "rawSymbolId", "rawSignatureId", "rawComponentId", "rawMemberTableId", "rawCandidateListId", "rawDataLayoutId", "rawMemoryLayoutId", "rawMemoryFieldId"].sort());
   assert.deepEqual(casePaths.map(path => basename(path, ".case.json")), ["body-identities", "complete-binding-keys",
     "component-identities", "deep-identity", "deep-key", "definition-identities", "group-identities", "malformed-bodies",
     "malformed-components", "malformed-definitions", "malformed-groups", "malformed-modules", "malformed-packages",
     "module-identities", "ordinal-precision", "package-identities", "scalar-keys", "structural-keys"].sort());
+});
+
+test("signed integer key admission spends each exact probe width and retains the original cut", () => {
+  for (const [value, widths] of [[-128n, [8, 8, 8]], [127n, [8, 8, 8]], [128n, [8, 16, 16, 8]], [-129n, [8, 16, 16, 8]],
+    [1n << 127n, [8, 16, 32, 64, 128, 256, 256, 8]], [-(1n << 127n), [8, 16, 32, 64, 128, 128, 8]]]) {
+    const exact = widths.reduce((sum, width) => sum + width, 0);
+    for (let maximum = 0; maximum <= exact; maximum += 1) {
+      let used = 0;
+      const reached = [];
+      const original = { maximum };
+      const result = product.admitIntegerKey(value, width => {
+        reached.push(width);
+        used += width;
+        return used > maximum ? original : null;
+      });
+      const cut = widths.findIndex((_, position) => widths.slice(0, position + 1).reduce((sum, width) => sum + width, 0) > maximum);
+      assert.equal(result, maximum === exact ? null : original);
+      assert.deepEqual(reached, cut === -1 ? widths : widths.slice(0, cut + 1));
+    }
+  }
 });
 
 test("every numeric identity constructor is total and preserves the exact supplied number", () => {
@@ -323,6 +343,9 @@ const layout: Port.LayoutIdConstructor = Ids.layoutId; void layout;
 const memoryField: Port.MemoryFieldIdConstructor = Ids.memoryFieldId; void memoryField;
 const libraryType: Port.LibraryTypeIdConstructor = Ids.libraryTypeId; void libraryType;
 const expansion: Port.ExpansionIdConstructor = Ids.expansionId; void expansion;
+const admitInteger: Port.AdmitIntegerKey = Ids.admitIntegerKey;
+const integerStop: { readonly reason: "cut" } | null = admitInteger(1n, () => ({ reason: "cut" as const }));
+void integerStop;
 const ports: readonly [Port.EncodeKey, Port.EncodePackageId, Port.DecodePackageId, Port.EncodeModuleId, Port.DecodeModuleId,
   Port.EncodeDefId, Port.DecodeDefId, Port.EncodeBodyId, Port.DecodeBodyId, Port.EncodeGroupId, Port.DecodeGroupId,
   Port.EncodeComponentId, Port.DecodeComponentId] = [Ids.encodeKey, Ids.encodePackageId, Ids.decodePackageId,

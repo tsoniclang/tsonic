@@ -1,4 +1,4 @@
-import type { KeyData, KeyRecord } from "./contract.js";
+import type { AdmitIntegerKey, KeyData, KeyRecord } from "./contract.js";
 
 interface KeyPath {
   readonly parent: KeyPath | null;
@@ -24,6 +24,16 @@ const isRecord = (value: object): value is KeyRecord => "kind" in value && value
 export function encodeCanonicalNumber(value: number): string {
   return `F${Object.is(value, -0) ? "-0" : value === Infinity ? "+Infinity" : String(value)}:`;
 }
+
+export const admitIntegerKey: AdmitIntegerKey = (value, work) => {
+  let width = 8;
+  for (;;) {
+    const stop = work(width);
+    if (stop !== null) return stop;
+    if (BigInt.asIntN(width, value) === value) return work(width) ?? work(8);
+    width = Math.min(width * 2, Number.MAX_SAFE_INTEGER);
+  }
+};
 
 export function encodeCanonicalKey(key: KeyData): string {
   const output: string[] = [];

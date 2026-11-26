@@ -184,6 +184,7 @@ export interface KeyRecord {
 }
 
 export type EncodeKey = (key: KeyData) => string;
+export type AdmitIntegerKey = <Stop extends object>(value: bigint, work: (count: number) => Stop | null) => Stop | null;
 
 export type DecodedIdentity<Value> =
   | { readonly kind: "decoded"; readonly value: Value }

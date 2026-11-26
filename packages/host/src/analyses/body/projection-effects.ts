@@ -1,8 +1,8 @@
 import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { LocalId, LocalRef, NodeId, PlaceId, ProjectionPathId } from "../../ids/contract.js";
-import { encodeKey, projectionPathId } from "../../ids/index.js";
-import type { AppliedSummary, BoundProducer, Origins, Producer, ProjectionPath, RelationalArena } from "../../ir-facts/contract.js";
+import { admitIntegerKey, encodeKey, projectionPathId } from "../../ids/index.js";
+import type { AppliedSummary, BoundProducer, Origins, Producer, Projection, ProjectionPath, RelationalArena } from "../../ir-facts/contract.js";
 import { admitSelectionIdentity, fieldProjectionIdentityData } from "../../ir-facts/index.js";
 import type { MirPlace } from "../../ir-mir/contract.js";
 import type { MemberSelection, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
@@ -10,47 +10,76 @@ import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { bodyFrontier } from "./places.js";
 import { valueKind } from "./values.js";
 
-interface HeldField {
-  readonly holder: LocalId;
-  readonly member: MemberSelection;
-}
+type ScalarProjection = Extract<Projection, { readonly kind: "field" | "element" | "index" }>;
 
-export interface HeldFields {
+type HeldProjection = { readonly holder: LocalId } & ScalarProjection;
+
+export interface HeldProjections {
   readonly references: ReadonlySet<LocalId>;
-  readonly places: ReadonlyMap<PlaceId, HeldField>;
+  readonly places: ReadonlyMap<PlaceId, HeldProjection>;
+  readonly hasIndexes: boolean;
 }
 
-export function heldFields(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirSyntaxOccurrence>,
-  projections: readonly MirPlace[]): DataflowResult<HeldFields> {
+function fieldSelection(place: MirPlace, node: TirSyntaxOccurrence | undefined): MemberSelection {
+  const base = place.base;
+  if (base.kind !== "place" || base.projection.kind !== "field" || node?.kind !== "PropertyAccessExpression"
+    || node.tsonic.role !== "value" && node.tsonic.role !== "assignment-target")
+    return bodyFrontier("A field retains its actual selected receiver syntax.");
+  const payload = node.tsonic;
+  const selection = payload.selection;
+  const writing = payload.role === "assignment-target";
+  if (selection?.kind !== "decided" || selection.decision.decision.location.kind !== "data"
+    || selection.decision.decision.location.receiver !== "by-reference" || selection.decision.decision.location.check.kind !== "none"
+    || (writing ? selection.decision.decision.write : selection.decision.decision.read) !== place.storage
+    || writing && (payload.access.storage !== place.storage || payload.access.kind === "read-write" && selection.decision.decision.read !== payload.access.read)
+    || selection.decision.decision.primary !== base.projection.member.decision.primary)
+    return bodyFrontier("A scalar field access requires its actual selected reference-held data field.");
+  return selection.decision;
+}
+
+export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirSyntaxOccurrence>,
+  projections: readonly MirPlace[]): DataflowResult<HeldProjections> {
   const { account } = deps;
   const { mir, tir } = input;
   const start = chargeWork(account, 1) ?? chargeResultEntries(account, 4);
   if (start !== null) return start;
-  const fields = new Map<PlaceId, HeldField>();
+  const places = new Map<PlaceId, HeldProjection>();
   const holders = new Map<LocalId, LocalRef>();
   const references = new Set<LocalId>();
-  for (const place of projections) {
+  let hasIndexes = false;
+  for (let position = 0; position < projections.length; position += 1) {
     const admission = chargeWork(account, 4);
     if (admission !== null) return admission;
+    const place = projections[position];
+    if (place === undefined) return bodyFrontier("An admitted projection inventory is dense.");
     const base = place.base;
-    if (base.kind !== "place" || base.projection.kind !== "field" || base.tir.body !== tir.body)
+    if (base.kind !== "place" && base.kind !== "checked" || base.tir.body !== tir.body)
       return bodyFrontier("BodyAnalysis requires the actual selected projection or static-cell producer for this place.");
     const node = source.get(base.tir.node);
-    if (node?.kind !== "PropertyAccessExpression" || node.tsonic.role !== "value" && node.tsonic.role !== "assignment-target")
-      return bodyFrontier("A field retains its actual selected receiver syntax.");
-    const payload = node.tsonic;
-    const selection = payload.selection;
-    const writing = payload.role === "assignment-target";
-    if (selection?.kind !== "decided" || selection.decision.decision.location.kind !== "data"
-      || selection.decision.decision.location.receiver !== "by-reference" || selection.decision.decision.location.check.kind !== "none"
-      || (writing ? selection.decision.decision.write : selection.decision.decision.read) !== place.storage
-      || writing && (payload.access.storage !== place.storage || payload.access.kind === "read-write" && selection.decision.decision.read !== payload.access.read)
-      || selection.decision.decision.primary !== base.projection.member.decision.primary)
-      return bodyFrontier("A scalar field access requires its actual selected reference-held data field.");
+    const index = base.kind === "checked" && base.projection.kind === "index" ? base.projection.operand : null;
+    let member: MemberSelection | null = null;
+    let constant: bigint | null = null;
+    if (index === null) member = fieldSelection(place, node);
+    else {
+      hasIndexes = true;
+      const prepared = chargeWork(account, 3);
+      if (prepared !== null) return prepared;
+      const payload = node?.kind === "ElementAccessExpression" ? node.tsonic : null;
+      const selected = payload !== null && "index" in payload ? payload.index : null;
+      if (selected?.carrier !== "array" || (payload?.role === "value" ? selected.read : selected.write) !== place.storage
+        || mir.places[base.place]?.storage !== selected.receiver)
+        return bodyFrontier("A scalar element access requires its actual selected checked reference-held array.");
+      const value = index.kind === "constant" ? mir.constants[index.constant]?.value : undefined;
+      const literal = value?.kind === "literal" ? value.value : undefined;
+      if (literal?.kind === "bigint") constant = literal.value;
+      else if (literal?.kind === "number" && literal.value.denominator === 1n) constant = literal.value.numerator;
+    }
+    if (node?.kind !== "PropertyAccessExpression" && node?.kind !== "ElementAccessExpression")
+      return bodyFrontier("A held projection retains its actual selected receiver syntax.");
     const kind = valueKind(deps, place.storage);
     if (kind !== "primitive") {
       const cut = accountFailure(account);
-      return cut ?? bodyFrontier("A reference-held non-scalar field requires its actual projected value Origins and cells.");
+      return cut ?? bodyFrontier("A reference-held non-scalar projection requires its actual projected value Origins and cells.");
     }
     let receiver = node.expression;
     while (receiver.kind === "ParenthesizedExpression") {
@@ -68,7 +97,8 @@ export function heldFields(deps: BodyRoundDeps, input: BodyRoundInput, source: R
       return bodyFrontier("A field access must borrow the actual checked reference through its stable held local.");
     const retained = chargeResultEntries(account, 4);
     if (retained !== null) return retained;
-    fields.set(place.id, { holder: holder.id, member: selection.decision });
+    places.set(place.id, member !== null ? { holder: holder.id, kind: "field", member }
+      : constant !== null ? { holder: holder.id, kind: "index", constant } : { holder: holder.id, kind: "element" });
     holders.set(holder.id, receiverSource);
     references.add(holder.id);
   }
@@ -106,29 +136,33 @@ export function heldFields(deps: BodyRoundDeps, input: BodyRoundInput, source: R
       return bodyFrontier("A call or invocation cannot replace the selected held reference.");
   }
   if (assigned.size !== holders.size) return bodyFrontier("Every held reference has its actual producer occurrence.");
-  return { kind: "complete", value: { references, places: fields } };
+  return { kind: "complete", value: { references, places, hasIndexes } };
 }
 
-export function fieldEffects(deps: BodyRoundDeps, objectFormals: ReadonlySet<number>,
+export function projectionEffects(deps: BodyRoundDeps, objectFormals: ReadonlySet<number>,
   grow: (records: number, references: number) => DataflowStop | null) {
-  const paths = new Map<string, ProjectionPathId>();
+  const paths = new Map<string | bigint, ProjectionPathId>();
   const projections: ProjectionPath[] = [];
   const reads = new Map<number, Set<ProjectionPathId>>();
   let writes: Map<number, Set<ProjectionPathId>> | null = null;
-  function observe(access: "read" | "write", member: MemberSelection, origins: Origins, bound: readonly BoundProducer[],
+  function observe(access: "read" | "write", projection: ScalarProjection, origins: Origins, bound: readonly BoundProducer[],
     producers: readonly Producer[]): DataflowStop | null {
     const { account } = deps;
-    const admission = admitSelectionIdentity(member, account);
+    const admission = projection.kind === "field" ? admitSelectionIdentity(projection.member, account) : chargeWork(account, 1)
+      ?? (projection.kind === "index" ? admitIntegerKey(projection.constant, count => chargeWork(account, count)) : null);
     if (admission !== null) return admission;
-    const key = encodeKey(fieldProjectionIdentityData(member));
+    const key = projection.kind === "field" ? encodeKey(fieldProjectionIdentityData(projection.member))
+      : projection.kind === "index" ? projection.constant : "element";
     let id = paths.get(key);
     if (id === undefined) {
       const retained = grow(1, 0) ?? chargeResultEntries(account, 3);
       if (retained !== null) return retained;
       id = projectionPathId(projections.length);
-      projections.push({ id, parent: null, projection: { kind: "field", member } });
+      projections.push({ id, parent: null, projection: projection.kind === "field" ? { kind: "field", member: projection.member }
+        : projection.kind === "index" ? { kind: "index", constant: projection.constant } : { kind: "element" } });
       paths.set(key, id);
-    } else {
+    } else if (projection.kind === "field") {
+      const { member } = projection;
       const paid = chargeWork(account, 1);
       if (paid !== null) return paid;
       const path = projections[id];
@@ -213,7 +247,7 @@ export function fieldEffects(deps: BodyRoundDeps, objectFormals: ReadonlySet<num
         const origins = value?.kind === "caller" ? caller.origins[value.value.origins] : undefined;
         if (origins === undefined || value?.kind !== "caller" || origins.id !== value.value.origins)
           return bodyFrontier("An applied field access requires its actual caller Origins.");
-        const transported = observe(access, member, origins, caller.boundProducers, caller.producers);
+        const transported = observe(access, path.projection, origins, caller.boundProducers, caller.producers);
         if (transported !== null) return transported;
       }
     }

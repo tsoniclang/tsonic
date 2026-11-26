@@ -1,7 +1,7 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { ConstId } from "../ids/contract.js";
-import { constId } from "../ids/index.js";
+import { admitIntegerKey, constId } from "../ids/index.js";
 import type { ArtifactBindings, LiteralValue } from "../ir-types/contract.js";
 import type {
   MirConstantKeyWork, MirConstantValue, MirCopyRefusal, MirCopyResult, ProjectMirConstantKey, ProjectMirConstantOrdinals,
@@ -26,20 +26,10 @@ function textField<Field extends string, Value, Stop extends object, Failure ext
   return paidField(admit, read, value => admit.work(value.length) ?? use(value));
 }
 
-function integerSize<Stop extends object, Failure extends MirCopyRefusal<Stop>>(admit: MirConstantKeyWork<Stop, Failure>, value: bigint): Failure | null {
-  let width = 8;
-  for (;;) {
-    const stop = admit.work(width);
-    if (stop !== null) return stop;
-    if (BigInt.asIntN(width, value) === value) return admit.work(width) ?? admit.work(8);
-    width = Math.min(width * 2, Number.MAX_SAFE_INTEGER);
-  }
-}
-
 function integerField<Value, Stop extends object, Failure extends MirCopyRefusal<Stop>>(
   admit: MirConstantKeyWork<Stop, Failure>, read: () => bigint, use: (value: bigint) => MirCopyResult<Value, Failure>,
 ): MirCopyResult<Value, Failure> {
-  return paidField(admit, read, value => integerSize(admit, value) ?? use(value));
+  return paidField(admit, read, value => admitIntegerKey(value, count => admit.work(count)) ?? use(value));
 }
 
 function ownedLiteral<Stop extends object, Failure extends MirCopyRefusal<Stop>>(

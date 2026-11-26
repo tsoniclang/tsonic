@@ -23,7 +23,7 @@ const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "open-calls", "values", "value-flow", "places", "field-effects", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "open-calls", "values", "value-flow", "places", "projection-effects", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -2588,6 +2588,80 @@ for (const mode of ["supplied", "omitted", "shadow", "null"]) {
   });
 }
 
+test("authored native scalar array effects retain the checked parameter and reached element", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const fixture = await loadFrontFixture();
+  const source = `
+    function key() { return 0; }
+    function next(value: number): number { return value; }
+    export function exchange(values: boolean[], value: boolean): boolean {
+      const alias = values;
+      alias[0] = value;
+      return values[1];
+    }
+    export function compound(values: number[], value: number): number {
+      values[key()] += next(value);
+      return values[1];
+    }
+    export function guarded(values: boolean[], value: boolean): boolean {
+      try { values[0] = value; } catch { return false; }
+      return true;
+    }
+  `;
+  const stock = fixture.bundled().filter(library => library.name === "lib.es5.d.ts"
+    || library.name === "lib.decorators.d.ts" || library.name === "lib.decorators.legacy.d.ts");
+  const defaults = analysisInput(fixture, "sdk-minimal", source);
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: stock });
+  for (const arrayIndexFailure of ["unwind", "abort"]) {
+    const result = analyzeHostProgram({ ...defaults, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts, arrayIndexFailure } } });
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index, modules } = result.value;
+    const chapter = modules.find(row => row.module === snapshot.entryPoint);
+    const selected = name => {
+      const declaration = chapter.tree.root.statements.nodes.find(row => row.kind === "ready-callable" && row.node.name.text === name);
+      return chapter.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.node.tsonic.signatures[0].body);
+    };
+    const summaryOf = body => index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === body.instance.body);
+    for (const name of ["exchange", "compound"]) {
+      const body = selected(name);
+      const [facts] = body.facts;
+      const [target, returned] = facts.arena.projections;
+      assert.deepEqual(target.projection, name === "exchange" ? { kind: "index", constant: 0n } : { kind: "element" });
+      assert.deepEqual(returned.projection, { kind: "index", constant: 1n });
+      assert.equal(facts.arena.projections.length, 2);
+      const [owned] = facts.arena.producers.filter(row => row.kind === "parameter");
+      assert.equal(owned.index, 0);
+      const receiver = facts.arena.boundProducers.find(row => row.producer === owned.id);
+      const writes = facts.origins.writes.filter(row => row.destination === "element");
+      assert.equal(writes.length, 1);
+      const [written] = writes;
+      assert.deepEqual(written.targets, [receiver.id]);
+      const statement = body.tir.root.statements.nodes.find(row => row.kind === "ExpressionStatement");
+      assert.equal(written.node, statement.expression.id);
+      const store = body.mir.blocks[written.point.block].statements[written.point.statement];
+      assert.equal(store.kind, "assign");
+      assert.equal(store.tir.node, written.node);
+      const summary = summaryOf(body);
+      assert.equal(summary.returns, true);
+      assert.equal(summary.unwinds, arrayIndexFailure === "unwind");
+      const [scope] = summary.parameters;
+      assert.deepEqual(scope.slot, { kind: "parameter", index: 0 });
+      assert.deepEqual(scope.reads, { kind: "complete", paths: name === "exchange" ? [returned.id] : [target.id, returned.id] });
+      assert.deepEqual(scope.writes, { kind: "complete", paths: [target.id] });
+    }
+    const guarded = selected("guarded");
+    const check = guarded.mir.blocks.find(block => block.terminator.kind === "check").terminator;
+    const [write] = guarded.facts[0].origins.writes.filter(row => row.destination === "element");
+    assert.equal(write.point.block, check.next);
+    assert.equal(check.unwind.kind, arrayIndexFailure === "unwind" ? "handler" : "abort");
+    if (check.unwind.kind === "handler") assert.notEqual(check.unwind.target, write.point.block);
+    assert.equal(summaryOf(guarded).returns, true);
+    assert.equal(summaryOf(guarded).unwinds, false);
+  }
+});
+
 test("repeated scalar field reads share a projection but retain separate read occurrences", async () => {
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
@@ -4434,14 +4508,14 @@ test("applied reference results preserve sorted caller alternatives and refuse m
 });
 
 test("unsupported projections, parameter writes and external retention remain explicit call boundaries", async () => {
-  const { fieldEffects } = await import("../../packages/host/dist/analyses/body/field-effects.js");
+  const { projectionEffects } = await import("../../packages/host/dist/analyses/body/projection-effects.js");
   const { current, pair, operation, point, summary } = referenceRound("body-round.reference-effects");
   const arena = pair.facts.arena;
   const context = pair.facts.origins.activations[0].context;
   const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0].origins }];
   const apply = value => {
     const deps = { ...current.deps, account: createAccount(limits) };
-    const fields = fieldEffects(deps, new Set(), () => assert.fail("An unsupported read must not retain a projection."));
+    const fields = projectionEffects(deps, new Set(), () => assert.fail("An unsupported read must not retain a projection."));
     return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
       (access, parameter) => fields.call(access, parameter, value.arena, arena));
   };
@@ -4457,7 +4531,7 @@ test("unsupported projections, parameter writes and external retention remain ex
 });
 
 test("one held field joins its independently selected arms at paid cuts without joining effect subjects", async () => {
-  const { fieldEffects } = await import("../../packages/host/dist/analyses/body/field-effects.js");
+  const { projectionEffects } = await import("../../packages/host/dist/analyses/body/projection-effects.js");
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -4484,8 +4558,8 @@ test("one held field joins its independently selected arms at paid cuts without 
   for (const [first, next] of [["read", "write"], ["write", "read"]]) {
     const run = maxima => {
       const account = createAccount(maxima);
-      const fields = fieldEffects({ account }, new Set([0, 1]), () => null);
-      const observe = role => fields.observe(role, selections[role], subjects[role], arena.boundProducers, arena.producers);
+      const fields = projectionEffects({ account }, new Set([0, 1]), () => null);
+      const observe = role => fields.observe(role, { kind: "field", member: selections[role] }, subjects[role], arena.boundProducers, arena.producers);
       assert.equal(observe(first), null);
       const prefix = { ...InvocationAccount.stateOf(account) };
       return { fields, account, prefix, observe, projection: fields.projections[0] };
