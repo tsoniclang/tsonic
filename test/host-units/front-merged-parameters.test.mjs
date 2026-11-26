@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { captureSingleModule, identifySingleModule, primeCaptureReader, propertyRows, loadFrontFixture, observeSourceType, rawComponentPath } from "./fixtures/front/checked-module.mjs";
 
-async function selectedInterfaceMember(member, declarations, shared = "") {
+async function selectedInterfaceMember(member, declarations, shared = "", interfaceName = "Box") {
   const fixture = await loadFrontFixture();
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const snapshot = fixture.projectSnapshot({ sourceFiles: {
-    "main.ts": `export function observe<K,V>(receiver:Box<readonly [K,V]>):boolean { receiver.${member}; return true; }`,
+    "main.ts": `export function observe<K,V>(receiver:${interfaceName}<readonly [K,V]>):boolean { receiver.${member}; return true; }`,
   }, libraries: [{ name: "lib.es5.d.ts", text: `${fixture.sdk.barebonesLibContent} ${shared}
-    type Identity<X> = X; interface Box<T> { ${declarations} } interface Box<T> { marker:boolean; }` }] });
+    type Identity<X> = X; interface ${interfaceName}<T> { ${declarations} } interface ${interfaceName}<T> { marker:boolean; }` }] });
   const { deps, program, set } = fixture.openAndCapture(snapshot);
   const module = snapshot.entryPoint;
   const checked = OpenedProgram.checked(program);
@@ -1078,74 +1078,70 @@ for (const [scenario, annotation, optional, wrapper] of [
   });
 }
 
-for (const annotation of ["T[]", "Identity<T[]>"]) {
-  test(`a required callback's ${annotation} can reuse only a proved receiver backedge`, async () => {
-    const fixture = await loadFrontFixture();
-    const library = fixture.sdk.barebonesLibContent.replace(" [n: number]: T;", "");
-    assert.notEqual(library, fixture.sdk.barebonesLibContent);
-    const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": "export type Mode = boolean;" }, libraries: [
-      { name: "lib.es5.d.ts", text: library },
-      { name: "lib.es2023.array.d.ts", text: `
-        type Identity<X> = X;
-        interface Array<T> {
-          exact: T[];
-          checkpoint: boolean;
-          find(predicate: (value: T, index: number, array: ${annotation}) => boolean): boolean;
-        }
-      ` },
-    ] });
-    const { deps, program, set } = fixture.openAndCapture(snapshot);
-    const module = fixture.moduleOf(fixture.packageOf("/checker"), "lib.es2023.array.d.ts");
-    const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
-    const file = OpenedProgram.file(program, module).file;
-    const checked = OpenedProgram.checked(program);
-    const { ast } = checked;
-    const { checker, typeShape } = checked.getSourceFileQueries(file);
-    const declaration = ast.children(file).find(node => ast.kindName(node) === "KindInterfaceDeclaration");
-    const [use, checkpoint] = ast.children(declaration).filter(node => ast.kindName(node) === "KindPropertySignature").map(node => ast.typeNode(node));
-    const receiver = checker.getTypeFromTypeNode(use).type;
-    const [method] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "find").type);
-    const [callback] = typeShape.getCallSignatures(typeShape.getSignatureParameterInfos(method)[0].type);
-    const original = typeShape.getSignatureParameterInfos(callback.target)[2];
-    const selected = typeShape.getSignatureParameterInfos(callback)[2];
-    assert.equal(checker.getTypeFromTypeNode(ast.typeNode(original.declaration)).type === original.type, true);
-    assert.equal(original.type === receiver && selected.type === receiver, true);
-    assert.equal(checker.getRootSymbols(selected.sourceSymbol)[0] === original.sourceSymbol, true);
-    if (annotation !== "T[]") {
-      let readLater = false;
-      const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
-        const queries = checked.getSourceFileQueries(sourceFile);
-        if (sourceFile !== file) return queries;
-        return { ...queries, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
-          if (request.kind === "annotation" && request.node === checkpoint) readLater = true;
-        }) } };
-      } }, OpenedProgram.table(program), set.modules.map(entry =>
-        OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
-      OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-      assert.throws(() => captureSingleModule(fixture.front, deps, observed, module), /a merged type parameter requires its actual selected declaration association/);
-      assert.equal(readLater, false);
-      return;
-    }
-    const captured = captureSingleModule(fixture.front, deps, program, module);
-    assert.equal(captured.kind, "ok");
-    const raw = captured.value;
-    const ids = OpenedProgram.syntax(program).get("/checker/lib.es2023.array.d.ts").outcome.numbering.ids;
-    const authored = raw.types.types.find(type => type.authoredTypeNode?.node === ids.get(use));
-    assert.equal(authored.form.value.kind, "merged-interface-dependency");
-    const { source: checkedSource, typeOf, signatureOf, methodOf } = await checkedSelectedMethods(fixture, snapshot, module);
-    const owner = checkedSource.tree.statements.nodes.find(node => node.id === ids.get(declaration));
-    const property = owner.members.nodes.find(node => node.type?.id === ids.get(use));
-    const applied = property.type.tsonic.type.value;
-    const signature = methodOf(applied, "find");
-    const checkedCallback = typeOf(signature.parameters[0].type);
-    assert.equal(checkedCallback.kind, "callable");
-    assert.equal(checkedCallback.calls.length, 1);
-    const predicate = signatureOf(checkedCallback.calls[0]);
-    assert.deepEqual(typeOf(predicate.parameters[0].type), { kind: "param", parameter: owner.typeParameters.nodes[0].tsonic.definition });
-    assert.equal(predicate.parameters[2].type, applied);
-    assert.equal(methodOf(predicate.parameters[2].type, "find").id, signature.id);
-  });
-}
+test("a directly declared callback receiver retains its selected interface application", async () => {
+  const fixture = await loadFrontFixture();
+  const library = fixture.sdk.barebonesLibContent.replace(" [n: number]: T;", "");
+  assert.notEqual(library, fixture.sdk.barebonesLibContent);
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": "export type Mode = boolean;" }, libraries: [
+    { name: "lib.es5.d.ts", text: library },
+    { name: "lib.es2023.array.d.ts", text: `
+      type Identity<X> = X;
+      interface Array<T> {
+        exact: T[];
+        checkpoint: boolean;
+        find(predicate: (value: T, index: number, array: T[]) => boolean): boolean;
+      }
+    ` },
+  ] });
+  const { deps, program } = fixture.openAndCapture(snapshot);
+  const module = fixture.moduleOf(fixture.packageOf("/checker"), "lib.es2023.array.d.ts");
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const file = OpenedProgram.file(program, module).file;
+  const checked = OpenedProgram.checked(program);
+  const { ast } = checked;
+  const { checker, typeShape } = checked.getSourceFileQueries(file);
+  const declaration = ast.children(file).find(node => ast.kindName(node) === "KindInterfaceDeclaration");
+  const [use] = ast.children(declaration).filter(node => ast.kindName(node) === "KindPropertySignature").map(node => ast.typeNode(node));
+  const receiver = checker.getTypeFromTypeNode(use).type;
+  const [method] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "find").type);
+  const [callback] = typeShape.getCallSignatures(typeShape.getSignatureParameterInfos(method)[0].type);
+  const original = typeShape.getSignatureParameterInfos(callback.target)[2];
+  const selected = typeShape.getSignatureParameterInfos(callback)[2];
+  assert.equal(checker.getTypeFromTypeNode(ast.typeNode(original.declaration)).type === original.type, true);
+  assert.equal(original.type === receiver && selected.type === receiver, true);
+  assert.equal(checker.getRootSymbols(selected.sourceSymbol)[0] === original.sourceSymbol, true);
+  const captured = captureSingleModule(fixture.front, deps, program, module);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const ids = OpenedProgram.syntax(program).get("/checker/lib.es2023.array.d.ts").outcome.numbering.ids;
+  const authored = raw.types.types.find(type => type.authoredTypeNode?.node === ids.get(use));
+  assert.equal(authored.form.value.kind, "merged-interface-dependency");
+  const { source: checkedSource, typeOf, signatureOf, methodOf } = await checkedSelectedMethods(fixture, snapshot, module);
+  const owner = checkedSource.tree.statements.nodes.find(node => node.id === ids.get(declaration));
+  const property = owner.members.nodes.find(node => node.type?.id === ids.get(use));
+  const applied = property.type.tsonic.type.value;
+  const signature = methodOf(applied, "find");
+  const checkedCallback = typeOf(signature.parameters[0].type);
+  assert.equal(checkedCallback.kind, "callable");
+  assert.equal(checkedCallback.calls.length, 1);
+  const predicate = signatureOf(checkedCallback.calls[0]);
+  assert.deepEqual(typeOf(predicate.parameters[0].type), { kind: "param", parameter: owner.typeParameters.nodes[0].tsonic.definition });
+  assert.equal(predicate.parameters[2].type, applied);
+  assert.equal(methodOf(predicate.parameters[2].type, "find").id, signature.id);
+});
+
+test("an alias of the same selected callback receiver cannot borrow its array operand", async () => {
+  const { ast, checker, typeShape, receiver, selected, declaration, capture } = await selectedInterfaceMember("find",
+    "find(predicate: (index: number, array: Identity<T[]>) => boolean):boolean;", "", "Array");
+  const callback = ast.typeNode(ast.parameters(declaration)[0]);
+  const alias = ast.typeNode(ast.parameters(callback)[1]);
+  const [inner] = ast.as.AsTypeReferenceNode(alias).TypeArguments.Nodes;
+  const [call] = typeShape.getCallSignatures(typeShape.getSignatureParameterInfos(selected)[0].type);
+  const [, applied] = typeShape.getSignatureParameterInfos(call);
+  assert.equal(applied.type === receiver, true);
+  assert.equal(checker.getTypeFromTypeNode(alias).type === checker.getTypeFromTypeNode(inner).type, true);
+  assert.throws(() => capture({}), /a tuple requires its actual authored, projected or inferred destructuring association/u);
+});
 
 test("an applied callback return retains the original callable and the selected receiver binder", async () => {
   const fixture = await loadFrontFixture();
@@ -1562,13 +1558,12 @@ test("a transparent self alias follows its actual forwarded formal before readin
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
 });
 
-for (const wrapped of [false, true]) test(wrapped ? "a same-pointer wrapped rest array cannot borrow a receiver backedge" :
-  "an actual whole rest array preserves the qualified receiver through its members", async () => {
+test("an actual whole rest array preserves the qualified receiver through its members", async () => {
   const fixture = await loadFrontFixture();
   const source = `
     interface Array<T> {
       anchor: T[];
-      patch(index: number, ...items: ${wrapped ? "Identity<T[]>" : "T[]"}): T[];
+      patch(index: number, ...items: T[]): T[];
       with(index: number, value: T): T[];
     }
     type Identity<X> = X;
@@ -1599,14 +1594,9 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer wrapped rest
   assert.equal(originalRest.declaration === appliedRest.declaration && ast.parent(originalRest.declaration) === method, true);
   assert.equal(typeShape.isTuple(appliedRest.type), false);
   assert.equal(checker.getTypeFromTypeNode(annotation).type === receiver && appliedRest.type === receiver && originalRest.type === receiver, true);
-  assert.equal(ast.kindName(annotation), wrapped ? "KindTypeReference" : "KindArrayType");
+  assert.equal(ast.kindName(annotation), "KindArrayType");
   assert.equal(ast.as.AsParameterDeclaration(originalRest.declaration).DotDotDotToken !== undefined, true);
-  const run = () => captureSingleModule(fixture.front, deps, program, module);
-  if (wrapped) {
-    assert.throws(run, /a merged type parameter requires its actual selected declaration association/u);
-    return;
-  }
-  const captured = run();
+  const captured = captureSingleModule(fixture.front, deps, program, module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
   const numbered = OpenedProgram.syntax(program).get("/checker/" + library).outcome.numbering;
@@ -1628,6 +1618,18 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer wrapped rest
   assert.equal(methodOf(parameter.type, "patch").id, applied.id);
   const later = methodOf(parameter.type, "with").parameters[1];
   assert.deepEqual(typeOf(later.type), { kind: "param", parameter: declaration.typeParameters.nodes[0].tsonic.definition });
+});
+
+test("a same-pointer wrapped rest array cannot borrow the selected receiver operand", async () => {
+  const { ast, checker, typeShape, receiver, selected, declaration, capture } = await selectedInterfaceMember("patch",
+    "patch(index:number, ...items: Identity<T[]>):boolean;", "", "Array");
+  const alias = ast.typeNode(ast.parameters(declaration)[1]);
+  const [inner] = ast.as.AsTypeReferenceNode(alias).TypeArguments.Nodes;
+  const [, rest] = typeShape.getSignatureParameterInfos(selected);
+  assert.equal(rest.parameterKind, "rest");
+  assert.equal(rest.type === receiver, true);
+  assert.equal(checker.getTypeFromTypeNode(alias).type === checker.getTypeFromTypeNode(inner).type, true);
+  assert.throws(() => capture({}), /a tuple requires its actual authored, projected or inferred destructuring association/u);
 });
 
 test("a composed rest preserves original and applied native arm orders and their distinct authored arguments", async () => {
@@ -1824,7 +1826,7 @@ test("the composed rest preserves the original authored argument reader stop", a
   assert.equal(reads.length === 2 && reads[0] === bare && reads[1] === argument, true);
 });
 
-for (const scenario of ["direct", "crossed", "stop"]) test("a composed receiver result retains its actual authored union: " + scenario, async () => {
+for (const scenario of ["direct", "crossed", "stop"]) test("a composed receiver uses its own neutral result and selected binding: " + scenario, async () => {
   const fixture = await loadFrontFixture();
   const library = "lib.es2023.array.d.ts";
   const opposite = scenario === "crossed" ? "crossed(): Identity<T | undefined>;" : "";
@@ -1837,7 +1839,7 @@ for (const scenario of ["direct", "crossed", "stop"]) test("a composed receiver 
     { name: library, text: `type Identity<X> = X; interface Array<T> { last(): T | undefined; ${opposite} }` },
   ] });
   const { deps, program, set } = fixture.openAndCapture(snapshot);
-  const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = snapshot.entryPoint;
   const libraryModule = fixture.moduleOf(fixture.packageOf("/checker"), library);
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const file = OpenedProgram.file(program, module).file;
@@ -1871,81 +1873,68 @@ for (const scenario of ["direct", "crossed", "stop"]) test("a composed receiver 
   assert.equal(oldArms.length === 2 && selectedArms.length === 3 && bare !== originalBinder, true);
   assert.equal(selectedArms.includes(undefinedType) && selectedArms.includes(bare) && selectedArms.includes(reference), true);
   const stop = new Error("original composed receiver result reader stop");
-  if (scenario !== "direct") {
-    const oppositeSelected = scenario === "crossed" ? methodSignature("crossed") : undefined;
-    const oppositeOriginal = counter === undefined ? undefined : checker.getSignatureFromDeclaration(counter);
-    const oppositeSyntax = counter === undefined ? undefined : ast.typeNode(counter);
-    if (scenario === "crossed") {
-      assert.equal(oppositeSelected.target === oppositeOriginal && oppositeOriginal !== original, true);
-      assert.equal(checker.getTypeFromTypeNode(oppositeSyntax).type === oldResult, true);
-      assert.equal(checker.getReturnTypeOfSignature(oppositeSelected)?.type === selectedResult, true);
-    }
+  if (scenario === "stop") {
     const reads = [];
     const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
       const queries = checked.getSourceFileQueries(sourceFile);
-      if (sourceFile !== file) return queries;
+      if (sourceFile !== libraryFile) return queries;
       return { ...queries, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
         if (request.kind === "signature-return") {
           const { signature } = request;
-          if (signature === selected || signature === original || signature === oppositeSelected || signature === oppositeOriginal) reads.push(signature);
-          if (scenario === "stop" && signature === original) throw stop;
-        } else if (request.kind === "annotation" && (request.node === authored || request.node === oppositeSyntax)) reads.push(request.node);
+          if (signature === selected || signature === original) reads.push(signature === selected ? "selected" : "original");
+          if (signature === original) throw stop;
+        } else if (request.kind === "annotation" && request.node === authored) reads.push("annotation");
       }) }, typeShape: { ...typeShape, getUnionOrIntersectionTypes(type) {
-        if (type === selectedResult) reads.push(type);
+        if (type === selectedResult) reads.push("applied union");
         return typeShape.getUnionOrIntersectionTypes(type);
       } } };
     } }, OpenedProgram.table(program), set.modules.map(entry =>
       OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
     OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-    const run = () => captureSingleModule(fixture.front, deps, observed, module);
-    if (scenario === "stop") {
-      assert.throws(run, error => error === stop);
-      assert.equal(reads.length === 2 && reads[0] === selected && reads[1] === original, true);
-    } else {
-      assert.throws(run, /a merged type parameter requires its actual selected declaration association/u);
-      assert.equal(reads.length === 2 && reads[0] === oppositeSelected && reads[1] === selectedResult, true);
-    }
+    assert.throws(() => captureSingleModule(fixture.front, deps, observed, libraryModule), error => error === stop);
+    assert.deepEqual(reads, ["original"]);
     return;
   }
-  const captured = captureSingleModule(fixture.front, deps, program, module);
+  const captured = captureSingleModule(fixture.front, deps, program, libraryModule);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
-  const numbered = OpenedProgram.syntax(program).get("/project/src/main.ts").outcome.numbering;
   const libNumbered = OpenedProgram.syntax(program).get("/checker/" + library).outcome.numbering;
-  function member(rawType, name) {
-    const storage = raw.types.members[rawType.form.value.inventory].members.find(row => row.name === name);
-    const callable = raw.types.types[storage.read.value];
-    return raw.types.signatures[raw.types.members[callable.form.value.inventory].calls[0]];
+  const rawOriginal = raw.types.signatures.find(row => row.target === null && row.declaration?.node === libNumbered.ids.get(method));
+  const form = raw.types.types[rawOriginal.result.value].form.value;
+  assert.equal(form.kind, "union");
+  assert.equal(form.members.length, oldArms.length);
+  for (const [index, arm] of oldArms.entries()) {
+    const row = raw.types.types[form.members[index]];
+    assert.deepEqual(rawComponentPath(raw.types.components, raw.types.components[row.component]), [
+      { kind: "result", signature: rawOriginal.id }, { kind: "union-member", index },
+    ]);
+    if (arm === undefinedType) assert.deepEqual(row.form.value, { kind: "scalar", scalar: "undefined" });
+    else assert.deepEqual(row.form.value.parameter, { module: libraryModule, node: libNumbered.ids.get(ast.typeParameters(array)[0]) });
   }
-  const root = raw.types.types.find(row => row.authoredTypeNode?.node === numbered.ids.get(annotation));
-  const rawSelected = member(raw.types.types[member(root, "collect").parameters[0].type], "last");
-  const rawOriginal = raw.types.signatures[rawSelected.target];
-  const restSyntax = ast.as.AsArrayTypeNode(ast.typeNode(rest.declaration)).ElementType;
-  const restUnion = ast.as.AsParenthesizedTypeNode(restSyntax).Type;
-  const [declared] = ast.as.AsUnionTypeNode(restUnion).Types.Nodes;
-  const originalArgument = ast.as.AsTypeReferenceNode(declared).TypeArguments.Nodes[0];
-  for (const [signature, arms, binder, definition] of [
-    [rawOriginal, oldArms, originalBinder, { module: libraryModule, node: libNumbered.ids.get(ast.typeParameters(array)[0]) }],
-    [rawSelected, selectedArms, bare, { module, node: numbered.ids.get(ast.typeParameters(box)[0]) }],
-  ]) {
-    const form = raw.types.types[signature.result.value].form.value;
-    assert.equal(form.kind, "union");
-    assert.equal(form.members.length, arms.length);
-    for (const [index, arm] of arms.entries()) {
-      const row = raw.types.types[form.members[index]];
-      assert.deepEqual(rawComponentPath(raw.types.components, raw.types.components[row.component]), [
-        { kind: "result", signature: signature.id }, { kind: "union-member", index },
-      ]);
-      if (arm === undefinedType) assert.deepEqual(row.form.value, { kind: "scalar", scalar: "undefined" });
-      else if (arm === binder) assert.deepEqual(row.form.value.parameter, definition);
-      else {
-        assert.equal(arm === reference && row.form.value.kind === "declared", true);
-        const [argument] = row.form.value.arguments;
-        assert.deepEqual(argument.explicitTypeNode, { module, node: numbered.ids.get(originalArgument) });
-        assert.deepEqual(raw.types.types[argument.argument.value].form.value.parameter, definition);
-      }
-    }
-  }
+  const { source, typeOf, methodOf } = await checkedSelectedMethods(fixture, snapshot, module);
+  const [wrapper, owner] = source.tree.statements.nodes;
+  const actual = owner.members.nodes.find(member => member.name.text === "anchor").type.tsonic.type.value;
+  const applied = methodOf(actual, "collect").parameters[0].type;
+  const restType = typeOf(applied);
+  assert.equal(restType.kind, "merged-interface");
+  const last = methodOf(applied, "last");
+  const resultType = typeOf(last.result);
+  assert.equal(resultType.kind, "optional");
+  assert.equal(resultType.value, restType.arguments[0]);
+  const resultUnion = typeOf(resultType.value);
+  assert.equal(resultUnion.kind, "union");
+  const exposed = resultUnion.members.find(arm => typeOf(arm).kind === "param");
+  assert.deepEqual(typeOf(exposed), { kind: "param", parameter: owner.typeParameters.nodes[0].tsonic.definition });
+  const wrapped = resultUnion.members.find(arm => arm !== exposed);
+  assert.deepEqual(typeOf(wrapped), { kind: "declared", definition: wrapper.tsonic.definition, facet: "instance", extent: null, arguments: [exposed] });
+  if (scenario !== "crossed") return;
+  const oppositeSignature = methodSignature("crossed");
+  assert.equal(oppositeSignature.target === checker.getSignatureFromDeclaration(counter) && oppositeSignature.target !== original, true);
+  assert.equal(checker.getReturnTypeOfSignature(oppositeSignature)?.type === selectedResult, true);
+  const crossed = methodOf(applied, "crossed");
+  assert.notEqual(crossed.declaration, last.declaration);
+  assert.notEqual(crossed.id, last.id);
+  assert.equal(crossed.result, last.result);
 });
 
 test("a selected generic return captures tuple slots, not numeric-looking properties", async () => {
@@ -2154,72 +2143,47 @@ test("a selected generic return captures tuple slots, not numeric-looking proper
 
 for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot authorize a projected tuple binder" :
   "tuple slot admissions stop before the original authored slot reader", async () => {
-  const fixture = await loadFrontFixture();
-  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
-    export interface Endpoint<V> {}
-    export interface Box<T> {
-      exact: Box<T>; checkpoint: boolean;
-      entries(): Endpoint<[number, ${wrapped ? "Identity<T>" : "T"}, boolean]>;
-    }
-    export interface Box<T> {}
-    type Identity<V> = V;
-  ` }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
-  const { deps, program, set } = fixture.openAndCapture(snapshot);
-  const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
-  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
-  const file = OpenedProgram.file(program, module).file;
-  const checked = OpenedProgram.checked(program);
-  const { ast } = checked;
-  const { checker, typeShape } = checked.getSourceFileQueries(file);
-  const owner = ast.children(file).filter(node => ast.kindName(node) === "KindInterfaceDeclaration")[1];
-  const members = ast.children(owner);
-  const [exact, checkpoint] = members.filter(node => ast.kindName(node) === "KindPropertySignature").map(node => ast.typeNode(node));
-  const method = members.find(node => ast.kindName(node) === "KindMethodSignature");
+  const { ast, checker, typeShape, receiver, original, selected, declaration: method, capture, limits } = await selectedInterfaceMember("entries",
+    `entries(): Endpoint<[number, ${wrapped ? "Identity<T>" : "T"}, boolean]>;`, "interface Endpoint<V> {}");
   const syntax = ast.as.AsTypeReferenceNode(ast.typeNode(method)).TypeArguments.Nodes[0];
   const [first, binder, later] = ast.as.AsTupleTypeNode(syntax).Elements.Nodes;
-  const receiver = checker.getTypeFromTypeNode(exact).type;
   const [receiverBinding] = typeShape.getTypeReferenceArgumentInfos(receiver);
-  const [selected] = typeShape.getCallSignatures(propertyRows(typeShape, receiver).find(row => row.name === "entries").type);
-  const original = checker.getSignatureFromDeclaration(method);
   const returned = checker.getReturnTypeOfSignature(selected)?.type;
-  assert.equal(selected.target === original && returned === checker.getReturnTypeOfSignature(original)?.type, true);
-  const tuple = typeShape.getTypeReferenceArgumentInfos(returned)[0].argument;
+  const originalReturn = checker.getReturnTypeOfSignature(original)?.type;
+  assert.equal(selected.target === original && returned !== originalReturn, true);
+  const tuple = typeShape.getTypeReferenceArgumentInfos(originalReturn)[0].argument;
+  const selectedTuple = typeShape.getTypeReferenceArgumentInfos(returned)[0].argument;
   assert.equal(checker.getTypeFromTypeNode(syntax).type === tuple, true);
   assert.equal(typeShape.getTupleInfo(tuple).elements[1].type === receiverBinding.parameter, true);
+  assert.equal(typeShape.getTupleInfo(selectedTuple).elements[1].type === receiverBinding.argument, true);
   assert.equal(checker.getTypeFromTypeNode(binder).type === receiverBinding.parameter, true);
   const stop = new Error("original tuple slot reader stop");
   let tupleReads = 0;
   let propertyReads = 0;
   const read = [];
-  const observed = OpenedProgram.create({ ...checked, getSourceFileQueries(sourceFile) {
-    const queries = checked.getSourceFileQueries(sourceFile);
-    if (sourceFile !== file) return queries;
-    return { ...queries, typeShape: { ...typeShape, getTupleInfo(type) {
+  const shape = { getTupleInfo(type) {
       if (type === tuple) tupleReads += 1;
       return typeShape.getTupleInfo(type);
     }, getStructuredInventory(type, admit) {
-      if (type === tuple) propertyReads += 1;
+      if (type === tuple || type === selectedTuple) propertyReads += 1;
       return typeShape.getStructuredInventory(type, admit);
-    } }, checker: { ...checker, acquireSourceType: observeSourceType(checker, request => {
+  } };
+  const query = { acquireSourceType: observeSourceType(checker, request => {
       if (request.kind !== "annotation") return;
       const { node } = request;
-      if (node === first || node === binder || node === later || node === checkpoint) read.push(node);
+      if (node === first || node === binder || node === later) read.push(node);
       if (node === binder && !wrapped) throw stop;
-    }) } };
-  } }, OpenedProgram.table(program), set.modules.map(entry =>
-    OpenedProgram.file(program, entry.kind === "snapshot" ? entry.module : entry.document.module)),
-  OpenedProgram.libraryData(program), OpenedProgram.contributions(program));
-  const run = (limit, maximum) => captureSingleModule(fixture.front, limit === undefined ? deps
-    : { ...deps, navigationCapture: { ...deps.navigationCapture, [limit]: maximum } }, observed, module);
+  }) };
+  const run = (limit, maximum) => capture(query, limit === undefined ? limits : { ...limits, [limit]: maximum }, shape);
   if (wrapped) {
     assert.throws(() => run(), /projected tuple slot requires its actual authored binder/u);
-    assert.equal(tupleReads, 1);
     assert.equal(propertyReads, 0);
-    assert.equal(read.length === 2 && read[0] === first && read[1] === binder, true);
+    assert.equal(read.filter(node => node === later).length, 1);
+    assert.equal(read.indexOf(binder) > read.indexOf(first), true);
     return;
   }
-  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 57], ["maximumCapturedEdgesPerModule", 119]]) {
-    primeCaptureReader(cap => run(limit, cap), deps.navigationCapture[limit], stop);
+  for (const [limit, maximum] of [["maximumCapturedFactsPerModule", 110], ["maximumCapturedEdgesPerModule", 172]]) {
+    primeCaptureReader(cap => run(limit, cap), limits[limit], stop);
     tupleReads = 0;
     propertyReads = 0;
     read.length = 0;
@@ -2229,14 +2193,14 @@ for (const wrapped of [false, true]) test(wrapped ? "a same-pointer alias cannot
     assert.deepEqual(refused.diagnostics.at(-1).arguments, [
       { kind: "text", value: "front." + limit }, { kind: "number", value: maximum - 1 },
     ]);
-    assert.equal(tupleReads, 1);
+    assert.equal(tupleReads, 3);
     assert.equal(propertyReads, 0);
     assert.equal(read.length === 1 && read[0] === first, true);
     tupleReads = 0;
     propertyReads = 0;
     read.length = 0;
     assert.throws(() => run(limit, maximum), error => error === stop);
-    assert.equal(tupleReads, 1);
+    assert.equal(tupleReads, 3);
     assert.equal(propertyReads, 0);
     assert.equal(read.length === 2 && read[0] === first && read[1] === binder, true);
   }
@@ -2323,11 +2287,12 @@ for (const forged of [false, true]) test(forged ? "an alias result cannot borrow
 
 test("an alias-wrapped result cannot borrow a matching inner union by native pointer", async () => {
   const { ast, checker, typeShape, receiver, selected, original, declaration, capture } = await selectedInterfaceMember("at",
-    "at(index: number): Identity<T | undefined>;");
+    "at(index: number): PickSecond<T | undefined,T | undefined>;", "type PickSecond<Ignored,Chosen> = Chosen;");
   const syntax = ast.typeNode(declaration);
-  const inner = ast.as.AsTypeReferenceNode(syntax).TypeArguments.Nodes[0];
+  const [unrelated, inner] = ast.as.AsTypeReferenceNode(syntax).TypeArguments.Nodes;
   const old = checker.getTypeFromTypeNode(inner).type;
   assert.equal(ast.kindName(inner), "KindUnionType");
+  assert.equal(checker.getTypeFromTypeNode(unrelated).type === old, true);
   assert.equal(checker.getTypeFromTypeNode(syntax).type === old, true);
   assert.equal(selected.target === original, true);
   assert.equal(checker.getReturnTypeOfSignature(original)?.type === old, true);
@@ -2339,8 +2304,9 @@ test("an alias-wrapped result cannot borrow a matching inner union by native poi
     if (request.kind === "signature-return" && request.signature === selected) reads.push("selected");
     if (request.kind === "signature-return" && request.signature === original) reads.push("original");
     if (request.kind === "annotation" && request.node === inner) reads.push("inner");
+    if (request.kind === "annotation" && request.node === unrelated) reads.push("unrelated");
   }) }), /a tuple requires its actual authored, projected or inferred destructuring association/u);
-  assert.deepEqual(reads, ["original", "selected"]);
+  assert.deepEqual(reads, ["original", "inner", "selected"]);
 });
 
 test("the exact union result limits preserve the original signature reader stop", async () => {

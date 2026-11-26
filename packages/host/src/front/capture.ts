@@ -1272,18 +1272,18 @@ function directReceiverRecurrence(scope: CaptureScope, receiver: ReceiverUse, se
   return typeNode !== undefined && directReceiverSource(scope, receiver, typeNode) !== undefined;
 }
 
-function writtenBinderOperand(scope: CaptureScope, type: Type, syntax: Node | undefined): Node | undefined {
+function writtenForwardedOperand(scope: CaptureScope, type: Type, syntax: Node | undefined, role: "binder" | "union"): Node | undefined {
   const ast = scope.checked.ast;
   let current = syntax;
   while (current !== undefined) {
     const kind = ast.kindName(current);
-    if (kind === "KindThisType") return current;
+    if (kind === "KindThisType" && role === "binder" || kind === "KindUnionType" && role === "union") return current;
     if (kind !== "KindTypeReference") return undefined;
     const reference = ast.as.AsTypeReferenceNode(current);
     if (reference?.TypeName === undefined) return undefined;
     const arguments_ = reference.TypeArguments?.Nodes;
-    if (arguments_ === undefined) return current;
-    if (scope.shape.isTypeReference(type) || scope.checker.getTypeSymbol(type) === undefined || arguments_.length === 0 ||
+    if (arguments_ === undefined) return role === "binder" ? current : undefined;
+    if (scope.shape.isTypeReference(type) || role === "binder" && scope.checker.getTypeSymbol(type) === undefined || arguments_.length === 0 ||
       !admit(scope, "edges")) return undefined;
     const written = scope.checker.getSymbolAtLocation(reference.TypeName);
     if (written === undefined) return undefined;
@@ -1687,16 +1687,25 @@ function undefinedUnionSyntax(scope: CaptureScope, node: Node): UndefinedUnionSy
 function unionArmUse(scope: CaptureScope, type: Type, use: OriginalTypeUse | null, projection: UnionResultUse | null): UnionArmUse | ComposedUnionUse | null {
   const node = projection?.syntax.node ?? (use === null ? undefined : admittedTypeUse(scope, use));
   if (node === undefined) return null;
-  const syntax = projection?.syntax ?? undefinedUnionSyntax(scope, node);
+  let syntax = projection?.syntax ?? undefinedUnionSyntax(scope, node);
+  let forwarded: ReturnType<typeof undefinedUnionArms>;
+  if (syntax === undefined && scope.checked.ast.kindName(node) === "KindTypeReference") {
+    if (!admit(scope, "edges")) return null;
+    forwarded = undefinedUnionArms(scope, type);
+    if (forwarded === undefined) return null;
+    const operand = writtenForwardedOperand(scope, type, node, "union");
+    if (operand === undefined) return null;
+    syntax = undefinedUnionSyntax(scope, operand);
+  }
   if (syntax === undefined || !admit(scope, "edges")) return null;
   const original = projection === null ? type : sourceType(scope, { kind: "signature-return", signature: projection.original })?.type;
   if (original === undefined) return null;
-  if (use === null || "Kind" in use) {
+  if (forwarded !== undefined || use === null || "Kind" in use) {
     if (!admit(scope, "edges")) return null;
     const answer = sourceType(scope, { kind: "annotation", node: syntax.node });
     if (answer?.type !== original || answer.causes.length !== 0) return null;
   }
-  const arms = undefinedUnionArms(scope, original);
+  const arms = forwarded ?? undefinedUnionArms(scope, original);
   if (arms === undefined || !admit(scope, "edges")) return null;
   const symbol = scope.checker.getTypeSymbol(arms.value);
   if (symbol === undefined || scope.checker.getSymbolAtLocation(syntax.name) !== symbol) return null;
@@ -2795,7 +2804,7 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
     const alias = deferredAliasApplication(scope, type, selected, syntax);
     if (alias !== null || scope.meter.refusal !== null) return alias;
   }
-  const binder = writtenBinderOperand(scope, type, syntax);
+  const binder = writtenForwardedOperand(scope, type, syntax, "binder");
   if (scope.meter.refusal !== null) return null;
   if (binder !== undefined && scope.checked.ast.kindName(binder) === "KindThisType") {
     if (!admit(scope, "edges")) return null;
