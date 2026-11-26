@@ -8,7 +8,7 @@ import type {
 } from "./contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
-import { isNativeIntegerPrimitive } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, nativeArrayHoldingOf } from "../ir-types/index.js";
 import { requiresLocation, sameSource } from "./capture-law.js";
 import { printDocument } from "./print.js";
 import { candidateKey, compareContribution, compareNumber, compareText, constraintKey, contributionKey, emit, nodeKey, ordinal } from "./verify-contributions.js";
@@ -386,7 +386,9 @@ function indexTypes(input: InferVerificationInput, finals: ReadonlyMap<number, T
   const receiver = input.types.terms[selected.receiver];
   const key = input.types.terms[selected.key];
   const { access, result } = constraint;
+  const holding = nativeArrayHoldingOf(input.selectedNativeFacts.carrierHolding, selected.carrier);
   if ((receiver?.kind !== "array" && receiver?.kind !== "fixed-array") || receiver.kind !== selected.carrier
+    || holding === null || selected.holding !== holding
     || key?.kind !== "primitive" || !isNativeIntegerPrimitive(key.primitive)
     || receiver.element !== result || (receiver.kind === "array" && receiver.readonly && access !== "read")
     || selected.read !== (access === "write" ? null : result) || selected.write !== (access === "read" ? null : result)

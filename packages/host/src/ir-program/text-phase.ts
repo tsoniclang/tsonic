@@ -517,7 +517,8 @@ export function textTypedElement(value: TypedElement): TextWork {
     return record("TypedIndex", [
       field("role", text(value.role)),
       field("index", record("IndexDecision", [
-        field("carrier", text(selected.carrier)), field("receiver", numericIdentity("t", selected.receiver)),
+        field("carrier", text(selected.carrier)), field("holding", text(selected.holding)),
+        field("receiver", numericIdentity("t", selected.receiver)),
         field("key", numericIdentity("t", selected.key)),
         field("read", selected.read === null ? token("null") : numericIdentity("t", selected.read)),
         field("write", selected.write === null ? token("null") : numericIdentity("t", selected.write)),

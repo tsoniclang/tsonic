@@ -10,14 +10,14 @@ import { layoutObservationOf, rawValueTypeOf as rawType } from "../ir-tir/index.
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { CheckFailure } from "../ir-types/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
-import type { ControlScope, Discard, Evaluated, IndexedWrite, Lowering, Work } from "./model.js";
+import type { CheckedWrite, ControlScope, Discard, Evaluated, FieldReceiver, Lowering, Work } from "./model.js";
 import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf, workNode } from "./model.js";
 import { held, holdReceiver, observePendingRead, popOperand, pushOperand, readPlace, saveBeforeControl, saveBeforeStore, saveRead, temporary } from "./operands.js";
 import { breaks, continues, endCleanup, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endHandler, endLabel, endProtected, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterProtected, enterShortCircuit, enterSwitch, enterWhile, finishSwitchTest, loopCondition, nextFor, nextSwitchClause } from "./control.js";
 import { argumentPlace, enterCall, finishCall } from "./calls.js";
 import { beginLocalScope, declareLocal, declarations, endLocalScope, enterLocalBlock, initializeAbsence, initializeLocal, leaveProtectedScopes, nextDeclaration, prepareFunctionLocals, unwindToHandler } from "./bindings.js";
 import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, placeOfStatic, terminate } from "./state.js";
-import { indexCheckChange, indexCheckStamp } from "./state.js";
+import { placeCheckAvailable, placeCheckStamp } from "./state.js";
 
 // The lowering of one typed body into its MIR graph.
 //
@@ -368,6 +368,15 @@ function pushLiteral(lowering: Lowering, node: NodeHeader, storage: TyId, select
   return true;
 }
 
+function directStaticValue(node: Expression<TypedPhase>) {
+  if (node.kind !== "Identifier" || node.tsonic.role !== "value") return null;
+  const value = node.tsonic;
+  const resolution = value.resolution;
+  return resolution.kind === "static" && resolution.aliases.length === 0 && value.demand.kind === "always"
+    && value.conversion.kind === "identity" && value.type === value.convertedType && value.narrowing === null
+    ? { definition: resolution.declaration.owner, storage: value.type } : null;
+}
+
 function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
   const { state, body } = lowering;
   switch (node.kind) {
@@ -455,9 +464,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       if (payload.index.read !== storage || payload.index.write !== null || payload.index.writeCheck !== null)
         return callerDefect("an indexed read differs from its selected storage", node.origin);
       value(lowering, payload, node);
-      lowering.work.push({ kind: "index-receiver", node, decision: payload.index, storage, assignment: null },
-        { kind: "expression", node: node.expression });
-      return true;
+      return enterIndex(lowering, { kind: "index-receiver", node, decision: payload.index, storage, assignment: null });
     }
     case "PropertyAccessExpression": {
       const payload = node.tsonic;
@@ -473,15 +480,11 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       if (member.decision.read !== storage) return callerDefect("a field read inconsistent with its selected storage", node.origin);
       value(lowering, payload, node);
       const receiver = node.expression;
-      if (access.receiver === "in-place" && receiver.kind === "Identifier" && receiver.tsonic.role === "value") {
-        const selected = receiver.tsonic;
-        const resolution = selected.resolution;
-        if (resolution.kind === "static" && resolution.aliases.length === 0 && selected.demand.kind === "always"
-          && selected.conversion.kind === "identity" && selected.type === selected.convertedType && selected.narrowing === null) {
-          const staticRoot = placeOfStatic(state, resolution.declaration.owner, selected.type, receiver.origin);
-          return staticRoot !== null && fieldRead(lowering, { kind: "field-read", node, member, storage,
-            receiver: { kind: "in-place", staticRoot } });
-        }
+      const direct = access.receiver === "in-place" ? directStaticValue(receiver) : null;
+      if (direct !== null) {
+        const staticRoot = placeOfStatic(state, direct.definition, direct.storage, receiver.origin);
+        return staticRoot !== null && fieldRead(lowering, { kind: "field-read", node, member, storage,
+          receiver: { kind: "in-place", staticRoot } });
       }
       lowering.work.push({ kind: "field-read", node, member, storage, receiver: access.receiver === "in-place"
         ? { kind: "in-place", staticRoot: null } : { kind: "by-reference" } }, { kind: "expression", node: receiver });
@@ -560,14 +563,17 @@ function unary(lowering: Lowering, node: NodeHeader & { readonly kind: "PrefixUn
   return true;
 }
 
-function assignmentTarget(expression: Expression<TypedPhase>): Expression<TypedPhase> {
+function transparentLocation(expression: Expression<TypedPhase>): Expression<TypedPhase> | null {
   while (expression.kind === "ParenthesizedExpression") {
     const selected = executingValue(expression.tsonic, expression.origin);
-    if (selected.conversion.kind !== "identity" || selected.narrowing !== null)
-      return callerDefect("an assignment target has a value conversion or narrowing", expression.origin);
+    if (selected.conversion.kind !== "identity" || selected.narrowing !== null) return null;
     expression = expression.expression;
   }
   return expression;
+}
+
+function assignmentTarget(expression: Expression<TypedPhase>): Expression<TypedPhase> {
+  return transparentLocation(expression) ?? callerDefect("an assignment target has a value conversion or narrowing", expression.origin);
 }
 
 function update(lowering: Lowering, node: NodeHeader, operand: Expression<TypedPhase>,
@@ -596,7 +602,7 @@ function update(lowering: Lowering, node: NodeHeader, operand: Expression<TypedP
     if (postfix) pushOperand(lowering, { ...old, site: siteOf(lowering.body, node) });
     pushOperand(lowering, old);
   } else pushOperand(lowering, { kind: "local-read", operand: { kind: "place", place }, root: place, local, storage: payload.storage, pendingRead: true, site });
-  lowering.work.push({ kind: "store", node, local, place, result: postfix ? "old" : "new" },
+  lowering.work.push({ kind: "store", node, local, place, result: postfix ? "old" : "new", checked: null, storageRoot: place },
     { kind: "operation", node, operation: payload.operation.decision, form: "unary" });
   return true;
 }
@@ -625,22 +631,26 @@ function assignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, payl
     const { index } = selected;
     if (index.write !== payload.storage || index.read !== (selected.access.kind === "write" ? null : read) || index.writeCheck === null)
       return callerDefect("an index assignment differs from its actual selected access", target.origin);
-    lowering.work.push({ kind: "index-receiver", node: target, decision: index, storage: payload.storage, assignment: node },
-      { kind: "expression", node: target.expression });
-    return true;
+    return enterIndex(lowering, { kind: "index-receiver", node: target, decision: index, storage: payload.storage, assignment: node });
   }
   if (target.kind === "PropertyAccessExpression") {
     if (!("selection" in selected) || selected.selection.kind !== "decided")
       return callerDefect("a field assignment requires its actual selected member", target.origin);
     const member = selected.selection.decision;
     const location = member.decision.location;
-    if (target.questionDotToken !== null || location.kind !== "data" || location.receiver !== "by-reference" || location.check.kind !== "none"
+    if (target.questionDotToken !== null || location.kind !== "data" || location.check.kind !== "none"
       || member.getter !== null || member.setter !== null)
-      return notLoweredYet("a field assignment without a selected direct reference-held location", target.origin);
+      return notLoweredYet("a field assignment without a selected direct storage location", target.origin);
     if (member.decision.write !== selected.access.storage || selected.access.kind === "read-write" && member.decision.read !== read)
       return callerDefect("a field assignment differs from its actual selected field type", target.origin);
-    lowering.work.push({ kind: "field-assignment", node, target, member, storage: selected.access.storage, read,
-      value: payload, conditional: selection !== null, calculation }, { kind: "expression", node: target.expression });
+    const direct = location.receiver === "in-place" ? directStaticValue(target.expression) : null;
+    const staticRoot = direct === null ? null : placeOfStatic(lowering.state, direct.definition, direct.storage, target.expression.origin);
+    if (direct !== null && staticRoot === null) return false;
+    const pending: Extract<Work, { readonly kind: "field-assignment" }> = { kind: "field-assignment", node, target, member,
+      storage: selected.access.storage, read, value: payload, conditional: selection !== null, calculation,
+      receiver: location.receiver === "in-place" ? { kind: "in-place", staticRoot } : { kind: "by-reference" } };
+    if (staticRoot !== null) return fieldAssignment(lowering, pending);
+    lowering.work.push(pending, { kind: "expression", node: target.expression });
     return true;
   }
   if (!("resolution" in selected)) return callerDefect("a name assignment requires its selected resolution", target.origin);
@@ -662,11 +672,9 @@ function assignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, payl
 }
 
 function scheduleAssignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, target: NodeHeader, place: PlaceId, local: LocalId | null,
-  payload: TypedValue, read: TyId, calculation: TypedOperation | null, conditional: boolean, indexed?: IndexedWrite): boolean {
+  payload: TypedValue, read: TyId, calculation: TypedOperation | null, conditional: boolean, checked: CheckedWrite | null = null, storageRoot: PlaceId = place): boolean {
   value(lowering, payload, node);
-  const write: Extract<Work, { readonly kind: "store" }> = indexed === undefined
-    ? { kind: "store", node, local, place, result: "new" }
-    : { kind: "store", node, local, place, result: "new", indexed };
+  const write: Extract<Work, { readonly kind: "store" }> = { kind: "store", node, local, place, result: "new", checked, storageRoot };
   if (calculation !== null || conditional) {
     const actual = readPlace(lowering, place, read, siteOf(lowering.body, target));
     if (actual === null) return false;
@@ -692,24 +700,19 @@ function store(lowering: Lowering, pending: Extract<Work, { readonly kind: "stor
       right = saved;
     }
   }
-  const indexed = pending.indexed;
-  if (indexed !== undefined) {
-    const change = indexed.stamp === null ? "mutable" : indexCheckChange(lowering.state, indexed.stamp);
-    const check = change !== "unchanged";
-    if (check) {
-      if (indexed.stamp !== null && indexed.decision.carrier === "fixed-array" && change === "mutable"
-        && indexed.stamp.local !== null && !lowering.preservedLocals.has(indexed.stamp.local))
-        return notLoweredYet("fixed-array check retention across effects without a complete storage exposure proof", indexed.target.origin);
+  const checked = pending.checked;
+  if (checked !== null) {
+    if (checked.stamp === null || !placeCheckAvailable(lowering.state, checked.stamp)) {
       if (right.pendingRead && right.operand.kind === "place") {
         const saved = right.anchor === undefined ? readPlace(lowering, right.operand.place, right.storage, right.site) : saveRead(lowering, right);
         if (saved === null) return false;
         right = saved;
       }
-      if (!emitIndexCheck(lowering, indexed.target, pending.place, indexed.decision.failure, pending.node)) return false;
+      if (!emitPlaceCheck(lowering, checked.target, checked.place, checked.failure, pending.node)) return false;
     }
     if (!saveBeforeControl(lowering, true, true)) return false;
   }
-  if (!saveBeforeStore(lowering, pending.place, pending.local)) return false;
+  if (!saveBeforeStore(lowering, pending.storageRoot, pending.local)) return false;
   if (!emitStatement(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "assign", place: pending.place,
     value: { kind: "use", operand: right.operand }, step: null })) return false;
   if (discard) lowering.work.pop();
@@ -796,7 +799,7 @@ function narrow(lowering: Lowering, node: NodeHeader, decision: Extract<NonNulla
 }
 
 function fieldPlace(lowering: Lowering, node: NodeHeader, member: Extract<Work, { readonly kind: "field-read" }>["member"], storage: TyId,
-  receiver: Extract<Work, { readonly kind: "field-read" }>["receiver"]): { readonly place: PlaceId; readonly base: PlaceId; readonly source: Evaluated | null } | null {
+  receiver: FieldReceiver, access: "read" | "write"): { readonly place: PlaceId; readonly base: PlaceId; readonly source: Evaluated | null } | null {
   const staticRoot = receiver.kind === "in-place" ? receiver.staticRoot : null;
   let source: Evaluated | null = null;
   let base: PlaceId;
@@ -808,7 +811,7 @@ function fieldPlace(lowering: Lowering, node: NodeHeader, member: Extract<Work, 
   } else if (staticRoot !== null) base = staticRoot;
   else {
     source = popOperand(lowering, failure("a field access was reached without its receiver", node.origin));
-    if (source.kind === "shared-field") {
+    if (source.kind === "shared-field" && access === "read") {
       source = saveRead(lowering, source);
       if (source === null) return null;
     }
@@ -822,13 +825,35 @@ function fieldPlace(lowering: Lowering, node: NodeHeader, member: Extract<Work, 
 }
 
 function fieldAssignment(lowering: Lowering, pending: Extract<Work, { readonly kind: "field-assignment" }>): boolean {
-  const selected = fieldPlace(lowering, pending.target, pending.member, pending.storage, { kind: "by-reference" });
-  return selected !== null && scheduleAssignment(lowering, pending.node, pending.target, selected.place, null,
-    pending.value, pending.read, pending.calculation, pending.conditional);
+  const { state } = lowering;
+  const selected = fieldPlace(lowering, pending.target, pending.member, pending.storage, pending.receiver, "write");
+  if (selected === null) return false;
+  let local: LocalId | null = null;
+  let checked: CheckedWrite | null = null;
+  let storageRoot = selected.place;
+  if (pending.receiver.kind === "in-place") {
+    const parent = state.places[selected.base]?.base;
+    if (parent?.kind === "local" || parent?.kind === "static") {
+      storageRoot = selected.base;
+      local = parent.kind === "local" ? parent.local : null;
+    } else if (parent?.kind === "checked" && parent.projection.kind === "refined") {
+      const root = state.places[parent.place]?.base;
+      const target = transparentLocation(pending.target.expression);
+      const payload = target?.kind === "NonNullExpression" ? executingValue(target.tsonic, target.origin) : null;
+      if (root?.kind !== "local" || target === null || parent.tir.node !== target.id || payload?.narrowing?.kind !== "narrowed")
+        return notLoweredYet("an in-place field assignment without its directly narrowed local", pending.target.origin);
+      local = root.local;
+      storageRoot = parent.place;
+      checked = { target, place: selected.base, failure: payload.narrowing.failure,
+        stamp: placeCheckStamp(state, lowering.preservedLocals, local, "mutable-storage") };
+    } else return notLoweredYet("an in-place field assignment through enclosing projections", pending.target.origin);
+  }
+  return scheduleAssignment(lowering, pending.node, pending.target, selected.place, local,
+    pending.value, pending.read, pending.calculation, pending.conditional, checked, storageRoot);
 }
 
 function fieldRead(lowering: Lowering, { node, member, storage, receiver }: Extract<Work, { readonly kind: "field-read" }>): boolean {
-  const selected = fieldPlace(lowering, node, member, storage, receiver);
+  const selected = fieldPlace(lowering, node, member, storage, receiver, "read");
   if (selected === null) return false;
   const { place, base, source } = selected;
   const result = { operand: { kind: "place", place } satisfies MirOperand, pendingRead: true, storage, site: siteOf(lowering.body, node) };
@@ -838,7 +863,7 @@ function fieldRead(lowering: Lowering, { node, member, storage, receiver }: Extr
   return true;
 }
 
-function emitIndexCheck(lowering: Lowering, node: NodeHeader, place: PlaceId, selectedFailure: CheckFailure, continuation: NodeHeader): boolean {
+function emitPlaceCheck(lowering: Lowering, node: NodeHeader, place: PlaceId, selectedFailure: CheckFailure, continuation: NodeHeader): boolean {
   if (!saveBeforeControl(lowering, false, true)) return false;
   const { body, state } = lowering;
   const next = newBlock(state, siteOf(body, continuation));
@@ -850,22 +875,41 @@ function emitIndexCheck(lowering: Lowering, node: NodeHeader, place: PlaceId, se
   return true;
 }
 
+function enterIndex(lowering: Lowering, pending: Extract<Work, { readonly kind: "index-receiver" }>): boolean {
+  const { node, decision } = pending;
+  if (decision.holding === "in-place") {
+    const receiver = transparentLocation(node.expression);
+    if (receiver?.kind === "Identifier" && receiver.tsonic.role === "value" && receiver.tsonic.resolution.kind === "static") {
+      const direct = directStaticValue(receiver);
+      if (direct === null || direct.storage !== decision.receiver)
+        return notLoweredYet("an in-place index without its actual static place", receiver.origin);
+      const base = placeOfStatic(lowering.state, direct.definition, direct.storage, receiver.origin);
+      return base !== null && enterIndexKey(lowering, pending, base);
+    }
+  }
+  lowering.work.push(pending, { kind: "expression", node: node.expression });
+  return true;
+}
+
+function enterIndexKey(lowering: Lowering, pending: Extract<Work, { readonly kind: "index-receiver" }>, base: PlaceId): boolean {
+  lowering.work.push({ ...pending, kind: "index-key", base }, { kind: "expression", node: pending.node.argumentExpression });
+  return true;
+}
+
 function indexReceiver(lowering: Lowering, pending: Extract<Work, { readonly kind: "index-receiver" }>): boolean {
   const { node, decision } = pending;
   const actual = popOperand(lowering, failure("an index completed without its evaluated receiver", node.origin));
   if (actual.storage !== decision.receiver) return callerDefect("an index receiver differs from its selected storage", node.origin);
   let base: PlaceId | null;
-  if (decision.carrier === "array") base = holdReceiver(lowering, actual);
+  if (decision.holding === "by-reference") base = holdReceiver(lowering, actual);
   else {
-    if (actual.operand.kind !== "place") return callerDefect("a fixed-array index requires its actual in-place storage", node.origin);
+    if (actual.operand.kind !== "place") return callerDefect("an in-place index requires its actual storage", node.origin);
     const storage = lowering.state.places[actual.operand.place]?.base;
     if (storage?.kind !== "local" && storage?.kind !== "static")
-      return notLoweredYet("a fixed-array index with enclosing projected storage", node.origin);
+      return notLoweredYet("an in-place index with enclosing projected storage", node.origin);
     base = actual.operand.place;
   }
-  if (base === null) return false;
-  lowering.work.push({ ...pending, kind: "index-key", base }, { kind: "expression", node: node.argumentExpression });
-  return true;
+  return base !== null && enterIndexKey(lowering, pending, base);
 }
 
 function indexKey(lowering: Lowering, { node, decision, assignment, storage, base }: Extract<Work, { readonly kind: "index-key" }>): boolean {
@@ -883,10 +927,10 @@ function indexKey(lowering: Lowering, { node, decision, assignment, storage, bas
   if (place === null) return false;
   if (assignment === null) {
     const consumer = requirePresent(lowering.work.at(-1), failure("an indexed read has no executing consumer", node.origin));
-    if (!emitIndexCheck(lowering, node, place, decision.failure, workNode(consumer))) return false;
+    if (!emitPlaceCheck(lowering, node, place, decision.failure, workNode(consumer))) return false;
     const payload = { pendingRead: true, operand: { kind: "place", place } satisfies MirOperand, storage, site };
     const backing = state.places[base]?.base;
-    pushOperand(lowering, decision.carrier === "fixed-array" && backing?.kind === "local"
+    pushOperand(lowering, decision.holding === "in-place" && backing?.kind === "local"
       ? { ...payload, kind: "local-read", root: base, local: backing.local } : { ...payload, kind: "shared-field", root: base });
     return true;
   }
@@ -894,12 +938,14 @@ function indexKey(lowering: Lowering, { node, decision, assignment, storage, bas
   if (payload.role !== "assignment" || payload.calculation?.kind === "deferred")
     return callerDefect("an index store has no actual selected assignment", assignment.origin);
   const early = decision.read !== null || decision.writeCheck === "before-value";
-  if (early && !emitIndexCheck(lowering, node, place, decision.failure, assignment.right)) return false;
+  if (early && !emitPlaceCheck(lowering, node, place, decision.failure, assignment.right)) return false;
   const backing = state.places[base]?.base;
-  const fixedLocal = decision.carrier === "fixed-array" && backing?.kind === "local" ? backing.local : null;
-  const stamp = early ? indexCheckStamp(state, lowering.preservedLocals, fixedLocal) : null;
-  return scheduleAssignment(lowering, assignment, node, place, null, payload, decision.read ?? storage,
-    payload.calculation?.decision ?? null, payload.selection !== null, { target: node, decision, stamp });
+  const local = backing?.kind === "local" ? backing.local : null;
+  const stamp = early ? placeCheckStamp(state, lowering.preservedLocals, local,
+    decision.carrier === "fixed-array" ? "fixed-local-extent" : "mutable-storage") : null;
+  return scheduleAssignment(lowering, assignment, node, place, decision.holding === "in-place" ? local : null, payload, decision.read ?? storage,
+    payload.calculation?.decision ?? null, payload.selection !== null, { target: node, place, failure: decision.failure, stamp },
+    decision.holding === "in-place" ? base : place);
 }
 
 function discard(lowering: Lowering, pending: Discard): boolean {

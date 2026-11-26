@@ -115,7 +115,11 @@ export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absen
     const domain = optionalValueDomainOf(term, read);
     if (domain.kind === "optional-value") return domain.payload === "string" ? "reference-optional" : "primitive-optional";
   }
-  return term.kind === "array" ? "array-reference" : term.kind === "string" ? "reference"
+  if (term.kind === "array" || term.kind === "fixed-array") {
+    const holding = deps.arrayHoldingOf(deps.account, term.kind);
+    return holding.kind === "complete" && holding.value === "by-reference" ? "array-reference" : null;
+  }
+  return term.kind === "string" ? "reference"
     : term.kind === "intrinsic" && term.intrinsic === "absence" ? "absence" : null;
 }
 

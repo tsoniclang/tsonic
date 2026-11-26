@@ -218,13 +218,13 @@ function prepareTypedMember(scan: ProjectionInventory, value: TypedMember, at: s
 }
 
 function prepareIndexDecision(scan: ProjectionInventory, value: IndexDecision): PreparedPhase<IndexDecision> {
-  return paidPhase(scan, 7, () => {
-    const { carrier, failure, writeCheck } = value;
+  return paidPhase(scan, 8, () => {
+    const { carrier, holding, failure, writeCheck } = value;
     return withPlan(typePhase(scan, value.receiver), receiver =>
       withPlan(typePhase(scan, value.key), key =>
         withPlan(optionalTypePhase(scan, value.read), read =>
           withPlan(optionalTypePhase(scan, value.write), write => ({ kind: "copied", value: image =>
-            ({ carrier, receiver: receiver(image), key: key(image), read: read(image), write: write(image), failure, writeCheck }) })))));
+            ({ carrier, holding, receiver: receiver(image), key: key(image), read: read(image), write: write(image), failure, writeCheck }) })))));
   });
 }
 

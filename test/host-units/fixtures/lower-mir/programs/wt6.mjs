@@ -14,7 +14,8 @@
 //   }
 // `policy.bounds` and `policy.absent` are the selected failure kinds ("unwind" | "abort") that Rules
 // has written into the index and narrowing decisions. Integer `+` is selected as a pure operation.
-import { DYNAMIC_KEY, SIG, T, builders, callee, checked, direct, endpoint, mapped, narrowed, native, selection, signature, typedBody } from "../typed.mjs";
+import { SIG, T, builders, callee, direct, endpoint, mapped, narrowed, native, nativeIndex, selected, selection, signature, typedBody, typedOperation } from "../typed.mjs";
+import { nativeFactsFixture } from "../../native-facts.mjs";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
 // WT-4 also declares a function `f`; the two are different definitions.
@@ -23,6 +24,9 @@ const SIG_GROW = signature("grow", [["a", T.int32Array]], T.int32);
 const SIG_ORDER_GROW = signature("orderGrow", [["a", T.int32Array], ["i", T.fnVoidToInt32]], T.int32);
 const SIG_ORDER_FIXED = signature("orderFixed", [["a", T.int32Fixed4], ["i", T.fnVoidToInt32]], T.int32);
 const SIG_ORDER_FIXED_BY_REFERENCE = signature("orderFixedByReference", [["a", T.int32Fixed4, "required", null, "byref-readwrite"], ["i", T.fnVoidToInt32]], T.int32);
+const SIG_MUTATE_FIXED = signature("mutateFixed", [["a", T.int32Fixed4, "required", null, "byref-readwrite"]], T.int32);
+const SIG_ORDER_FIXED_ALIASED = signature("orderFixedAliased", [["a", T.int32Fixed4], ["i", T.fnVoidToInt32]], T.int32);
+const SIG_ORDER_FIXED_REPLACE = signature("orderFixedReplace", [["a", T.int32Fixed4], ["i", T.fnVoidToInt32], ["replacement", T.int32Fixed4]], T.int32);
 const SIG_ORDER_IN_PLACE = signature("orderInPlace", [["opt", T.optCounter]], T.int32);
 const SIG_ORDER = signature("order", [["a", T.int32Array], ["i", T.fnVoidToInt32], ["o", T.outer], ["opt", T.optCounter]], T.int32);
 
@@ -35,49 +39,76 @@ const callI = (b, local, label) => ({ $: label, ...b.call(b.id("i", local, T.fnV
 const callF = (b, label) => ({ $: label, ...b.call(b.global("f", "wt6.f", T.unknown), [], T.int32,
   () => ({ callee: callee("wt6.f", SIG_F, [], T.int32), receiver: null, arguments: [] })) });
 
-const compoundIndex = (b, arrayLocal, arrayType, indexLocation, rhs, labels) =>
-  b.expressionStatement({ $: labels.assignment, ...b.assign(
-    { $: labels.target, ...b.element(b.id("a", arrayLocal, arrayType), callI(b, 1, labels.index),
-      b.readWrite(selection(DYNAMIC_KEY, T.int32, T.int32, indexLocation), T.int32)) },
-    "PlusEqualsToken", rhs, T.int32, T.int32, ADD) });
-const returnFirst = (b, arrayLocal, arrayType, indexLocation, label) =>
-  b.returns({ $: label, ...b.element(b.id("a", arrayLocal, arrayType), b.num("0", T.int32),
-    b.read(T.int32, selection(DYNAMIC_KEY, T.int32, T.int32, indexLocation))) });
+const cleared = b => {
+  const original = b.undefined();
+  return { ...original, $: "undefined", tsonic: at => {
+    const from = { root: { kind: "body", value: b.nodeRef(at("undefined")) }, path: [] };
+    const to = { root: { kind: "body", value: b.nodeRef(at("opt=undefined")) }, path: [] };
+    const embedding = { kind: "conversion", conversion: "absence", proof: { steps: [{ from, to, rule: "absence", premises: [] }], conclusion: 0 }, check: { kind: "none" } };
+    return { ...original.tsonic, convertedType: T.optCounter, conversion: { kind: "convert", role: "assignment",
+      operation: typedOperation(selected({ kind: "conversion", from: T.absence, to: T.optCounter, embedding }, [T.absence], T.optCounter)) } };
+  } };
+};
 
-export function wt6(policy) {
-  const dense = checked(policy.bounds, "by-reference");
-  const fixed = checked(policy.bounds, "in-place");
-  const fixedByReference = checked(policy.bounds, "by-reference");
-
+export function wt6(policy, holding) {
+  const nativeFacts = { ...nativeFactsFixture(holding), arrayIndexFailure: policy.bounds,
+    fixedArrayIndexFailure: policy.bounds, absentAccessFailure: policy.absent };
+  const compoundIndex = (b, arrayLocal, arrayType, failure, rhs, labels) =>
+    b.expressionStatement({ $: labels.assignment, ...b.assign(
+      { $: labels.target, ...b.element(b.id("a", arrayLocal, arrayType), callI(b, 1, labels.index),
+        nativeIndex(arrayType, T.int32, "read-write", failure, nativeFacts)) },
+      "PlusEqualsToken", rhs, T.int32, T.int32, ADD) });
+  const returnFirst = (b, arrayLocal, arrayType, failure, label) =>
+    b.returns({ $: label, ...b.element(b.id("a", arrayLocal, arrayType), b.num("0", T.int32),
+      nativeIndex(arrayType, T.int32, "read", failure, nativeFacts)) });
   const g = builders("orderGrow");
   const orderGrow = typedBody("orderGrow", { signature: SIG_ORDER_GROW, completion: T.int32,
     locals: [["a", "parameter", T.int32Array], ["i", "parameter", T.fnVoidToInt32]],
     params: [[0, "required", T.int32Array], [1, "required", T.fnVoidToInt32]],
     root: g.block(
-      compoundIndex(g, 0, T.int32Array, dense, { $: "grow(a)", ...g.call(g.global("grow", "grow", T.unknown), [{ $: "a-argument", ...g.id("a", 0, T.int32Array) }], T.int32,
+      compoundIndex(g, 0, T.int32Array, policy.bounds, { $: "grow(a)", ...g.call(g.global("grow", "grow", T.unknown), [{ $: "a-argument", ...g.id("a", 0, T.int32Array) }], T.int32,
         at => ({ callee: callee("grow", SIG_GROW, [mapped(0, 0)], T.int32), receiver: null,
           arguments: [{ kind: "provided", parameter: 0, expression: at("a-argument") }] })) },
         { assignment: "a[i()]+=grow(a)", target: "@target", index: "i()" }),
-      returnFirst(g, 0, T.int32Array, dense, "a[0]")) });
+      returnFirst(g, 0, T.int32Array, policy.bounds, "a[0]")) });
 
   const x = builders("orderFixed");
   const orderFixed = typedBody("orderFixed", { signature: SIG_ORDER_FIXED, completion: T.int32,
     locals: [["a", "parameter", T.int32Fixed4], ["i", "parameter", T.fnVoidToInt32]],
     params: [[0, "required", T.int32Fixed4], [1, "required", T.fnVoidToInt32]],
     root: x.block(
-      compoundIndex(x, 0, T.int32Fixed4, fixed, callF(x, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
-      returnFirst(x, 0, T.int32Fixed4, direct("in-place"), "a[0]")) });
+      compoundIndex(x, 0, T.int32Fixed4, policy.bounds, callF(x, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
+      returnFirst(x, 0, T.int32Fixed4, policy.bounds, "a[0]")) });
 
-  // Added for R2 K-1: receiver mode and extent disagree. The fixed array is the caller's storage, reached through a
-  // by-reference parameter; its extent cannot change.
+  // The by-reference formal lends the caller's inline storage; it does not select the carrier's holding.
   //   function orderFixedByReference(ref a: FixedArray<int32, 4>, i: () => int32): int32 { a[i()] += f(); return a[0]; }
   const r = builders("orderFixedByReference");
   const orderFixedByReference = typedBody("orderFixedByReference", { signature: SIG_ORDER_FIXED_BY_REFERENCE, completion: T.int32,
     locals: [["a", "parameter", T.int32Fixed4], ["i", "parameter", T.fnVoidToInt32]],
     params: [[0, "required", T.int32Fixed4, null, "byref-readwrite"], [1, "required", T.fnVoidToInt32]],
     root: r.block(
-      compoundIndex(r, 0, T.int32Fixed4, fixedByReference, callF(r, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
-      returnFirst(r, 0, T.int32Fixed4, direct("by-reference"), "a[0]")) });
+      compoundIndex(r, 0, T.int32Fixed4, policy.bounds, callF(r, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
+      returnFirst(r, 0, T.int32Fixed4, policy.bounds, "a[0]")) });
+
+  const aliased = builders("orderFixedAliased");
+  const orderFixedAliased = typedBody("orderFixedAliased", { signature: SIG_ORDER_FIXED_ALIASED, completion: T.int32,
+    locals: [["a", "parameter", T.int32Fixed4], ["i", "parameter", T.fnVoidToInt32]],
+    params: [[0, "required", T.int32Fixed4], [1, "required", T.fnVoidToInt32]],
+    root: aliased.block(
+      compoundIndex(aliased, 0, T.int32Fixed4, policy.bounds, { $: "mutateFixed(a)", ...aliased.call(
+        aliased.global("mutateFixed", "mutateFixed", T.unknown), [{ $: "borrowed", ...aliased.id("a", 0, T.int32Fixed4) }], T.int32,
+        at => ({ callee: callee("mutateFixed", SIG_MUTATE_FIXED, [mapped(0, 0, "byref-readwrite")], T.int32), receiver: null,
+          arguments: [{ kind: "provided", parameter: 0, expression: at("borrowed") }] })) },
+      { assignment: "+=", target: "@target", index: "i()" }), returnFirst(aliased, 0, T.int32Fixed4, policy.bounds, "a[0]")) });
+
+  const replaced = builders("orderFixedReplace");
+  const orderFixedReplace = typedBody("orderFixedReplace", { signature: SIG_ORDER_FIXED_REPLACE, completion: T.int32,
+    locals: [["a", "parameter", T.int32Fixed4, true], ["i", "parameter", T.fnVoidToInt32], ["replacement", "parameter", T.int32Fixed4]],
+    params: [[0, "required", T.int32Fixed4], [1, "required", T.fnVoidToInt32], [2, "required", T.int32Fixed4]],
+    root: replaced.block(compoundIndex(replaced, 0, T.int32Fixed4, policy.bounds,
+      replaced.paren(replaced.sequence({ $: "replaced", ...replaced.assign(replaced.target("a", 0, T.int32Fixed4), "EqualsToken",
+        replaced.id("replacement", 2, T.int32Fixed4), T.int32Fixed4, T.int32Fixed4) }, replaced.num("1", T.int32), T.int32), T.int32),
+      { assignment: "+=", target: "@target", index: "i()" }), returnFirst(replaced, 0, T.int32Fixed4, policy.bounds, "a[0]")) });
 
   const b = builders("order");
   const order = typedBody("order", { signature: SIG_ORDER, completion: T.int32,
@@ -86,7 +117,7 @@ export function wt6(policy) {
     params: [[0, "required", T.int32Array], [1, "required", T.fnVoidToInt32], [2, "required", T.outer], [3, "required", T.optCounter]],
     root: b.block(
       // a[i()] += f();
-      compoundIndex(b, 0, T.int32Array, dense, callF(b, "f()#1"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
+      compoundIndex(b, 0, T.int32Array, policy.bounds, callF(b, "f()#1"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
       // o.inner.x = f();
       b.expressionStatement({ $: "o.inner.x=f()", ...b.assign(
         { $: "@x", ...b.property(
@@ -100,15 +131,15 @@ export function wt6(policy) {
           "count", b.readWrite(selection("count", T.int32, T.int32, direct("by-reference")), T.int32)) },
         "PlusEqualsToken",
         b.paren(b.sequence({ $: "opt=undefined", ...b.assign(b.target("opt", 3, T.optCounter), "EqualsToken",
-          b.global("undefined", "undefined", T.absence), T.absence, T.optCounter) }, b.num("1", T.int32), T.int32), T.int32),
+          cleared(b), T.optCounter, T.optCounter) }, b.num("1", T.int32), T.int32), T.int32),
         T.int32, T.int32, ADD) }),
       // try { return a[0]; } finally { a[0] = 0; }
       { $: "try", ...b.tryStatement(
-        b.block({ $: "return", ...returnFirst(b, 0, T.int32Array, dense, "a[0]#read") }),
+        b.block({ $: "return", ...returnFirst(b, 0, T.int32Array, policy.bounds, "a[0]#read") }),
         null,
         b.block(b.expressionStatement({ $: "a[0]=0", ...b.assign(
           { $: "a[0]#write", ...b.element(b.id("a", 0, T.int32Array), b.num("0", T.int32),
-            b.write(selection(DYNAMIC_KEY, T.int32, T.int32, dense), T.int32)) },
+            nativeIndex(T.int32Array, T.int32, "write", policy.bounds, nativeFacts)) },
           "EqualsToken", b.num("0", T.int32), T.int32, T.int32) }))) }) });
   // Section 7 part 8, the WT-6 row, for a type held in place: the narrowed place is the variable's own storage.
   const p = builders("orderInPlace");
@@ -121,8 +152,10 @@ export function wt6(policy) {
           "count", p.readWrite(selection("count", T.int32, T.int32, direct("in-place")), T.int32)) },
         "PlusEqualsToken",
         p.paren(p.sequence({ $: "opt=undefined", ...p.assign(p.target("opt", 0, T.optCounter), "EqualsToken",
-          p.global("undefined", "undefined", T.absence), T.absence, T.optCounter) }, p.num("1", T.int32), T.int32), T.int32),
+          cleared(p), T.optCounter, T.optCounter) }, p.num("1", T.int32), T.int32), T.int32),
         T.int32, T.int32, ADD) }),
       p.returns(p.num("0", T.int32))) });
-  return { orderGrow, orderFixed, orderFixedByReference, orderInPlace, order };
+  return { orderGrow: { ...orderGrow, nativeFacts }, orderFixed: { ...orderFixed, nativeFacts },
+    orderFixedByReference: { ...orderFixedByReference, nativeFacts }, orderFixedAliased: { ...orderFixedAliased, nativeFacts },
+    orderFixedReplace: { ...orderFixedReplace, nativeFacts }, orderInPlace: { ...orderInPlace, nativeFacts }, order: { ...order, nativeFacts } };
 }

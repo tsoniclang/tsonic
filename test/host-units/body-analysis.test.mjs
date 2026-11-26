@@ -137,6 +137,7 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
   const deps = { types: TABLE, typeOf, signatureOf, sourceObjectHolding: () => ({ kind: "complete", value: false }),
+    arrayHoldingOf: (_account, carrier) => ({ kind: "complete", value: carrier === "array" ? "by-reference" : "in-place" }),
     enumValueOf: meter => accountFailure(meter) ?? { kind: "complete", value: null },
     summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
     declaredAt: () => null,
@@ -2592,6 +2593,7 @@ test("authored native scalar array effects retain the checked parameter and reac
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { parseModuleBodies, printModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
   const fixture = await loadFrontFixture();
   const source = `
     function key() { return 0; }
@@ -2632,6 +2634,11 @@ test("authored native scalar array effects retain the checked parameter and reac
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
     const chapter = modules.find(row => row.module === snapshot.entryPoint);
+    const text = printModuleBodies(index, chapter);
+    assert.deepEqual(parseModuleBodies(index, text).kind, "parsed");
+    const missingHolding = text.replace('holding="by-reference", ', "");
+    assert.notEqual(missingHolding, text);
+    assert.notEqual(parseModuleBodies(index, missingHolding).kind, "parsed");
     const selected = name => {
       const declaration = chapter.tree.root.statements.nodes.find(row => row.kind === "ready-callable" && row.node.name.text === name);
       return chapter.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.node.tsonic.signatures[0].body);

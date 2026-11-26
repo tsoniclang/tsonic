@@ -471,6 +471,8 @@ function readIndexDecisionText<Root>(cursor: Cursor, finish: (value: IndexDecisi
   return atomicText(cursor, next => openRecord(next, "IndexDecision"), fields =>
     fieldText<IndexDecision["carrier"], Root>(cursor, fields, "carrier", (next, done) =>
       atomicText(next, value => readStringChoice(value, ["array", "fixed-array"]), done), carrier =>
+    fieldText<IndexDecision["holding"], Root>(cursor, fields, "holding", (next, done) =>
+      atomicText(next, value => readStringChoice(value, ["in-place", "by-reference"]), done), holding =>
     fieldText<TyId, Root>(cursor, fields, "receiver", required, receiver =>
       fieldText<TyId, Root>(cursor, fields, "key", required, key =>
         fieldText<TyId | null, Root>(cursor, fields, "read", optional, read =>
@@ -480,7 +482,7 @@ function readIndexDecisionText<Root>(cursor: Cursor, finish: (value: IndexDecisi
               fieldText<IndexDecision["writeCheck"], Root>(cursor, fields, "writeCheck", (next, done) =>
                 nullableText(next, (at, finish) => atomicText(at, value => readStringChoice(value, ["before-value", "after-value"]), finish), done), writeCheck =>
                 atomicText(cursor, next => closeRecord(next, fields), () =>
-                  acceptText({ carrier, receiver, key, read, write, failure, writeCheck }, finish))))))))));
+                  acceptText({ carrier, holding, receiver, key, read, write, failure, writeCheck }, finish)))))))))));
 }
 
 export function readTypedElementText<Root>(cursor: Cursor, finish: (value: TypedElement) => TextStep<Root>): TextStep<Root> {

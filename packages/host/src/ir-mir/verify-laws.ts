@@ -205,7 +205,12 @@ export function verifyLaws(
         const receiver = body.places[place.base.place];
         const selected = receiver === undefined ? undefined : context.types.terms[receiver.storage];
         const above = read(checkedAbove, place.base.place, -1);
-        if ((selected?.kind === "fixed-array" || selected?.kind === "declared" && selected.extent !== null) && privateLocation[position] === 1
+        const index = place.base.projection.operand;
+        const indexCell = index.kind === "place" ? read(cellOf, index.place, -1) : -1;
+        const directFixed = selected?.kind === "fixed-array" && receiver?.base.kind === "local"
+          && densePosition(receiver.base.local, body.locals.length)
+          && (index.kind === "constant" || indexCell >= 0 && handedOut[indexCell] !== 1);
+        if ((directFixed || (selected?.kind === "fixed-array" || selected?.kind === "declared" && selected.extent !== null) && privateLocation[position] === 1)
           && (above < 0 || stable[above] === 1)) stable[position] = 1;
       }
     }
@@ -776,8 +781,7 @@ function decisionOfView(base: ProjectedBase, source: SourceNode | undefined): Vi
   }
   if (base.projection.kind === "index" && source.node.kind === "ElementAccessExpression" && "index" in source.node.tsonic) {
     const decision = source.node.tsonic.index;
-    return { check: { kind: "required", failure: decision.failure },
-      receiver: decision.carrier === "array" ? "by-reference" : "in-place" };
+    return { check: { kind: "required", failure: decision.failure }, receiver: decision.holding };
   }
   if (payload === null || !("selection" in payload) || payload.selection === null || payload.selection.kind !== "decided") return null;
   return decisionOfLocation(payload.selection.decision.decision.location);

@@ -2,6 +2,8 @@
 // control points with their failure kinds, the order of records along a chosen path, entries,
 // place chains. They compute nothing about what a correct lowering should be.
 
+import { transferMirCompletion } from "../../../../packages/host/dist/ir-mir/index.js";
+
 const EFFECT_KINDS = new Set(["call", "invoke", "await", "yield", "delegate", "throw", "check"]);
 
 export const blockOf = (mir, id) => {
@@ -10,7 +12,7 @@ export const blockOf = (mir, id) => {
   return block;
 };
 
-/** "handler" | "escape" | "abort" | "none" | null (the terminator has no failure arm). */
+/** "handler" | "carry" | "escape" | "abort" | "none" | null (the terminator has no failure arm). */
 export const failureOf = terminator => {
   if (!("unwind" in terminator)) return null;
   const kind = terminator.unwind.kind;
@@ -19,7 +21,8 @@ export const failureOf = terminator => {
 
 /** Every outgoing edge of a terminator, as { edge, target }. */
 export function edgesOf(terminator) {
-  const unwind = "unwind" in terminator && terminator.unwind.kind === "handler" ? [{ edge: "unwind", target: terminator.unwind.target }] : [];
+  const unwind = "unwind" in terminator && (terminator.unwind.kind === "handler" || terminator.unwind.kind === "carry")
+    ? [{ edge: "unwind", target: terminator.unwind.target }] : [];
   switch (terminator.kind) {
     case "goto": return [{ edge: "normal", target: terminator.target }];
     case "switch": return [...terminator.targets.map(target => ({ edge: "case", constant: target.constant, target: target.target })),
@@ -28,7 +31,7 @@ export function edgesOf(terminator) {
     case "await": return [{ edge: "resume", target: terminator.resume }, ...unwind];
     case "yield": case "delegate": return [{ edge: "resume", target: terminator.resume },
       { edge: "return", target: terminator.return.target }, ...unwind];
-    case "throw": return unwind;
+    case "throw": case "unwind-propagate": return unwind;
     case "return": case "unreachable": return [];
     default: throw new Error(`Unknown terminator kind ${terminator.kind}.`);
   }
@@ -74,6 +77,7 @@ export const at = (mir, node, kind = null) =>
 export function walk(mir, { entry = 0, decide = () => "normal", limit = 2000 } = {}) {
   const entries = mir.entries;
   let current = entries === undefined ? 0 : entries[entry].block;
+  let completion = { active: null, carried: null };
   const events = [];
   for (let steps = 0; steps < limit; steps += 1) {
     const block = blockOf(mir, current);
@@ -83,14 +87,25 @@ export function walk(mir, { entry = 0, decide = () => "normal", limit = 2000 } =
     events.push(point);
     if (terminator.kind === "return") return { events, end: "return" };
     if (terminator.kind === "unreachable") return { events, end: "unreachable" };
+    if (terminator.kind === "cleanup-enter" || terminator.kind === "cleanup-resume" || terminator.kind === "cleanup-discard") {
+      const next = transferMirCompletion(terminator, completion);
+      if (next.kind !== "next") throw new Error(`Invalid cleanup completion at block ${block.id}: ${next.reason}.`);
+      completion = next.state;
+      current = next.target;
+      continue;
+    }
     const choice = decide(point, mir);
     if (terminator.kind === "switch") {
       const target = terminator.targets.find(candidate => constantValue(mir, candidate.constant) === choice);
       current = target === undefined ? terminator.otherwise : target.target;
       continue;
     }
-    if (terminator.kind === "throw" || choice === "unwind") {
-      if (point.failure === "handler") { current = terminator.unwind.target; continue; }
+    if (terminator.kind === "throw" || terminator.kind === "unwind-propagate" || choice === "unwind") {
+      if (point.failure === "handler" || point.failure === "carry") {
+        completion = { ...completion, carried: point.failure === "carry" ? "unwind" : null };
+        current = terminator.unwind.target;
+        continue;
+      }
       return { events, end: point.failure === "abort" ? "abort" : "unwind" };
     }
     const edge = edgesOf(terminator).find(candidate => candidate.edge === choice) ??

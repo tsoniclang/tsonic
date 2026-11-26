@@ -6,7 +6,7 @@ import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayo
   checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
   readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
-import { isNativeIntegerPrimitive, sameInstance, verifyTypes } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, nativeArrayHoldingOf, sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
@@ -38,12 +38,14 @@ function verifyIndex(input: TirVerifierInput, node: ElementAccessExpression<Type
   const key = typedValueOf(node.argumentExpression);
   const storage = input.types.terms[selected.receiver];
   const nativeKey = input.types.terms[selected.key];
+  const holding = nativeArrayHoldingOf(input.selectedNativeFacts.carrierHolding, selected.carrier);
   if (original?.kind !== "ElementAccessExpression" || original.questionDotToken !== null || node.questionDotToken !== null
     || receiver?.convertedType !== selected.receiver || key?.convertedType !== selected.key
     || nativeKey?.kind !== "primitive" || !isNativeIntegerPrimitive(nativeKey.primitive)
     || (storage?.kind !== "array" && storage?.kind !== "fixed-array") || selected.carrier !== storage.kind
+    || holding === null || holding !== selected.holding
     || selected.failure !== (storage.kind === "array" ? input.selectedNativeFacts.arrayIndexFailure : input.selectedNativeFacts.fixedArrayIndexFailure)) {
-    emit("access-location", node, "an indexed place must retain its actual receiver, native index operand and bounds failure");
+    emit("access-location", node, "an indexed place must retain its actual receiver, holding, native index operand and bounds failure");
     return;
   }
   if (value.role === "value") {

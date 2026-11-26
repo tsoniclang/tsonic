@@ -120,8 +120,12 @@ function verificationInput(records = {}) {
   const nodeMap = new Map(nodes.map(row => [row.owner.kind === "body" ? `body:${row.owner.value.body}` : `item:${row.owner.value.owner}`, new Set(row.ids)]));
   const localMap = new Map(locals.map(row => [row.body, new Set(row.ids)]));
   return { group: { id: group, bodies: [body], signatures: [] }, constraints: [constraintSet()], contributions: [], solution: null,
-    types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature] }, bindingScopes: [], ...input,
-    selectedNativeFacts: { arrayIndexFailure: "unwind", fixedArrayIndexFailure: "abort", destinationCheck: "before-value" },
+    types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature] }, bindingScopes: [],
+    selectedNativeFacts: {
+      carrierHolding: [{ carrier: "array", holding: "by-reference" }, { carrier: "fixed-array", holding: "in-place" }],
+      arrayIndexFailure: "unwind", fixedArrayIndexFailure: "abort", destinationCheck: "before-value",
+    },
+    ...input,
     declarationOf: value => declarationMap.get(value) ?? null, nominalOf: value => nominalMap.get(value) ?? null,
     placedSignatureOf: value => placed.get(value) ?? null,
     nodeExists: value => !Object.is(value.value.node, -0) &&
@@ -133,7 +137,7 @@ function violation(rule, site, field) {
   return { rule, site, detail: [{ kind: "text", value: field }] };
 }
 
-test("an index decision keeps its original operands, accessed views and carrier failure", () => {
+test("an index decision keeps its original operands, accessed views, holding and carrier failure", () => {
   const types = { signatures: [signature], terms: [
     { kind: "primitive", primitive: "bool" },
     { kind: "primitive", primitive: "uint64" },
@@ -146,7 +150,7 @@ test("an index decision keeps its original operands, accessed views and carrier 
   const key = { node: occurrence, candidate: null, role: { kind: "index" } };
   const variable = { id: 0, occurrence, kind: "local", local: null };
   const contribution = { key, reads: [0], bounds: [], constraint };
-  const selection = { carrier: "array", receiver: 2, key: 1, read: null, write: 0, failure: "unwind", writeCheck: "before-value" };
+  const selection = { carrier: "array", holding: "by-reference", receiver: 2, key: 1, read: null, write: 0, failure: "unwind", writeCheck: "before-value" };
   const selected = (index, raw = {}, changes = {}) => {
     const solution = { ...completeSolution(), variables: [{ variable: 0, value: evidence(1), error: null }],
       constraints: [{ constraint, decision: { kind: "index", index } }] };
@@ -156,16 +160,22 @@ test("an index decision keeps its original operands, accessed views and carrier 
   };
   const native = selected(selection);
   fullEqual(product.verifyInference(native), [], "mutable native array write does not read");
-  const fixed = selected({ ...selection, carrier: "fixed-array", receiver: 3, read: 0, failure: "abort" },
+  const fixed = selected({ ...selection, carrier: "fixed-array", holding: "in-place", receiver: 3, read: 0, failure: "abort" },
     { receiver: 3, access: "read-write" });
   fullEqual(product.verifyInference(fixed), [], "fixed array update uses its own failure and both views");
+  const referenceFixed = selected({ ...fixed.solution.constraints[0].decision.index, holding: "by-reference" },
+    { receiver: 3, access: "read-write" }, { selectedNativeFacts: { ...native.selectedNativeFacts,
+      carrierHolding: [{ carrier: "fixed-array", holding: "by-reference" }] } });
+  fullEqual(product.verifyInference(referenceFixed), [], "a fixed extent does not select in-place holding");
   const read = selected({ ...selection, receiver: 5, read: 0, write: null, writeCheck: null }, { receiver: 5, access: "read" });
   fullEqual(product.verifyInference(read), [], "a readonly native array has a read but no write");
   fullEqual(product.parseSolution(product.printSolution(native.solution)), { kind: "parsed", value: native.solution },
     "a runtime index is data, not a named member key");
   for (const [index, raw, changes] of [
     [{ ...selection, read: 0 }], [{ ...selection, failure: "abort" }], [{ ...selection, key: 0 }],
-    [{ ...selection, carrier: "fixed-array" }], [{ ...selection, write: null }], [{ ...selection, writeCheck: "after-value" }],
+    [{ ...selection, carrier: "fixed-array" }], [{ ...selection, holding: "in-place" }],
+    [selection, {}, { selectedNativeFacts: { ...native.selectedNativeFacts, carrierHolding: [] } }],
+    [{ ...selection, write: null }], [{ ...selection, writeCheck: "after-value" }],
     [{ ...selection, receiver: 0 }, { receiver: 0 }],
     [{ ...selection, key: 0 }, { key: 0 }, { contributions: [{ ...contribution, reads: [] }] }],
     [{ ...selection, receiver: 5 }, { receiver: 5 }], [selection, { result: 1 }],
@@ -2419,7 +2429,8 @@ test("all decision, mapping, embedding, operation and protocol-step arms retain 
     recordGolden("member", { member }, "member"),
     ...dataMembers.map(data => recordGolden("member", { member: data }, "member")),
     ...["array", "fixed-array"].flatMap(carrier => ["unwind", "abort"].map(failure => recordGolden("index", {
-      index: recordGolden("IndexDecision", { carrier: scalarGolden(carrier), receiver: typeGolden, key: typeGolden,
+      index: recordGolden("IndexDecision", { carrier: scalarGolden(carrier),
+        holding: scalarGolden(carrier === "array" ? "by-reference" : "in-place"), receiver: typeGolden, key: typeGolden,
         read: carrier === "array" ? nullGolden : typeGolden, write: typeGolden, failure: scalarGolden(failure),
         writeCheck: scalarGolden(carrier === "array" ? "before-value" : "after-value") }),
     }, "index"))),

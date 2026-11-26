@@ -89,10 +89,12 @@ export type MirProjection =
 //   - A checked place is stable when it is the `refined` view of a local's own cell, that cell is written once (never,
 //     for a local present on entry) and the local is not handed out (no address taken, no hand-over by place in a
 //     writing mode, no capture). The local of a parameter or of the receiver that is not passed by value or moved is the
-//     caller's storage, used with no dereference: it is handed out from entry and written by other code, so no view of it is
-//     stable and it is not an index; an index held in such a parameter is first copied into a local written once.
-//     Bounds of an index into a selected `fixed-array` or `declared` type with an extent are also stable when the
-//     receiver and index depend only on body-owned, unexposed cells and no enclosing check is mutable.
+//     caller's storage, used with no dereference: it is handed out from entry and written by other code, so a
+//     refinement of its contents is not stable and it is not an index; an index held in such a parameter is first
+//     copied into a local written once. A direct local of `fixed-array` type names its fixed storage even when the
+//     caller lends that storage: writing its contents cannot resize it or replace its address. An index checked at
+//     that direct location is stable when the index is a constant or a private saved value. For other selected
+//     fixed-extent views, stability requires body-owned, unexposed receiver and index cells and no enclosing mutable check.
 //     The actual parent place's type supplies the extent; there is no second extent decision. Every other checked place is mutable.
 //   - Mutable availability ends at a `call`, `await`, `yield` or `delegate`, and at an `invoke` whose decision says
 //     it writes existing storage; at a value written into a

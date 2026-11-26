@@ -325,17 +325,19 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
     return { fields: [member], value: () => ({ kind: "member", member: member.value() }) };
   });
 
-  const indexCarrierSchema = enumSchema<IndexDecision["carrier"]>("IndexCarrier", ["array","fixed-array"]);
+  const indexCarrierSchema = enumSchema<IndexDecision["carrier"]>("IndexCarrier", ["array", "fixed-array"]);
   const destinationCheckSchema = enumSchema("DestinationCheck", ["before-value", "after-value"]);
   const indexDecisionSchema = recordSchema<IndexDecision>("IndexDecision", "IndexDecision", read => {
     const carrier = read("carrier", () => indexCarrierSchema, value => value.carrier);
+    const holding = read("holding", () => decisionValues.receiverAccessSchema, value => value.holding);
     const receiver = read("receiver", () => tSchema, value => value.receiver);
     const key = read("key", () => tSchema, value => value.key);
     const get = read("read", () => nullableSchema(tSchema), value => value.read);
     const set = read("write", () => nullableSchema(tSchema), value => value.write);
     const failure = read("failure", () => decisionValues.checkFailureSchema, value => value.failure);
     const writeCheck = read("writeCheck", () => nullableSchema(destinationCheckSchema), value => value.writeCheck);
-    return { fields: [carrier, receiver, key, get, set, failure, writeCheck], value: () => ({ carrier: carrier.value(), receiver: receiver.value(),
+    return { fields: [carrier, holding, receiver, key, get, set, failure, writeCheck], value: () => ({ carrier: carrier.value(),
+      holding: holding.value(), receiver: receiver.value(),
       key: key.value(), read: get.value(), write: set.value(), failure: failure.value(), writeCheck: writeCheck.value() }) };
   });
   const indexConstraintDecisionSchema = recordSchema<IndexConstraintDecisionRecord>("IndexConstraintDecision", "index", read => {

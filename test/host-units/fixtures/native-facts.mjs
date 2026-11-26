@@ -1,6 +1,7 @@
-export function nativeFactsFixture() {
+export function nativeFactsFixture({ arrayHolding = "by-reference", fixedArrayHolding = "in-place" } = {}) {
   return {
-    carrierHolding: [{ carrier: "bool", holding: "in-place" }, { carrier: "float64", holding: "in-place" },
+    carrierHolding: [{ carrier: "array", holding: arrayHolding }, { carrier: "bool", holding: "in-place" },
+      { carrier: "fixed-array", holding: fixedArrayHolding }, { carrier: "float64", holding: "in-place" },
       { carrier: "int64", holding: "in-place" }, { carrier: "native-int", holding: "in-place" }],
     nativeIntegerWidths: [{ carrier: "native-int", bits: 128 }, { carrier: "native-uint", bits: 64 }],
     floatingFormats: [{ carrier: "float64", interchange: "ieee754-binary64",

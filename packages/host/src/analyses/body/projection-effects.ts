@@ -64,7 +64,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       if (prepared !== null) return prepared;
       const payload = node?.kind === "ElementAccessExpression" ? node.tsonic : null;
       const selected = payload !== null && "index" in payload ? payload.index : null;
-      if (selected?.carrier !== "array" || (payload?.role === "value" ? selected.read : selected.write) !== place.storage
+      if (selected?.holding !== "by-reference" || (payload?.role === "value" ? selected.read : selected.write) !== place.storage
         || mir.places[base.place]?.storage !== selected.receiver)
         return bodyFrontier("A scalar element access requires its actual selected checked reference-held array.");
       const value = index.kind === "constant" ? mir.constants[index.constant]?.value : undefined;

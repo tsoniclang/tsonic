@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test as declare } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SELECTED_BINDINGS, SIG, T, TABLE, bodyId, builders, callee, declareType, def, defaultMapping, direct, mapped, native, omittedMapping, seal, selected, selection, signature, typedBody, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SELECTED_BINDINGS, SIG, T, TABLE, bodyId, builders, callee, declareType, def, defaultMapping, direct, mapped, native, nativeIndex, omittedMapping, seal, selected, selection, signature, typedBody, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import {
   argumentConstantOf, argumentKindsOf, at, blocksWithStatementAt, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
   controlPoints, createsClosure, destinationBaseOf, destinationChainOf, destinationFieldOf, destinationRootOf, edgesOf, effects,
@@ -171,6 +171,8 @@ test("authored MIR: array destinations check at the selected time and reuse the 
   const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
   const { lowerMirDeps, mirVerificationContext } = await import("../../packages/host/dist/pipeline/lower-mir-step.js");
   const { internType, viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
+  const { parseTir, printTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
   const input = analysisInput(fixture, "es2024", `
     function key() { return 0; }
     function next(flag: boolean): boolean { return !flag; }
@@ -182,8 +184,12 @@ test("authored MIR: array destinations check at the selected time and reuse the 
   `);
   const checked = captureSourceBarrier(input);
   assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
-  for (const [destinationCheck, arrayIndexFailure] of [["before-value", "abort"], ["after-value", "unwind"]]) {
-    const selectedNativeFacts = { ...input.snapshot.nativeFacts, destinationCheck, arrayIndexFailure };
+  for (const [destinationCheck, arrayIndexFailure, holding] of [
+    ["before-value", "abort", "by-reference"], ["after-value", "unwind", "by-reference"],
+    ["before-value", "abort", "in-place"], ["after-value", "unwind", "in-place"],
+  ]) {
+    const carrierHolding = input.snapshot.nativeFacts.carrierHolding.map(row => row.carrier === "array" ? { ...row, holding } : row);
+    const selectedNativeFacts = { ...input.snapshot.nativeFacts, destinationCheck, arrayIndexFailure, carrierHolding };
     const active = { ...input, snapshot: { ...input.snapshot, nativeFacts: selectedNativeFacts } };
     const typed = typeSourceBarrier(active, checked.value, createAccount(active.limits.dataflow));
     assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
@@ -213,6 +219,24 @@ test("authored MIR: array destinations check at the selected time and reuse the 
       assert.deepEqual(verified, { kind: "complete", violations: [] }, name);
       const { expression } = body.root.statements.nodes[0];
       const index = name === "read" ? expression : expression.left;
+      assert.equal(index.tsonic.index.holding, holding, name);
+      if (name === "read") {
+        const text = printTir(body);
+        const parsed = parseTir(text);
+        assert.equal(parsed.kind, "parsed");
+        assert.equal(parsed.value.root.statements.nodes[0].expression.tsonic.index.holding, holding);
+        const missingHolding = text.replace(`, holding="${holding}"`, "");
+        assert.notEqual(missingHolding, text);
+        assert.notEqual(parseTir(missingHolding).kind, "parsed");
+      }
+      const sourceProof = ready.verifierOf(body.root.origin.module);
+      assert.ok(sourceProof, name);
+      const crossed = carrierHolding.map(row => row.carrier === "array"
+        ? { ...row, holding: holding === "by-reference" ? "in-place" : "by-reference" } : row);
+      const rejected = verifyTir({ ...sourceProof, selectedNativeFacts: { ...selectedNativeFacts, carrierHolding: crossed } },
+        tirReadyReadAdmission(createAccount(active.limits.dataflow)))(body);
+      assert.equal(rejected.kind, "complete");
+      assert.equal(rejected.violations.some(issue => issue.rule === "access-location"), true, name);
       const chain = [];
       let block = mir.blocks[mir.entries[0].block];
       while (block !== undefined) {
@@ -227,6 +251,7 @@ test("authored MIR: array destinations check at the selected time and reuse the 
       assert.equal(checkedBlocks.length, name === "compound" || name === "write" && destinationCheck === "before-value" ? 2 : 1, name);
       const place = mir.places.find(row => row.base.kind === "checked" && row.base.tir.node === index.id);
       assert.ok(place, name);
+      assert.equal(rootLocalOf(mir, place.base.place) === sourceLocal(mir, 0), holding === "in-place", name);
       assert.deepEqual(place.base.projection, { kind: "index", operand: { kind: "place", place: calls[0].destination } });
       for (const current of checkedBlocks) {
         assert.equal(current.terminator.place, place.id);
@@ -4352,6 +4377,26 @@ test("WT-1 count: the loop body runs once per true condition and the body return
 
 // ---- WT-6 -----------------------------------------------------------------------------------
 
+test("WT-6 indexed fixed static storage is read and written without an aggregate copy", () => {
+  const owner = def("fixedSlots");
+  const name = "fixedSlotsAccess";
+  const b = builders(name);
+  const selected = () => ({ kind: "Identifier", text: "fixedSlots", tsonic: { ...value(T.int32Fixed4), role: "value",
+    resolution: { kind: "static", declaration: { owner, node: 0 }, aliases: [] } } });
+  const indexed = access => b.element(b.paren(selected(), T.int32Fixed4), b.num("0", T.int32), nativeIndex(T.int32Fixed4, T.int32, access, "unwind"));
+  const program = typedBody(name, { signature: signature(name, [], T.int32), completion: T.int32,
+    root: b.block(b.expressionStatement(b.assign(indexed("write"), "EqualsToken", b.num("1", T.int32), T.int32, T.int32)),
+      b.returns(indexed("read"))) });
+  const mir = lower(program);
+  assert.equal(mir.locals.length, 0);
+  assert.deepEqual(checks(mir).map(point => mir.places[mir.places[point.record.place].base.place].base),
+    [{ kind: "static", definition: owner }, { kind: "static", definition: owner }]);
+  const stores = mir.blocks.flatMap(block => block.statements.filter(row => row.kind === "assign"));
+  assert.equal(stores.length, 1);
+  assert.equal(stores[0].place, checks(mir)[0].record.place);
+  assert.equal(walk(mir, { decide: point => point.kind === "check" ? "unwind" : "normal" }).events.some(row => row.kind === "assign"), false);
+});
+
 for (const policy of POLICIES) {
   const failing = policy.bounds === "abort" ? "abort" : "escape";
   const failingAbsent = policy.absent === "abort" ? "abort" : "escape";
@@ -4397,7 +4442,7 @@ for (const policy of POLICIES) {
       [label, checks(mir, program.at(label)).map(point => point.failure)]));
     assert.deepEqual(kinds, {
       "@target": [failing, failing], "@bang": [failingAbsent],
-      "a[0]#read": [policy.bounds === "abort" ? "abort" : "handler"], "a[0]#write": [failing],
+      "a[0]#read": [policy.bounds === "abort" ? "abort" : "carry"], "a[0]#write": [policy.bounds === "abort" ? "abort" : "carry"],
     });
   });
 
@@ -4484,7 +4529,7 @@ for (const policy of POLICIES) {
   test(`WT-6 orderFixed (${policy.bounds}/${policy.absent}): a fixed extent held in place: no second control point`, () => {
     const program = wt6(policy).orderFixed;
     const mir = lower(program);
-    assert.deepEqual(labelled(program, nodesOn(walk(mir))), ["i()", "@target", "f()"]);
+    assert.deepEqual(labelled(program, nodesOn(walk(mir))), ["i()", "@target", "f()", "a[0]"]);
     assert.equal(checks(mir, program.at("@target")).length, 1);
     // R11: "value storage is addressed in place and never copied to stand for the destination". The fixed array is the
     // parameter's own storage: the checked place is rooted at that local.
@@ -4504,14 +4549,65 @@ for (const policy of POLICIES) {
     const store = path.events.findLastIndex(item => storesField(mir, item, "count"));
     assert.ok(tests[0] < assignment && assignment < tests[1] && tests[1] < store);
     assert.equal(storedRootOf(mir, path.events[store]), sourceLocal(mir, 0));
+    const [first, final] = checks(mir, program.at("@bang"));
+    assert.equal(first.record.place, final.record.place);
+    const failurePath = walk(mir, { decide: event => event.record === final.record ? "unwind" : "normal" });
+    assert.equal(failurePath.end, policy.absent === "abort" ? "abort" : "unwind");
+    assert.equal(failurePath.events.some(event => storesField(mir, event, "count")), false);
   });
 
-  test(`WT-6 orderFixedByReference (${policy.bounds}/${policy.absent}): a fixed extent held by reference: no second control point`, () => {
+  test(`WT-6 orderFixedByReference (${policy.bounds}/${policy.absent}): a formal can lend inline storage without changing its holding`, () => {
     const program = wt6(policy).orderFixedByReference;
     const mir = lower(program);
-    // The receiver mode is "by reference" and the extent is fixed: reference does not mean growable.
-    assert.deepEqual(labelled(program, nodesOn(walk(mir))), ["i()", "@target", "f()"]);
+    assert.deepEqual(labelled(program, nodesOn(walk(mir))), ["i()", "@target", "f()", "a[0]"]);
     assert.equal(checks(mir, program.at("@target")).length, 1);
+    assert.equal(checkedPlace(mir, checks(mir)[0]).parentRoot, sourceLocal(mir, 0));
+  });
+
+  test(`WT-6 carrier holding (${policy.bounds}/${policy.absent}): a fixed reference is captured; growable inline storage is not`, () => {
+    const { orderFixedReplace: fixed, orderGrow: growable } = wt6(policy, { fixedArrayHolding: "by-reference", arrayHolding: "in-place" });
+    const fixedMir = lower(fixed);
+    const fixedPath = walk(fixedMir);
+    assert.deepEqual(labelled(fixed, nodesOn(fixedPath)), ["i()", "@target", "a[0]"]);
+    const [target, laterRead] = checks(fixedMir);
+    const savedReceiver = checkedPlace(fixedMir, target).parentRoot;
+    assert.notEqual(savedReceiver, sourceLocal(fixedMir, 0));
+    assert.notEqual(checkedPlace(fixedMir, laterRead).parentRoot, savedReceiver);
+    const save = indexOfEvent(fixedPath, event => event.kind === "assign" && storedRootOf(fixedMir, event) === savedReceiver);
+    const index = indexOfEvent(fixedPath, event => event.node === fixed.at("i()"));
+    const replace = indexOfEvent(fixedPath, event => event.kind === "assign" && event.node === fixed.at("replaced"));
+    assert.ok(save !== -1 && save < index && index < replace);
+    const grown = lower(growable);
+    const first = checks(grown, growable.at("@target"));
+    assert.deepEqual(labelled(growable, nodesOn(walk(grown))), ["i()", "@target", "grow(a)", "@target", "a[0]"]);
+    assert.equal(first.length, 2);
+    assert.equal(first[0].record.place, first[1].record.place);
+    assert.equal(checkedPlace(grown, first[0]).parentRoot, sourceLocal(grown, 0));
+  });
+
+  test(`WT-6 orderFixedAliased (${policy.bounds}/${policy.absent}): handing out the same fixed location does not resize it`, () => {
+    const program = wt6(policy).orderFixedAliased;
+    const mir = lower(program);
+    assert.deepEqual(labelled(program, nodesOn(walk(mir))), ["i()", "@target", "mutateFixed(a)", "a[0]"]);
+    const [checked] = checks(mir, program.at("@target"));
+    const [call] = at(mir, program.at("mutateFixed(a)"), "call");
+    assert.deepEqual(call.record.arguments, [{ kind: "place", passing: "byref-readwrite", place: mir.places[checked.record.place].base.place }]);
+    assert.equal(checkedPlace(mir, checked).parentRoot, sourceLocal(mir, 0));
+  });
+
+  test(`WT-6 orderFixedReplace (${policy.bounds}/${policy.absent}): an explicit receiver write ends the prior check`, () => {
+    const program = wt6(policy).orderFixedReplace;
+    const mir = lower(program);
+    const path = walk(mir);
+    assert.deepEqual(labelled(program, nodesOn(path)), ["i()", "@target", "@target", "a[0]"]);
+    const [first, repeated] = checks(mir, program.at("@target"));
+    assert.equal(first.record.place, repeated.record.place);
+    const replacement = path.events.findIndex(event => event.kind === "assign" && event.node === program.at("replaced"));
+    assert.ok(path.events.findIndex(event => event.record === first.record) < replacement);
+    assert.ok(replacement < path.events.findIndex(event => event.record === repeated.record));
+    const withoutRecheck = { ...mir, blocks: mir.blocks.map(block => block.id === repeated.block ? { ...block,
+      terminator: { kind: "goto", target: repeated.record.next, origin: repeated.record.origin, tir: repeated.record.tir } } : block) };
+    assert.ok(verified(withoutRecheck, program).some(violation => violation.rule === "checked-place-available"));
   });
 }
 
@@ -4520,7 +4616,7 @@ test("WT-6: the failure policies give the same graph except for the failure kind
   const [reference, ...others] = POLICIES.map(policy => wt6(policy));
   const normalPath = programs => walk(lower(programs.order)).events.map(item => [item.kind, item.node]);
   for (const programs of others) {
-    for (const name of ["orderGrow", "orderFixed", "orderFixedByReference", "orderInPlace"])
+    for (const name of ["orderGrow", "orderFixed", "orderFixedByReference", "orderFixedAliased", "orderFixedReplace", "orderInPlace"])
       assert.deepEqual(withoutFailureKinds(lower(programs[name])), withoutFailureKinds(lower(reference[name])));
     // `order` has a cleanup that an unwinding failure enters and a process-ending failure does not; the path that
     // completes normally is the same under every policy.

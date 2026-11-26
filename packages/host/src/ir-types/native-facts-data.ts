@@ -37,8 +37,10 @@ export type NativeConversionResult =
   | { readonly kind: "constant"; readonly value: bigint }
   | { readonly kind: "fail"; readonly failure: CheckFailure };
 
+export type NativeArrayCarrier = "array" | "fixed-array";
+
 export interface NativeCarrierHolding {
-  readonly carrier: NativePrimitive;
+  readonly carrier: NativePrimitive | NativeArrayCarrier;
   readonly holding: ReceiverAccess;
 }
 

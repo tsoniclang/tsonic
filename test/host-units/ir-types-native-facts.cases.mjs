@@ -188,7 +188,7 @@ export async function nativeFactsCases(suite, product) {
       assert.notEqual(product.nativeFactsKey(changed), originalKey, field);
     }
     const changes = {
-      carrierHolding: row => { row.holding = "by-reference"; },
+      carrierHolding: row => { row.holding = row.holding === "by-reference" ? "in-place" : "by-reference"; },
       nativeIntegerWidths: row => { row.bits = 64; },
       floatingFormats: row => { row.nanPayloadObservable = false; },
       integerOverflow: row => { row.result = "int128"; },
@@ -258,6 +258,23 @@ export async function nativeFactsCases(suite, product) {
     assert.deepEqual(product.verifyNativeFacts(identity), []);
   });
 
+  await suite.test("array holding is an explicit, unique selected carrier fact", () => {
+    const facts = nativeFactsFixture({ arrayHolding: "in-place", fixedArrayHolding: "by-reference" });
+    const rows = facts.carrierHolding;
+    assert.deepEqual(product.verifyNativeFacts(facts), []);
+    assert.equal(product.nativeArrayHoldingOf(rows, "array"), "in-place");
+    assert.equal(product.nativeArrayHoldingOf(rows, "fixed-array"), "by-reference");
+    assert.notEqual(product.nativeFactsKey(facts), product.nativeFactsKey(nativeFactsFixture()));
+    assert.equal(product.nativeArrayHoldingOf(rows.filter(row => row.carrier !== "fixed-array"), "fixed-array"), null);
+    const array = rows[0];
+    const duplicate = [array, ...rows];
+    assert.deepEqual(product.verifyNativeFacts({ ...facts, carrierHolding: duplicate }), [issue("native-fact-unique", "carrierHolding", 1)]);
+    assert.equal(product.nativeArrayHoldingOf(duplicate, "array"), null);
+    assert.equal(product.nativeArrayHoldingOf([{ carrier: "fixed-array", holding: "invalid" }], "fixed-array"), null);
+    assert.equal(product.nativeArrayHoldingOf(Array(21).fill(array), "array"), null);
+    assert.equal(product.nativeArrayHoldingOf(null, "array"), null);
+  });
+
   await suite.test("closed native facts reject missing fields, unknown laws and malformed rows without fallback", () => {
     assert.deepEqual(product.verifyNativeFacts(undefined), [issue("native-fact-value", "nativeFacts", null)]);
     const facts = nativeFactsFixture();
@@ -311,7 +328,8 @@ export async function nativeFactsCases(suite, product) {
       assert.deepEqual(product.verifyNativeFacts(repeated), [issue("native-fact-unique", field, 1)], field);
     }
     const reversed = { ...facts, carrierHolding: [...facts.carrierHolding].reverse() };
-    assert.equal(product.verifyNativeFacts(reversed).filter(value => value.rule === "native-fact-order").length, 3);
+    assert.equal(product.verifyNativeFacts(reversed).filter(value => value.rule === "native-fact-order").length,
+      facts.carrierHolding.length - 1);
     const registration = { declaration: { providerId: "provider", providerVersion: "1", providerModuleId: "native", moduleSpecifier: "layout", exportId: "abi" },
       layout: { fingerprint: "abi", byteOrder: "little", addressWidth: 64 } };
     facts.geometry.layouts = [registration, registration];

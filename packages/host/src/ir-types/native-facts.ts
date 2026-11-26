@@ -1,7 +1,7 @@
 import { encodeKey } from "../ids/index.js";
 import type { KeyData } from "../ids/contract.js";
 import type { Violation } from "../diag/contract.js";
-import type { IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, NativeIntegerGeometryOf } from "./contract.js";
+import type { IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, NativeArrayHoldingOf, NativeIntegerGeometryOf } from "./contract.js";
 import type { NativeBinaryFloatPrimitive, NativeIntegerPrimitive, NativeSignedIntegerPrimitive, NativePrimitive } from "./data.js";
 import type { CheckFailure, NativeArithmeticCarrier, NativeConversionResult, NativeFactsRule, NativeFactsSite,
   NativeFloatingFormat, NativeRounding, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
@@ -145,6 +145,20 @@ function conversion(value: NativeConversionResult): boolean {
   }
 }
 
+const MAX_CARRIER_HOLDINGS = 20;
+
+export const nativeArrayHoldingOf: NativeArrayHoldingOf = (facts, carrier) => {
+  if (!Array.isArray(facts) || facts.length > MAX_CARRIER_HOLDINGS) return null;
+  let holding: "in-place" | "by-reference" | null = null;
+  for (const row of facts) {
+    if (row?.carrier !== carrier) continue;
+    const actual = row.holding;
+    if (holding !== null || (actual !== "in-place" && actual !== "by-reference")) return null;
+    holding = actual;
+  }
+  return holding;
+};
+
 export function verifyNativeFacts(value: SelectedNativeFacts): readonly Violation<NativeFactsRule, NativeFactsSite>[] {
   const findings: Violation<NativeFactsRule, NativeFactsSite>[] = [];
   const add = (rule: NativeFactsRule, field: string, index: number | null): void => {
@@ -170,8 +184,9 @@ export function verifyNativeFacts(value: SelectedNativeFacts): readonly Violatio
       previous = current;
     }
   };
-  rows(value.carrierHolding, "carrierHolding", 18, row => row.carrier,
-    row => isNativePrimitive(row.carrier) && (row.holding === "in-place" || row.holding === "by-reference"));
+  rows(value.carrierHolding, "carrierHolding", MAX_CARRIER_HOLDINGS, row => row.carrier,
+    row => (row.carrier === "array" || row.carrier === "fixed-array" || isNativePrimitive(row.carrier))
+      && (row.holding === "in-place" || row.holding === "by-reference"));
   rows(value.nativeIntegerWidths, "nativeIntegerWidths", 2, row => row.carrier,
     row => (row.carrier === "native-int" || row.carrier === "native-uint") && Number.isSafeInteger(row.bits) && row.bits > 0);
   rows(value.floatingFormats, "floatingFormats", 3, row => row.carrier,

@@ -86,15 +86,26 @@ export const operation = decision => decided(typedOperation(decision));
 export const direct = receiver => ({ kind: "data", check: { kind: "none" }, receiver });
 export const checked = (failure, receiver) =>
   ({ kind: "data", check: { kind: "required", failure }, receiver });
-// The key of an index decision whose key is not a compile-time value is undecided (NEEDS-W4 A8 note).
-export const DYNAMIC_KEY = null;
 export const memberDecision = (key, read, write, location) => ({
-  key: key === DYNAMIC_KEY ? DYNAMIC_KEY : { kind: "text", value: key }, origins: [], selectedDeclarations: [], primary: null,
+  key: { kind: "text", value: key }, origins: [], selectedDeclarations: [], primary: null,
   read, write, getter: null, setter: null, bindings: EMPTY_BINDINGS, location });
 export const selection = (key, read, write, location) =>
   decided({ decision: memberDecision(key, read, write, location), getter: null, setter: null });
 export const narrowed = (source, result, failure) =>
   ({ kind: "narrowed", source, result, proof: { kind: "identity" }, failure });
+
+export function nativeIndex(receiver, key, access, failure, facts = selectedNativeFacts) {
+  const term = TABLE.terms[receiver];
+  if (term.kind !== "array" && term.kind !== "fixed-array") throw new Error("An index fixture requires its actual array carrier.");
+  const holding = facts.carrierHolding.find(row => row.carrier === term.kind)?.holding;
+  if (holding === undefined) throw new Error("An index fixture requires the selected holding of its carrier.");
+  const storage = term.element;
+  const index = { carrier: term.kind, holding, receiver, key, failure, read: access === "write" ? null : storage,
+    write: access === "read" ? null : storage, writeCheck: access === "read" ? null : facts.destinationCheck };
+  if (access === "read") return { ...value(storage), role: "value", index };
+  return { role: "assignment-target", index, access: access === "write" ? { kind: "write", storage }
+    : { kind: "read-write", storage, read: storage, narrowing: null, evidenceIndex: null } };
+}
 
 export const endpoint = (name, role, signatureId, withBody = true) => {
   const made = { declaration: def(name), role, signature: signatureId, body: withBody ? bodyId(name) : null };
@@ -112,7 +123,7 @@ export function offeredEntries(signature) {
 }
 /** The context `verifyMir` needs for a graph lowered from `program`: its typed body, the type table, and the declarations and body owners the programs name. */
 export const verificationContext = program => ({
-  selectedNativeFacts,
+  selectedNativeFacts: program.nativeFacts ?? selectedNativeFacts,
   requiredEntries: offeredEntries(TABLE.signatures[program.tir.signature]),
   limits: { maximumWork: 1000000 }, source: program.tir, bodyOf: program.bodyOf ?? (() => null), types: TABLE,
   declarationOf: definition => KNOWN.has(definition) ? { scope: NO_SCOPE, parameterCount: 0, endpoints: ENDPOINTS.get(definition) ?? [] } : null,
@@ -148,6 +159,8 @@ export function builders(name, role = "function") {
       tsonic: { role: "assignment-target", resolution: { kind: "local", local: localRef(local) }, access } }),
     global: (text, definition, type) => ({ kind: "Identifier", text,
       tsonic: { ...value(type), role: "value", resolution: { kind: "definition", definition: def(definition), aliases: [] } } }),
+    undefined: () => ({ kind: "Identifier", text: "undefined",
+      tsonic: { ...value(T.absence), role: "value", resolution: { kind: "intrinsic-value", intrinsic: "undefined" } } }),
     declName: (text, local) => ({ kind: "Identifier", text,
       tsonic: { role: "declaration-name", declaration: { kind: "local", local: localRef(local) }, storage: null } }),
     propertyName: text => ({ kind: "Identifier", text, tsonic: { role: "property-name", key: { kind: "text", value: text } } }),

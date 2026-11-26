@@ -2,18 +2,22 @@ import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BlockId, BodyId, LocalId, LocalRef, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, Statement, SwitchStatement, ThrowStatement, TryStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
-import type { CaseClause, CaseOrDefaultClause, DefaultClause, ElementAccessExpression } from "../ir-hir/contract.js";
+import type { CaseClause, CaseOrDefaultClause, DefaultClause, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { IndexDecision } from "../ir-infer/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
+import type { CheckFailure } from "../ir-types/contract.js";
 import type { MemberSelection, TirApplication, TirBody, TirDemand, TirModuleRoot, TypedOperation, TypedValueOccurrence, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
-import type { IndexCheckStamp, LowerState, ReadAnchor } from "./state.js";
+import type { LowerState, PlaceCheckStamp, ReadAnchor } from "./state.js";
 
-export interface IndexedWrite {
-  readonly target: ElementAccessExpression<TypedPhase>;
-  readonly decision: IndexDecision;
-  readonly stamp: IndexCheckStamp | null;
+export interface CheckedWrite {
+  readonly target: NodeHeader;
+  readonly place: PlaceId;
+  readonly failure: CheckFailure;
+  readonly stamp: PlaceCheckStamp | null;
 }
+
+export type FieldReceiver = { readonly kind: "in-place"; readonly staticRoot: PlaceId | null } | { readonly kind: "by-reference" };
 
 interface IndexWork {
   readonly node: ElementAccessExpression<TypedPhase>;
@@ -83,10 +87,10 @@ export type Work =
   | { readonly kind: "scope-end"; readonly node: NodeHeader; readonly scope: LocalScope }
   | { readonly kind: "call"; readonly node: CallExpression<TypedPhase> | NewExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
   | { readonly kind: "field-read"; readonly node: NodeHeader; readonly member: MemberSelection; readonly storage: TyId;
-    readonly receiver: { readonly kind: "in-place"; readonly staticRoot: PlaceId | null } | { readonly kind: "by-reference" } }
-  | { readonly kind: "field-assignment"; readonly node: BinaryExpression<TypedPhase>; readonly target: NodeHeader;
+    readonly receiver: FieldReceiver }
+  | { readonly kind: "field-assignment"; readonly node: BinaryExpression<TypedPhase>; readonly target: PropertyAccessExpression<TypedPhase>;
       readonly member: MemberSelection; readonly storage: TyId; readonly read: TyId;
-      readonly value: TypedValue; readonly calculation: TypedOperation | null; readonly conditional: boolean }
+      readonly value: TypedValue; readonly calculation: TypedOperation | null; readonly conditional: boolean; readonly receiver: FieldReceiver }
   | (IndexWork & { readonly kind: "index-receiver" })
   | (IndexWork & { readonly kind: "index-key"; readonly base: PlaceId })
   | { readonly kind: "void-result"; readonly node: NodeHeader; readonly storage: TyId }
@@ -100,7 +104,7 @@ export type Work =
   | { readonly kind: "for-next"; readonly node: ForStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | Discard
   | { readonly kind: "store"; readonly node: NodeHeader; readonly local: LocalId | null; readonly place: PlaceId; readonly result: "old" | "new";
-      readonly indexed?: IndexedWrite }
+      readonly checked: CheckedWrite | null; readonly storageRoot: PlaceId }
   | { readonly kind: "if"; readonly node: IfStatement<TypedPhase> }
   | { readonly kind: "switch"; readonly node: SwitchStatement<TypedPhase> }
   | ({ readonly kind: "switch-test"; readonly dispatch: SwitchDispatch; readonly subject: Evaluated; readonly fallback: SwitchTarget<DefaultClause<TypedPhase>> | null } & SwitchTarget<CaseClause<TypedPhase>>)

@@ -37,7 +37,7 @@ export interface LowerState {
   readonly constants: Map<string, MirKeyedConstant>;
   readonly blocks: OpenBlock[];
   readonly entries: MirEntry[];
-  indexChecks: { epoch: number; readonly exposed: ReadonlySet<LocalId>; readonly writes: Map<LocalId, number> } | null;
+  placeChecks: { epoch: number; readonly exposed: ReadonlySet<LocalId>; readonly writes: Map<LocalId, number> } | null;
   records: number;
   /**
    * The next record would have passed the size limit. From then on every primitive answers null and records nothing,
@@ -49,40 +49,42 @@ export interface LowerState {
 
 export function createState(body: BodyId, bindings: ArtifactBindings, result: TyId, limits: LowerMirLimits): LowerState {
   return { body, bindings, result, limits, locals: [], places: [], localPlaces: new Map(), staticPlaces: new Map(), constants: new Map(), blocks: [],
-    entries: [], indexChecks: null, records: 0, refused: false, current: null };
+    entries: [], placeChecks: null, records: 0, refused: false, current: null };
 }
 
-export interface IndexCheckStamp {
-  readonly epoch: number;
+export interface PlaceCheckStamp {
   readonly local: LocalId | null;
   readonly version: number;
+  readonly epoch: number | null;
 }
 
-export function indexCheckStamp(state: LowerState, exposed: ReadonlySet<LocalId>, local: LocalId | null): IndexCheckStamp {
-  const checks = state.indexChecks ??= { epoch: 0, exposed, writes: new Map() };
-  if (local !== null && !checks.writes.has(local)) checks.writes.set(local, 0);
-  return { epoch: checks.epoch, local, version: local === null ? 0 : checks.writes.get(local) ?? 0 };
+export function placeCheckStamp(state: LowerState, exposed: ReadonlySet<LocalId>, local: LocalId | null,
+  dependency: "fixed-local-extent" | "mutable-storage"): PlaceCheckStamp {
+  const checks = state.placeChecks ??= { epoch: 0, exposed, writes: new Map() };
+  if (local === null) return { local, version: 0, epoch: checks.epoch };
+  const version = checks.writes.get(local);
+  if (version === undefined) checks.writes.set(local, 0);
+  return { local, version: version ?? 0, epoch: dependency === "fixed-local-extent" ? null : checks.epoch };
 }
 
-export function indexCheckChange(state: LowerState, stamp: IndexCheckStamp): "unchanged" | "mutable" | "root" {
-  const checks = state.indexChecks;
+export function placeCheckAvailable(state: LowerState, stamp: PlaceCheckStamp): boolean {
+  const checks = state.placeChecks;
   if (checks === null) return throwInvariant(invariant("a saved check requires its actual lowering account"));
-  if (stamp.local !== null && checks.writes.get(stamp.local) !== stamp.version) return "root";
-  return checks.epoch === stamp.epoch ? "unchanged" : "mutable";
+  return (stamp.local === null || checks.writes.get(stamp.local) === stamp.version) && (stamp.epoch === null || checks.epoch === stamp.epoch);
 }
 
-function indexCellWrite(state: LowerState, local: LocalId): void {
-  const checks = state.indexChecks;
+function checkedCellWrite(state: LowerState, local: LocalId): void {
+  const checks = state.placeChecks;
   if (checks === null) return;
   const version = checks.writes.get(local);
   if (version !== undefined) checks.writes.set(local, version + 1);
 }
 
-function indexPlaceWrite(state: LowerState, place: PlaceId | null): void {
-  const checks = state.indexChecks;
+function checkedPlaceWrite(state: LowerState, place: PlaceId | null): void {
+  const checks = state.placeChecks;
   if (checks === null || place === null) return;
   const base = state.places[place]?.base;
-  if (base?.kind === "local") indexCellWrite(state, base.local);
+  if (base?.kind === "local") checkedCellWrite(state, base.local);
   if (base?.kind !== "local" || checks.exposed.has(base.local)) checks.epoch += 1;
 }
 
@@ -176,12 +178,12 @@ export function enterBlock(state: LowerState, block: BlockId): void {
 
 export function buildDetachedBlock(state: LowerState, block: BlockId, build: () => boolean): boolean {
   const current = state.current;
-  const checks = state.indexChecks;
+  const checks = state.placeChecks;
   state.current = null;
-  state.indexChecks = null;
+  state.placeChecks = null;
   enterBlock(state, block);
   const done = build();
-  state.indexChecks = checks;
+  state.placeChecks = checks;
   if (!done) return false;
   if (state.current !== null) return throwInvariant(invariant("a detached block must be terminated before resuming its source"));
   state.current = current;
@@ -194,9 +196,9 @@ export function emitStatement(state: LowerState, statement: MirStatement): boole
   if (state.current === null) return throwInvariant(invariant("a statement was emitted with no open block"));
   if (!charge(state)) return false;
   state.current.statements.push(statement);
-  if (state.indexChecks !== null) {
-    if (statement.kind === "assign") indexPlaceWrite(state, statement.place);
-    else indexCellWrite(state, statement.local);
+  if (state.placeChecks !== null) {
+    if (statement.kind === "assign") checkedPlaceWrite(state, statement.place);
+    else checkedCellWrite(state, statement.local);
   }
   return true;
 }
@@ -228,17 +230,17 @@ export function terminate(state: LowerState, terminator: MirTerminator): void {
   if (state.refused) return;
   if (state.current === null) return throwInvariant(invariant("a terminator was emitted with no open block"));
   state.current.terminator = terminator;
-  const checks = state.indexChecks;
+  const checks = state.placeChecks;
   if (checks !== null) {
     switch (terminator.kind) {
       case "call": case "await": case "yield": case "delegate":
         checks.epoch += 1;
-        indexPlaceWrite(state, terminator.destination);
+        checkedPlaceWrite(state, terminator.destination);
         break;
       case "switch": checks.epoch += 1; break;
       case "invoke":
         if (terminator.operation.decision.execution.kind === "invocation" && terminator.operation.decision.execution.writesStorage) checks.epoch += 1;
-        indexPlaceWrite(state, terminator.destination);
+        checkedPlaceWrite(state, terminator.destination);
         break;
       default: break;
     }

@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, UnitRequest, Violation } from "../diag/contract.js";
-import type { CheckFailure, HandleActivation, MemberTypeAccess, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
+import type { CheckFailure, HandleActivation, MemberTypeAccess, NativeArrayCarrier, NativeCarrierHolding, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
 import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 import type { Step } from "../step/contract.js";
@@ -488,7 +488,8 @@ export interface MemberDecision extends MemberStorageSelection {
 }
 
 export interface IndexDecision {
-  readonly carrier: "array" | "fixed-array";
+  readonly carrier: NativeArrayCarrier;
+  readonly holding: ReceiverAccess;
   readonly receiver: TyId;
   readonly key: TyId;
   readonly read: TyId | null;
@@ -857,6 +858,7 @@ export interface InferenceBindingInput {
 }
 
 export interface IndexNativeFacts {
+  readonly carrierHolding: readonly NativeCarrierHolding[];
   readonly arrayIndexFailure: CheckFailure;
   readonly fixedArrayIndexFailure: CheckFailure;
   readonly destinationCheck: "before-value" | "after-value";

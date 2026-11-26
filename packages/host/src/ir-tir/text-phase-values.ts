@@ -749,6 +749,7 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
   }, () => [declarationNameExpression.reader, work_TypedMember_value.reader, work_TypedMember_assignment_target.reader, enumMember.reader]);
   const indexDecision = defineRecord<IndexDecision>("IndexDecision", "IndexDecision", null, "IndexDecision", null, null, fields => fields
     .field("carrier", "IndexCarrier", value => scalarWork("IndexCarrier", value.carrier), literalReader<IndexDecision["carrier"]>("IndexCarrier", ["array", "fixed-array"]))
+    .field("holding", "ReceiverAccess", value => scalarWork("ReceiverAccess", value.holding), literalReader<IndexDecision["holding"]>("ReceiverAccess", ["in-place", "by-reference"]))
     .field("receiver", "t", value => referenceWork("t", value.receiver), typeReader)
     .field("key", "t", value => referenceWork("t", value.key), typeReader)
     .field("read", "?t", value => nullableWork(value.read, actual => referenceWork("t", actual)), nullableReader(typeReader))
@@ -756,7 +757,7 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     .field("failure", "CheckFailure", value => scalarWork("CheckFailure", value.failure), literalReader<IndexDecision["failure"]>("CheckFailure", ["unwind", "abort"]))
     .field("writeCheck", "?DestinationCheck", value => nullableWork(value.writeCheck, timing => scalarWork("DestinationCheck", timing)),
       nullableReader(literalReader<NonNullable<IndexDecision["writeCheck"]>>("DestinationCheck", ["before-value", "after-value"])))
-    .finish((carrier, receiver, key, read, write, failure, writeCheck) => ({ carrier, receiver, key, read, write, failure, writeCheck })));
+    .finish((carrier, holding, receiver, key, read, write, failure, writeCheck) => ({ carrier, holding, receiver, key, read, write, failure, writeCheck })));
   const indexValue = defineRecord<Extract<TypedIndex, { readonly role: "value" }>>("TypedIndex@value", "TypedIndex", { field: "role", value: "value" }, "TypedIndex", null, null, fields => typedValueFields(fields
     .field("role", "'value", value => scalarWork("'value", value.role), literalReader<"value">("'value", ["value"]))
     .field("index", "IndexDecision", value => indexDecision.write(value.index), lazyReader(() => indexDecision.reader)))
