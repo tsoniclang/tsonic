@@ -4,8 +4,8 @@ import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIden
 import type { InterfaceDescriptionRecipe, IntrinsicMemberOrigin, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import type { HirModule, HirModuleBinding, HirModuleExport, IntrinsicValueResolution, ModuleEvaluation, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryModuleModel, WellKnownSymbol } from "../libraries/contract.js";
-import type { ExtensionReferenceEntry, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
-import type { ExtensionTable, OpenedProgram } from "./handles.js";
+import type { ExtensionReferenceEntry, ImportPreparation, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
+import type { CompilerPreparation, ExtensionTable, OpenedProgram } from "./handles.js";
 import type { ProgramModuleSet } from "./program-data.js";
 export type { ProgramModule, ProgramModuleSet, SessionDocument } from "./program-data.js";
 import type { ExtensionReference } from "../snapshot/contract.js";
@@ -13,6 +13,7 @@ import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModul
 
 export type CheckerExtensions = ExtensionTable;
 export type CheckedProgram = OpenedProgram;
+export type SourcePreparationReceipt = CompilerPreparation;
 
 export type CheckerExtensionValue =
   | { readonly kind: "compiler-extension"; readonly value: CompilerExtension }
@@ -868,11 +869,12 @@ export interface ConvertedCheckedType {
   readonly evidence: TypeEvidence;
 }
 
-export type PrepareSourceImports = (deps: PreparationDeps, input: SourcePreparationInput) => Result<PreparedSource>;
+export type PrepareSourceImports = (deps: PreparationDeps, input: SourcePreparationInput) => Result<PreparedSource<SourcePreparationReceipt>>;
+export type ImportPreparationOf = (receipt: SourcePreparationReceipt) => ImportPreparation;
 
 export type OpenCheckedProgram = (
   deps: CaptureDeps,
-  snapshot: ProjectSnapshot,
+  snapshot: ProjectSnapshot<PreparedSource<SourcePreparationReceipt>>,
 ) => Result<CheckedProgram>;
 
 export type CaptureModules = (

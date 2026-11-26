@@ -2,7 +2,7 @@ import { sourceOwner } from "./catalogue.mjs";
 import { publicDeclarations, quarantineReference, sourceSymbol } from "./import-graph.mjs";
 const producerMembers = (["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
 const scopedOwners = (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
-const runtimePrivateOpaqueOwners = ({ MemberRuleContinuation: "rules", MemberSolveContinuation: "infer" });
+const runtimePrivateOpaqueOwners = ({ SourcePreparationReceipt: "front", MemberRuleContinuation: "rules", MemberSolveContinuation: "infer" });
 const nativeOpaqueOwners = ({ TypeInterner: "ir-types", TypePublicationWork: "ir-types", ProgramVerificationWork: "ir-program", EvaluationContinuation: "evaluate", DataflowAccount: "dataflow", ...runtimePrivateOpaqueOwners });
 const opaqueOwners = ({ ...nativeOpaqueOwners, CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
 const rawCaptureTypes = (["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral"]);
@@ -11,6 +11,7 @@ const readyPortSignatures = ({
   front: {
     CreateCheckerExtensions: ["readonly front.CheckerRegistration[]", "front.CheckerExtensions"],
     ExtensionReferencesOf: ["front.CheckerExtensions", "readonly snapshot.ExtensionReferenceEntry[]"],
+    ImportPreparationOf: ["front.SourcePreparationReceipt", "snapshot.ImportPreparation"],
     LowerModuleDefinitions: ["front.LowerModuleDefinitionsDeps", "readonly front.RawModule[]", "diag.Result<readonly front.ModuleDefinitions[]>"],
   },
   decls: { DescribeDefinitions: ["decls.DeclsModule", "ir-hir.HirDeclarationScopes", "readonly decls.DefinitionExports[]", "decls.DefinitionTable"] },
@@ -47,6 +48,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     [ast.getFileName(file).slice("/host-gate/".length), file]).filter(([path]) => files.has(path)));
   const opaqueClasses = new Set();
   const opaqueFiles = new Set();
+  const opaqueAliases = new Set();
   for (const [path, file] of sourceFiles) {
     const module = owner(path);
     if (module === undefined || ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path)) continue;
@@ -76,6 +78,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
           ast.is.IsMethodDeclaration(member) && ast.hasModifierKind(member, "static"))) continue;
       opaqueClasses.add(selected);
       opaqueFiles.add(selectedFile);
+      opaqueAliases.add(declaration);
     }
   }
   const closedFiles = new Set([...files.keys()].filter(path => {
@@ -640,6 +643,12 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (module === undefined && file.startsWith("packages/"))
       add("unknown-module", file);
     if (module === undefined) continue;
+    if (module.name === "front" && [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(file)) {
+      for (const declaration of ast.statements(node)) {
+        if (ast.is.IsTypeAliasDeclaration(declaration) && ast.text(ast.name(declaration)) === "SourcePreparationReceipt"
+          && !opaqueAliases.has(declaration)) add("source-preparation-receipt", file, declaration);
+      }
+    }
     for (const finding of moduleLifetimeFindings(source, node)) add("module-state", file, finding.start);
     const collect = current => {
       if (current === undefined) return;

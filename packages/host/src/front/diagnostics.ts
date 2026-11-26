@@ -51,14 +51,13 @@ export function importDiagnostic(input: PreparedImportDiagnostic,
     const code: RelatedDiagnostic["code"] = { kind: "checker", number: entry.code, rendered: `TS${entry.code}` };
     const message = entry.message;
     const origin: RelatedDiagnostic["site"] = site === null ? { kind: "none" } : file === undefined ? { kind: "file", path: site.fileName }
-      : { kind: "source", origin: Object.freeze({ module: file.module, start: site.start + file.displacement, length: site.length, derived: Object.freeze([]) }) };
-    return Object.freeze({ code: Object.freeze(code), message, site: Object.freeze(origin) });
+      : { kind: "source", origin: { module: file.module, start: site.start + file.displacement, length: site.length, derived: [] } };
+    return { code, message, site: origin };
   };
   const root = note(input);
   const severity = severityOf(input.category);
-  const arguments_ = input.arguments.map((value): Diagnostic["arguments"][number] => Object.freeze({ kind: "text", value }));
-  return Object.freeze({ ...root, severity, source: null, evidence: Object.freeze([]),
-    arguments: Object.freeze(arguments_), related: Object.freeze(input.related.map(note)), fix: null });
+  const arguments_ = input.arguments.map((value): Diagnostic["arguments"][number] => ({ kind: "text", value }));
+  return { ...root, severity, source: null, evidence: [], arguments: arguments_, related: input.related.map(note), fix: null };
 }
 
 export function captureCheckerDiagnostic(program: CheckedProgram, diagnostic: CheckerDiagnostic, charge: () => boolean): Diagnostic | null {

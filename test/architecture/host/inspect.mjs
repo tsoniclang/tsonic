@@ -93,11 +93,12 @@ export function inspectHost(deps, inputs) {
         declarations.every(declaration => ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${edge.target}` &&
           ast.text(ast.name(declaration)) === name &&
           (ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration)));
-      const brand = name === "CheckerExtensions" && declarations.length === 1 && declarations.every(declaration =>
+      const brand = (name === "CheckerExtensions" || name === "SourcePreparationReceipt") && declarations.length === 1 && declarations.every(declaration =>
         sourceOwner(catalogue, ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length))?.name === "front" &&
-        ast.is.IsTypeAliasDeclaration(declaration) && ast.text(ast.name(declaration)) === "CheckerExtensions");
-      if (brand && (!exported || ast.text(ast.name(binding)) === "CheckerExtensions"))
-        return from.kind === "pipeline" && to.name === "front" || from.kind === "orchestration" && to.kind === "pipeline";
+        ast.is.IsTypeAliasDeclaration(declaration) && ast.text(ast.name(declaration)) === name);
+      if (brand && (!exported || ast.text(ast.name(binding)) === name))
+        return name === "SourcePreparationReceipt" ? from.kind === "pipeline" && to.name === "front" && !exported
+          : from.kind === "pipeline" && to.name === "front" || from.kind === "orchestration" && to.kind === "pipeline";
       if (from.kind === "orchestration" && ["pipeline", "driver"].includes(to.kind))
         return declarations.length > 0 && declarations.every(declaration =>
           ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${edge.target}`);

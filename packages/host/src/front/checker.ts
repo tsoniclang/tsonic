@@ -1,16 +1,16 @@
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, prepareSourceImports as prepareCheckerImports } from "@tsonic/tsts";
 import type { CheckedSourceProgram, CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
-import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
+import type { Diagnostic, InvariantFailure } from "../diag/contract.js";
 import { hostDiagnosticCode, requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, PackageId } from "../ids/contract.js";
 import { encodeKey, encodeModuleId } from "../ids/index.js";
 import type { PlatformFacts, PlatformLayout } from "../ir-types/contract.js";
 import { platformDeclarationKey } from "../ir-types/index.js";
-import type { ExtensionReference, ExtensionReferenceEntry, ImportPreparation, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
+import type { ExtensionReference, ExtensionReferenceEntry, ImportGraphEvidence, SourcePreparationInput } from "../snapshot/contract.js";
 import { verifyPreparedSource } from "../snapshot/index.js";
-import type { CaptureDeps, CheckedProgram, CheckerExtensions, CheckerRegistration, PrepareSourceImports, ProgramModuleSet, SessionDocument } from "./contract.js";
-import { ExtensionTable, OpenedProgram } from "./handles.js";
-import type { OpenedFile, ProviderRegistration } from "./handles.js";
+import type { CaptureDeps, CheckedProgram, CheckerExtensions, CheckerRegistration, ImportPreparationOf, OpenCheckedProgram, PrepareSourceImports, ProgramModuleSet, SessionDocument } from "./contract.js";
+import { CompilerPreparation, ExtensionTable, OpenedProgram } from "./handles.js";
+import type { OpenedFile, ProviderRegistration, SessionInputs } from "./handles.js";
 import { optionSet } from "./options.js";
 import { captureSessionDiagnostics, importDiagnostic } from "./diagnostics.js";
 
@@ -72,31 +72,14 @@ export function extensionReferences(table: CheckerExtensions): readonly Extensio
   return ExtensionTable.entries(table);
 }
 
-/** What one compiler session is created from, computed from the snapshot alone. */
-export interface SessionInputs {
-  readonly currentDirectory: string;
-  readonly useCaseSensitiveFileNames: boolean;
-  readonly files: ReadonlyMap<string, string>;
-  readonly rootFiles: readonly string[];
-  readonly selectedLibraries: ReadonlyMap<string, string>;
-  readonly installedDeclarations: SourcePreparationInput["declarationPolicy"]["installedDeclarations"];
-  readonly options: Readonly<Record<string, boolean | string | readonly string[]>>;
-  readonly modules: ReadonlyMap<string, ModuleId>;
-  readonly packageNames: ReadonlyMap<PackageId, string | null>;
-}
-
 function sameEntries<Key, Value>(left: ReadonlyMap<Key, Value>, right: ReadonlyMap<Key, Value>): boolean {
   if (left.size !== right.size) return false;
   for (const [key, value] of left) if (right.get(key) !== value) return false;
   return true;
 }
 
-const completedPreparations = new WeakMap<PreparedSource, SessionInputs>();
-
-function openingInputs(source: PreparedSource): SessionInputs | null {
-  const prepared = completedPreparations.get(source);
-  if (prepared === undefined) return null;
-  const presented = sessionInputs(source.input);
+function openingInputs(prepared: SessionInputs, input: SourcePreparationInput): SessionInputs | null {
+  const presented = sessionInputs(input);
   if (presented.installedDeclarations !== prepared.installedDeclarations || presented.currentDirectory !== prepared.currentDirectory
     || presented.useCaseSensitiveFileNames !== prepared.useCaseSensitiveFileNames
     || presented.rootFiles.length !== prepared.rootFiles.length || presented.rootFiles.some((file, index) => file !== prepared.rootFiles[index])
@@ -164,7 +147,7 @@ function preparedRefusal(site: Diagnostic["site"], message: string): { readonly 
     severity: "error", site, source: "front", evidence: [], message, arguments: [], related: [], fix: null }] };
 }
 
-function preparedFailure(source: PreparedSource): ReturnType<typeof preparedRefusal> | null {
+function preparedFailure(source: ImportGraphEvidence): ReturnType<typeof preparedRefusal> | null {
   const first = verifyPreparedSource(source)[0];
   return first === undefined ? null : preparedRefusal(first.site.kind === "file" ? first.site : { kind: "none" },
     `The prepared source does not match the captured project (${first.rule}).`);
@@ -180,27 +163,24 @@ export const prepareImports: PrepareSourceImports = ({ navigationCapture }, inpu
       site: { kind: "file", path: file.fileName },
       unit: { request: { query: "prepareSourceImports", key: file.fileName }, position: { kind: "result" } },
     })] };
-    for (const reference of file.references) {
-      Object.freeze(reference.resolution);
-      Object.freeze(reference);
-    }
-    Object.freeze(file.references);
-    Object.freeze(file);
   }
-  for (const root of prepared.roots) Object.freeze(root);
-  const diagnostics = prepared.diagnostics.map(entry => importDiagnostic(entry, path => {
+  const mismatch = preparedFailure({ input, preparation: prepared });
+  if (mismatch !== null) return mismatch;
+  return { kind: "ok", value: { input, receipt: CompilerPreparation.issue(inputs, prepared) }, diagnostics: [] };
+};
+
+export const preparationReport: ImportPreparationOf = receipt => {
+  const { inputs, report } = requirePresent(CompilerPreparation.state(receipt) ?? undefined, {
+    owner: "front", query: null, origin: null, message: "An import report requires its actual completed preparation.",
+  });
+  return { roots: report.roots.map(root => ({ ...root })), files: report.files.map(file => ({
+    ...file, references: file.references.map(reference => ({ ...reference, resolution: { ...reference.resolution } })),
+  })), diagnostics: report.diagnostics.map(entry => importDiagnostic(entry, path => {
     const module = inputs.modules.get(path);
     const text = inputs.files.get(path);
     return module === undefined || text === undefined ? undefined
       : { module, displacement: text.charCodeAt(0) === 0xfeff ? 1 : 0 };
-  }));
-  const preparation: ImportPreparation = Object.freeze({ roots: Object.freeze(prepared.roots),
-    files: Object.freeze(prepared.files), diagnostics: Object.freeze(diagnostics) });
-  const source: PreparedSource = Object.freeze({ input, preparation });
-  const mismatch = preparedFailure(source);
-  if (mismatch !== null) return mismatch;
-  completedPreparations.set(source, inputs);
-  return { kind: "ok", value: source, diagnostics: [] };
+  })) };
 };
 
 /**
@@ -208,11 +188,14 @@ export const prepareImports: PrepareSourceImports = ({ navigationCapture }, inpu
  * the table's and no file of the session is read as configuration, whatever the snapshot captured. A diagnostic that
  * names no file (an option the checker rejects among them) belongs to no module: the program is not opened.
  */
-export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot): Result<CheckedProgram> {
-  const mismatch = preparedFailure(snapshot.source);
+export const openProgram: OpenCheckedProgram = (deps, snapshot) => {
+  const unowned = "The prepared source does not retain its actual completed compiler input.";
+  const ready = CompilerPreparation.state(snapshot.source.receipt);
+  if (ready === null) return preparedRefusal({ kind: "none" }, unowned);
+  const mismatch = preparedFailure({ input: snapshot.source.input, preparation: ready.report });
   if (mismatch !== null) return mismatch;
-  const inputs = openingInputs(snapshot.source);
-  if (inputs === null) return preparedRefusal({ kind: "none" }, "The prepared source does not retain its actual completed compiler input.");
+  const inputs = openingInputs(ready.inputs, snapshot.source.input);
+  if (inputs === null) return preparedRefusal({ kind: "none" }, unowned);
   const session = createCompilerSessionFromFiles({
     ...compilerFiles(inputs),
     extensionHostOptions: {
@@ -228,7 +211,7 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot): Resul
     snapshot.source.input.packages.libraryData, snapshot.contributions);
   const diagnostics = captureSessionDiagnostics(program);
   return diagnostics === null ? { kind: "ok", value: program, diagnostics: [] } : { kind: "refused", diagnostics };
-}
+};
 
 export function programModules(deps: CaptureDeps, program: CheckedProgram): ProgramModuleSet {
   if (OpenedProgram.table(program) !== deps.extensions) throw new TypeError("front: the extension table is not the one the program was opened with");

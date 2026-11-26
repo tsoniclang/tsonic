@@ -400,6 +400,24 @@ test("real pipeline isolation emits only permitted component query types and the
   });
 });
 
+test("pipeline source preparation borrows only the genuine opaque Front receipt", async () => {
+  const front = path("front");
+  const handle = path("front", "handles.ts");
+  const pipeline = path("pipeline");
+  const input = 'import type { SourcePreparationReceipt } from "../front/contract.js";\nexport interface Input { readonly receipt: SourcePreparationReceipt; }';
+  const valid = 'import type { CompilerPreparation } from "./handles.js";\nexport type SourcePreparationReceipt = CompilerPreparation;';
+  await fixture([[front, valid], [handle,
+    'export class CompilerPreparation { readonly #state: number; private constructor(state: number) { this.#state = state; } static state(receipt: CompilerPreparation): number { return receipt.#state; } }'],
+  [pipeline, input]], async ({ root, deps, write }) => {
+    assert.deepEqual(deps.inspect(root, [front, handle, pipeline]), []);
+    write(front, 'export type SourcePreparationReceipt = { readonly state: number };');
+    assert.ok(deps.inspect(root, [front, pipeline]).some(row => row.code === "source-preparation-receipt"));
+    write(front, valid);
+    write(pipeline, 'import type { CompilerPreparation } from "../front/handles.js"; export interface Input { readonly receipt: CompilerPreparation; }');
+    assert.ok(deps.inspect(root, [front, handle, pipeline]).some(row => row.code === "forbidden-import" && row.path === pipeline));
+  });
+});
+
 test("private, stale and undeclared interface inputs cannot replace the genuine public value port", async () => {
   await fixture(substituteSources, async ({ root, deps, write }) => {
     const missing = await compileIsolated(deps, module("infer"), { ...inferInput(root), interfaceSources: [contract] });

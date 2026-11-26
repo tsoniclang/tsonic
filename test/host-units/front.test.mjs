@@ -1555,7 +1555,7 @@ test("libraries, missing: a referenced library that the snapshot does not hold i
 test("import preparation retains a real unresolved library reference without adding a library to the selected checker session", () => {
   const libraries = bundled().filter(library => library.name !== collection);
   const unused = projectSnapshot({ sourceFiles: { "main.mts": "export const n: number = 1;\n" }, libraries });
-  assert.equal(unused.source.preparation.files.some(file => file.references.some(reference => reference.kind === "reference-lib"
+  assert.equal(front.importPreparationOf(unused.source.receipt).files.some(file => file.references.some(reference => reference.kind === "reference-lib"
     && reference.specifier === "es2015.collection" && reference.resolution.kind === "unresolved")), true);
   assert.deepEqual(openAndCapture(unused).set.modules, snapshotModules(unused));
   assert.deepEqual(sessionDiagnostics(unused), [],
@@ -1960,7 +1960,7 @@ test("a contributed declaration module is a root of the program: its declaration
 });
 
 test("the public import boundary prepares distinct configured roots from the same bytes and rejects a crossed receipt before checking", async () => {
-  const { prepareImports } = await import("../../packages/host/dist/pipeline/index.js");
+  const { importPreparationOf, prepareImports } = await import("../../packages/host/dist/pipeline/index.js");
   const snapshot = projectSnapshot({ sourceFiles: {
     "first.mts": '\uFEFF/* 🚀 */ import { alpha } from "./alpha.mjs"; export { alpha };',
     "second.mts": 'import { beta } from "./beta.mjs"; export { beta };',
@@ -1981,15 +1981,16 @@ test("the public import boundary prepares distinct configured roots from the sam
   assert.equal(tiny.diagnostics[0].code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
   assert.deepEqual(tiny.diagnostics[0].site, { kind: "file", path: "/project/src/first.mts" });
   assert.equal(first.source.input.packages, second.source.input.packages);
-  const importsOf = current => current.source.preparation.files.flatMap(file => file.references)
+  const importsOf = current => importPreparationOf(current.source.receipt).files.flatMap(file => file.references)
     .filter(reference => reference.kind === "import");
   assert.deepEqual(importsOf(first).map(reference => reference.resolution), [{ kind: "resolved", fileName: "/project/src/alpha.mts" }]);
   assert.deepEqual(importsOf(second).map(reference => reference.resolution), [{ kind: "resolved", fileName: "/project/src/beta.mts" }]);
   const opened = openAndCapture(first);
   assert.ok(opened.set.modules.some(entry => entry.kind === "snapshot" && entry.module === moduleOf(packageOf("/project"), "src/alpha.mts")));
   assert.equal(opened.set.modules.some(entry => entry.kind === "snapshot" && entry.module === second.entryPoint), false);
-  const crossed = { ...first, source: { input: first.source.input, preparation: second.source.preparation } };
-  assert.equal(snapshots.verifyPreparedSource(crossed.source)[0].rule, "prepared-roots-exact");
+  const crossed = { ...first, source: { input: first.source.input, receipt: second.source.receipt } };
+  assert.equal(snapshots.verifyPreparedSource({ input: crossed.source.input, preparation: importPreparationOf(crossed.source.receipt) })[0].rule,
+    "prepared-roots-exact");
   const refused = front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, crossed);
   assert.equal(refused.kind, "refused");
   assert.equal(refused.diagnostics[0].code.name, "TSONIC_SOURCE_PREPARATION_INVALID");
@@ -2005,8 +2006,9 @@ test("the same roots and source spans cannot reuse a different completed import 
   };
   const alpha = graph("alpha");
   const bravo = graph("bravo");
-  assert.deepEqual(alpha.source.preparation.roots, bravo.source.preparation.roots);
-  const actual = snapshot => snapshot.source.preparation.files.find(file => file.fileName === "/project/src/main.mts").references[0];
+  const read = snapshot => front.importPreparationOf(snapshot.source.receipt);
+  assert.deepEqual(read(alpha).roots, read(bravo).roots);
+  const actual = snapshot => read(snapshot).files.find(file => file.fileName === "/project/src/main.mts").references[0];
   assert.deepEqual([actual(alpha).start, actual(alpha).length], [actual(bravo).start, actual(bravo).length]);
   const { deps } = openAndCapture(alpha);
   for (const [snapshot, expected, other] of [[alpha, "alpha", "bravo"], [bravo, "bravo", "alpha"]]) {
@@ -2019,16 +2021,34 @@ test("the same roots and source spans cannot reuse a different completed import 
   }
   const withoutOpening = snapshot => ({ ...snapshot, contributions: { ...snapshot.contributions,
     get requiredProviderModules() { assert.fail("rejected source preparation must not open the checker"); } } });
-  const crossed = { ...bravo, source: { input: bravo.source.input, preparation: alpha.source.preparation } };
-  assert.deepEqual(snapshots.verifyPreparedSource(crossed.source), [], "both captured paths and all source spans are structurally valid");
-  const copied = Object.create(Object.getPrototypeOf(alpha.source), Object.getOwnPropertyDescriptors(alpha.source));
-  for (const candidate of [crossed, { ...alpha, source: copied }]) {
+  const crossed = { ...bravo, source: { input: bravo.source.input, receipt: alpha.source.receipt } };
+  assert.deepEqual(snapshots.verifyPreparedSource({ input: crossed.source.input, preparation: read(alpha) }), [],
+    "both captured paths and all source spans are structurally valid");
+  const receipt = alpha.source.receipt;
+  const copied = Object.create(Object.getPrototypeOf(receipt), Object.getOwnPropertyDescriptors(receipt));
+  assert.throws(() => front.importPreparationOf(copied),
+    error => error.cause?.message === "An import report requires its actual completed preparation.");
+  for (const candidate of [crossed, { ...alpha, source: { ...alpha.source, receipt: copied } },
+    { ...alpha, source: { input: alpha.source.input, preparation: read(alpha) } }]) {
     const refused = front.openCheckedProgram(deps, withoutOpening(candidate));
     assert.equal(refused.kind, "refused");
     assert.equal(refused.diagnostics[0].code.name, "TSONIC_SOURCE_PREPARATION_INVALID");
     assert.match(refused.diagnostics[0].message, /actual completed compiler input/u);
   }
-  assert.throws(() => { actual(alpha).resolution.fileName = actual(bravo).resolution.fileName; }, TypeError);
+  const view = actual(alpha);
+  view.resolution.fileName = actual(bravo).resolution.fileName;
+  assert.equal(actual(alpha).resolution.fileName, "/project/src/alpha.mts");
+  assert.equal(front.openCheckedProgram(deps, alpha).kind, "ok");
+  const extra = projectSnapshot({ sourceFiles: { "extra.mts": "export const extra = true;" }, libraries });
+  const packages = alpha.source.input.packages;
+  const additional = {
+    ...packages, files: [...packages.files, extra.source.input.packages.files.find(row => row.path === "/project/src/extra.mts")],
+    modules: [...packages.modules, extra.source.input.packages.modules.find(row => row.path === "/project/src/extra.mts")],
+  };
+  const expanded = front.openCheckedProgram(deps, withoutOpening({ ...alpha, source: { receipt,
+    input: { ...alpha.source.input, packages: additional } } }));
+  assert.equal(expanded.kind, "refused");
+  assert.match(expanded.diagnostics[0].message, /actual completed compiler input/u);
   const file = alpha.source.input.packages.files.find(row => row.path === "/project/src/main.mts");
   file.text = source("bravo");
   const reused = front.openCheckedProgram(deps, withoutOpening(alpha));
@@ -2057,14 +2077,12 @@ test("an actual import report retains a file-only site or no site independently 
   const withoutOwner = importDiagnostic(syntax, () => undefined);
   assert.deepEqual(withoutOwner.site, { kind: "file", path });
   assert.deepEqual(withoutOwner.related.map(row => [row.code.number, row.site]), [[1007, { kind: "file", path }]]);
-  assert.equal(Object.isFrozen(withoutOwner.related[0].site), true);
   const [option] = sdk.prepareSourceImports({ currentDirectory, rootFiles, files,
     compilerOptions: { noLib: true, unknownInheritedOption: true } }).diagnostics;
   assert.equal(option.code, 5023);
   const withoutSite = importDiagnostic(option, () => assert.fail("a site-less report does not read the source resolver"));
   assert.deepEqual(withoutSite.site, { kind: "none" });
   assert.equal(withoutSite.code.rendered, "TS5023");
-  assert.equal(Object.isFrozen(withoutSite.arguments), true);
 });
 
 test("prepared file identity comes from the actual captured file, not the spelling of its import", () => {
@@ -2078,9 +2096,10 @@ test("prepared file identity comes from the actual captured file, not the spelli
   assert.equal(selected.kind, "ok");
   const name = "/project/src/typed.mts";
   const typed = moduleOf(packageOf("/project"), "src/typed.mts");
-  const reference = selected.value.preparation.files.find(file => file.fileName === "/project/src/main.mts").references[0];
+  const report = front.importPreparationOf(selected.value.receipt);
+  const reference = report.files.find(file => file.fileName === "/project/src/main.mts").references[0];
   assert.deepEqual(reference.resolution, { kind: "resolved", fileName: name });
-  const [diagnostic] = selected.value.preparation.diagnostics;
+  const [diagnostic] = report.diagnostics;
   assert.equal(diagnostic.code.number, 1005);
   const site = (start, length) => ({ kind: "source", origin: { module: typed, start, length, derived: [] } });
   assert.deepEqual(diagnostic.site, site(text.length, 0));
@@ -2094,7 +2113,7 @@ test("prepared file identity comes from the actual captured file, not the spelli
     ...selected.value.input.packages, modules: input.packages.modules.filter(row => row.id !== typed),
   } };
   const refusal = front.prepareSourceImports({ navigationCapture }, unowned);
-  const crossed = front.openCheckedProgram(deps, { ...snapshot, source: { input: unowned, preparation: selected.value.preparation } });
+  const crossed = front.openCheckedProgram(deps, { ...snapshot, source: { input: unowned, receipt: selected.value.receipt } });
   assert.deepEqual(refusal, crossed, "the same SDK file with no captured module is refused before checked opening");
   assert.equal(refusal.kind, "refused");
   assert.deepEqual(refusal.diagnostics.map(row => [row.code.name, row.site]),

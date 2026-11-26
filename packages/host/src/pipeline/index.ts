@@ -1,12 +1,13 @@
 import { createAccount } from "../dataflow/index.js";
-import type { AnalyzeHostProgram, PrepareImports } from "./contract.js";
-import { prepareSourceImports } from "../front/index.js";
+import type { AnalyzeHostProgram, ImportPreparationOf, PrepareImports } from "./contract.js";
+import { importPreparationOf as readPreparation, prepareSourceImports } from "../front/index.js";
 import { captureSourceBarrier } from "./source-barrier.js";
 import { typeSourceBarrier } from "./typed-barrier.js";
 import { analyzeTypedSource } from "./analysis-barrier.js";
 import { publishHostProgram } from "./publication.js";
 
 export const prepareImports: PrepareImports = prepareSourceImports;
+export const importPreparationOf: ImportPreparationOf = readPreparation;
 
 export const analyzeHostProgram: AnalyzeHostProgram = inputs => {
   const source = captureSourceBarrier(inputs);

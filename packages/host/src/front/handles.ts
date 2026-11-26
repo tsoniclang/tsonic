@@ -1,9 +1,9 @@
-import type { CheckedSourceProgram, CompilerExtension, Node, ProviderDeclarationModel, SourceDeclarationProvider, SourceFile, SourceSemanticsModule } from "@tsonic/tsts";
+import type { CheckedSourceProgram, CompilerExtension, Node, ProviderDeclarationModel, SourceDeclarationProvider, SourceFile, SourceImportPreparation, SourceSemanticsModule } from "@tsonic/tsts";
 import type { Diagnostic } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { ModuleId, NodeId } from "../ids/contract.js";
+import type { ModuleId, NodeId, PackageId } from "../ids/contract.js";
 import type { PlatformLayout } from "../ir-types/contract.js";
-import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, ProjectSnapshot } from "../snapshot/contract.js";
+import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, ProjectSnapshot, SourceDeclarationPolicy } from "../snapshot/contract.js";
 import type { ProgramModule, ProgramModuleSet } from "./program-data.js";
 
 export interface OpenedFile {
@@ -31,6 +31,37 @@ export interface FileSyntaxEntry {
 export interface ProviderRegistration {
   readonly reference: ExtensionReference;
   readonly provider: SourceDeclarationProvider;
+}
+
+export interface SessionInputs {
+  readonly currentDirectory: string;
+  readonly useCaseSensitiveFileNames: boolean;
+  readonly files: ReadonlyMap<string, string>;
+  readonly rootFiles: readonly string[];
+  readonly selectedLibraries: ReadonlyMap<string, string>;
+  readonly installedDeclarations: SourceDeclarationPolicy["installedDeclarations"];
+  readonly options: Readonly<Record<string, boolean | string | readonly string[]>>;
+  readonly modules: ReadonlyMap<string, ModuleId>;
+  readonly packageNames: ReadonlyMap<PackageId, string | null>;
+}
+
+interface PreparationState {
+  readonly inputs: SessionInputs;
+  readonly report: SourceImportPreparation;
+}
+
+export class CompilerPreparation {
+  readonly #state: PreparationState;
+
+  private constructor(state: PreparationState) { this.#state = state; }
+
+  static issue(inputs: SessionInputs, report: SourceImportPreparation): CompilerPreparation {
+    return new CompilerPreparation({ inputs, report });
+  }
+
+  static state(receipt: CompilerPreparation): PreparationState | null {
+    return typeof receipt === "object" && receipt !== null && #state in receipt ? receipt.#state : null;
+  }
 }
 
 /**

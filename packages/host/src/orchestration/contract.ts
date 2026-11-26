@@ -3,7 +3,7 @@ import type { ModuleId, PackageId } from "../ids/contract.js";
 import type { SelectedNativeFacts } from "../ir-types/contract.js";
 import type { HostProgram } from "../ir-program/contract.js";
 import type {
-  CheckerExtensions, CompilerLimits, HostAnalysisResult, PrepareImports,
+  CheckerExtensions, CompilerLimits, HostAnalysisResult, PrepareImports, PreparedAnalysisSnapshot, PreparedImportSource,
 } from "../pipeline/contract.js";
 import type {
   Artifact,
@@ -30,8 +30,8 @@ import type {
   ParseProject, PathEntry, ProjectCapturePlan, ProjectConfiguration, ProjectResolution, ResolveProject,
 } from "../project/contract.js";
 import type {
-  EffectResult, PackageSnapshot, PreparedSource, SelectedSurfaces, SelectedTarget, SourceContributions, SourceDeclarationPolicy,
-  ProjectSnapshot, TargetOptions, TargetSelection, VirtualDeclarationFile,
+  EffectResult, PackageSnapshot, SelectedSurfaces, SelectedTarget, SourceContributions, SourceDeclarationPolicy,
+  TargetOptions, TargetSelection, VirtualDeclarationFile,
 } from "../snapshot/contract.js";
 
 export type TargetSession = object & { readonly identityKind: "target-session" };
@@ -166,7 +166,7 @@ export type CompilationEffect =
   | { readonly kind: "load-plugins"; readonly requests: readonly PluginLoadRequest[] }
   | { readonly kind: "create-session"; readonly targetId: string; readonly input: TargetSessionInput }
   | { readonly kind: "source-contributions"; readonly targetId: string }
-  | { readonly kind: "analyze-host"; readonly targetId: string; readonly snapshot: ProjectSnapshot;
+  | { readonly kind: "analyze-host"; readonly targetId: string; readonly snapshot: PreparedAnalysisSnapshot;
       readonly limits: CompilerLimits }
   | { readonly kind: "handoff"; readonly targetId: string; readonly program: HostProgram;
       readonly options: TargetOptions }
@@ -199,7 +199,7 @@ export type CompilationCalculation =
   | { readonly kind: "packages-planned"; readonly captureCount: number; readonly result: Result<PackagePlan> }
   | { readonly kind: "plugins-described"; readonly result: Result<PluginCatalogue> }
   | { readonly kind: "surfaces-selected"; readonly targetId: string; readonly result: Result<SelectedSurfaces> }
-  | { readonly kind: "imports-prepared"; readonly targetId: string; readonly result: Result<PreparedSource> }
+  | { readonly kind: "imports-prepared"; readonly targetId: string; readonly result: Result<PreparedImportSource> }
   | { readonly kind: "capabilities-activated"; readonly targetId: string; readonly result: Result<SelectedTarget> };
 
 export type CompilationOutcome = CompilationEffectOutcome | CompilationCalculation;

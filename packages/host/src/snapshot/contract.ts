@@ -279,8 +279,8 @@ export interface SourceContributions {
   readonly externalEntries: readonly SourceExternalEntry[];
 }
 
-export interface ProjectSnapshot {
-  readonly source: PreparedSource;
+export interface ProjectSnapshot<Source extends CapturedSource = CapturedSource> {
+  readonly source: Source;
   readonly entryPoint: ModuleId;
   readonly selection: SelectedTarget;
   readonly contributions: SourceContributions;
@@ -390,9 +390,12 @@ export interface ImportRoot {
   readonly state: "loaded" | "missing";
 }
 
-export interface ImportPreparation {
+export interface ImportGraph {
   readonly roots: readonly ImportRoot[];
   readonly files: readonly ImportFile[];
+}
+
+export interface ImportPreparation extends ImportGraph {
   readonly diagnostics: readonly Diagnostic[];
 }
 
@@ -405,9 +408,16 @@ export interface SourcePreparationInput {
   readonly caseSensitive: boolean;
 }
 
-export interface PreparedSource {
+export interface CapturedSource {
   readonly input: SourcePreparationInput;
-  readonly preparation: ImportPreparation;
 }
 
-export type VerifyPreparedSource = (source: PreparedSource) => readonly Violation<SnapshotRule, SnapshotSite>[];
+export interface PreparedSource<Receipt> extends CapturedSource {
+  readonly receipt: Receipt;
+}
+
+export interface ImportGraphEvidence extends CapturedSource {
+  readonly preparation: ImportGraph;
+}
+
+export type VerifyPreparedSource = (source: ImportGraphEvidence) => readonly Violation<SnapshotRule, SnapshotSite>[];

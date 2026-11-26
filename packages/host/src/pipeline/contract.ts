@@ -2,8 +2,8 @@ import type { Result } from "../diag/contract.js";
 import type { HostProgram, InstantiationLimits } from "../ir-program/contract.js";
 import type { AnalysisLimits } from "../ir-facts/contract.js";
 import type { QueryLimits } from "../query/contract.js";
-import type { PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
-import type { CheckerExtensions, NavigationCaptureLimits, PreparationDeps } from "../front/contract.js";
+import type { ImportPreparation, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
+import type { CheckerExtensions, NavigationCaptureLimits, PreparationDeps, SourcePreparationReceipt } from "../front/contract.js";
 import type { InferenceLimits } from "../infer/contract.js";
 import type { EvaluatorLimits } from "../evaluate/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
@@ -28,10 +28,13 @@ export interface CompilerLimits {
   readonly mirVerification: MirVerificationLimits;
 }
 
-export type PrepareImports = (deps: PreparationDeps, input: SourcePreparationInput) => Result<PreparedSource>;
+export type PreparedImportSource = PreparedSource<SourcePreparationReceipt>;
+export type PreparedAnalysisSnapshot = ProjectSnapshot<PreparedImportSource>;
+export type PrepareImports = (deps: PreparationDeps, input: SourcePreparationInput) => Result<PreparedImportSource>;
+export type ImportPreparationOf = (receipt: SourcePreparationReceipt) => ImportPreparation;
 
 export interface HostAnalysisInputs {
-  readonly snapshot: ProjectSnapshot;
+  readonly snapshot: PreparedAnalysisSnapshot;
   readonly extensions: CheckerExtensions;
   readonly limits: CompilerLimits;
 }
