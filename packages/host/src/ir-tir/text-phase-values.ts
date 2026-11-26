@@ -754,7 +754,9 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     .field("read", "?t", value => nullableWork(value.read, actual => referenceWork("t", actual)), nullableReader(typeReader))
     .field("write", "?t", value => nullableWork(value.write, actual => referenceWork("t", actual)), nullableReader(typeReader))
     .field("failure", "CheckFailure", value => scalarWork("CheckFailure", value.failure), literalReader<IndexDecision["failure"]>("CheckFailure", ["unwind", "abort"]))
-    .finish((carrier, receiver, key, read, write, failure) => ({ carrier, receiver, key, read, write, failure })));
+    .field("writeCheck", "?DestinationCheck", value => nullableWork(value.writeCheck, timing => scalarWork("DestinationCheck", timing)),
+      nullableReader(literalReader<NonNullable<IndexDecision["writeCheck"]>>("DestinationCheck", ["before-value", "after-value"])))
+    .finish((carrier, receiver, key, read, write, failure, writeCheck) => ({ carrier, receiver, key, read, write, failure, writeCheck })));
   const indexValue = defineRecord<Extract<TypedIndex, { readonly role: "value" }>>("TypedIndex@value", "TypedIndex", { field: "role", value: "value" }, "TypedIndex", null, null, fields => typedValueFields(fields
     .field("role", "'value", value => scalarWork("'value", value.role), literalReader<"value">("'value", ["value"]))
     .field("index", "IndexDecision", value => indexDecision.write(value.index), lazyReader(() => indexDecision.reader)))

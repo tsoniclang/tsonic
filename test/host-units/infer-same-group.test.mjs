@@ -292,7 +292,8 @@ test("native index Rules use the solved key, reached access and carrier's own bo
     assert.deepEqual(contribution.reads, [0]);
     assert.deepEqual(contribution.bounds, []);
     const expected = { carrier, receiver, key: integral, read: access === "write" ? null : element,
-      write: access === "read" ? null : element, failure };
+      write: access === "read" ? null : element, failure,
+      writeCheck: access === "read" ? null : program.nativeFacts.destinationCheck };
     const input = { constraint, contribution, evidence: [receiver, open, element].map(type => ({ value: value(type), error: null })),
       reads: [{ variable: 0, value: value(integral), error: null }], origin: checked.origin };
     const solved = scheme.evaluate(input);

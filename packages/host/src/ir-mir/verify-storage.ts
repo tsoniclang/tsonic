@@ -790,8 +790,15 @@ export function verifyValues(
           } else report("projection-valid", site);
         }
         break;
-      case "index":
-        operandType(projection.operand, site);
+      case "index": {
+        const key = operandType(projection.operand, site);
+        const source = place.base.tir.body === context.source.body ? findSourceNode(nodes, place.base.tir.node)?.node : undefined;
+        if (source?.kind === "ElementAccessExpression" && "index" in source.tsonic) {
+          const selected = source.tsonic.index;
+          if (key !== selected.key || parent.storage !== selected.receiver
+            || place.storage !== (source.tsonic.role === "value" ? selected.read : selected.write))
+            report("projection-type", site);
+        }
         if (projection.operand.kind === "constant") {
           const constant = densePosition(projection.operand.constant, body.constants.length) ? body.constants[projection.operand.constant] : undefined;
           if (constant !== undefined && Object.is(constant.id, projection.operand.constant) && constant.value.kind === "metadata")
@@ -802,6 +809,7 @@ export function verifyValues(
           else if (parentTerm.kind !== "shape" && parentTerm.kind !== "declared" && parentTerm.kind !== "construction-reference") report("projection-valid", site);
         }
         break;
+      }
       case "capture":
         if (!densePosition(projection.index, context.source.captures.length)) report("capture-location-exact", site);
         break;

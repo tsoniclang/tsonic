@@ -774,6 +774,11 @@ function decisionOfView(base: ProjectedBase, source: SourceNode | undefined): Vi
     const narrowing = payload !== null && "narrowing" in payload ? payload.narrowing : null;
     return { check: narrowing !== null && narrowing.kind === "narrowed" ? { kind: "required", failure: narrowing.failure } : { kind: "none" }, receiver: null };
   }
+  if (base.projection.kind === "index" && source.node.kind === "ElementAccessExpression" && "index" in source.node.tsonic) {
+    const decision = source.node.tsonic.index;
+    return { check: { kind: "required", failure: decision.failure },
+      receiver: decision.carrier === "array" ? "by-reference" : "in-place" };
+  }
   if (payload === null || !("selection" in payload) || payload.selection === null || payload.selection.kind !== "decided") return null;
   return decisionOfLocation(payload.selection.decision.decision.location);
 }

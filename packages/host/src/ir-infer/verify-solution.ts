@@ -390,6 +390,7 @@ function indexTypes(input: InferVerificationInput, finals: ReadonlyMap<number, T
     || key?.kind !== "primitive" || !isNativeIntegerPrimitive(key.primitive)
     || receiver.element !== result || (receiver.kind === "array" && receiver.readonly && access !== "read")
     || selected.read !== (access === "write" ? null : result) || selected.write !== (access === "read" ? null : result)
+    || selected.writeCheck !== (access === "read" ? null : input.selectedNativeFacts.destinationCheck)
     || selected.failure !== (receiver.kind === "array" ? input.selectedNativeFacts.arrayIndexFailure : input.selectedNativeFacts.fixedArrayIndexFailure))
     emit(output, "operation-types", site, "index");
 }

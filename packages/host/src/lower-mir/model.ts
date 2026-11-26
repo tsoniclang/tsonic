@@ -2,11 +2,25 @@ import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BlockId, BodyId, LocalId, LocalRef, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, Statement, SwitchStatement, ThrowStatement, TryStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
-import type { CaseClause, CaseOrDefaultClause, DefaultClause } from "../ir-hir/contract.js";
+import type { CaseClause, CaseOrDefaultClause, DefaultClause, ElementAccessExpression } from "../ir-hir/contract.js";
+import type { IndexDecision } from "../ir-infer/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
 import type { MemberSelection, TirApplication, TirBody, TirDemand, TirModuleRoot, TypedOperation, TypedValueOccurrence, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
-import type { LowerState, ReadAnchor } from "./state.js";
+import type { IndexCheckStamp, LowerState, ReadAnchor } from "./state.js";
+
+export interface IndexedWrite {
+  readonly target: ElementAccessExpression<TypedPhase>;
+  readonly decision: IndexDecision;
+  readonly stamp: IndexCheckStamp | null;
+}
+
+interface IndexWork {
+  readonly node: ElementAccessExpression<TypedPhase>;
+  readonly decision: IndexDecision;
+  readonly storage: TyId;
+  readonly assignment: BinaryExpression<TypedPhase> | null;
+}
 
 export const failure = (message: string, origin: Origin | null): InvariantFailure => ({ owner: "lower-mir", query: null, origin, message });
 const invariant = (message: string, origin: Origin | null): never => throwInvariant(failure(message, origin));
@@ -73,6 +87,8 @@ export type Work =
   | { readonly kind: "field-assignment"; readonly node: BinaryExpression<TypedPhase>; readonly target: NodeHeader;
       readonly member: MemberSelection; readonly storage: TyId; readonly read: TyId;
       readonly value: TypedValue; readonly calculation: TypedOperation | null; readonly conditional: boolean }
+  | (IndexWork & { readonly kind: "index-receiver" })
+  | (IndexWork & { readonly kind: "index-key"; readonly base: PlaceId })
   | { readonly kind: "void-result"; readonly node: NodeHeader; readonly storage: TyId }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "unary" | "binary" }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "convert"; readonly to: TyId }
@@ -83,7 +99,8 @@ export type Work =
   | { readonly kind: "for-end"; readonly node: ForStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "for-next"; readonly node: ForStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | Discard
-  | { readonly kind: "store"; readonly node: NodeHeader; readonly local: LocalId | null; readonly place: PlaceId; readonly result: "old" | "new" }
+  | { readonly kind: "store"; readonly node: NodeHeader; readonly local: LocalId | null; readonly place: PlaceId; readonly result: "old" | "new";
+      readonly indexed?: IndexedWrite }
   | { readonly kind: "if"; readonly node: IfStatement<TypedPhase> }
   | { readonly kind: "switch"; readonly node: SwitchStatement<TypedPhase> }
   | ({ readonly kind: "switch-test"; readonly dispatch: SwitchDispatch; readonly subject: Evaluated; readonly fallback: SwitchTarget<DefaultClause<TypedPhase>> | null } & SwitchTarget<CaseClause<TypedPhase>>)

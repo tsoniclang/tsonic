@@ -74,7 +74,8 @@ export function decideIndex(deps: RulesDeps, input: IndexInput): IndexDecision {
     return notDecidedYet("an indexed view other than its selected array storage", input.context.origin);
   return { carrier: receiver.kind, receiver: input.receiver.type, key: input.key.type,
     read: input.access === "write" ? null : input.result, write: input.access === "read" ? null : input.result,
-    failure: receiver.kind === "array" ? deps.selectedNativeFacts.arrayIndexFailure : deps.selectedNativeFacts.fixedArrayIndexFailure };
+    failure: receiver.kind === "array" ? deps.selectedNativeFacts.arrayIndexFailure : deps.selectedNativeFacts.fixedArrayIndexFailure,
+    writeCheck: input.access === "read" ? null : deps.selectedNativeFacts.destinationCheck };
 }
 
 export function indexScheme(deps: RulesDeps): IndexContributionScheme {

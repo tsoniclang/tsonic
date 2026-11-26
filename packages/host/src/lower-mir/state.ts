@@ -37,6 +37,7 @@ export interface LowerState {
   readonly constants: Map<string, MirKeyedConstant>;
   readonly blocks: OpenBlock[];
   readonly entries: MirEntry[];
+  indexChecks: { epoch: number; readonly exposed: ReadonlySet<LocalId>; readonly writes: Map<LocalId, number> } | null;
   records: number;
   /**
    * The next record would have passed the size limit. From then on every primitive answers null and records nothing,
@@ -48,7 +49,41 @@ export interface LowerState {
 
 export function createState(body: BodyId, bindings: ArtifactBindings, result: TyId, limits: LowerMirLimits): LowerState {
   return { body, bindings, result, limits, locals: [], places: [], localPlaces: new Map(), staticPlaces: new Map(), constants: new Map(), blocks: [],
-    entries: [], records: 0, refused: false, current: null };
+    entries: [], indexChecks: null, records: 0, refused: false, current: null };
+}
+
+export interface IndexCheckStamp {
+  readonly epoch: number;
+  readonly local: LocalId | null;
+  readonly version: number;
+}
+
+export function indexCheckStamp(state: LowerState, exposed: ReadonlySet<LocalId>, local: LocalId | null): IndexCheckStamp {
+  const checks = state.indexChecks ??= { epoch: 0, exposed, writes: new Map() };
+  if (local !== null && !checks.writes.has(local)) checks.writes.set(local, 0);
+  return { epoch: checks.epoch, local, version: local === null ? 0 : checks.writes.get(local) ?? 0 };
+}
+
+export function indexCheckChange(state: LowerState, stamp: IndexCheckStamp): "unchanged" | "mutable" | "root" {
+  const checks = state.indexChecks;
+  if (checks === null) return throwInvariant(invariant("a saved check requires its actual lowering account"));
+  if (stamp.local !== null && checks.writes.get(stamp.local) !== stamp.version) return "root";
+  return checks.epoch === stamp.epoch ? "unchanged" : "mutable";
+}
+
+function indexCellWrite(state: LowerState, local: LocalId): void {
+  const checks = state.indexChecks;
+  if (checks === null) return;
+  const version = checks.writes.get(local);
+  if (version !== undefined) checks.writes.set(local, version + 1);
+}
+
+function indexPlaceWrite(state: LowerState, place: PlaceId | null): void {
+  const checks = state.indexChecks;
+  if (checks === null || place === null) return;
+  const base = state.places[place]?.base;
+  if (base?.kind === "local") indexCellWrite(state, base.local);
+  if (base?.kind !== "local" || checks.exposed.has(base.local)) checks.epoch += 1;
 }
 
 /** One record of the graph, charged before it is allocated. False when the limit is reached: the record is not made. */
@@ -141,9 +176,13 @@ export function enterBlock(state: LowerState, block: BlockId): void {
 
 export function buildDetachedBlock(state: LowerState, block: BlockId, build: () => boolean): boolean {
   const current = state.current;
+  const checks = state.indexChecks;
   state.current = null;
+  state.indexChecks = null;
   enterBlock(state, block);
-  if (!build()) return false;
+  const done = build();
+  state.indexChecks = checks;
+  if (!done) return false;
   if (state.current !== null) return throwInvariant(invariant("a detached block must be terminated before resuming its source"));
   state.current = current;
   return true;
@@ -155,6 +194,10 @@ export function emitStatement(state: LowerState, statement: MirStatement): boole
   if (state.current === null) return throwInvariant(invariant("a statement was emitted with no open block"));
   if (!charge(state)) return false;
   state.current.statements.push(statement);
+  if (state.indexChecks !== null) {
+    if (statement.kind === "assign") indexPlaceWrite(state, statement.place);
+    else indexCellWrite(state, statement.local);
+  }
   return true;
 }
 
@@ -185,6 +228,21 @@ export function terminate(state: LowerState, terminator: MirTerminator): void {
   if (state.refused) return;
   if (state.current === null) return throwInvariant(invariant("a terminator was emitted with no open block"));
   state.current.terminator = terminator;
+  const checks = state.indexChecks;
+  if (checks !== null) {
+    switch (terminator.kind) {
+      case "call": case "await": case "yield": case "delegate":
+        checks.epoch += 1;
+        indexPlaceWrite(state, terminator.destination);
+        break;
+      case "switch": checks.epoch += 1; break;
+      case "invoke":
+        if (terminator.operation.decision.execution.kind === "invocation" && terminator.operation.decision.execution.writesStorage) checks.epoch += 1;
+        indexPlaceWrite(state, terminator.destination);
+        break;
+      default: break;
+    }
+  }
   state.current = null;
 }
 

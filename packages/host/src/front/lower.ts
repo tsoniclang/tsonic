@@ -91,8 +91,8 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
     case "BinaryExpression": {
       if (!writtenCompoundAssignmentKinds.includes(node.operatorToken.kind)) return null;
       const target = unparenthesizedExpression(node.left);
-      return target.kind === "Identifier" || target.kind === "PropertyAccessExpression"
-        ? null : "compound assignment without a selected name or property target";
+      return target.kind === "Identifier" || target.kind === "PropertyAccessExpression" || target.kind === "ElementAccessExpression"
+        ? null : "compound assignment without a selected name, property or index target";
     }
     case "CallExpression":
       return node.questionDotToken !== null ? "optional CallExpression" : null;

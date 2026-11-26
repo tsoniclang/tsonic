@@ -164,6 +164,106 @@ test("authored MIR: optional embeddings preserve the selected payload or native 
 test("authored MIR: labelled transfers keep the selected loop or block destination", checkLabelledTransfers);
 test("authored MIR: void evaluates its operand exactly once", checkVoidOperand);
 
+test("authored MIR: array destinations check at the selected time and reuse the evaluated location", async () => {
+  const fixture = await loadFrontFixture();
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { lowerMirDeps, mirVerificationContext } = await import("../../packages/host/dist/pipeline/lower-mir-step.js");
+  const { internType, viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
+  const input = analysisInput(fixture, "es2024", `
+    function key() { return 0; }
+    function next(flag: boolean): boolean { return !flag; }
+    function amount(value: number): number { return value; }
+    export function write(values: boolean[], flag: boolean): void { values[key()] = next(flag); }
+    export function compound(values: number[], value: number): void { values[key()] += amount(value); }
+    export function unchanged(values: number[], value: number): void { values[key()] += value; }
+    export function read(values: readonly boolean[]): boolean { return values[key()]; }
+  `);
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  for (const [destinationCheck, arrayIndexFailure] of [["before-value", "abort"], ["after-value", "unwind"]]) {
+    const selectedNativeFacts = { ...input.snapshot.nativeFacts, destinationCheck, arrayIndexFailure };
+    const active = { ...input, snapshot: { ...input.snapshot, nativeFacts: selectedNativeFacts } };
+    const typed = typeSourceBarrier(active, checked.value, createAccount(active.limits.dataflow));
+    assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+    const ready = typed.value;
+    const table = viewTypes(checked.value.types);
+    const run = { selectedNativeFacts, interner: checked.value.types, table,
+      defs: { completionSelector: internType(checked.value.types, { kind: "primitive", primitive: "int32" }),
+        exceptionStorage: internType(checked.value.types, { kind: "intrinsic", intrinsic: "unknown" }) },
+      lowering: active.limits.lowering, verification: active.limits.mirVerification, declarationOf: ready.declarationOf,
+      bodyOwner: identity => fixture.ids.decodeBodyId(identity).value.owner,
+      bodyOf: instance => ready.bodies.get(instanceKey(instance)) ?? null };
+    const source = checked.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+    for (const declaration of source.tree.statements.nodes.slice(3)) {
+      const name = declaration.name.text;
+      const body = [...ready.bodies.values()].find(row => row.bindings.kind === "instantiated" && row.body === declaration.tsonic.body);
+      assert.ok(body, name);
+      const identity = instanceKey({ body: body.body, bindings: body.bindings });
+      const entries = ready.required.provided.get(identity);
+      assert.ok(entries, name);
+      const unit = { request: { query: "mirBody", key: identity }, position: { kind: "result" } };
+      const deps = lowerMirDeps(run, unit);
+      const lowered = lowerRequired(deps, body, [], entries);
+      assert.equal(lowered.kind, "ok", `${name} ${JSON.stringify(lowered.diagnostics)}`);
+      const mir = lowered.value;
+      const verification = mirVerificationContext(run, body, entries);
+      const verified = verifyMir(mir, verification);
+      assert.deepEqual(verified, { kind: "complete", violations: [] }, name);
+      const { expression } = body.root.statements.nodes[0];
+      const index = name === "read" ? expression : expression.left;
+      const chain = [];
+      let block = mir.blocks[mir.entries[0].block];
+      while (block !== undefined) {
+        assert.ok(chain.length < mir.blocks.length, name);
+        chain.push(block);
+        const end = block.terminator;
+        block = end.kind === "return" ? undefined : mir.blocks[end.next];
+      }
+      const calls = chain.flatMap(row => row.terminator.kind === "call" ? [row.terminator] : []);
+      assert.equal(calls.filter(call => call.tir.node === index.argumentExpression.id).length, 1, name);
+      const checkedBlocks = chain.filter(row => row.terminator.kind === "check");
+      assert.equal(checkedBlocks.length, name === "compound" || name === "write" && destinationCheck === "before-value" ? 2 : 1, name);
+      const place = mir.places.find(row => row.base.kind === "checked" && row.base.tir.node === index.id);
+      assert.ok(place, name);
+      assert.deepEqual(place.base.projection, { kind: "index", operand: { kind: "place", place: calls[0].destination } });
+      for (const current of checkedBlocks) {
+        assert.equal(current.terminator.place, place.id);
+        assert.deepEqual(current.terminator.unwind, { kind: arrayIndexFailure === "abort" ? "abort" : "escape" });
+        assert.equal(current.terminator.tir.node, index.id);
+      }
+      const wrongFailure = { ...mir, blocks: mir.blocks.map(row => row !== checkedBlocks[0] ? row : { ...row,
+        terminator: { ...row.terminator, unwind: { kind: arrayIndexFailure === "abort" ? "escape" : "abort" } } }) };
+      const wrongKind = verifyMir(wrongFailure, verification);
+      assert.equal(wrongKind.kind, "complete");
+      assert.equal(wrongKind.violations.some(issue => issue.rule === "failure-kind-exact"), true);
+      const stores = mir.blocks.flatMap(row => row.statements.filter(statement => statement.kind === "assign" && statement.place === place.id));
+      assert.equal(stores.length, name === "read" ? 0 : 1, name);
+      if (name !== "read") {
+        assert.ok(chain.indexOf(checkedBlocks.at(-1)) < chain.findIndex(row => row.statements.includes(stores[0])), name);
+        const reads = chain.flatMap(row => row.statements.filter(statement => statement.kind === "assign"
+          && statement.value.kind === "use" && statement.value.operand.kind === "place" && statement.value.operand.place === place.id));
+        assert.equal(reads.length, name === "write" ? 0 : 1, name);
+        if (name !== "unchanged") {
+          const rhs = chain.findIndex(row => row.terminator.tir?.node === expression.right.id);
+          assert.ok(rhs >= 0, name);
+          assert.equal(chain.indexOf(checkedBlocks[0]) < rhs, name === "compound" || destinationCheck === "before-value", name);
+          if (checkedBlocks.length === 2) assert.ok(rhs < chain.indexOf(checkedBlocks[1]), name);
+          if (name === "compound") assert.ok(chain.findIndex(row => row.statements.includes(reads[0])) <= rhs, name);
+        }
+      }
+      const exact = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+        + mir.blocks.reduce((count, row) => count + row.statements.length, 0);
+      for (let maximumRecords = 0; maximumRecords < exact; maximumRecords += 1) {
+        const short = lowerRequired({ ...deps, limits: { maximumRecords } }, body, [], entries);
+        assert.equal(short.kind, "refused", `${name} at ${maximumRecords}`);
+      }
+      assert.deepEqual(lowerRequired({ ...deps, limits: { maximumRecords: exact } }, body, [], entries), lowered);
+    }
+  }
+});
+
 test("authored MIR: switch evaluates selected labels in order and reads the subject once", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

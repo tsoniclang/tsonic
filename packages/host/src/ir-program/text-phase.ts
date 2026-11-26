@@ -522,6 +522,7 @@ export function textTypedElement(value: TypedElement): TextWork {
         field("read", selected.read === null ? token("null") : numericIdentity("t", selected.read)),
         field("write", selected.write === null ? token("null") : numericIdentity("t", selected.write)),
         field("failure", text(selected.failure)),
+        field("writeCheck", selected.writeCheck === null ? token("null") : text(selected.writeCheck)),
       ])),
       ...(value.role === "value" ? typedValueFields(value) : [field("access", textTargetAccess(value.access))]),
     ]);

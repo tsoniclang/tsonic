@@ -2928,6 +2928,7 @@ test("installed native array accesses reach verified Typed HIR with the original
       const writes = statement.kind === "ExpressionStatement";
       assert.equal(decided.read, writes ? null : carrier.element);
       assert.equal(decided.write, writes ? carrier.element : null);
+      assert.equal(decided.writeCheck, writes ? input.snapshot.nativeFacts.destinationCheck : null);
       selected.add(index.argumentExpression.text);
     }
     const actual = chapter.bodies.find(row => row.root === root);

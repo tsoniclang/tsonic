@@ -477,8 +477,10 @@ function readIndexDecisionText<Root>(cursor: Cursor, finish: (value: IndexDecisi
           fieldText<TyId | null, Root>(cursor, fields, "write", optional, write =>
             fieldText<IndexDecision["failure"], Root>(cursor, fields, "failure", (next, done) =>
               atomicText(next, value => readStringChoice(value, ["unwind", "abort"]), done), failure =>
-              atomicText(cursor, next => closeRecord(next, fields), () =>
-                acceptText({ carrier, receiver, key, read, write, failure }, finish)))))))));
+              fieldText<IndexDecision["writeCheck"], Root>(cursor, fields, "writeCheck", (next, done) =>
+                nullableText(next, (at, finish) => atomicText(at, value => readStringChoice(value, ["before-value", "after-value"]), finish), done), writeCheck =>
+                atomicText(cursor, next => closeRecord(next, fields), () =>
+                  acceptText({ carrier, receiver, key, read, write, failure, writeCheck }, finish))))))))));
 }
 
 export function readTypedElementText<Root>(cursor: Cursor, finish: (value: TypedElement) => TextStep<Root>): TextStep<Root> {

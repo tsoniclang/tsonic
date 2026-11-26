@@ -494,6 +494,7 @@ export interface IndexDecision {
   readonly read: TyId | null;
   readonly write: TyId | null;
   readonly failure: CheckFailure;
+  readonly writeCheck: "before-value" | "after-value" | null;
 }
 
 export type ParameterMapping =
@@ -855,13 +856,14 @@ export interface InferenceBindingInput {
   readonly solution: Solution | null;
 }
 
-export interface IndexFailureFacts {
+export interface IndexNativeFacts {
   readonly arrayIndexFailure: CheckFailure;
   readonly fixedArrayIndexFailure: CheckFailure;
+  readonly destinationCheck: "before-value" | "after-value";
 }
 
 export interface InferVerificationInput extends InferenceBindingInput {
-  readonly selectedNativeFacts: IndexFailureFacts;
+  readonly selectedNativeFacts: IndexNativeFacts;
   readonly contributions: readonly AtomicContribution[];
   readonly types: TypeTable;
   readonly bindingScopes: readonly BindingScope[];

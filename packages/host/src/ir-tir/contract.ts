@@ -3,7 +3,7 @@ import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { Block, CapturedFact, CheckedPhase, CheckedUnopenedDeclaration, DeclarationTarget, Expression, FunctionDeclaration, FunctionDeclarationHeader, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, NodeList, NonFunctionStatement, ParameterDeclaration, Phase, SourceFile, SourceFileHeader, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, IndexDecision, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { IndexFailureFacts } from "../ir-infer/contract.js";
+import type { IndexNativeFacts } from "../ir-infer/contract.js";
 import type { ArrowFunction, CheckedLayoutAlias, LayoutCallRole, ObjectLiteralExpression, TextRange } from "../ir-hir/contract.js";
 
 export interface TypedOperation {
@@ -793,7 +793,7 @@ export interface TirVerifierInput extends HirBindingViews {
   readonly source: HirModule;
   readonly module: TirModule;
   readonly types: TypeTable;
-  readonly selectedNativeFacts: IndexFailureFacts;
+  readonly selectedNativeFacts: IndexNativeFacts;
   readonly bindingScopesOf: TirBindingScopesOf;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
   readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
