@@ -21,7 +21,7 @@ function conversionData(value: NativeConversionResult): KeyData {
 }
 
 export function nativeFactsKey(value: SelectedNativeFacts): string {
-  return encodeKey([
+  const data: KeyData[] = [
     value.carrierHolding.map(row => [row.carrier, row.holding]),
     value.arrayExtents.map(row => [row.carrier, row.result]),
     value.nativeIntegerWidths.map(row => [row.carrier, row.bits]),
@@ -40,7 +40,10 @@ export function nativeFactsKey(value: SelectedNativeFacts): string {
     value.destinationCheck, value.byPlaceArgumentCheck, value.cleanupFailure, value.derivedFieldInitialization,
     value.constructionIdentity,
     value.geometry.layouts.map(row => [declarationData(row.declaration), row.layout.fingerprint, row.layout.byteOrder, row.layout.addressWidth]),
-  ]);
+  ];
+  const construction = value.arrayConstruction;
+  if (construction !== null) data.push(["array-construction", construction.kind, construction.extentFailure, construction.rangeCopy]);
+  return encodeKey(data);
 }
 
 export function isNativePrimitive(value: unknown): value is NativePrimitive {
@@ -203,6 +206,9 @@ export function verifyNativeFacts(value: SelectedNativeFacts): readonly Violatio
       && (row.holding === "in-place" || row.holding === "by-reference"));
   rows(value.arrayExtents, "arrayExtents", 2, row => row.carrier,
     row => (row.carrier === "array" || row.carrier === "fixed-array") && isNativeIntegerPrimitive(row.result));
+  const construction = value.arrayConstruction;
+  scalar(construction === null || construction !== undefined && construction.kind === "exact-length"
+    && failure(construction.extentFailure) && construction.rangeCopy === "contiguous", "arrayConstruction");
   rows(value.nativeIntegerWidths, "nativeIntegerWidths", 2, row => row.carrier,
     row => (row.carrier === "native-int" || row.carrier === "native-uint") && Number.isSafeInteger(row.bits) && row.bits > 0);
   rows(value.floatingFormats, "floatingFormats", 3, row => row.carrier,

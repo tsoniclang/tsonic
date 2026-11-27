@@ -111,6 +111,8 @@
       "absentAccessFailure": "unwind",
       "typeTestFailure": "unwind",
       "allocationFailure": "observable",
+      "arrayConstruction": null,
+      "arrayExtents": [],
       "handleActivation": "at-creation",
       "destinationCheck": "before-value",
       "byPlaceArgumentCheck": "before-later-arguments",

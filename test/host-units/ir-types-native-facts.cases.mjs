@@ -206,6 +206,31 @@ export async function nativeFactsCases(suite, product) {
     }
   });
 
+  await suite.test("array construction is selected independently of storage, extent and allocation", () => {
+    const original = nativeFactsFixture();
+    const grant = { kind: "exact-length", extentFailure: "unwind", rangeCopy: "contiguous" };
+    const selected = { ...original, arrayConstruction: grant };
+    assert.deepEqual(product.verifyNativeFacts(selected), []);
+    assert.notEqual(product.nativeFactsKey(selected), product.nativeFactsKey(original));
+    for (const opposite of [
+      { ...selected, arrayConstruction: { ...grant, extentFailure: "abort" } },
+      { ...selected, allocationFailure: "abort" },
+      { ...selected, carrierHolding: nativeFactsFixture({ arrayHolding: "in-place" }).carrierHolding },
+      { ...selected, arrayExtents: nativeFactsFixture({ arrayExtent: "int32" }).arrayExtents },
+    ]) {
+      assert.deepEqual(product.verifyNativeFacts(opposite), []);
+      assert.notEqual(product.nativeFactsKey(opposite), product.nativeFactsKey(selected));
+    }
+    const { arrayConstruction, ...missing } = selected;
+    void arrayConstruction;
+    for (const malformed of [missing, ...[
+      { ...grant, kind: "growth" },
+      { ...grant, extentFailure: "wrap" },
+      { ...grant, rangeCopy: "element-conversion" },
+    ].map(arrayConstruction => ({ ...selected, arrayConstruction }))])
+      assert.deepEqual(product.verifyNativeFacts(malformed), [issue("native-fact-value", "arrayConstruction", null)]);
+  });
+
   await suite.test("native extent laws are ordered and independent of holding and index failure", () => {
     const facts = nativeFactsFixture({ arrayHolding: "in-place", arrayExtent: "int32", fixedArrayExtent: "uint64" });
     const rows = facts.arrayExtents;

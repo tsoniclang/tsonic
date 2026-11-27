@@ -50,6 +50,12 @@ export interface NativeArrayExtent {
   readonly result: NativeIntegerPrimitive;
 }
 
+export interface NativeArrayConstruction {
+  readonly kind: "exact-length";
+  readonly extentFailure: CheckFailure;
+  readonly rangeCopy: "contiguous";
+}
+
 export interface NativeIntegerWidth {
   readonly carrier: "native-int" | "native-uint";
   readonly bits: number;
@@ -111,6 +117,7 @@ export interface NativeConversion {
 export interface SelectedNativeFacts {
   readonly carrierHolding: readonly NativeCarrierHolding[];
   readonly arrayExtents: readonly NativeArrayExtent[];
+  readonly arrayConstruction: NativeArrayConstruction | null;
   readonly nativeIntegerWidths: readonly NativeIntegerWidth[];
   readonly floatingFormats: readonly NativeFloatingFormat[];
   readonly integerOverflow: readonly NativeOverflow[];
