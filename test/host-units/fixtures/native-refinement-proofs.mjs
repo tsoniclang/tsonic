@@ -8,7 +8,7 @@ export async function checkNativeRefinementWalkthrough() {
   const fixture = await loadFrontFixture();
   const { nativeInt32Input } = await import("./native-int32-input.mjs");
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
-  for (const [replace, work, records] of [[false, 115332, 20011], [true, 116231, 20272]]) {
+  for (const [replace, work, records] of [[false, 115332, 20011], [true, 116240, 20272]]) {
     const input = await nativeInt32Input(fixture, `
       function pure(): void {}
       function clear(p: { x: { v: Native } | null }): void { p.x = null; }
@@ -95,6 +95,8 @@ export async function checkNativeCountedLoopProofs() {
     { start: 0, write: "values = replacement;", minimum: 0n, counted: true, bound: "values.length", audit: "receiver" },
     { start: 0, write: "", tail: "values = replacement;", minimum: 0n, counted: true, bound: "values.length", proven: true, audit: "guard" },
     { start: 0, write: "if (i < 1) values = replacement;", minimum: 0n, counted: true, bound: "values.length" },
+    { start: 0, write: "if (i < 1) { values = replacement; continue; }", minimum: 0n, counted: true, bound: "values.length", proven: true },
+    { start: 0, write: "if (i < 1) values = values;", minimum: 0n, counted: true, bound: "values.length", proven: true, audit: "self-copy" },
     { start: 0, write: "observe(values);", callee: "function observe(value: boolean[]): void {}", minimum: 0n,
       counted: true, bound: "values.length", proven: true, audit: "call" },
     { start: 0, write: "observe(values);", callee: 'import { observe } from "./native.js";',
@@ -159,6 +161,19 @@ export async function checkNativeCountedLoopProofs() {
     assert.deepEqual(facts.refinements.integers.filter(row => row.range !== null),
       range === null ? [] : [{ node: access.argumentExpression.id, range, nonnegative: true }]);
     assert.deepEqual(decoded.value.refinements.integers, facts.refinements.integers);
+    if (audit === "self-copy") {
+      const receiver = selected.tir.params[0].tsonic.local;
+      const stores = selected.mir.blocks.flatMap(block => block.statements).filter(row => {
+        if (row.kind !== "assign") return false;
+        const target = selected.mir.places[row.place].base;
+        if (target.kind !== "local") return false;
+        const source = selected.mir.locals[target.local].source;
+        return source?.body === receiver.body && source.local === receiver.local;
+      });
+      assert.equal(stores.length, 1);
+      assert.equal(stores[0].step, null);
+      assert.deepEqual(stores[0].value, { kind: "use", operand: { kind: "place", place: stores[0].place } });
+    }
     if (!audit) continue;
     const summaryAt = (block, operation) => {
       assert.equal(audit, "call");

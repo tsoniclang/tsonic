@@ -31,7 +31,19 @@ function statements(mir: MirBody, block: MirBlock, input: Strength, guard: Guard
       if (roots[row.place] === guard.counter) state = "unproved";
       else if (state === "extent") {
         const target = mir.places[row.place]?.base;
-        if (target?.kind !== "local" || target.local === guard.receiver) state = "range";
+        if (target?.kind !== "local") state = "range";
+        else if (target.local === guard.receiver) {
+          const inspect = chargeWork(account, 2);
+          if (inspect !== null) return inspect;
+          const value = row.value;
+          if (row.step !== null || value.kind !== "use") state = "range";
+          else {
+            const read = chargeWork(account, 1);
+            if (read !== null) return read;
+            const operand = value.operand;
+            if (operand.kind !== "place" || operand.place !== row.place) state = "range";
+          }
+        }
       }
     } else if (row.kind === "storage-live" || row.kind === "storage-dead") {
       if (row.local === guard.counter) state = "unproved";
