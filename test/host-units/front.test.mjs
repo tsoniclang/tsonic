@@ -3485,6 +3485,41 @@ test("inferred array destructuring preserves independent native read and context
   }
 });
 
+test("an inferred array binding keeps a selected call's tuple distinct from its binding context", () => {
+  for (const [tuple, pattern, roles] of [
+    ["[boolean, string]", "first, second", ["required", "required"]],
+    ["[boolean?]", "first = fallback()", ["optional"]],
+  ]) {
+    const { deps, program, module } = openedModule(`
+      function producer(pair: ${tuple}): ${tuple} { return pair; }
+      function fallback(): boolean { return false; }
+      export function start(pair: ${tuple}): boolean {
+        const [${pattern}] = producer(pair);
+        return first;
+      }
+    `);
+    const captured = captureSingleModule(front, deps, program, module);
+    assert.equal(captured.kind, "ok");
+    const raw = captured.value;
+    const { initializer } = raw.tree.statements.nodes[2].body.statements.nodes[0].declarationList.declarations.nodes[0];
+    const { read, contextual } = raw.checkerViews.find(row => row.node.node === initializer.id);
+    const selected = raw.calls.find(row => row.invocation.node === initializer.id);
+    assert.notEqual(read.value, contextual.value);
+    for (const type of [read.value, contextual.value, selected.result]) {
+      const row = raw.types.types[type];
+      assert.deepEqual(raw.types.components[row.component].root, { module, node: initializer.id });
+      assert.deepEqual(row.form.value.elements.map(element => element.kind), roles);
+    }
+    if (roles.length === 2) {
+      const slotTypes = type => raw.types.types[type].form.value.elements
+        .map(slot => raw.types.types[slot.type].form.value.scalar);
+      assert.deepEqual(slotTypes(selected.result), ["boolean", "string"]);
+      assert.deepEqual(slotTypes(read.value), ["boolean", "string"]);
+      assert.deepEqual(slotTypes(contextual.value), ["any", "any"]);
+    }
+  }
+});
+
 test("a contextual binding member and an initializer property retain their different source origins", async () => {
   const text = "declare const a: number; declare const c: number; export const [e, {f: selected}] = [a + 1, {f: c}];";
   const { deps, program, module } = openedModule(text);

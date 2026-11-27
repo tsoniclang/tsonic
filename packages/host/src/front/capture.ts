@@ -1532,10 +1532,10 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
     const occurrence = originalUse === null && binding === null && parent.path === null
       ? admittedTypeUse(scope, parent.root) : undefined;
     if (scope.meter.refusal !== null) return null;
-    const declaration = ast.kindName(occurrence) === "KindArrayLiteralExpression" ? ast.parent(occurrence) : occurrence;
+    const declaration = ast.kindName(occurrence) === "KindVariableDeclaration" ? occurrence : ast.parent(occurrence);
     const variable = ast.kindName(declaration) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(declaration) : undefined;
     if (variable === undefined || variable.Type !== undefined || ast.kindName(variable.name) !== "KindArrayBindingPattern"
-      || ast.kindName(variable.Initializer) !== "KindArrayLiteralExpression"
+      || variable.Initializer === undefined
       || declaration !== occurrence && variable.Initializer !== occurrence)
       throw new TypeError("front: a tuple requires its actual authored, projected or inferred destructuring association");
   }
