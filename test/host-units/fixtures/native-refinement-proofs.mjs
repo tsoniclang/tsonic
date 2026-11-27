@@ -3,6 +3,35 @@ import { accountFailure, createAccount } from "../../../packages/host/dist/dataf
 
 const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
 
+function checkReachedFieldCuts(stateOf, run, expected, label, afterProbe = () => {}) {
+  const probe = createAccount(limits);
+  const meter = stateOf(probe);
+  const charged = { work: [], entries: [] };
+  const consumed = { work: 0, entries: 0 };
+  for (const category of ["work", "entries"]) Object.defineProperty(meter, category, {
+    get: () => consumed[category], set: next => {
+      if (next > consumed[category]) charged[category].push(next);
+      consumed[category] = next;
+    },
+  });
+  assert.deepEqual(run(probe), { kind: "complete", value: expected }, label);
+  afterProbe();
+  assert.deepEqual(run(createAccount({ maximumWork: consumed.work, maximumResultEntries: consumed.entries })),
+    { kind: "complete", value: expected }, label);
+  for (const [category, dimension] of [["work", "work"], ["entries", "result-entries"]]) {
+    assert.ok(charged[category].length > 0, `${label}: ${dimension}`);
+    for (const cut of charged[category]) {
+      const account = createAccount({ maximumWork: category === "work" ? cut - 1 : consumed.work,
+        maximumResultEntries: category === "entries" ? cut - 1 : consumed.entries });
+      const stopped = run(account);
+      assert.equal(stopped.kind, "resource-limit", `${label}: ${dimension} ${cut - 1}`);
+      assert.equal(stopped.dimension, dimension);
+      assert.equal(stopped === accountFailure(account), true);
+      assert.equal(run(account) === stopped, true);
+    }
+  }
+}
+
 export async function checkNativeRefinementWalkthrough() {
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const fixture = await loadFrontFixture();
@@ -452,18 +481,7 @@ export async function checkNativeFieldRefinement() {
       return { kind: "complete", value: summary };
     } };
     const run = account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, proofInput);
-    const probe = createAccount(limits);
-    assert.deepEqual(run(probe), { kind: "complete", value: [expected] });
-    const { work, entries } = InvocationAccount.stateOf(probe);
-    assert.deepEqual(run(createAccount({ maximumWork: work, maximumResultEntries: entries })), { kind: "complete", value: [expected] });
-    for (const [dimension, maximumWork, maximumResultEntries] of [["work", work - 1, entries], ["result-entries", work, entries - 1]]) {
-      const account = createAccount({ maximumWork, maximumResultEntries });
-      const stopped = run(account);
-      assert.equal(stopped.kind, "resource-limit");
-      assert.equal(stopped.dimension, dimension);
-      assert.equal(stopped === accountFailure(account), true);
-      assert.equal(run(account) === stopped, true);
-    }
+    checkReachedFieldCuts(InvocationAccount.stateOf, run, [expected], "nested sibling call write");
   }
 
   const ancestor = analysisInput(fixture, "sdk-minimal", `
@@ -485,13 +503,32 @@ export async function checkNativeFieldRefinement() {
   const [clear, returned] = inner.thenStatement.statements.nodes;
   const reason = { kind: "invalidated", sites: [{ kind: "call", at: { body: selected.tir.body, node: clear.expression.id } }] };
   const [facts] = selected.facts;
-  assert.deepEqual(facts.refinements.refinements, [
+  const expectedAncestor = [
     { kind: "proven", node: inner.expression.left.expression.id, guards: [outer.expression.id] },
     { kind: "unproven", node: returned.expression.id, guards: [inner.expression.id], reason },
     { kind: "unproven", node: returned.expression.expression.id, guards: [outer.expression.id], reason },
-  ]);
+  ];
+  assert.deepEqual(facts.refinements.refinements, expectedAncestor);
   const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
   assert.deepEqual(new Set(checks.map(check => check.tir.node)), new Set(facts.refinements.refinements.map(row => row.node)));
+  const sourceAncestor = sourceOccurrences(selected.tir, createAccount(limits));
+  assert.equal(sourceAncestor.kind, "complete");
+  const capturedAncestor = captureSourceBarrier(ancestor);
+  assert.equal(capturedAncestor.kind, "ok");
+  checkReachedFieldCuts(InvocationAccount.stateOf, account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, {
+    sourceOf: node => sourceAncestor.value.get(node),
+    callBindings: { lexical: selected.tir.lexicalBindings,
+      scopeOf: definition => capturedAncestor.value.descriptions.get(definition)?.generics ?? null },
+    summaryAt: (block, operation) => {
+      assert.equal(selected.mir.blocks[block].terminator === operation, true);
+      assert.deepEqual(operation.tir, reason.sites[0].at);
+      assert.equal(operation.callee.kind, "direct");
+      const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+        && sameInstance(row.key.execution.instance, operation.callee.resolution.activation) && row.key.execution.provided === 1);
+      assert.ok(summary);
+      return { kind: "complete", value: summary };
+    },
+  }), expectedAncestor, "replaced ancestor call write");
 
   for (const [name, statements, state] of [
     ["exit", "if (choose) { box = replacement; return false; } if (box.flag !== undefined) return box.flag;", "proven"],
@@ -541,7 +578,7 @@ export async function checkNativeFieldRefinement() {
       assert.equal(selected.mir.places[sample.value.operand.place].base.tir.node, guard.left.id);
       const compared = selected.mir.blocks[callBlock.terminator.next].statements.find(row => row.kind === "assign" && row.tir.node === guard.id);
       assert.deepEqual(compared.value.left, { kind: "place", place: sample.place });
-    } else if (name !== "saved") continue;
+    } else if (name !== "saved" && name !== "loop") continue;
 
     const source = sourceOccurrences(selected.tir, createAccount(limits));
     assert.equal(source.kind, "complete");
@@ -558,18 +595,8 @@ export async function checkNativeFieldRefinement() {
       firstLookup ??= InvocationAccount.stateOf(account).work;
       return { kind: "complete", value: summary };
     } });
-    const probe = createAccount(limits);
-    const meter = InvocationAccount.stateOf(probe);
-    const charged = { work: [], entries: [] };
-    const consumed = { work: 0, entries: 0 };
-    for (const dimension of ["work", "entries"]) Object.defineProperty(meter, dimension, {
-      get: () => consumed[dimension], set: next => {
-        if (next > consumed[dimension]) charged[dimension].push(next);
-        consumed[dimension] = next;
-      },
-    });
-    assert.deepEqual(run(probe), { kind: "complete", value: [expected] });
-    if (name === "stale-field") {
+    checkReachedFieldCuts(InvocationAccount.stateOf, run, [expected], name, () => {
+      if (name !== "stale-field") return;
       assert.ok(firstLookup > 0);
       const cutoff = createAccount({ ...limits, maximumWork: firstLookup - 1 });
       firstLookup = null;
@@ -579,20 +606,6 @@ export async function checkNativeFieldRefinement() {
       assert.equal(firstLookup, null);
       assert.equal(run(cutoff) === stopped, true);
       assert.equal(firstLookup, null);
-    }
-    assert.deepEqual(run(createAccount({ maximumWork: consumed.work, maximumResultEntries: consumed.entries })),
-      { kind: "complete", value: [expected] });
-    for (const [category, dimension] of [["work", "work"], ["entries", "result-entries"]]) {
-      assert.ok(charged[category].length > 0, `${name}: ${dimension}`);
-      for (const cut of charged[category]) {
-        const account = createAccount({ maximumWork: category === "work" ? cut - 1 : consumed.work,
-          maximumResultEntries: category === "entries" ? cut - 1 : consumed.entries });
-        const stopped = run(account);
-        assert.equal(stopped.kind, "resource-limit", `${name}: ${dimension} ${cut - 1}`);
-        assert.equal(stopped.dimension, dimension);
-        assert.equal(stopped === accountFailure(account), true);
-        assert.equal(run(account) === stopped, true);
-      }
-    }
+    });
   }
 }
