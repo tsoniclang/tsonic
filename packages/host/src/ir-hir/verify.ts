@@ -639,6 +639,15 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
           || slot.kind === "available" && local.checkerSlot.kind === "available" && slot.value !== local.checkerSlot.value)
           report("local-reference", site, "a named binding element retains its exact checked local and native storage type");
       }
+      const initializer = node.initializer;
+      if (initializer !== null) {
+        const body = inventory.owners.get(initializer);
+        const path = body === undefined ? null : paths.bodyPathOf(body.body);
+        if (target === null || body === undefined || body.root !== initializer || body.owner !== entry.item
+          || inventory.bodyParents.get(body) !== entry.body || body.params.length !== 0
+          || path?.kind !== "known" || path.value.role !== "initializer" || path.value.ordinal !== 0)
+          report("body-owner", site, "a binding default retains its actual initializer root and binding owner");
+      }
     }
     if ((node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "EnumMember" ||
       node.kind === "PropertySignature" || node.kind === "PropertyDeclaration") && "initializer" in node.tsonic) {

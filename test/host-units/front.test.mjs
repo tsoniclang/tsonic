@@ -3613,6 +3613,45 @@ test("Checked destructuring owns real leaf storage, not a synthetic container lo
   assert.deepEqual(verifyChecked(parsed.value, interner).map(row => row.rule), ["binding-capture-owner", "local-reference"]);
 });
 
+test("a checked object pattern keeps its selector, local and default execution independently qualified", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const { checked, interner } = checkedModuleOf(`
+    export function start(source: { first: boolean; second?: boolean }): boolean {
+      const { first: left, second = !left } = source;
+      return second;
+    }
+  `);
+  const start = checked.tree.statements.nodes[0];
+  const body = checked.bodies.find(row => row.body === start.tsonic.body);
+  const declaration = start.body.statements.nodes[0].declarationList.declarations.nodes[0];
+  const [left, second] = declaration.name.elements.nodes;
+  assert.equal(declaration.name.kind, "ObjectBindingPattern");
+  assert.equal(declaration.initializer.text, "source");
+  assert.equal(left.propertyName.text, "first");
+  assert.equal(left.propertyName.tsonic.role, "property-name");
+  assert.deepEqual(left.propertyName.tsonic.key, { kind: "available", value: { kind: "text", value: "first" } });
+  assert.equal(left.name.text, "left");
+  assert.equal(left.name.tsonic.role, "declaration-name");
+  assert.equal(left.initializer, null);
+  assert.deepEqual(body.locals.map(local => local.name), ["source", "left", "second"]);
+  const defaultOwner = checked.items.find(item => item.node === second.id);
+  const nested = checked.bodies.find(row => row.owner === defaultOwner.definition);
+  assert.equal(nested.root === second.initializer, true);
+  assert.deepEqual(body.nestedBodies, [nested.body]);
+  assert.deepEqual(nested.captures, [{ body: body.body, local: body.locals[1].id }]);
+  assert.equal(checked.bodies.some(row => row.root === declaration.initializer), false);
+  assert.deepEqual(verifyChecked(checked, interner), []);
+  const text = hir.printHir(checked);
+  const parsed = hir.parseHir(text);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(hir.printHir(parsed.value), text);
+  assert.deepEqual(verifyChecked(parsed.value, interner), []);
+  const wrong = { ...checked, bodies: checked.bodies.map(row => row === nested
+    ? { ...row, root: start.body.statements.nodes[1].expression } : row) };
+  assert.equal(verifyChecked(wrong, interner).some(row => row.rule === "body-owner"
+    && row.detail.some(detail => detail.kind === "text" && detail.value.includes("a binding default retains"))), true);
+});
+
 test("a contextual binding member and an initializer property retain their different source origins", async () => {
   const text = "declare const a: number; declare const c: number; export const [e, {f: selected}] = [a + 1, {f: c}];";
   const { deps, program, module } = openedModule(text);

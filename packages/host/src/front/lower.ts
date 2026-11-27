@@ -52,7 +52,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "AmpersandAmpersandToken", "BarBarToken", "QuestionQuestionToken", "CommaToken",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "NumericLiteral", "BigIntLiteral", "StringLiteral", "NoSubstitutionTemplateLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport", "QualifiedName",
-  "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "ArrayBindingPattern", "BindingElement", "InterfaceDeclaration", "HeritageClause", "ExpressionWithTypeArguments",
+  "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "ArrayBindingPattern", "ObjectBindingPattern", "BindingElement", "InterfaceDeclaration", "HeritageClause", "ExpressionWithTypeArguments",
   "ModuleDeclaration", "ModuleBlock",
   "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
   "EnumDeclaration", "EnumMember", "ConstKeyword",
@@ -85,9 +85,10 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
         ? `${node.kind} with a non-identifier update target` : null;
     }
     case "VariableDeclaration": return node.exclamationToken !== null ? "definite-assignment VariableDeclaration"
-      : node.name.kind !== "Identifier" && (node.name.kind !== "ArrayBindingPattern" || node.initializer === null) ? "pattern VariableDeclaration" : null;
+      : node.name.kind !== "Identifier" && node.initializer === null ? "pattern VariableDeclaration" : null;
     case "BindingElement": return node.dotDotDotToken !== null ? "rest BindingElement"
-      : node.propertyName !== null ? "property BindingElement" : node.initializer !== null ? "default BindingElement" : null;
+      : node.propertyName !== null && node.propertyName.kind !== "Identifier" ? "non-identifier binding property"
+        : node.initializer !== null && node.name?.kind !== "Identifier" ? "default on an unnamed binding" : null;
     case "VariableDeclarationList": return node.flags.includes("AwaitUsing") ? "await using declaration"
       : node.flags.includes("Using") ? "using declaration" : null;
     case "BinaryExpression": {
@@ -397,7 +398,7 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
     }
     return { node, context, children: iterateChildrenOfSyntax(node), label,
       mutable: node.kind === "VariableDeclarationList" ? !node.flags.includes("Const") : mutable,
-      localPattern: node.kind === "VariableDeclaration" ? ownsLocal && node.name.kind === "ArrayBindingPattern" : localPattern };
+      localPattern: node.kind === "VariableDeclaration" ? ownsLocal && node.name.kind !== "Identifier" : localPattern };
   };
   const pending: Frame[] = [enter(raw.tree, { body: moduleBody, lexicalBody: moduleBody, callableBody: null }, true, false, "binding", false)];
   for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
@@ -445,7 +446,7 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
       && frame.node.kind === "VariableDeclarationList" && (frame.node.flags.includes("Let") || frame.node.flags.includes("Const"))
       && (enclosing?.kind !== "VariableStatement" || enclosing.parent !== raw.tree.id);
     const role = frame.node.kind === "CatchClause" && child === frame.node.variableDeclaration ? "catch" : "binding";
-    const localPattern = frame.localPattern && (frame.node.kind === "ArrayBindingPattern" && child.kind === "BindingElement"
+    const localPattern = frame.localPattern && ((frame.node.kind === "ArrayBindingPattern" || frame.node.kind === "ObjectBindingPattern") && child.kind === "BindingElement"
       || (frame.node.kind === "VariableDeclaration" || frame.node.kind === "BindingElement") && frame.node.name === child);
     pending.push(enter(child, scope, frame.mutable, blockVariable, role, localPattern));
   }
@@ -1471,8 +1472,7 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
   }
 }
 
-function checkedArrayBinding(lowering: Lowering, pattern: Hir.BindingPattern<Syntax>): ConversionResult<Hir.BindingPattern<Checked>> {
-  if (pattern.kind !== "ArrayBindingPattern") return throwInvariant(invariant("A checked array pattern retains its actual ordered slots."));
+function checkedBinding(lowering: Lowering, pattern: Hir.BindingPattern<Syntax>): ConversionResult<Hir.BindingPattern<Checked>> {
   const nodes: Hir.BindingElement<Checked>[] = [];
   for (const element of pattern.elements.nodes) {
     const authored = element.name;
@@ -1489,11 +1489,28 @@ function checkedArrayBinding(lowering: Lowering, pattern: Hir.BindingPattern<Syn
       name = { ...headerOf(authored), kind: "Identifier", text: authored.text,
         tsonic: { core: coreOf(lowering, authored.id), role: "declaration-name", declaration } };
     } else if (authored !== null) {
-      const nested = checkedArrayBinding(lowering, authored);
+      const nested = checkedBinding(lowering, authored);
       if (nested.kind !== "complete") return nested;
       name = nested.value;
     }
-    nodes.push({ ...headerOf(element), kind: element.kind, dotDotDotToken: null, propertyName: null, name, initializer: null,
+    const property = element.propertyName;
+    if (property !== null && property.kind !== "Identifier")
+      return throwInvariant(invariant("A written binding property retains its actual identifier selector."));
+    const propertyName: Hir.Identifier<Checked> | null = property === null ? null : {
+      ...headerOf(property), kind: "Identifier", text: property.text,
+      tsonic: { core: coreOf(lowering, property.id), role: "property-name",
+        key: { kind: "available", value: { kind: "text", value: property.text } },
+        origins: { kind: "unavailable", reason: "not-provided", causes: [] } },
+    };
+    const initializer = element.initializer === null ? null : expression(lowering, element.initializer);
+    if (initializer !== null) {
+      const owner = definitionOf(lowering, element.id);
+      const body = lowering.bodyOf.get(initializer.id);
+      if (body === undefined) return throwInvariant(invariant("A binding default retains its actual planned initializer body."));
+      lowering.bodies.push({ body, owner, params: [], locals: [], root: initializer, captures: [], scopes: [],
+        asynchronous: false, generator: false, candidateLists: lowering.candidateLists.get(body) ?? [], nestedBodies: [] });
+    }
+    nodes.push({ ...headerOf(element), kind: element.kind, dotDotDotToken: null, propertyName, name, initializer,
       tsonic: { core: coreOf(lowering, element.id), declaration, declaredType } });
   }
   return { kind: "complete", value: { ...headerOf(pattern), kind: pattern.kind, elements: { loc: pattern.elements.loc, nodes },
@@ -1505,7 +1522,7 @@ function variableDeclaration(lowering: Lowering, node: Hir.VariableDeclaration<S
     if (node.initializer === null) return throwInvariant(invariant("A destructuring variable must have its actual source."));
     const declared = node.type === null ? null : typeNode(lowering, node.type, owner);
     if (declared !== null && declared.kind !== "complete") return declared;
-    const name = checkedArrayBinding(lowering, node.name);
+    const name = checkedBinding(lowering, node.name);
     if (name.kind !== "complete") return name;
     return { kind: "complete", value: { ...headerOf(node), kind: node.kind, name: name.value, exclamationToken: null,
       type: declared?.value.node ?? null, initializer: expression(lowering, node.initializer),
@@ -1587,6 +1604,22 @@ function isExpression(node: Hir.SyntaxNode<Syntax>): node is Hir.Expression<Synt
   return expressionKinds.includes(node.kind);
 }
 
+function* declarationInitializers(list: Hir.VariableDeclarationList<Syntax>, owner: DefId): Generator<CheckedWork, void, undefined> {
+  for (const declaration of list.declarations.nodes) {
+    const pending = declaration.name.kind === "Identifier" ? [] : [declaration.name.elements.nodes.values()];
+    while (pending.length !== 0) {
+      const cursor = pending.at(-1);
+      if (cursor === undefined) return throwInvariant(invariant("A binding walk requires its actual pending pattern."));
+      const next = cursor.next();
+      if (next.done) { pending.pop(); continue; }
+      const element = next.value;
+      if (element.name !== null && element.name.kind !== "Identifier") pending.push(element.name.elements.nodes.values());
+      if (element.initializer !== null) yield { kind: "expression", node: element.initializer, owner };
+    }
+    if (declaration.initializer !== null) yield { kind: "expression", node: declaration.initializer, owner };
+  }
+}
+
 function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undefined> {
   const { node, owner } = work;
   let statementIndex = 0;
@@ -1627,13 +1660,11 @@ function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undef
     } else if (node.kind === "ForStatement") {
       if (child === node.statement) yield { kind: "statement", node: node.statement, owner };
       else if (child.kind === "VariableDeclarationList" && child === node.initializer) {
-        for (const declaration of child.declarations.nodes)
-          if (declaration.initializer !== null) yield { kind: "expression", node: declaration.initializer, owner };
+        yield* declarationInitializers(child, owner);
       }
       else if (isExpression(child)) yield { kind: "expression", node: child, owner };
     } else if (node.kind === "VariableStatement" && child === node.declarationList) {
-      for (const declaration of node.declarationList.declarations.nodes)
-        if (declaration.initializer !== null) yield { kind: "expression", node: declaration.initializer, owner };
+      yield* declarationInitializers(child, owner);
     } else if (node.kind === "EnumDeclaration" && child.kind === "EnumMember") {
       if (child.name.kind === "ComputedPropertyName") yield { kind: "expression", node: child.name.expression, owner };
       if (child.initializer !== null) yield { kind: "expression", node: child.initializer, owner };
