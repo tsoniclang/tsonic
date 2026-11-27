@@ -270,26 +270,41 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     } else if (constraint.kind === "construct-literal") {
       const node = nodes[position];
       if (decision.kind !== "construct-literal" || node?.kind !== "ArrayLiteralExpression" || operations[position] !== undefined
-        || decision.operation.operation.kind !== "array-construction" || decision.operation.execution.kind !== "pure"
-        || decision.operation.result !== finalType(constraint.destination ?? constraint.result, origin))
-        return callerDefect("a tuple literal requires its one actual selected construction operation", origin);
+        || decision.operation.result !== finalType(constraint.inferredResult ?? constraint.destination ?? constraint.result, origin))
+        return callerDefect("an array literal requires its one actual selected construction operation", origin);
       const { operands, operation } = decision.operation;
+      if (operation.kind !== "exact-array-construction" && operation.kind !== "array-construction")
+        return callerDefect("an array literal requires its actual selected construction", origin);
+      const native = operation.kind === "exact-array-construction";
+      if (native ? decision.operation.execution.kind !== "array-initialization"
+        : decision.operation.execution.kind !== "pure")
+        return callerDefect("an array literal requires its actual fixed or native construction execution", origin);
       if (operation.parts.length !== node.elements.nodes.length || operation.parts.length !== constraint.parts.length
         || operands.length !== operation.parts.length)
-        return callerDefect("a tuple literal retains every authored operand and selected slot in order", origin);
+        return callerDefect("an array literal retains every authored operand in order", origin);
       for (let index = 0; index < operation.parts.length; index += 1) {
         const part = operation.parts[index];
         const source = constraint.parts[index];
         const element = node.elements.nodes[index];
         const destination = operands[index];
-        if (part?.part !== index || source?.kind !== "element" || element === undefined || destination === undefined
-          || part.source.body !== body.body || part.source.node !== element.id
-          || source.occurrence.body !== body.body || source.occurrence.node !== element.id)
-          return callerDefect("a tuple slot binds its actual authored operand", origin);
+        const spread = element?.kind === "SpreadElement";
+        const operand = spread ? element.expression : element;
+        if (part === undefined || operand === undefined || destination === undefined
+          || (native ? !("kind" in part) || part.kind !== (spread ? "spread" : "element")
+            : !("part" in part) || part.part !== index || spread)
+          || source?.kind !== (spread ? "spread" : "element")
+          || part.source.body !== body.body || part.source.node !== operand.id
+          || source.occurrence.body !== body.body || source.occurrence.node !== operand.id)
+          return callerDefect("an array part binds its actual authored operand", origin);
+        const from = finalType(source.type, operand.origin);
+        if (!("embedding" in part)) {
+          if (!spread || from !== destination) return callerDefect("a native range must keep its actual array carrier", origin);
+          continue;
+        }
         const slot = positionOf(part.source);
         if (flows[slot] !== undefined || part.embedding.kind === "refused")
-          return callerDefect("a tuple slot requires its one actual initialization fit", element.origin);
-        flows[slot] = { embedding: part.embedding, source: finalType(source.type, element.origin), destination, role: "initialization" };
+          return callerDefect("an array element requires its one actual initialization fit", operand.origin);
+        flows[slot] = { embedding: part.embedding, source: from, destination, role: "initialization" };
       }
       operations[position] = { decision: decision.operation, permissionScope: null };
     } else if (constraint.kind === "flow") {
@@ -481,6 +496,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     const parent = local.role === "catch" && declaration.parent !== null ? nodes[nodePosition(declaration.parent)] : undefined;
     if (local.role === "catch" && (parent?.kind !== "CatchClause" || parent.variableDeclaration !== declaration))
       return callerDefect("a typed handler binding must retain its actual checked declaration", declaration.origin);
+    const initializer = declaration.tsonic.initializer;
+    const required = initializer === null ? undefined : childStates.get(initializer);
+    if (required !== undefined && "kind" in required && required.kind === "no-result")
+      return { ...required, instance, diagnostics: [] };
     const selected = local.role === "catch" ? elaborateCatchBinding(deps, declaration, local)
       : elaborateVariable(deps, declaration, children, local.declaration.value.owner);
     if (selected.kind === "refused") return selected;
@@ -1448,16 +1467,22 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         return;
       case "ArrayLiteralExpression": {
         if (!building) {
-          for (const part of node.elements.nodes) visit(part);
+          for (const part of node.elements.nodes) visit(part.kind === "SpreadElement" ? part.expression : part);
           return;
         }
         const construction = operations[position];
-        if (node.tsonic.role !== "value" || construction?.decision.operation.kind !== "array-construction")
-          return notElaboratedYet("a tuple literal without its actual constructor decision and authored parts", node.origin);
+        if (node.tsonic.role !== "value" || construction === undefined
+          || construction.decision.operation.kind !== "array-construction" && construction.decision.operation.kind !== "exact-array-construction")
+          return notElaboratedYet("an array literal without its actual constructor decision and authored parts", node.origin);
         const elements = node.elements.nodes.map((part, index) => {
-          const value = values[nodePosition(part.id)];
+          const operand = part.kind === "SpreadElement" ? part.expression : part;
+          const value = values[nodePosition(operand.id)];
           if (value === undefined || value.convertedType !== construction.decision.operands[index])
-            return callerDefect("a tuple operand must use its selected initialized slot type", part.origin);
+            return callerDefect("an array operand must use its selected type", part.origin);
+          if (part.kind === "SpreadElement") {
+            if (construction.decision.operation.kind !== "exact-array-construction") return callerDefect("a native range requires its exact plan", part.origin);
+            return { ...header(part), kind: "SpreadElement", expression: expressionOf(operand), tsonic: { role: "native-array-range" } } satisfies Expression<TypedPhase>;
+          }
           return expressionOf(part);
         });
         read.operations.add(position);

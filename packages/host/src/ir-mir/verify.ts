@@ -345,6 +345,14 @@ export function decisionReferences(
           }
         }
         break;
+      case "exact-array-construction":
+        for (let position = 0; position < selected.parts.length; position += 1) {
+          if (!admit(1)) return;
+          const part = selected.parts[position];
+          if (part?.kind === "element") embedding(part.embedding, site, childPath(identityPath, `.parts[${position}].embedding`));
+          if (meter.exhausted) return;
+        }
+        break;
       case "protocol":
         if (!admit(5 + selected.steps.length)) return;
         types.push({ type: selected.value, site }, { type: selected.completion, site }, { type: selected.thrown, site });

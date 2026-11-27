@@ -1178,7 +1178,8 @@ function objectConstruction(walk: Walk, node: Extract<HirNode, { readonly kind: 
   const component: SourceNodeRef = { kind: "body", value: occurrence };
   if (contextual.value !== null) walk.draft.evidence.push({ type: contextual.value, node, component });
   walk.draft.evidence.push({ type: read.value, node, component });
-  walk.draft.constraints.push({ kind: "construct-literal", occurrence, construction: "object", parts, destination: contextual.value, result: read.value });
+  walk.draft.constraints.push({ kind: "construct-literal", occurrence, construction: "object", parts, destination: contextual.value,
+    result: read.value, inferredResult: null });
   walk.generation.selectionContexts.push({ kind: "construction", occurrence, origin: node.origin, bindings: walk.draft.bindings });
   walk.typeOf.set(node.id, read.value);
 }
@@ -1214,12 +1215,20 @@ function arrayConstruction(walk: Walk, node: Extract<HirNode, { readonly kind: "
   }
   const occurrence = refOf(walk, node);
   const component: SourceNodeRef = { kind: "body", value: occurrence };
+  let inferredResult: TyId | null = null;
+  if (!fixed && contextual.value === null) {
+    const allocated = allocate(walk, { kind: "local", local: null, occurrence });
+    if (allocated !== null) return { kind: "refused", diagnostics: [allocated] };
+    const admitted = admitTypePublicationStep(deps.typeWork, 1, 1);
+    if (admitted !== null) return refuseTypeConstruction(deps.typeWork, admitted, node.origin, unit);
+    inferredResult = internType(deps.types, { kind: "open", group: group.id, variable: walk.generation.nextVariable - 1 });
+  }
   if (contextual.value !== null) walk.draft.evidence.push({ type: contextual.value, node, component });
   walk.draft.evidence.push({ type: read.value, node, component });
   walk.draft.constraints.push({ kind: "construct-literal", occurrence, construction: "array", parts,
-    destination: contextual.value, result: read.value });
+    destination: contextual.value, result: read.value, inferredResult });
   walk.generation.selectionContexts.push({ kind: "construction", occurrence, origin: node.origin, bindings: walk.draft.bindings });
-  walk.typeOf.set(node.id, contextual.value ?? read.value);
+  walk.typeOf.set(node.id, inferredResult ?? contextual.value ?? read.value);
   return undefined;
 }
 

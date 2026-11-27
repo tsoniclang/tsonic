@@ -16,6 +16,7 @@ import type {
 import type { HirBinaryOperator, HirCallableEndpoint, HirUnaryOperator } from "../ir-hir/contract.js";
 import type { ApplicationDecision, CompletionEndpoint, ConstructionPartDecision, CorrespondenceStep, AccessLocation, CheckRequirement, EmbeddingDecision, EmbeddingProof, FailureKind, MemberDecision, OperationDecision, OperationExecution, OperationIdentity, ParameterMapping, ProtocolKind, ProtocolStepDecision, ProtocolStepOperation } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TypedOperation } from "../ir-tir/contract.js";
+import type { NativeArrayConstructionOperation, NativeArrayConstructionPart } from "../ir-infer/contract.js";
 import { choice, field, finish, identityWire, literals, nullable, numberToken, ownedScalar, record, stringToken, variants, vector } from "./text.js";
 import type { ScalarWires } from "./text.js";
 import type { Wire } from "./text.js";
@@ -412,6 +413,8 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
   });
 
   const pureExecution = record<OperationExecution & { readonly kind: "pure" }>("pure", () => finish(() => ({ kind: "pure" })));
+  const arrayInitialization = record<Extract<OperationExecution, { readonly kind: "array-initialization" }>>("array-initialization",
+    () => finish(() => ({ kind: "array-initialization" })));
 
   const invocationExecution = record<OperationExecution & { readonly kind: "invocation" }>("invocation", () =>
     field("writesStorage", () => booleanWire, value => value.writesStorage, writesStorage =>
@@ -419,10 +422,11 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
         finish(() => ({ kind: "invocation", writesStorage, failure })))));
 
   const executionWire: Wire<OperationExecution> = variants([
-    choice("pure", () => pureExecution), choice("invocation", () => invocationExecution),
+    choice("pure", () => pureExecution), choice("array-initialization", () => arrayInitialization), choice("invocation", () => invocationExecution),
   ], (value, path, next) => {
     switch (value.kind) {
       case "pure": return pureExecution.write(value, path, next);
+      case "array-initialization": return arrayInitialization.write(value, path, next);
       case "invocation": return invocationExecution.write(value, path, next);
     }
   });
@@ -596,6 +600,20 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
     return record<{ readonly kind: Kind; readonly parts: readonly ConstructionPartDecision[] }>(kind, () =>
       field("parts", () => vector(() => constructionPart), value => value.parts, parts => finish(() => ({ kind, parts }))));
   }
+  const nativeElement = record<Extract<NativeArrayConstructionPart, { readonly kind: "element" }>>("element", () =>
+    field("source", () => nodeRefWire, value => value.source, source =>
+      field("embedding", () => embeddingWire, value => value.embedding, embedding => finish(() => ({ kind: "element", source, embedding })))));
+  const nativeSpread = record<Extract<NativeArrayConstructionPart, { readonly kind: "spread" }>>("spread", () =>
+    field("source", () => nodeRefWire, value => value.source, source => finish(() => ({ kind: "spread", source }))));
+  const nativePart: Wire<NativeArrayConstructionPart> = variants([choice("element", () => nativeElement), choice("spread", () => nativeSpread)],
+    (value, path, next) => value.kind === "element" ? nativeElement.write(value, path, next) : nativeSpread.write(value, path, next));
+  const exactArrayConstruction = record<NativeArrayConstructionOperation>("exact-array-construction", () =>
+    field("extent", () => literals(["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int128", "uint128", "native-int", "native-uint"]), value => value.extent, extent =>
+      field("holding", () => literals(["in-place", "by-reference"]), value => value.holding, holding =>
+        field("extentFailure", () => literals(["unwind", "abort"]), value => value.extentFailure, extentFailure =>
+          field("allocationFailure", () => literals(["unwind", "abort"]), value => value.allocationFailure, allocationFailure =>
+            field("parts", () => vector(() => nativePart), value => value.parts, parts =>
+              finish(() => ({ kind: "exact-array-construction", extent, holding, extentFailure, allocationFailure, parts }))))))));
 
   const protocolKind: Wire<ProtocolKind> = literals(["iterate", "await", "yield", "delegate", "dispose", "spread", "argument-passing", "pointer"]);
 
@@ -637,7 +655,7 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
     choice("native-operator", () => nativeOperation), choice("bigint-operator", () => bigintOperation),
     choice("string-operator", () => stringOperation), choice("boolean-operator", () => booleanOperation),
     choice("absence-test", () => absenceOperation), choice("array-extent", () => arrayExtentOperation), choice("object-construction", () => constructionOperation("object-construction")),
-    choice("array-construction", () => constructionOperation("array-construction")), choice("protocol", () => protocol),
+    choice("array-construction", () => constructionOperation("array-construction")), choice("exact-array-construction", () => exactArrayConstruction), choice("protocol", () => protocol),
     choice("conversion", () => conversionOperation), choice("library", () => declaredOperation("library")), choice("core", () => declaredOperation("core")),
     choice("pointer-address", () => pointerAddress), choice("pointer-read", () => pointerRead), choice("pointer-write", () => pointerWrite),
     choice("pointer-offset", () => pointerOffset), choice("type-query", () => typeQuery), choice("discard", () => discard),
@@ -650,6 +668,7 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
       case "absence-test": return absenceOperation.write(value, path, next);
       case "array-extent": return arrayExtentOperation.write(value, path, next);
       case "object-construction": case "array-construction": return constructionOperation(value.kind).write(value, path, next);
+      case "exact-array-construction": return exactArrayConstruction.write(value, path, next);
       case "protocol": return protocol.write(value, path, next);
       case "conversion": return conversionOperation.write(value, path, next);
       case "library": case "core": return declaredOperation(value.kind).write(value, path, next);

@@ -154,6 +154,7 @@ export interface LiteralConstructionConstraintRecord {
   readonly parts: readonly (LiteralPart)[];
   readonly destination: TyId | null;
   readonly result: TyId;
+  readonly inferredResult: TyId | null;
 }
 
 export interface ElementPartRecord {
@@ -536,7 +537,8 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
     const parts = read("parts", () => arraySchema(literalPartSchema), value => value.parts);
     const destination = read("destination", () => nullableSchema(tSchema), value => value.destination);
     const result = read("result", () => tSchema, value => value.result);
-    return { fields: [occurrence, construction, parts, destination, result], value: () => ({ kind: "construct-literal", occurrence: occurrence.value(), construction: construction.value(), parts: parts.value(), destination: destination.value(), result: result.value() }) };
+    const inferredResult = read("inferredResult", () => nullableSchema(tSchema), value => value.inferredResult);
+    return { fields: [occurrence, construction, parts, destination, result, inferredResult], value: () => ({ kind: "construct-literal", occurrence: occurrence.value(), construction: construction.value(), parts: parts.value(), destination: destination.value(), result: result.value(), inferredResult: inferredResult.value() }) };
   });
 
   const constructionKindSchema = enumSchema("ConstructionKind", ["object","array"]);

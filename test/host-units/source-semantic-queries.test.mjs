@@ -2343,7 +2343,7 @@ for (const annotation of [": {a:boolean; z:boolean}", ""]) test(`an actual objec
   assert.deepEqual(construction, { kind: "construct-literal", occurrence: nodeRef(literal), construction: "object",
     parts: authored.map(property => ({ kind: "property", occurrence: nodeRef(property),
       key: property.tsonic.key.value, type: property.initializer.tsonic.value.views.read.value })),
-    destination: contextual.value, result: read.value });
+    destination: contextual.value, result: read.value, inferredResult: null });
   assert.equal(resultFlow.kind, "flow");
   assert.equal(resultFlow.from, read.value);
   assert.deepEqual(set.evidence.slice(0, authored.length).map(row => row.value.component),
@@ -2377,7 +2377,7 @@ test("an empty source object has a checked zero-part construction, not an empty 
   const set = generated.value.value.constraints.find(row => row.body === source.body);
   const occurrence = { body: source.body, node: literal.id };
   assert.deepEqual(set.constraints[0], { kind: "construct-literal", occurrence, construction: "object", parts: [], destination: null,
-    result: checked.read.value });
+    result: checked.read.value, inferredResult: null });
   assert.equal(set.evidence[0].value.type, checked.read.value);
   assert.deepEqual(set.evidence[0].value.component, { kind: "body", value: occurrence });
   assert.deepEqual(irInfer.parseConstraints(irInfer.printConstraints(set)), { kind: "parsed", value: set });
@@ -2646,10 +2646,96 @@ test("inferred array construction retains its exact spread operand and authored 
   assert.equal(construction.construction, "array");
   assert.equal(construction.result, literal.tsonic.value.views.read.value);
   assert.equal(construction.destination, null);
+  const inferred = fixture.types.readType(types, construction.inferredResult);
+  assert.equal(inferred.kind, "open");
+  assert.notEqual(construction.inferredResult, construction.result);
   assert.deepEqual(construction.parts.map(row => [row.kind, row.occurrence]),
     [["element", first], ["spread", spread.expression], ["element", last]]
       .map(([role, operand]) => [role, { body: construction.occurrence.body, node: operand.id }]));
   assert.equal(fixture.types.readType(types, construction.parts[1].type).kind, "array");
+});
+
+test("native range construction has one inferred or contextual carrier and an ordered verified Typed plan", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { printTir, parseTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { verifyArrayConstruction } = await import("../../packages/host/dist/ir-tir/verify-occurrences.js");
+  const run = async (annotation, expression, grant = true) => {
+    const source = `export function ranged(xs: Native[], value: Native): Native {
+  const all${annotation} = ${expression};
+  return all.length;
+}`;
+    const input = await nativeInt32Input(source, true);
+    const original = input.snapshot.nativeFacts;
+    const native = { ...original,
+      arrayConstruction: grant ? { kind: "exact-length", extentFailure: "abort", rangeCopy: "contiguous" } : null,
+      arrayExtents: original.arrayExtents.map(row => row.carrier === "array" ? { ...row, result: "int32" } : row),
+    };
+    const selected = { ...input, snapshot: { ...input.snapshot, nativeFacts: native } };
+    const checked = captureSourceBarrier(selected);
+    assert.equal(checked.kind, "ok");
+    const typed = typeSourceBarrier(selected, checked.value, createAccount(selected.limits.dataflow));
+    return { typed, checked: checked.value, module: input.snapshot.entryPoint, native };
+  };
+  for (const annotation of ["", ": Native[]"]) {
+    const { typed, checked, module, native } = await run(annotation, "[0, ...xs, value]");
+    assert.deepEqual(typed.diagnostics, []);
+    assert.equal(typed.kind, "ok");
+    const owner = typed.value.modules.get(module);
+    const body = owner.bodies.find(row => row.root.kind === "ArrayLiteralExpression" && row.bindings.kind === "instantiated");
+    assert.ok(body);
+    const plan = body.root.tsonic.construction.decision.decision;
+    const table = fixture.types.viewTypes(checked.types);
+    const result = table.terms[plan.result];
+    assert.equal(result.kind, "array");
+    assert.deepEqual(table.terms[result.element], { kind: "primitive", primitive: "int32" });
+    assert.deepEqual([plan.operation.kind, plan.execution.kind, plan.operation.extent, plan.operation.holding,
+      plan.operation.extentFailure, plan.operation.allocationFailure],
+    ["exact-array-construction", "array-initialization", "int32", "by-reference", "abort", "unwind"]);
+    const [first, range, last] = body.root.elements.nodes;
+    assert.deepEqual(plan.operation.parts.map(row => [row.kind, row.source.body, row.source.node]),
+      [["element", body.body, first.id], ["spread", body.body, range.expression.id], ["element", body.body, last.id]]);
+    assert.equal(range.tsonic.role, "native-array-range");
+    assert.equal(plan.operands[1], range.expression.tsonic.convertedType);
+    assert.deepEqual([plan.operands[0], plan.operands[2]], [result.element, result.element]);
+    assert.deepEqual(plan.operation.parts.map(row => row.embedding?.kind ?? null), ["conversion", null, "identity"]);
+    const wire = printTir(body);
+    const parsed = parseTir(wire);
+    assert.equal(parsed.kind, "parsed");
+    assert.equal(printTir(parsed.value), wire);
+    const source = typed.value.sourceNodeOf({ kind: "body", value: { body: body.body, node: body.root.id } });
+    const verify = (root, admit, facts = native) => {
+      const found = [];
+      const stopped = verifyArrayConstruction(root, source, body.body, table, facts, admit, (rule, _, detail) => found.push([rule, detail]));
+      return { found, stopped };
+    };
+    let work = 0;
+    assert.deepEqual(verify(body.root, () => (++work, null)), { found: [], stopped: null });
+    const stopped = { kind: "native-array-proof-cut" };
+    for (let limit = 0; limit < work; limit += 1) {
+      let paid = 0;
+      const answer = verify(body.root, () => paid++ < limit ? null : stopped);
+      assert.equal(answer.stopped === stopped, true, String(limit));
+      assert.deepEqual(answer.found, []);
+    }
+    assert.deepEqual(verify(body.root, () => null, { ...native, arrayConstruction: null }).found.map(row => row[0]), ["operation-type"]);
+    const changed = { ...body.root, tsonic: { ...body.root.tsonic, construction: { kind: "decided",
+      decision: { permissionScope: null, decision: { ...plan, operation: { ...plan.operation,
+        parts: [plan.operation.parts[1], plan.operation.parts[0], plan.operation.parts[2]] } } } } } };
+    assert.deepEqual(verify(changed, () => null).found.map(row => row[0]), ["operation-type", "operation-type"]);
+  }
+  for (const [annotation, expression, grant, expected] of [
+    ["", "[0, ...xs, value]", false, "does not supply exact-length"],
+    [": number[]", "[0, ...xs, value]", true, "must have identical element storage"],
+    ["", "[...xs, ...xs]", true, "at most one reached native array range"],
+  ]) {
+    const { typed } = await run(annotation, expression, grant);
+    assert.equal(typed.kind, "refused");
+    assert.equal(Object.hasOwn(typed, "value"), false);
+    assert.equal(typed.diagnostics[0].code.rendered, "TSONIC_ARRAY_CONSTRUCTION");
+    assert.ok(typed.diagnostics[0].message.includes(expected));
+  }
 });
 
 test("a checked binding default completes against its actual named storage without an enclosing signature request", () => {

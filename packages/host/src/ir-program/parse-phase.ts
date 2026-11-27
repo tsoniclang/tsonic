@@ -536,11 +536,12 @@ function readTypedApplicationFields<Root>(cursor: Cursor, fields: RecordFields, 
 }
 
 export function readTypedSpreadText<Root>(cursor: Cursor, finish: (value: TypedSpread) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["TypedSpread", "FiniteCallSpread"]), label =>
+  return atomicText(cursor, next => choice(next, ["TypedSpread", "FiniteCallSpread", "NativeArrayRange"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       if (label === "TypedSpread") return readProtocolValueFields(cursor, fields, finish);
-      return atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role: "finite-call-argument" }, finish));
+      return atomicText(cursor, next => closeRecord(next, fields), () =>
+        acceptText(label === "FiniteCallSpread" ? { role: "finite-call-argument" } : { role: "native-array-range" }, finish));
     }));
 }
 

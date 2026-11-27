@@ -1,7 +1,7 @@
 import type {
   ApplicationDecision, CandidateArgument, CandidateEndpoint, ClosureCaptureEvidence, ConstructionPartDecision, DeferredDecision, DeferredInvocation, EmbeddingDecision,
   EmbeddingProof, MemberDecision, OperationIdentity, ParameterMapping, ProtocolStepDecision,
-  LiteralConstructionPart, RefinementDecision, RuleContext, RuleOutcome,
+  LiteralConstructionPart, NativeArrayConstructionPart, RefinementDecision, RuleContext, RuleOutcome,
 } from "../ir-infer/contract.js";
 import type {
   ConversionDecision, MemberSelection, ResolvedCallee, TirApplication, TirArgument, TirProtocol, TirProtocolStep, TirRestPart, TypedOperation, TypedOperationOf, TypedValue,
@@ -241,6 +241,19 @@ function prepareOperationIdentity(scan: ProjectionInventory, value: OperationIde
       const parts = prepareProjectionRows(scan, value.parts, (read, index) =>
         prepareConstructionPart(scan, read, at + ".parts[" + index + "]"));
       return { kind: "copied", value: image => ({ kind, parts: parts(image) }) };
+    });
+    case "exact-array-construction": return paidPhase(scan, 6, () => {
+      const { extent, holding, extentFailure, allocationFailure } = value;
+      const parts = prepareProjectionRows<NativeArrayConstructionPart, NativeArrayConstructionPart>(scan, value.parts, (read, index) =>
+        paidPhase<NativeArrayConstructionPart>(scan, 3, () => {
+          const part = read();
+          const { body, node } = part.source;
+          const source = { body, node };
+          return part.kind === "spread" ? { kind: "copied", value: () => ({ kind: "spread", source }) }
+            : withPlan(prepareEmbedding(scan, part.embedding, at + ".parts[" + index + "].embedding"), embedding =>
+              ({ kind: "copied", value: image => ({ kind: "element", source, embedding: embedding(image) }) }));
+        }));
+      return { kind: "copied", value: image => ({ kind: "exact-array-construction", extent, holding, extentFailure, allocationFailure, parts: parts(image) }) };
     });
     case "protocol": return paidPhase(scan, 9, () => {
       const steps = prepareProjectionRows(scan, value.steps, read => prepareProtocolStep(scan, read));

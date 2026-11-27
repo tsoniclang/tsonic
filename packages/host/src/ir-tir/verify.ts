@@ -10,7 +10,7 @@ import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, 
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
-import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyPatternBinding, verifySwitchOperations, verifyTupleConstruction, verifyValueEndpoints } from "./verify-occurrences.js";
+import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyArrayConstruction, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyPatternBinding, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
 import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
@@ -847,7 +847,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       if (stop !== null) return { kind: "resource-stop", stop };
     }
     if (node.kind === "ArrayLiteralExpression") {
-      const stop = verifyTupleConstruction(node, original, body.body, input.types, input.selectedNativeFacts.carrierHolding, admit, emit);
+      const stop = verifyArrayConstruction(node, original, body.body, input.types, input.selectedNativeFacts, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
     }
     if (node.kind === "InterfaceDeclaration") {
@@ -863,9 +863,9 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       const paid = admit({ kind: "row" });
       if (paid !== null) return { kind: "resource-stop", stop: paid };
       const parent = original?.parent === null || original?.parent === undefined ? undefined : inventory.sourceNodes.get(original.parent);
-      if (node.tsonic.role !== "finite-call-argument" || original?.kind !== "SpreadElement"
-        || original.expression.id !== node.expression.id || parent?.kind !== "CallExpression")
-        emit("authored-order-preserved", node, "a finite spread requires its actual authored call operand");
+      const owner = node.tsonic.role === "finite-call-argument" ? "CallExpression" : "ArrayLiteralExpression";
+      if (original?.kind !== "SpreadElement" || original.expression.id !== node.expression.id || parent?.kind !== owner)
+        emit("authored-order-preserved", node, "a selected spread requires its actual authored operand and owner");
     }
     verifyValueEndpoints(body, node, emit);
     verifyOccurrenceOperation(node, input.types, emit);

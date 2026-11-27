@@ -62,7 +62,7 @@ export function textAccessLocation(value: AccessLocation): TextWork {
 export function textOperationExecution(value: OperationExecution): TextWork {
   return deferred(value, () => {
     switch (value.kind) {
-      case "pure":
+      case "pure": case "array-initialization":
         return record(value.kind, []);
       case "invocation":
         return record(value.kind, [
@@ -305,6 +305,14 @@ export function textOperationIdentity(value: OperationIdentity): TextWork {
         return record(value.kind, [
       field("parts", sequence(value.parts, entry0 => textConstructionPartDecision(entry0))),
     ]);
+      case "exact-array-construction":
+        return record(value.kind, [
+          field("extent", text(value.extent)), field("holding", text(value.holding)),
+          field("extentFailure", text(value.extentFailure)), field("allocationFailure", text(value.allocationFailure)),
+          field("parts", sequence(value.parts, part => record(part.kind, part.kind === "spread"
+            ? [field("source", textNodeRef(part.source))]
+            : [field("source", textNodeRef(part.source)), field("embedding", textEmbeddingDecision(part.embedding))]))),
+        ]);
       case "protocol":
         return record(value.kind, [
       field("protocol", text(value.protocol)),

@@ -4,7 +4,7 @@ import type { BindingVector, TypeEvidence } from "../ir-types/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type {
   ApplicationArgument, ApplicationDecision, BodyTyping, ConstraintDecision, ConstraintRef, DeferredDecision, EmbeddingDecision, EmbeddingProof, InferRule, InferSite,
-  IndexConstraint, IndexDecision, InferenceBindingInput, InferVerificationInput, MemberDecision, OperationDecision, OperatorConstraint, SolvedConstraint,
+  IndexConstraint, IndexDecision, InferenceBindingInput, InferVerificationInput, LiteralConstructionConstraint, MemberDecision, OperationDecision, OperatorConstraint, SolvedConstraint,
 } from "./contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
@@ -326,6 +326,7 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
       for (const obligation of decision.proof.obligations) pending.push({ kind: "proof", value: obligation.evidence });
       break;
     case "closure":
+      if (decision.closure.execution.kind === "array-initialization") emit(output, "operation-types", site, "execution");
       if (constraint?.value.kind === "closure") {
         const captures = constraint.value.captures;
         const rows = decision.closure.captures;
@@ -348,7 +349,13 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
     } else if (task.kind === "application") mappingReferences(input, task.value, site, task.arguments, task.operandCount, endpoints, overloads, bodies, output, task.applied);
     else {
       const operation = task.value.operation;
+      const nativeArray = operation.kind === "exact-array-construction";
+      if (nativeArray !== (task.value.execution.kind === "array-initialization")
+        || nativeArray && constraint?.value.kind !== "construct-literal") emit(output, "operation-types", site, "execution");
       if (operation.kind === "conversion") pending.push({ kind: "embedding", value: operation.embedding });
+      if (operation.kind === "exact-array-construction") {
+        for (const part of operation.parts) if (part.kind === "element") pending.push({ kind: "embedding", value: part.embedding });
+      }
       if (operation.kind === "object-construction" || operation.kind === "array-construction") {
         const original = constraint?.value.kind === "construct-literal" ? constraint.value : null;
         if (original !== null && (original.parts.length !== operation.parts.length ||
@@ -438,6 +445,54 @@ function operationTypes(input: InferVerificationInput, finals: ReadonlyMap<numbe
   }) || !agrees(operation.result, constraint.result)) emit(output, "operation-types", site, "operation");
 }
 
+function constructionTypes(input: InferVerificationInput, finals: ReadonlyMap<number, TypeEvidence>, constraint: LiteralConstructionConstraint,
+  decision: OperationDecision, site: InferSite, output: Violation<InferRule, InferSite>[]): void {
+  const checked = input.types.terms[constraint.result];
+  const operation = decision.operation;
+  if (operation.kind !== "exact-array-construction") {
+    if (constraint.inferredResult !== null || checked?.kind === "array" || decision.execution.kind === "array-initialization")
+      emit(output, "operation-types", site, "construction");
+    return;
+  }
+  const final = (type: TyId): TyId | undefined => {
+    const term = input.types.terms[type];
+    return term?.kind === "open" && term.group === input.group.id ? finals.get(term.variable)?.type : type;
+  };
+  const result = input.types.terms[decision.result];
+  const expected = constraint.destination ?? (constraint.inferredResult === null ? undefined : final(constraint.inferredResult));
+  const native = input.selectedNativeFacts;
+  const policy = native.arrayConstruction;
+  if (constraint.construction !== "array" || checked?.kind !== "array" || result?.kind !== "array"
+    || decision.result !== expected || decision.execution.kind !== "array-initialization"
+    || constraint.destination === null && result.readonly !== checked.readonly
+    || policy?.kind !== "exact-length" || policy.rangeCopy !== "contiguous" || policy.extentFailure !== operation.extentFailure
+    || operation.extent !== nativeArrayExtentOf(native.arrayExtents, "array")
+    || operation.holding !== nativeCarrierHoldingOf(native.carrierHolding, "array")
+    || operation.allocationFailure !== (native.allocationFailure === "abort" ? "abort" : "unwind")
+    || operation.parts.length !== constraint.parts.length || decision.operands.length !== operation.parts.length) {
+    emit(output, "operation-types", site, "construction");
+    return;
+  }
+  let spread = false;
+  for (const [index, part] of operation.parts.entries()) {
+    const original = constraint.parts[index];
+    const selected = decision.operands[index];
+    if (original?.kind !== part.kind || nodeKey(original.occurrence) !== nodeKey(part.source) || selected === undefined) {
+      emit(output, "construction-part-total", site, "parts");
+      continue;
+    }
+    const source = final(original.type);
+    if (part.kind === "spread") {
+      const range = input.types.terms[selected];
+      if (spread || source !== selected || range?.kind !== "array" || range.element !== result.element)
+        emit(output, "construction-part-total", site, "parts");
+      spread = true;
+    } else if (selected !== result.element || source === undefined || part.embedding.kind === "refused"
+      || part.embedding.kind === "identity" && source !== selected)
+      emit(output, "construction-part-total", site, "parts");
+  }
+}
+
 function decisionMatches(decision: ConstraintDecision, constraint: OwnedConstraint): boolean {
   return decision.kind === "error" || decision.kind === "deferred" || decision.kind === constraint.value.kind;
 }
@@ -505,6 +560,8 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
     solved.add(key); previous = record;
     decisionRecords(context, record, target, output);
     if (target !== undefined && target.value.kind === "op" && record.decision.kind === "op") operationTypes(input, finals, target.value, record.decision.operation, site, output);
+    if (target !== undefined && target.value.kind === "construct-literal" && record.decision.kind === "construct-literal")
+      constructionTypes(input, finals, target.value, record.decision.operation, site, output);
     if (target?.value.kind === "index" && record.decision.kind === "index") indexTypes(input, finals, target.value, record.decision.index, site, output);
     if (target?.value.kind === "member" && record.decision.kind === "member" && record.decision.refinement !== null) {
       const type = target.value.result;

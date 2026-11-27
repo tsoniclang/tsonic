@@ -1,7 +1,7 @@
 import type { BodyId, CandidateListId, DefId, GroupId, ItemNodeRef, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, UnitRequest, Violation } from "../diag/contract.js";
-import type { CheckFailure, HandleActivation, MemberTypeAccess, NativeArrayCarrier, NativeArrayExtent, NativeCarrierHolding, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
-import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
+import type { CheckFailure, HandleActivation, MemberTypeAccess, NativeArrayCarrier, NativeArrayConstruction, NativeArrayExtent, NativeCarrierHolding, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativeIntegerPrimitive, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 import type { Step } from "../step/contract.js";
 
@@ -161,6 +161,7 @@ export interface LiteralConstructionConstraint {
   readonly parts: readonly LiteralPart[];
   readonly destination: TyId | null;
   readonly result: TyId;
+  readonly inferredResult: TyId | null;
 }
 
 export interface ProtocolConstraint {
@@ -425,6 +426,7 @@ export type CheckRequirement =
 
 export type OperationExecution =
   | { readonly kind: "pure" }
+  | { readonly kind: "array-initialization" }
   | { readonly kind: "invocation"; readonly writesStorage: boolean; readonly failure: FailureKind };
 
 export type AccessLocation =
@@ -552,6 +554,19 @@ export interface ConstructionPartDecision {
   readonly embedding: EmbeddingDecision;
 }
 
+export type NativeArrayConstructionPart =
+  | { readonly kind: "element"; readonly source: NodeRef; readonly embedding: EmbeddingDecision }
+  | { readonly kind: "spread"; readonly source: NodeRef };
+
+export interface NativeArrayConstructionOperation {
+  readonly kind: "exact-array-construction";
+  readonly extent: NativeIntegerPrimitive;
+  readonly holding: ReceiverAccess;
+  readonly extentFailure: CheckFailure;
+  readonly allocationFailure: CheckFailure;
+  readonly parts: readonly NativeArrayConstructionPart[];
+}
+
 export interface ProtocolStepDecision {
   readonly role: "acquire" | "next" | "done" | "value" | "finish" | "fail" | "await" | "dispose" | "completion";
   readonly operation: ProtocolStepOperation;
@@ -572,6 +587,7 @@ export type OperationIdentity =
   | { readonly kind: "absence-test"; readonly negated: boolean }
   | { readonly kind: "array-extent"; readonly declaration: ItemNodeRef; readonly holding: ReceiverAccess }
   | { readonly kind: "object-construction" | "array-construction"; readonly parts: readonly ConstructionPartDecision[] }
+  | NativeArrayConstructionOperation
   | { readonly kind: "protocol"; readonly protocol: ProtocolKind; readonly asynchronous: boolean;
       readonly steps: readonly ProtocolStepDecision[]; readonly value: TyId; readonly completion: TyId;
       readonly yielded: TyId | null; readonly sent: TyId | null; readonly thrown: TyId }
@@ -895,16 +911,18 @@ export interface InferenceBindingInput {
   readonly solution: Solution | null;
 }
 
-export interface IndexNativeFacts {
+export interface InferenceNativeFacts {
   readonly carrierHolding: readonly NativeCarrierHolding[];
   readonly arrayExtents: readonly NativeArrayExtent[];
+  readonly arrayConstruction: NativeArrayConstruction | null;
+  readonly allocationFailure: "observable" | "abort";
   readonly arrayIndexFailure: CheckFailure;
   readonly fixedArrayIndexFailure: CheckFailure;
   readonly destinationCheck: "before-value" | "after-value";
 }
 
 export interface InferVerificationInput extends InferenceBindingInput {
-  readonly selectedNativeFacts: IndexNativeFacts;
+  readonly selectedNativeFacts: InferenceNativeFacts;
   readonly contributions: readonly AtomicContribution[];
   readonly types: TypeTable;
   readonly bindingScopes: readonly BindingScope[];

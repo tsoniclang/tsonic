@@ -552,7 +552,8 @@ export function textTypedApplication(value: TypedApplication | TypedLayoutApplic
 }
 
 export function textTypedSpread(value: TypedSpread): TextWork {
-  return "role" in value ? record("FiniteCallSpread", []) : protocolValueText("TypedSpread", value);
+  return "role" in value ? record(value.role === "finite-call-argument" ? "FiniteCallSpread" : "NativeArrayRange", [])
+    : protocolValueText("TypedSpread", value);
 }
 
 export function textTypedTemplate(value: TypedTemplate): TextWork {

@@ -17,6 +17,7 @@ import type {
   Diagnostic
 } from "../diag/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
+import type { NativeArrayConstructionOperation, NativeArrayConstructionPart } from "../ir-infer/contract.js";
 import { scalarWork, referenceWork, nullableWork, sequenceWork, withBindingOwner } from "./text-layouts.js";
 
 export interface RuleInputsTextReads {
@@ -125,6 +126,28 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
   const work_OperationIdentity_array_construction: TirRecordCodec<OperationIdentity & { readonly kind: "object-construction" | "array-construction" }> = defineRecord<OperationIdentity & { readonly kind: "object-construction" | "array-construction" }>("OperationIdentity#array-construction", "OperationIdentity", { field: "kind", value: "array-construction" }, "array-construction", null, null, fields => fields
     .field("parts", "[ConstructionPartDecision]", value => sequenceWork("[ConstructionPartDecision]", value.parts, actual => read.work_ConstructionPartDecision.write(actual)), sequenceReader("[ConstructionPartDecision]", lazyReader(() => read.work_ConstructionPartDecision.reader)))
     .finish((field_parts) => ({ kind: "array-construction", parts: field_parts })));
+  const nativeElement = defineRecord<Extract<NativeArrayConstructionPart, { readonly kind: "element" }>>("NativeArrayConstructionPart#element", "NativeArrayConstructionPart", { field: "kind", value: "element" }, "element", null, null,
+    fields => fields
+      .field("source", "NodeRef", value => read.work_NodeRef.write(value.source), lazyReader(() => read.work_NodeRef.reader))
+      .field("embedding", "EmbeddingDecision", value => read.work_EmbeddingDecision.write(value.embedding), lazyReader(() => read.work_EmbeddingDecision.reader))
+      .finish((source, embedding) => ({ kind: "element", source, embedding })));
+  const nativeSpread = defineRecord<Extract<NativeArrayConstructionPart, { readonly kind: "spread" }>>("NativeArrayConstructionPart#spread", "NativeArrayConstructionPart", { field: "kind", value: "spread" }, "spread", null, null,
+    fields => fields
+      .field("source", "NodeRef", value => read.work_NodeRef.write(value.source), lazyReader(() => read.work_NodeRef.reader))
+      .finish(source => ({ kind: "spread", source })));
+  const nativePart = unionRecord<NativeArrayConstructionPart>("NativeArrayConstructionPart",
+    value => value.kind === "element" ? nativeElement.write(value) : nativeSpread.write(value),
+    () => [nativeElement.reader, nativeSpread.reader]);
+  const exactArray = defineRecord<NativeArrayConstructionOperation>("OperationIdentity#exact-array-construction", "OperationIdentity",
+    { field: "kind", value: "exact-array-construction" }, "exact-array-construction", null, null, fields => fields
+      .field("extent", "NativeIntegerPrimitive", value => scalarWork("NativeIntegerPrimitive", value.extent),
+        literalReader<NativeArrayConstructionOperation["extent"]>("NativeIntegerPrimitive", ["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int128", "uint128", "native-int", "native-uint"]))
+      .field("holding", "ReceiverAccess", value => scalarWork("ReceiverAccess", value.holding), literalReader<NativeArrayConstructionOperation["holding"]>("ReceiverAccess", ["in-place", "by-reference"]))
+      .field("extentFailure", "CheckFailure", value => scalarWork("CheckFailure", value.extentFailure), literalReader<NativeArrayConstructionOperation["extentFailure"]>("CheckFailure", ["unwind", "abort"]))
+      .field("allocationFailure", "CheckFailure", value => scalarWork("CheckFailure", value.allocationFailure), literalReader<NativeArrayConstructionOperation["allocationFailure"]>("CheckFailure", ["unwind", "abort"]))
+      .field("parts", "[NativeArrayConstructionPart]", value => sequenceWork("[NativeArrayConstructionPart]", value.parts, part => nativePart.write(part)),
+        sequenceReader("[NativeArrayConstructionPart]", lazyReader(() => nativePart.reader)))
+      .finish((extent, holding, extentFailure, allocationFailure, parts) => ({ kind: "exact-array-construction", extent, holding, extentFailure, allocationFailure, parts })));
   const work_OperationIdentity_protocol: TirRecordCodec<OperationIdentity & { readonly kind: "protocol" }> = defineRecord<OperationIdentity & { readonly kind: "protocol" }>("OperationIdentity#protocol", "OperationIdentity", { field: "kind", value: "protocol" }, "protocol", null, null, fields => fields
     .field("protocol", "ProtocolKind", value => scalarWork("ProtocolKind", value.protocol), literalReader<(OperationIdentity & { readonly kind: "protocol" })["protocol"]>("ProtocolKind", ["iterate","await","yield","delegate","dispose","spread","argument-passing","pointer"]))
     .field("asynchronous", "boolean", value => scalarWork("boolean", value.asynchronous), booleanReader)
@@ -390,6 +413,7 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
       case "array-extent": return arrayExtent.write(value);
       case "object-construction": return work_OperationIdentity_object_construction.write(value);
       case "array-construction": return work_OperationIdentity_array_construction.write(value);
+      case "exact-array-construction": return exactArray.write(value);
       case "protocol": return work_OperationIdentity_protocol.write(value);
       case "conversion": return work_OperationIdentity_conversion.write(value);
       case "library": return work_OperationIdentity_library.write(value);
@@ -401,7 +425,7 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
       case "type-query": return work_OperationIdentity_type_query.write(value);
       case "discard": return work_OperationIdentity_discard.write(value);
     }
-  }, () => [work_OperationIdentity_native_operator.reader, work_OperationIdentity_bigint_operator.reader, work_OperationIdentity_string_operator.reader, work_OperationIdentity_boolean_operator.reader, work_OperationIdentity_absence_test.reader, arrayExtent.reader, work_OperationIdentity_object_construction.reader, work_OperationIdentity_array_construction.reader, work_OperationIdentity_protocol.reader, work_OperationIdentity_conversion.reader, work_OperationIdentity_library.reader, work_OperationIdentity_core.reader, work_OperationIdentity_pointer_address.reader, work_OperationIdentity_pointer_read.reader, work_OperationIdentity_pointer_write.reader, work_OperationIdentity_pointer_offset.reader, work_OperationIdentity_type_query.reader, work_OperationIdentity_discard.reader]);
+  }, () => [work_OperationIdentity_native_operator.reader, work_OperationIdentity_bigint_operator.reader, work_OperationIdentity_string_operator.reader, work_OperationIdentity_boolean_operator.reader, work_OperationIdentity_absence_test.reader, arrayExtent.reader, work_OperationIdentity_object_construction.reader, work_OperationIdentity_array_construction.reader, exactArray.reader, work_OperationIdentity_protocol.reader, work_OperationIdentity_conversion.reader, work_OperationIdentity_library.reader, work_OperationIdentity_core.reader, work_OperationIdentity_pointer_address.reader, work_OperationIdentity_pointer_read.reader, work_OperationIdentity_pointer_write.reader, work_OperationIdentity_pointer_offset.reader, work_OperationIdentity_type_query.reader, work_OperationIdentity_discard.reader]);
   const work_DeferredInvocation: TirRecordCodec<DeferredInvocation> = unionRecord<DeferredInvocation>("DeferredInvocation", (value: DeferredInvocation): TirTypedRecordWork => {
     switch (value.rule) {
       case "embed": return work_DeferredInvocation_rule_embed.write(value);

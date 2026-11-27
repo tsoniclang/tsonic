@@ -9,6 +9,7 @@ import type { DefId, TyId } from "../ids/contract.js";
 import type { BindingVector } from "../ir-types/contract.js";
 import type { RecordSchema } from "./text-data.js";
 import type { Schema } from "./text-data.js";
+import type { NativeArrayConstructionOperation, NativeArrayConstructionPart } from "./contract.js";
 
 export interface NativeOperatorRecord {
   readonly kind: "native-operator";
@@ -221,9 +222,10 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
   });
 
   const operationExecutionSchema: RecordSchema<OperationExecution> = unionSchema<OperationExecution>("OperationExecution",
-    () => [pureExecutionSchema, invocationExecutionSchema], value => {
+    () => [pureExecutionSchema, arrayInitializationSchema, invocationExecutionSchema], value => {
     switch (value.kind) {
       case "pure": return pureExecutionSchema.stage(value);
+      case "array-initialization": return arrayInitializationSchema.stage(value);
       case "invocation": return invocationExecutionSchema.stage(value);
     }
   });
@@ -231,6 +233,8 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
   const pureExecutionSchema = recordSchema<PureExecutionRecord>("PureExecution", "pure", () => {
     return { fields: [], value: () => ({ kind: "pure" }) };
   });
+  const arrayInitializationSchema = recordSchema<Extract<OperationExecution, { readonly kind: "array-initialization" }>>("ArrayInitialization", "array-initialization", () =>
+    ({ fields: [], value: () => ({ kind: "array-initialization" }) }));
 
   const invocationExecutionSchema = recordSchema<InvocationExecutionRecord>("InvocationExecution", "invocation", read => {
     const writesStorage = read("writesStorage", () => booleanSchema, value => value.writesStorage);
@@ -239,7 +243,7 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
   });
 
   const operationIdentitySchema: RecordSchema<OperationIdentity> = unionSchema<OperationIdentity>("OperationIdentity",
-    () => [nativeOperatorSchema, bigintOperatorSchema, stringOperatorSchema, booleanOperatorSchema, absenceTestSchema, arrayExtentOperationSchema, objectConstructionSchema, arrayConstructionSchema, protocolOperationSchema, conversionOperationSchema, libraryOperationSchema, coreOperationSchema, pointerAddressSchema, pointerReadSchema, pointerWriteSchema, pointerOffsetSchema, typeQuerySchema, discardSchema], value => {
+    () => [nativeOperatorSchema, bigintOperatorSchema, stringOperatorSchema, booleanOperatorSchema, absenceTestSchema, arrayExtentOperationSchema, objectConstructionSchema, arrayConstructionSchema, exactArrayConstructionSchema, protocolOperationSchema, conversionOperationSchema, libraryOperationSchema, coreOperationSchema, pointerAddressSchema, pointerReadSchema, pointerWriteSchema, pointerOffsetSchema, typeQuerySchema, discardSchema], value => {
     switch (value.kind) {
       case "native-operator": return nativeOperatorSchema.stage(value);
       case "bigint-operator": return bigintOperatorSchema.stage(value);
@@ -249,6 +253,7 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
       case "array-extent": return arrayExtentOperationSchema.stage(value);
       case "object-construction": return objectConstructionSchema.stage(value);
       case "array-construction": return arrayConstructionSchema.stage(value);
+      case "exact-array-construction": return exactArrayConstructionSchema.stage(value);
       case "protocol": return protocolOperationSchema.stage(value);
       case "conversion": return conversionOperationSchema.stage(value);
       case "library": return libraryOperationSchema.stage(value);
@@ -307,6 +312,28 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
   const arrayConstructionSchema = recordSchema<ArrayConstructionRecord>("ArrayConstruction", "array-construction", read => {
     const parts = read("parts", () => arraySchema(constructionPartDecisionSchema), value => value.parts);
     return { fields: [parts], value: () => ({ kind: "array-construction", parts: parts.value() }) };
+  });
+  const arrayElementSchema = recordSchema<Extract<NativeArrayConstructionPart, { readonly kind: "element" }>>("NativeArrayElement", "element", read => {
+    const source = read("source", () => nodeRefSchema, value => value.source);
+    const embedding = read("embedding", () => embeddingDecisionSchema, value => value.embedding);
+    return { fields: [source, embedding], value: () => ({ kind: "element", source: source.value(), embedding: embedding.value() }) };
+  });
+  const arraySpreadSchema = recordSchema<Extract<NativeArrayConstructionPart, { readonly kind: "spread" }>>("NativeArraySpread", "spread", read => {
+    const source = read("source", () => nodeRefSchema, value => value.source);
+    return { fields: [source], value: () => ({ kind: "spread", source: source.value() }) };
+  });
+  const nativeArrayPartSchema = unionSchema<NativeArrayConstructionPart>("NativeArrayConstructionPart", () => [arrayElementSchema, arraySpreadSchema],
+    value => value.kind === "element" ? arrayElementSchema.stage(value) : arraySpreadSchema.stage(value));
+  const nativeExtentSchema = enumSchema("NativeArrayExtentCarrier", ["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int128", "uint128", "native-int", "native-uint"]);
+  const arrayFailureSchema = enumSchema("ArrayConstructionFailure", ["unwind", "abort"]);
+  const exactArrayConstructionSchema = recordSchema<NativeArrayConstructionOperation>("ExactArrayConstruction", "exact-array-construction", read => {
+    const extent = read("extent", () => nativeExtentSchema, value => value.extent);
+    const holding = read("holding", () => holdingSchema, value => value.holding);
+    const extentFailure = read("extentFailure", () => arrayFailureSchema, value => value.extentFailure);
+    const allocationFailure = read("allocationFailure", () => arrayFailureSchema, value => value.allocationFailure);
+    const parts = read("parts", () => arraySchema(nativeArrayPartSchema), value => value.parts);
+    return { fields: [extent, holding, extentFailure, allocationFailure, parts], value: () => ({ kind: "exact-array-construction",
+      extent: extent.value(), holding: holding.value(), extentFailure: extentFailure.value(), allocationFailure: allocationFailure.value(), parts: parts.value() }) };
   });
 
   const protocolOperationSchema = recordSchema<ProtocolOperationRecord>("ProtocolOperation", "protocol", read => {

@@ -2,9 +2,9 @@ import type { BodyId, DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../id
 import type { ArrayLiteralExpression, BindingPattern, CheckedPhase, HirNode, SwitchStatement, VariableDeclaration } from "../ir-hir/contract.js";
 import { checkedLayoutRoleOf, compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { Origin } from "../ids/contract.js";
-import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { BindingScope, BodyInstance, NativeCarrierHolding, TypeComponent, TypeEvidence, TypeTable, TypeTerm } from "../ir-types/contract.js";
-import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeAbsenceComparisonOf, nativeCarrierHoldingOf, nativeCarrierOf, optionalValueDomainOf, readLexicalTypeSupport } from "../ir-types/index.js";
+import type { ApplicationDecision, DeferredDecision, InferenceNativeFacts, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { BindingScope, BodyInstance, TypeComponent, TypeEvidence, TypeTable, TypeTerm } from "../ir-types/contract.js";
+import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeAbsenceComparisonOf, nativeArrayExtentOf, nativeCarrierHoldingOf, nativeCarrierOf, optionalValueDomainOf, readLexicalTypeSupport } from "../ir-types/index.js";
 import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirReadyReadAdmission, TirRule, TirTypedSyntax, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
 import { enterTirInline, roleSyntaxReference, tirPathText } from "./text-layouts.js";
@@ -566,17 +566,20 @@ export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefine
   }
 };
 
-export function verifyTupleConstruction<Stop extends object>(node: ArrayLiteralExpression<TypedPhase>, original: HirNode | undefined,
-  body: BodyId, types: TypeTable, holding: readonly NativeCarrierHolding[], admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralExpression<TypedPhase>, original: HirNode | undefined,
+  body: BodyId, types: TypeTable, native: InferenceNativeFacts, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
   const reached = admit({ kind: "row" });
   if (reached !== null) return reached;
   const reported = original?.kind === "ArrayLiteralExpression" && original.tsonic.role === "value" ? original.tsonic.value.views.contextual : null;
   const authored = reported?.kind === "available" && reported.value !== null ? types.terms[reported.value] : undefined;
   const phase = node.tsonic;
   const target = phase.role === "value" ? types.terms[phase.type] : undefined;
-  if (authored?.kind !== "tuple" && target?.kind !== "tuple") return null;
   const decision = phase.role === "value" && phase.construction.kind === "decided" ? phase.construction.decision : null;
   const operation = decision?.decision.operation;
+  if (target?.kind === "array" || operation?.kind === "exact-array-construction")
+    return verifyExactArray(node, original, body, types, native, decision, admit, emit);
+  if (authored?.kind !== "tuple" && target?.kind !== "tuple") return null;
+  const holding = native.carrierHolding;
   for (let index = 0; index < holding.length; index += 1) {
     const stop = admit({ kind: "row" });
     if (stop !== null) return stop;
@@ -628,9 +631,87 @@ export function verifyTupleConstruction<Stop extends object>(node: ArrayLiteralE
   return null;
 }
 
+function verifyExactArray<Stop extends object>(node: ArrayLiteralExpression<TypedPhase>, original: HirNode | undefined,
+  body: BodyId, types: TypeTable, native: InferenceNativeFacts, decision: TypedOperation | null, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  const stop = admit({ kind: "row" });
+  if (stop !== null) return stop;
+  const originalValue = original?.kind === "ArrayLiteralExpression" && original.tsonic.role === "value" ? original.tsonic.value.views : null;
+  const checked = originalValue?.read.kind === "available" ? types.terms[originalValue.read.value] : undefined;
+  const contextual = originalValue?.contextual;
+  const plan = decision?.decision;
+  const target = plan === undefined ? undefined : types.terms[plan.result];
+  const operation = plan?.operation;
+  const policy = native.arrayConstruction;
+  const holding = native.carrierHolding;
+  const extents = native.arrayExtents;
+  for (let index = 0; index < holding.length + extents.length; index += 1) {
+    const paid = admit({ kind: "row" });
+    if (paid !== null) return paid;
+  }
+  if (original?.kind !== "ArrayLiteralExpression" || checked?.kind !== "array" || target?.kind !== "array"
+    || contextual?.kind !== "available" || node.tsonic.role !== "value" || plan === undefined || decision?.permissionScope !== null
+    || operation?.kind !== "exact-array-construction" || plan.execution.kind !== "array-initialization" || plan.result !== node.tsonic.type
+    || (contextual.value === null ? checked.readonly !== target.readonly : contextual.value !== plan.result)
+    || policy?.kind !== "exact-length" || policy.rangeCopy !== "contiguous" || policy.extentFailure !== operation.extentFailure
+    || operation.extent !== nativeArrayExtentOf(extents, "array") || operation.holding !== nativeCarrierHoldingOf(holding, "array")
+    || operation.allocationFailure !== (native.allocationFailure === "abort" ? "abort" : "unwind")
+    || operation.parts.length !== node.elements.nodes.length || operation.parts.length !== original.elements.nodes.length
+    || operation.parts.length !== plan.operands.length) {
+    emit("operation-type", node, "native array construction requires its actual authored inventory and selected extent, holding and failure laws");
+    return null;
+  }
+  let copied = false;
+  const slot = (component: TypeComponent) => component.root.kind === "body" && component.root.value.body === body
+    && component.root.value.node === node.id && component.path.length === 1 && component.path[0]?.kind === "array-element";
+  for (let index = 0; index < operation.parts.length; index += 1) {
+    const paid = admit({ kind: "row" });
+    if (paid !== null) return paid;
+    const part = operation.parts[index];
+    const element = node.elements.nodes[index];
+    const authored = original.elements.nodes[index];
+    const operand = element?.kind === "SpreadElement" ? element.expression : element;
+    const value = operand === undefined ? null : typedValueOf(operand);
+    if (operand === undefined || element === undefined || authored?.id !== element.id || authored.kind !== element.kind
+      || part === undefined || part.source.body !== body || part.source.node !== operand.id
+      || value === null || value.convertedType !== plan.operands[index]) {
+      emit("operation-type", element ?? node, "a native array part must name its exact authored operand");
+      continue;
+    }
+    if (part.kind === "spread") {
+      const range = types.terms[value.type];
+      if (copied || element.kind !== "SpreadElement" || !("role" in element.tsonic) || element.tsonic.role !== "native-array-range"
+        || authored.kind !== "SpreadElement" || authored.expression.id !== operand.id
+        || range?.kind !== "array" || range.element !== target.element || value.conversion.kind !== "identity" || value.type !== value.convertedType)
+        emit("operation-type", element, "a native array range requires one actual spread with identical element storage");
+      copied = true;
+      continue;
+    }
+    if (element.kind === "SpreadElement" || value.convertedType !== target.element) {
+      emit("operation-type", element, "a native array element requires its actual selected slot type");
+      continue;
+    }
+    const embedding = part.embedding;
+    const applied = value.conversion.kind === "convert" ? value.conversion.operation.decision.operation : null;
+    const expected = embedding.kind === "conversion" ? embedding.proof.steps[embedding.proof.conclusion] : undefined;
+    const carried = applied?.kind === "conversion" && applied.embedding.kind === "conversion"
+      ? applied.embedding.proof.steps[applied.embedding.proof.conclusion] : undefined;
+    if (embedding.kind === "identity" ? value.conversion.kind !== "identity" || value.type !== target.element
+      : embedding.kind !== "conversion" || applied?.kind !== "conversion" || applied.embedding.kind !== "conversion"
+        || applied.from !== value.type || applied.to !== target.element || applied.embedding.conversion !== embedding.conversion
+        || expected === undefined || carried === undefined || !slot(expected.to) || !slot(carried.to)
+        || expected.from.root.kind !== "body" || expected.from.root.value.body !== body || expected.from.root.value.node !== operand.id
+        || expected.from.path.length !== 0 || carried.from.path.length !== 0 || !sameSourceReference(expected.from.root, carried.from.root))
+      emit("conversion-carried", element, "a native array element requires its actual selected scalar fit");
+  }
+  return null;
+}
+
 export const verifyOperationShape = (operation: TypedOperation, node: TirNode, emit: TirOccurrenceEmit): void => {
   const decision = operation.decision;
   const identity = decision.operation;
+  if ((identity.kind === "exact-array-construction") !== (decision.execution.kind === "array-initialization")
+    || identity.kind === "exact-array-construction" && node.kind !== "ArrayLiteralExpression")
+    emit("operation-type", node, "staged array initialization belongs only to its actual construction");
   if (identity.kind === "conversion" && (decision.operands.length !== 1 || decision.operands[0] !== identity.from || decision.result !== identity.to)) {
     emit("operation-type", node, "conversion operation does not retain its explicit operand and result endpoints");
   }

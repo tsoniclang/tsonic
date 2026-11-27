@@ -2,6 +2,8 @@ import type { DefId, BodyId, ItemNodeRef, TyId, SigId, LocalRef, NodeRef, Origin
 import type { Diagnostic } from "../diag/contract.js";
 import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 import type { NativePrimitive, BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
+import type { NativeIntegerPrimitive } from "../ir-types/contract.js";
+import type { NativeArrayConstructionPart } from "../ir-infer/contract.js";
 import type { HirCallableEndpoint, HirUnaryOperator, HirBinaryOperator, HirCoreCapture } from "../ir-hir/contract.js";
 import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, LogicalCapture, CheckRequirement, ClosureCaptureEvidence, ClosureDecision, ClosureInput, FailureKind, OperationExecution, FlowRole, ProtocolKind, RuleContext, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionPart, LiteralConstructionInput, CandidateArgument, CandidateEndpoint, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, ConversionKind, CorrespondenceStep, EmbeddingProof, EmbeddingDecision, MemberDecision, ParameterMapping, CompletionEndpoint, ApplicationDecision, ConstructionPartDecision, ProtocolStepDecision, ProtocolStepOperation, OperationIdentity, OperationDecision, DeferredInvocation, DeferredDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
 import type { Cursor, RecordFields, TextStep, TextReader } from "./parse-values.js";
@@ -90,11 +92,11 @@ export function readAccessLocationText<Root>(cursor: Cursor, finish: (value: Acc
 }
 
 export function readOperationExecutionText<Root>(cursor: Cursor, finish: (value: OperationExecution) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["pure","invocation"]), label =>
+  return atomicText(cursor, next => choice(next, ["pure","array-initialization","invocation"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
-        case "pure":
+        case "pure": case "array-initialization":
           return atomicText(cursor, next => closeRecord(next, fields), () =>
       acceptText({ kind: label }, finish));
         case "invocation":
@@ -315,8 +317,19 @@ export function readBackedIdentityText<Root>(
     atomicText(cursor, next => delimiter(next, "("), () => backedIdentityFields(cursor, { given: new Set<string>() }, label, finish)));
 }
 
+function readArrayConstructionPart<Root>(cursor: Cursor, finish: (value: NativeArrayConstructionPart) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["element", "spread"]), kind =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set<string>() };
+      return fieldText<NodeRef, Root>(cursor, fields, "source", (next, done) => atomicText(next, readNodeRef, done), source =>
+        kind === "spread" ? atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind, source }, finish))
+          : fieldText<EmbeddingDecision, Root>(cursor, fields, "embedding", readEmbeddingDecisionText, embedding =>
+            atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind, source, embedding }, finish))));
+    }));
+}
+
 export function readOperationIdentityText<Root>(cursor: Cursor, finish: (value: OperationIdentity) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["native-operator","bigint-operator","string-operator","boolean-operator","absence-test","array-extent","object-construction","array-construction","protocol","conversion","library","core","pointer-address","pointer-read","pointer-write","pointer-offset","type-query","discard"]), label =>
+  return atomicText(cursor, next => choice(next, ["native-operator","bigint-operator","string-operator","boolean-operator","absence-test","array-extent","object-construction","array-construction","exact-array-construction","protocol","conversion","library","core","pointer-address","pointer-read","pointer-write","pointer-offset","type-query","discard"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
@@ -351,6 +364,19 @@ export function readOperationIdentityText<Root>(cursor: Cursor, finish: (value: 
           return fieldText<readonly (ConstructionPartDecision)[], Root>(cursor, fields, "parts", (next, done) => arrayText(next, readConstructionPartDecisionText, done), partsValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
         acceptText({ kind: label, parts: partsValue }, finish)));
+        case "exact-array-construction":
+          return fieldText<NativeIntegerPrimitive, Root>(cursor, fields, "extent", (next, done) =>
+            atomicText(next, value => readStringChoice(value, ["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int128", "uint128", "native-int", "native-uint"]), done), extent =>
+            fieldText<ReceiverAccess, Root>(cursor, fields, "holding", (next, done) =>
+              atomicText(next, value => readStringChoice(value, ["in-place", "by-reference"]), done), holding =>
+              fieldText<CheckFailure, Root>(cursor, fields, "extentFailure", (next, done) =>
+                atomicText(next, value => readStringChoice(value, ["unwind", "abort"]), done), extentFailure =>
+                fieldText<CheckFailure, Root>(cursor, fields, "allocationFailure", (next, done) =>
+                  atomicText(next, value => readStringChoice(value, ["unwind", "abort"]), done), allocationFailure =>
+                  fieldText<readonly NativeArrayConstructionPart[], Root>(cursor, fields, "parts", (next, done) =>
+                    arrayText(next, readArrayConstructionPart, done), parts =>
+                    atomicText(cursor, next => closeRecord(next, fields), () =>
+                      acceptText({ kind: label, extent, holding, extentFailure, allocationFailure, parts }, finish)))))));
         case "protocol":
           return fieldText<ProtocolKind, Root>(cursor, fields, "protocol", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["iterate","await","yield","delegate","dispose","spread","argument-passing","pointer"]), done), protocolValue =>
     fieldText<boolean, Root>(cursor, fields, "asynchronous", (next, done) => atomicText(next, readBoolean, done), asynchronousValue =>

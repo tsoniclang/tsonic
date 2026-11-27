@@ -123,6 +123,7 @@ function verificationInput(records = {}) {
     types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature] }, bindingScopes: [],
     selectedNativeFacts: {
       carrierHolding: [{ carrier: "array", holding: "by-reference" }, { carrier: "fixed-array", holding: "in-place" }],
+      arrayExtents: [], arrayConstruction: null, allocationFailure: "observable",
       arrayIndexFailure: "unwind", fixedArrayIndexFailure: "abort", destinationCheck: "before-value",
     },
     ...input,
@@ -671,7 +672,7 @@ test("discharge reaching any selected relationship is a direct component law, no
   const selected = [
     { kind: "member", occurrence, receiver: 1, key: { kind: "text", value: "closed" }, access: "read", result: 2, origins: [], bindings: emptyBindings },
     { kind: "index", occurrence, receiver: 1, key: 0, access: "read", result: 2, bindings: emptyBindings },
-    { kind: "construct-literal", occurrence, construction: "object", parts: [], destination: 1, result: 2 },
+    { kind: "construct-literal", occurrence, construction: "object", parts: [], destination: 1, result: 2, inferredResult: null },
     { kind: "call", occurrence, application }, { kind: "construct", occurrence, application },
     { kind: "protocol", occurrence, protocol: "iterate", asynchronous: false, subject: 1, operands: [], result: 2, bindings: emptyBindings },
   ];
@@ -899,7 +900,7 @@ test("decision/proof/construction/protocol checks compare full structural final 
   [violation("proof-order", { kind: "proof", constraint: { body, index: 0 }, step: 0 }, "premises")]);
   ruleCase("decision-kind", flowInput, { ...flowInput, solution: solutionWith({ kind: "eq", equivalent: true }) },
     [violation("decision-kind", constraintSite(0), "decision")]);
-  const construction = { kind: "construct-literal", occurrence, construction: "object", parts: [{ kind: "element", occurrence, type: 0 }], destination: null, result: 0 };
+  const construction = { kind: "construct-literal", occurrence, construction: "object", parts: [{ kind: "element", occurrence, type: 0 }], destination: null, result: 0, inferredResult: null };
   const part = { part: 0, source: occurrence, destination: componentGolden.value, member: null, embedding: { kind: "identity" } };
   const constructDecision = parts => ({ kind: "construct-literal", operation: { kind: "selected", operation: { kind: "object-construction", parts }, operands: [0], result: 0, execution: { kind: "pure" } } });
   ruleCase("construction-part-total", { constraints: [constraintSet([construction])], solution: solutionWith(constructDecision([part])) },
@@ -915,6 +916,55 @@ test("decision/proof/construction/protocol checks compare full structural final 
     [violation("protocol-channels", constraintSite(0), "protocol")]);
   ruleCase("body-completion-endpoints", { solution: completeSolution() },
     { solution: { ...completeSolution(), bodies: [] } }, [violation("body-completion-endpoints", bodySite, "body")]);
+});
+
+test("native array inference verifies its exact result producer and independent range law", () => {
+  const scalar = { body, node: 1 };
+  const range = { body, node: 2 };
+  const types = { signatures: [signature], terms: [
+    { kind: "primitive", primitive: "int32" }, { kind: "primitive", primitive: "float64" },
+    { kind: "array", element: 1, readonly: false }, { kind: "array", element: 0, readonly: false },
+    { kind: "open", group, variable: 0 },
+  ] };
+  const original = { kind: "construct-literal", occurrence, construction: "array", destination: null, result: 2, inferredResult: 4,
+    parts: [{ kind: "element", occurrence: scalar, type: 0 }, { kind: "spread", occurrence: range, type: 3 }] };
+  const atomic = { key: { node: occurrence, candidate: null, role: { kind: "construction" } }, reads: [], bounds: [0],
+    constraint: { body, index: 0 } };
+  const construction = { kind: "exact-array-construction", extent: "int32", holding: "by-reference",
+    extentFailure: "abort", allocationFailure: "unwind",
+    parts: [{ kind: "element", source: scalar, embedding: { kind: "identity" } }, { kind: "spread", source: range }] };
+  const selected = { kind: "selected", operation: construction, operands: [0, 3], result: 3, execution: { kind: "array-initialization" } };
+  const native = { ...verificationInput().selectedNativeFacts, arrayExtents: [{ carrier: "array", result: "int32" }],
+    arrayConstruction: { kind: "exact-length", extentFailure: "abort", rangeCopy: "contiguous" } };
+  const input = (constraint = original, plan = selected, facts = native, contribution = atomic) => verificationInput({
+    types, nodes: [{ owner: source, ids: [0, 1, 2] }], constraints: [constraintSet([constraint], [localVariable(0)])],
+    contributions: [contribution], selectedNativeFacts: facts,
+    solution: { ...completeSolution(), variables: [{ variable: 0, value: evidence(3), error: null }],
+      checks: contribution.bounds.map(variable => ({ variable, contribution: atomic.key,
+        bound: { variable, contribution: atomic.key, kind: "producer", value: evidence(3), error: null },
+        outcome: { kind: "satisfied", embedding: { kind: "identity" } } })),
+      constraints: [{ constraint: { body, index: 0 }, decision: { kind: "construct-literal", operation: plan } }] },
+  });
+  fullEqual(product.verifyInference(input()), [], "the inferred result may differ from the checked backing array");
+  fullEqual(product.verifyInference(input({ ...original, destination: 3, inferredResult: null },
+    selected, native, { ...atomic, bounds: [] })), [], "the actual destination does not produce an open result");
+  for (const change of [
+    { extent: "int64" }, { holding: "in-place" }, { extentFailure: "unwind" }, { allocationFailure: "abort" },
+    { parts: construction.parts.slice(0, 1) },
+  ]) fullEqual(product.verifyInference(input(original, { ...selected, operation: { ...construction, ...change } })),
+    [violation("operation-types", constraintSite(0), "construction")], "each native plan field is independently required");
+  fullEqual(product.verifyInference(input(original, selected, { ...native, arrayConstruction: null })),
+    [violation("operation-types", constraintSite(0), "construction")], "no grant does not select a construction");
+  for (const plan of [
+    { ...selected, operation: { ...construction, parts: [construction.parts[1], construction.parts[0]] } },
+    { ...selected, operands: [0, 2] },
+  ]) {
+    const findings = product.verifyInference(input(original, plan));
+    assert.equal(findings.length, plan.operation === construction ? 1 : 2);
+    assert.equal(findings.every(row => row.rule === "construction-part-total"), true);
+  }
+  assert.equal(product.verifyInference(input(original, selected, native, { ...atomic, bounds: [] }))
+    .some(item => item.rule === "contribution-footprint-complete"), true, "the producer cannot omit the actual result bound");
 });
 
 test("selected operation and narrowed-proof traversal verifies every actual closed structural family", () => {
@@ -970,7 +1020,7 @@ test("selected operation and narrowed-proof traversal verifies every actual clos
     [violation("proof-reference", { kind: "proof", constraint: { body, index: 0 }, step: 0 }, "premises")],
     "narrowed proof follows the same genuine reference verifier");
   const construction = { kind: "construct-literal", occurrence, construction: "object", parts: [{ kind: "element", occurrence, type: 0 }],
-    destination: null, result: 0 };
+    destination: null, result: 0, inferredResult: null };
   const constructed = parts => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision: { kind: "construct-literal",
     operation: { kind: "selected", operation: { kind: "object-construction", parts }, operands: [], result: 0, execution: { kind: "pure" } } } }] });
   const complete = { constraints: [constraintSet([construction])], bindingScopes: [emptyScope], solution: constructed([part]),
@@ -1633,7 +1683,7 @@ test("all thirteen deferred rule families retain their independently observable 
   const member = { kind: "member", occurrence, receiver: 0, key, access: "read", result: 0, origins: [], bindings: emptyBindings };
   const index = { kind: "index", occurrence, receiver: 0, key: 0, access: "read", result: 0, bindings: emptyBindings };
   const construction = { kind: "construct-literal", occurrence, construction: "object",
-    parts: [{ kind: "property", occurrence: { body, node: 1 }, key, type: 0 }], destination: null, result: 0 };
+    parts: [{ kind: "property", occurrence: { body, node: 1 }, key, type: 0 }], destination: null, result: 0, inferredResult: null };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
     bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [], endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
   const application = { captured: captureGolden.value, permissionScope: occurrence, callee: 0, receiver: null,
@@ -2052,7 +2102,7 @@ test("every closed constraint and variable arm has an independently authored com
       recordGolden("element", { occurrence: nodeGolden, type: typeGolden }, "element"),
       recordGolden("property", { occurrence: nodeGolden, key: textKeyGolden, type: typeGolden }, "property"),
       recordGolden("spread", { occurrence: nodeGolden, type: typeGolden }, "spread"),
-    ]), destination: nullGolden, result: typeGolden }, "construct-literal"),
+    ]), destination: nullGolden, result: typeGolden, inferredResult: nullGolden }, "construct-literal"),
     recordGolden("protocol", { occurrence: nodeGolden, protocol: scalarGolden("iterate"), asynchronous: scalarGolden(false), subject: typeGolden, operands: emptyGolden, result: typeGolden, bindings: bindingGolden }, "protocol"),
     recordGolden("refine", { occurrence: nodeGolden, source: typeGolden, checked: typeGolden, result: typeGolden }, "refine"),
     recordGolden("discharge", { occurrence: nodeGolden, checkerDiagnostic: scalarGolden(9910000), obligations: arrayGolden([referenceGolden]) }, "discharge"),
@@ -2110,7 +2160,7 @@ test("all contribution role ranks and numeric payload columns have complete adja
     { kind: "default", occurrence, variable: 0, rule: "local-producers", type: 0 },
     { kind: "construct-literal", occurrence, construction: "array", parts: [
       { kind: "element", occurrence, type: 0 }, { kind: "spread", occurrence, type: 0 },
-    ], destination: null, result: 0 },
+    ], destination: null, result: 0, inferredResult: null },
   ];
   const entry = (index, role, selected = null) => ({ key: { node: occurrence, candidate: selected, role },
     reads: [], bounds: index === 10 ? [0] : [], constraint: { body, index } });
@@ -2205,7 +2255,7 @@ test("application contribution roles retain actual arguments, closures, receiver
     expectedRules.map(rule => violation(rule, { kind: "contribution", key: invalid.key }, rule === "candidate-reference" ? "candidate" : "role")),
     "selection, original candidate and node ownership are independent conditions");
   const construction = { kind: "construct-literal", occurrence, construction: "array", parts: [{ kind: "element", occurrence, type: 0 }],
-    destination: null, result: 0 };
+    destination: null, result: 0, inferredResult: null };
   const invalidConstruction = contribution({ kind: "operator" }, null);
   for (const parts of [construction.parts, []])
     ruleCase("contribution-role", { constraints: [constraintSet([{ ...construction, parts }])],
@@ -2446,6 +2496,12 @@ test("all decision, mapping, embedding, operation and protocol-step arms retain 
     ...operations.map(operation => recordGolden("op", { operation: operationGolden(operation, operation.value.kind === "pointer-write"
       ? invocationGolden(true, "none") : operation.value.kind === "library" ? invocationGolden(true, "unwind") : pureGolden) }, "op")),
     recordGolden("construct-literal", { operation: operationGolden(operations[5]) }, "construct-literal"),
+    recordGolden("construct-literal", { operation: operationGolden(recordGolden("exact-array-construction", {
+      extent: scalarGolden("int32"), holding: scalarGolden("by-reference"),
+      extentFailure: scalarGolden("abort"), allocationFailure: scalarGolden("unwind"),
+      parts: arrayGolden([recordGolden("element", { source: nodeGolden, embedding: identityGolden }, "element"),
+        recordGolden("spread", { source: nodeGolden }, "spread")]),
+    }, "exact-array-construction"), recordGolden("array-initialization", {}, "array-initialization")) }, "construct-literal"),
     recordGolden("protocol", { operation: operationGolden(operations[7]) }, "protocol"),
     recordGolden("closure", { closure: closureGolden([]) }, "closure"),
     recordGolden("closure", { closure: closureGolden(["captured-value", "captured-location"]) }, "closure"),
@@ -3232,7 +3288,7 @@ test("check, failure, execution, location and activation fields refuse an unknow
     ["call", 'activation="at-creation"', '"lazy"', ['"at-creation"', '"when-first-driven"'], '"lazy"'],
     ["operation", 'failure="abort"', '"proved"', ['"none"', '"unwind"', '"abort"'], '"proved"'],
     ["operation", "writesStorage=true", '"yes"', ["boolean"], '"yes"'],
-    ["operation", 'execution=invocation(writesStorage=true, failure="abort")', "effect()", ["pure", "invocation"], "effect"],
+    ["operation", 'execution=invocation(writesStorage=true, failure="abort")', "effect()", ["pure", "array-initialization", "invocation"], "effect"],
     ["narrowed", 'failure="abort"', '"none"', checkFailures, '"none"'],
   ]) {
     const text = documents[name].text;
@@ -3303,7 +3359,7 @@ test("the closure constraint, its decision and its deferred form: codec vectors,
   for (const [slot, replacement, expected, found] of [
     ['capture="captured-value"', '"copied"', ['"captured-value"', '"captured-location"'], '"copied"'],
     ["captures=[CaptureRow(", '["captured-value"]', ["CaptureRow"], '"captured-value"'],
-    ["execution=pure()", "proved()", ["pure", "invocation"], "proved"],
+    ["execution=pure()", "proved()", ["pure", "array-initialization", "invocation"], "proved"],
     ["carrier=t:0", "sig:0", ["t"], "sig:0"],
   ]) {
     const start = decided.text.indexOf(slot);
@@ -4353,7 +4409,7 @@ test("the independent logic inventory includes every approved port and every nam
     "closure-result-flow", "application-result", "member", "index", "operator", "literal", "protocol", "refinement", "discharge", "default", "construction"].sort());
   deepEqual([...resultArms.decisions].sort(), ["eq", "flow", "literal", "member", "index", "call", "construct", "op", "construct-literal",
     "protocol", "refine", "discharge", "default", "closure", "deferred", "error"].sort());
-  assert.equal(resultArms.operations.size, 17);
+  assert.equal(resultArms.operations.size, 18);
   assert.equal(resultArms.deferred.size, 14);
   assert.equal(resultArms.public.size, 10);
   deepEqual([...nestedArms.stringOperators].sort(), ["+", "==", "!=", "===", "!==", "<", "<=", ">", ">="].sort());

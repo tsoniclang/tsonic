@@ -407,7 +407,9 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     case "ArrayLiteralExpression": {
       const phase = node.tsonic;
       if (phase.role !== "value" || phase.construction.kind !== "decided")
-        return callerDefect("a tuple literal requires its actual selected construction", node.origin);
+        return callerDefect("an array literal requires its actual selected construction", node.origin);
+      if (phase.construction.decision.decision.operation.kind === "exact-array-construction")
+        return notLoweredYet("staged native array initialization", node.origin);
       value(lowering, phase, node);
       return tupleValue(lowering, { kind: "tuple-value", node, operation: phase.construction.decision, position: 0 });
     }
@@ -827,6 +829,7 @@ function operation(lowering: Lowering, pendingOperation: Extract<Work, { readonl
     pushOperand(lowering, held(result, selected.decision.result, site));
     return true;
   }
+  if (execution.kind !== "invocation") return callerDefect("array initialization cannot execute as an ordinary operation", node.origin);
   if (!saveBeforeControl(lowering, execution.writesStorage, execution.failure !== "none")) return false;
   const result = temporary(lowering, selected.decision.result, site);
   if (result === null) return false;

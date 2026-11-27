@@ -593,9 +593,12 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
   const finiteSpread = defineRecord<Extract<TypedSpread, { readonly role: "finite-call-argument" }>>(
     "FiniteCallSpread", "FiniteCallSpread", null, "FiniteCallSpread", null, null,
     fields => fields.finish(() => ({ role: "finite-call-argument" })));
+  const arraySpread = defineRecord<Extract<TypedSpread, { readonly role: "native-array-range" }>>(
+    "NativeArrayRange", "NativeArrayRange", null, "NativeArrayRange", null, null,
+    fields => fields.finish(() => ({ role: "native-array-range" })));
   const work_TypedSpread = unionRecord<TypedSpread>("TypedSpread",
-    value => "role" in value ? finiteSpread.write(value) : spreadProtocol.write(value),
-    () => [spreadProtocol.reader, finiteSpread.reader]);
+    value => "role" in value ? value.role === "finite-call-argument" ? finiteSpread.write(value) : arraySpread.write(value) : spreadProtocol.write(value),
+    () => [spreadProtocol.reader, finiteSpread.reader, arraySpread.reader]);
   const work_TypedObjectSpread: TirRecordCodec<TypedObjectSpread> = defineRecord<TypedObjectSpread>("TypedObjectSpread", "TypedObjectSpread", null, "TypedObjectSpread", null, null, fields => fields
     .field("construction", "O<TypedOperation>", value => read.work_O_TypedOperation_.write(value.construction), lazyReader(() => read.work_O_TypedOperation_.reader))
     .finish((field_construction) => ({ construction: field_construction })));

@@ -704,7 +704,7 @@ export function verifyLaws(
         // Laws 1 and 2: a control point executes an operation whose decision says it is an invocation, and fails as
         // that decision says: not at all, by unwinding, or by ending the process.
         const execution = terminator.operation.decision.execution;
-        if (execution.kind === "pure") reportAt("statement-pure", block.id, null);
+        if (execution.kind !== "invocation") reportAt("statement-pure", block.id, null);
         else if (execution.failure === "none" ? terminator.unwind.kind !== "none" : execution.failure === "abort" ? terminator.unwind.kind !== "abort"
           : terminator.unwind.kind !== "handler" && terminator.unwind.kind !== "escape" && terminator.unwind.kind !== "carry")
           reportAt("failure-kind-exact", block.id, null);

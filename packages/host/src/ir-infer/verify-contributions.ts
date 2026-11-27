@@ -314,7 +314,15 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
         break;
       case "construct-literal":
         if (current !== root) return null;
-        if (bounds.size !== 0) return false;
+        if (value.inferredResult === null) {
+          if (bounds.size !== 0) return false;
+        } else {
+          const result = input.types.terms[value.inferredResult];
+          const variable = result?.kind === "open" ? inventory.variables.get(result.variable) : undefined;
+          if (value.construction !== "array" || value.destination !== null || result?.kind !== "open" || result.group !== input.group.id
+            || variable?.kind !== "local" || variable.local !== null || nodeKey(variable.occurrence) !== nodeKey(value.occurrence)
+            || bounds.size !== 1 || !bounds.has(result.variable) || reads.includes(result.variable)) return false;
+        }
         for (const part of value.parts) types.add(part.type);
         break;
       case "member": case "call": case "construct": case "protocol": return null;

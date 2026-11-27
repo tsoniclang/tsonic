@@ -776,9 +776,8 @@ test("MIR preparation refuses before pulling a later place or switch target", as
 test("MIR decision fields of an operation refuse an unknown value at the value and a missing field at the record's end", () => {
   // The execution of an operation decision (S2-11) travels in this codec inside every invoked or computed operation.
   const invoking = operation => document("", "", "", `MirBlock(${siteText}, id=b:0, statements=[], terminator=invoke(${siteText}, operation=${operation}, operands=[], destination=null, next=b:0, unwind=escape(), step=null))`);
-  // An execution that is neither of its two forms.
   const unknown = invoking(operationText.replace("execution=pure()", "execution=never()"));
-  invalidText(unknown, unknown.indexOf("never()"), ["pure", "invocation"], "n");
+  invalidText(unknown, unknown.indexOf("never()"), ["pure", "array-initialization", "invocation"], "n");
   // A failure kind outside its closed list.
   const failing = invoking(operationText.replace("execution=pure()", 'execution=invocation(writesStorage=false, failure="sometimes")'));
   // The fault is at the first character of the value, inside its quotes.
@@ -957,6 +956,9 @@ for (const [identity, text] of [
   [{ kind: "absence-test", negated: false }, "absence-test(negated=false)"],
   [{ kind: "object-construction", parts: [] }, "object-construction(parts=[])"],
   [{ kind: "array-construction", parts: [] }, "array-construction(parts=[])"],
+  [{ kind: "exact-array-construction", extent: "int32", holding: "by-reference", extentFailure: "abort", allocationFailure: "unwind",
+    parts: [{ kind: "element", source: nodeRef, embedding: { kind: "identity" } }, { kind: "spread", source: nodeRef }] },
+  `exact-array-construction(extent="int32", holding="by-reference", extentFailure="abort", allocationFailure="unwind", parts=[element(source=${nodeText}, embedding=identity()), spread(source=${nodeText})])`],
   [{ kind: "protocol", protocol: "dispose", asynchronous: true, steps: [], value: 1, completion: 2, yielded: null, sent: 3, thrown: 4 },
     'protocol(protocol="dispose", asynchronous=true, steps=[], value=t:1, completion=t:2, yielded=null, sent=t:3, thrown=t:4)'],
   [{ kind: "conversion", from: 1, to: 2, embedding: { kind: "identity" } }, "conversion(from=t:1, to=t:2, embedding=identity())"],
@@ -967,8 +969,9 @@ for (const [identity, text] of [
   [{ kind: "type-query" }, "type-query()"], [{ kind: "discard" }, "discard()"],
 ]) {
   test(`MIR nested selected operation ${identity.kind} is retained without target interpretation`, () => {
-    const selected = { decision: { kind: "selected", operation: identity, operands: [0, 1], result: 2, execution: { kind: "pure" } }, permissionScope: 0 };
-    const selectedText = `TypedOperation(decision=selected(operation=${text}, operands=[t:0, t:1], result=t:2, execution=pure()), permissionScope=n:0)`;
+    const execution = identity.kind === "exact-array-construction" ? "array-initialization" : "pure";
+    const selected = { decision: { kind: "selected", operation: identity, operands: [0, 1], result: 2, execution: { kind: execution } }, permissionScope: 0 };
+    const selectedText = `TypedOperation(decision=selected(operation=${text}, operands=[t:0, t:1], result=t:2, execution=${execution}()), permissionScope=n:0)`;
     const terminator = { ...site, kind: "invoke", step: null, operation: selected, operands: [placeOperand, constantOperand], destination: 0, next: 1, unwind: { kind: "escape" } };
     const fullText = `invoke(${siteText}, operation=${selectedText}, operands=[${operandText}, ${constantOperandText}], destination=p:0, next=b:1, unwind=escape(), step=null)`;
     roundtrip({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [], terminator }] },

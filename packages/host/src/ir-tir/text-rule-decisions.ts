@@ -95,6 +95,8 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
   }, () => [work_AccessLocation_data.reader, work_AccessLocation_accessor.reader]);
   const work_OperationExecution_pure: TirRecordCodec<OperationExecution & { readonly kind: "pure" }> = defineRecord<OperationExecution & { readonly kind: "pure" }>("OperationExecution#pure", "OperationExecution", { field: "kind", value: "pure" }, "pure", null, null, fields => fields
     .finish(() => ({ kind: "pure" })));
+  const arrayInitialization = defineRecord<Extract<OperationExecution, { readonly kind: "array-initialization" }>>("OperationExecution#array-initialization", "OperationExecution", { field: "kind", value: "array-initialization" }, "array-initialization", null, null,
+    fields => fields.finish(() => ({ kind: "array-initialization" })));
   const work_OperationExecution_invocation: TirRecordCodec<OperationExecution & { readonly kind: "invocation" }> = defineRecord<OperationExecution & { readonly kind: "invocation" }>("OperationExecution#invocation", "OperationExecution", { field: "kind", value: "invocation" }, "invocation", null, null, fields => fields
     .field("writesStorage", "boolean", value => scalarWork("boolean", value.writesStorage), booleanReader)
     .field("failure", "FailureKind", value => scalarWork("FailureKind", value.failure), literalReader<(OperationExecution & { readonly kind: "invocation" })["failure"]>("FailureKind", ["none","unwind","abort"]))
@@ -102,9 +104,10 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
   const work_OperationExecution: TirRecordCodec<OperationExecution> = unionRecord<OperationExecution>("OperationExecution", (value: OperationExecution): TirTypedRecordWork => {
     switch (value.kind) {
       case "pure": return work_OperationExecution_pure.write(value);
+      case "array-initialization": return arrayInitialization.write(value);
       case "invocation": return work_OperationExecution_invocation.write(value);
     }
-  }, () => [work_OperationExecution_pure.reader, work_OperationExecution_invocation.reader]);
+  }, () => [work_OperationExecution_pure.reader, arrayInitialization.reader, work_OperationExecution_invocation.reader]);
   const work_OperationDecision: TirRecordCodec<OperationDecision> = defineRecord<OperationDecision>("OperationDecision", "OperationDecision", { field: "kind", value: "selected" }, "selected", null, null, fields => fields
     .field("operation", "OperationIdentity", value => read.work_OperationIdentity.write(value.operation), lazyReader(() => read.work_OperationIdentity.reader))
     .field("operands", "[t]", value => sequenceWork("[t]", value.operands, actual => referenceWork("t", actual)), sequenceReader("[t]", typeReader))

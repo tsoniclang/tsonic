@@ -81,6 +81,15 @@ interface EmbeddingEndpoint {
 
 export function decideComponentEmbedding(deps: RulesDeps, from: EmbeddingEndpoint, to: EmbeddingEndpoint,
   role: FlowRole | "bound", occurrence: NodeRef, origin: Origin, work: RuleWork): Result<EmbeddingDecision> {
+  const selected = componentEmbedding(deps, from, to, origin, work);
+  if (selected !== null) return selected;
+  const source = readType(deps.types, from.type);
+  const target = readType(deps.types, to.type);
+  return notDecidedYet(`the embedding of ${termName(source)} into ${termName(target)} (${role}) at ${at(occurrence)}`, origin);
+}
+
+export function componentEmbedding(deps: RulesDeps, from: EmbeddingEndpoint, to: EmbeddingEndpoint,
+  origin: Origin, work: RuleWork): Result<EmbeddingDecision> | null {
   const form = embeddingForm(deps, from.type, to.type, work);
   const ok = (value: EmbeddingDecision): Result<EmbeddingDecision> => ({ kind: "ok", value, diagnostics: [] });
   if (form === "identity") return ok({ kind: "identity" });
@@ -90,7 +99,5 @@ export function decideComponentEmbedding(deps: RulesDeps, from: EmbeddingEndpoin
     return ok({ kind: "conversion", conversion: form, check: { kind: "none" },
       proof: { steps: [{ from: from.at, to: to.at, rule: form, premises: [] }], conclusion: 0 } });
   }
-  const source = readType(deps.types, from.type);
-  const target = readType(deps.types, to.type);
-  return notDecidedYet(`the embedding of ${termName(source)} into ${termName(target)} (${role}) at ${at(occurrence)}`, origin);
+  return null;
 }
