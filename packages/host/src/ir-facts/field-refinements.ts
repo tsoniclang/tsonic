@@ -289,7 +289,7 @@ function writesField(mir: MirBody, block: MirBlock, before: number, place: Place
 }
 
 function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summary | null, target: Field,
-  flow: Flow, account: DataflowAccount): DataflowResult<boolean> {
+  flow: Flow, bindings: FieldRefinementInputs["callBindings"], account: DataflowAccount): DataflowResult<boolean> {
   const paid = chargeWork(account, 1);
   if (paid !== null) return paid;
   if (summary === null || summary.key.kind !== "body" || summary.suspends || summary.arena.boundaries.length !== 0 || summary.callbacks.length !== 0
@@ -326,7 +326,7 @@ function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summar
         compare.field(field.identity);
       }
       const transported = projectCallFields(account, summary.arena.projections, path,
-        mapping.kind === "reference-argument" ? mapping.view : null, field => {
+        mapping.kind === "reference-argument" ? mapping.view : null, bindings, field => {
           const selected = identity(field, account);
           if (selected.kind !== "complete") return selected;
           compare.field(selected.value);
@@ -418,7 +418,7 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
       if (term.kind === "call") {
         const summary = inputs.summaryAt(predecessor.id, term);
         if (summary.kind !== "complete") return summary;
-        const effect = appliedWrite(mir, predecessor, term, summary.value, field, flow, account);
+        const effect = appliedWrite(mir, predecessor, term, summary.value, field, flow, inputs.callBindings, account);
         if (effect.kind !== "complete") return effect;
         const destination = term.destination === null ? null : mir.places[term.destination]?.base;
         if (effect.value || destination?.kind === "local" && destination.local === field.receiver) {

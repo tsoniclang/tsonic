@@ -60,6 +60,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
     const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
     const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+    const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
     const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
       function write(formal: { other: boolean; child: { flag: boolean } | null }): void {
         if (formal.child !== null) formal.child.flag = false;
@@ -82,11 +83,15 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     const paths = summary.arena.projections;
     const ancestor = paths[leaf].parent;
     const [callerParent, callerLeaf] = mapping.view.fields;
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const bindings = { lexical: published.tir.lexicalBindings,
+      scopeOf: definition => captured.value.descriptions.get(definition)?.generics ?? null };
     const shape = selection => [selection.decision.primary, selection.decision.read, selection.decision.write];
     const limits = { maximumWork: 1000, maximumResultEntries: 1000 };
     const account = createAccount(limits);
     const seen = [];
-    assert.deepEqual(product.projectCallFields(account, paths, leaf, mapping.view, row => { seen.push(shape(row)); return null; }),
+    assert.deepEqual(product.projectCallFields(account, paths, leaf, mapping.view, bindings, row => { seen.push(shape(row)); return null; }),
       { kind: "complete", value: true });
     assert.deepEqual(seen, [[callerParent.caller, callerParent.callerType, null], [callerLeaf.caller, null, callerLeaf.callerType]]);
     const used = limits.maximumWork - remainingWork(account);
@@ -100,7 +105,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
           get() { assert.equal(accountFailure(guarded), null); read.push(key); return paths[key]; },
         });
         const emitted = [];
-        const next = product.projectCallFields(guarded, checkedPaths, leaf, mapping.view, row => {
+        const next = product.projectCallFields(guarded, checkedPaths, leaf, mapping.view, bindings, row => {
           assert.equal(accountFailure(guarded), null);
           emitted.push(shape(row));
           return null;
@@ -118,10 +123,24 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       assert.equal(completed, true, dimension);
     }
     const crossed = { ...mapping.view, fields: mapping.view.fields.map((row, position) => position === 1 ? { ...row, parent: null } : row) };
-    assert.deepEqual(product.projectCallFields(createAccount(limits), paths, leaf, crossed, () => null),
+    assert.deepEqual(product.projectCallFields(createAccount(limits), paths, leaf, crossed, bindings, () => null),
       { kind: "complete", value: false });
+    const missingScope = { ...bindings, scopeOf: definition => {
+      assert.equal(definition, callerParent.caller);
+      return null;
+    } };
+    assert.deepEqual(product.projectCallFields(createAccount(limits), paths, leaf, mapping.view, missingScope,
+      () => assert.fail("A caller field without its scope must not be offered.")), { kind: "complete", value: false });
+    const scopeAccount = createAccount(limits);
+    const scopeCut = { ...bindings, scopeOf: definition => {
+      assert.equal(definition, callerParent.caller);
+      assert.notEqual(chargeWork(scopeAccount, limits.maximumWork), null);
+      return bindings.scopeOf(definition);
+    } };
+    assert.equal(product.projectCallFields(scopeAccount, paths, leaf, mapping.view, scopeCut,
+      () => assert.fail("A stopped scope read must not offer a field.")), accountFailure(scopeAccount));
     const stopped = createAccount(limits);
-    const returned = product.projectCallFields(stopped, paths, leaf, mapping.view, () => chargeWork(stopped, limits.maximumWork));
+    const returned = product.projectCallFields(stopped, paths, leaf, mapping.view, bindings, () => chargeWork(stopped, limits.maximumWork));
     assert.equal(returned, accountFailure(stopped));
     const text = product.printFacts(published.facts[0]);
     const decoded = product.parseFacts(text);

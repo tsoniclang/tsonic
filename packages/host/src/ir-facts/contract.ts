@@ -134,10 +134,17 @@ export type RefinementFact = ProvenRefinementFact
 export interface FieldRefinementInputs {
   readonly sourceOf: (node: NodeId) => TirSyntaxOccurrence | undefined;
   readonly summaryAt: (block: BlockId, call: Extract<MirTerminator, { readonly kind: "call" }>) => DataflowResult<Summary | null>;
+  readonly callBindings: CallFieldBindings;
+}
+
+export interface CallFieldBindings {
+  readonly lexical: BindingVector;
+  readonly scopeOf: (definition: DefId) => BindingScope | null;
 }
 
 export type ProjectCallFields = (account: DataflowAccount, paths: readonly ProjectionPath[], path: ProjectionPathId,
-  view: ReferenceArgumentView | null, apply: (field: MemberSelection) => DataflowStop | null) => DataflowResult<boolean>;
+  view: ReferenceArgumentView | null, bindings: CallFieldBindings,
+  apply: (field: MemberSelection) => DataflowStop | null) => DataflowResult<boolean>;
 
 export type FieldRefinementsOf = (account: DataflowAccount, mir: MirBody, provided: number,
   inputs: FieldRefinementInputs) => DataflowResult<readonly RefinementFact[]>;

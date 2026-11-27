@@ -623,6 +623,45 @@ test("selected reference-call writes invalidate nested guards and guards on poss
   }
 });
 
+test("generic reference effects retain the caller field scope, not the selected callee binder", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const shape = "{ child: { flag: boolean } | null }";
+  for (const generic of [false, true]) for (const writes of [false, true]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      function effect<T>(token: T, formal: ${shape}): void { ${writes ? "formal.child = null;" : ""} }
+      ${generic ? "function read<U>" : "export function read"}(holder: ${shape}, token: ${generic ? "U" : "boolean"}): boolean {
+        if (holder.child !== null) { effect(token, holder); return holder.child.flag; }
+        return false;
+      }
+      ${generic ? `export function entry(holder: ${shape}, token: boolean): boolean { return read(holder, token); }` : ""}
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const caller = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const terms = caller.mir.blocks.map(row => row.terminator);
+    const call = terms.find(term => term.kind === "call" && term.callee.kind === "direct");
+    const { implementationBindings, parameters } = call.callee.resolution.decision;
+    const [calleeBinder] = implementationBindings.methodBindings;
+    assert.equal(calleeBinder.kind, "bound");
+    assert.equal(parameters[1].kind, "reference-argument");
+    const [child] = parameters[1].view.fields;
+    const own = caller.tir.lexicalBindings;
+    assert.equal(own.methodBindings.length, generic ? 1 : 0);
+    assert.equal(own.methodBindings.some(binding => binding.parameter === calleeBinder.parameter), false);
+    const facts = caller.facts.find(row => row.execution.provided === 2);
+    const fields = facts.arena.projections.filter(row => row.projection.kind === "field" && row.projection.member.decision.primary === child.caller);
+    assert.equal(fields.length, 1, "the read guard and the applied effect name the same physical field");
+    assert.deepEqual(fields[0].projection.member.decision.bindings, own);
+    const check = terms.find(term => term.kind === "check");
+    const guard = caller.tir.root.statements.nodes[0].expression;
+    const expected = { node: check.tir.node, guards: [guard.id] };
+    assert.deepEqual(facts.refinements.refinements, [writes ? { ...expected, kind: "unproven",
+      reason: { kind: "invalidated", sites: [{ kind: "call", at: call.tir }] } } : { ...expected, kind: "proven" }]);
+  }
+});
+
 test("a write-only optional reference field records absence on the actual receiver without reading the field", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

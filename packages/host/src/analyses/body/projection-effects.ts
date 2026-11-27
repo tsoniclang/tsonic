@@ -2,7 +2,7 @@ import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { BoundProducerId, LocalId, LocalRef, NodeId, OriginsId, PlaceId, ProjectionPathId } from "../../ids/contract.js";
 import { admitIntegerKey, boundProducerId, encodeKey, producerId, projectionPathId } from "../../ids/index.js";
-import type { AppliedSummary, BoundProducer, Origins, Producer, Projection, ProjectionPath, RelationalArena, Summary } from "../../ir-facts/contract.js";
+import type { AppliedSummary, BoundProducer, CallFieldBindings, Origins, Producer, Projection, ProjectionPath, RelationalArena, Summary } from "../../ir-facts/contract.js";
 import { admitSelectionIdentity, fieldProjectionIdentityData, projectCallFields } from "../../ir-facts/index.js";
 import type { MirOperand, MirPlace, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
 import type { PropertyAccessExpression } from "../../ir-hir/contract.js";
@@ -301,7 +301,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
 
 export function projectionEffects(deps: BodyRoundDeps, referenceFormals: ReadonlyMap<number, "field" | "array"> | null,
   projections: ProjectionPath[], grow: (records: number, references: number) => DataflowStop | null,
-  admitDepth: (depth: number) => DataflowStop | null) {
+  admitDepth: (depth: number) => DataflowStop | null, bindings: CallFieldBindings) {
   const paths = new Map<string | bigint, ProjectionPathId>();
   let descendants: Map<ProjectionPathId, Map<string | bigint, ProjectionPathId>> | null = null;
   let depths: Map<ProjectionPathId, number> | null = null;
@@ -468,7 +468,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
   function callerPath(rows: readonly ProjectionPath[], id: ProjectionPathId, view: ReferenceArgumentView | null,
     parent: ProjectionPathId | null): ProjectionPathId | DataflowStop {
     let image = parent;
-    const transported = projectCallFields(deps.account, rows, id, view, member => {
+    const transported = projectCallFields(deps.account, rows, id, view, bindings, member => {
       const selected = remember({ kind: "field", member }, image);
       if (typeof selected !== "number") return selected;
       image = selected;

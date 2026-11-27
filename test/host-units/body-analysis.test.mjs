@@ -147,7 +147,7 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   const storage = analyzeStorageUse({ account }, { execution, body: lowered.value });
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
-  const deps = { types: TABLE, typeOf, signatureOf, sourceObjectHolding: () => ({ kind: "complete", value: false }),
+  const deps = { types: TABLE, typeOf, signatureOf, bindingScopeOf: () => null, sourceObjectHolding: () => ({ kind: "complete", value: false }),
     sourceObjectFields: () => ({ kind: "complete", value: () => ({ kind: "complete", value: null }) }),
     carrierHoldingOf: (_account, carrier) => ({ kind: "complete", value: carrier === "array" ? "by-reference" : "in-place" }),
     enumValueOf: meter => accountFailure(meter) ?? { kind: "complete", value: null },
@@ -2203,6 +2203,7 @@ test("a selected field proof survives a read-only call and records the actual in
   const { fieldRefinementsOf } = await import("../../packages/host/dist/ir-facts/index.js");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const fixture = await loadFrontFixture();
@@ -2259,7 +2260,11 @@ test("a selected field proof survives a read-only call and records the actual in
     }
     const source = sourceOccurrences(selected.tir, createAccount(limits));
     assert.equal(source.kind, "complete");
-    const proofInput = { sourceOf: node => source.value.get(node), summaryAt: (_block, operation) => {
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const proofInput = { sourceOf: node => source.value.get(node),
+      callBindings: { lexical: selected.tir.lexicalBindings,
+        scopeOf: definition => captured.value.descriptions.get(definition)?.generics ?? null }, summaryAt: (_block, operation) => {
       assert.equal(operation.callee.kind, "direct");
       const activation = operation.callee.resolution.activation;
       const summary = result.value.index.summaries.find(row => row.key.kind === "body"
@@ -4918,7 +4923,8 @@ test("unsupported projections, parameter writes and external retention remain ex
   const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0].origins }];
   const apply = value => {
     const deps = { ...current.deps, account: createAccount(limits) };
-    const fields = projectionEffects(deps, new Map(), [], () => assert.fail("An unsupported read must not retain a projection."), () => null);
+    const fields = projectionEffects(deps, new Map(), [], () => assert.fail("An unsupported read must not retain a projection."), () => null,
+      { lexical: current.input.tir.lexicalBindings, scopeOf: () => assert.fail("An unsupported read must not reach a caller field scope.") });
     return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
       (access, parameter) => fields.call(operation, access, parameter, value, arena), null);
   };
@@ -4961,7 +4967,8 @@ test("one held field joins its independently selected arms at paid cuts without 
   for (const [first, next] of [["read", "write"], ["write", "read"]]) {
     const run = maxima => {
       const account = createAccount(maxima);
-      const fields = projectionEffects({ account }, new Map([[0, "field"], [1, "field"]]), [], () => null, () => null);
+      const fields = projectionEffects({ account }, new Map([[0, "field"], [1, "field"]]), [], () => null, () => null,
+        { lexical: selected.tir.lexicalBindings, scopeOf: () => assert.fail("A direct field is not rebound.") });
       const observe = role => fields.observe(role, { kind: "field", member: selections[role] }, subjects[role], arena.boundProducers, arena.producers);
       assert.equal(observe(first), null);
       const prefix = { ...InvocationAccount.stateOf(account) };

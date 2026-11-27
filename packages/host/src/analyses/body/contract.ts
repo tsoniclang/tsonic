@@ -4,7 +4,7 @@ import type { BodyId, DefId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId,
 import type { AnalysisLimits, BodyFacts, LivenessFacts, ModuleStaticCellRef, ObservationFact, Summary, SummaryAnswer, SummaryKey, SummaryPosition } from "../../ir-facts/contract.js";
 import type { MirBody, MirEntry } from "../../ir-mir/contract.js";
 import type { TirBody } from "../../ir-tir/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantReference, ConstValue, Execution, NativeHoldingCarrier, ReceiverAccess, SelectedNativeFacts, SignatureOf, SourceObjectField, TypeOf, TypeTable } from "../../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BodyInstance, ConstantReference, ConstValue, Execution, NativeHoldingCarrier, ReceiverAccess, SelectedNativeFacts, SignatureOf, SourceObjectField, TypeOf, TypeTable } from "../../ir-types/contract.js";
 
 export type ReadyEnumValueOf = (account: DataflowAccount, reference: Extract<ConstantReference, { readonly context: "enum-member" }>) => DataflowResult<ConstValue | null>;
 
@@ -14,6 +14,7 @@ export interface BodyRoundEnvironment {
   readonly mirBody: (instance: BodyInstance) => MirBody | null;
   readonly typeOf: TypeOf;
   readonly signatureOf: SignatureOf;
+  readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
   readonly staticModuleBindingsOf: (module: ModuleId) => ArtifactBindings | null;
   readonly staticTypeOf: (declaration: SourceNodeRef) => TyId | null;
   readonly carrierHoldingOf: (account: DataflowAccount, carrier: NativeHoldingCarrier) => DataflowResult<ReceiverAccess | null>;

@@ -360,6 +360,7 @@ for (const violation of rows) {
   let fieldProofs: DataflowResult<readonly RefinementFact[]> | null = null;
   const provedFields = (): DataflowResult<readonly RefinementFact[]> =>
     fieldProofs ??= fieldRefinements(account, mir, provided, { sourceOf: node => nodes.get(node),
+      callBindings: { lexical: tir.lexicalBindings, scopeOf: context.bindingScopeOf },
       summaryAt: (_block, call) => refinementCallSummary(call, context, account) });
   const proofAt = <Row extends { readonly node: NodeId }>(rows: readonly Row[], id: NodeId): DataflowResult<Row | null> => {
     let lower = 0;

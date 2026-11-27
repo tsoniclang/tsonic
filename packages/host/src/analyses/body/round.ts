@@ -545,8 +545,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const nativeArrayFlow = arrays === null && arrayReturns === null ? null
     : { stages: arrays, returns: arrayReturns };
   const admitDepth = (depth: number) => bounded("maximumProjectionDepth", depth);
+  const callBindings = { lexical: tir.lexicalBindings, scopeOf: deps.bindingScopeOf };
   let projectionEffects = referenceFormals === null && (arrays === null || projections === null) ? null
-    : createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations, admitDepth);
+    : createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations, admitDepth, callBindings);
   const boundarySetup = hasOpenCalls ? chargeResultEntries(account, 3) : null;
   if (boundarySetup !== null) return boundarySetup;
   const transport = hasOpenCalls ? openCallTransport(deps, input, producers, boundaries, admitRelations) : null;
@@ -1011,7 +1012,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
               if (projectionEffects === null) {
                 const growth = chargeResultEntries(account, 2);
                 if (growth !== null) return growth;
-                projectionEffects = createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations, admitDepth);
+                projectionEffects = createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations, admitDepth, callBindings);
               }
               const retained = projectionEffects.remember({ kind: "index", constant: BigInt(mapping.component) }, null);
               if (typeof retained !== "number") return retained;
@@ -1278,6 +1279,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   if (hasNarrowedField) {
     const fields = fieldRefinementsOf(account, mir, execution.provided, {
       sourceOf: node => source.value.get(node),
+      callBindings,
       summaryAt: block => {
         const selected = solved.value.calls?.get(block);
         return { kind: "complete", value: selected === undefined || isCallError(selected) || isLeastCall(selected) ? null : selected };
