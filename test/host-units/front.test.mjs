@@ -3519,6 +3519,37 @@ test("selected generic tuple results retain the original binder and actual conte
   assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
 });
 
+test("nested contextual tuple contributions retain both paid selector edges", async () => {
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const fixture = await loadFrontFixture();
+  const source = "function pair<T>(value:T):[[T],boolean]{return [[value],true];} "
+    + "export function start(value:boolean):[[boolean],boolean]{return pair(value);}";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const { deps, program } = fixture.openAndCapture(input.snapshot);
+  const module = input.snapshot.entryPoint;
+  const capture = maximumCapturedFactsPerModule => captureSingleModule(front, {
+    ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule },
+  }, program, module);
+  const exact = 266;
+  for (const maximum of [0, exact - 1]) assert.deepEqual(capture(maximum), {
+    kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum,
+      site: { kind: "file", path: "/project/src/main.ts" }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })],
+  });
+  const captured = capture(exact);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const [call] = raw.calls;
+  const original = call.declarationOrder.value[call.declarationOrdinal];
+  const [candidate] = raw.types.candidates[call.candidates].candidates;
+  const context = candidate.inferenceContributions.value.find(row => row.origin.kind === "contextual-result");
+  const sourceRow = raw.types.types[context.source];
+  const formalRow = raw.types.types[context.formal];
+  const slots = [{ kind: "tuple-element", index: 0 }, { kind: "tuple-element", index: 0 }];
+  assert.deepEqual(rawComponentPath(raw.types.components, raw.types.components[sourceRow.component]), slots);
+  assert.deepEqual(rawComponentPath(raw.types.components, raw.types.components[formalRow.component]), [{ kind: "result", signature: original }, ...slots]);
+});
+
 test("a finite spread borrows the actual selected producer's written tuple result once", async () => {
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const { createTypeInterner } = await import("../../packages/host/dist/ir-types/index.js");
