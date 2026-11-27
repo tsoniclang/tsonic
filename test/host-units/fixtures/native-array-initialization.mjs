@@ -143,6 +143,33 @@ export async function checkPlacedArrayReturn() {
   assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
   const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);
   const selected = chapter.bodies.filter(row => row.kind === "selected");
+  const entry = selected.find(row => row.tir.root.kind === "Block" && row.tir.params.length === 2);
+  const tupleProducer = selected.find(row => row.tir.root.kind === "Block" && row.tir.params.length === 0
+    && answer.value.index.types.terms[row.mir.result].kind === "tuple");
+  assert.ok(entry && tupleProducer);
+  const exactCalls = entry.mir.blocks.filter(({ terminator }) => terminator.kind === "call"
+    && terminator.callee.kind === "direct" && terminator.callee.resolution.activation?.body === tupleProducer.tir.body);
+  assert.equal(exactCalls.length, 1);
+  const [tuple, object] = entry.tir.root.statements.nodes;
+  assert.equal(tuple.declarationList.declarations.nodes[0].name.kind, "ArrayBindingPattern");
+  const [, fallback] = object.declarationList.declarations.nodes[0].name.elements.nodes;
+  assert.equal(fallback.tsonic.role, "field-binding");
+  assert.notEqual(fallback.tsonic.initializer, null);
+  const defaultCalls = entry.mir.blocks.filter(({ terminator }) => terminator.kind === "call"
+    && terminator.callee.kind === "body" && terminator.callee.instance.body === fallback.tsonic.initializer);
+  assert.equal(defaultCalls.length, 1);
+  const [defaultCall] = defaultCalls;
+  const branch = entry.mir.blocks.find(({ terminator }) => terminator.kind === "switch" && terminator.tir.node === fallback.id);
+  assert.ok(branch);
+  const [missing] = branch.terminator.targets;
+  assert.equal(branch.terminator.targets.length, 1);
+  assert.deepEqual(entry.mir.constants[missing.constant].value, { kind: "literal", value: { kind: "absence" } });
+  assert.equal(missing.target, defaultCall.id);
+  const present = entry.mir.blocks[branch.terminator.otherwise];
+  const afterDefault = entry.mir.blocks[defaultCall.terminator.next];
+  assert.equal(present.terminator.kind, "goto");
+  assert.equal(afterDefault.terminator.kind, "goto");
+  assert.equal(present.terminator.target, afterDefault.terminator.target);
   const initializer = selected.find(row => row.tir.root.kind === "ArrayLiteralExpression" && row.tir.root.elements.nodes.length === 3);
   assert.ok(initializer);
   const stage = initializer.mir.blocks.find(block => block.terminator.kind === "array-start");
