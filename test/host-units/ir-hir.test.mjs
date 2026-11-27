@@ -85,7 +85,8 @@ test("a mutable reference holds only its actual closed source declarations and s
     assert.equal(bound.kind, "available");
     assert.deepEqual(bound.value.sources, sources);
     const expectedField = { local, declaration: box.tsonic.definition, receiver: slot.checkerSlot.value,
-      occurrence: { body: body.body, node: place.id }, field: place.tsonic.origins.value[0].declaration, parent: null, presence: null };
+      occurrence: { body: body.body, node: place.id }, field: place.tsonic.origins.value[0].declaration, parent: null,
+      requiredReference: null, presence: null };
     const access = bodySource(place.id, body.body);
     const first = body.locals[sources[0]].declaration;
     const second = body.locals[sources[1]].declaration;

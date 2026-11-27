@@ -326,6 +326,119 @@ test("a qualified optional reference comparison and its guarded nested read reta
   }
 });
 
+test("projected reference reads retain their root and checked presence removes only absence", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const [carrier, body, nullable, checked, nested] of [
+    ["{ flag: boolean }", "return holder.child.flag;", false, false, true],
+    ["{ flag: boolean } | null", "if (holder.child !== null) return holder.child.flag; return false;", true, true, true],
+    ["{ flag: boolean } | undefined", "if (undefined !== holder.child) return holder.child.flag; return false;", true, true, true],
+    ["{ flag: boolean } | null", "return holder.child !== null;", true, false, false],
+  ]) {
+    const input = analysisInput(fixture, "sdk-minimal",
+      `export function read(holder: { child: ${carrier} }): boolean { ${body} }`);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+    const facts = selected.facts.find(row => row.execution.provided === 1);
+    assert.deepEqual(facts.arena.projections.map(row => [row.parent, row.projection.member.decision.key.value]),
+      nested ? [[null, "child"], [0, "flag"]] : [[null, "child"]]);
+    const bound = facts.arena.boundProducers.find(row => facts.arena.producers[row.producer].path === 0);
+    assert.ok(bound);
+    const root = facts.arena.boundProducers.find(row => facts.arena.producers[row.producer].path === null);
+    assert.equal(facts.arena.producers[bound.producer].kind, "parameter");
+    assert.equal(facts.arena.producers[bound.producer].index, facts.arena.producers[root.producer].index);
+    assert.deepEqual(bound.bindings, root.bindings);
+    assert.equal(bound.context, root.context);
+    const ownRead = read => {
+      const origins = facts.arena.origins[read.origins];
+      assert.deepEqual(origins.producers, [bound.id]);
+      return origins;
+    };
+    const direct = facts.origins.reads.filter(read => {
+      const base = selected.mir.places[read.place].base;
+      return base.kind === "place" && base.projection.kind === "field" && base.projection.member.decision.key.value === "child";
+    });
+    assert.equal(direct.length, checked ? 2 : 1);
+    for (const read of direct) assert.equal(ownRead(read).includesAbsence, nullable);
+    const present = facts.origins.reads.filter(read => selected.mir.places[read.place].base.kind === "checked");
+    assert.equal(present.length, checked ? 1 : 0);
+    for (const read of present) assert.equal(ownRead(read).includesAbsence, false);
+    if (nested && checked) {
+      const limited = analyzeHostProgram({ ...input, limits: { ...input.limits,
+        analyses: { ...input.limits.analyses, maximumProjectionDepth: 1 } } });
+      assert.equal(limited.kind, "refused");
+      assert.equal(limited.diagnostics.length, 1);
+      assert.match(JSON.stringify(limited.diagnostics), /analysis\.maximumProjectionDepth/);
+    }
+  }
+});
+
+test("projected formal Origins survive summary publication without caller-local cell subjects", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function read(holder: { child: { flag: boolean } }, input: boolean): boolean {
+      let previous: boolean = input;
+      const guard: boolean = previous;
+      if (guard) return holder.child.flag;
+      return false;
+    }
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.params.length === 2);
+  const body = selected.facts.find(row => row.execution.provided === 2).arena;
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+    && row.key.execution.instance.body === selected.instance.body && row.key.execution.provided === 2).arena;
+  assert.equal(body.producers.some(row => row.kind === "local"), true);
+  assert.equal(summary.producers.some(row => row.kind === "local"), false);
+  const projected = arena => arena.boundProducers.find(row => arena.producers[row.producer].path === 0);
+  const bodyRef = projected(body);
+  const summaryRef = projected(summary);
+  assert.ok(summaryRef.id < bodyRef.id);
+  assert.ok(summaryRef.producer < bodyRef.producer);
+  assert.equal(summary.producers[summaryRef.producer].index, 0);
+  const original = body.origins.find(row => row.producers.includes(bodyRef.id));
+  assert.deepEqual(summary.origins[original.id].producers, [summaryRef.id]);
+  assert.deepEqual(original.producers, [bodyRef.id]);
+});
+
+test("a pure call or a descendant write preserves the actual parent presence guard", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const [intervention, count] of [["pure();", 1], ["holder.child.flag = true;", 2]]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      function pure(): void {}
+      export function read(holder: { child: { flag: boolean } | null }): boolean {
+        if (holder.child !== null) {
+          ${intervention}
+          return holder.child.flag;
+        }
+        return false;
+      }
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.params.length === 1);
+    const guard = selected.tir.root.statements.nodes[0].expression;
+    const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
+    const facts = selected.facts.find(row => row.execution.provided === 1);
+    assert.equal(checks.length, count);
+    assert.deepEqual(facts.refinements.refinements.map(row => [row.kind, row.node, row.guards]),
+      checks.map(row => ["proven", row.tir.node, [guard.id]]));
+    if (count === 2) {
+      const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+        && row.key.execution.instance.body === selected.instance.body);
+      assert.deepEqual(summary.parameters[0].writes.paths, [1]);
+      assert.equal(summary.arena.projections[1].parent, 0);
+    } else assert.equal(selected.mir.blocks.some(row => row.terminator.kind === "call"), true);
+  }
+});
+
 test("a write-only optional reference field records absence on the actual receiver without reading the field", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

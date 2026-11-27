@@ -1,19 +1,30 @@
 import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
-import type { LocalId, LocalRef, NodeId, PlaceId, ProjectionPathId } from "../../ids/contract.js";
-import { admitIntegerKey, encodeKey, projectionPathId } from "../../ids/index.js";
+import type { BoundProducerId, LocalId, LocalRef, NodeId, OriginsId, PlaceId, ProjectionPathId } from "../../ids/contract.js";
+import { admitIntegerKey, boundProducerId, encodeKey, producerId, projectionPathId } from "../../ids/index.js";
 import type { AppliedSummary, BoundProducer, Origins, Producer, Projection, ProjectionPath, RelationalArena, Summary } from "../../ir-facts/contract.js";
 import { admitSelectionIdentity, fieldProjectionIdentityData } from "../../ir-facts/index.js";
 import type { MirOperand, MirPlace, MirStatement } from "../../ir-mir/contract.js";
-import type { MemberSelection, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
+import type { PropertyAccessExpression } from "../../ir-hir/contract.js";
+import type { MemberSelection, TirSyntaxOccurrence, TypedPhase } from "../../ir-tir/contract.js";
+import type { SourceObjectField } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { bodyFrontier } from "./places.js";
-import { valueKind } from "./values.js";
+import type { AdmitOrigins, ValueOrigins } from "./values.js";
+import { projectOrigins, valueKind } from "./values.js";
 
 type ScalarProjection = Extract<Projection, { readonly kind: "field" | "element" | "index" }>;
 
-type HeldProjection = { readonly holder: LocalId; readonly value: "scalar" | "scalar-optional" | "write-only" } & ScalarProjection;
-type ReceiverProducer = LocalRef | NodeId;
+type FieldValue = "scalar" | "scalar-optional" | "reference" | "reference-optional" | "write-only";
+type HeldProjection = { readonly holder: LocalId; readonly value: FieldValue } & ScalarProjection;
+type ReceiverProducer = LocalRef | NodeId | PropertyAccessExpression<TypedPhase>;
+
+function sameReceiver(previous: ReceiverProducer, current: ReceiverProducer): boolean {
+  if (previous === current) return true;
+  if (typeof previous === "number" || typeof current === "number") return false;
+  if ("kind" in previous) return false;
+  return !("kind" in current) && previous.body === current.body && previous.local === current.local;
+}
 
 interface AbsenceValue {
   readonly statement: MirStatement;
@@ -25,6 +36,8 @@ export interface HeldProjections {
   readonly places: ReadonlyMap<PlaceId, HeldProjection>;
   readonly includesAbsence: boolean;
   readonly absenceValues: ReadonlyMap<LocalId, AbsenceValue> | null;
+  readonly refined: ReadonlyMap<PlaceId, LocalId> | null;
+  readonly saved: ReadonlyMap<LocalId, PlaceId> | null;
 }
 
 function fieldSelection(place: MirPlace, node: TirSyntaxOccurrence | undefined): MemberSelection {
@@ -53,7 +66,7 @@ function fieldSelection(place: MirPlace, node: TirSyntaxOccurrence | undefined):
 }
 
 export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirSyntaxOccurrence>,
-  projections: readonly MirPlace[]): DataflowResult<HeldProjections> {
+  projections: readonly MirPlace[], views: readonly MirPlace[] | null): DataflowResult<HeldProjections> {
   const { account } = deps;
   const { mir, tir } = input;
   const start = chargeWork(account, 1) ?? chargeResultEntries(account, 4);
@@ -63,6 +76,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
   const references = new Set<LocalId>();
   let includesAbsence = false;
   let hasWriteOnly = false;
+  let fields: ((node: NodeId) => DataflowResult<SourceObjectField | null>) | null = null;
   for (let position = 0; position < projections.length; position += 1) {
     const admission = chargeWork(account, 4);
     if (admission !== null) return admission;
@@ -97,10 +111,25 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
     const optional = member !== null && kind === "primitive-optional";
     const writeOnly = kind !== "primitive" && !optional && member !== null && member.decision.read === null
       && node.kind === "PropertyAccessExpression" && node.tsonic.role === "assignment-target" && node.tsonic.access.kind === "write";
-    if (kind !== "primitive" && !optional && !writeOnly)
-      return bodyFrontier("A reference-held non-scalar projection requires its actual projected value Origins and cells.");
+    let value: FieldValue = optional ? "scalar-optional" : writeOnly ? "write-only" : "scalar";
+    if (kind !== "primitive" && !optional && !writeOnly) {
+      if (member === null || node.kind !== "PropertyAccessExpression" || node.tsonic.role !== "value")
+        return bodyFrontier("A reference-held non-scalar projection requires its actual projected value Origins and cells.");
+      if (fields === null) {
+        const prepared = deps.sourceObjectFields(account, tir.body);
+        if (prepared.kind !== "complete") return prepared;
+        fields = prepared.value;
+      }
+      const proof = fields(node.id);
+      if (proof.kind !== "complete") return proof;
+      const field = proof.value;
+      if (field === null || field.field !== member.decision.primary || field.occurrence.body !== tir.body || field.occurrence.node !== node.id
+        || (field.presence?.storage ?? field.requiredReference) !== place.storage)
+        return bodyFrontier("A reference field read needs its actual admitted reference-valued declaration.");
+      value = field.presence === null ? "reference" : "reference-optional";
+    }
     hasWriteOnly ||= writeOnly;
-    includesAbsence ||= optional;
+    includesAbsence ||= optional || value === "reference-optional";
     let receiver;
     if (node.kind === "BindingElement") {
       const admission = chargeWork(account, 2);
@@ -118,24 +147,54 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
     }
     const resolution = receiver.kind === "Identifier" && receiver.tsonic.role === "value" ? receiver.tsonic.resolution : null;
     const receiverSource: ReceiverProducer | null = resolution?.kind === "local" && resolution.local.body === tir.body ? resolution.local
-      : receiver.kind === "CallExpression" && "application" in receiver.tsonic && receiver.tsonic.application.kind === "decided" ? receiver.id : null;
+      : receiver.kind === "CallExpression" && "application" in receiver.tsonic && receiver.tsonic.application.kind === "decided" ? receiver.id
+      : receiver.kind === "PropertyAccessExpression" && receiver.tsonic.role === "value" && receiver.tsonic.selection?.kind === "decided"
+        ? receiver : null;
     const holderBase = mir.places[base.place]?.base;
     const holder = holderBase?.kind === "local" ? mir.locals[holderBase.local] : undefined;
     const previous = holder === undefined ? undefined : holders.get(holder.id);
     if (receiverSource === null || holder?.role.kind !== "temporary" || holder.mode !== "local"
-      || previous !== undefined && previous !== receiverSource && (typeof previous === "number" || typeof receiverSource === "number"
-        || previous.body !== receiverSource.body || previous.local !== receiverSource.local))
+      || previous !== undefined && !sameReceiver(previous, receiverSource))
       return bodyFrontier("A projected receiver must borrow the actual checked reference through its stable held local.");
     const retained = chargeResultEntries(account, 4);
     if (retained !== null) return retained;
-    places.set(place.id, member !== null ? { holder: holder.id, kind: "field", member,
-      value: optional ? "scalar-optional" : writeOnly ? "write-only" : "scalar" }
+    places.set(place.id, member !== null ? { holder: holder.id, kind: "field", member, value }
       : constant !== null ? { holder: holder.id, kind: "index", constant, value: "scalar" }
         : { holder: holder.id, kind: "element", value: "scalar" });
     holders.set(holder.id, receiverSource);
     references.add(holder.id);
   }
+  let refined: Map<PlaceId, LocalId> | null = null;
+  let saved: Map<LocalId, PlaceId> | null = null;
+  if (views !== null) {
+    const setup = chargeResultEntries(account, 2);
+    if (setup !== null) return setup;
+    refined = new Map();
+    saved = new Map();
+    for (const view of views) {
+      const paid = chargeWork(account, 4);
+      if (paid !== null) return paid;
+      const base = view.base;
+      const temporary = base.kind === "checked" ? mir.places[base.place] : undefined;
+      const local = temporary?.base.kind === "local" ? mir.locals[temporary.base.local] : undefined;
+      const node = base.kind === "checked" && base.tir.body === tir.body ? source.get(base.tir.node) : undefined;
+      const info = node?.kind === "PropertyAccessExpression" && node.tsonic.role === "value" ? node.tsonic.narrowing : null;
+      if (local?.role.kind !== "temporary" || local.mode !== "local" || info?.kind !== "narrowed"
+        || info.source !== local.storage || info.result !== view.storage || saved.has(local.id))
+        return bodyFrontier("A narrowed reference retains its actual checked field and saved optional value.");
+      const storage = deps.typeOf(local.storage);
+      const cut = accountFailure(account);
+      if (cut !== null) return cut;
+      if (storage.kind !== "optional" || storage.value !== view.storage)
+        return bodyFrontier("A narrowed reference retains the present carrier of its saved optional value.");
+      const keep = chargeResultEntries(account, 2);
+      if (keep !== null) return keep;
+      refined.set(view.id, local.id);
+      saved.set(local.id, view.id);
+    }
+  }
   const assigned = new Set<LocalId>();
+  let savedCount = 0;
   let absenceValues: Map<LocalId, AbsenceValue> | null = null;
   for (const block of mir.blocks) {
     const blockWork = chargeWork(account, 1);
@@ -148,6 +207,22 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       if (targetPlace?.base.kind !== "local") continue;
       const target = targetPlace.base;
       const expected = holders.get(target.local);
+      const savedView = saved?.get(target.local);
+      if (savedView !== undefined) {
+        const paid = chargeWork(account, 4) ?? chargeResultEntries(account, 1);
+        if (paid !== null) return paid;
+        const operand = statement.value.kind === "use" ? statement.value.operand : null;
+        const original = operand?.kind === "place" ? mir.places[operand.place] : undefined;
+        const view = mir.places[savedView];
+        if (expected !== undefined || assigned.has(target.local) || original?.base.kind !== "place" || view?.base.kind !== "checked"
+          || view.base.place !== targetPlace.id || original.base.tir.node !== view.base.tir.node || statement.tir.node !== view.base.tir.node
+          || original.base.tir.body !== tir.body || statement.tir.body !== tir.body || original.storage !== targetPlace.storage
+          || places.get(original.id)?.value !== "reference-optional")
+          return bodyFrontier("A saved optional reference requires one actual copy of its selected field value.");
+        assigned.add(target.local);
+        savedCount += 1;
+        continue;
+      }
       if (expected === undefined) {
         if (!hasWriteOnly || statement.value.kind !== "convert") continue;
         const admission = chargeWork(account, 1);
@@ -182,7 +257,18 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       const operand = statement.value.kind === "use" ? statement.value.operand : null;
       const sourcePlace = operand?.kind === "place" ? mir.places[operand.place]?.base : undefined;
       const sourceLocal = sourcePlace?.kind === "local" ? mir.locals[sourcePlace.local] : undefined;
-      if (typeof expected === "number" || assigned.has(target.local) || sourceLocal?.source?.body !== expected.body || sourceLocal.source.local !== expected.local
+      if (assigned.has(target.local) || typeof expected === "number")
+        return bodyFrontier("A held reference retains only one actual selected producer.");
+      if ("kind" in expected) {
+        const paid = chargeWork(account, 3);
+        if (paid !== null) return paid;
+        const original = operand?.kind === "place" ? mir.places[operand.place] : undefined;
+        if (original === undefined || sourcePlace?.kind !== "place" && sourcePlace?.kind !== "checked"
+          || sourcePlace.tir.body !== tir.body || source.get(sourcePlace.tir.node) !== expected
+          || statement.tir.body !== tir.body || statement.tir.node !== expected.id || original.storage !== targetPlace.storage
+          || (sourcePlace.kind === "place" ? places.get(original.id)?.value !== "reference" : refined?.has(original.id) !== true))
+          return bodyFrontier("A held reference retains one actual projected or checked field operand.");
+      } else if (sourceLocal?.source?.body !== expected.body || sourceLocal.source.local !== expected.local
         || sourceLocal.storage !== targetPlace.storage
         || !(sourceLocal.role.kind === "parameter" && sourceLocal.mode === "by-value" || sourceLocal.role.kind === "user" && sourceLocal.mode === "local"))
         return bodyFrontier("A held reference retains one actual copy of its selected local binding.");
@@ -195,6 +281,8 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
     const terminator = block.terminator;
     const destination = "destination" in terminator && terminator.destination !== null ? mir.places[terminator.destination]?.base : undefined;
     if (destination?.kind !== "local") continue;
+    if (saved?.has(destination.local) === true)
+      return bodyFrontier("A saved optional field value cannot be replaced by a call result.");
     const expected = holders.get(destination.local);
     if (expected === undefined) continue;
     if (typeof expected !== "number" || terminator.kind !== "call" || terminator.tir.body !== tir.body
@@ -204,30 +292,53 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
     if (retained !== null) return retained;
     assigned.add(destination.local);
   }
-  if (assigned.size !== holders.size) return bodyFrontier("Every held reference has its actual producer occurrence.");
-  return { kind: "complete", value: { references, places, includesAbsence, absenceValues } };
+  if (assigned.size - savedCount !== holders.size || savedCount !== (saved?.size ?? 0))
+    return bodyFrontier("Every held reference has its actual producer occurrence.");
+  return { kind: "complete", value: { references, places, includesAbsence, absenceValues, refined, saved } };
 }
 
 export function projectionEffects(deps: BodyRoundDeps, referenceFormals: ReadonlyMap<number, "field" | "array"> | null,
-  projections: ProjectionPath[], grow: (records: number, references: number) => DataflowStop | null) {
+  projections: ProjectionPath[], grow: (records: number, references: number) => DataflowStop | null,
+  admitDepth: (depth: number) => DataflowStop | null) {
   const paths = new Map<string | bigint, ProjectionPathId>();
+  let descendants: Map<ProjectionPathId, Map<string | bigint, ProjectionPathId>> | null = null;
+  let depths: Map<ProjectionPathId, number> | null = null;
+  let boundPaths: Map<ProjectionPathId, Map<BoundProducerId, BoundProducerId>> | null = null;
+  let roots: Map<BoundProducerId, BoundProducerId> | null = null;
   const reads = new Map<number, Set<ProjectionPathId>>();
   let writes: Map<number, Set<ProjectionPathId>> | null = null;
-  function remember(projection: ScalarProjection): ProjectionPathId | DataflowStop {
+  function remember(projection: ScalarProjection, parent: ProjectionPathId | null): ProjectionPathId | DataflowStop {
     const { account } = deps;
     const admission = projection.kind === "field" ? admitSelectionIdentity(projection.member, account) : chargeWork(account, 1)
       ?? (projection.kind === "index" ? admitIntegerKey(projection.constant, count => chargeWork(account, count)) : null);
     if (admission !== null) return admission;
     const key = projection.kind === "field" ? encodeKey(fieldProjectionIdentityData(projection.member))
       : projection.kind === "index" ? projection.constant : "element";
-    let id = paths.get(key);
+    let members = parent === null ? paths : descendants?.get(parent);
+    let id = members?.get(key);
     if (id === undefined) {
-      const retained = grow(1, 0) ?? chargeResultEntries(account, 3);
+      if (parent !== null) {
+        const admission = chargeWork(account, 1);
+        if (admission !== null) return admission;
+        if (projections[parent]?.id !== parent) return bodyFrontier("A projection extends its actual earlier path.");
+        const depth = (depths?.get(parent) ?? 1) + 1;
+        const stop = admitDepth(depth) ?? chargeResultEntries(account, (descendants === null ? 2 : 0) + (members === undefined ? 2 : 0) + 1);
+        if (stop !== null) return stop;
+        descendants ??= new Map();
+        depths ??= new Map();
+        if (members === undefined) {
+          members = new Map();
+          descendants.set(parent, members);
+        }
+        depths.set(projectionPathId(projections.length), depth);
+      }
+      const retained = (parent === null ? admitDepth(1) : null) ?? grow(1, parent === null ? 0 : 1) ?? chargeResultEntries(account, 3);
       if (retained !== null) return retained;
       id = projectionPathId(projections.length);
-      projections.push({ id, parent: null, projection: projection.kind === "field" ? { kind: "field", member: projection.member }
+      projections.push({ id, parent, projection: projection.kind === "field" ? { kind: "field", member: projection.member }
         : projection.kind === "index" ? { kind: "index", constant: projection.constant } : { kind: "element" } });
-      paths.set(key, id);
+      if (members === undefined) return bodyFrontier("A projection retains the actual index for its parent.");
+      members.set(key, id);
     } else if (projection.kind === "field") {
       const { member } = projection;
       const paid = chargeWork(account, 1);
@@ -252,7 +363,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
           const { key, origins, selectedDeclarations, primary, bindings, getter, setter, location } = first;
           const selected = { getter: previous.getter, setter: previous.setter,
             decision: { key, origins, selectedDeclarations, primary, bindings, read, write, getter, setter, location } };
-          projections[id] = { id, parent: null, projection: { kind: "field", member: selected } };
+          projections[id] = { id, parent, projection: { kind: "field", member: selected } };
         }
       }
     }
@@ -260,8 +371,6 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
   }
   function observe(access: "read" | "write", projection: ScalarProjection, origins: Origins, bound: readonly BoundProducer[],
     producers: readonly Producer[]): DataflowStop | null {
-    const id = remember(projection);
-    if (typeof id !== "number") return id;
     const { account } = deps;
     if (origins.kind !== "complete" || origins.includesAbsence || origins.producers.length === 0)
       return bodyFrontier("A held field access requires the complete actual receiver bindings at the occurrence.");
@@ -278,10 +387,17 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       const identity = origins.producers[index];
       const subject = identity === undefined ? undefined : bound[identity];
       const producer = subject === undefined ? undefined : producers[subject.producer];
-      if (producer?.kind === "allocation" && producer.path === null && projection.kind !== "field") continue;
-      if (producer?.kind !== "parameter" || producer.path !== null
-        || referenceFormals?.get(producer.index) !== (projection.kind === "field" ? "field" : "array"))
+      if (producer?.kind === "allocation" && producer.path === null && projection.kind !== "field") {
+        const path = remember(projection, null);
+        if (typeof path !== "number") return path;
+        continue;
+      }
+      if (producer?.kind !== "parameter"
+        || referenceFormals?.get(producer.index) !== (projection.kind === "field" ? "field" : "array")
+        || producer.path !== null && projection.kind !== "field")
         return bodyFrontier("A held projection requires its actual incoming reference producer and storage family.");
+      const id = remember(projection, producer.path);
+      if (typeof id !== "number") return id;
       let effect = byParameter.get(producer.index);
       if (effect === undefined) {
         const retained = chargeResultEntries(account, 2);
@@ -296,6 +412,44 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       }
     }
     return null;
+  }
+  function value(projection: HeldProjection, receiver: OriginsId, values: ValueOrigins, bound: BoundProducer[],
+    producers: Producer[], admit: AdmitOrigins): OriginsId | DataflowStop {
+    const paid = chargeWork(deps.account, 1);
+    if (paid !== null) return paid;
+    const held = values.rows[receiver];
+    if (held?.kind !== "complete" || held.includesAbsence || held.producers.length === 0 || projection.kind !== "field")
+      return bodyFrontier("A reference projection needs its actual complete present receiver Origins.");
+    return projectOrigins(deps, values, held, projection.value === "reference-optional", admit, identity => {
+      const read = chargeWork(deps.account, 3);
+      if (read !== null) return read;
+      const subject = bound[identity];
+      const producer = subject === undefined ? undefined : producers[subject.producer];
+      if (subject === undefined || producer?.kind !== "parameter" || referenceFormals?.get(producer.index) !== "field")
+        return bodyFrontier("A projected field value needs its actual reference formal producer.");
+      const path = remember(projection, producer.path);
+      if (typeof path !== "number") return path;
+      const root = producer.path === null ? identity : roots?.get(identity);
+      if (root === undefined) return bodyFrontier("A projected reference retains its actual root binding.");
+      let scoped = boundPaths?.get(path);
+      const known = scoped?.get(root);
+      if (known !== undefined) return known;
+      const growth = grow(2, 3) ?? chargeResultEntries(deps.account, 4 + (roots === null ? 2 : 0) + (scoped === undefined ? 2 : 0));
+      if (growth !== null) return growth;
+      boundPaths ??= new Map();
+      roots ??= new Map();
+      if (scoped === undefined) {
+        scoped = new Map();
+        boundPaths.set(path, scoped);
+      }
+      const producerIdentity = producerId(producers.length);
+      const boundIdentity = boundProducerId(bound.length);
+      producers.push({ id: producerIdentity, path, kind: "parameter", index: producer.index });
+      bound.push({ id: boundIdentity, producer: producerIdentity, bindings: subject.bindings, context: subject.context });
+      scoped.set(root, boundIdentity);
+      roots.set(boundIdentity, root);
+      return boundIdentity;
+    });
   }
   function call(access: "read" | "write", parameter: AppliedSummary["parameters"][number], callee: Summary, caller: RelationalArena): DataflowStop | null {
     const { paths } = access === "read" ? parameter.source.reads : parameter.source.writes;
@@ -349,5 +503,5 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     }
     return null;
   }
-  return { paths: (access: "read" | "write", index: number) => (access === "read" ? reads : writes)?.get(index), projections, remember, observe, call };
+  return { paths: (access: "read" | "write", index: number) => (access === "read" ? reads : writes)?.get(index), projections, remember, observe, value, call };
 }

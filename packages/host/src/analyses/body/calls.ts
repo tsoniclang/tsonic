@@ -380,7 +380,7 @@ export function callCellIndex(summary: Summary, source: number, captures: readon
 
 export function callCaptureBindings(deps: BodyRoundDeps, operation: Extract<MirTerminator, { readonly kind: "call" }>,
   selected: readonly CallCaptureTransport[],
-  copy: (place: Extract<MirOperand, { readonly kind: "place" }>) => OriginsId,
+  copy: (place: Extract<MirOperand, { readonly kind: "place" }>) => OriginsId | DataflowStop,
 ): DataflowResult<readonly CaptureBinding[]> {
   if (selected.length === 0) return { kind: "complete", value: [] };
   const setup = chargeResultEntries(deps.account, 1);
@@ -395,7 +395,9 @@ export function callCaptureBindings(deps: BodyRoundDeps, operation: Extract<MirT
     else {
       const growth = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 2);
       if (growth !== null) return growth;
-      captures.push({ index: position, origins: copy({ kind: "place", place: capture.place }) });
+      const origins = copy({ kind: "place", place: capture.place });
+      if (typeof origins !== "number") return origins;
+      captures.push({ index: position, origins });
     }
   }
   return { kind: "complete", value: captures };

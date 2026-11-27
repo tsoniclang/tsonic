@@ -148,6 +148,7 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
   const deps = { types: TABLE, typeOf, signatureOf, sourceObjectHolding: () => ({ kind: "complete", value: false }),
+    sourceObjectFields: () => ({ kind: "complete", value: () => ({ kind: "complete", value: null }) }),
     carrierHoldingOf: (_account, carrier) => ({ kind: "complete", value: carrier === "array" ? "by-reference" : "in-place" }),
     enumValueOf: meter => accountFailure(meter) ?? { kind: "complete", value: null },
     summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
@@ -4913,7 +4914,7 @@ test("unsupported projections, parameter writes and external retention remain ex
   const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0].origins }];
   const apply = value => {
     const deps = { ...current.deps, account: createAccount(limits) };
-    const fields = projectionEffects(deps, new Map(), [], () => assert.fail("An unsupported read must not retain a projection."));
+    const fields = projectionEffects(deps, new Map(), [], () => assert.fail("An unsupported read must not retain a projection."), () => null);
     return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
       (access, parameter) => fields.call(access, parameter, value, arena), null);
   };
@@ -4956,7 +4957,7 @@ test("one held field joins its independently selected arms at paid cuts without 
   for (const [first, next] of [["read", "write"], ["write", "read"]]) {
     const run = maxima => {
       const account = createAccount(maxima);
-      const fields = projectionEffects({ account }, new Map([[0, "field"], [1, "field"]]), [], () => null);
+      const fields = projectionEffects({ account }, new Map([[0, "field"], [1, "field"]]), [], () => null, () => null);
       const observe = role => fields.observe(role, { kind: "field", member: selections[role] }, subjects[role], arena.boundProducers, arena.producers);
       assert.equal(observe(first), null);
       const prefix = { ...InvocationAccount.stateOf(account) };

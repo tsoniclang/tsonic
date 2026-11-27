@@ -185,6 +185,33 @@ export function joinOrigins(deps: BodyRoundDeps, values: ValueOrigins, left: Ori
     boundaries === 0 ? noBoundaries : mergeReferences(leftBoundaries, rightBoundaries), admit);
 }
 
+export function projectOrigins(deps: BodyRoundDeps, values: ValueOrigins, source: Extract<Origins, { readonly kind: "complete" }>,
+  absence: boolean, admit: AdmitOrigins, project: (reference: BoundProducerId) => BoundProducerId | DataflowStop): OriginsId | DataflowStop {
+  const stop = admit(source.producers.length, false) ?? chargeResultEntries(deps.account, 1 + source.producers.length);
+  if (stop !== null) return stop;
+  const projected: BoundProducerId[] = [];
+  for (let index = 0; index < source.producers.length; index += 1) {
+    const paid = chargeWork(deps.account, 1);
+    if (paid !== null) return paid;
+    const actual = requirePresent(source.producers[index], { owner: "analyses/body", query: null, origin: null,
+      message: "A reference projection retains every actual receiver producer." });
+    const mapped = project(actual);
+    if (typeof mapped !== "number") return mapped;
+    projected.push(mapped);
+  }
+  const ordered = orderedRows(projected, (left, right) => left - right, deps.account);
+  return ordered.kind !== "complete" ? ordered : internValue(deps, values, ordered.value, absence, noBoundaries, admit);
+}
+
+export function presentOrigins(deps: BodyRoundDeps, values: ValueOrigins, id: OriginsId, admit: AdmitOrigins): OriginsId | DataflowStop {
+  const paid = chargeWork(deps.account, 1);
+  if (paid !== null) return paid;
+  const source = requirePresent(values.rows[id], { owner: "analyses/body", query: null, origin: null,
+    message: "A checked value retains the Origins of its actual saved reference." });
+  if (!source.includesAbsence) return id;
+  return internValue(deps, values, source.producers, false, source.kind === "open" ? source.boundaries : noBoundaries, admit);
+}
+
 export function appliedOrigins(deps: BodyRoundDeps, values: ValueOrigins, value: AppliedOriginsValue,
   admit: AdmitOrigins, readBoundary: ReadCallBoundary, createdReturn: BoundProducerId | null): OriginsId | DataflowStop {
   const read = chargeWork(deps.account, 1);

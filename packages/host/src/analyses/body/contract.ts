@@ -1,10 +1,10 @@
 import type { CallerRefusal, DataflowAccount, DataflowResult } from "../../dataflow/contract.js";
 import type { ErrorValue, UnitRef, UnitRequest, UnitResult } from "../../diag/contract.js";
-import type { DefId, LocalRef, ModuleId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../../ids/contract.js";
+import type { BodyId, DefId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../../ids/contract.js";
 import type { AnalysisLimits, BodyFacts, LivenessFacts, ModuleStaticCellRef, ObservationFact, Summary, SummaryAnswer, SummaryKey, SummaryPosition } from "../../ir-facts/contract.js";
 import type { MirBody, MirEntry } from "../../ir-mir/contract.js";
 import type { TirBody } from "../../ir-tir/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantReference, ConstValue, Execution, NativeHoldingCarrier, ReceiverAccess, SelectedNativeFacts, SignatureOf, TypeOf, TypeTable } from "../../ir-types/contract.js";
+import type { ArtifactBindings, BodyInstance, ConstantReference, ConstValue, Execution, NativeHoldingCarrier, ReceiverAccess, SelectedNativeFacts, SignatureOf, SourceObjectField, TypeOf, TypeTable } from "../../ir-types/contract.js";
 
 export type ReadyEnumValueOf = (account: DataflowAccount, reference: Extract<ConstantReference, { readonly context: "enum-member" }>) => DataflowResult<ConstValue | null>;
 
@@ -18,6 +18,7 @@ export interface BodyRoundEnvironment {
   readonly staticTypeOf: (declaration: SourceNodeRef) => TyId | null;
   readonly carrierHoldingOf: (account: DataflowAccount, carrier: NativeHoldingCarrier) => DataflowResult<ReceiverAccess | null>;
   readonly sourceObjectHolding: (account: DataflowAccount, local: LocalRef, storage: TyId) => DataflowResult<boolean>;
+  readonly sourceObjectFields: (account: DataflowAccount, body: BodyId) => DataflowResult<(node: NodeId) => DataflowResult<SourceObjectField | null>>;
   readonly observationOf: (account: DataflowAccount, instance: BodyInstance, at: NodeRef) => DataflowResult<ObservationFact | null>;
   readonly enumValueOf: ReadyEnumValueOf;
   readonly limits: AnalysisLimits;

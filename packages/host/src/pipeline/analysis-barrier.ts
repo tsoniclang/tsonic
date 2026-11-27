@@ -3,7 +3,7 @@ import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/ind
 import type { Diagnostic, Result, UnitAnswerPosition, UnitDiagnostic, UnitRequest } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, NodeId, SigId, TyId } from "../ids/contract.js";
-import { checkedSourceObjectHoldingOf } from "../ir-hir/index.js";
+import { checkedSourceObjectFieldsOf, checkedSourceObjectHoldingOf } from "../ir-hir/index.js";
 import type { BodyFacts, BodyObservations, DependencyInventory, FactsVerificationContext, ParameterSlot, Summary,
   MetadataRecord, ObservationFact, ObservationSourceEvidence, SummaryAnswer, SummaryKey } from "../ir-facts/contract.js";
 import { admitArtifactIdentity, admitSummaryIdentity, summaryKey, verifySummary } from "../ir-facts/index.js";
@@ -382,6 +382,29 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
               return reference === null ? null : sources.nodeOf(reference);
             }, () => chargeWork(account, 1) === null);
             return accountFailure(account) ?? { kind: "complete", value: formal?.receiver === storage };
+          },
+          sourceObjectFields: (meter, identity) => {
+            const admitted = chargeWork(meter, 1 + identity.length) ?? chargeResultEntries(meter, 4);
+            if (admitted !== null) return admitted;
+            const body = sources.bodies.get(identity);
+            if (body === undefined) return fail("An executable field belongs to its actual checked body.");
+            const nodeOf = (reference: Parameters<typeof sources.nodeOf>[0]) => {
+              const owner = reference.kind === "item" ? reference.value.owner : reference.value.body;
+              return chargeWork(meter, 18 + owner.length) === null ? sources.nodeOf(reference) : null;
+            };
+            const fields = checkedSourceObjectFieldsOf(body, nodeOf, definition => {
+              if (chargeWork(meter, 12 + definition.length) !== null) return null;
+              const reference = sources.declarationSourceOf(definition);
+              return reference === null ? null : nodeOf(reference);
+            }, type => readType(source.types, type),
+            (work, records) => (chargeWork(meter, work) ?? chargeResultEntries(meter, records)) === null);
+            return { kind: "complete", value: node => {
+              const paid = chargeWork(meter, 1);
+              if (paid !== null) return paid;
+              const access = nodeOf({ kind: "body", value: { body: identity, node } });
+              const field = access?.kind === "PropertyAccessExpression" ? fields.field(access) : null;
+              return accountFailure(meter) ?? { kind: "complete", value: field };
+            } };
           },
           limits: inputs.limits.analyses },
         verification, resources: { account, conditionRefusal },

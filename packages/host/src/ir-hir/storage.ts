@@ -214,7 +214,7 @@ export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, n
         || payload.value.views.read.value !== presence.storage && payload.value.views.read.value !== presence.present)) return null;
     if (!admit(1, fields === null ? 5 : 4)) return null;
     const row: CheckedField = { access, proof: { ...holding, occurrence: { body: body.body, node: access.id },
-      field: reached.declaration, parent, presence }, value };
+      field: reached.declaration, parent, requiredReference: presence === null ? value?.type ?? null : null, presence }, value };
     (fields ??= new Map()).set(access.id, row);
     return row;
   };
@@ -299,7 +299,8 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
     if (field?.name.kind !== "Identifier" || !admit(field.name.text.length + key.value.length, 0) || field.name.text !== key.value) return null;
     const value = fieldValue(field, typeOf, admit);
     return value === undefined || !admit(0, 1) ? null
-      : { ...holding, occurrence, field: definition, parent: null, presence: value?.presence ?? null };
+      : { ...holding, occurrence, field: definition, parent: null, requiredReference: value?.presence === null ? value.type : null,
+        presence: value?.presence ?? null };
   }, body, receiver.tsonic.resolution.local, nodeOf, itemOf, () => admit(1, 0));
 };
 
