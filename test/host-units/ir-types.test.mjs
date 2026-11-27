@@ -1,5 +1,3 @@
-import { admitFixtureTable, fixtureTypeAdmission, fixtureTypeWork, insertFixtureType, insertFixtureSignature, insertFixtureGraph } from "./fixtures/types-construction.mjs";
-import { accountFailure, chargeResultEntries, chargeWork, createAccount, remainingWork } from "../../packages/host/dist/dataflow/index.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -17,7 +15,6 @@ import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { nativeFactsCases } from "./ir-types-native-facts.cases.mjs";
 import { bindingVerificationCases } from "./fixtures/types-binding-verification.mjs";
-import { graphInsertionCases } from "./fixtures/types-graph-insertion.mjs";
 import { literalCompatibilityCases } from "./fixtures/types-literal-compatibility.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
@@ -34,6 +31,9 @@ let product, createTypeInterner, readType, readSignature, viewTypes, exportTypes
   instanceKey, sameInstance, executionKey, declaredExecutionKey, bindingVectorKey, artifactBindingsKey, bindingVectorData,
   artifactBindingsData, signatureRequestData, signatureRequestKey, typeProductionRequestData, rigidBindings;
 
+let admitFixtureTable, fixtureTypeAdmission, fixtureTypeWork, insertFixtureType, insertFixtureSignature, insertFixtureGraph,
+  accountFailure, chargeResultEntries, chargeWork, createAccount, remainingWork, graphInsertionCases;
+
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the whole suite requires aggregate admission");
   session.connect();
@@ -41,6 +41,10 @@ before(async () => {
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   product = await import("../../packages/host/dist/ir-types/index.js");
+  ({ admitFixtureTable, fixtureTypeAdmission, fixtureTypeWork, insertFixtureType, insertFixtureSignature, insertFixtureGraph }
+    = await import("./fixtures/types-construction.mjs"));
+  ({ accountFailure, chargeResultEntries, chargeWork, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js"));
+  ({ graphInsertionCases } = await import("./fixtures/types-graph-insertion.mjs"));
   ({ createTypeInterner, readType, readSignature, viewTypes, exportTypes,
     substitute, substituteSignature, projectBindingValues, printTypes, parseTypes, verifyTypes: runTypeVerifier, encodeSelectorPath, instanceKey, sameInstance, executionKey,
     declaredExecutionKey, bindingVectorKey, artifactBindingsKey, bindingVectorData, artifactBindingsData,
