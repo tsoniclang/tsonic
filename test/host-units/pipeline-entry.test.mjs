@@ -86,6 +86,12 @@ test("nested tuple bindings retain exact slots without reading the hole or skipp
       const [[left], , [right]] = pair;
       return right;
     }
+    export function fromLiteral(first: boolean, ignored: boolean, last: boolean): boolean {
+      return fromParameter([[before(first)], skipped(ignored), [after(last)]]);
+    }
+    export function fromGrouped(first: boolean, ignored: boolean, last: boolean): boolean {
+      return fromParameter((([([before(first)]), skipped(ignored), [after(last)]])));
+    }
   `);
   const native = input.snapshot.nativeFacts;
   const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
@@ -107,6 +113,25 @@ test("nested tuple bindings retain exact slots without reading the hole or skipp
   const sourceCalls = calls(body("start"));
   assert.deepEqual(sourceCalls.map(call => call.callee.resolution.activation.body), [producer.tir.body]);
   assert.deepEqual(calls(body("fromParameter")), []);
+  const literal = expression => {
+    while (expression.kind === "ParenthesizedExpression") expression = expression.expression;
+    assert.equal(expression.kind, "ArrayLiteralExpression");
+    return expression;
+  };
+  for (const name of ["fromLiteral", "fromGrouped"]) {
+    const direct = body(name);
+    const directCalls = calls(direct);
+    assert.deepEqual(directCalls.map(call => call.callee.resolution.activation.body),
+      ["before", "skipped", "after", "fromParameter"].map(callee => body(callee).tir.body));
+    const argument = direct.tir.root.statements.nodes[0].expression.arguments.nodes[0];
+    assert.equal(argument.kind, name === "fromGrouped" ? "ParenthesizedExpression" : "ArrayLiteralExpression");
+    const authored = literal(argument);
+    const built = direct.mir.blocks.flatMap(block => block.statements).filter(statement =>
+      statement.kind === "assign" && statement.value.kind === "aggregate" && statement.value.aggregate.kind === "tuple");
+    assert.deepEqual(built.map(statement => statement.tir.node),
+      [literal(authored.elements.nodes[0]).id, literal(authored.elements.nodes[2]).id, authored.id]);
+    assert.deepEqual(directCalls.at(-1).arguments.map(argument => argument.operand.place), [built.at(-1).place]);
+  }
   for (const [name, saved] of [["start", sourceCalls[0].destination], ["fromParameter", null]]) {
     const { mir, tir, facts } = body(name);
     const binding = tir.root.statements.nodes[0].declarationList.declarations.nodes[0].name;
