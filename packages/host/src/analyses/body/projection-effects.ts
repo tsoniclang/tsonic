@@ -115,20 +115,26 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       && node.kind === "PropertyAccessExpression" && node.tsonic.role === "assignment-target" && node.tsonic.access.kind === "write";
     let value: FieldValue = optional ? "scalar-optional" : writeOnly ? "write-only" : "scalar";
     if (kind !== "primitive" && !optional && !writeOnly) {
-      if (member === null || node.kind !== "PropertyAccessExpression" || node.tsonic.role !== "value")
-        return bodyFrontier("A reference-held non-scalar projection requires its actual projected value Origins and cells.");
-      if (fields === null) {
-        const prepared = deps.sourceObjectFields(account, tir.body);
-        if (prepared.kind !== "complete") return prepared;
-        fields = prepared.value;
+      const fieldRead = node.kind === "PropertyAccessExpression" && node.tsonic.role === "value"
+        || node.kind === "BindingElement" && node.tsonic.role === "field-binding";
+      if (member !== null && fieldRead && (kind === "reference" || kind === "reference-optional")) {
+        value = kind;
+      } else {
+        if (member === null || node.kind !== "PropertyAccessExpression" || node.tsonic.role !== "value")
+          return bodyFrontier("A reference-held non-scalar projection requires its actual projected value Origins and cells.");
+        if (fields === null) {
+          const prepared = deps.sourceObjectFields(account, tir.body);
+          if (prepared.kind !== "complete") return prepared;
+          fields = prepared.value;
+        }
+        const proof = fields(node.id);
+        if (proof.kind !== "complete") return proof;
+        const field = proof.value;
+        if (field === null || field.field !== member.decision.primary || field.occurrence.body !== tir.body || field.occurrence.node !== node.id
+          || (field.presence?.storage ?? field.requiredReference) !== place.storage)
+          return bodyFrontier("A reference field read needs its actual admitted reference-valued declaration.");
+        value = field.presence === null ? "reference" : "reference-optional";
       }
-      const proof = fields(node.id);
-      if (proof.kind !== "complete") return proof;
-      const field = proof.value;
-      if (field === null || field.field !== member.decision.primary || field.occurrence.body !== tir.body || field.occurrence.node !== node.id
-        || (field.presence?.storage ?? field.requiredReference) !== place.storage)
-        return bodyFrontier("A reference field read needs its actual admitted reference-valued declaration.");
-      value = field.presence === null ? "reference" : "reference-optional";
     }
     hasWriteOnly ||= writeOnly;
     includesAbsence ||= optional || value === "reference-optional";
@@ -181,8 +187,16 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       const local = temporary?.base.kind === "local" ? mir.locals[temporary.base.local] : undefined;
       const node = base.kind === "checked" && base.tir.body === tir.body ? source.get(base.tir.node) : undefined;
       const info = node?.kind === "PropertyAccessExpression" && node.tsonic.role === "value" ? node.tsonic.narrowing : null;
-      if (local?.role.kind !== "temporary" || local.mode !== "local" || info?.kind !== "narrowed"
-        || info.source !== local.storage || info.result !== view.storage || saved.has(local.id))
+      let binding = null;
+      if (node?.kind === "BindingElement" && node.tsonic.role === "field-binding") {
+        const selectedWork = chargeWork(account, 3);
+        if (selectedWork !== null) return selectedWork;
+        if (node.tsonic.initializer !== null) binding = node.tsonic;
+      }
+      const selected = info?.kind === "narrowed" ? info.source : binding?.field.decision.read ?? null;
+      const present = info?.kind === "narrowed" ? info.result : binding?.present ?? null;
+      if (local?.role.kind !== "temporary" || local.mode !== "local"
+        || selected !== local.storage || present !== view.storage || saved.has(local.id))
         return bodyFrontier("A narrowed reference retains its actual checked field and saved optional value.");
       const storage = deps.typeOf(local.storage);
       const cut = accountFailure(account);

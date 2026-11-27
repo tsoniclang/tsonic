@@ -4959,6 +4959,109 @@ test("a direct reference throw carries its original value through cleanup unless
   }
 });
 
+test("S-1: a reference-valued field default copies the actual fallback only on the absence edge", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+  export function property(input: { value: string }): string { return input.value; }
+  export function binding(input: { value: string }): string { const { value } = input; return value; }
+  export function fallback(input: { seed: string; value?: string }): string {
+    const { seed, value = seed } = input;
+    return value;
+  }
+  export function present(input: { seed: string; value: string }): string {
+    const { seed, value = seed } = input;
+    return value;
+  }
+  type Holder = { value: string };
+  function project(input: Holder): string { const { value } = input; return value; }
+  export function forward(input: Holder): string { return project(input); }
+`);
+  const bounded = (maximumWork, maximumResultEntries) => analyzeHostProgram({ ...input, limits: { ...input.limits,
+    dataflow: { maximumWork, maximumResultEntries },
+  } });
+  const maximumWork = 140753;
+  const maximumRecords = 18815;
+  const result = bounded(maximumWork, maximumRecords);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const originFields = (arena, origins) => arena.origins[origins].producers.map(reference => {
+    const producer = arena.producers[arena.boundProducers[reference].producer];
+    assert.equal(producer.kind, "parameter");
+    assert.equal(producer.index, 0);
+    const path = arena.projections[producer.path];
+    assert.equal(path.parent, null);
+    assert.equal(path.projection.kind, "field");
+    return path.projection.member.decision.key.value;
+  });
+  for (const [name, resultFields, readFields] of [
+    ["property", ["value"], ["value"]], ["binding", ["value"], ["value"]],
+    ["fallback", ["seed", "value"], ["seed", "value"]], ["present", ["value"], ["seed", "value"]],
+    ["forward", ["value"], ["value"]],
+  ]) {
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(`;${name}];function;0]`));
+    const [facts] = body.facts;
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+      && executionKey(row.key.execution) === executionKey(facts.execution));
+    const value = summary.arena.origins[summary.result];
+    assert.equal(value.kind, "complete");
+    assert.equal(value.includesAbsence, false);
+    assert.deepEqual(originFields(summary.arena, summary.result), resultFields);
+    const [parameter] = summary.parameters;
+    assert.equal(parameter.reads.kind, "complete");
+    assert.deepEqual(parameter.reads.paths.map(id => summary.arena.projections[id].projection.member.decision.key.value), readFields);
+    assert.deepEqual(parameter.writes, { kind: "complete", paths: [] });
+    const operations = body.mir.blocks.map(block => block.terminator);
+    const calls = operations.filter(operation => operation.kind === "call");
+    if (name === "forward") {
+      assert.equal(calls.length, 1);
+      const [call] = calls;
+      const [invocation] = facts.origins.invocations;
+      assert.equal(call.callee.kind, "direct");
+      assert.equal(facts.origins.invocations.length, 1);
+      assert.equal(invocation.node, call.tir.node);
+      assert.deepEqual(originFields(facts.arena, invocation.alternatives[0].result), ["value"]);
+      continue;
+    }
+    if (name !== "fallback") {
+      assert.equal(calls.length, 0);
+      assert.deepEqual(facts.origins.activations, []);
+      continue;
+    }
+    assert.equal(calls.length, 1);
+    const [call] = calls;
+    const [seed, leaf] = body.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes;
+    assert.equal(call.callee.kind, "body");
+    assert.equal(call.callee.instance.body, leaf.tsonic.initializer);
+    const [capture] = call.callee.captures;
+    assert.deepEqual([capture.capture, capture.local], ["captured-value", seed.tsonic.declaration.local]);
+    const split = operations.find(operation => operation.kind === "switch" && operation.tir.node === leaf.id);
+    assert.equal(split.targets.length, 1);
+    assert.deepEqual(body.mir.constants[split.targets[0].constant].value, { kind: "literal", value: { kind: "absence" } });
+    assert.equal(body.mir.blocks[split.targets[0].target].terminator === call, true);
+    assert.equal(body.mir.blocks[split.otherwise].terminator.kind, "goto");
+    const [activation] = facts.origins.activations;
+    assert.equal(facts.origins.activations.length, 1);
+    assert.equal(activation.point.block, split.targets[0].target);
+    const [copied] = facts.arena.contexts[activation.context].captures;
+    assert.equal("cell" in copied, false);
+    assert.deepEqual(originFields(facts.arena, copied.origins), ["seed"]);
+  }
+  for (const [dimension, work, records, maximum] of [
+    ["work", maximumWork - 1, maximumRecords, maximumWork - 1],
+    ["result-entries", maximumWork, maximumRecords - 1, maximumRecords - 1],
+  ]) {
+    const refused = bounded(work, records);
+    assert.equal(refused.kind, "refused");
+    assert.equal("value" in refused, false);
+    assert.deepEqual(refused.diagnostics.map(row => [row.source, row.code.rendered, row.site, row.arguments]), [
+      ["pipeline", "TSONIC_COMPILER_RESOURCE_LIMIT", { kind: "none" },
+        [{ kind: "text", value: dimension }, { kind: "number", value: maximum }]],
+    ]);
+  }
+});
+
 test("canonical Origins unions retain strict supersets and deduplicate genuine overlapping alternatives", () => {
   const { current, pair } = referenceRound("body-round.reference-overlap");
   const rows = [...pair.facts.arena.origins];
