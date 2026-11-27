@@ -109,7 +109,10 @@ export function candidateReplayOf<State>(deps: ElaborateDeps<State>, account: Da
     if (settled.value.kind !== "decided" || settled.value.decision.result !== result)
       return fail("A bound candidate must produce a completed selected application.");
     return { kind: "complete", value: pipelineWiring.elaborate.elaborateSelectedCall(deps, settled.value.decision, instance.bindings,
-      { provided: input.arguments.length, argumentAt: position => input.arguments[position]?.occurrence.node }, origin) };
+      { argumentAt: position => {
+        const argument = input.arguments[position];
+        return argument === undefined ? undefined : { kind: argument.kind, expression: argument.occurrence.node };
+      } }, origin) };
   };
 }
 

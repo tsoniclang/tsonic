@@ -258,9 +258,7 @@ export interface TypedProtocolValue extends TypedValue {
   readonly protocol: RuleOutcome<TirProtocol>;
 }
 
-export interface TypedSpread extends TypedValue {
-  readonly protocol: RuleOutcome<TirProtocol>;
-}
+export type TypedSpread = TypedProtocolValue | { readonly role: "finite-call-argument" };
 
 export interface TypedObjectSpread {
   readonly construction: RuleOutcome<TypedOperation>;

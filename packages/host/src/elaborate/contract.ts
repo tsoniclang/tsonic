@@ -62,8 +62,7 @@ export interface SelectedCallDeps {
 }
 
 export interface SelectedCallOperands {
-  readonly provided: number;
-  readonly argumentAt: (position: number) => NodeId | undefined;
+  readonly argumentAt: (position: number) => { readonly kind: "value" | "spread"; readonly expression: NodeId } | undefined;
 }
 
 export type ElaborateSelectedCall = (deps: SelectedCallDeps, decision: ApplicationDecision, bindings: ArtifactBindings,

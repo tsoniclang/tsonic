@@ -851,6 +851,14 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       if (layout !== null) return { kind: "resource-stop", stop: layout };
     }
     verifyOccurrenceRole(node, original, emit);
+    if (node.kind === "SpreadElement" && "role" in node.tsonic) {
+      const paid = admit({ kind: "row" });
+      if (paid !== null) return { kind: "resource-stop", stop: paid };
+      const parent = original?.parent === null || original?.parent === undefined ? undefined : inventory.sourceNodes.get(original.parent);
+      if (node.tsonic.role !== "finite-call-argument" || original?.kind !== "SpreadElement"
+        || original.expression.id !== node.expression.id || parent?.kind !== "CallExpression")
+        emit("authored-order-preserved", node, "a finite spread requires its actual authored call operand");
+    }
     verifyValueEndpoints(body, node, emit);
     verifyOccurrenceOperation(node, input.types, emit);
     if (node.kind === "PropertyAccessExpression" && node.tsonic.role === "value" && node.tsonic.narrowing?.kind === "narrowed") {
@@ -1027,8 +1035,11 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     const application = applicationOf(node);
     if (application?.kind === "decided") {
       const signature = input.types.signatures[application.decision.callee.decision.completion.signature];
-      if (signature !== undefined) verifyArgumentTransport(application.decision, node, signature,
-        originalApplication(inventory.sourceNodes.get(node.id)), inventory.sourceNodes, emit);
+      if (signature !== undefined) {
+        const stop = verifyArgumentTransport(application.decision, node, signature,
+          originalApplication(inventory.sourceNodes.get(node.id)), inventory.sourceNodes, input.types, admit, emit);
+        if (stop !== null) return { kind: "resource-stop", stop };
+      }
     }
   }
   let previousEvidence = -1;

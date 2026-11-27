@@ -576,7 +576,7 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     value => "role" in value ? declarationNameExpression.write(value)
       : "layout" in value ? layoutApplication.write(value) : work_TypedApplication.write(value),
     () => [work_TypedApplication.reader, declarationNameExpression.reader, layoutApplication.reader]);
-  const work_TypedProtocolValue: TirRecordCodec<TypedProtocolValue> = defineRecord<TypedProtocolValue>("TypedProtocolValue", "TypedProtocolValue", null, "TypedProtocolValue", null, null, fields => fields
+  const protocolValue = (label: "TypedProtocolValue" | "TypedSpread") => defineRecord<TypedProtocolValue>(label, label, null, label, null, null, fields => fields
     .field("type", "t", value => referenceWork("t", value.type), typeReader)
     .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)
     .field("conversion", "ConversionDecision", value => read.work_ConversionDecision.write(value.conversion), lazyReader(() => read.work_ConversionDecision.reader))
@@ -588,18 +588,14 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       type: field_type, convertedType: field_convertedType, conversion: field_conversion, narrowing: field_narrowing,
       evidenceIndex: field_evidenceIndex, demand: field_demand, protocol: field_protocol,
     })));
-  const work_TypedSpread: TirRecordCodec<TypedSpread> = defineRecord<TypedSpread>("TypedSpread", "TypedSpread", null, "TypedSpread", null, null, fields => fields
-    .field("type", "t", value => referenceWork("t", value.type), typeReader)
-    .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)
-    .field("conversion", "ConversionDecision", value => read.work_ConversionDecision.write(value.conversion), lazyReader(() => read.work_ConversionDecision.reader))
-    .field("narrowing", "?RefinementDecision", value => nullableWork(value.narrowing, actual => read.work_RefinementDecision.write(actual)), nullableReader(lazyReader(() => read.work_RefinementDecision.reader)))
-    .field("evidenceIndex", "?number", value => nullableWork(value.evidenceIndex, actual => scalarWork("number", actual)), nullableReader(numberReader))
-    .field("demand", "TirDemand", value => read.work_TirDemand.write(value.demand), lazyReader(() => read.work_TirDemand.reader))
-    .field("protocol", "O<TirProtocol>", value => read.work_O_TirProtocol_.write(value.protocol), lazyReader(() => read.work_O_TirProtocol_.reader))
-    .finish((field_type, field_convertedType, field_conversion, field_narrowing, field_evidenceIndex, field_demand, field_protocol) => ({
-      type: field_type, convertedType: field_convertedType, conversion: field_conversion, narrowing: field_narrowing,
-      evidenceIndex: field_evidenceIndex, demand: field_demand, protocol: field_protocol,
-    })));
+  const work_TypedProtocolValue = protocolValue("TypedProtocolValue");
+  const spreadProtocol = protocolValue("TypedSpread");
+  const finiteSpread = defineRecord<Extract<TypedSpread, { readonly role: "finite-call-argument" }>>(
+    "FiniteCallSpread", "FiniteCallSpread", null, "FiniteCallSpread", null, null,
+    fields => fields.finish(() => ({ role: "finite-call-argument" })));
+  const work_TypedSpread = unionRecord<TypedSpread>("TypedSpread",
+    value => "role" in value ? finiteSpread.write(value) : spreadProtocol.write(value),
+    () => [spreadProtocol.reader, finiteSpread.reader]);
   const work_TypedObjectSpread: TirRecordCodec<TypedObjectSpread> = defineRecord<TypedObjectSpread>("TypedObjectSpread", "TypedObjectSpread", null, "TypedObjectSpread", null, null, fields => fields
     .field("construction", "O<TypedOperation>", value => read.work_O_TypedOperation_.write(value.construction), lazyReader(() => read.work_O_TypedOperation_.reader))
     .finish((field_construction) => ({ construction: field_construction })));

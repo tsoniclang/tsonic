@@ -181,7 +181,8 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
         return node.tsonic.initializer === null || layoutBindingOf(node.initializer) !== null ? null : initializer(at, node.tsonic.initializer);
       case "PropertyDeclaration":
         return node.tsonic.initializer === null ? null : initializer(at, node.tsonic.initializer);
-      case "YieldExpression": case "AwaitExpression": case "SpreadElement":
+      case "SpreadElement": return "role" in node.tsonic ? null : protocol(at, selected(node.tsonic.protocol));
+      case "YieldExpression": case "AwaitExpression":
       case "ForInStatement": case "ForOfStatement": return protocol(at, selected(node.tsonic.protocol));
       case "BinaryExpression": {
         const binary = node.tsonic;

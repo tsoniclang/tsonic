@@ -177,7 +177,7 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
         if (occurrence?.kind !== "CallExpression" || occurrence.tsonic.application.kind !== "available") return null;
         const captured = occurrence.tsonic.application.value;
         const { instance, parameter, callee: { activation, decision } } = initializer;
-        if (activation === null || captured.kind !== "call" || parameter < captured.arguments.length) return null;
+        if (activation === null || captured.kind !== "call") return null;
         const keys = admitArtifactIdentity(instance.bindings, account) ?? admitArtifactIdentity(activation.bindings, account);
         if (keys !== null || artifactBindingsKey(instance.bindings) !== artifactBindingsKey(activation.bindings)) return null;
         const mappingRead = chargeWork(account, 1);
@@ -213,7 +213,7 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
       const captured = original.tsonic.application.value;
       const decision = callee.decision;
       const activation = callee.activation;
-      if (captured.kind !== "call" || captured.receiver !== null || captured.arguments.length > decision.parameters.length
+      if (captured.kind !== "call" || captured.receiver !== null
         || (activation === null ? decision.api.body !== null : activation.body !== decision.api.body)) return null;
       const signatureRead = chargeWork(account, 1);
       if (signatureRead !== null) return null;
@@ -228,6 +228,8 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
         || signature.parameters.length !== decision.parameters.length || signature.receiver !== null)
         return fail("A selected call retains its actual API body, authoritative signature and offered entry.");
       let provided = 0;
+      let authored = 0;
+      let component = 0;
       for (let parameter = 0; parameter < decision.parameters.length; parameter += 1) {
         const read = chargeWork(account, 1);
         if (read !== null) return null;
@@ -243,14 +245,29 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
             return fail("The omitted typed disposition must name its actual selected default.");
           continue;
         }
-        const original = captured.arguments[parameter];
-        if (parameter !== provided || mapping.parameter !== parameter || mapping.argument !== parameter
-          || mapping.component !== null || mapping.passing !== "by-value" || original?.kind !== "value"
-          || formal?.passing !== mapping.passing)
-          return null;
+        let original = captured.arguments[authored];
+        while (original?.kind === "spread" && original.tuple.kind === "available" && original.tuple.value?.length === 0) {
+          if (chargeWork(account, 1) !== null) return null;
+          original = captured.arguments[++authored];
+        }
+        if (parameter !== provided || mapping.parameter !== parameter || mapping.argument !== authored
+          || original === undefined || mapping.passing !== "by-value" || formal?.passing !== mapping.passing) return null;
+        if (original.kind === "value") {
+          if (mapping.component !== null) return null;
+          authored += 1;
+        } else {
+          const slots = original.tuple.kind === "available" ? original.tuple.value : null;
+          if (slots === null || component >= slots.length || mapping.component !== component) return null;
+          component += 1;
+          if (component === slots.length) { authored += 1; component = 0; }
+        }
         provided += 1;
       }
-      if (provided !== captured.arguments.length) return null;
+      for (; authored < captured.arguments.length; authored += 1) {
+        if (chargeWork(account, 1) !== null) return null;
+        const trailing = captured.arguments[authored];
+        if (trailing?.kind !== "spread" || trailing.tuple.kind !== "available" || trailing.tuple.value?.length !== 0) return null;
+      }
       if (activation === null) {
         if (decision.api.role !== "api-signature" || candidate.declaration !== decision.api.declaration) return null;
         const witnessRead = chargeWork(account, 1);

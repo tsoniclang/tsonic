@@ -14,7 +14,7 @@ import type { CheckedWrite, ControlScope, Discard, Evaluated, FieldReceiver, Low
 import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf, workNode } from "./model.js";
 import { held, holdReceiver, observePendingRead, popOperand, pushOperand, readPlace, saveBeforeControl, saveBeforeStore, saveRead, temporary } from "./operands.js";
 import { breaks, continues, endCleanup, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endHandler, endLabel, endProtected, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterProtected, enterShortCircuit, enterSwitch, enterWhile, finishSwitchTest, loopCondition, nextFor, nextSwitchClause } from "./control.js";
-import { argumentPlace, enterCall, finishCall } from "./calls.js";
+import { argumentPlace, enterCall, finishCall, finishCallSpread } from "./calls.js";
 import { beginLocalScope, declareLocal, declarations, endLocalScope, enterLocalBlock, initializeAbsence, initializeLocal, leaveProtectedScopes, nextDeclaration, prepareFunctionLocals, unwindToHandler } from "./bindings.js";
 import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, placeOfStatic, terminate } from "./state.js";
 import { placeCheckAvailable, placeCheckStamp } from "./state.js";
@@ -165,6 +165,7 @@ function walk(lowering: Lowering): boolean {
           : next.kind === "scope-end" ? endLocalScope(lowering, next.node, next.scope)
         : next.kind === "argument-place" ? argumentPlace(lowering, next.node)
         : next.kind === "call" ? finishCall(lowering, next)
+        : next.kind === "call-spread" ? finishCallSpread(lowering, next)
         : next.kind === "field-read" ? fieldRead(lowering, next)
         : next.kind === "field-assignment" ? fieldAssignment(lowering, next)
         : next.kind === "index-receiver" ? indexReceiver(lowering, next)

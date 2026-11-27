@@ -1,12 +1,13 @@
 import type { NodeId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { HirApplication, HirCallableEndpoint, HirCandidate, HirNode, HirProtocolFact } from "../ir-hir/contract.js";
+import type { CallExpression, HirApplication, HirCallableEndpoint, HirCandidate, HirNode, HirProtocolFact } from "../ir-hir/contract.js";
 import { callableEndpointKey, selectedEndpointRoleFaults } from "../ir-hir/index.js";
 import type { ApplicationDecision, InferenceDeclaration, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberInventory, MemberInventoryEntry, MemberKey, MemberOrigin, Signature, SignatureParameter, TypeTable } from "../ir-types/contract.js";
 import { bindingVectorKey } from "../ir-types/index.js";
-import type { MemberSelection, ResolvedCallee, TirApplication, TirArgument, TirBody, TirNode, TirProtocol, TirReadyReadAdmission, TypedOperation } from "./contract.js";
+import type { MemberSelection, ResolvedCallee, TirApplication, TirArgument, TirBody, TirNode, TirProtocol, TirReadyReadAdmission, TypedOperation, TypedPhase } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
+import { typedValueOf } from "./verify-occurrences.js";
 
 export interface TirDeclarationInventory {
   readonly declaration: InferenceDeclaration;
@@ -103,10 +104,10 @@ const omissionMatches = (argument: TirArgument, formal: SignatureParameter): boo
   return formal.acceptsOmission && formal.kind === "default" && formal.initializer !== null && argument.value.instance.body === formal.initializer;
 };
 
-export const verifyArgumentTransport = (
+export const verifyArgumentTransport = <Stop extends object>(
   application: TirApplication, node: TirNode, signature: Signature, original: HirApplication | null,
-  sourceNodes: ReadonlyMap<NodeId, HirNode>, emit: TirOccurrenceEmit,
-): void => {
+  sourceNodes: ReadonlyMap<NodeId, HirNode>, types: TypeTable, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit,
+): Stop | null => {
   const decision = application.callee.decision;
   let total = application.arguments.length === signature.parameters.length;
   let parameterOrder = true;
@@ -118,9 +119,13 @@ export const verifyArgumentTransport = (
   const maximumComponent = new Map<number, number>();
   const restArguments = new Set<number>();
   const sourcePositions = new Map<NodeId, number>();
+  let spread = false;
   if (original !== null) for (let position = 0; position < original.arguments.length; position++) {
     const argument = original.arguments[position];
-    if (argument !== undefined) sourcePositions.set(argument.expression, position);
+    if (argument !== undefined) {
+      sourcePositions.set(argument.expression, position);
+      spread ||= argument.kind === "spread";
+    }
   }
   const mappings = new Map<number, ParameterMapping>();
   let previousArgument = -1;
@@ -210,7 +215,61 @@ export const verifyArgumentTransport = (
   if (!omissions) emit("omission-valid", node, "omission does not match the selected capability, default initializer or rest formal");
   if (!authoredOrder) emit("authored-order-preserved", node, "argument transport does not retain the original authored argument sequence");
   if (!emptySpreads) emit("empty-spread-preserved", node, "authored empty spread is not retained in the whole spread tuple and rest source indices");
+  return spread && original !== null && node.kind === "CallExpression"
+    ? verifyFixedCallSpread(application, node, signature, original, types, admit, emit) : null;
 };
+
+function verifyFixedCallSpread<Stop extends object>(application: TirApplication, node: CallExpression<TypedPhase>,
+  signature: Signature, original: HirApplication, types: TypeTable, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  if ("kind" in node.arguments) return null;
+  const syntax = node.arguments.nodes;
+  for (let position = 0; position < signature.parameters.length; position += 1) {
+    const paid = admit({ kind: "row" });
+    if (paid !== null) return paid;
+    if (signature.parameters[position]?.kind === "rest") return null;
+  }
+  let effective = 0;
+  let exact = syntax.length === original.arguments.length;
+  for (let authored = 0; authored < original.arguments.length; authored += 1) {
+    const paid = admit({ kind: "row" });
+    if (paid !== null) return paid;
+    const source = original.arguments[authored];
+    const argument = syntax[authored];
+    if (source === undefined || argument === undefined) { exact = false; break; }
+    let arity = 1;
+    let tuple: Extract<TypeTable["terms"][number], { readonly kind: "tuple" }> | null = null;
+    if (source.kind === "spread") {
+      if (source.tuple.kind !== "available" || source.tuple.value === null) return null;
+      const type = argument.kind === "SpreadElement" ? typedValueOf(argument.expression)?.convertedType : undefined;
+      const selected = type === undefined ? undefined : types.terms[type];
+      if (argument.kind !== "SpreadElement" || !("role" in argument.tsonic) || argument.tsonic.role !== "finite-call-argument"
+        || argument.expression.id !== source.expression
+        || selected?.kind !== "tuple" || selected.elements.length !== source.tuple.value.length) { exact = false; break; }
+      tuple = selected;
+      arity = selected.elements.length;
+    } else if (argument.kind === "SpreadElement" || argument.id !== source.expression) { exact = false; break; }
+    for (let component = 0; component < arity; component += 1, effective += 1) {
+      const paid = admit({ kind: "row" });
+      if (paid !== null) return paid;
+      const mapping = application.callee.decision.parameters[effective];
+      const passed = application.arguments[effective];
+      if (mapping?.kind !== "argument" || mapping.parameter !== effective || mapping.argument !== authored
+        || mapping.component !== (tuple === null ? null : component)
+        || passed?.kind !== "provided" || passed.expression !== source.expression) exact = false;
+      if (tuple !== null) {
+        const element = tuple.elements[component];
+        if (element?.kind !== "required" || element.type !== signature.parameters[effective]?.type) exact = false;
+      }
+    }
+  }
+  for (; exact && effective < application.arguments.length; effective += 1) {
+    const paid = admit({ kind: "row" });
+    if (paid !== null) return paid;
+    if (application.arguments[effective]?.kind !== "omitted") exact = false;
+  }
+  if (!exact) emit("authored-order-preserved", node, "a finite spread must retain its actual operand and each selected fixed slot exactly once in authored order");
+  return null;
+}
 
 const memberKey = (value: MemberKey): string => {
   if (value.kind === "text") return encodeKey([value.kind, value.value]);

@@ -38,19 +38,21 @@ interface Flow {
 const header = (node: NodeHeader): NodeHeader =>
   ({ id: node.id, origin: node.origin, parent: node.parent, flags: node.flags, loc: node.loc });
 
-export const elaborateSelectedCall: ElaborateSelectedCall = ({ signatureOf }, application, bindings, { provided, argumentAt }, origin) => {
-  if (provided > application.parameters.length) return notElaboratedYet("the selected argument and receiver transport of this call", origin);
+export const elaborateSelectedCall: ElaborateSelectedCall = ({ signatureOf }, application, bindings, { argumentAt }, origin) => {
   const implementation = application.implementationBindings;
   const parametricSelection = bindings.kind === "parametric" && implementation.classBindings.length === 0
     && implementation.methodBindings.length === 0 && implementation.capturedBindings.length === 0
     && implementation.selfBindings.length === 0;
   const activation: BodyInstance | null = application.api.body === null ? null : { body: application.api.body,
     bindings: parametricSelection ? bindings : { kind: "instantiated", bindings: implementation } };
-  const formals = provided === application.parameters.length ? null : signatureOf(application.completion.signature).parameters;
+  let formals: ReturnType<typeof signatureOf>["parameters"] | null = null;
   const operands = application.parameters.map((mapping, parameter): TirArgument => {
-    if (parameter >= provided) {
+    if (mapping.parameter !== parameter) return callerDefect("a call must retain its actual selected parameter order", origin);
+    if (mapping.kind === "rest") return notElaboratedYet("the selected rest argument transport of this call", origin);
+    if (mapping.kind !== "argument") {
+      formals ??= signatureOf(application.completion.signature).parameters;
       const formal = formals?.[parameter];
-      if (mapping.parameter !== parameter || activation === null || formal === undefined || !formal.acceptsOmission)
+      if (activation === null || formal === undefined || !formal.acceptsOmission)
         return callerDefect("an omitted argument retains its actual selected omission and callee activation", origin);
       if (mapping.kind === "omitted" && formal.kind === "optional" && formal.initializer === null && mapping.type === formal.type)
         return { kind: "omitted", parameter, value: { kind: "absence" } };
@@ -59,11 +61,10 @@ export const elaborateSelectedCall: ElaborateSelectedCall = ({ signatureOf }, ap
       return { kind: "omitted", parameter, value: { kind: "initializer",
         instance: { body: mapping.initializer, bindings: activation.bindings } } };
     }
-    const source = argumentAt(parameter);
-    if (source === undefined || mapping.kind !== "argument" || mapping.parameter !== parameter || mapping.argument !== parameter
-      || mapping.component !== null || mapping.passing !== "by-value")
+    const source = argumentAt(mapping.argument);
+    if (source === undefined || (source.kind === "spread") !== (mapping.component !== null) || mapping.passing !== "by-value")
       return notElaboratedYet("the actual fixed by-value source argument mapping", origin);
-    return { kind: "provided", parameter, expression: source };
+    return { kind: "provided", parameter, expression: source.expression };
   });
   return { callee: { decision: application, activation }, receiver: null, arguments: operands };
 };
@@ -1142,7 +1143,11 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           const result = application.kind === "decided" ? application.decision.result : application.deferred.result;
           const selected: RuleOutcome<TirApplication> = application.kind === "deferred" ? application
             : { kind: "decided", decision: elaborateSelectedCall(deps, application.decision, instance.bindings,
-              { provided: node.arguments.nodes.length, argumentAt: at => node.arguments.nodes[at]?.id }, node.origin) };
+              { argumentAt: at => {
+                const syntax = node.arguments.nodes[at];
+                return syntax === undefined ? undefined : syntax.kind === "SpreadElement"
+                  ? { kind: "spread", expression: syntax.expression.id } : { kind: "value", expression: syntax.id };
+              } }, node.origin) };
           const layout = checkedLayoutRoleOf(node);
           const construction = checkedLayoutConstructionOf(node);
           let arguments_: TirCallArguments;
@@ -1154,7 +1159,16 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
               return callerDefect("a field offset requires its actual selected layout operand and checked selector", node.origin);
             arguments_ = { kind: "field-offset-quote", loc: node.arguments.loc, layout: expressionOf(operand), selector };
           } else if (construction === null) {
-            arguments_ = { loc: node.arguments.loc, nodes: node.arguments.nodes.map(expressionOf) };
+            arguments_ = { loc: node.arguments.loc, nodes: node.arguments.nodes.map((syntax, at): Expression<TypedPhase> => {
+              if (syntax.kind !== "SpreadElement") return expressionOf(syntax);
+              const checked = node.tsonic.application;
+              const argument = checked.kind === "available" ? checked.value.arguments[at] : undefined;
+              if (argument?.kind !== "spread" || argument.expression !== syntax.expression.id
+                || argument.tuple.kind !== "available" || argument.tuple.value === null)
+                return callerDefect("a finite call spread must retain its actual checked operand and selected slots", syntax.origin);
+              return { ...header(syntax), kind: "SpreadElement", expression: expressionOf(syntax.expression),
+                tsonic: { role: "finite-call-argument" } };
+            }) };
           } else {
             const descriptor = node.arguments.nodes[0];
             if (node.arguments.nodes.length !== 1 || descriptor?.kind !== "ObjectLiteralExpression" ||
@@ -1194,7 +1208,12 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
             const operand = node.arguments.nodes[0];
             if (operand === undefined) return callerDefect("a field offset requires its actual layout operand", node.origin);
             visit(operand);
-          } else if (checkedLayoutConstructionOf(node) === null) visitList(node.arguments.nodes, node.origin);
+          } else if (checkedLayoutConstructionOf(node) === null) {
+            for (let at = node.arguments.nodes.length - 1; at >= 0; at -= 1) {
+              const argument = requirePresent(node.arguments.nodes[at], failure("caller defect", "a call argument list contains a hole", node.origin));
+              visit(argument.kind === "SpreadElement" ? argument.expression : argument);
+            }
+          }
           visit(node.expression);
         }
         return;

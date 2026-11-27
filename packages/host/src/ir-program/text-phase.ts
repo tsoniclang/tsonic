@@ -442,8 +442,12 @@ export function textTypedUpdate(value: TypedUpdate): TextWork {
 }
 
 export function textTypedProtocolValue(value: TypedProtocolValue): TextWork {
+  return protocolValueText("TypedProtocolValue", value);
+}
+
+function protocolValueText(label: "TypedProtocolValue" | "TypedSpread", value: TypedProtocolValue): TextWork {
   return deferred(value, () => {
-    return record("TypedProtocolValue", [
+    return record(label, [
       field("type", numericIdentity("t", value.type)),
       field("convertedType", numericIdentity("t", value.convertedType)),
       field("conversion", textConversionDecision(value.conversion)),
@@ -548,17 +552,7 @@ export function textTypedApplication(value: TypedApplication | TypedLayoutApplic
 }
 
 export function textTypedSpread(value: TypedSpread): TextWork {
-  return deferred(value, () => {
-    return record("TypedSpread", [
-      field("type", numericIdentity("t", value.type)),
-      field("convertedType", numericIdentity("t", value.convertedType)),
-      field("conversion", textConversionDecision(value.conversion)),
-      field("narrowing", (value.narrowing === null ? token("null") : textRefinementDecision(value.narrowing))),
-      field("evidenceIndex", (value.evidenceIndex === null ? token("null") : numeric(value.evidenceIndex))),
-      field("demand", textTirDemand(value.demand)),
-      field("protocol", textRuleOutcome(value.protocol, entry0 => textTirProtocol(entry0))),
-    ]);
-  });
+  return "role" in value ? record("FiniteCallSpread", []) : protocolValueText("TypedSpread", value);
 }
 
 export function textTypedTemplate(value: TypedTemplate): TextWork {

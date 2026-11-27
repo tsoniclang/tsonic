@@ -164,6 +164,97 @@ test("authored MIR: optional embeddings preserve the selected payload or native 
 test("authored MIR: labelled transfers keep the selected loop or block destination", checkLabelledTransfers);
 test("authored MIR: void evaluates its operand exactly once", checkVoidOperand);
 
+test("authored MIR: finite spreads evaluate the one producer and take its slots before the next argument", async () => {
+  const fixture = await loadFrontFixture();
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { lowerMirDeps, mirVerificationContext } = await import("../../packages/host/dist/pipeline/lower-mir-step.js");
+  const { internType, viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
+  const { parseTir, printTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  for (const [tuple, formals, count] of [["[boolean, boolean]", "first: boolean, second: boolean, ", 2], ["[]", "", 0]]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      function take(${formals}tail: boolean): boolean { return tail; }
+      function produce(pair: ${tuple}): ${tuple} { return pair; }
+      function later(): boolean { return false; }
+      export function start(pair: ${tuple}): boolean { return take(...produce(pair), later()); }
+    `);
+    const checked = captureSourceBarrier(input);
+    assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+    const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+    assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+    const ready = typed.value;
+    const selected = [...ready.bodies.values()].find(body => body.bindings.kind === "instantiated" && body.root.kind === "Block"
+      && body.root.statements.nodes[0]?.expression?.arguments?.nodes?.[0]?.kind === "SpreadElement");
+    assert.ok(selected);
+    const identity = instanceKey({ body: selected.body, bindings: selected.bindings });
+    const entries = ready.required.provided.get(identity);
+    assert.deepEqual(entries, [1]);
+    const call = selected.root.statements.nodes[0].expression;
+    const [spread, later] = call.arguments.nodes;
+    assert.deepEqual(spread.tsonic, { role: "finite-call-argument" });
+    const application = call.tsonic.application.decision;
+    const target = application.callee.activation.body;
+    assert.deepEqual(ready.required.operations.filter(row => row.kind === "body" && row.execution.instance.body === target)
+      .map(row => row.execution.provided), [count + 1]);
+    const printed = printTir(selected);
+    assert.match(printed, /tsonic=FiniteCallSpread\(\)/u);
+    const decoded = parseTir(printed);
+    assert.equal(decoded.kind, "parsed");
+    assert.equal(printTir(decoded.value), printed);
+    assert.notEqual(parseTir(printed.replace("FiniteCallSpread()", "FiniteCallSpread(protocol=null)")).kind, "parsed");
+    if (count !== 0) {
+      const crossed = structuredClone(selected);
+      crossed.root.statements.nodes[0].expression.tsonic.application.decision.callee.decision.parameters[0].component = 1;
+      const proof = ready.verifierOf(input.snapshot.entryPoint);
+      const rejected = verifyTir(proof, tirReadyReadAdmission(createAccount(input.limits.dataflow)))(crossed);
+      assert.equal(rejected.kind, "complete");
+      assert.equal(rejected.violations.some(finding => finding.rule === "authored-order-preserved" && finding.detail.some(value =>
+        value.kind === "text" && value.value.startsWith("a finite spread must retain its actual operand"))), true);
+    }
+
+    const interner = checked.value.types;
+    const run = { selectedNativeFacts: input.snapshot.nativeFacts, interner, table: viewTypes(interner),
+      defs: { completionSelector: internType(interner, { kind: "primitive", primitive: "int32" }),
+        exceptionStorage: internType(interner, { kind: "intrinsic", intrinsic: "unknown" }) },
+      lowering: input.limits.lowering, verification: input.limits.mirVerification, declarationOf: ready.declarationOf,
+      bodyOwner: body => fixture.ids.decodeBodyId(body).value.owner, bodyOf: instance => ready.bodies.get(instanceKey(instance)) ?? null };
+    const unit = { request: { query: "mirBody", key: identity }, position: { kind: "result" } };
+    const deps = lowerMirDeps(run, unit);
+    const lower = lowerRequired(deps, selected, [], entries);
+    assert.equal(lower.kind, "ok", JSON.stringify(lower.diagnostics));
+    const stopped = lowerRequired({ ...deps, limits: { maximumRecords: 0 } }, selected, [], entries);
+    assert.equal(stopped.kind, "refused");
+    assert.equal("value" in stopped, false);
+    const mir = lower.value;
+    assert.deepEqual(verifyMir(mir, mirVerificationContext(run, selected, entries)), { kind: "complete", violations: [] });
+    const operations = [];
+    const orderedReads = [];
+    const slots = mir.places.filter(place => place.base.kind === "place" && place.base.projection.kind === "element");
+    for (let block = mir.blocks[mir.entries[0].block]; block !== undefined;) {
+      const end = block.terminator;
+      for (const statement of block.statements) if (statement.kind === "assign" && statement.tir.node === spread.id) {
+        assert.equal(operations.length, 1, "each slot is read after the producer and before the later call");
+        assert.equal(statement.value.kind, "use");
+        orderedReads.push(statement);
+      }
+      if (end.kind === "return") break;
+      assert.equal(end.kind, "call");
+      operations.push(end);
+      block = mir.blocks[end.next];
+    }
+    assert.deepEqual(operations.map(operation => operation.tir.node), [spread.expression.id, later.id, call.id]);
+    const [producer, tail, consumer] = operations;
+    assert.equal(consumer.arguments.length, count + 1);
+    assert.deepEqual(slots.map(place => [place.base.place, place.base.projection.index]),
+      Array.from({ length: count }, (_, index) => [producer.destination, index]));
+    assert.deepEqual(orderedReads.map(read => read.value.operand.place), slots.map(place => place.id));
+    assert.deepEqual(consumer.arguments.map(argument => argument.operand.place), [...orderedReads.map(read => read.place), tail.destination]);
+    if (count === 0) assert.equal(producer.destination, null, "an empty spread still evaluates but keeps no unused result");
+  }
+});
+
 test("authored MIR: array destinations check at the selected time and reuse the evaluated location", async () => {
   const fixture = await loadFrontFixture();
   const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");

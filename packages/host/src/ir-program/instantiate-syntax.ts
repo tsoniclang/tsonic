@@ -251,7 +251,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "MetaProperty":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "SpreadElement":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
+      return inventoryRecord(scan, 5);
     case "TemplateExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TemplateSpan":

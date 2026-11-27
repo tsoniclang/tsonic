@@ -393,8 +393,11 @@ export function readTypedUpdateText<Root>(cursor: Cursor, finish: (value: TypedU
 }
 
 export function readTypedProtocolValueText<Root>(cursor: Cursor, finish: (value: TypedProtocolValue) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => openRecord(next, "TypedProtocolValue"), fields =>
-    fieldText<TyId, Root>(cursor, fields, "type", (next, done) => atomicText(next, readTypeId, done), typeValue =>
+  return atomicText(cursor, next => openRecord(next, "TypedProtocolValue"), fields => readProtocolValueFields(cursor, fields, finish));
+}
+
+function readProtocolValueFields<Root>(cursor: Cursor, fields: RecordFields, finish: (value: TypedProtocolValue) => TextStep<Root>): TextStep<Root> {
+  return fieldText<TyId, Root>(cursor, fields, "type", (next, done) => atomicText(next, readTypeId, done), typeValue =>
     fieldText<TyId, Root>(cursor, fields, "convertedType", (next, done) => atomicText(next, readTypeId, done), convertedTypeValue =>
       fieldText<ConversionDecision, Root>(cursor, fields, "conversion", readConversionDecisionText, conversionValue =>
         fieldText<RefinementDecision | null, Root>(cursor, fields, "narrowing", (next, done) => nullableText(next, readRefinementDecisionText, done), narrowingValue =>
@@ -402,7 +405,7 @@ export function readTypedProtocolValueText<Root>(cursor: Cursor, finish: (value:
             fieldText<TirDemand, Root>(cursor, fields, "demand", readTirDemandText, demandValue =>
               fieldText<RuleOutcome<TirProtocol>, Root>(cursor, fields, "protocol", (next, done) => readRuleOutcomeText(next, readTirProtocolText, done), protocolValue =>
                 atomicText(cursor, next => closeRecord(next, fields), () =>
-                    acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue, protocol: protocolValue }, finish))))))))));
+                    acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue, protocol: protocolValue }, finish)))))))));
 }
 
 export function readTypedClosureText<Root>(cursor: Cursor, finish: (value: TypedClosure) => TextStep<Root>): TextStep<Root> {
@@ -533,16 +536,12 @@ function readTypedApplicationFields<Root>(cursor: Cursor, fields: RecordFields, 
 }
 
 export function readTypedSpreadText<Root>(cursor: Cursor, finish: (value: TypedSpread) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => openRecord(next, "TypedSpread"), fields =>
-    fieldText<TyId, Root>(cursor, fields, "type", (next, done) => atomicText(next, readTypeId, done), typeValue =>
-    fieldText<TyId, Root>(cursor, fields, "convertedType", (next, done) => atomicText(next, readTypeId, done), convertedTypeValue =>
-      fieldText<ConversionDecision, Root>(cursor, fields, "conversion", readConversionDecisionText, conversionValue =>
-        fieldText<RefinementDecision | null, Root>(cursor, fields, "narrowing", (next, done) => nullableText(next, readRefinementDecisionText, done), narrowingValue =>
-          fieldText<number | null, Root>(cursor, fields, "evidenceIndex", (next, done) => nullableText(next, (next, done) => atomicText(next, readNumber, done), done), evidenceIndexValue =>
-            fieldText<TirDemand, Root>(cursor, fields, "demand", readTirDemandText, demandValue =>
-              fieldText<RuleOutcome<TirProtocol>, Root>(cursor, fields, "protocol", (next, done) => readRuleOutcomeText(next, readTirProtocolText, done), protocolValue =>
-                atomicText(cursor, next => closeRecord(next, fields), () =>
-                    acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue, protocol: protocolValue }, finish))))))))));
+  return atomicText(cursor, next => choice(next, ["TypedSpread", "FiniteCallSpread"]), label =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set<string>() };
+      if (label === "TypedSpread") return readProtocolValueFields(cursor, fields, finish);
+      return atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role: "finite-call-argument" }, finish));
+    }));
 }
 
 export function readTypedTemplateText<Root>(cursor: Cursor, finish: (value: TypedTemplate) => TextStep<Root>): TextStep<Root> {
