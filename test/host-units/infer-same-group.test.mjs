@@ -154,6 +154,41 @@ function drive(program) {
   return completed;
 }
 
+test("a fixed destructuring fit reads the actual inline producer and binds each selected slot once", () => {
+  const program = ready(`
+    function producer(pair: [boolean, string]): [boolean, string] { return pair; }
+    export function start(pair: [boolean, string]): boolean {
+      const [first, second] = producer(pair);
+      return first;
+    }
+  `);
+  const selected = program.checked.tree.statements.nodes[1];
+  const body = selected.tsonic.body;
+  const { name, initializer } = selected.body.statements.nodes[0].declarationList.declarations.nodes[0];
+  const record = [...drive(program).values()].find(row => row.group.bodies.includes(body));
+  assert.ok(record);
+  const set = record.constraints.find(row => row.body === body);
+  const applications = set.constraints.filter(row => row.kind === "call");
+  assert.deepEqual(applications.map(row => row.occurrence.node), [initializer.id]);
+  const flows = set.constraints.filter(row => row.kind === "flow" && row.role === "initialization");
+  assert.deepEqual(flows.map(row => row.occurrence), [initializer, ...name.elements.nodes].map(node => ({ body, node: node.id })));
+  assert.equal(flows[0].to, initializer.tsonic.views.read.value);
+  const { elements } = fixture.types.readType(program.interner, initializer.tsonic.views.read.value);
+  for (const [index, element] of name.elements.nodes.entries()) {
+    const row = flows[index + 1];
+    assert.equal(row.from, elements[index].type);
+    assert.equal(row.to, element.tsonic.declaredType.value);
+    const decision = record.solution.constraints.find(selected => selected.constraint.body === body &&
+      selected.constraint.index === set.constraints.indexOf(row))?.decision;
+    assert.deepEqual(decision, { kind: "flow", embedding: { kind: "identity" } });
+  }
+  const [first, second] = name.elements.nodes;
+  const crossed = program.checked.items.find(row => row.node === first.id).definition;
+  assert.throws(() => wiring.infer.constraintsOf({ ...program.deps,
+    itemOf: definition => definition === crossed ? second : program.deps.itemOf(definition) }, record.group),
+  /a local binding read retains its actual checked variable and selected local/u);
+});
+
 test("a finite call spread selects each real tuple slot and the following authored argument", () => {
   const program = ready(`
     function take(first: boolean, second: string, tail: boolean): boolean { return tail; }

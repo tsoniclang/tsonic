@@ -1,7 +1,7 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { BindingScope, BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
-import type { CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirLocal, HirNode, HirParam, HirResolution, CheckedPhase } from "../ir-hir/contract.js";
+import type { BindingScope, BindingVector, CategoryEvidence, Signature, TypeTerm } from "../ir-types/contract.js";
+import type { BindingPattern, CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirLocal, HirNode, HirParam, HirResolution, CheckedPhase, VariableDeclaration } from "../ir-hir/contract.js";
 import type { ArrayExtentConstraint, CallConstraint, DefaultConstraint, FlowConstraint, IndexConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, WrittenOperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
@@ -458,7 +458,15 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
       yield node.statement;
       return;
     }
-    case "EmptyStatement": case "VariableStatement": case "VariableDeclarationList": return;
+    case "EmptyStatement": return;
+    case "VariableStatement": yield* childrenOf(node.declarationList, false); return;
+    case "VariableDeclarationList":
+      for (const declaration of node.declarations.nodes)
+        if (!("declaration" in declaration.tsonic)) yield declaration;
+      return;
+    case "VariableDeclaration":
+      if (!("declaration" in node.tsonic) && node.initializer !== null) yield node.initializer;
+      return;
     case "InterfaceDeclaration": case "TypeAliasDeclaration": case "EnumDeclaration":
       if (statementList) return;
       return notInferredYet(PORT, `a ${node.kind}`, node.origin);
@@ -656,6 +664,69 @@ function unaryConstraint(walk: Walk, node: HirNode, source: Expression<CheckedPh
   walk.typeOf.set(node.id, result);
 }
 
+function fixedBindingFits(walk: Walk, node: VariableDeclaration<CheckedPhase>): Refusal | undefined {
+  const metadata = node.tsonic;
+  if ("declaration" in metadata || node.name.kind === "Identifier" || node.initializer === null)
+    return callerDefect(PORT, "a binding pattern retains its exact inline source and role");
+  const { deps, group } = walk.generation;
+  const source = node.initializer;
+  if (deps.cuts.syntax(source) !== null) return undefined;
+  const unit = { query: "constraintsOf", key: group.id };
+  const stop = admitTypePublicationStep(deps.typeWork);
+  if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, node.origin, unit);
+  const payload = source.tsonic;
+  const value = payload !== null && "value" in payload ? payload.value : payload;
+  const checked = value !== null && "views" in value ? value.views.read : null;
+  if (checked?.kind !== "available" || metadata.declaredType.kind !== "available")
+    return notInferredYet(PORT, "the actual inferred or annotated tuple of a binding pattern", node.origin);
+  const carrier = metadata.declaredType.value ?? checked.value;
+  flow(walk, source, typeAt(walk, source), carrier, "initialization", { kind: "body", value: refOf(walk, node) });
+  interface Slots {
+    readonly pattern: BindingPattern<CheckedPhase>;
+    readonly tuple: Extract<TypeTerm, { readonly kind: "tuple" }>;
+    index: number;
+  }
+  const pending: Slots[] = [];
+  const enter = (pattern: BindingPattern<CheckedPhase>, type: TyId): Refusal | undefined => {
+    const read = admitTypePublicationStep(deps.typeWork);
+    if (read !== null) return refuseTypeConstruction(deps.typeWork, read, pattern.origin, unit);
+    const tuple = readType(deps.types, type);
+    if (pattern.kind !== "ArrayBindingPattern" || tuple.kind !== "tuple" || pattern.elements.nodes.length > tuple.elements.length)
+      return notInferredYet(PORT, "a fixed tuple binding without its actual ordered slots", pattern.origin);
+    pending.push({ pattern, tuple, index: 0 });
+    return undefined;
+  };
+  const opened = enter(node.name, carrier);
+  if (opened !== undefined) return opened;
+  for (let frame = pending.at(-1); frame !== undefined; frame = pending.at(-1)) {
+    const { pattern, tuple, index } = frame;
+    if (index === pattern.elements.nodes.length) { pending.pop(); continue; }
+    const reached = admitTypePublicationStep(deps.typeWork);
+    if (reached !== null) return refuseTypeConstruction(deps.typeWork, reached, pattern.origin, unit);
+    frame.index += 1;
+    const element = present(pattern.elements.nodes[index], "the actual ordered binding element");
+    const slot = tuple.elements[index];
+    if (slot?.kind !== "required" || element.dotDotDotToken !== null || element.initializer !== null || element.propertyName !== null)
+      return notInferredYet(PORT, "a binding requiring non-required slot or default selection", element.origin);
+    const name = element.name;
+    if (name === null) continue;
+    if (name.kind !== "Identifier") {
+      const nested = enter(name, slot.type);
+      if (nested !== undefined) return nested;
+      continue;
+    }
+    const target = element.tsonic.declaration;
+    const storage = element.tsonic.declaredType;
+    if (target === null || storage.kind !== "available" || storage.value === null)
+      return notInferredYet(PORT, "the actual named destination of a binding slot", element.origin);
+    const definition = target.kind === "definition" ? target.definition : localBinding(deps, target.local).definition;
+    if (deps.itemOf(definition) !== element)
+      return callerDefect(PORT, "a binding fit must target its own actual named leaf");
+    flow(walk, element, slot.type, storage.value, "initialization", { kind: "item", value: { owner: definition, node: element.id } });
+  }
+  return undefined;
+}
+
 function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?: Expression<CheckedPhase>): Refusal | undefined {
   const quotation = layoutQuotation(node);
   if (node.kind === "Identifier") {
@@ -670,6 +741,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     if (!walk.typeOf.has(node.id)) walk.typeOf.set(node.id, node.tsonic.value.views.read.value);
   }
   else if (node.kind === "ParenthesizedExpression") walk.typeOf.set(node.id, typeAt(walk, node.expression));
+  else if (node.kind === "VariableDeclaration") return fixedBindingFits(walk, node);
   else if (node.kind === "CaseClause") {
     const subject = present(caseSubject, "the actual enclosing switch subject");
     const { deps } = walk.generation;
@@ -1140,15 +1212,16 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
 }
 
 function localBinding(deps: InferenceInputs, reference: LocalRef): {
-  readonly definition: DefId; readonly declaration: Extract<HirNode, { readonly kind: "VariableDeclaration" }>; readonly local: HirLocal;
+  readonly definition: DefId; readonly declaration: Extract<HirNode, { readonly kind: "VariableDeclaration" | "BindingElement" }>; readonly local: HirLocal;
 } {
   const local = deps.hirBody(reference.body).locals[reference.local];
   if (local === undefined || !Object.is(local.id, reference.local) || local.role !== "binding" && local.role !== "catch"
     || local.declaration.kind !== "item")
     return callerDefect(PORT, "a local binding read requires its actual qualified declaration inventory");
   const declaration = deps.itemOf(local.declaration.value.owner);
-  if (declaration.kind !== "VariableDeclaration" || !("declaration" in declaration.tsonic) || declaration.id !== local.declaration.value.node
-    || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== reference.body
+  if ((declaration.kind !== "VariableDeclaration" && declaration.kind !== "BindingElement")
+    || !("declaration" in declaration.tsonic) || declaration.id !== local.declaration.value.node
+    || declaration.tsonic.declaration?.kind !== "local" || declaration.tsonic.declaration.local.body !== reference.body
     || !Object.is(declaration.tsonic.declaration.local.local, reference.local))
     return callerDefect(PORT, "a local binding read retains its actual checked variable and selected local");
   if (local.role === "catch") {

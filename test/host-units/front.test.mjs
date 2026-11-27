@@ -3547,6 +3547,7 @@ test("Checked destructuring owns real leaf storage, not a synthetic container lo
   assert.equal(body.root === start.body, true);
   assert.equal(declaration.tsonic.parent, body.owner);
   assert.equal("declaration" in declaration.tsonic, false);
+  assert.equal(hir.checkedVariableStorageOf(declaration), null);
   assert.equal(checked.items.some(item => item.node === declaration.id), false);
   assert.equal(checked.bodies.some(row => row.root === declaration.initializer), false);
   assert.deepEqual(body.locals.map(local => local.name), ["pair", "first", "second"]);

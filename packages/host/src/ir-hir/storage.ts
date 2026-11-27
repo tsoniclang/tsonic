@@ -142,7 +142,7 @@ export const checkedMemberStorageOf: CheckedMemberStorageOf = access => {
 };
 
 export const checkedVariableStorageOf: CheckedVariableStorageOf = declaration => {
-  if (!("declaration" in declaration.tsonic)) return null;
+  if (!("inferredTypeBound" in declaration.tsonic)) return null;
   const { declaredType, inferredTypeBound } = declaration.tsonic;
   if (declaredType.kind !== "available") return null;
   if (declaredType.value !== null) return declaredType.value;
