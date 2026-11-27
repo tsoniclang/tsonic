@@ -207,6 +207,69 @@ export async function checkOrderedRefinementProofs() {
   }
 }
 
+export async function checkDisjunctiveFieldProofs() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
+  const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
+  const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
+  const { fieldRefinementsOf } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { sameInstance } = await import("../../../packages/host/dist/ir-types/index.js");
+  const fixture = await loadFrontFixture();
+  for (const [variant, left, right] of [
+    ["both", "first", "(box.flag !== undefined && second)"],
+    ["invalidate", "clear(box)", "(box.flag !== undefined && second)"],
+    ["bypass", "first", "second"],
+  ]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Box = { flag: boolean | undefined };
+      function clear(box: Box): boolean { box.flag = undefined; return true; }
+      export function read(box: Box, first: boolean, second: boolean): boolean {
+        if ((box.flag !== undefined && ${left}) || ${right}) {
+          ${variant === "bypass" ? "if (box.flag !== undefined) return box.flag;" : "return box.flag;"}
+        }
+        return false;
+      }
+    `);
+    const output = analyzeHostProgram(input);
+    assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
+    const chapter = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const [statement] = body.tir.root.statements.nodes;
+    const [then] = statement.thenStatement.statements.nodes;
+    const guard = statement.expression;
+    const guards = variant === "bypass" ? [then.expression.id] : [guard.left.expression.left.id, guard.right.expression.left.id];
+    const node = (variant === "bypass" ? then.thenStatement : then).expression.id;
+    const call = variant === "invalidate" ? guard.left.expression.right : null;
+    const expected = [call === null ? { kind: "proven", node, guards }
+      : { kind: "unproven", node, guards,
+        reason: { kind: "invalidated", sites: [{ kind: "call", at: { body: body.tir.body, node: call.id } }] } }];
+    const facts = body.facts.find(row => row.execution.provided === 3);
+    assert.deepEqual(facts.refinements.refinements, expected, variant);
+    assert.deepEqual(body.mir.blocks.filter(row => row.terminator.kind === "check").map(({ terminator }) =>
+      [terminator.tir.node, body.mir.places[terminator.place].base.projection.kind]), [[node, "refined"]]);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const indexed = sourceOccurrences(body.tir, createAccount(limits));
+    assert.equal(indexed.kind, "complete");
+    checkReachedProofCuts(InvocationAccount.stateOf, account => fieldRefinementsOf(account, body.mir, 3, {
+      sourceOf: node => indexed.value.get(node),
+      callBindings: { lexical: body.tir.lexicalBindings,
+        scopeOf: owner => captured.value.descriptions.get(owner)?.generics ?? null },
+      summaryAt: (block, operation) => {
+        assert.equal(body.mir.blocks[block].terminator === operation, true);
+        assert.equal(operation.tir.node, call?.id);
+        assert.equal(operation.callee.kind, "direct");
+        const summary = output.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.provided === 1
+          && sameInstance(row.key.execution.instance, operation.callee.resolution.activation));
+        assert.ok(summary);
+        return { kind: "complete", value: summary };
+      },
+    }), expected, variant);
+  }
+}
+
 export async function checkNativeCountedLoopProofs() {
   const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
   const { countedLoopsOf, parseFacts, printFacts } = await import("../../../packages/host/dist/ir-facts/index.js");
