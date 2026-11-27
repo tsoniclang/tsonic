@@ -4,7 +4,7 @@ import { checkedLayoutRoleOf, compoundAssignmentOperatorOf, prefixOperatorOf, sh
 import type { Origin } from "../ids/contract.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BindingScope, BodyInstance, NativeCarrierHolding, TypeComponent, TypeEvidence, TypeTable, TypeTerm } from "../ir-types/contract.js";
-import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeAbsenceComparisonOf, nativeCarrierHoldingOf, nativeCarrierOf, readLexicalTypeSupport } from "../ir-types/index.js";
+import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeAbsenceComparisonOf, nativeCarrierHoldingOf, nativeCarrierOf, optionalValueDomainOf, readLexicalTypeSupport } from "../ir-types/index.js";
 import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirReadyReadAdmission, TirRule, TirTypedSyntax, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
 import { enterTirInline, roleSyntaxReference, tirPathText } from "./text-layouts.js";
@@ -386,7 +386,48 @@ const assignmentTokens: readonly string[] = (["EqualsToken", "PlusEqualsToken", 
   "GreaterThanGreaterThanGreaterThanEqualsToken", "AmpersandEqualsToken", "BarEqualsToken", "CaretEqualsToken",
   "AmpersandAmpersandEqualsToken", "BarBarEqualsToken", "QuestionQuestionEqualsToken"]);
 
-export function verifyTupleBinding<Stop extends object>(node: VariableDeclaration<TypedPhase>, original: HirNode | undefined,
+function verifyFieldBindings<Stop extends object>(typed: BindingPattern<TypedPhase>, checked: BindingPattern<CheckedPhase>,
+  types: TypeTable, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  if (typed.elements.nodes.length !== checked.elements.nodes.length || types.terms[typed.tsonic.storage]?.kind !== "shape") {
+    emit("binding-storage", typed, "an object binding retains its actual closed receiver and authored field count");
+    return null;
+  }
+  for (let position = 0; position < typed.elements.nodes.length; position += 1) {
+    const paid = admit({ kind: "row" });
+    if (paid !== null) return paid;
+    const element = typed.elements.nodes[position];
+    const authored = checked.elements.nodes[position];
+    if (element === undefined || authored?.id !== element.id || element.name?.kind !== "Identifier"
+      || element.dotDotDotToken !== null || element.tsonic.role !== "field-binding") {
+      emit("binding-storage", element ?? typed, "an object binding retains its actual ordered field and named destination");
+      continue;
+    }
+    const binding = element.tsonic;
+    const target = authored.tsonic.declaration;
+    if (target === null || (target.kind === "local" ? binding.declaration.kind !== "local" || !sameLocalReference(binding.declaration.local, target.local)
+      : binding.declaration.kind !== "definition" || binding.declaration.definition !== target.definition)
+      || authored.tsonic.declaredType.kind !== "available" || authored.tsonic.declaredType.value !== binding.storage)
+      emit("binding-storage", element, "a data-field binding retains its independently checked destination");
+    if (element.initializer?.id !== authored.initializer?.id || (element.initializer === null) !== (binding.initializer === null))
+      emit("binding-storage", element, "an authored default retains its actual independently placed expression");
+    const read = binding.field.decision.read;
+    const beforeRead = admit({ kind: "row" });
+    if (beforeRead !== null) return beforeRead;
+    const term = read === null ? undefined : types.terms[read];
+    let stopped: Stop | null = null;
+    const domain = term?.kind === "optional" && element.initializer !== null ? optionalValueDomainOf(term, type => {
+      stopped ??= admit({ kind: "row" });
+      return stopped === null ? types.terms[type] ?? null : null;
+    }) : null;
+    if (stopped !== null) return stopped;
+    if (term === undefined || (domain === null ? binding.present !== null || read !== binding.storage
+      : domain.kind !== "optional-value" || binding.present !== domain.present || binding.storage !== domain.present))
+      emit("binding-storage", element, "the field read and selected native present value must fit the actual binding storage");
+  }
+  return null;
+}
+
+export function verifyPatternBinding<Stop extends object>(node: VariableDeclaration<TypedPhase>, original: HirNode | undefined,
   types: TypeTable, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
   const checked = original?.kind === "VariableDeclaration" && !("declaration" in original.tsonic) ? original : null;
   if (!("role" in node.tsonic)) {
@@ -396,6 +437,10 @@ export function verifyTupleBinding<Stop extends object>(node: VariableDeclaratio
   const paid = admit({ kind: "row" });
   if (paid !== null) return paid;
   const source = node.initializer === null ? null : typedValueOf(node.initializer);
+  if (checked?.name.kind === "ObjectBindingPattern" && node.name.kind === "ObjectBindingPattern" && source !== null
+    && node.name.id === checked.name.id && node.initializer?.id === checked.initializer?.id
+    && node.name.tsonic.storage === source.convertedType)
+    return verifyFieldBindings(node.name, checked.name, types, admit, emit);
   if (checked?.name.kind !== "ArrayBindingPattern" || node.name.kind !== "ArrayBindingPattern" || source === null
     || node.initializer?.id !== checked.initializer?.id || node.name.tsonic.storage !== source.convertedType) {
     emit("binding-storage", node, "a destructuring container must retain its original inline source and actual tuple type");
@@ -490,7 +535,8 @@ export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefine
   if (node.kind === "BindingElement") {
     if ((node.tsonic.role === "hole") !== (node.name === null))
       emit("binding-element-role-exact", node, "binding element role is hole exactly when its authored name is absent");
-    else if (node.name !== null && node.tsonic.role !== (node.name.kind === "Identifier" ? "binding" : "pattern"))
+    else if (node.name !== null && (node.name.kind === "Identifier"
+      ? node.tsonic.role !== "binding" && node.tsonic.role !== "field-binding" : node.tsonic.role !== "pattern"))
       emit("binding-element-role-exact", node, "a binding element must distinguish a named destination from a nested pattern");
   }
   if (node.kind === "BinaryExpression") {

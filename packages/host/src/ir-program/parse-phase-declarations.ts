@@ -3,12 +3,13 @@ import type { TypeParameter, BindingVector, PassingMode } from "../ir-types/cont
 import type { ImportTarget, HirAttribute, HirCallableEndpoint, DeclarationTarget } from "../ir-hir/contract.js";
 import type { TypedBinding, TypedBindingPattern, TypedParameter, TypedBodyTemplate, TypedCallable, TypedClass, TypedHeritage, TypedInterface, TypedAlias, TypedEnum, TypedStorageDeclaration, TypedStaticBlock, TypedIndexDeclaration, TypedType, TypedPredicate, TypedTypeParameter, TypedImport, TypedImportBinding, TypedModuleReference, TypedExport, TypedExportBinding, TypedNamespaceExport, TypedExportAssignment, TypedNamespace, TypedSourceFile } from "../ir-tir/contract.js";
 import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
-import type { TypedBindingElement, TypedPatternVariable } from "../ir-tir/contract.js";
+import type { MemberSelection, TypedBindingElement, TypedPatternVariable } from "../ir-tir/contract.js";
 import { choice, delimiter, startFieldChoice } from "./parse-values.js";
 import { readBoolean, readStringChoice, openRecord, closeRecord, readModuleId, readDefinitionId, readBodyId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeParameterText, readBindings } from "./parse-types.js";
 import { readLocalRef, readSourceNodeRef } from "./parse-diagnostics.js";
 import { readHirCallableEndpointText, readHirAttributeText, readDeclarationTargetText, readImportTargetText } from "./parse-core.js";
+import { readMemberSelectionText } from "./parse-tir.js";
 
 export function readTypedBindingElementText<Root>(cursor: Cursor, finish: (value: TypedBindingElement) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TypedBindingElement"), fields =>
@@ -21,8 +22,14 @@ export function readTypedBindingElementText<Root>(cursor: Cursor, finish: (value
           return readDeclarationTargetText(cursor, declaration =>
             fieldText<TyId, Root>(cursor, fields, "storage", (next, done) => atomicText(next, readTypeId, done), storage =>
               fieldText<BodyId | null, Root>(cursor, fields, "initializer", (next, done) => nullableText(next, (next, done) => atomicText(next, readBodyId, done), done), initializer =>
-                fieldText<"binding", Root>(cursor, fields, "role", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["binding"]), done), role =>
-                  atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ declaration, storage, initializer, role }, finish))))));
+                fieldText<"binding" | "field-binding", Root>(cursor, fields, "role",
+                  (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["binding", "field-binding"]), done), role => {
+                    if (role === "binding")
+                      return atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ declaration, storage, initializer, role }, finish));
+                    return fieldText<MemberSelection, Root>(cursor, fields, "field", readMemberSelectionText, field =>
+                      fieldText<TyId | null, Root>(cursor, fields, "present", (next, done) => nullableText(next, (next, done) => atomicText(next, readTypeId, done), done), present =>
+                        atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ declaration, storage, initializer, role, field, present }, finish))));
+                  }))));
       }
     }));
 }

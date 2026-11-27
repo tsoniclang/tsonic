@@ -1,7 +1,7 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
-import { decodeBodyId } from "../ids/index.js";
+import { decodeBodyId, encodeBodyId } from "../ids/index.js";
 import type { BinaryExpression, BindingElement, BindingName, BindingPattern, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, ConstraintDecision, EmbeddingDecision, FlowRole, IndexDecision, InferredSignaturePart, RuleOutcome } from "../ir-infer/contract.js";
@@ -193,7 +193,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   } else {
     for (const child of children.values()) {
       const path = decodeBodyId(child.body);
-      if (path.kind === "decoded" && path.value.role === "layout-operand") skipped.push(child.root.id);
+      if (path.kind === "decoded" && (path.value.role === "layout-operand"
+        || path.value.role === "initializer" && child.root.parent !== null
+          && deps.nodeOf({ kind: "item", value: { owner: child.owner, node: child.root.parent } })?.kind === "BindingElement"))
+        skipped.push(child.root.id);
     }
   }
   const nodes = walkSyntaxTree(root, skipped);
@@ -833,7 +836,57 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     }
     return callerDefect("a destructuring pattern must materialize its actual root", pattern.origin);
   };
-  const variableList = (list: VariableDeclarationList<CheckedPhase>): Result<VariableDeclarationList<TypedPhase>> => {
+  const objectPattern = (pattern: BindingPattern<CheckedPhase>, storage: TyId): Result<BindingPattern<TypedPhase>> | ElaborationNoResult => {
+    const nodes: BindingElement<TypedPhase>[] = [];
+    for (const element of pattern.elements.nodes) {
+      const name = element.name;
+      const target = element.tsonic.declaration;
+      if (name?.kind !== "Identifier" || target === null || element.dotDotDotToken !== null)
+        return callerDefect("an object binding must retain its actual named data-field destination", element.origin);
+      const position = nodePosition(element.id);
+      const fit = flows[position];
+      const solved = members[position];
+      const member = solved?.member;
+      if (member === undefined || solved?.refinement !== null || member.read === null || member.location.kind !== "data"
+        || member.getter !== null || member.setter !== null || fit?.role !== "initialization" || fit.embedding.kind !== "identity"
+        || fit.destination !== fit.source || target.kind === "local" && (target.local.body !== body.body || storageOf[target.local.local] !== fit.destination))
+        return notElaboratedYet("a data-field binding without its actual selected identity fit", element.origin);
+      const readStorage = deps.typeOf(member.read);
+      const present = element.initializer !== null && readStorage.kind === "optional" ? fit.source : null;
+      if (present === null && fit.source !== member.read)
+        return callerDefect("a direct member binding requires its actual complete read type", element.origin);
+      const authored = element.propertyName;
+      if (authored !== null && (authored.kind !== "Identifier" || authored.tsonic.role !== "property-name"))
+        return callerDefect("a binding selector must retain its actual authored field", element.origin);
+      const propertyName: Identifier<TypedPhase> | null = authored === null ? null : {
+        ...header(authored), kind: "Identifier", text: authored.text, tsonic: { role: "property-name", key: member.key },
+      };
+      let initializer: Expression<TypedPhase> | null = null;
+      let initializerBody: BodyId | null = null;
+      if (element.initializer !== null) {
+        const source = target.kind === "local" ? body.locals[target.local.local]?.declaration : null;
+        const definition = target.kind === "definition" ? target.definition : source?.kind === "item" ? source.value.owner : null;
+        if (definition === null || source?.kind === "item" && source.value.node !== element.id)
+          return callerDefect("a binding initializer requires its actual named owner", element.origin);
+        initializerBody = encodeBodyId({ owner: definition, role: "initializer", ordinal: 0 });
+        const child = childStates.get(initializerBody);
+        if (child !== undefined && "kind" in child && child.kind === "no-result") return { ...child, instance, diagnostics: [] };
+        if (child === undefined || "kind" in child || child.root.kind === "Block" || child.root.kind === "SourceFile"
+          || child.root.id !== element.initializer.id || child.root.parent !== element.id || child.owner !== definition || child.completion !== fit.destination)
+          return callerDefect("a binding initializer must retain its independently completed root and destination", element.origin);
+        initializer = child.root;
+      }
+      read.members.add(position);
+      read.flows.add(position);
+      nodes.push({ ...header(element), kind: element.kind, dotDotDotToken: null, propertyName, initializer,
+        name: { ...header(name), kind: name.kind, text: name.text, tsonic: { role: "declaration-name", declaration: target, storage: fit.destination } },
+        tsonic: { role: "field-binding", declaration: target, storage: fit.destination, initializer: initializerBody,
+          field: { decision: member, getter: null, setter: null }, present } });
+    }
+    return { kind: "ok", diagnostics: [], value: { ...header(pattern), kind: pattern.kind,
+      elements: { loc: pattern.elements.loc, nodes }, tsonic: { storage } } };
+  };
+  const variableList = (list: VariableDeclarationList<CheckedPhase>): Result<VariableDeclarationList<TypedPhase>> | ElaborationNoResult => {
     const nodes: VariableDeclaration<TypedPhase>[] = [];
     for (const declaration of list.declarations.nodes) {
       if (!("declaration" in declaration.tsonic)) {
@@ -844,8 +897,9 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         if (selected === undefined) return callerDefect("a typed pattern requires its completed source value", source.origin);
         const type = declarationType(deps, declaration.type);
         if (type.kind === "refused") return type;
-        const pattern = tuplePattern(declaration.name, selected.convertedType);
-        if (pattern.kind === "refused") return pattern;
+        const pattern = declaration.name.kind === "ObjectBindingPattern"
+          ? objectPattern(declaration.name, selected.convertedType) : tuplePattern(declaration.name, selected.convertedType);
+        if (pattern.kind !== "ok") return pattern;
         nodes.push({ ...header(declaration), kind: declaration.kind, name: pattern.value,
           exclamationToken: null, type: type.value, initializer: expressionOf(source), tsonic: { role: "destructuring" } });
         continue;
@@ -863,6 +917,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   };
   const stack: Frame[] = [];
   const blocked = new Map<NodeId, ElaborationNoResult>();
+  const blockStatement = (frame: Frame, unavailable: ElaborationNoResult): void => {
+    blocked.set(frame.node.id, unavailable);
+    if (frame.parent !== null && !blocked.has(frame.parent)) blocked.set(frame.parent, unavailable);
+  };
   let enclosingLoop: NodeId | null = null;
   let enclosingBreak: NodeId | null = null;
   let visiting: NodeId | null = null;
@@ -888,8 +946,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     const unavailable: ElaborationNoResult | undefined = cut === null ? blocked.get(node.id)
       : { kind: "no-result", instance, diagnostics: [], causes: [{ kind: "form", cut }] };
     if (unavailable !== undefined) {
-      blocked.set(node.id, unavailable);
-      if (frame.parent !== null && !blocked.has(frame.parent)) blocked.set(frame.parent, unavailable);
+      blockStatement(frame, unavailable);
       return;
     }
     const position = nodePosition(node.id);
@@ -1052,6 +1109,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           if (initializer?.kind === "VariableDeclarationList") {
             const variables = variableList(initializer);
             if (variables.kind === "refused") return variables;
+            if (variables.kind === "no-result") { blockStatement(frame, variables); return; }
             selectedInitializer = variables.value;
           } else selectedInitializer = initializer === null ? null : expressionOf(initializer);
           statements[position] = { ...header(node), kind: node.kind,
@@ -1073,6 +1131,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         if (building) {
           const variables = variableList(node.declarationList);
           if (variables.kind === "refused") return variables;
+          if (variables.kind === "no-result") { blockStatement(frame, variables); return; }
           statements[position] = { ...header(node), kind: "VariableStatement", modifiers: declarationModifiers(node.modifiers),
             declarationList: variables.value, tsonic: null };
         } else visitPatternSources(node.declarationList);

@@ -550,7 +550,7 @@ export const verifyBindingSlots = <Stop extends object>(
       if ("declaration" in node.tsonic) binding(node.tsonic, node);
     } else if (node.kind === "BindingElement") {
       const phase = node.tsonic;
-      if (phase.role === "binding") binding(phase, node);
+      if (phase.role === "binding" || phase.role === "field-binding") binding(phase, node);
     } else if (node.kind === "Parameter") {
       const original = originals.get(node.id);
       if (original?.kind === "Parameter" && original.tsonic.declaration.kind === "definition") continue;

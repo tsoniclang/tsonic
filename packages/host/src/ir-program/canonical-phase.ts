@@ -297,6 +297,10 @@ function prepareBindingElement(scan: ProjectionInventory, value: TypedBindingEle
   switch (value.role) {
     case "binding": return paidPhase(scan, 4, () => withPlan(prepareBindingPhase(scan, value), binding =>
       ({ kind: "copied", value: image => ({ ...binding(image), role: "binding" }) })));
+    case "field-binding": return paidPhase(scan, 6, () => withPlan(prepareBindingPhase(scan, value), binding =>
+      withPlan(prepareSelection(scan, value.field), field =>
+        withPlan(optionalTypePhase(scan, value.present), present => ({ kind: "copied",
+          value: image => ({ ...binding(image), role: "field-binding", field: field(image), present: present(image) }) })))));
     case "hole": case "pattern": return borrowPhase(scan, 1, value);
   }
 }

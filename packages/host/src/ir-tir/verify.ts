@@ -1,16 +1,16 @@
 import type { BodyId, CandidateListId, DefId, ItemNodeRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
-import { encodeKey } from "../ids/index.js";
+import { encodeBodyId, encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf,
-  checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
+  checkedSourceBindingFieldOf, checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
   readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
-import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyTupleBinding, verifyTupleConstruction, verifyValueEndpoints } from "./verify-occurrences.js";
+import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyPatternBinding, verifySwitchOperations, verifyTupleConstruction, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
 import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
@@ -843,7 +843,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   for (const node of structure.nodes) {
     const original = inventory.sourceNodes.get(node.id);
     if (node.kind === "VariableDeclaration") {
-      const stop = verifyTupleBinding(node, original, input.types, admit, emit);
+      const stop = verifyPatternBinding(node, original, input.types, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
     }
     if (node.kind === "ArrayLiteralExpression") {
@@ -1138,6 +1138,50 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       }
     }
     const original = inventory.sourceNodes.get(member.node.id);
+    const binding = member.node.kind === "BindingElement" ? member.node.tsonic : null;
+    if (member.node.kind === "BindingElement" && binding?.role === "field-binding") {
+      const element = member.node;
+      const { primary, key, location } = binding.field.decision;
+      let stopped: Stop | null = null;
+      const read = (reference: SourceNodeRef) => input.nodeOf(reference);
+      const holding = member.occurrence.kind === "selection" && original?.kind === "BindingElement"
+        && inventory.original !== undefined && primary !== null
+        ? checkedSourceBindingFieldOf(inventory.original, original, key, primary, read, definition => {
+          stopped ??= admit({ kind: "source-declaration", definition });
+          if (stopped !== null) return null;
+          const reference = input.declarationSourceOf(definition);
+          return reference?.kind === "item" && reference.value.owner === definition ? read(reference) : null;
+        }, (work = 1) => {
+          for (let count = 0; count < work && stopped === null; count += 1) stopped = admit({ kind: "row" });
+          return stopped === null;
+        }) : null;
+      if (stopped !== null) return { kind: "resource-stop", stop: stopped };
+      if (holding === null || holding.receiver !== table?.receiver || primary !== holding.field
+        || location.kind !== "data" || location.receiver !== "by-reference" || location.check.kind !== "none"
+        || binding.field.getter !== null || binding.field.setter !== null)
+        emit("access-location", element, "a binding field must retain its actual checked reference and selected data field");
+      if (binding.initializer !== null) {
+        const target = binding.declaration;
+        const local = target.kind === "local" ? body.locals[target.local.local]?.declaration : null;
+        const owner = target.kind === "definition" ? target.definition : local?.kind === "item" && local.value.node === element.id ? local.value.owner : null;
+        if (owner === null || binding.initializer !== encodeBodyId({ owner, role: "initializer", ordinal: 0 })) {
+          emit("nested-template-identity", element, "a binding initializer needs its actual named declaration");
+        } else {
+          const selected = { body: binding.initializer, bindings: body.bindings };
+          const use = admit({ kind: "artifact", instance: selected });
+          if (use !== null) return { kind: "resource-stop", stop: use };
+          const placed = input.bodyOf(selected);
+          const actual = placed === null ? null : { body: placed.body, bindings: placed.bindings };
+          if (actual !== null) {
+            const found = admit({ kind: "artifact", instance: actual });
+            if (found !== null) return { kind: "resource-stop", stop: found };
+          }
+          if (placed === null || actual === null || !sameInstance(selected, actual) || placed.owner !== owner
+            || placed.root !== element.initializer || placed.completion !== binding.storage)
+            emit("nested-template-identity", element, "the binding retains its independently placed initializer and actual root");
+        }
+      }
+    }
     if (member.occurrence.kind === "selection" && original?.kind === "PropertyAccessExpression" && inventory.original !== undefined) {
       if (original.tsonic.role === "assignment-target" && original.tsonic.place.kind === "available"
         && original.tsonic.place.value.base.kind === "receiver") {
@@ -1248,7 +1292,7 @@ export const verifyTypedModule: VerifyTirModule = (input, module, admit) => {
   for (const node of structure.nodes) {
     const original = sourceNodes.get(node.id);
     if (node.kind === "VariableDeclaration") {
-      const stop = verifyTupleBinding(node, original, input.types, admit, emit);
+      const stop = verifyPatternBinding(node, original, input.types, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
     }
     verifyOccurrenceRole(node, original, emit);

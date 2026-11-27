@@ -167,6 +167,53 @@ test("authored tuple construction consumes ordered operands and emits one select
   }
 });
 
+test("verified Typed object bindings retain a native absence split and their separately placed default", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { parseTir, printTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function bind(source: { first: boolean; second?: boolean }): boolean {
+      const { first: left, second = !left } = source;
+      return second;
+    }
+  `);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const result = typeSourceBarrier(input, captured.value, createTypedAccount(input));
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const bodies = [...result.value.bodies.values()];
+  const enclosing = bodies.find(body => body.bindings.kind === "instantiated" && body.root.kind === "Block");
+  assert.ok(enclosing);
+  const slots = enclosing.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes;
+  const [left, right] = slots;
+  assert.equal(left.tsonic.role, "field-binding");
+  assert.equal(left.tsonic.field.decision.key.value, "first");
+  assert.equal(left.name.text, "left");
+  assert.equal(left.tsonic.present, null);
+  assert.equal(left.tsonic.initializer, null);
+  assert.equal(right.tsonic.role, "field-binding");
+  assert.equal(right.tsonic.field.decision.key.value, "second");
+  assert.equal(right.tsonic.present, right.tsonic.storage);
+  assert.notEqual(right.tsonic.field.decision.read, right.tsonic.present);
+  const child = bodies.find(body => body.body === right.tsonic.initializer && body.bindings.kind === "instantiated");
+  assert.equal(child.root === right.initializer, true);
+  assert.equal(child.completion, right.tsonic.storage);
+  assert.deepEqual(child.captures.map(row => row.local), [left.tsonic.declaration.local]);
+  const text = printTir(enclosing);
+  const parsed = parseTir(text);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(printTir(parsed.value), text);
+  const damaged = structuredClone(enclosing);
+  damaged.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes[1].tsonic.present = null;
+  const proof = result.value.verifierOf(input.snapshot.entryPoint);
+  const rejected = verifyTir(proof, tirReadyReadAdmission(createTypedAccount(input)))(damaged);
+  assert.equal(rejected.kind, "complete");
+  assert.equal(rejected.violations.some(row => row.rule === "binding-storage" && row.detail.some(detail => detail.kind === "text"
+    && detail.value.startsWith("the field read and selected native present"))), true);
+});
+
 test("installed ES2024 publishes a qualified scalar indexed write and read within its original allowance", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

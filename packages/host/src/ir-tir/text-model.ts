@@ -77,6 +77,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TirSelection: lazyRecord(() => body.work_TirSelection)
   });
   const phase_declarations = createPhaseDeclarationsText(kernel, {
+    work_MemberSelection: lazyRecord(() => body.work_MemberSelection),
     work_ClosureDecision: lazyRecord(() => rule_decisions.work_ClosureDecision),
     work_DeferredDecision: lazyRecord(() => rule_inputs.work_DeferredDecision),
     work_BindingVector: lazyRecord(() => type_values.work_BindingVector),

@@ -314,6 +314,7 @@ export interface TypedPatternVariable {
 
 export type TypedBindingElement =
   | (TypedBinding & { readonly role: "binding" })
+  | (TypedBinding & { readonly role: "field-binding"; readonly field: MemberSelection; readonly present: TyId | null })
   | { readonly role: "hole" }
   | { readonly role: "pattern" };
 

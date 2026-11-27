@@ -3,7 +3,7 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type {
-  ConversionDecision, TirDemand, TirProtocol, TypedAlias, TypedBinding, TypedBindingElement, TypedBindingPattern, TypedBodyTemplate, TypedCallable, TypedClass, TypedClassValue, TypedClosure, TypedEnum, TypedExport, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedHeritage, TypedImport, TypedImportBinding, TypedIndexDeclaration, TypedInterface, TypedModuleReference, TypedNamespace, TypedParameter, TypedPhase, TypedPredicate, TypedSourceFile, TypedStaticBlock, TypedStorageDeclaration, TypedType, TypedTypeParameter, TypedVariableList
+  ConversionDecision, MemberSelection, TirDemand, TirProtocol, TypedAlias, TypedBinding, TypedBindingElement, TypedBindingPattern, TypedBodyTemplate, TypedCallable, TypedClass, TypedClassValue, TypedClosure, TypedEnum, TypedExport, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedHeritage, TypedImport, TypedImportBinding, TypedIndexDeclaration, TypedInterface, TypedModuleReference, TypedNamespace, TypedParameter, TypedPhase, TypedPredicate, TypedSourceFile, TypedStaticBlock, TypedStorageDeclaration, TypedType, TypedTypeParameter, TypedVariableList
 } from "./contract.js";
 import type {
   BindingVector, TypeParameter
@@ -25,6 +25,7 @@ export interface PhaseDeclarationsTextReads {
   readonly work_ClosureDecision: TirRecordCodec<ClosureDecision>;
   readonly work_DeferredDecision: TirRecordCodec<DeferredDecision>;
   readonly work_ConversionDecision: TirRecordCodec<ConversionDecision>;
+  readonly work_MemberSelection: TirRecordCodec<MemberSelection>;
   readonly work_DeclarationTarget: TirRecordCodec<DeclarationTarget>;
   readonly work_HirAttribute: TirRecordCodec<HirAttribute>;
   readonly work_HirCallableEndpoint: TirRecordCodec<HirCallableEndpoint>;
@@ -104,6 +105,16 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
     .field("initializer", "?body", value => nullableWork(value.initializer, actual => scalarWork("body", actual)), nullableReader(bodyReader))
     .field("role", "'binding", value => scalarWork("'binding", value.role), literalReader<(TypedBindingElement & { readonly role: "binding" })["role"]>("'binding", ["binding"]))
     .finish((field_declaration, field_storage, field_initializer, field_role) => ({ declaration: field_declaration, storage: field_storage, initializer: field_initializer, role: field_role })));
+  type FieldBinding = Extract<TypedBindingElement, { readonly role: "field-binding" }>;
+  const fieldElement = defineRecord<FieldBinding>("TypedBindingElement@field-binding", "TypedBindingElement",
+    { field: "role", value: "field-binding" }, "TypedBindingElement", null, null, fields => fields
+      .field("declaration", "DeclarationTarget", value => read.work_DeclarationTarget.write(value.declaration), lazyReader(() => read.work_DeclarationTarget.reader))
+      .field("storage", "t", value => referenceWork("t", value.storage), typeReader)
+      .field("initializer", "?body", value => nullableWork(value.initializer, actual => scalarWork("body", actual)), nullableReader(bodyReader))
+      .field("role", "'field-binding", value => scalarWork("'field-binding", value.role), literalReader<"field-binding">("'field-binding", ["field-binding"]))
+      .field("field", "MemberSelection", value => read.work_MemberSelection.write(value.field), lazyReader(() => read.work_MemberSelection.reader))
+      .field("present", "?t", value => nullableWork(value.present, actual => referenceWork("t", actual)), nullableReader(typeReader))
+      .finish((declaration, storage, initializer, role, field, present) => ({ declaration, storage, initializer, role, field, present })));
   const emptyElement = <Role extends "hole" | "pattern">(role: Role) => defineRecord<{ readonly role: Role }>(
     `TypedBindingElement@${role}`, "TypedBindingElement", { field: "role", value: role }, "TypedBindingElement", null, null, fields => fields
       .field("role", `'${role}`, value => scalarWork(`'${role}`, value.role), literalReader<Role>(`'${role}`, [role]))
@@ -113,10 +124,11 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
   const work_TypedBindingElement: TirRecordCodec<TypedBindingElement> = unionRecord<TypedBindingElement>("TypedBindingElement", (value: TypedBindingElement): TirTypedRecordWork => {
     switch (value.role) {
       case "binding": return bindingElement.write(value);
+      case "field-binding": return fieldElement.write(value);
       case "hole": return holeElement.write(value);
       case "pattern": return nestedElement.write(value);
     }
-  }, () => [bindingElement.reader, holeElement.reader, nestedElement.reader]);
+  }, () => [bindingElement.reader, fieldElement.reader, holeElement.reader, nestedElement.reader]);
   const work_TypedBindingPattern: TirRecordCodec<TypedBindingPattern> = defineRecord<TypedBindingPattern>("TypedBindingPattern", "TypedBindingPattern", null, "TypedBindingPattern", null, null, fields => fields
     .field("storage", "t", value => referenceWork("t", value.storage), typeReader)
     .finish((field_storage) => ({ storage: field_storage })));

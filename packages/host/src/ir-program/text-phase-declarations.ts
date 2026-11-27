@@ -4,15 +4,20 @@ import type { TypedBindingElement, TypedPatternVariable } from "../ir-tir/contra
 import { token, text, numericIdentity, identity, field, record, sequence, deferred, boolean, textLocalRef, textSourceNodeRef } from "./text-values.js";
 import { textDeclarationTarget, textHirCallableEndpoint, textHirAttribute, textImportTarget } from "./text-core.js";
 import { textTypeParameter, textBindingVector } from "./text-types.js";
+import { textMemberSelection } from "./text-tir.js";
 
 export function textTypedBindingElement(value: TypedBindingElement): TextWork {
   return deferred(value, () => {
     switch (value.role) {
-      case "binding": return record("TypedBindingElement", [
+      case "binding": case "field-binding": return record("TypedBindingElement", [
         field("declaration", textDeclarationTarget(value.declaration)),
         field("storage", numericIdentity("t", value.storage)),
         field("initializer", value.initializer === null ? token("null") : identity("body", value.initializer)),
         field("role", text(value.role)),
+        ...(value.role === "field-binding" ? [
+          field("field", textMemberSelection(value.field)),
+          field("present", value.present === null ? token("null") : numericIdentity("t", value.present)),
+        ] : []),
       ]);
       case "hole": case "pattern": return record("TypedBindingElement", [field("role", text(value.role))]);
     }
