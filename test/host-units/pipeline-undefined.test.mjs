@@ -237,6 +237,30 @@ export function absent(value: boolean | undefined): boolean { return null === va
   assert.deepEqual(operators.sort(), ["EqualsEqualsEqualsToken", "ExclamationEqualsEqualsToken"]);
 });
 
+test("presence comparison keeps both authored calls in evaluation order even when one produces only absence", async () => {
+  const fixture = await loadFrontFixture();
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
+function left(value: boolean): boolean | undefined { return value; }
+function right(): boolean { return false; }
+export function compare(value: boolean): boolean { return left(value) !== void right(); }` },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const result = analyzeHostProgram({ snapshot, extensions: fixture.front.createCheckerExtensions([]), limits });
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0]?.expression?.kind === "BinaryExpression");
+  const expression = body.tir.root.statements.nodes[0].expression;
+  const calls = body.mir.blocks.filter(block => block.terminator.kind === "call");
+  assert.equal(calls.length, 2);
+  const first = body.mir.blocks[body.mir.entries[0].block].terminator;
+  const second = body.mir.blocks[first.next].terminator;
+  assert.deepEqual([[first.kind, first.tir.node], [second.kind, second.tir.node]],
+    [["call", expression.left.id], ["call", expression.right.expression.id]]);
+  assert.equal(body.mir.blocks[second.next].statements.some(statement => statement.kind === "assign"
+    && statement.tir.node === expression.id && statement.value.kind === "binary"
+    && statement.value.operation.decision.operation.kind === "absence-test"), true);
+});
+
 test("capture only reads a paid incomplete reference and requires its exact SDK symbol", async () => {
   const fixture = await loadFrontFixture();
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
