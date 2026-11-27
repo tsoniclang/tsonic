@@ -3801,33 +3801,46 @@ function captureDiagnosticCoverage(scope: CaptureScope, diagnostics: readonly Di
   return rows;
 }
 
-function contextualTupleUse(scope: CaptureScope, node: Node, parent: Node | undefined,
-  contextual: ResolvedSourceTypeInfo | undefined): ContextualTupleUse | null {
-  if (parent === undefined || contextual === undefined || contextual.causes.length !== 0 || !scope.shape.isTuple(contextual.type)) return null;
+function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: Node, contextual: ResolvedSourceTypeInfo): Node | undefined {
   const ast = scope.checked.ast;
-  let annotation: Node | undefined;
   if (ast.kindName(parent) === "KindVariableDeclaration" && ast.as.AsVariableDeclaration(parent)?.Initializer === node)
-    annotation = ast.typeNode(parent);
-  else if (ast.kindName(parent) === "KindReturnStatement" && ast.as.AsReturnStatement(parent)?.Expression === node) {
+    return ast.typeNode(parent);
+  if (ast.kindName(parent) === "KindReturnStatement" && ast.as.AsReturnStatement(parent)?.Expression === node) {
     const written = contextual.typeSource;
-    if (written === undefined || !admit(scope, "edges")) return null;
+    if (written === undefined || !admit(scope, "edges")) return undefined;
     const owner = ast.parent(written);
-    if (owner === undefined || ast.typeNode(owner) !== written || !admit(scope, "edges")) return null;
+    if (owner === undefined || ast.typeNode(owner) !== written || !admit(scope, "edges")) return undefined;
     for (let enclosed: Node | undefined = parent; enclosed !== undefined;) {
-      if (!admit(scope, "edges")) return null;
+      if (!admit(scope, "edges")) return undefined;
       const containing = ast.parent(enclosed);
       if (containing === undefined) break;
       const kind = ast.kindName(containing);
       if (kind === "KindFunctionDeclaration" || kind === "KindFunctionExpression" || kind === "KindArrowFunction"
         || kind === "KindMethodDeclaration" || kind === "KindGetAccessor" || kind === "KindSetAccessor" || kind === "KindConstructor") {
-        if (containing === owner && ast.body(containing) === enclosed) annotation = written;
-        break;
+        return containing === owner && ast.body(containing) === enclosed ? written : undefined;
       }
       enclosed = containing;
     }
   }
-  const syntax = tupleAnnotationOf(scope, contextual.type, annotation);
+  return undefined;
+}
+
+function contextualTupleUse(scope: CaptureScope, node: Node, parent: Node | undefined,
+  contextual: ResolvedSourceTypeInfo | undefined): ContextualTupleUse | null {
+  if (parent === undefined || contextual === undefined || contextual.causes.length !== 0 || !scope.shape.isTuple(contextual.type)) return null;
+  const syntax = tupleAnnotationOf(scope, contextual.type, contextualLiteralAnnotation(scope, node, parent, contextual));
   return syntax === undefined ? null : { kind: "contextual-tuple", syntax, original: contextual.type };
+}
+
+function contextualNativeArrayAnnotation(scope: CaptureScope, node: Node, parent: Node, contextual: ResolvedSourceTypeInfo): Node | null {
+  const annotation = contextualLiteralAnnotation(scope, node, parent, contextual);
+  if (annotation === undefined) return null;
+  const written = sourceType(scope, { kind: "annotation", node: annotation });
+  if (written?.type !== contextual.type || written.causes.length !== 0) return null;
+  const array = scope.shape.acquireNativeArrayType(contextual.type, nativeCaptureAdmission(scope));
+  if (array.kind === "refused" && array.stop !== scope.meter.refusal)
+    return throwInvariant(invariant("A native array context must retain its actual first capture refusal."));
+  return array.kind === "complete" ? annotation : null;
 }
 
 function declaredTupleRead(scope: CaptureScope, type: Type, declaration: Node | undefined): Node | null {
@@ -5599,15 +5612,19 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue,
         kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);
       let contextualSource: Node | null = null;
-      if (contextual !== undefined && contextual.causes.length === 0 && scope.shape.isTuple(contextual.type)) {
-        const contexts = scope.tables.tupleArgumentContexts;
-        if (contexts !== null && !admit(scope, "edges")) break;
-        const formal = contexts?.get(node);
-        const variable = ast.kindName(parent) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(parent) : undefined;
-        const written = variable?.Initializer === node && ast.kindName(variable.name) === "KindArrayBindingPattern"
-          ? tupleAnnotationOf(scope, contextual.type, variable.Type) : undefined;
-        contextualSource = formal === undefined ? written ?? contextual.typeSource ?? null
-          : formal.type === contextual.type ? formal.annotation : null;
+      if (contextual !== undefined && contextual.causes.length === 0) {
+        if (scope.shape.isTuple(contextual.type)) {
+          const contexts = scope.tables.tupleArgumentContexts;
+          if (contexts !== null && !admit(scope, "edges")) break;
+          const formal = contexts?.get(node);
+          const variable = ast.kindName(parent) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(parent) : undefined;
+          const written = variable?.Initializer === node && ast.kindName(variable.name) === "KindArrayBindingPattern"
+            ? tupleAnnotationOf(scope, contextual.type, variable.Type) : undefined;
+          contextualSource = formal === undefined ? written ?? contextual.typeSource ?? null
+            : formal.type === contextual.type ? formal.annotation : null;
+        } else if (scope.sourcePrimitiveFacts && kind === "KindArrayLiteralExpression" && parent !== undefined) {
+          contextualSource = contextualNativeArrayAnnotation(scope, node, parent, contextual);
+        }
         if (scope.meter.refusal !== null) break;
       }
       const contextualType = contextual === undefined ? null

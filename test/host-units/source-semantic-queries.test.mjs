@@ -2565,6 +2565,38 @@ export function nested(value: [number, [Native, number]]): Native {
   }
 });
 
+test("written array context retains its own native element without rewriting the checker read", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = await nativeInt32Input(`
+export function ranged(source: Native[], value: Native): void {
+  const inferred = [0, ...source, value];
+  const selected: Native[] = [0, ...source, value];
+  const ordinary: number[] = [0, ...source, value];
+}`, true);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const { types, modules } = captured.value;
+  const chapter = modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const callable = chapter.tree.statements.nodes.find(row => row.kind === "FunctionDeclaration");
+  const element = answer => {
+    assert.equal(answer.kind, "available");
+    if (answer.value === null) return null;
+    const term = fixture.types.readType(types, answer.value);
+    assert.equal(term.kind, "array");
+    return fixture.types.readType(types, term.element).primitive;
+  };
+  const results = callable.body.statements.nodes.map(statement => {
+    const declaration = statement.declarationList.declarations.nodes[0];
+    const { read, contextual } = declaration.initializer.tsonic.value.views;
+    return [declaration.name.text, element(read), element(contextual), element(declaration.tsonic.declaredType)];
+  });
+  assert.deepEqual(results, [
+    ["inferred", "float64", null, null],
+    ["selected", "float64", "int32", "int32"],
+    ["ordinary", "float64", "float64", "float64"],
+  ]);
+});
+
 test("inferred array construction retains its exact spread operand and authored scalar order", async () => {
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
