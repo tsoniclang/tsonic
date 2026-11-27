@@ -3851,6 +3851,13 @@ function tupleLiteralElementAnnotation(scope: CaptureScope, parent: Node, operan
   return undefined;
 }
 
+function tupleAssertion(scope: CaptureScope, node: Node) {
+  const ast = scope.checked.ast;
+  const kind = ast.kindName(node);
+  if ((kind !== "KindAsExpression" && kind !== "KindTypeAssertionExpression") || !admit(scope, "edges")) return undefined;
+  return kind === "KindAsExpression" ? ast.as.AsAsExpression(node) : ast.as.AsTypeAssertion(node);
+}
+
 function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: Node, role: "tuple" | "native-array"): Node | undefined {
   const ast = scope.checked.ast;
   let operand = node;
@@ -3861,8 +3868,11 @@ function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: No
     owner = ast.parent(owner);
   }
   if (owner === undefined) return undefined;
-  if (role === "tuple" && ast.kindName(owner) === "KindArrayLiteralExpression")
-    return tupleLiteralElementAnnotation(scope, owner, operand);
+  if (role === "tuple") {
+    if (ast.kindName(owner) === "KindArrayLiteralExpression") return tupleLiteralElementAnnotation(scope, owner, operand);
+    const assertion = tupleAssertion(scope, owner);
+    if (assertion !== undefined) return assertion.Expression === operand ? assertion.Type : undefined;
+  }
   if (ast.kindName(owner) === "KindVariableDeclaration" && ast.as.AsVariableDeclaration(owner)?.Initializer === operand)
     return ast.typeNode(owner);
   if (role === "native-array" && scope.rootAssignmentAnnotations !== null && ast.kindName(owner) === "KindBinaryExpression") {
@@ -3885,7 +3895,7 @@ function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: No
   return undefined;
 }
 
-function tupleLiteralExpression(scope: CaptureScope, source: Node): Node | undefined {
+function unparenthesizedTupleValue(scope: CaptureScope, source: Node): Node | undefined {
   const ast = scope.checked.ast;
   let expression = source;
   while (ast.kindName(expression) === "KindParenthesizedExpression") {
@@ -3894,7 +3904,12 @@ function tupleLiteralExpression(scope: CaptureScope, source: Node): Node | undef
     if (enclosed === undefined) return undefined;
     expression = enclosed;
   }
-  return ast.kindName(expression) === "KindArrayLiteralExpression" ? expression : undefined;
+  return expression;
+}
+
+function tupleLiteralExpression(scope: CaptureScope, source: Node): Node | undefined {
+  const expression = unparenthesizedTupleValue(scope, source);
+  return expression !== undefined && scope.checked.ast.kindName(expression) === "KindArrayLiteralExpression" ? expression : undefined;
 }
 
 function retainTupleContext(scope: CaptureScope, node: Node, selected: ContextualTupleUse): ContextualTupleUse | null {
@@ -3999,8 +4014,11 @@ function isDeclaredTupleRead(scope: CaptureScope, node: Node | undefined, answer
 
 function valueTupleAnnotation(scope: CaptureScope, node: Node | undefined, answer: ResolvedSourceTypeInfo | undefined): Node | null {
   if (node === undefined || answer === undefined || answer.causes.length !== 0) return null;
-  if (scope.checked.ast.kindName(node) === "KindCallExpression" && scope.shape.isTuple(answer.type))
-    return callTupleAnnotation(scope, node, answer.type);
+  if (scope.shape.isTuple(answer.type)) {
+    if (scope.checked.ast.kindName(node) === "KindCallExpression") return callTupleAnnotation(scope, node, answer.type);
+    const assertion = tupleAssertion(scope, node);
+    if (assertion !== undefined) return tupleAnnotationOf(scope, answer.type, assertion.Type) ?? null;
+  }
   if (!isDeclaredTupleRead(scope, node, answer)) return null;
   const symbol = scope.checker.getSymbolAtLocation(node);
   return symbol !== undefined && admit(scope, "edges")
@@ -5349,12 +5367,13 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     if (position === null || !admit(scope, "facts")) return null;
     const answer = sourceType(scope, { kind: "expression", node: operand });
     if (scope.meter.refusal !== null) return null;
-    const tupleLiteral = answer !== undefined && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
-      ? tupleLiteralExpression(scope, operand) : undefined;
+    const tupleOperand = answer !== undefined && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
+      ? unparenthesizedTupleValue(scope, operand) : undefined;
+    const tupleLiteral = tupleOperand !== undefined && ast.kindName(tupleOperand) === "KindArrayLiteralExpression" ? tupleOperand : undefined;
     const literal = tupleLiteral === undefined || answer === undefined ? null : retainTupleLiteral(scope, operand, tupleLiteral, answer.type);
     if (scope.meter.refusal !== null) return null;
     const owned = literal === null && (spread || answer !== undefined && scope.shape.isTuple(answer.type))
-      ? valueTupleAnnotation(scope, operand, answer) : null;
+      ? valueTupleAnnotation(scope, tupleOperand ?? operand, answer) : null;
     if (scope.meter.refusal !== null) return null;
     if (!spread && owned !== null && answer !== undefined) {
       if (!admit(scope, "facts", tupleSources === null ? 3 : 2)) return null;
@@ -5752,12 +5771,22 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       const tupleContext = kind === "KindArrayLiteralExpression" || kind === "KindParenthesizedExpression"
         ? contextualTupleUse(scope, node, parent, contextual) : null;
       if (scope.meter.refusal !== null) break;
+      const tupleValue = (kind === "KindArrayLiteralExpression" || kind === "KindParenthesizedExpression")
+        && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
+        ? tupleLiteralRead(scope, node, answer.type, parent) ?? (tupleContext === null
+          ? null : retainTupleLiteral(scope, node, tupleContext.expression, answer.type)) : null;
+      if (scope.meter.refusal !== null) break;
       const declaredRead = isDeclaredTupleRead(scope, node, answer);
       const declarationSymbol = declaredRead ? scope.checker.getSymbolAtLocation(node) : undefined;
-      const authoredRead = kind === "KindSpreadElement" ? valueTupleAnnotation(scope, ast.as.AsSpreadElement(node)?.Expression, answer)
-        : kind === "KindCallExpression" && !failedSelection && scope.shape.isTuple(answer.type) ? callTupleAnnotation(scope, node, answer.type)
-        : declarationSymbol !== undefined && admit(scope, "edges")
-          ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol)) : null;
+      let authoredRead: Node | null = null;
+      if (kind === "KindSpreadElement") authoredRead = valueTupleAnnotation(scope, ast.as.AsSpreadElement(node)?.Expression, answer);
+      else if (kind === "KindCallExpression" && !failedSelection && scope.shape.isTuple(answer.type))
+        authoredRead = callTupleAnnotation(scope, node, answer.type);
+      else if (tupleValue === null && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
+        && (kind === "KindAsExpression" || kind === "KindTypeAssertionExpression" || kind === "KindParenthesizedExpression"))
+        authoredRead = valueTupleAnnotation(scope, unparenthesizedTupleValue(scope, node), answer);
+      else if (declarationSymbol !== undefined && admit(scope, "edges"))
+        authoredRead = declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol));
       if (scope.meter.refusal !== null) break;
       let sharedRead: RawTypeId | null = null;
       if (kind === "KindPropertyAccessExpression" && declarationNameRoot === null && !failedSelection) {
@@ -5794,11 +5823,6 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
           }
         }
       }
-      const tupleValue = (kind === "KindArrayLiteralExpression" || kind === "KindParenthesizedExpression")
-        && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
-        ? tupleLiteralRead(scope, node, answer.type, parent) ?? (tupleContext === null
-          ? null : retainTupleLiteral(scope, node, tupleContext.expression, answer.type)) : null;
-      if (scope.meter.refusal !== null) break;
       const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue,
         kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);
       let contextualSource: Node | null = null;

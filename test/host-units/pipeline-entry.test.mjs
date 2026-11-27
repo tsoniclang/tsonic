@@ -194,6 +194,8 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     function consume(first: boolean, second: boolean, tail: boolean): boolean { return tail; }
     export function bare(flag: boolean): boolean { return consume(...[keep(flag), true], later()); }
     export function grouped(flag: boolean): boolean { return consume(...(([keep(flag), true])), later()); }
+    export function asserted(flag: boolean): boolean { return consume(...(([keep(flag), true] as [boolean, boolean])), later()); }
+    export function bracketed(flag: boolean): boolean { return consume(...(<[boolean, boolean]>[keep(flag), true]), later()); }
   `;
   const input = analysisInput(fixture, "sdk-minimal", source);
   const nativeFacts = input.snapshot.nativeFacts;
@@ -208,14 +210,20 @@ test("a finite spread of a checked tuple literal constructs its one product befo
   const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
   const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
   const literalOf = expression => {
-    while (expression.kind === "ParenthesizedExpression") expression = expression.expression;
+    while (expression.kind === "ParenthesizedExpression" || expression.kind === "AsExpression" || expression.kind === "TypeAssertionExpression")
+      expression = expression.expression;
     assert.equal(expression.kind, "ArrayLiteralExpression");
     return expression;
   };
-  for (const name of ["bare", "grouped"]) {
+  for (const name of ["bare", "grouped", "asserted", "bracketed"]) {
     const original = sourceModule.tree.statements.nodes.find(row => row.kind === "FunctionDeclaration" && row.name.text === name);
-    const authored = literalOf(original.body.statements.nodes[0].expression.arguments.nodes[0].expression);
-    assert.deepEqual(authored.tsonic.value.views.contextual, { kind: "available", value: null });
+    const operand = original.body.statements.nodes[0].expression.arguments.nodes[0].expression;
+    const authored = literalOf(operand);
+    let wrapper = operand;
+    while (wrapper.kind === "ParenthesizedExpression") wrapper = wrapper.expression;
+    const assertion = name === "asserted" || name === "bracketed";
+    assert.equal(wrapper.kind, name === "asserted" ? "AsExpression" : name === "bracketed" ? "TypeAssertionExpression" : "ArrayLiteralExpression");
+    assert.deepEqual(authored.tsonic.value.views.contextual, assertion ? wrapper.type.tsonic.type : { kind: "available", value: null });
     const declaration = declarations.find(row => row.kind === "FunctionDeclaration" && row.name.text === name);
     const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
     const call = body.tir.root.statements.nodes[0].expression;
