@@ -56,14 +56,16 @@ export const projectCallFields: ProjectCallFields = (account, paths, path, view,
         if (row === undefined || row.parent !== parent || row.formal !== decision.primary) continue;
         if (decision.read !== null && decision.read !== row.formalType || decision.write !== null && decision.write !== row.formalType)
           return { kind: "complete", value: false };
-        if (row.formal !== row.caller || row.formalType !== row.callerType) {
-          const scope = callerFieldBindings(account, row.caller, bindings);
-          if (scope.kind !== "complete") return scope;
-          if (scope.value === null) return { kind: "complete", value: false };
-          const keep = chargeWork(account, 8) ?? chargeResultEntries(account, 5);
+        const scope = callerFieldBindings(account, row.caller, bindings);
+        if (scope.kind !== "complete") return scope;
+        if (scope.value === null) return { kind: "complete", value: false };
+        const newDeclaration = row.formal !== row.caller;
+        if (newDeclaration || row.formalType !== row.callerType || decision.bindings !== scope.value) {
+          const keep = chargeWork(account, newDeclaration ? 8 : 5) ?? chargeResultEntries(account, newDeclaration ? 5 : 2);
           if (keep !== null) return keep;
           member = { getter: null, setter: null, decision: { ...decision, primary: row.caller,
-            selectedDeclarations: [row.caller], origins: [{ kind: "declared", declaration: row.caller }],
+            selectedDeclarations: newDeclaration ? [row.caller] : decision.selectedDeclarations,
+            origins: newDeclaration ? [{ kind: "declared", declaration: row.caller }] : decision.origins,
             bindings: scope.value,
             read: decision.read === null ? null : row.callerType, write: decision.write === null ? null : row.callerType } };
         }
