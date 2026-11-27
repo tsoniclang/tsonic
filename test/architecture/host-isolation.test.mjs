@@ -532,7 +532,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "text-phase-declarations.ts", "text-phase.ts", "text-tir.ts", "text-types.ts", "text-values.ts",
       "verify-index.ts", "verify-initialization.ts", "verify-module.ts", "verify-structure.ts", "verification-work.ts", "verify-metadata-operands.ts", "work.ts", "work-data.ts"].map(name => `${host}/ir-program/${name}`),
     ...["account.ts", "components.ts", "dominators.ts", "graph.ts", "index.ts", "loops.ts", "ordering.ts", "solve.ts"].map(name => `${host}/dataflow/${name}`),
-    ...["index.ts", "conditions.ts", "conditions-data.ts", "counted-loops.ts", "field-refinements.ts", "parse.ts", "print.ts", "dependency-data.ts", "execution-entry.ts", "verify-dependencies.ts", "verify-facts.ts", "verify-metadata.ts",
+    ...["index.ts", "conditions.ts", "conditions-data.ts", "counted-guard.ts", "counted-loops.ts", "field-refinements.ts", "parse.ts", "print.ts", "dependency-data.ts", "execution-entry.ts", "verify-dependencies.ts", "verify-facts.ts", "verify-metadata.ts",
       "verify-relations.ts", "verify-summary.ts", "summary-key.ts", "escape-key.ts", "verify-observations.ts", "application-data.ts", "apply-initialization.ts",
       "apply-summary.ts", "apply-values.ts", "arena-data.ts", "binding-inputs.ts", "cells-data.ts", "initialization-data.ts", "mir-point.ts",
       "relations-data.ts", "summary-data.ts", "summary-equals.ts", "verification.ts", "verify-bindings.ts", "verify-body-nodes.ts", "verify-cells.ts",

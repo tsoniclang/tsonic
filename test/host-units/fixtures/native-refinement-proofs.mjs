@@ -13,7 +13,7 @@ export async function checkNativeCountedLoopProofs() {
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const fixture = await loadFrontFixture();
   for (const { start, write, tail = "", minimum, counted, audit, callee = "", declaration = null, nativeInvoke = false,
-    step = "++i", bound = "3", receiver = "values", proven = false } of [
+    step = "++i", bound = "3", receiver = "values", exit = null, afterLoop = false, proven = false } of [
     { start: 0, write: "", minimum: 0n, counted: true, audit: "integer" },
     { start: 0, write: "", minimum: 0n, counted: true, step: "i++" },
     { start: 0, write: "i = 3;", minimum: null, counted: false },
@@ -29,12 +29,17 @@ export async function checkNativeCountedLoopProofs() {
     { start: 0, write: "observe(values);", callee: 'import { observe } from "./native.js";',
       declaration: "export declare function observe(value: boolean[]): void;", minimum: 0n, counted: true, bound: "values.length" },
     { start: 0, write: "if (i + 1 < 0) return false;", nativeInvoke: true, minimum: 0n, counted: true, bound: "values.length", proven: true },
+    { start: 0, write: "", exit: "if (i < 3) return values[i];", minimum: 0n, counted: true,
+      bound: "values.length", proven: true, audit: "guard" },
+    { start: 0, write: "", exit: "if (i < 3) { i = 42; return values[i]; }", minimum: null, counted: true, bound: "values.length" },
+    { start: 0, write: "", exit: "if (values[i]) break;", afterLoop: true, minimum: 0n, counted: true,
+      bound: "values.length", proven: true, audit: "bypass" },
     { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", receiver: "replacement" },
   ]) {
     const source = `${callee}
     export function read(values: boolean[], replacement: boolean[]): boolean {
-      for (let i = ${start}; i < ${bound}; ${step}) { ${write} if (${receiver}[i]) return true; ${tail} }
-      return false;
+      for (${afterLoop ? "var" : "let"} i = ${start}; i < ${bound}; ${step}) { ${write} ${exit ?? `if (${receiver}[i]) return true;`} ${tail} }
+      return ${afterLoop ? "values[i]" : "false"};
     }`;
     const input = analysisInput(fixture, "sdk-minimal", source);
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source,
@@ -48,7 +53,8 @@ export async function checkNativeCountedLoopProofs() {
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
     const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block" && row.tir.params.length === 2);
-    assert.equal(selected.mir.blocks.some(block => block.terminator.kind === "check"), true);
+    const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
+    assert.equal(checks.length, afterLoop ? 2 : 1);
     if (nativeInvoke) assert.deepEqual(selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "invoke")
       .map(row => row.operation.decision.execution), [{ kind: "invocation", writesStorage: false, failure: "abort" }]);
     const [facts] = selected.facts;
@@ -72,7 +78,7 @@ export async function checkNativeCountedLoopProofs() {
     assert.deepEqual(decoded.value.refinements.countedLoops, facts.refinements.countedLoops);
     const indexed = sourceOccurrences(selected.tir, createAccount(limits));
     assert.equal(indexed.kind, "complete");
-    const check = selected.mir.blocks.find(block => block.terminator.kind === "check").terminator;
+    const [check, bypassed] = checks;
     const access = indexed.value.get(check.tir.node);
     const range = minimum === null ? null : { minimum, maximum: bound === "3" ? 2n : (1n << 63n) - 2n };
     assert.equal(access.kind, "ElementAccessExpression");
@@ -151,6 +157,7 @@ export async function checkNativeCountedLoopProofs() {
           : pair.facts.refinements.integers.map(row => row.range === null ? row
             : { ...row, range: { ...row.range, maximum: submittedMaximum } });
         const refinements = audit === "integer" ? pair.facts.refinements.refinements
+          : audit === "bypass" ? [...pair.facts.refinements.refinements, { kind: "proven", node: bypassed.tir.node, guards: [loop.condition.id] }]
           : [{ kind: "proven", node: access.id, guards: [audit === "receiver" ? loop.condition.id : loop.condition.right.id] }];
         return { ...outcome, value: { ...outcome.value, value: { ...pair, facts: { ...pair.facts,
           refinements: { ...pair.facts.refinements, integers, refinements } } } } };
@@ -171,7 +178,7 @@ export async function checkNativeCountedLoopProofs() {
     const unreadInput = new Proxy({}, { get() { throw new Error("a stopped proof must not read another body"); } });
     const zero = createAccount({ ...limits, maximumWork: 0 });
     assert.equal(countedLoopsOf(zero, unreadInput, facts.execution.provided, proofInput) === accountFailure(zero), true);
-    if (audit === "receiver" || audit === "call") continue;
+    if (audit === "receiver" || audit === "call" || audit === "bypass") continue;
     for (const [dimension, total, key] of [["work", work, "maximumWork"], ["result-entries", entries, "maximumResultEntries"]]) {
       for (let cap = 0; cap < total; cap += 1) {
         const account = createAccount({ ...limits, [key]: cap });

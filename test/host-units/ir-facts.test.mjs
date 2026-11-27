@@ -17,7 +17,7 @@ import { signatureRequestKey } from "../../packages/host/dist/ir-types/index.js"
 import { checkNativeCountedLoopProofs, checkNativeFieldRefinement } from "./fixtures/native-refinement-proofs.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const sourceNames = ["index", "print", "parse", "summary-key", "escape-key", "summary-equals", "conditions", "apply-summary", "apply-values", "apply-initialization", "verify-observations", "verify-facts", "verify-relations", "verify-cells", "verify-summary", "verify-metadata", "verify-dependencies", "execution-entry", "binding-inputs", "mir-point", "verification", "verify-bindings", "verify-body-nodes", "verify-initialization", "verify-liveness", "verify-position", "counted-loops", "field-refinements"];
+const sourceNames = ["index", "print", "parse", "summary-key", "escape-key", "summary-equals", "conditions", "apply-summary", "apply-values", "apply-initialization", "verify-observations", "verify-facts", "verify-relations", "verify-cells", "verify-summary", "verify-metadata", "verify-dependencies", "execution-entry", "binding-inputs", "mir-point", "verification", "verify-bindings", "verify-body-nodes", "verify-initialization", "verify-liveness", "verify-position", "counted-guard", "counted-loops", "field-refinements"];
 const sourceFiles = ["contract", "conditions-data", "initialization-data", "cells-data", "relations-data", "arena-data", "summary-data", "application-data", "dependency-data", ...sourceNames].map(name => `packages/host/src/ir-facts/${name}.ts`);
 const hash = text => createHash("sha256").update(text).digest("hex");
 const sourceHashes = sourceFiles.map(path => [path, hash(readFileSync(resolve(repository, path)))]);

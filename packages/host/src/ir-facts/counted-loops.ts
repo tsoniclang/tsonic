@@ -9,7 +9,7 @@ import type { TypedPhase } from "../ir-tir/contract.js";
 import { isNativeIntegerPrimitive, nativeIntegerGeometryOf } from "../ir-types/index.js";
 import type { BodyInstance, NativeIntegerPrimitive, ReceiverAccess } from "../ir-types/contract.js";
 import type { CountedLoopFact, CountedLoopInputs, CountedLoopProofs, CountedLoopsOf, IntegerRange } from "./contract.js";
-import { refinementMayWrite } from "./apply-summary.js";
+import { countedGuardStates } from "./counted-guard.js";
 import { selectedMirBody } from "./verification.js";
 
 interface LoopBinding {
@@ -40,7 +40,7 @@ interface IndexSite {
 }
 
 interface IndexSites {
-  readonly byBlock: ReadonlyMap<BlockId, IndexSite>;
+  readonly rows: readonly IndexSite[];
   readonly unique: ReadonlyMap<NodeId, BlockId | null>;
 }
 
@@ -86,7 +86,7 @@ function sourceLocal(expression: ElementAccessExpression<TypedPhase>["expression
 function indexSites(mir: MirBody, sourceOf: CountedLoopInputs["sourceOf"], account: DataflowAccount): DataflowResult<IndexSites> {
   const setup = chargeResultEntries(account, 3);
   if (setup !== null) return setup;
-  const byBlock = new Map<BlockId, IndexSite>();
+  const rows: IndexSite[] = [];
   const unique = new Map<NodeId, BlockId | null>();
   for (let position = 0; position < mir.blocks.length; position += 1) {
     const paid = chargeWork(account, 1);
@@ -107,9 +107,9 @@ function indexSites(mir: MirBody, sourceOf: CountedLoopInputs["sourceOf"], accou
     const retained = chargeResultEntries(account, 3);
     if (retained !== null) return retained;
     unique.set(key.id, block.id);
-    byBlock.set(block.id, { block, check, node, key });
+    rows.push({ block, check, node, key });
   }
-  return { kind: "complete", value: { byBlock, unique } };
+  return { kind: "complete", value: { rows, unique } };
 }
 
 function integerConstant(mir: MirBody, operand: MirOperand | null, type: TyId, account: DataflowAccount): DataflowResult<bigint | null> {
@@ -204,25 +204,7 @@ function nativeExtent(
     holding: decision.operation.holding, source: sourceLocal(source.expression) } };
 }
 
-function statementsPreserveExtent(mir: MirBody, block: MirBlock, receiver: LocalId, account: DataflowAccount): DataflowResult<boolean> {
-  const statements = block.statements;
-  for (let index = 0; index < statements.length; index += 1) {
-    const paid = chargeWork(account, 1);
-    if (paid !== null) return paid;
-    const statement = statements[index];
-    if (statement === undefined) return { kind: "complete", value: false };
-    if (statement.kind === "assign") {
-      const target = mir.places[statement.place]?.base;
-      if (target?.kind !== "local" || target.local === receiver) return { kind: "complete", value: false };
-    } else if ((statement.kind === "storage-live" || statement.kind === "storage-dead") && statement.local === receiver) {
-      return { kind: "complete", value: false };
-    }
-  }
-  return { kind: "complete", value: true };
-}
-
-function extentFlow(mir: MirBody, header: MirBlock, first: BlockId, inside: ReadonlySet<number>, extent: ExtentBound,
-  storage: CounterStorage, inputs: CountedLoopInputs, account: DataflowAccount): DataflowResult<ReadonlyMap<BlockId, boolean> | null> {
+function extentReceiver(mir: MirBody, extent: ExtentBound, storage: CounterStorage, account: DataflowAccount): DataflowResult<LocalId | null> {
   const setup = chargeWork(account, 2);
   if (setup !== null) return setup;
   const base = mir.places[extent.receiver]?.base;
@@ -231,63 +213,7 @@ function extentFlow(mir: MirBody, header: MirBlock, first: BlockId, inside: Read
     || receiver.source?.body !== extent.source.body || receiver.source.local !== extent.source.local
     || localOwnershipOfMir(receiver.mode) !== "body" || storage.exposedLocals.has(receiver.id)
     || storage.exposedSources.has(receiver.source.local)) return absent;
-  const guard = statementsPreserveExtent(mir, header, receiver.id, account);
-  if (guard.kind !== "complete") return guard;
-  if (!guard.value) return absent;
-  const room = chargeResultEntries(account, 2);
-  if (room !== null) return room;
-  const preserved = new Map<BlockId, boolean>();
-  const pending: BlockId[] = [];
-  const enqueue = (target: BlockId, safe: boolean): ReturnType<typeof chargeWork> => {
-    if (target === header.id || !inside.has(target)) return null;
-    const prior = preserved.get(target);
-    if (prior === false || prior === safe) return null;
-    const held = chargeResultEntries(account, prior === undefined ? 2 : 1);
-    if (held !== null) return held;
-    preserved.set(target, safe);
-    pending.push(target);
-    return null;
-  };
-  const start = enqueue(first, true);
-  if (start !== null) return start;
-  while (pending.length !== 0) {
-    const read = chargeWork(account, 1);
-    if (read !== null) return read;
-    const member = pending.pop();
-    const block = member === undefined ? undefined : mir.blocks[member];
-    if (block === undefined) return absent;
-    let safe = preserved.get(block.id) === true;
-    if (safe) {
-      const statements = statementsPreserveExtent(mir, block, receiver.id, account);
-      if (statements.kind !== "complete") return statements;
-      safe = statements.value;
-      if (!safe) preserved.set(block.id, false);
-    }
-    const terminator = block.terminator;
-    let outgoing = safe && terminator.kind !== "await" && terminator.kind !== "yield" && terminator.kind !== "delegate";
-    if (outgoing && terminator.kind === "invoke") {
-      const execution = terminator.operation.decision.execution;
-      outgoing = execution.kind === "pure" || execution.kind === "invocation" && !execution.writesStorage;
-    }
-    if (outgoing && terminator.kind === "call") {
-      const lookup = chargeWork(account, 1);
-      if (lookup !== null) return lookup;
-      const answer = inputs.summaryAt(block.id, terminator);
-      if (answer.kind !== "complete") return answer;
-      const writes = refinementMayWrite(account, answer.value, () => ({ kind: "complete", value: true }));
-      if (writes.kind !== "complete") return writes;
-      outgoing = !writes.value;
-    }
-    let stopped: ReturnType<typeof chargeWork> = null;
-    const edge = visitMirControlEdges(terminator, { kind: "edges", admit: () => stopped ?? chargeWork(account, 1),
-      visit: (_kind, target, destination) => {
-        stopped ??= enqueue(target, outgoing && (destination === null || storage.roots[destination] !== receiver.id));
-      },
-    });
-    const cut = edge ?? stopped;
-    if (cut !== null) return cut;
-  }
-  return { kind: "complete", value: preserved };
+  return { kind: "complete", value: receiver.id };
 }
 
 function sameReceiver(mir: MirBody, site: IndexSite, extent: ExtentBound, storage: CounterStorage,
@@ -313,36 +239,39 @@ function sameReceiver(mir: MirBody, site: IndexSite, extent: ExtentBound, storag
     && row.value.kind === "use" && row.value.operand.kind === "place" && row.value.operand.place === extent.receiver };
 }
 
-function collectRanges(mir: MirBody, loop: NaturalLoop, range: IntegerRange, counter: PlaceId,
+function collectRanges(mir: MirBody, range: IntegerRange, counter: PlaceId, counterLocal: LocalId,
   source: LocalId, storage: CounterStorage, sites: IndexSites, rows: ProofRows,
-  extent: ExtentBound | null, header: MirBlock, first: BlockId, inside: ReadonlySet<number>,
+  extent: ExtentBound | null, entry: BlockId, header: MirBlock, first: BlockId,
   guard: NodeId, inputs: CountedLoopInputs, account: DataflowAccount): DataflowResult<null> {
-  let preserved: ReadonlyMap<BlockId, boolean> | null | undefined;
-  for (let position = 0; position < loop.members.length; position += 1) {
+  let flow: ReturnType<typeof countedGuardStates> | null = null;
+  for (let position = 0; position < sites.rows.length; position += 1) {
     const paid = chargeWork(account, 1);
     if (paid !== null) return paid;
-    const member = loop.members[position];
-    const block = member === undefined || member === loop.header ? undefined : mir.blocks[member];
-    const site = block === undefined ? undefined : sites.byBlock.get(block.id);
-    if (site === undefined || sites.unique.get(site.key.id) !== site.block.id) continue;
+    const site = sites.rows[position];
+    if (site === undefined || site.block.id === header.id || sites.unique.get(site.key.id) !== site.block.id) continue;
     const known = indexRead(mir, site, counter, source, storage, account);
     if (known.kind !== "complete") return known;
     if (known.value === null) continue;
+    if (flow === null) {
+      const receiver = extent === null || range.minimum < 0n ? absent : extentReceiver(mir, extent, storage, account);
+      if (receiver.kind !== "complete") return receiver;
+      const held = chargeResultEntries(account, 1);
+      if (held !== null) return held;
+      flow = countedGuardStates(mir, { entry, header, success: first, counter: counterLocal, receiver: receiver.value },
+        storage.roots, inputs.summaryAt, account);
+    }
+    if (flow.kind !== "complete") return flow;
+    const strength = flow.value?.get(site.block.id);
+    if (strength === undefined || strength === "unproved") continue;
     if (!rows.ranges.has(known.value)) {
       const retained = chargeResultEntries(account, 1);
       if (retained !== null) return retained;
       rows.ranges.set(known.value, range);
     }
-    if (extent === null || range.minimum < 0n || preserved === null || rows.refinements.has(site.node.id)) continue;
+    if (extent === null || strength !== "extent" || rows.refinements.has(site.node.id)) continue;
     const exact = sameReceiver(mir, site, extent, storage, account);
     if (exact.kind !== "complete") return exact;
     if (!exact.value) continue;
-    if (preserved === undefined) {
-      const result = extentFlow(mir, header, first, inside, extent, storage, inputs, account);
-      if (result.kind !== "complete") return result;
-      preserved = result.value;
-    }
-    if (preserved?.get(site.block.id) !== true) continue;
     const retained = chargeResultEntries(account, 3);
     if (retained !== null) return retained;
     rows.refinements.set(site.node.id, { kind: "proven", node: site.node.id, guards: [guard] });
@@ -417,7 +346,7 @@ function validateBindings(
 }
 
 function loopFact(
-  account: DataflowAccount, mir: MirBody, storage: CounterStorage, loop: NaturalLoop, node: ForStatement<TypedPhase>,
+  account: DataflowAccount, mir: MirBody, entryBlock: BlockId, storage: CounterStorage, loop: NaturalLoop, node: ForStatement<TypedPhase>,
   incoming: readonly (readonly number[])[], inputs: CountedLoopInputs, checkedIndices: () => DataflowResult<IndexSites>,
   proofs: ProofRows,
 ): DataflowResult<CountedLoopFact | null> {
@@ -547,8 +476,8 @@ function loopFact(
   const rangeWork = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
   if (rangeWork !== null) return rangeWork;
   const range = { minimum: lower.value, maximum: maximum - 1n };
-  const collected = collectRanges(mir, loop, range, counter.id, binding.local.local, storage, sites.value, proofs,
-    extent.value, header, whenTrue.target, inside, condition.id, inputs, account);
+  const collected = collectRanges(mir, range, counter.id, local.id, binding.local.local, storage, sites.value, proofs,
+    extent.value, entryBlock, header, whenTrue.target, condition.id, inputs, account);
   if (collected.kind !== "complete") return collected;
   return { kind: "complete", value: fact };
 }
@@ -584,7 +513,7 @@ export const countedLoops: CountedLoopsOf = (account, mir, provided, inputs) => 
     if (loop === undefined || header === undefined) continue;
     const node = inputs.sourceOf(header.terminator.tir.node);
     if (node?.kind !== "ForStatement") continue;
-    const result = loopFact(account, mir, storage.value, loop, node, incoming.value, inputs, checkedIndices, proofs);
+    const result = loopFact(account, mir, entry.block, storage.value, loop, node, incoming.value, inputs, checkedIndices, proofs);
     if (result.kind !== "complete") return result;
     if (result.value !== null) rows.push(result.value);
   }
