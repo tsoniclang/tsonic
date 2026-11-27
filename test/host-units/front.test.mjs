@@ -3914,6 +3914,39 @@ test("a saved tuple keeps its written initializer context across either const as
   }
 });
 
+test("a held tuple read keeps the contextual annotation of its actual assertion", () => {
+  const { deps, program, module } = openedModule(`
+    export function start(slots: readonly [boolean, true]): readonly [boolean, true] {
+      return (((slots)) as readonly [boolean, true]);
+    }
+  `);
+  const result = captureSingleModule(front, deps, program, module);
+  assert.equal(result.kind, "ok");
+  const raw = result.value;
+  const declaration = raw.tree.statements.nodes[0];
+  const asserted = declaration.body.statements.nodes[0].expression.expression;
+  assert.equal(asserted.kind, "AsExpression");
+  const readAt = node => raw.checkerViews.find(row => row.node.node === node.id);
+  for (let node = asserted.expression; ; node = node.expression) {
+    const { read, contextual } = readAt(node);
+    assert.equal(read.kind, "available");
+    assert.equal(contextual.kind, "available");
+    assert.notEqual(read.value, contextual.value);
+    for (const id of [read.value, contextual.value]) {
+      const selected = raw.types.types[id];
+      assert.deepEqual(raw.types.components[selected.component].root, { module, node: node.id });
+      assert.equal(selected.authoredTypeNode, null);
+      assert.equal(selected.form.value.kind, "tuple");
+      assert.equal(selected.form.value.readonly, true);
+      assert.deepEqual(selected.form.value.elements.map(element => {
+        const type = raw.types.types[element.type];
+        return type.literal.value?.value ?? type.form.value.scalar;
+      }), ["boolean", true]);
+    }
+    if (node.kind === "Identifier") break;
+  }
+});
+
 test("inferred array destructuring preserves independent native read and contextual tuple slots", () => {
   const { deps, program, module } = openedModule(
     "declare const a: number; declare const c: number; export const [e, f] = [a + 1, c];");

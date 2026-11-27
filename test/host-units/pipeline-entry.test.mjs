@@ -351,10 +351,11 @@ test("a finite spread of a checked tuple literal constructs its one product befo
   }
 });
 
-for (const [form, initializer] of [
-  ["written", "([make(flag), true] as readonly [boolean, true])"],
-  ["const", "[make(flag), true] as const"],
-  ["grouped prefix const", "(<const>(([make(flag), true])))"],
+for (const [form, initializer, operand] of [
+  ["written", "([make(flag), true] as readonly [boolean, true])", "slots"],
+  ["const", "[make(flag), true] as const", "slots"],
+  ["grouped prefix const", "(<const>(([make(flag), true])))", "slots"],
+  ["held", "[make(flag), true]", "(((slots)) as readonly [boolean, true])"],
 ]) test(`a saved asserted tuple (${form}) spreads its one constructed value in authored argument order`, async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -364,7 +365,7 @@ for (const [form, initializer] of [
     function take(first: boolean, exact: true, tail: boolean): boolean { return first; }
     export function start(flag: boolean): boolean {
       const slots: readonly [boolean, true] = ${initializer};
-      return take(...slots, later());
+      return take(...${operand}, later());
     }
   `);
   const facts = input.snapshot.nativeFacts;
