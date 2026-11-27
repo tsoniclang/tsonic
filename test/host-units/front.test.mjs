@@ -3501,7 +3501,7 @@ test("an inferred array binding keeps a selected call's tuple distinct from its 
     const captured = captureSingleModule(front, deps, program, module);
     assert.equal(captured.kind, "ok");
     const raw = captured.value;
-    const { initializer } = raw.tree.statements.nodes[2].body.statements.nodes[0].declarationList.declarations.nodes[0];
+    const { initializer, name } = raw.tree.statements.nodes[2].body.statements.nodes[0].declarationList.declarations.nodes[0];
     const { read, contextual } = raw.checkerViews.find(row => row.node.node === initializer.id);
     const selected = raw.calls.find(row => row.invocation.node === initializer.id);
     assert.notEqual(read.value, contextual.value);
@@ -3517,6 +3517,17 @@ test("an inferred array binding keeps a selected call's tuple distinct from its 
       assert.deepEqual(slotTypes(read.value), ["boolean", "string"]);
       assert.deepEqual(slotTypes(contextual.value), ["any", "any"]);
     }
+    const names = name.elements.nodes;
+    const expected = roles.length === 2 ? ["boolean", "string"] : ["boolean"];
+    assert.deepEqual(names.map(element => {
+      const binding = raw.checkerViews.find(row => row.node.node === element.id);
+      const slot = raw.types.types[binding.read.value];
+      const symbol = raw.types.symbols[binding.symbol.value];
+      const source = { module, node: element.id };
+      assert.deepEqual(raw.types.components[slot.component].root, source);
+      assert.deepEqual(symbol.target, { kind: "available", value: { kind: "declarations", declarations: [source] } });
+      return slot.form.value.scalar;
+    }), expected);
   }
 });
 

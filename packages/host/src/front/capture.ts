@@ -5162,6 +5162,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
   const isEnumQualifier = (node: NodeId): boolean => enumQualifiers?.has(node) === true;
   const enums: RawEnum[] = [];
   const storage: RawStorageCapture[] = [];
+  let executingPatterns: Set<Node> | null = null;
   let declarationNameRoot: NodeId | null = null;
   capture: for (const [index, node] of nodes.entries()) {
     if (own.numbering.excluded?.has(node) === true) continue;
@@ -5169,6 +5170,18 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
     const kind = ast.kindName(node);
     const parent = ast.parent(node);
     const parentId = own.numbering.parents.get(node);
+    if (parent !== undefined && (kind === "KindArrayBindingPattern" || kind === "KindObjectBindingPattern")) {
+      if (!admit(scope, "edges")) break;
+      const parentKind = ast.kindName(parent);
+      const variable = parentKind === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(parent) : undefined;
+      const enclosing = parentKind === "KindBindingElement" ? ast.parent(parent) : undefined;
+      const executing = variable !== undefined ? variable.name === node && variable.Initializer !== undefined
+        : enclosing !== undefined && executingPatterns !== null && executingPatterns.has(enclosing) && ast.name(parent) === node;
+      if (executing) {
+        if (!admit(scope, "facts", executingPatterns === null ? 2 : 1)) break;
+        (executingPatterns ??= new Set()).add(node);
+      }
+    }
     if (declarationNameRoot !== null && (parentId === null || parentId === undefined || parentId < declarationNameRoot)) declarationNameRoot = null;
     const declarationName = parent !== undefined && ast.name(parent) === node;
     const identifierParent = kind === "KindIdentifier" && parent !== undefined ? ast.kindName(parent) : null;
@@ -5224,7 +5237,15 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       if (captured === null) break;
       enums.push(captured);
     }
-    if (kind === "KindVariableDeclaration" || kind === "KindEnumMember") {
+    let patternName: Node | undefined;
+    if (kind === "KindBindingElement" && parent !== undefined && executingPatterns !== null) {
+      if (!admit(scope, "edges")) break;
+      if (executingPatterns.has(parent)) {
+        const name = ast.name(node);
+        if (name !== undefined && ast.kindName(name) === "KindIdentifier") patternName = name;
+      }
+    }
+    if (kind === "KindVariableDeclaration" || kind === "KindEnumMember" || patternName !== undefined) {
       const position = component(scope, reference, null);
       if (position === null || !admit(scope, "facts")) break;
       const answer = sourceType(scope, { kind: "expression", node });
@@ -5232,7 +5253,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       const read = enqueueRawType(scope, answer, position, null, null, null);
       const storageAlias = kind === "KindVariableDeclaration" ? inferredStorageAlias(scope, node, answer) : null;
       if (scope.meter.refusal !== null) break;
-      const name = ast.name(node);
+      const name = patternName ?? ast.name(node);
       const symbol = name === undefined ? undefined : scope.checker.getSymbolAtLocation(name);
       const symbolId = symbol === undefined ? null : rawSymbol(scope, symbol);
       if (symbol !== undefined && symbolId === null) break;
