@@ -10,7 +10,7 @@ import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDom
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { binaryOperatorOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
-import { checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
+import { bindingDefaultOf, checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
 
 const PORT = "ConstraintsOf";
@@ -357,6 +357,14 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
           continue;
         }
         const owner = deps.itemOf(body.owner);
+        const binding = bindingDefaultOf(body, owner);
+        if (binding !== null) {
+          if (binding.declaredType.kind !== "available" || binding.declaredType.value === null)
+            return notInferredYet(PORT, "a binding default without its actual named destination storage", body.root.origin);
+          flow(walk, body.root, typeAt(walk, body.root), binding.declaredType.value, "initialization",
+            { kind: "item", value: { owner: body.owner, node: owner.id } });
+          continue;
+        }
         if (owner.kind !== "Parameter" && owner.kind !== "VariableDeclaration" && owner.kind !== "PropertyDeclaration"
           || !("initializer" in owner.tsonic) || owner.tsonic.initializer !== body.body || owner.type === null
           || owner.tsonic.declaredType.kind !== "available" || owner.tsonic.declaredType.value === null

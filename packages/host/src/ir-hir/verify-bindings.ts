@@ -214,11 +214,12 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory,
   }
   for (const body of module.bodies) {
     const identity = paths.bodyPathOf(body.body);
-    if (identity.kind !== "known" || identity.value.role !== "default-argument") continue;
+    if (identity.kind !== "known") continue;
     const node = inventory.parents.get(body.root);
     if (node === undefined || node === null || declarations.get(body.owner) !== node ||
       (node.kind !== "Parameter" && node.kind !== "BindingElement") || node.initializer !== body.root) continue;
-    if (node.kind === "Parameter" && node.tsonic.initializer !== body.body) continue;
+    if (node.kind === "Parameter" ? identity.value.role !== "default-argument" || node.tsonic.initializer !== body.body
+      : identity.value.role !== "initializer") continue;
     const environment = parameterEnvironments.get(node);
     if (environment !== undefined) parents.set(body, environment);
   }

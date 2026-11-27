@@ -13,7 +13,7 @@ import { checkedSourceObjectFieldOf } from "../ir-hir/index.js";
 import type { BodyInstance, MemberInventory, TypePublicationStop } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
-import { checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
+import { bindingDefaultOf, checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { bodyCaptureModes } from "./captures.js";
 import { issueMemberSolve, takeMemberSolve } from "./member-pause.js";
 import type { Enumerated, Reached, SolveFrame } from "./member-pause.js";
@@ -357,7 +357,8 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
       completion: internType(deps.types, { kind: "intrinsic", intrinsic: "void" }), error: null } };
     const initializer = (owner.kind === "Parameter" || owner.kind === "VariableDeclaration" ||
       owner.kind === "PropertyDeclaration" || owner.kind === "EnumMember") && "initializer" in owner.tsonic ? owner.tsonic : null;
-    if (layout || initializer !== null) {
+    const binding = bindingDefaultOf(body, owner);
+    if (layout || initializer !== null || binding !== null) {
       let completion = completions.get(reference);
       if (completion === undefined) {
         if (!layout && owner.kind === "EnumMember")
@@ -369,9 +370,9 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
         const decision = decisions.get(reference)?.get(index);
         if (constraint?.kind !== "flow" || decision === undefined || decision.kind !== "flow" && decision.kind !== "error")
           return callerDefect(PORT, "the annotated initializer requires its actual completed initialization flow");
+        const declared = binding?.declaredType ?? (initializer?.initializer === reference ? initializer.declaredType : null);
         const target = layout ? layoutOperandCompletion(deps.types, body.root, constraint.from) :
-          initializer?.initializer === reference && initializer.declaredType.kind === "available"
-            ? initializer.declaredType.value : null;
+          declared?.kind === "available" ? declared.value : null;
         if (target === null || constraint.to !== target)
           return callerDefect(PORT, layout ? "a layout operand completion requires its actual solved operand flow"
             : "an annotated initializer completion requires its actual checked declaration type");

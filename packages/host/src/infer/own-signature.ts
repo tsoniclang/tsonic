@@ -1,4 +1,4 @@
-import type { HirBody, HirNode } from "../ir-hir/contract.js";
+import type { CheckedBinding, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { DefId, TyId } from "../ids/contract.js";
 import { decodeBodyId } from "../ids/index.js";
 import type { TypeInterner } from "../ir-types/contract.js";
@@ -22,11 +22,19 @@ export function layoutOperandCompletion(types: TypeInterner, node: HirNode, oper
   return source.kind === "literal" && source.base === context.value ? context.value : operand;
 }
 
+export function bindingDefaultOf(body: HirBody, owner: HirNode): CheckedBinding | null {
+  if (owner.kind !== "BindingElement" || owner.initializer !== body.root || owner.tsonic.declaration === null) return null;
+  const identity = decodeBodyId(body.body);
+  return identity.kind === "decoded" && identity.value.owner === body.owner && identity.value.role === "initializer"
+    && identity.value.ordinal === 0 ? owner.tsonic : null;
+}
+
 export function ownSignatureRequest(deps: GroupDeps, body: HirBody, port: string,
   ownDefinitions: ReadonlySet<DefId>): DeclaredSignatureRequest | null {
   if (isLayoutOperand(body)) return null;
   const owner = deps.itemOf(body.owner);
   if (owner.kind === "SourceFile") return null;
+  if (bindingDefaultOf(body, owner) !== null) return null;
   if ((owner.kind === "Parameter" || owner.kind === "VariableDeclaration" || owner.kind === "PropertyDeclaration" || owner.kind === "EnumMember")
     && "initializer" in owner.tsonic && owner.tsonic.initializer === body.body) return null;
   if (owner.kind !== "FunctionDeclaration") return notInferredYet(port, `a body owned by a ${owner.kind}`, owner.origin);

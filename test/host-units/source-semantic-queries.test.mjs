@@ -2382,6 +2382,33 @@ test("an empty source object has a checked zero-part construction, not an empty 
   assert.deepEqual(irInfer.parseConstraints(irInfer.printConstraints(set)), { kind: "parsed", value: set });
 });
 
+test("a checked binding default completes against its actual named storage without an enclosing signature request", () => {
+  const program = ready(`export function start(first: boolean, source: { field?: boolean }): boolean {
+    const { field = !first } = source;
+    return field;
+  }`);
+  const callable = program.checked.tree.statements.nodes[0];
+  const [binding] = callable.body.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes;
+  const body = program.checked.bodies.find(row => row.root === binding.initializer);
+  const group = program.inputs.groups.find(row => row.bodies.includes(body.body));
+  assert.deepEqual(group.bodies, [body.body]);
+  const deps = program.inputs.inference;
+  const generated = wiring.infer.constraintsOf(deps, group);
+  assert.equal(generated.kind, "done");
+  assert.equal(generated.value.kind, "ok");
+  const occurrence = { body: body.body, node: binding.initializer.id };
+  const [set] = generated.value.value.constraints;
+  const fit = set.constraints.find(row => row.kind === "flow");
+  assert.equal(fit.role, "initialization");
+  assert.deepEqual(fit.occurrence, occurrence);
+  assert.equal(fit.to, binding.tsonic.declaredType.value);
+  assert.deepEqual(set.evidence.at(-1).value.component, { kind: "item", value: { owner: body.owner, node: binding.id } });
+  const answer = program.database.run(program.queries.solutionOf, group.id);
+  assert.equal(answer.kind, "completed", JSON.stringify(answer.diagnostics));
+  assert.deepEqual(answer.diagnostics, []);
+  assert.equal(answer.value.solution.bodies[0].completion, fit.to);
+});
+
 test("actual selected member constraints retain their checked origins and distinct receiver and open result evidence", async () => {
   const program = ready("export function read(box:Box):boolean{return box.flag;}export type Box={flag:boolean};\n");
   const source = program.checked.bodies.find(body => body.root.kind === "Block");

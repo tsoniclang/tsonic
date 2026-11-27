@@ -3652,6 +3652,34 @@ test("a checked object pattern keeps its selector, local and default execution i
     && row.detail.some(detail => detail.kind === "text" && detail.value.includes("a binding default retains"))), true);
 });
 
+test("an inline object annotation earns the same source holding as an authored alias", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
+  for (const [prefix, annotation] of [["", "{ field: boolean }"], ["type Input = { field: boolean };", "Input"]]) {
+    const { checked, interner } = checkedModuleOf(
+      `${prefix} export function get(source: ${annotation}): boolean { return source.field; }`,
+    );
+    assert.deepEqual(verifyChecked(checked, interner), []);
+    const callable = checked.tree.statements.nodes.at(-1);
+    const body = checked.bodies.find(row => row.root === callable.body);
+    const nodes = hir.indexSyntaxTree(checked.tree);
+    const domain = checkedSourceViews([{ module: checked, nodes }]);
+    const itemOf = definition => domain.nodeOf({ kind: "item", value: {
+      owner: definition, node: checked.items.find(item => item.definition === definition).node,
+    } });
+    const actual = callable.body.statements.nodes[0].expression;
+    const selected = hir.checkedSourceObjectFieldOf(body, actual, domain.nodeOf, itemOf, () => true);
+    assert.ok(selected);
+    assert.deepEqual(selected.local, { body: body.body, local: body.locals[0].id });
+    const owner = itemOf(selected.declaration);
+    assert.equal(owner === (prefix === "" ? callable.parameters.nodes[0] : checked.tree.statements.nodes[0]), true);
+    const field = itemOf(selected.field);
+    assert.equal(field === owner.type.members.nodes[0], true);
+    const wrong = definition => definition === selected.field ? { ...field, parent: owner.id } : itemOf(definition);
+    assert.equal(hir.checkedSourceObjectFieldOf(body, actual, domain.nodeOf, wrong, () => true), null);
+  }
+});
+
 test("a contextual binding member and an initializer property retain their different source origins", async () => {
   const text = "declare const a: number; declare const c: number; export const [e, {f: selected}] = [a + 1, {f: c}];";
   const { deps, program, module } = openedModule(text);

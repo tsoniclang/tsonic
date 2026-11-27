@@ -9,10 +9,11 @@ function ordinaryObjectRepresentation(core: HirCoreCapture): boolean {
     && core.markers.value.struct === null && core.markers.value.field === null && !core.markers.value.jsString;
 }
 
-function ordinaryObjectDeclaration(annotation: TypeNode<CheckedPhase> | null, type: TyId,
+function ordinaryObjectDeclaration(owner: DefId, annotation: TypeNode<CheckedPhase> | null, type: TyId,
   itemOf: (definition: DefId) => HirNode | null): DefId | null {
-  if (annotation?.kind !== "TypeReference" || annotation.typeArguments !== null
-    || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== type) return null;
+  if (annotation === null || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== type) return null;
+  if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? owner : null;
+  if (annotation.kind !== "TypeReference" || annotation.typeArguments !== null) return null;
   const owners = annotation.tsonic.referencedDefinitions;
   const declaration = owners[0];
   if (owners.length !== 1 || declaration === undefined) return null;
@@ -46,7 +47,7 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
         const passing = formal.tsonic.core.argumentPassing;
         if (passing.kind !== "available" || passing.value !== null &&
           (passing.value.role !== "declaration" || passing.value.mode !== "by-value")) return null;
-        actual = ordinaryObjectDeclaration(formal.type, type, itemOf);
+        actual = ordinaryObjectDeclaration(localRow.declaration.value.owner, formal.type, type, itemOf);
         if (actual === null) return null;
         break;
       }
@@ -57,7 +58,7 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
         || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== local.body
         || declaration.tsonic.declaration.local.local !== current || checkedVariableStorageOf(declaration) !== type) return null;
       if (declaration.type !== null) {
-        actual = ordinaryObjectDeclaration(declaration.type, type, itemOf);
+        actual = ordinaryObjectDeclaration(localRow.declaration.value.owner, declaration.type, type, itemOf);
         if (actual === null) return null;
         break;
       }
@@ -120,8 +121,12 @@ export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, acc
   if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local") return null;
   const formal = checkedSourceObjectHoldingOf(body, receiver.tsonic.resolution.local, nodeOf, itemOf, admitAlias);
   if (formal === null) return null;
+  const declaration = itemOf(formal.declaration);
+  if (declaration?.kind !== "TypeAliasDeclaration" && declaration?.kind !== "Parameter" && declaration?.kind !== "VariableDeclaration"
+    || declaration.type?.kind !== "TypeLiteral") return null;
   const field = itemOf(origin.declaration);
   if (field?.kind !== "PropertySignature" || field.postfixToken !== null || field.tsonic.parent !== formal.declaration
+    || field.parent !== declaration.type.id
     || field.tsonic.declaration.kind !== "definition" || field.tsonic.declaration.definition !== origin.declaration
     || !ordinaryObjectRepresentation(field.tsonic.core)) return null;
   return { ...formal, occurrence: { body: body.body, node: access.id }, field: origin.declaration };

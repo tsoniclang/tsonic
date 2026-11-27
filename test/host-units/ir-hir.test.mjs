@@ -5462,7 +5462,7 @@ test("HIR initializer write-fit keeps the actual separate default-argument value
 test("HIR a genuine nested binding default captures earlier parameters in the callable lexical environment", () => {
   const { value, body, parameters } = functionModule(["required", "required"]);
   const declaration = `D[${moduleIdentity};fn/p1/second]`;
-  const initializerBody = `B[${declaration};default-argument;0]`;
+  const initializerBody = `B[${declaration};initializer;0]`;
   const initializer = nameExpression("first");
   initializer.tsonic.resolution = { kind: "local", local: { body: body.body, local: 0 } };
   const element = syntax("BindingElement", 0, { dotDotDotToken: null, propertyName: null,
@@ -5486,6 +5486,11 @@ test("HIR a genuine nested binding default captures earlier parameters in the ca
   value.bodies.sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
   const decoded = roundtrip((value), "nested binding default lexical capture and SDK-style omission");
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
+  const wrongRole = `B[${declaration};default-argument;0]`;
+  value.bodies.find(candidate => candidate.body === initializerBody).body = wrongRole;
+  value.bodies.find(candidate => candidate.body === bodyIdentity).nestedBodies = [wrongRole, body.body];
+  assert.equal(product.verifyHir(value, contextFor(value)).some(finding => finding.rule === "body-owner"
+    && finding.detail.some(detail => detail.kind === "text" && detail.value.includes("a binding default retains"))), true);
 });
 
 test("HIR complete diagnostic-root syntax coverage stops at genuine nested bodies and refuses substituted sibling obligations", () => {
