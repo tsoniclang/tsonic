@@ -1,6 +1,6 @@
 import type { DefId, BodyId, ItemNodeRef, TyId, SigId, LocalRef, NodeRef, Origin } from "../ids/contract.js";
 import type { Diagnostic } from "../diag/contract.js";
-import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
+import type { CheckFailure, HandleActivation, ReceiverAccess, ReferenceArgumentField } from "../ir-types/contract.js";
 import type { NativePrimitive, BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
 import type { NativeIntegerPrimitive } from "../ir-types/contract.js";
 import type { NativeArrayConstructionPart } from "../ir-infer/contract.js";
@@ -241,8 +241,18 @@ export function readEmbeddingProofText<Root>(cursor: Cursor, finish: (value: Emb
           acceptText({ steps: stepsValue, conclusion: conclusionValue }, finish)))));
 }
 
+function readReferenceArgumentField<Root>(cursor: Cursor, finish: (value: ReferenceArgumentField) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "ReferenceArgumentField"), fields =>
+    fieldText<number | null, Root>(cursor, fields, "parent", (next, done) => nullableText(next, (child, finish) => atomicText(child, readNumber, finish), done), parent =>
+      fieldText<DefId, Root>(cursor, fields, "caller", (next, done) => atomicText(next, readDefinitionId, done), caller =>
+        fieldText<DefId, Root>(cursor, fields, "formal", (next, done) => atomicText(next, readDefinitionId, done), formal =>
+          fieldText<TyId, Root>(cursor, fields, "callerType", (next, done) => atomicText(next, readTypeId, done), callerType =>
+            fieldText<TyId, Root>(cursor, fields, "formalType", (next, done) => atomicText(next, readTypeId, done), formalType =>
+              atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ parent, caller, formal, callerType, formalType }, finish))))))));
+}
+
 export function readParameterMappingText<Root>(cursor: Cursor, finish: (value: ParameterMapping) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["argument","default","omitted","rest"]), label =>
+  return atomicText(cursor, next => choice(next, ["argument","reference-argument","default","omitted","rest"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
@@ -253,6 +263,14 @@ export function readParameterMappingText<Root>(cursor: Cursor, finish: (value: P
         fieldText<PassingMode, Root>(cursor, fields, "passing", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), done), passingValue =>
           atomicText(cursor, next => closeRecord(next, fields), () =>
               acceptText({ kind: label, parameter: parameterValue, argument: argumentValue, component: componentValue, passing: passingValue }, finish))))));
+        case "reference-argument":
+          return fieldText<number, Root>(cursor, fields, "parameter", (next, done) => atomicText(next, readNumber, done), parameter =>
+            fieldText<number, Root>(cursor, fields, "argument", (next, done) => atomicText(next, readNumber, done), argument =>
+              fieldText<TyId, Root>(cursor, fields, "caller", (next, done) => atomicText(next, readTypeId, done), caller =>
+                fieldText<TyId, Root>(cursor, fields, "formal", (next, done) => atomicText(next, readTypeId, done), formal =>
+                  fieldText<readonly ReferenceArgumentField[], Root>(cursor, fields, "fields", (next, done) => arrayText(next, readReferenceArgumentField, done), entries =>
+                    atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, parameter, argument,
+                      component: null, passing: "by-value", view: { caller, formal, fields: entries } }, finish)))))));
         case "default":
           return fieldText<number, Root>(cursor, fields, "parameter", (next, done) => atomicText(next, readNumber, done), parameterValue =>
     fieldText<BodyId, Root>(cursor, fields, "initializer", (next, done) => atomicText(next, readBodyId, done), initializerValue =>

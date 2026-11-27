@@ -39,7 +39,7 @@ export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> |
     const tail = end;
     for (; end > 0; end -= 1) {
       const mapping = parameters[end - 1];
-      if (mapping?.kind !== "argument" || mapping.argument !== position) break;
+      if ((mapping?.kind !== "argument" && mapping?.kind !== "reference-argument") || mapping.argument !== position) break;
     }
     const count = tail - end;
     if (argument.kind === "SpreadElement") {
@@ -87,7 +87,7 @@ function validateCallArguments(node: CallExpression<TypedPhase> | NewExpression<
         return callerDefect("an omitted call argument lacks its selected omission capability", node.origin);
       continue;
     }
-    if (selected.kind !== "provided" || mapping.kind !== "argument")
+    if (selected.kind !== "provided" || mapping.kind !== "argument" && mapping.kind !== "reference-argument")
       return notLoweredYet("a call with omitted, rest or expanded arguments", node.origin);
     const authored = arguments_?.[mapping.argument];
     const spread = authored?.kind === "SpreadElement";
@@ -159,9 +159,11 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
       arguments_.push({ kind: "omitted" });
       continue;
     }
-    if (selected.kind !== "provided" || mapping.kind !== "argument")
+    if (selected.kind !== "provided" || mapping.kind !== "argument" && mapping.kind !== "reference-argument")
       return callerDefect("a call argument differs from its actual selected mapping", node.origin);
     const value = popOperand(lowering, failure("a call completed without its argument", node.origin));
+    if (mapping.kind === "reference-argument" && value.storage !== mapping.view.caller)
+      return callerDefect("a reference argument retains its actual caller storage", node.origin);
     if (mapping.passing === "by-value" || mapping.passing === "move")
       arguments_.push({ kind: "value", passing: mapping.passing, operand: value.operand });
     else {

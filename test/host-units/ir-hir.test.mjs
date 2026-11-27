@@ -111,6 +111,88 @@ test("a mutable reference holds only its actual closed source declarations and s
   }
 });
 
+test("checked by-value reference views pair actual field declarations and native present arms", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { readSignature, readType } = await import("../../packages/host/dist/ir-types/index.js");
+  for (const other of ["boolean", "string", "readonly"]) {
+    const same = other === "boolean";
+    const input = analysisInput(fixture, "sdk-minimal", `
+      function touch(formal: { ${other === "readonly" ? "readonly " : ""}y: ${other === "string" ? "string" : "boolean"}; x: { flag: boolean } | undefined }): boolean { return true; }
+      export function entry(caller: { x: undefined | { flag: boolean }; y: boolean }): boolean {
+        ${same ? "return touch(caller);" : "caller; return true;"}
+      }
+    `);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+    const { checked, modules, types } = captured.value;
+    const { module } = modules.find(row => row.module.module === input.snapshot.entryPoint);
+    const [touch, entry] = module.tree.statements.nodes;
+    const body = checked.bodies.get(entry.tsonic.body);
+    const expression = body.root.statements.nodes[0].expression;
+    const argument = expression.kind === "CallExpression" ? expression.arguments.nodes[0] : expression;
+    const endpoint = touch.tsonic.signatures.find(row => row.role === "api-body");
+    const [formal] = readSignature(types, endpoint.signature).parameters;
+    const caller = argument.tsonic.value.views.read.value;
+    const site = { body, argument: { body: body.body, node: argument.id }, caller, endpoint, ordinal: 0, formal };
+    const admissions = [];
+    const reads = [];
+    const reader = (admit, collect) => ({
+      nodeOf: reference => { collect("node", reference.value.node); return checked.nodeOf(reference); },
+      itemOf: definition => { collect("item", definition); const actual = checked.declarationSourceOf(definition); return actual === null ? null : checked.nodeOf(actual); },
+      typeOf: type => { collect("type", type); return readType(types, type); },
+      admit,
+    });
+    let work = 0;
+    let records = 0;
+    const output = product.checkedReferenceArgumentViewOf(site, reader((units, retained) => {
+      admissions.push([units, retained]); work += units; records += retained; return true;
+    }, (role, value) => reads.push([admissions.length, role, value])));
+    if (!same) {
+      assert.equal(output, null);
+      continue;
+    }
+    assert.ok(output);
+    const callerShape = readType(types, caller);
+    const formalShape = readType(types, formal.type);
+    const [sourceX, sourceY] = callerShape.members;
+    const [targetX, targetY] = formalShape.members;
+    const [sourceFlag] = readType(types, readType(types, sourceX.read).value).members;
+    const [targetFlag] = readType(types, readType(types, targetX.read).value).members;
+    const expected = (parent, source, target) => ({ parent, caller: source.origins[0].declaration, callerType: source.read,
+      formal: target.origins[0].declaration, formalType: target.read });
+    assert.notEqual(caller, formal.type);
+    assert.deepEqual(output, { caller, formal: formal.type,
+      fields: [expected(null, sourceX, targetX), expected(0, sourceFlag, targetFlag), expected(null, sourceY, targetY)] });
+    assert.ok(output.fields.every(row => row.caller !== row.formal));
+    for (const [dimension, total] of [["work", work], ["records", records]]) {
+      for (let cap = 0; cap < total; cap += 1) {
+        let spent = 0;
+        let admitted = 0;
+        let stopped = false;
+        const prefix = [];
+        assert.equal(product.checkedReferenceArgumentViewOf(site, reader((units, retained) => {
+          assert.equal(stopped, false);
+          const cost = dimension === "work" ? units : retained;
+          if (cost > cap - spent) { stopped = true; return false; }
+          spent += cost;
+          admitted += 1;
+          return true;
+        }, (role, value) => { assert.equal(stopped, false); prefix.push([admitted, role, value]); })), null);
+        assert.deepEqual(prefix, reads.filter(([index]) => index <= admitted), `${dimension} at ${cap}`);
+      }
+    }
+    const completeRead = reader(() => true, () => {});
+    for (const crossed of [
+      { ...site, ordinal: 1 },
+      { ...site, argument: { ...site.argument, body: endpoint.body } },
+      { ...site, endpoint: { ...endpoint, signature: entry.tsonic.signatures[0].signature } },
+      { ...site, formal: { ...formal, declaration: readSignature(types, entry.tsonic.signatures[0].signature).parameters[0].declaration } },
+    ]) assert.equal(product.checkedReferenceArgumentViewOf(crossed, completeRead), null);
+  }
+});
+
 test("layout descriptors retain actual authored operands and admit each field before reading it", async () => {
   const fixture = await loadFrontFixture();
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
@@ -1376,7 +1458,7 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
   assert.deepStrictEqual(Object.keys(product).sort(), [
-    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceBindingFieldOf", "checkedSourceObjectFieldsOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
+    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedReferenceArgumentViewOf", "checkedSourceBindingFieldOf", "checkedSourceObjectFieldsOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxArgumentList", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
     "projectCheckedContent", "readLayoutDescriptor", "readLayoutSelector", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveCheckedLayoutAlias", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",

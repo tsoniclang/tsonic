@@ -2,10 +2,12 @@ import type { Result, UnitErrorRead, UnitRef, UnitRequest } from "../diag/contra
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { HirBody } from "../ir-hir/contract.js";
+import { checkedReferenceArgumentViewOf } from "../ir-hir/index.js";
 import type { GroupConstraints, GroupSolution, PlacementAnswer, PlacementPaused } from "../infer/contract.js";
 import type { InferenceGroup, InferenceVariable, InferredPartRequest, InferredPartType, InferVerificationInput, PlacedSignature } from "../ir-infer/contract.js";
 import { inferredPartKey, verifyInference } from "../ir-infer/index.js";
 import type { ArtifactBindings, BodyInstance, MemberInventory, Signature, SignatureRequest } from "../ir-types/contract.js";
+import { admitTypePublicationStep } from "../ir-types/index.js";
 import type { DataflowAccount } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { ElaborateDeps } from "../elaborate/contract.js";
@@ -105,6 +107,10 @@ export function candidateReplayOf<State>(deps: ElaborateDeps<State>, account: Da
     if (selected.value.declaration !== candidate.declaration || selected.value.result !== result)
       return fail("A replayed candidate must retain the independently selected result and declaration.");
     const settled = deps.rules.candidate({ ...input, candidates: [{ ...candidate, advertisedSignature: id, apiSignature: id }] },
+      request => checkedReferenceArgumentViewOf({ ...request, body: checked }, {
+        nodeOf: deps.nodeOf, itemOf: deps.itemOf, typeOf: deps.typeOf,
+        admit: (work, records) => admitTypePublicationStep(deps.typeWork, work, records) === null,
+      }),
       { typeWork: deps.typeWork, unit });
     if (settled.kind === "refused") return settled;
     if (settled.value.kind !== "decided" || settled.value.decision.result !== result)

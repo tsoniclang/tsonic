@@ -2,7 +2,7 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type {
-  BindingVector, MemberKey, MemberOrigin, TypeComponent, TypeEvidence
+  BindingVector, MemberKey, MemberOrigin, ReferenceArgumentField, TypeComponent, TypeEvidence
 } from "../ir-types/contract.js";
 import type {
   LocalRef, NodeRef
@@ -211,6 +211,23 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
     .field("component", "?number", value => nullableWork(value.component, actual => scalarWork("number", actual)), nullableReader(numberReader))
     .field("passing", "PassingMode", value => scalarWork("PassingMode", value.passing), literalReader<(ParameterMapping & { readonly kind: "argument" })["passing"]>("PassingMode", ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]))
     .finish((field_parameter, field_argument, field_component, field_passing) => ({ kind: "argument", parameter: field_parameter, argument: field_argument, component: field_component, passing: field_passing })));
+  const referenceField = defineRecord<ReferenceArgumentField>("ReferenceArgumentField", "ReferenceArgumentField", null, "ReferenceArgumentField", null, null, fields => fields
+    .field("parent", "?number", value => nullableWork(value.parent, actual => scalarWork("number", actual)), nullableReader(numberReader))
+    .field("caller", "def", value => scalarWork("def", value.caller), definitionReader)
+    .field("formal", "def", value => scalarWork("def", value.formal), definitionReader)
+    .field("callerType", "t", value => referenceWork("t", value.callerType), typeReader)
+    .field("formalType", "t", value => referenceWork("t", value.formalType), typeReader)
+    .finish((parent, caller, formal, callerType, formalType) => ({ parent, caller, formal, callerType, formalType })));
+  const referenceArgument = defineRecord<Extract<ParameterMapping, { readonly kind: "reference-argument" }>>(
+    "ParameterMapping#reference-argument", "ParameterMapping", { field: "kind", value: "reference-argument" }, "reference-argument", null, null, fields => fields
+    .field("parameter", "number", value => scalarWork("number", value.parameter), numberReader)
+    .field("argument", "number", value => scalarWork("number", value.argument), numberReader)
+    .field("caller", "t", value => referenceWork("t", value.view.caller), typeReader)
+    .field("formal", "t", value => referenceWork("t", value.view.formal), typeReader)
+    .field("fields", "[ReferenceArgumentField]", value => sequenceWork("[ReferenceArgumentField]", value.view.fields, row => referenceField.write(row)),
+      sequenceReader("[ReferenceArgumentField]", referenceField.reader))
+    .finish((parameter, argument, caller, formal, entries) => ({ kind: "reference-argument", parameter, argument, component: null,
+      passing: "by-value", view: { caller, formal, fields: entries } })));
   const work_ParameterMapping_default: TirRecordCodec<ParameterMapping & { readonly kind: "default" }> = defineRecord<ParameterMapping & { readonly kind: "default" }>("ParameterMapping#default", "ParameterMapping", { field: "kind", value: "default" }, "default", null, null, fields => fields
     .field("parameter", "number", value => scalarWork("number", value.parameter), numberReader)
     .field("initializer", "body", value => scalarWork("body", value.initializer), bodyReader)
@@ -279,11 +296,12 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
   const work_ParameterMapping: TirRecordCodec<ParameterMapping> = unionRecord<ParameterMapping>("ParameterMapping", (value: ParameterMapping): TirTypedRecordWork => {
     switch (value.kind) {
       case "argument": return work_ParameterMapping_argument.write(value);
+      case "reference-argument": return referenceArgument.write(value);
       case "default": return work_ParameterMapping_default.write(value);
       case "omitted": return work_ParameterMapping_omitted.write(value);
       case "rest": return work_ParameterMapping_rest.write(value);
     }
-  }, () => [work_ParameterMapping_argument.reader, work_ParameterMapping_default.reader, work_ParameterMapping_omitted.reader, work_ParameterMapping_rest.reader]);
+  }, () => [work_ParameterMapping_argument.reader, referenceArgument.reader, work_ParameterMapping_default.reader, work_ParameterMapping_omitted.reader, work_ParameterMapping_rest.reader]);
   const work_LiteralConstructionPart: TirRecordCodec<LiteralConstructionPart> = unionRecord<LiteralConstructionPart>("LiteralConstructionPart", (value: LiteralConstructionPart): TirTypedRecordWork => {
     switch (value.kind) {
       case "element": return work_LiteralConstructionPart_element.write(value);

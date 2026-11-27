@@ -1,7 +1,7 @@
-import type { CheckedMemberStorageOf, CheckedPhase, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedVariableStorageOf,
+import type { CheckedMemberStorageOf, CheckedPhase, CheckedReferenceArgumentRead, CheckedReferenceArgumentViewOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldsOf, CheckedVariableStorageOf,
   HirCoreCapture, HirNode, PropertyAccessExpression, ReadWriteRootStorageOf, TypeNode, WritableRootStorageOf } from "./contract.js";
 import type { DefId, LocalId, NodeId, TyId } from "../ids/contract.js";
-import type { SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding } from "../ir-types/contract.js";
+import type { Member, ReferenceArgumentField, ReferenceArgumentView, SourceObjectField, SourceObjectFieldPresence, SourceObjectHolding, TypeTerm } from "../ir-types/contract.js";
 import { compareMemberKeys } from "../ir-types/index.js";
 import { unparenthesizedExpression } from "./walk.js";
 
@@ -277,6 +277,153 @@ function qualifiedSourceField(owner: DefId, container: TypeLiteral, definition: 
     || !ordinaryObjectRepresentation(field.tsonic.core)) return null;
   return field;
 }
+
+interface ReferenceSurface {
+  readonly owner: DefId;
+  readonly syntax: TypeLiteral;
+  readonly members: readonly Member[];
+}
+
+interface ReferenceField {
+  readonly declaration: DefId;
+  readonly type: TyId;
+  readonly nested: FieldValue | null;
+}
+
+interface ReferenceFrame {
+  readonly caller: ReferenceSurface;
+  readonly formal: ReferenceSurface;
+  readonly parent: number | null;
+  position: number;
+}
+
+function directOrigin(origins: Member["origins"], declaration: DefId): boolean {
+  const origin = origins[0];
+  return origins.length === 1 && origin?.kind === "declared" && origin.declaration === declaration;
+}
+
+function referenceSurface(owner: DefId, syntax: TypeLiteral, type: TyId, read: CheckedReferenceArgumentRead): ReferenceSurface | null {
+  if (!read.admit(1, 0)) return null;
+  const term = read.typeOf(type);
+  if (term?.kind !== "shape" || term.indexes.length !== 0 || term.calls.length !== 0 || term.constructs.length !== 0
+    || term.members.length !== syntax.members.nodes.length || !read.admit(0, 1)) return null;
+  return { owner, syntax, members: term.members };
+}
+
+function referenceField(surface: ReferenceSurface, member: Member, read: CheckedReferenceArgumentRead): ReferenceField | null {
+  if (!read.admit(1, 0) || member.kind !== "property" || member.key.kind !== "text" || member.read === null
+    || (member.readonly ? member.write !== null : member.write !== member.read)) return null;
+  const origin = member.origins[0];
+  if (member.origins.length !== 1 || origin?.kind !== "declared" || !directOrigin(member.readOrigins, origin.declaration)
+    || (member.readonly ? member.writeOrigins.length !== 0 : !directOrigin(member.writeOrigins, origin.declaration))) return null;
+  const field = qualifiedSourceField(surface.owner, surface.syntax, origin.declaration, read.itemOf);
+  if (field === null || field.name.kind !== "Identifier" || (field.postfixToken?.kind === "QuestionToken") !== member.optional
+    || !read.admit(field.name.text.length + member.key.value.length, 0) || field.name.text !== member.key.value) return null;
+  const annotation = field.type;
+  const declared = field.tsonic.declaredType;
+  if (annotation === null || annotation.parent !== field.id || declared.kind !== "available" || declared.value === null
+    || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== declared.value) return null;
+  const nested = fieldValue(field, read.typeOf, read.admit);
+  if (nested === undefined || !read.admit(1, 0)) return null;
+  const storage = read.typeOf(member.read);
+  const present = storage?.kind === "optional" ? storage.value : member.read;
+  if (present !== declared.value && member.read !== declared.value
+    || member.read !== declared.value && !member.optional
+    || nested !== null && (present !== nested.type || (storage?.kind === "optional") !== (nested.presence !== null || member.optional))
+    || !read.admit(0, 1)) return null;
+  return { declaration: origin.declaration, type: member.read, nested };
+}
+
+function nativeLeaf(type: TypeTerm | undefined): boolean {
+  return type?.kind === "primitive" || type?.kind === "string"
+    || type?.kind === "intrinsic" && type.intrinsic === "bigint";
+}
+
+export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (site, read) => {
+  if (!read.admit(1, 0) || site.argument.body !== site.body.body || site.endpoint.role !== "api-body"
+    || site.endpoint.body === null || site.formal.passing !== "by-value" || site.formal.kind === "rest"
+    || !Number.isSafeInteger(site.ordinal) || site.ordinal < 0 || Object.is(site.ordinal, -0)) return null;
+  let argument = read.nodeOf({ kind: "body", value: site.argument });
+  if (argument?.id !== site.argument.node) return null;
+  while (argument.kind === "ParenthesizedExpression") {
+    if (!read.admit(1, 0)) return null;
+    argument = argument.expression;
+  }
+  if (argument.kind !== "Identifier" || argument.tsonic.role !== "value" || argument.tsonic.resolution.kind !== "local"
+    || argument.tsonic.value.views.read.kind !== "available" || argument.tsonic.value.views.read.value !== site.caller
+    || !read.admit(1, 0)) return null;
+  const caller = sourceObjectHolding((holding, declaration) => holding.receiver === site.caller && declaration.type?.kind === "TypeLiteral"
+    ? referenceSurface(holding.declaration, declaration.type, site.caller, read) : null,
+  site.body, argument.tsonic.resolution.local, read.nodeOf, read.itemOf, () => read.admit(1, 0));
+  if (caller === null || !read.admit(1, 0)) return null;
+  const callable = read.itemOf(site.endpoint.declaration);
+  if (callable?.kind !== "FunctionDeclaration" || callable.tsonic.definition !== site.endpoint.declaration
+    || callable.tsonic.body !== site.endpoint.body) return null;
+  let endpoint = false;
+  for (let position = 0; position < callable.tsonic.signatures.length; position += 1) {
+    if (!read.admit(1, 0)) return null;
+    const offered = callable.tsonic.signatures[position];
+    if (offered?.role === "api-body" && offered.declaration === site.endpoint.declaration
+      && offered.signature === site.endpoint.signature && offered.body === site.endpoint.body) {
+      endpoint = true;
+      break;
+    }
+  }
+  if (!endpoint || !read.admit(1, 0)) return null;
+  const header = callable.parameters.nodes[site.ordinal];
+  const parameter = read.itemOf(site.formal.declaration);
+  if (header === undefined || parameter !== header || parameter.parent !== callable.id || parameter.tsonic.parent !== site.endpoint.declaration
+    || parameter.tsonic.declaration.kind !== "local" || parameter.tsonic.declaration.local.body !== site.endpoint.body
+    || parameter.dotDotDotToken !== null || parameter.tsonic.declaredType.kind !== "available"
+    || parameter.tsonic.declaredType.value !== site.formal.type) return null;
+  const passing = parameter.tsonic.core.argumentPassing;
+  if (passing.kind !== "available" || passing.value !== null && (passing.value.role !== "declaration" || passing.value.mode !== "by-value")
+    || !read.admit(1, 0)) return null;
+  const declaration = ordinaryObjectDeclaration(parameter, parameter.type, site.formal.type, read.itemOf);
+  if (declaration?.type?.kind !== "TypeLiteral") return null;
+  const owner = declaration.kind === "TypeAliasDeclaration" ? declaration.tsonic.definition : site.formal.declaration;
+  const formal = referenceSurface(owner, declaration.type, site.formal.type, read);
+  if (formal === null || !read.admit(1, 4)) return null;
+  const fields: ReferenceArgumentField[] = [];
+  const result: ReferenceArgumentView = { caller: site.caller, formal: site.formal.type, fields };
+  const pending: ReferenceFrame[] = [{ caller, formal, parent: null, position: 0 }];
+  while (pending.length !== 0) {
+    if (!read.admit(1, 0)) return null;
+    const frame = pending[pending.length - 1];
+    if (frame === undefined || frame.caller.members.length !== frame.formal.members.length) return null;
+    if (frame.position === frame.caller.members.length) {
+      pending.pop();
+      continue;
+    }
+    const argumentMember = frame.caller.members[frame.position];
+    const formalMember = frame.formal.members[frame.position];
+    frame.position += 1;
+    if (argumentMember?.key.kind !== "text" || formalMember?.key.kind !== "text"
+      || argumentMember.readonly !== formalMember.readonly || argumentMember.optional !== formalMember.optional
+      || !read.admit(argumentMember.key.value.length + formalMember.key.value.length, 0)
+      || compareMemberKeys(argumentMember.key, formalMember.key) !== 0) return null;
+    const source = referenceField(frame.caller, argumentMember, read);
+    if (source === null) return null;
+    const destination = referenceField(frame.formal, formalMember, read);
+    if (destination === null || (source.nested === null) !== (destination.nested === null)) return null;
+    if (source.nested === null || destination.nested === null) {
+      if (source.type !== destination.type || !read.admit(1, 0)) return null;
+      const type = read.typeOf(source.type);
+      if (type?.kind === "optional" ? !read.admit(1, 0) || !nativeLeaf(read.typeOf(type.value)) : !nativeLeaf(type)) return null;
+    } else {
+      if ((source.nested.presence === null) !== (destination.nested.presence === null)) return null;
+      const caller = referenceSurface(source.declaration, source.nested.container, source.nested.type, read);
+      if (caller === null) return null;
+      const formal = referenceSurface(destination.declaration, destination.nested.container, destination.nested.type, read);
+      if (formal === null || !read.admit(1, 1)) return null;
+      pending.push({ caller, formal, parent: fields.length, position: 0 });
+    }
+    if (!read.admit(1, 1)) return null;
+    fields.push({ parent: frame.parent, caller: source.declaration, formal: destination.declaration,
+      callerType: source.type, formalType: destination.type });
+  }
+  return result;
+};
 
 export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, element, key, definition, nodeOf, itemOf, typeOf, admit) => {
   const occurrence = { body: body.body, node: element.id };

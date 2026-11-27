@@ -243,6 +243,20 @@ export function textParameterMapping(value: ParameterMapping): TextWork {
       field("component", (value.component === null ? token("null") : numeric(value.component))),
       field("passing", text(value.passing)),
     ]);
+      case "reference-argument":
+        return record(value.kind, [
+          field("parameter", numeric(value.parameter)),
+          field("argument", numeric(value.argument)),
+          field("caller", numericIdentity("t", value.view.caller)),
+          field("formal", numericIdentity("t", value.view.formal)),
+          field("fields", sequence(value.view.fields, row => record("ReferenceArgumentField", [
+            field("parent", row.parent === null ? token("null") : numeric(row.parent)),
+            field("caller", identity("def", row.caller)),
+            field("formal", identity("def", row.formal)),
+            field("callerType", numericIdentity("t", row.callerType)),
+            field("formalType", numericIdentity("t", row.formalType)),
+          ]))),
+        ]);
       case "default":
         return record(value.kind, [
       field("parameter", numeric(value.parameter)),

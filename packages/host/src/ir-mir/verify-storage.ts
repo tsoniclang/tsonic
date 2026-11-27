@@ -1038,7 +1038,12 @@ export function verifyValues(
             if (omitting && (parameter === undefined || parameter.kind !== "rest")) report("omission-admitted", site);
             const actual = argument.kind === "value" ? operandType(argument.operand, site) : placeType(argument.place, site);
             if (parameter !== undefined) {
-              if (argument.passing !== parameter.passing || actual !== null && !Object.is(actual, parameter.type))
+              const mapping = decision.parameters[position];
+              const exact = mapping?.kind === "reference-argument"
+                ? sourceNode !== undefined && argument.kind === "value" && argument.passing === "by-value"
+                  && actual === mapping.view.caller && mapping.view.formal === parameter.type
+                : actual === null || Object.is(actual, parameter.type);
+              if (argument.passing !== parameter.passing || !exact)
                 violations.push({ rule: "argument-passing-exact", site, detail: [{ kind: "number", value: position }] });
             }
           }

@@ -215,7 +215,8 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
       if (read !== null) return read;
       const mapping = operation.callee.resolution.decision.parameters[index];
       const formal = signature.parameters[index];
-      if (formal?.passing !== "by-value" || mapping?.kind !== "argument" || mapping.parameter !== index || mapping.passing !== "by-value"
+      if (formal?.passing !== "by-value" || mapping?.kind !== "argument" && mapping?.kind !== "reference-argument"
+        || mapping.parameter !== index || mapping.passing !== "by-value"
         || !Number.isSafeInteger(mapping.argument) || Object.is(mapping.argument, -0) || mapping.argument < 0
         || (mapping.argument === authored
           ? component === null || mapping.component !== component + 1
@@ -228,7 +229,7 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
         const stopped = accountFailure(deps.account);
         if (stopped !== null) return stopped;
         const selected = application?.callee.decision.parameters[index];
-        if (selected?.kind !== "argument" || selected.parameter !== index || selected.argument !== mapping.argument
+        if (selected?.kind !== mapping.kind || selected.parameter !== index || selected.argument !== mapping.argument
           || selected.component !== mapping.component || selected.passing !== mapping.passing)
           return frontier(operation, "BodyAnalysis requires the actual fixed by-value mapping for each selected argument.");
       }

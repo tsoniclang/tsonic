@@ -999,7 +999,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
             const paid = chargeWork(account, 1);
             if (paid !== null) return paid;
             const mapping = actual.callee.decision.parameters[index];
-            if (mapping?.kind !== "argument" || mapping.parameter !== index || mapping.passing !== "by-value")
+            if (mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" || mapping.parameter !== index || mapping.passing !== "by-value")
               return bodyFrontier("A provided formal retains its actual authored argument and selected component.");
             let projection: ProjectionPathId | null = null;
             if (mapping.component !== null) {

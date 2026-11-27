@@ -439,6 +439,103 @@ test("a pure call or a descendant write preserves the actual parent presence gua
   }
 });
 
+test("a selected by-value reference view keeps the original operand, formal and nested fields through publication", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { parseMir, printMir } = await import("../../packages/host/dist/ir-mir/index.js");
+  const { parseTir, printTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { parseModuleBodies, printModuleBodies, tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function pure(formal: { sibling: boolean; child: { flag: boolean } | null }): boolean { return true; }
+    export function read(caller: { child: null | { flag: boolean }; sibling: boolean }): boolean {
+      if (caller.child !== null) { pure(caller); return caller.child.flag; }
+      return false;
+    }
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0]?.kind === "IfStatement");
+  assert.ok(selected);
+  const guard = selected.tir.root.statements.nodes[0];
+  const call = selected.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+  const actual = guard.thenStatement.statements.nodes[0].expression;
+  const argument = actual.arguments.nodes[0];
+  const [mapping] = call.callee.resolution.decision.parameters;
+  assert.equal(mapping.kind, "reference-argument");
+  assert.notEqual(mapping.view.caller, mapping.view.formal);
+  assert.equal(mapping.view.caller, argument.tsonic.convertedType);
+  assert.equal(mapping.view.formal, result.value.index.types.signatures[call.callee.resolution.decision.completion.signature].parameters[0].type);
+  assert.deepEqual(mapping.view.fields.map(row => row.parent), [null, 0, null]);
+  assert.ok(mapping.view.fields.every(row => row.caller !== row.formal));
+  const [provided] = call.arguments;
+  assert.equal(provided.kind, "value");
+  assert.equal(provided.operand.kind, "place");
+  assert.equal(selected.mir.places[provided.operand.place].storage, mapping.view.caller);
+  const facts = selected.facts.find(row => row.execution.provided === 1);
+  assert.deepEqual(facts.refinements.refinements.map(row => [row.kind, row.guards]), [["proven", [guard.expression.id]]]);
+  const { index } = result.value;
+  for (const [value, print, parse] of [[selected.tir, printTir, parseTir], [selected.mir, printMir, parseMir],
+    [chapter, value => printModuleBodies(index, value), text => parseModuleBodies(index, text)]]) {
+    const text = print(value);
+    const decoded = parse(text);
+    assert.equal(decoded.kind, "parsed", decoded.kind === "invalid-text" ? JSON.stringify(decoded) : undefined);
+    assert.equal(print(decoded.value), text);
+  }
+
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const typed = typeSourceBarrier(input, captured.value, createTypedAccount(input));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const candidate = [...typed.value.bodies.values()].find(row => row.bindings.kind === "instantiated" && row.root.kind === "Block"
+    && row.root.statements.nodes[0]?.kind === "IfStatement");
+  const proof = typed.value.verifierOf(input.snapshot.entryPoint);
+  const verify = body => verifyTir(proof, tirReadyReadAdmission(createTypedAccount(input)))(body);
+  assert.deepEqual(verify(candidate), { kind: "complete", violations: [] });
+  const copied = structuredClone(candidate);
+  const decision = copied.root.statements.nodes[0].thenStatement.statements.nodes[0].expression.tsonic.application.decision.callee.decision;
+  const [reference] = decision.parameters;
+  assert.equal(reference.kind, "reference-argument");
+  reference.view.fields[1].caller = reference.view.fields[1].formal;
+  const wrongField = verify(copied);
+  assert.equal(wrongField.kind, "complete");
+  assert.ok(wrongField.violations.some(row => row.rule === "argument-passing"));
+});
+
+test("deferred selection acquires the same actual reference view after native binding", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function echo<T>(formal: { sibling: boolean; child: { flag: boolean } | null }, value: T): T { return value; }
+    function take<T>(caller: { child: null | { flag: boolean }; sibling: boolean }, value: T): T { return echo(caller, value); }
+    export function start(caller: { child: null | { flag: boolean }; sibling: boolean }, value: boolean): boolean {
+      return take(caller, value);
+    }
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+  const rows = chapter.bodies.filter(row => row.instance.body.includes(";take];function;0]"));
+  const selected = rows.find(row => row.kind === "selected");
+  const template = rows.find(row => row.kind === "template");
+  const application = template.tir.root.statements.nodes[0].expression.tsonic.application;
+  assert.equal(application.kind, "deferred");
+  assert.equal(application.deferred.invocation.rule, "candidate");
+  const call = selected.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  const [view, scalar] = call.callee.resolution.decision.parameters;
+  assert.equal(view.kind, "reference-argument");
+  assert.equal(scalar.kind, "argument");
+  assert.notEqual(view.view.caller, view.view.formal);
+  assert.deepEqual(view.view.fields.map(row => row.parent), [null, 0, null]);
+  const completion = index.types.signatures[call.callee.resolution.decision.completion.signature];
+  assert.equal(completion.parameters[0].type, view.view.formal);
+  assert.deepEqual(index.types.terms[completion.parameters[1].type], { kind: "primitive", primitive: "bool" });
+});
+
 test("a write-only optional reference field records absence on the actual receiver without reading the field", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

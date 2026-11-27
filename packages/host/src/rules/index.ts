@@ -62,8 +62,8 @@ export const createRuleTable: CreateRuleTable = deps => {
     resumeMember,
     index: input => decided(decideIndex(deps, input)),
     constructLiteral: (input, work) => constructLiteral(deps, input, work),
-    candidate: (input, work) => {
-      const selected = decideCandidate(deps, input, work);
+    candidate: (input, referenceArgument, work) => {
+      const selected = decideCandidate(deps, input, referenceArgument, work);
       return selected.kind === "refused" ? selected : decided(selected.value);
     },
     operator: input => decided(decideOperator(deps, input.operator, input.operands, input.context.occurrence, input.context.origin, null)),

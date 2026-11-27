@@ -378,6 +378,20 @@ export interface SourceObjectFieldPresence {
   readonly present: TyId;
 }
 
+export interface ReferenceArgumentView {
+  readonly caller: TyId;
+  readonly formal: TyId;
+  readonly fields: readonly ReferenceArgumentField[];
+}
+
+export interface ReferenceArgumentField {
+  readonly parent: number | null;
+  readonly caller: DefId;
+  readonly formal: DefId;
+  readonly callerType: TyId;
+  readonly formalType: TyId;
+}
+
 export type MemberUnavailableReason =
   | { readonly kind: "parameter"; readonly parameter: DefId }
   | { readonly kind: "dynamic" }

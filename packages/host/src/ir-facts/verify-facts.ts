@@ -814,11 +814,12 @@ if (!consumed.get(index)?.has(component)) {
           }
         } else if (argument.kind === "provided" && mapping !== undefined &&
           Number.isSafeInteger(argument.authoredIndex) && argument.authoredIndex >= 0 && !Object.is(argument.authoredIndex, -0)) {
-          const valid = mapping.kind === "argument" ? argument.authoredIndex === mapping.argument
+          const fixed = mapping.kind === "argument" || mapping.kind === "reference-argument";
+          const valid = fixed ? argument.authoredIndex === mapping.argument
             : mapping.kind === "rest" && restAuthored.get(mapping.parameter)?.has(argument.authoredIndex) === true;
           const projection = argument.projection === null ? null : facts.arena.projections[argument.projection]?.projection;
           if (!valid || receiver !== undefined && (slot?.kind !== "provided" || mapping.kind !== "rest" && slot.origins !== argument.actual) ||
-            mapping.kind === "argument" && (mapping.component === null ? argument.projection !== null
+            fixed && (mapping.component === null ? argument.projection !== null
               : !Number.isSafeInteger(mapping.component) || mapping.component < 0 || Object.is(mapping.component, -0) ||
                 projection?.kind !== "index" || projection.constant !== BigInt(mapping.component))) {
             { const stop = report("argument-transports-total", site, "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins."); if (stop !== null) return stop; }
@@ -878,7 +879,7 @@ if (!consumed.get(index)?.has(component)) {
       for (const parameter of decision.parameters) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
-if (parameter.kind === "argument") provided += 1;
+if (parameter.kind === "argument" || parameter.kind === "reference-argument") provided += 1;
   }
       const summary = alternative.summary;
       let selectedExecution = false;

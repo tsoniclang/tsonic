@@ -78,7 +78,8 @@ const verifyDecisionFormals = (decision: ApplicationDecision, node: TirNode, sig
     const parameter = signature.parameters[position];
     if (mapping === undefined || parameter === undefined) { total = false; continue; }
     if (!Object.is(mapping.parameter, position)) order = false;
-    if (mapping.kind === "argument" && (!validOrdinal(mapping.argument) || mapping.component !== null && !validOrdinal(mapping.component))) order = false;
+    if ((mapping.kind === "argument" || mapping.kind === "reference-argument")
+      && (!validOrdinal(mapping.argument) || mapping.component !== null && !validOrdinal(mapping.component))) order = false;
     if (mapping.kind === "rest") {
       let previous = -1;
       for (const argument of mapping.arguments) {
@@ -86,7 +87,7 @@ const verifyDecisionFormals = (decision: ApplicationDecision, node: TirNode, sig
         previous = argument;
       }
     }
-    if ((mapping.kind === "argument" || mapping.kind === "rest") && mapping.passing !== parameter.passing) passing = false;
+    if ((mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "rest") && mapping.passing !== parameter.passing) passing = false;
     if (mapping.kind === "default" && (parameter.kind !== "default" || !parameter.acceptsOmission || mapping.initializer !== parameter.initializer) ||
       mapping.kind === "omitted" && (!parameter.acceptsOmission || parameter.kind === "default" || parameter.kind === "rest" || mapping.type !== parameter.type) ||
       mapping.kind === "rest" && parameter.kind !== "rest") omission = false;
@@ -142,9 +143,9 @@ export const verifyArgumentTransport = <Stop extends object>(
     if (argument === undefined || formal === undefined || mapping === undefined) { total = false; continue; }
     if (!Object.is(argument.parameter, position)) parameterOrder = false;
     if (!omissionMatches(argument, formal)) omissions = false;
-    if ((mapping.kind === "argument" || mapping.kind === "rest") && mapping.passing !== formal.passing) passing = false;
+    if ((mapping.kind === "argument" || mapping.kind === "reference-argument" || mapping.kind === "rest") && mapping.passing !== formal.passing) passing = false;
     if (argument.kind === "provided") {
-      if (mapping.kind !== "argument") total = false;
+      if (mapping.kind !== "argument" && mapping.kind !== "reference-argument") total = false;
       else {
         if (!validOrdinal(mapping.argument) || mapping.component !== null && !validOrdinal(mapping.component) ||
           mapping.argument < previousArgument || mapping.argument === previousArgument &&
@@ -156,7 +157,7 @@ export const verifyArgumentTransport = <Stop extends object>(
           captured.core.argumentPassing.kind === "available" && captured.core.argumentPassing.value?.role === "argument" &&
           captured.core.argumentPassing.value.mode !== mapping.passing) passing = false;
       }
-      if (mapping.kind === "argument" && original !== null) {
+      if ((mapping.kind === "argument" || mapping.kind === "reference-argument") && original !== null) {
         const source = original.arguments[mapping.argument];
         if (!Number.isSafeInteger(mapping.argument) || mapping.argument < 0 || Object.is(mapping.argument, -0) ||
           source === undefined || source.expression !== argument.expression) authoredOrder = false;
@@ -253,7 +254,7 @@ function verifyFixedCallSpread<Stop extends object>(application: TirApplication,
       if (paid !== null) return paid;
       const mapping = application.callee.decision.parameters[effective];
       const passed = application.arguments[effective];
-      if (mapping?.kind !== "argument" || mapping.parameter !== effective || mapping.argument !== authored
+      if (mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" || mapping.parameter !== effective || mapping.argument !== authored
         || mapping.component !== (tuple === null ? null : component)
         || passed?.kind !== "provided" || passed.expression !== source.expression) exact = false;
       if (tuple !== null) {

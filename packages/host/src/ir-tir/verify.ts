@@ -1,12 +1,12 @@
 import type { BodyId, CandidateListId, DefId, ItemNodeRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { encodeBodyId, encodeKey } from "../ids/index.js";
-import type { CheckedPhase, CheckedSourceObjectFieldReader, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
+import type { CheckedPhase, CheckedSourceObjectFieldReader, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration, ReferenceArgumentRequest } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf,
-  checkedSourceBindingFieldOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
+  checkedReferenceArgumentViewOf, checkedSourceBindingFieldOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
   readWriteRootStorageOf, resolveModuleBinding, unparenthesizedExpression, walkSyntaxTree,
   writableRootStorageOf } from "../ir-hir/index.js";
-import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
+import type { BindingVerificationInput, BodyInstance, ReferenceArgumentView, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
@@ -64,7 +64,25 @@ function sourceFieldsOf<Stop extends object>(input: TirVerifierInput, body: HirB
     }
     return reader(access);
   };
-  return { field, work, stop: () => stopped, missing: () => missing };
+  const referenceArgument = (request: ReferenceArgumentRequest) => body === undefined ? null
+    : checkedReferenceArgumentViewOf({ ...request, body }, { nodeOf: read, itemOf: item, typeOf: type => input.types.terms[type], admit: work });
+  return { field, referenceArgument, work, stop: () => stopped, missing: () => missing };
+}
+
+function sameReferenceView<Stop extends object>(actual: ReferenceArgumentView, selected: ReferenceArgumentView,
+  admit: TirReadyReadAdmission<Stop>): boolean | Stop {
+  const header = admit({ kind: "row" });
+  if (header !== null) return header;
+  if (actual.caller !== selected.caller || actual.formal !== selected.formal || actual.fields.length !== selected.fields.length) return false;
+  for (let position = 0; position < actual.fields.length; position += 1) {
+    const paid = admit({ kind: "row" });
+    if (paid !== null) return paid;
+    const left = actual.fields[position];
+    const right = selected.fields[position];
+    if (left === undefined || right === undefined || left.parent !== right.parent || left.caller !== right.caller || left.formal !== right.formal
+      || left.callerType !== right.callerType || left.formalType !== right.formalType) return false;
+  }
+  return true;
 }
 
 function verifyOptionalReferenceWrite<Stop extends object>(input: TirVerifierInput, inventory: TirSourceInventory,
@@ -1151,9 +1169,30 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     if (application?.kind === "decided") {
       const signature = input.types.signatures[application.decision.callee.decision.completion.signature];
       if (signature !== undefined) {
-        const stop = verifyArgumentTransport(application.decision, node, signature,
-          originalApplication(inventory.sourceNodes.get(node.id)), inventory.sourceNodes, input.types, admit, emit);
+        const call = application.decision;
+        const original = originalApplication(inventory.sourceNodes.get(node.id));
+        const stop = verifyArgumentTransport(call, node, signature, original, inventory.sourceNodes, input.types, admit, emit);
         if (stop !== null) return { kind: "resource-stop", stop };
+        for (const mapping of call.callee.decision.parameters) {
+          if (mapping.kind !== "reference-argument") continue;
+          const paid = admit({ kind: "row" });
+          if (paid !== null) return { kind: "resource-stop", stop: paid };
+          const source = original?.arguments[mapping.argument];
+          const passed = call.arguments[mapping.parameter];
+          const formal = signature.parameters[mapping.parameter];
+          const argument = node.kind === "CallExpression" && !("kind" in node.arguments) ? node.arguments.nodes[mapping.argument] : undefined;
+          const value = argument === undefined ? null : typedValueOf(argument);
+          const distinct = formal !== undefined && source?.kind === "value" && passed?.kind === "provided"
+            && passed.expression === source.expression && argument?.id === source.expression && value !== null && value.conversion.kind === "identity"
+            && mapping.passing === "by-value" && mapping.component === null;
+          const actual = distinct ? fields.referenceArgument({ argument: { body: body.body, node: source.expression },
+            caller: value.convertedType, endpoint: call.callee.decision.api, ordinal: mapping.parameter, formal }) : null;
+          const stopped = fields.stop();
+          if (stopped !== null) return { kind: "resource-stop", stop: stopped };
+          const exact = actual === null ? false : sameReferenceView(actual, mapping.view, admit);
+          if (typeof exact !== "boolean") return { kind: "resource-stop", stop: exact };
+          if (!exact) emit("argument-passing", node, "a reference argument must retain its actual checked caller and formal field correspondence");
+        }
       }
     }
   }

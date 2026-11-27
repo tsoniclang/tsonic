@@ -16,6 +16,8 @@ const locationKey = (location: AccessLocation): KeyData => location.kind === "ac
 const parameterKey = (parameter: ParameterMapping): KeyData => {
   switch (parameter.kind) {
     case "argument": return [parameter.kind, parameter.parameter, parameter.argument, parameter.component, parameter.passing];
+    case "reference-argument": return [parameter.kind, parameter.parameter, parameter.argument, parameter.view.caller, parameter.view.formal,
+      each(parameter.view.fields, row => [row.parent, row.caller, row.formal, row.callerType, row.formalType])];
     case "default": return [parameter.kind, parameter.parameter, parameter.initializer];
     case "omitted": return [parameter.kind, parameter.parameter, parameter.type];
     case "rest": return [parameter.kind, parameter.parameter, each(parameter.arguments, argument => argument), parameter.passing];

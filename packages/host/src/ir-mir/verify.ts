@@ -297,7 +297,18 @@ export function decisionReferences(
     types.push({ type: value.result, site }, { type: value.completion.completion, site });
     if (value.completion.yielded !== null) types.push({ type: value.completion.yielded, site });
     if (value.completion.sent !== null) types.push({ type: value.completion.sent, site });
-    for (const parameter of value.parameters) if (parameter.kind === "omitted") types.push({ type: parameter.type, site });
+    for (const parameter of value.parameters) {
+      if (parameter.kind === "omitted") types.push({ type: parameter.type, site });
+      if (parameter.kind !== "reference-argument") continue;
+      if (!admit(3)) return;
+      types.push({ type: parameter.view.caller, site }, { type: parameter.view.formal, site });
+      for (let position = 0; position < parameter.view.fields.length; position += 1) {
+        if (!admit(5)) return;
+        const row = parameter.view.fields[position];
+        if (row === undefined) continue;
+        types.push({ type: row.callerType, site }, { type: row.formalType, site });
+      }
+    }
   };
   const callee = (value: ResolvedCallee, site: MirViolationSite): void => {
     application(value.decision, site);

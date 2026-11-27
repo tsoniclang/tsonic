@@ -1,4 +1,4 @@
-import type { ApplicationDecision, CandidateInput, CallConstraint, CallContributionScheme, ConstraintDecision, InferenceCandidateList, InferenceValue, ParameterMapping, RuleWork } from "../ir-infer/contract.js";
+import type { ApplicationDecision, CandidateInput, CallConstraint, CallContributionScheme, ConstraintDecision, InferenceCandidateList, InferenceValue, ParameterMapping, ReadReferenceArgument, RuleWork } from "../ir-infer/contract.js";
 import { admitTypePublicationStep, hasLexicalTypeDependency, internType, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf,
   readSignature, readType, refuseTypeConstruction, rigidBindings } from "../ir-types/index.js";
 import type { Origin } from "../ids/contract.js";
@@ -12,11 +12,11 @@ import { mergeErrors } from "./errors.js";
 import { variableOf } from "./schemes.js";
 import { embeddingForm } from "./embed.js";
 
-export function decideCandidate(deps: RulesDeps, input: CandidateInput, work: RuleWork): Result<ApplicationDecision> {
+export function decideCandidate(deps: RulesDeps, input: CandidateInput, referenceArgument: ReadReferenceArgument, work: RuleWork): Result<ApplicationDecision> {
   const { origin } = input.context;
   const stopped = admitTypePublicationStep(work.typeWork, 0);
   if (stopped !== null) return refuseTypeConstruction(work.typeWork, stopped, origin, work.unit);
-  return completeCandidate(deps, input, originalCandidate(deps, input, origin), origin, null, work);
+  return completeCandidate(deps, input, originalCandidate(deps, input, origin), origin, null, referenceArgument, work);
 }
 
 interface PreparedCandidate {
@@ -56,7 +56,7 @@ function* fixedOperands(deps: RulesDeps, input: Omit<CandidateInput, "context">,
   for (const [index, argument] of input.arguments.entries()) {
     if (argument.kind === "value") {
       if (argument.tuple !== null) return callerDefect("a value argument cannot supply a spread slot vector", origin);
-      yield { index, component: null, value: argument.value };
+      yield { index, component: null, value: argument.value, occurrence: argument.occurrence };
       continue;
     }
     const selected = readType(deps.types, argument.value.type);
@@ -66,13 +66,13 @@ function* fixedOperands(deps: RulesDeps, input: Omit<CandidateInput, "context">,
       const element = selected.elements[component];
       if (element?.kind !== "required" || element.type !== value.type)
         return callerDefect("a finite call spread must retain its actual ordered required slots", origin);
-      yield { index, component, value };
+      yield { index, component, value, occurrence: argument.occurrence };
     }
   }
 }
 
 function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context">, ready: PreparedCandidate, origin: Origin,
-  checkedArguments: CallConstraint["application"]["arguments"] | null, work: RuleWork): Result<ApplicationDecision> {
+  checkedArguments: CallConstraint["application"]["arguments"] | null, referenceArgument: ReadReferenceArgument, work: RuleWork): Result<ApplicationDecision> {
   const { candidate, signature, original } = ready;
   const parameters: ParameterMapping[] = [];
   const supplied = fixedOperands(deps, input, origin);
@@ -108,6 +108,19 @@ function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
     }
     const form = embeddingForm(deps, argument.value.type, parameter.type, work, null);
     if (form !== null && typeof form !== "string") return refuseTypeConstruction(work.typeWork, form, origin, work.unit);
+    if ((form === null || form === "identity") && argument.component === null && candidate.api.body !== null
+      && readType(deps.types, argument.value.type).kind === "shape" && readType(deps.types, parameter.type).kind === "shape") {
+      const view = referenceArgument({ argument: argument.occurrence, caller: argument.value.type,
+        endpoint: candidate.api, ordinal: index, formal: parameter });
+      const cut = admitTypePublicationStep(work.typeWork, 0);
+      if (cut !== null) return refuseTypeConstruction(work.typeWork, cut, origin, work.unit);
+      if (view !== null) {
+        const retained = admitTypePublicationStep(work.typeWork, 1, 1);
+        if (retained !== null) return refuseTypeConstruction(work.typeWork, retained, origin, work.unit);
+        parameters.push({ kind: "reference-argument", parameter: index, argument: argument.index, component: null, passing: "by-value", view });
+        continue;
+      }
+    }
     if (form === "incompatible-domain" || form === "lossy-numeric") {
       const code = hostDiagnosticCode("TSONIC_NO_APPLICABLE_NATIVE_CANDIDATE");
       return { kind: "refused", diagnostics: [{
@@ -268,7 +281,7 @@ export function callScheme(deps: RulesDeps): CallContributionScheme {
         input: { ...operands, context: { occurrence: constraint.occurrence, origin: input.origin, bindings: rigidBindings(scope) } },
       } } };
       else {
-        const selected = completeCandidate(deps, operands, prepared, input.origin, constraint.application.arguments, input);
+        const selected = completeCandidate(deps, operands, prepared, input.origin, constraint.application.arguments, input.referenceArgument, input);
         if (selected.kind === "refused") return selected;
         outcome = { kind: "call", application: selected.value, operation: null };
       }

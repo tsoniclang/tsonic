@@ -91,14 +91,20 @@ function mappingReferences(input: InferVerificationInput, decision: ApplicationD
       parameter.kind === "default" && (formal.kind !== "default" || !formal.acceptsOmission || parameter.initializer !== formal.initializer) ||
       parameter.kind === "omitted" && (!formal.acceptsOmission || formal.kind === "default" || formal.kind === "rest" || parameter.type !== formal.type) ||
       parameter.kind === "rest" && (formal.kind !== "rest" || formal.passing !== parameter.passing) ||
-      parameter.kind === "argument" && (formal.kind === "rest" || formal.passing !== parameter.passing))
+      (parameter.kind === "argument" || parameter.kind === "reference-argument") && (formal.kind === "rest" || formal.passing !== parameter.passing) ||
+      parameter.kind === "reference-argument" && (decision.api.body === null || formal.type !== parameter.view.formal))
       emit(output, "parameter-mapping-total", site, "formal");
     previous = parameter.parameter;
-    if (parameter.kind === "argument" && (!ordinal(parameter.argument) ||
+    if ((parameter.kind === "argument" || parameter.kind === "reference-argument") && (!ordinal(parameter.argument) ||
       operandCount !== null && parameter.argument >= operandCount ||
       parameter.component !== null && (!ordinal(parameter.component) || arguments_ !== null &&
         (arguments_[parameter.argument]?.tuple === null || arguments_[parameter.argument]?.tuple?.[parameter.component] === undefined))))
       emit(output, "parameter-mapping-total", site, "arguments");
+    if (parameter.kind === "reference-argument") {
+      const source = arguments_?.[parameter.argument];
+      if (source !== undefined && (source.kind !== "value" || source.type !== parameter.view.caller))
+        emit(output, "parameter-mapping-total", site, "reference-argument");
+    }
     if (parameter.kind === "rest") {
       let previousArgument: number | null = null;
       for (const argument of parameter.arguments) {
@@ -151,11 +157,12 @@ function fixedSpreadMappings(input: InferVerificationInput, arguments_: readonly
     } else if (slots !== null) return false;
     for (let slot = 0; slot < (slots?.length ?? 1); slot += 1, effective += 1) {
       const mapping = mappings[effective];
-      if (mapping?.kind !== "argument" || mapping.parameter !== effective || mapping.argument !== authored
+      if (mapping?.kind !== "argument" && mapping?.kind !== "reference-argument" || mapping.parameter !== effective || mapping.argument !== authored
         || mapping.component !== (slots === null ? null : slot)) return false;
     }
   }
-  for (; effective < mappings.length; effective += 1) if (mappings[effective]?.kind === "argument") return false;
+  for (; effective < mappings.length; effective += 1)
+    if (mappings[effective]?.kind === "argument" || mappings[effective]?.kind === "reference-argument") return false;
   return true;
 }
 

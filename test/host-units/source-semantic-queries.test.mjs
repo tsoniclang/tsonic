@@ -1285,11 +1285,12 @@ test("a native callable value cannot substitute the checked endpoint signature f
       declaration: candidate.declaration, ...actual, bindings: candidate.bindings.value, conditionalFailure: null }] };
   const rules = program.inputs.inference.rules;
   const work = { typeWork: program.inputs.inference.typeWork, unit: { query: "solutionOf", key: group.id } };
-  const chosen = rules.candidate(input, work);
+  const referenceArgument = () => assert.fail("A call without supplied operands never opens a reference argument.");
+  const chosen = rules.candidate(input, referenceArgument, work);
   assert.equal(chosen.kind, "ok");
   assert.equal(chosen.value.decision.completion.signature, actual.apiSignature);
   const checkedOnly = insertFixtureType(fixture.types, program.interner, { kind: "callable", calls: [actual.api.signature], constructs: [] });
-  assert.throws(() => rules.candidate({ ...input, callee: { ...input.callee, type: checkedOnly } }, work),
+  assert.throws(() => rules.candidate({ ...input, callee: { ...input.callee, type: checkedOnly } }, referenceArgument, work),
     error => error.cause?.owner === "rules" && error.message.includes("actual callable value signature"));
 });
 

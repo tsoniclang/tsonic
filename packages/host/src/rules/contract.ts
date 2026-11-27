@@ -4,7 +4,7 @@ import type {
   ApplicationDecision, CandidateInput, CaptureModeEvidence, CaptureRow, ClosureDecision, ClosureInput, CoreInput, DomainFitInput, EmbedInput,
   EmbeddingDecision, IndexDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralFitInput,
   MemoryEquivalentInput, OperationDecision, OperatorInput,
-  ProtocolInput, RefinementDecision, RefinementInput, RuleOutcome, RuleTable, RuleWork, TypePatternMatchOutcome,
+  ProtocolInput, ReadReferenceArgument, RefinementDecision, RefinementInput, RuleOutcome, RuleTable, RuleWork, TypePatternMatchOutcome,
 } from "../ir-infer/contract.js";
 import type { Libraries } from "../libraries/contract.js";
 import type { MemberSuspension } from "./member-pause.js";
@@ -51,6 +51,7 @@ export type ConstructLiteral = (
 export type DecideCandidate = (
   deps: RulesDeps,
   input: CandidateInput,
+  referenceArgument: ReadReferenceArgument,
   work: RuleWork,
 ) => Result<RuleOutcome<ApplicationDecision>>;
 

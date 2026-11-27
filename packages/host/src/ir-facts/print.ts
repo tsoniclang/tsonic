@@ -204,6 +204,13 @@ const parameterMapping = (writer: Writer, value: ParameterMapping): void => {
   switch (value.kind) {
     case "argument": fields.push(["argument", () => scalar(writer, value.argument)],
       ["component", () => scalar(writer, value.component)], ["passing", () => scalar(writer, value.passing)]); break;
+    case "reference-argument": fields.push(["argument", () => scalar(writer, value.argument)],
+      ["caller", () => identity(writer, "t", value.view.caller)], ["formal", () => identity(writer, "t", value.view.formal)],
+      ["fields", () => sequence(writer, value.view.fields, row => record(writer, "ReferenceArgumentField", [
+        ["parent", () => scalar(writer, row.parent)], ["caller", () => identity(writer, "def", row.caller)],
+        ["formal", () => identity(writer, "def", row.formal)], ["callerType", () => identity(writer, "t", row.callerType)],
+        ["formalType", () => identity(writer, "t", row.formalType)],
+      ]))]); break;
     case "default": fields.push(["initializer", () => identity(writer, "body", value.initializer)]); break;
     case "omitted": fields.push(["type", () => identity(writer, "t", value.type)]); break;
     case "rest": fields.push(["arguments", () => sequence(writer, value.arguments, item => scalar(writer, item))],

@@ -1,4 +1,4 @@
-import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
+import type { CheckFailure, HandleActivation, ReceiverAccess, ReferenceArgumentField } from "../ir-types/contract.js";
 import type {
   BlockId, BodyId, ConstId, DefId, Derivation, ExpansionId, LocalId, LocalRef,
   ModuleId, NodeId, NodeRef, Origin, PlaceId, SigId, SourceNodeRef, TyId,
@@ -481,6 +481,21 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
         field("component", () => nullable(() => numberWire), value => value.component, component =>
           field("passing", () => passingWire, value => value.passing, passing => finish(() => ({ kind: "argument", parameter, argument, component, passing })))))));
 
+  const referenceField = record<ReferenceArgumentField>("ReferenceArgumentField", () =>
+    field("parent", () => nullable(() => numberWire), value => value.parent, parent =>
+      field("caller", () => definitionWire, value => value.caller, caller =>
+        field("formal", () => definitionWire, value => value.formal, formal =>
+          field("callerType", () => typeWire, value => value.callerType, callerType =>
+            field("formalType", () => typeWire, value => value.formalType, formalType =>
+              finish(() => ({ parent, caller, formal, callerType, formalType }))))))));
+  const referenceArgument = record<Extract<ParameterMapping, { readonly kind: "reference-argument" }>>("reference-argument", () =>
+    field("parameter", () => numberWire, value => value.parameter, parameter =>
+      field("argument", () => numberWire, value => value.argument, argument =>
+        field("caller", () => typeWire, value => value.view.caller, caller =>
+          field("formal", () => typeWire, value => value.view.formal, formal =>
+            field("fields", () => vector(() => referenceField), value => value.view.fields, fields =>
+              finish(() => ({ kind: "reference-argument", parameter, argument, component: null, passing: "by-value",
+                view: { caller, formal, fields } }))))))));
   const defaultMapping = record<ParameterMapping & { readonly kind: "default" }>("default", () =>
     field("parameter", () => numberWire, value => value.parameter, parameter =>
       field("initializer", () => bodyWire, value => value.initializer, initializer => finish(() => ({ kind: "default", parameter, initializer })))));
@@ -495,11 +510,12 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
         field("passing", () => passingWire, value => value.passing, passing => finish(() => ({ kind: "rest", parameter, arguments: argumentsValue, passing }))))));
 
   const mappingWire: Wire<ParameterMapping> = variants([
-    choice("argument", () => argumentMapping), choice("default", () => defaultMapping),
+    choice("argument", () => argumentMapping), choice("reference-argument", () => referenceArgument), choice("default", () => defaultMapping),
     choice("omitted", () => omittedMapping), choice("rest", () => restMapping),
   ], (value, path, next) => {
     switch (value.kind) {
       case "argument": return argumentMapping.write(value, path, next);
+      case "reference-argument": return referenceArgument.write(value, path, next);
       case "default": return defaultMapping.write(value, path, next);
       case "omitted": return omittedMapping.write(value, path, next);
       case "rest": return restMapping.write(value, path, next);

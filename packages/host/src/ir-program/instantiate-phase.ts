@@ -131,6 +131,28 @@ function prepareApplicationWith<Output>(scan: ProjectionInventory, value: Applic
       case "argument":
       case "default":
       case "rest": return { kind: "copied", value: () => parameter };
+      case "reference-argument": {
+        const stop = reserveInstantiationRecord(scan.meter) ?? inventoryFields(scan, 5) ?? inventoryRecord(scan, 3);
+        if (stop !== null) return { kind: "refused", stop };
+        const { parameter: ordinal, argument, view } = parameter;
+        const { caller, formal, fields } = view;
+        const typeStop = inventoryType(scan, caller) ?? inventoryType(scan, formal);
+        if (typeStop !== null) return { kind: "refused", stop: typeStop };
+        const rows = prepareProjectionRows(scan, fields, read => {
+          const rowStop = inventoryRecord(scan, 5);
+          if (rowStop !== null) return { kind: "refused", stop: rowStop };
+          const { parent, caller, formal, callerType, formalType } = read();
+          const fieldStop = inventoryType(scan, callerType) ?? inventoryType(scan, formalType);
+          if (fieldStop !== null) return { kind: "refused", stop: fieldStop };
+          return { kind: "copied", value: rewrite => ({
+            parent, caller, formal, callerType: rewrite.type(callerType), formalType: rewrite.type(formalType),
+          }) };
+        });
+        return { kind: "copied", value: rewrite => ({
+          kind: "reference-argument", parameter: ordinal, argument, component: null, passing: "by-value",
+          view: { caller: rewrite.type(caller), formal: rewrite.type(formal), fields: rows(rewrite) },
+        }) };
+      }
       case "omitted": {
         const rowStop = reserveInstantiationRecord(scan.meter) ?? inventoryFields(scan, 3);
         if (rowStop !== null) return { kind: "refused", stop: rowStop };

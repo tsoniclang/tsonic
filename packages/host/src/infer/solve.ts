@@ -9,7 +9,7 @@ import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { admitTypePublicationStep, internType, readType, refuseTypeConstruction } from "../ir-types/index.js";
-import { checkedSourceBindingFieldOf } from "../ir-hir/index.js";
+import { checkedReferenceArgumentViewOf, checkedSourceBindingFieldOf } from "../ir-hir/index.js";
 import type { BodyInstance, MemberInventory } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
@@ -606,7 +606,13 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
       return deps.rules.constraints.flow.evaluate({ ...input, constraint, optionalField }, work);
     }
     case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin,
-      scope: item.reached.scope, typeWork: deps.typeWork, unit });
+      scope: item.reached.scope, typeWork: deps.typeWork, unit, referenceArgument: request => {
+        if (admitTypePublicationStep(deps.typeWork) !== null) return null;
+        return checkedReferenceArgumentViewOf({ ...request, body: deps.hirBody(item.set.body) }, {
+          nodeOf: deps.checkedNodeOf, itemOf: deps.itemOf, typeOf: type => readType(deps.types, type),
+          admit: (work, records) => admitTypePublicationStep(deps.typeWork, work, records) === null,
+        });
+      } });
     case "construct-literal": return deps.rules.constraints.constructLiteral.evaluate({ ...common, constraint: item.reached.constraint,
       origin: item.reached.origin, bindings: item.reached.bindings, typeWork: deps.typeWork, unit });
     case "default": return deps.rules.constraints.default.evaluate({ ...common, constraint: item.reached.constraint });

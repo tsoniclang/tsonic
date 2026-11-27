@@ -1,5 +1,5 @@
 import type { AccessLocation, ApplicationDecision, CheckRequirement, CompletionEndpoint, CorrespondenceStep, DischargeObligationProof, DischargeProof, EmbeddingDecision, EmbeddingProof, FailureKind, MemberDecision, ParameterMapping, RefinementDecision } from "./contract.js";
-import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
+import type { CheckFailure, HandleActivation, ReceiverAccess, ReferenceArgumentField } from "../ir-types/contract.js";
 import type { CaptureValuesSchemas } from "./text-capture-values.js";
 import type { ConstraintsSchemas } from "./text-constraints.js";
 import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } from "./text-data.js";
@@ -243,9 +243,10 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
   });
 
   const parameterMappingSchema: RecordSchema<ParameterMapping> = unionSchema<ParameterMapping>("ParameterMapping",
-    () => [argumentMappingSchema, defaultMappingSchema, omittedMappingSchema, restMappingSchema], value => {
+    () => [argumentMappingSchema, referenceArgumentSchema, defaultMappingSchema, omittedMappingSchema, restMappingSchema], value => {
     switch (value.kind) {
       case "argument": return argumentMappingSchema.stage(value);
+      case "reference-argument": return referenceArgumentSchema.stage(value);
       case "default": return defaultMappingSchema.stage(value);
       case "omitted": return omittedMappingSchema.stage(value);
       case "rest": return restMappingSchema.stage(value);
@@ -259,6 +260,30 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
     const passing = read("passing", () => passingModeSchema, value => value.passing);
     return { fields: [parameter, argument, component, passing], value: () => ({ kind: "argument", parameter: parameter.value(), argument: argument.value(), component: component.value(), passing: passing.value() }) };
   });
+
+  const referenceFieldSchema = recordSchema<ReferenceArgumentField>("ReferenceArgumentField", "ReferenceArgumentField", read => {
+    const parent = read("parent", () => nullableSchema(numberSchema), row => row.parent);
+    const caller = read("caller", () => defSchema, row => row.caller);
+    const formal = read("formal", () => defSchema, row => row.formal);
+    const callerType = read("callerType", () => tSchema, row => row.callerType);
+    const formalType = read("formalType", () => tSchema, row => row.formalType);
+    return { fields: [parent, caller, formal, callerType, formalType], value: () => ({
+      parent: parent.value(), caller: caller.value(), formal: formal.value(), callerType: callerType.value(), formalType: formalType.value(),
+    }) };
+  });
+
+  const referenceArgumentSchema = recordSchema<Extract<ParameterMapping, { readonly kind: "reference-argument" }>>(
+    "ReferenceArgumentMapping", "reference-argument", read => {
+      const parameter = read("parameter", () => numberSchema, row => row.parameter);
+      const argument = read("argument", () => numberSchema, row => row.argument);
+      const caller = read("caller", () => tSchema, row => row.view.caller);
+      const formal = read("formal", () => tSchema, row => row.view.formal);
+      const fields = read("fields", () => arraySchema(referenceFieldSchema), row => row.view.fields);
+      return { fields: [parameter, argument, caller, formal, fields], value: () => ({
+        kind: "reference-argument", parameter: parameter.value(), argument: argument.value(), component: null, passing: "by-value",
+        view: { caller: caller.value(), formal: formal.value(), fields: fields.value() },
+      }) };
+    });
 
   const defaultMappingSchema = recordSchema<DefaultMappingRecord>("DefaultMapping", "default", read => {
     const parameter = read("parameter", () => numberSchema, value => value.parameter);

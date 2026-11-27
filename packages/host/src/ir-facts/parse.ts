@@ -14,7 +14,7 @@ import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionE
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, DeclaredExecution, Execution, SignatureRequest, ExactRational, MemberKey, MemberOrigin, SelfBinding,
-  TypeBinding, MemberStorageSelection,
+  TypeBinding, MemberStorageSelection, ReferenceArgumentField,
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type { CreatedSlot, LogicalCell, LogicalCellLifetime, LogicalCellOccurrence, LogicalCellRow, StableReference } from "./cells-data.js";
@@ -1478,7 +1478,15 @@ const parameterSlot: Decode<ParameterSlot> = (state, input) => then(label(input,
       finishRecord<ParameterSlot>(state, values, { kind: "parameter", index: indexValue })));
   }
 });
-const parameterMapping: Decode<ParameterMapping> = (state, input) => then(label(input, ["argument","default","omitted","rest"]), kind => {
+const referenceArgumentField: Decode<ReferenceArgumentField> = (state, input) =>
+  then(fields(state, input, "ReferenceArgumentField"), values =>
+    then(readField(state, values, "parent", (state, input) => nullable(state, input, scalarNumber)), parent =>
+      then(readField(state, values, "caller", definition), caller =>
+        then(readField(state, values, "formal", definition), formal =>
+          then(readField(state, values, "callerType", typeIdentity), callerType =>
+            then(readField(state, values, "formalType", typeIdentity), formalType =>
+              finishRecord<ReferenceArgumentField>(state, values, { parent, caller, formal, callerType, formalType })))))));
+const parameterMapping: Decode<ParameterMapping> = (state, input) => then(label(input, ["argument","reference-argument","default","omitted","rest"]), kind => {
   switch (kind) {
     case "argument": return then(fields(state, input, "argument"), values =>
     then(readField(state, values, "parameter", scalarNumber), parameterValue =>
@@ -1486,6 +1494,14 @@ const parameterMapping: Decode<ParameterMapping> = (state, input) => then(label(
     then(readField(state, values, "component", (state, input) => nullable(state, input, scalarNumber)), componentValue =>
     then(readField(state, values, "passing", (state, input) => literal(state, input, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"])), passingValue =>
       finishRecord<ParameterMapping>(state, values, { kind: "argument", parameter: parameterValue, argument: argumentValue, component: componentValue, passing: passingValue }))))));
+    case "reference-argument": return then(fields(state, input, "reference-argument"), values =>
+      then(readField(state, values, "parameter", scalarNumber), parameter =>
+        then(readField(state, values, "argument", scalarNumber), argument =>
+          then(readField(state, values, "caller", typeIdentity), caller =>
+            then(readField(state, values, "formal", typeIdentity), formal =>
+              then(readField(state, values, "fields", (state, input) => sequence(state, input, referenceArgumentField)), fields =>
+                finishRecord<ParameterMapping>(state, values, { kind, parameter, argument, component: null,
+                  passing: "by-value", view: { caller, formal, fields } })))))));
     case "default": return then(fields(state, input, "default"), values =>
     then(readField(state, values, "parameter", scalarNumber), parameterValue =>
     then(readField(state, values, "initializer", body), initializerValue =>

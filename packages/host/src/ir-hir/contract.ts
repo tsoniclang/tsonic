@@ -1,6 +1,6 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, ItemNodeRef, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NominalDefinition, PassingMode, Signature, SignatureEndpoint, SourceObjectHolding, SourceObjectField, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NominalDefinition, PassingMode, ReferenceArgumentView, Signature, SignatureEndpoint, SignatureParameter, SourceObjectHolding, SourceObjectField, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirBindingResolution } from "./binding-data.js";
 import type { TypeTerm } from "../ir-types/contract.js";
 export type * from "./binding-data.js";
@@ -4059,6 +4059,27 @@ export type CheckedVariableStorageOf = (declaration: VariableDeclaration<Checked
 export type CheckedSourceObjectHoldingOf = (body: HirBody, local: LocalRef,
   nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null, admitAlias: () => boolean,
 ) => SourceObjectHolding | null;
+
+export interface ReferenceArgumentRequest {
+  readonly argument: NodeRef;
+  readonly caller: TyId;
+  readonly endpoint: HirCallableEndpoint;
+  readonly ordinal: number;
+  readonly formal: SignatureParameter;
+}
+
+export interface CheckedReferenceArgumentSite extends ReferenceArgumentRequest {
+  readonly body: HirBody;
+}
+
+export interface CheckedReferenceArgumentRead {
+  readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
+  readonly itemOf: (definition: DefId) => HirNode | null;
+  readonly typeOf: (type: TyId) => TypeTerm | undefined;
+  readonly admit: (work: number, records: number) => boolean;
+}
+
+export type CheckedReferenceArgumentViewOf = (site: CheckedReferenceArgumentSite, read: CheckedReferenceArgumentRead) => ReferenceArgumentView | null;
 
 export type CheckedSourceObjectFieldReader = (access: PropertyAccessExpression<CheckedPhase>) => SourceObjectField | null;
 export interface CheckedSourceObjectFields {

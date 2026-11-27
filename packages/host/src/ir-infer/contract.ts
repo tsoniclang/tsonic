@@ -1,8 +1,8 @@
 import type { BodyId, CandidateListId, DefId, GroupId, ItemNodeRef, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, UnitRequest, Violation } from "../diag/contract.js";
 import type { CheckFailure, HandleActivation, MemberTypeAccess, NativeArrayCarrier, NativeArrayConstruction, NativeArrayExtent, NativeCarrierHolding, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
-import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativeIntegerPrimitive, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
-import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
+import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativeIntegerPrimitive, NativePrimitive, NominalDefinition, PassingMode, ReferenceArgumentView, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
+import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode, ReferenceArgumentRequest } from "../ir-hir/contract.js";
 import type { Step } from "../step/contract.js";
 
 export type InferredPart =
@@ -513,6 +513,8 @@ export interface IndexDecision {
 
 export type ParameterMapping =
   | { readonly kind: "argument"; readonly parameter: number; readonly argument: number; readonly component: number | null; readonly passing: PassingMode }
+  | { readonly kind: "reference-argument"; readonly parameter: number; readonly argument: number; readonly component: null;
+      readonly passing: "by-value"; readonly view: ReferenceArgumentView }
   | { readonly kind: "default"; readonly parameter: number; readonly initializer: BodyId }
   | { readonly kind: "omitted"; readonly parameter: number; readonly type: TyId }
   | { readonly kind: "rest"; readonly parameter: number; readonly arguments: readonly number[]; readonly passing: PassingMode };
@@ -681,6 +683,8 @@ export interface RuleWork {
   readonly unit: UnitRequest;
 }
 
+export type ReadReferenceArgument = (request: ReferenceArgumentRequest) => ReferenceArgumentView | null;
+
 export interface VariableRule {
   readonly finalize: (input: FinalizationInput) => Result<InferenceValue>;
   readonly check: (input: BoundCheckInput, work: RuleWork) => Result<BoundCheckOutcome>;
@@ -820,7 +824,7 @@ export interface ConstructionContributionScheme {
 export interface CallContributionScheme {
   readonly enumerate: (input: EnumerationInput<CallConstraint>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<CallConstraint> & RuleWork & { readonly origin: Origin;
-    readonly scope: BindingScope }) => Result<ContributionOutcome>;
+    readonly scope: BindingScope; readonly referenceArgument: ReadReferenceArgument }) => Result<ContributionOutcome>;
 }
 
 export interface ConstraintSchemes<State> {
@@ -856,7 +860,7 @@ export interface RuleTable<State> {
   readonly resumeMember: (state: State, answers: readonly MemberRuleAnswer[]) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly index: (input: IndexInput) => Result<RuleOutcome<IndexDecision>>;
   readonly constructLiteral: (input: LiteralConstructionInput, work: RuleWork) => Result<RuleOutcome<OperationDecision>>;
-  readonly candidate: (input: CandidateInput, work: RuleWork) => Result<RuleOutcome<ApplicationDecision>>;
+  readonly candidate: (input: CandidateInput, referenceArgument: ReadReferenceArgument, work: RuleWork) => Result<RuleOutcome<ApplicationDecision>>;
   readonly operator: (input: OperatorInput) => Result<RuleOutcome<OperationDecision>>;
   readonly literalFit: (input: LiteralFitInput, work: RuleWork) => Result<RuleOutcome<EmbeddingDecision>>;
   readonly protocol: (input: ProtocolInput) => Result<RuleOutcome<OperationDecision>>;

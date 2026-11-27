@@ -1162,6 +1162,12 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
         || actual === undefined || formal.type === actual) continue;
       const originalType = readType(walk.generation.deps.types, actual);
       if (originalType.kind === "open" || originalType.kind === "error") continue;
+      if (originalType.kind === "shape" && endpoints.api.body !== null) {
+        const { deps, group } = walk.generation;
+        const stop = admitTypePublicationStep(deps.typeWork);
+        if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, node.origin, { query: "constraintsOf", key: group.id });
+        if (readType(deps.types, formal.type).kind === "shape") continue;
+      }
       const source = present(node.arguments.nodes[authored], "the actual argument requiring a flow");
       if (layoutQuotation(source) !== null) continue;
       declaredSignature ??= readSignature(walk.generation.deps.types, endpoints.api.signature);
