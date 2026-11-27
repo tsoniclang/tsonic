@@ -184,6 +184,79 @@ test("fixed and empty call spreads keep their authored component and later-value
   }
 });
 
+test("S-1 composes an actual field default with a once-evaluated tuple producer and ordered spread", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const original = analysisInput(fixture, "sdk-minimal", `
+    function pair(value: boolean): [boolean, boolean] { return [value, true]; }
+    function later(): boolean { return false; }
+    function consume(left: boolean, right: boolean, tail: boolean): boolean { return right; }
+    export function maybe(source: { seed: boolean; value?: boolean }): boolean {
+      const { seed, value = !seed } = source;
+      return consume(...pair(value), later());
+    }
+    export function present(source: { seed: boolean; value: boolean }): boolean {
+      const { seed, value = !seed } = source;
+      return consume(...pair(value), later());
+    }
+  `);
+  const facts = original.snapshot.nativeFacts;
+  const input = { ...original, snapshot: { ...original.snapshot, nativeFacts: { ...facts,
+    carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } };
+  const run = maximumWork => analyzeHostProgram({ ...input, limits: { ...input.limits,
+    dataflow: { ...input.limits.dataflow, maximumWork },
+  } });
+  const exact = 129002;
+  const result = run(exact);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
+  for (const name of ["maybe", "present"]) {
+    const declaration = declarations.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+    const [binding, returned] = body.tir.root.statements.nodes;
+    const slot = binding.declarationList.declarations.nodes[0].name.elements.nodes[1];
+    const invocation = returned.expression;
+    const [spread, subsequent] = invocation.arguments.nodes;
+    const split = body.mir.blocks.find(row => row.terminator.tir.node === slot.id && row.terminator.kind === "switch");
+    const calls = body.mir.blocks.map(row => row.terminator).filter(row => row.kind === "call");
+    assert.equal(slot.tsonic.role, "field-binding");
+    assert.notEqual(slot.tsonic.initializer, null, "both cases retain the authored default");
+    if (name === "maybe") {
+      assert.ok(split);
+      const [absence] = split.terminator.targets;
+      assert.deepEqual(body.mir.constants[absence.constant].value, { kind: "literal", value: { kind: "absence" } });
+      const initializer = body.mir.blocks[absence.target].terminator;
+      const present = body.mir.blocks[split.terminator.otherwise];
+      assert.equal(initializer.kind, "call");
+      assert.equal(initializer.callee.instance.body, slot.tsonic.initializer);
+      assert.equal(present.terminator.kind, "goto");
+      assert.equal(present.terminator.target, body.mir.blocks[initializer.next].terminator.target);
+      assert.equal(calls.filter(call => call.tir.node === slot.id).length, 1);
+    } else {
+      assert.equal(split, undefined);
+      assert.equal(calls.some(call => call.tir.node === slot.id), false);
+    }
+    const sequence = calls.filter(call => call.tir.node !== slot.id);
+    assert.deepEqual(sequence.map(call => call.tir.node), [spread.expression.id, subsequent.id, invocation.id]);
+    assert.equal(body.mir.blocks[sequence[0].next].terminator === sequence[1], true);
+    assert.equal(body.mir.blocks[sequence[1].next].terminator === sequence[2], true);
+    assert.notEqual(sequence[0].destination, null);
+    const executionFacts = body.facts.find(row => row.execution.provided === 1);
+    const transport = executionFacts.origins.invocations.find(row => row.node === invocation.id).alternatives[0].arguments;
+    assert.deepEqual(transport.map(row => [row.parameterIndex, row.authoredIndex]), [[0, 0], [1, 0], [2, 1]]);
+    assert.deepEqual(transport.map(row => row.projection === null ? null : executionFacts.arena.projections[row.projection].projection),
+      [{ kind: "index", constant: 0n }, { kind: "index", constant: 1n }, null]);
+  }
+  const refused = run(exact - 1);
+  assert.equal(refused.kind, "refused");
+  assert.equal("value" in refused, false);
+  assert.deepEqual(refused.diagnostics.map(row => [row.source, row.code.rendered, row.arguments]), [
+    ["pipeline", "TSONIC_COMPILER_RESOURCE_LIMIT", [{ kind: "text", value: "work" }, { kind: "number", value: exact - 1 }]],
+  ]);
+});
+
 test("a finite spread of a checked tuple literal constructs its one product before the next argument", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
