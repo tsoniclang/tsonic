@@ -17,7 +17,7 @@ export type CompareMemberKeys = (left: MemberKey, right: MemberKey) => number;
 export type NativeFactsKey = (facts: SelectedNativeFacts) => string;
 export type NativeCarrierHoldingOf = (facts: readonly NativeCarrierHolding[], carrier: NativeHoldingCarrier) => ReceiverAccess | null;
 export type NativeArrayExtentOf = (facts: readonly NativeArrayExtent[], carrier: NativeArrayCarrier) => NativeIntegerPrimitive | null;
-export type IsNativeIntegerPrimitive = (primitive: NativePrimitive) => primitive is NativeIntegerPrimitive;
+export type IsNativeIntegerPrimitive = (primitive: NativePrimitive | "boolean" | "string") => primitive is NativeIntegerPrimitive;
 export type IsNativeSignedIntegerPrimitive = (primitive: NativePrimitive) => primitive is NativeSignedIntegerPrimitive;
 export type IsNativeBinaryFloatPrimitive = (primitive: NativePrimitive | "bigint") => primitive is NativeBinaryFloatPrimitive;
 export type FloatingBitsFit = (bits: bigint, format: NativeFloatingFormat) => boolean;
@@ -30,7 +30,8 @@ export type NativeCarrierResult =
 export type NativeCarrierOf = (table: TypeTable, type: TyId,
   typeOf: (type: TyId) => TypeTerm | null | undefined) => NativeCarrierResult;
 export type OptionalValueDomain =
-  | { readonly kind: "optional-value"; readonly payload: "boolean" | "float64" | "string"; readonly present: TyId; readonly category: CategoryEvidence }
+  | { readonly kind: "optional-value"; readonly payload: "boolean" | "float64" | "string" | NativeIntegerPrimitive; readonly present: TyId;
+      readonly category: CategoryEvidence }
   | { readonly kind: "not-optional-value" }
   | { readonly kind: "resource-stop" };
 export type OptionalValueDomainOf = (term: TypeTerm, typeOf: (type: TyId) => TypeTerm | null) => OptionalValueDomain;

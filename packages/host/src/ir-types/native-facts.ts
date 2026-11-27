@@ -61,6 +61,7 @@ export const isNativeSignedIntegerPrimitive: IsNativeSignedIntegerPrimitive = (v
 export const isNativeIntegerPrimitive: IsNativeIntegerPrimitive = (value): value is NativeIntegerPrimitive => {
   switch (value) {
     case "uint8": case "uint16": case "uint32": case "uint64": case "uint128": case "native-uint": return true;
+    case "boolean": case "string": return false;
     default: return isNativeSignedIntegerPrimitive(value);
   }
 };

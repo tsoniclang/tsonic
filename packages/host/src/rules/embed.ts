@@ -55,12 +55,14 @@ export function embeddingForm(deps: RulesDeps, from: TyId, to: TyId, work: RuleW
     : source.kind === "literal" && numericLiteral !== null ? source.base : null;
   const text = source.kind === "string" ? from
     : source.kind === "literal" && source.value.kind === "string" ? source.base : null;
-  if (!absent && boolean === null && number === null && text === null) return null;
+  const integer = source.kind === "primitive" && isNativeIntegerPrimitive(source.primitive) ? from : null;
+  if (!absent && boolean === null && number === null && text === null && integer === null) return null;
   if (absent && target.kind === "primitive" && target.primitive === "bool") return "incompatible-domain";
   if (target.kind !== "optional") return null;
   const domain = optionalValueDomainOf(target, value => readType(deps.types, value));
   if (domain.kind !== "optional-value") return null;
   if (absent) return "absence";
+  if (isNativeIntegerPrimitive(domain.payload)) return integer === domain.present ? "union-injection" : null;
   if (domain.payload === "float64" && numericLiteral !== null && number === domain.present && !fitsFloat64(deps, numericLiteral)) return null;
   return (domain.payload === "boolean" ? boolean : domain.payload === "float64" ? number : text) === domain.present
     ? "union-injection" : null;

@@ -1,6 +1,7 @@
 import type { TyId } from "../ids/contract.js";
 import type { LiteralCompatibilityReader, LiteralTypeValuesEqual, NativeAbsenceComparisonOf, NativeCarrierOf, OptionalValueDomainOf } from "./contract.js";
 import type { CategoryEvidence, LiteralTypeValue, TypeTable, TypeTerm } from "./data.js";
+import { isNativeIntegerPrimitive } from "./native-facts.js";
 
 type BaseResult =
   | { readonly kind: "type"; readonly type: TyId; readonly term: Exclude<TypeTerm, { readonly kind: "literal" }> }
@@ -74,8 +75,8 @@ export const optionalValueDomainOf: OptionalValueDomainOf = (term, typeOf) => {
     return { kind: "optional-value", payload: "string", present: term.value, category: stringOrAbsence };
   if (payload.kind === "primitive" && payload.primitive === "bool")
     return { kind: "optional-value", payload: "boolean", present: term.value, category: booleanOrAbsence };
-  if (payload.kind === "primitive" && payload.primitive === "float64")
-    return { kind: "optional-value", payload: "float64", present: term.value, category: numberOrAbsence };
+  if (payload.kind === "primitive" && (payload.primitive === "float64" || isNativeIntegerPrimitive(payload.primitive)))
+    return { kind: "optional-value", payload: payload.primitive, present: term.value, category: numberOrAbsence };
   if (payload.kind !== "union" || payload.members.length !== 2) return { kind: "not-optional-value" };
   const [first, second] = payload.members;
   if (first === undefined || second === undefined) return { kind: "not-optional-value" };

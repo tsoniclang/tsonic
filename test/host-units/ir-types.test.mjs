@@ -404,8 +404,10 @@ test("native presence comparison borrows only the actual optional payload", asyn
   }
 });
 
-test("optional domain evidence keeps the selected float64 or string base and complementary Boolean members", async () => {
-  const { optionalValueDomainOf } = await import("../../packages/host/dist/ir-types/index.js");
+test("optional domain evidence keeps the selected numeric or string carrier and complementary Boolean members", async () => {
+  const { isNativeIntegerPrimitive, optionalValueDomainOf } = await import("../../packages/host/dist/ir-types/index.js");
+  assert.equal(isNativeIntegerPrimitive("boolean"), false);
+  assert.equal(isNativeIntegerPrimitive("string"), false);
   const arena = createTypeInterner();
   const bool = { kind: "primitive", primitive: "bool" };
   const present = insertFixtureType(product, arena, bool);
@@ -443,7 +445,10 @@ test("optional domain evidence keeps the selected float64 or string base and com
       : { kind: "resource-stop" });
   }
   assert.deepEqual(optionalValueDomainOf({ kind: "optional", value: present }, value => readType(arena, value)), expected);
-  assert.deepEqual(optionalValueDomainOf({ kind: "optional", value: other }, value => readType(arena, value)), rejected);
+  assert.deepEqual(optionalValueDomainOf({ kind: "optional", value: other }, value => readType(arena, value)),
+    { kind: "optional-value", payload: "int32", present: other, category: { kind: "choice", alternatives: [
+      { kind: "known", category: "number" }, { kind: "known", category: "absence" },
+    ] } });
   assert.deepEqual(optionalValueDomainOf(bool, () => assert.fail("non-optional reads no payload")), rejected);
   const order = [payload, ...readType(arena, payload).members, present];
   for (let allowance = 0; allowance <= order.length; allowance += 1) {

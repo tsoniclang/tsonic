@@ -244,7 +244,8 @@ test("payload-preserving literal fit may use an integer alternative after a floa
   const integer = declareType("evaluation.literalWidening.actualInteger", { kind: "primitive", primitive: "int8" });
   const source = declareType("evaluation.literalWidening.exactInteger", { kind: "literal",
     value: { kind: "number", value: literal.value }, base: integer });
-  const direct = literalWidening("evaluate-literal-widening.integer", source, integer, literal);
+  const direct = embeddingFixture("evaluate-literal-widening.integer", source, integer,
+    builder => builder.paren(builder.num(literal.token, source), source), "literal-fit");
   const reads = [];
   const typed = product.evaluate({ ...direct.deps, typeOf: id => { reads.push(id); return direct.deps.typeOf(id); } },
     direct.entry, direct.body, [], "compile-time", direct.unit);
@@ -331,6 +332,7 @@ test("optional embeddings spend the same arithmetic budget before each selected 
   const stringLiteral = declareType("evaluate.optional.text.literal", { kind: "literal", value: text, base: T.string });
   const optionalText = declareType("evaluate.optional.text", { kind: "optional", value: T.string });
   const optionalFloat = declareType("evaluate.optional.float", { kind: "optional", value: T.float64 });
+  const optionalInteger = declareType("evaluate.optional.integer", { kind: "optional", value: T.int32 });
   const literalCase = (name, source, target, payload, embedding, work, reads) => ({
     frame: literalWidening(name, source, target, payload, embedding), args: [], target, payload, work, reads,
   });
@@ -347,6 +349,8 @@ test("optional embeddings spend the same arithmetic budget before each selected 
     literalCase("evaluate.optional.absent", T.absence, optionalBool, { kind: "absence" }, "absence", 4, [optionalBool, T.bool, T.absence]),
     literalCase("evaluate.optional.literal-bool", boolLiteral, optionalBool, literalFalse, "union-injection", 13, [optionalBool, T.bool, boolLiteral, T.bool]),
     literalCase("evaluate.optional.literal-text", stringLiteral, optionalText, text, "union-injection", 15, [optionalText, T.string, stringLiteral, T.string]),
+    parameterCase("evaluate.optional.signed-integer", T.int32, optionalInteger, { kind: "bigint", value: -2147483648n },
+      3 + 8 + 6 * 32, [optionalInteger, T.int32, T.int32]),
     float,
   ]) {
     for (let maximum = 0; maximum <= work; maximum += 1) {
@@ -402,6 +406,13 @@ test("crossed optional embeddings cannot borrow another type, payload or floatin
     value: { kind: "number", value: rational.value }, base: T.float64 });
   const unmaterialized = literalWidening("evaluate.optional.crossed-unmaterialized", floatLiteral, floatTarget, rational, "union-injection");
   assert.throws(() => unmaterialized.start(), /actual selected representation transformation/u);
+  const integerTarget = declareType("evaluate.optional.crossed.integer", { kind: "optional", value: T.int32 });
+  const integer = embeddingFixture("evaluate.optional.crossed-integer", T.int32, integerTarget, builder => builder.id("input", 0, T.int32),
+    "union-injection", [["input", "required", T.int32]]);
+  assert.throws(() => product.evaluate({ ...integer.deps,
+    typeOf: type => type === integerTarget ? { kind: "optional", value: T.int8 } : integer.deps.typeOf(type),
+  }, integer.entry, integer.body, [{ kind: "bigint", value: 3n, type: T.int32 }], "compile-time", integer.unit),
+  /integer embedding requires the actual selected native present type/u);
   const floating = embeddingFixture("evaluate.optional.crossed-float", T.float64, floatTarget, builder => builder.id("input", 0, T.float64),
     "union-injection", [["input", "required", T.float64]]);
   const run = (deps, args) => product.evaluate(deps, floating.entry, floating.body, args, "compile-time", floating.unit);
@@ -2446,6 +2457,7 @@ test("coalescing a verified optional value compares only its own absence case an
   for (const [name, primitive, present, work] of [
     ["text", T.string, { kind: "string", value: "" }, 4],
     ["float", T.float64, { kind: "floating", bits: 0x8000000000000000n }, 24],
+    ["integer", T.int32, { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false } }, 4],
   ]) {
     const type = declareType(`evaluate.coalesce.${name}`, { kind: "optional", value: primitive });
     const value = fixture(`evaluate-coalesce-${name}`, type, builder => {
@@ -2463,7 +2475,7 @@ test("coalescing a verified optional value compares only its own absence case an
     const changeTargets = (targets, constants = value.body.constants) => ({ ...value.body, constants,
       blocks: value.body.blocks.map(block => block !== dispatch ? block : { ...block, terminator: { ...block.terminator, targets } }) });
     const floatingValidation = 4;
-    const threshold = name === "text" ? 2 : 3 * floatingValidation + 2;
+    const threshold = name === "float" ? 3 * floatingValidation + 2 : 2;
     for (let maximum = 0; maximum <= work; maximum += 1) {
       const seen = [];
       const targets = new Proxy(dispatch.terminator.targets, { get: (rows, id) => {
@@ -2475,12 +2487,12 @@ test("coalescing a verified optional value compares only its own absence case an
         return Reflect.get(rows, id);
       } });
       const deps = { ...value.deps, typeOf: id => {
-        if (name === "text") seen.push(id);
+        if (name !== "float") seen.push(id);
         return value.deps.typeOf(id);
       }, limits: { ...limits, maximumArithmeticWork: maximum } };
       const answer = run(changeTargets(targets, constants), deps);
       assert.equal(answer.kind, maximum < work ? "refused" : "ok", `${name}/${maximum}`);
-      if (name === "text") assert.deepEqual(seen, maximum < threshold ? [] : ["target", "constant", ...[type, primitive].slice(0, maximum - threshold)]);
+      if (name !== "float") assert.deepEqual(seen, maximum < threshold ? [] : ["target", "constant", ...[type, primitive].slice(0, maximum - threshold)]);
       else assert.deepEqual(seen, maximum < threshold ? [] : ["target", "constant"]);
       if (maximum < work) assert.equal(answer.diagnostics[0].arguments[0].value, "evaluation.maximumArithmeticWork");
       else same(answer.value, { kind: "value", value: operands[0] }, "a present native payload never takes the absence edge");

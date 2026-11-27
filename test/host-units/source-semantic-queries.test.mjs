@@ -2492,6 +2492,48 @@ export function select(o: { flag?: boolean }): boolean {
   assert.equal(mir.blocks.filter(row => row.terminator.kind === "call" && row.terminator.callee.kind === "body").length, 1);
 });
 
+test("a native object binding preserves the field carrier on both the present and default edges", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = await nativeInt32Input(`
+export function select(o: { a: Native; plain: number; b?: Native }): Native {
+  const { a, plain, b: chosen = 3 } = o;
+  return chosen;
+}`, true);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const { index, modules } = result.value;
+  const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+  const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0]?.kind === "VariableStatement");
+  assert.ok(selected);
+  const { tir, mir } = selected;
+  const [required, plain, optional] = tir.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes;
+  assert.equal(required.tsonic.field.decision.read, required.tsonic.storage);
+  assert.equal(optional.tsonic.field.decision.key.value, "b");
+  assert.equal(optional.name.text, "chosen");
+  const integer = optional.tsonic.storage;
+  assert.deepEqual(index.types.terms[integer], { kind: "primitive", primitive: "int32" });
+  assert.equal(required.tsonic.storage, integer);
+  assert.deepEqual(index.types.terms[plain.tsonic.storage], { kind: "primitive", primitive: "float64" });
+  assert.equal(optional.tsonic.present, integer);
+  assert.deepEqual(index.types.terms[optional.tsonic.field.decision.read], { kind: "optional", value: integer });
+  const dispatch = mir.blocks.find(row => row.terminator.kind === "switch" && row.terminator.tir.node === optional.id).terminator;
+  const [absent] = dispatch.targets;
+  assert.equal(dispatch.targets.length, 1);
+  assert.deepEqual(mir.constants[absent.constant].value, { kind: "literal", value: { kind: "absence" } });
+  const call = mir.blocks[absent.target].terminator;
+  assert.equal(call.kind, "call");
+  assert.equal(call.callee.instance.body, optional.tsonic.initializer);
+  assert.equal(mir.blocks[dispatch.otherwise].statements[0].place, call.destination);
+  const initializer = chapter.bodies.find(row => row.kind === "selected" && row.tir.body === call.callee.instance.body);
+  assert.ok(initializer);
+  assert.equal(initializer.tir.completion, integer);
+  assert.equal(initializer.mir.constants.some(row => row.type === integer && row.value.kind === "literal"
+    && row.value.value.kind === "number" && row.value.value.value.numerator === 3n), true);
+  assert.equal([...mir.blocks, ...initializer.mir.blocks].some(block => block.statements
+    .some(row => row.kind === "assign" && row.value.kind === "convert")), false);
+});
+
 test("inferred array construction retains its exact spread operand and authored scalar order", async () => {
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

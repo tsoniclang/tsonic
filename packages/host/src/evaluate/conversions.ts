@@ -3,7 +3,7 @@ import type { Origin, TyId } from "../ids/contract.js";
 import type { OperationIdentity } from "../ir-infer/contract.js";
 import type { MirSite } from "../ir-mir/contract.js";
 import type { ConstValue, ExactRational, LiteralCompatibilityReader, NativeFloatingFormat, TypeTerm } from "../ir-types/contract.js";
-import { exactFloat64LiteralFit, literalCompatibilityOf } from "../ir-types/index.js";
+import { exactFloat64LiteralFit, isNativeIntegerPrimitive, literalCompatibilityOf } from "../ir-types/index.js";
 import { arithmetic, evaluationFault, limit, selectedFloatingFormat, selectedOptionalDomain } from "./budget.js";
 import type { EvaluateDeps } from "./contract.js";
 import type { Machine as EvaluationMachine } from "./pause.js";
@@ -89,6 +89,13 @@ export function selectedConversion(machine: Machine, operation: Extract<Operatio
         return fail("An absence embedding requires the selected native absence payload and type.", site.origin);
     } else {
       switch (value.kind) {
+        case "bigint": case "number":
+          if (!isNativeIntegerPrimitive(domain.payload))
+            return fail("Evaluate requires the actual selected representation transformation for this conversion.", site.origin);
+          if (value.type !== domain.present)
+            return fail("An integer embedding requires the actual selected native present type.", site.origin);
+          if (!held(domain.present, value)) return null;
+          break;
         case "floating":
           if (domain.payload !== "float64" || value.type !== domain.present)
             return fail("A floating embedding requires the actual selected present type.", site.origin);

@@ -794,6 +794,70 @@ function capturedDeclaredMember(scope: CaptureScope, property: TypePropertyHeade
     readKind: getters.length !== 0 || setters.length !== 0 ? "accessor" : method ? "method" : "property" } };
 }
 
+interface PrimitiveFieldSource {
+  readonly annotation: Node;
+  readonly present: Type;
+  readonly optional: Type | null;
+}
+
+function primitiveFieldSource(scope: CaptureScope, property: TypePropertyHeader, declaration: Node, selected: Type | undefined): PrimitiveFieldSource | null {
+  if (!scope.sourcePrimitiveFacts || selected === undefined || property.rootSymbols.length !== 1
+    || !admit(scope, "edges")) return null;
+  const checker = scope.checker;
+  const root = property.rootSymbols[0];
+  if (root !== property.symbol || checker.getSymbolValueDeclaration(root) !== declaration) return null;
+  const declarations = checker.getSymbolDeclarations(root);
+  if (declarations.length !== 1 || declarations[0] !== declaration) return null;
+  const ast = scope.checked.ast;
+  if (ast.kindName(declaration) !== "KindPropertySignature") return null;
+  const annotation = ast.typeNode(declaration);
+  if (annotation === undefined || !admit(scope, "edges") || scope.checked.sourceFacts.getFact(annotation, sourcePrimitiveFactKey) === undefined)
+    return null;
+  const authored = sourceType(scope, { kind: "annotation", node: annotation });
+  if (authored === undefined || authored.causes.length !== 0) return null;
+  if (authored.type === selected) return { annotation, present: authored.type, optional: null };
+  if (!property.optional) return null;
+  const union = undefinedUnionArms(scope, selected);
+  return union?.value === authored.type ? { annotation, present: authored.type, optional: selected } : null;
+}
+
+function captureFieldSource(field: PrimitiveFieldSource | null, selected: Type | undefined):
+  { readonly annotation: Node | null; readonly arm: UnionArmUse | null } | null {
+  if (field !== null && selected === field.present) return { annotation: field.annotation, arm: null };
+  if (field !== null && selected === field.optional)
+    return { annotation: null, arm: { kind: "union-arm", type: field.present, source: field.annotation } };
+  return null;
+}
+
+function primitiveBindingSource(scope: CaptureScope, element: Node, pattern: Node, name: Node, checked: ResolvedSourceTypeInfo | undefined) {
+  const ast = scope.checked.ast;
+  if (!scope.sourcePrimitiveFacts || checked === undefined || checked.causes.length !== 0
+    || ast.kindName(pattern) !== "KindObjectBindingPattern" || !admit(scope, "edges")) return null;
+  const owner = ast.parent(pattern);
+  const variable = ast.kindName(owner) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(owner) : undefined;
+  const binding = ast.as.AsBindingElement(element);
+  if (variable?.name !== pattern || variable.Initializer === undefined || binding === undefined || binding.DotDotDotToken !== undefined)
+    return null;
+  const key = scope.checker.getEffectivePropertyName(binding.PropertyName ?? name);
+  if (key?.kind !== "string") return null;
+  const receiver = sourceType(scope, { kind: "expression", node: variable.Initializer });
+  if (receiver === undefined || receiver.causes.length !== 0) return null;
+  const inventory = scope.shape.getStructuredInventory(receiver.type, nativeCaptureAdmission(scope));
+  if (inventory.kind !== "complete") return null;
+  const properties = inventory.value.properties;
+  for (;;) {
+    const reached = properties.next();
+    if (reached.kind !== "complete" || reached.value === null) return null;
+    const property = reached.value;
+    if (!admit(scope, "edges", key.name.length + property.name.length)) return null;
+    if (key.name !== property.name) continue;
+    const primary = scope.checker.getSymbolValueDeclaration(property.symbol);
+    const field = primary === undefined ? null : primitiveFieldSource(scope, property, primary, property.type);
+    if (field === null || binding.Initializer !== undefined && checked.type !== field.present) return null;
+    return captureFieldSource(field, checked.type);
+  }
+}
+
 function capturedMembers(scope: CaptureScope, type: Type, properties: TypePropertyInventory<Diagnostic>,
   position: RawComponentId, receiver: ReceiverUse | null): readonly RawMember[] | null {
   const parent = scope.tables.components[position];
@@ -896,7 +960,10 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
     const step = (declaration: RawNodeRef, access: "read" | "write"): RawComponentStep =>
       scope.checked.ast.kindName(primary) === "KindPropertyAssignment"
         ? { kind: "source-member", occurrence: declaration, access } : { kind: "member", declaration, access };
-    const read = readType(property.type, step(origin, "read"), use, property.typeSource);
+    const primitive = use === null && header.readKind === "property" ? primitiveFieldSource(scope, property, primary, property.type) : null;
+    if (scope.meter.refusal !== null) return null;
+    const field = captureFieldSource(primitive, property.type);
+    const read = readType(property.type, step(origin, "read"), use ?? field?.arm ?? null, field?.annotation ?? property.typeSource);
     if (read === null) return null;
     let write: RawTypeId | null = null;
     if (!property.readonly) {
@@ -912,7 +979,8 @@ function capturedMembers(scope: CaptureScope, type: Type, properties: TypeProper
         declaration = header.setters[0] ?? throwInvariant(invariant("A selected setter retains its actual captured source declaration."));
       } else if (header.getters.length !== 0) throw new TypeError("front: a writable accessor requires its actual setter association");
       const sameType = setter === undefined && type === property.type;
-      write = readType(type, step(declaration, "write"), sameType ? use : null, sameType ? property.typeSource : undefined);
+      write = readType(type, step(declaration, "write"), sameType ? use ?? field?.arm ?? null : null,
+        sameType ? field?.annotation ?? property.typeSource : undefined);
       if (write === null) return null;
     }
     members.push({ ...header, read: available(read), write: available(write) });
@@ -3393,12 +3461,18 @@ function capturedMemberUse(scope: CaptureScope, occurrence: RawNodeRef, info: Ch
   if (scope.meter.refusal !== null) return null;
   const binding: MemberBindingUse | null = receiverUse !== null && member.readKind === "method"
     ? { kind: "member", receiver: receiverUse, declarations: captured.declarations } : null;
+  const primitive = member.readKind === "property" ? primitiveFieldSource(scope, property, primary, info.sourceReadType ?? info.sourceWriteType) : null;
+  if (scope.meter.refusal !== null) return null;
+  const fieldRead = captureFieldSource(primitive, info.sourceReadType);
   const read = info.sourceReadType === undefined ? null
-    : rawType(scope, () => viewRead?.answer ?? withoutTypeCause(info.sourceReadType), readComponent, null, binding);
+    : rawType(scope, () => viewRead?.answer ?? withoutTypeCause(info.sourceReadType), readComponent, fieldRead?.annotation ?? null,
+      binding ?? fieldRead?.arm ?? null);
   if (info.sourceReadType !== undefined && read === null) return null;
   const writeComponent = info.sourceWriteType === undefined ? null : component(scope, occurrence, null);
   if (scope.meter.refusal !== null) return null;
-  const write = info.sourceWriteType === undefined ? null : rawType(scope, () => withoutTypeCause(info.sourceWriteType), writeComponent, null);
+  const fieldWrite = captureFieldSource(primitive, info.sourceWriteType);
+  const write = info.sourceWriteType === undefined ? null
+    : rawType(scope, () => withoutTypeCause(info.sourceWriteType), writeComponent, fieldWrite?.annotation ?? null, fieldWrite?.arm ?? null);
   if (info.sourceWriteType !== undefined && write === null) return null;
   if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
   const readDeclarations = readDeclaration === null ? [] : [readDeclaration];
@@ -5346,7 +5420,9 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       if (position === null || !admit(scope, "facts")) break;
       const answer = sourceType(scope, { kind: "expression", node });
       if (scope.meter.refusal !== null) break;
-      const read = enqueueRawType(scope, answer, position, null, null, null);
+      const selected = patternName === undefined || parent === undefined ? null : primitiveBindingSource(scope, node, parent, patternName, answer);
+      if (scope.meter.refusal !== null) break;
+      const read = enqueueRawType(scope, answer, position, selected?.annotation ?? null, selected?.arm ?? null, null);
       const storageAlias = kind === "KindVariableDeclaration" ? inferredStorageAlias(scope, node, answer) : null;
       if (scope.meter.refusal !== null) break;
       const name = patternName ?? ast.name(node);

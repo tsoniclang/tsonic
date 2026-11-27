@@ -6,7 +6,7 @@ import type { MirBody, MirOperand, MirSite, MirTerminator, MirUnwind } from "../
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { OperationIdentity } from "../ir-infer/contract.js";
 import type { BodyInstance, ConstValue, ExactRational } from "../ir-types/contract.js";
-import { nativeCarrierOf, sameInstance } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, nativeCarrierOf, sameInstance } from "../ir-types/index.js";
 import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
 import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task, UnwindSignal } from "./pause.js";
 import { arithmetic, evaluationFault, limit, selectedFloatingFormat, selectedOptionalDomain, step, validateLimits, valueFits } from "./budget.js";
@@ -177,7 +177,9 @@ function selectBranch(machine: Machine, terminator: Extract<MirTerminator, { rea
       if (value.kind !== "absence") return fail("Evaluate needs the selected native discriminant relation.", terminator.origin);
       const domain = selectedOptionalDomain(machine, operand.type, terminator.origin);
       if (domain.kind === "resource-stop") return;
-      if (domain.kind !== "optional-value" || domain.payload !== (operand.kind === "floating" ? "float64" : operand.kind))
+      const integral = operand.kind === "bigint" || operand.kind === "number" && operand.value.denominator === 1n && !operand.value.negativeZero;
+      if (domain.kind !== "optional-value" || (integral ? !isNativeIntegerPrimitive(domain.payload)
+        : domain.payload !== (operand.kind === "floating" ? "float64" : operand.kind)))
         return fail("Evaluate needs the selected native discriminant relation.", terminator.origin);
       continue;
     }
