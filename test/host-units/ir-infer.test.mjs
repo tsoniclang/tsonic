@@ -4452,7 +4452,9 @@ test("the independent logic inventory includes every approved port and every nam
     "closure-result-flow", "application-result", "member", "index", "operator", "literal", "protocol", "refinement", "discharge", "default", "construction"].sort());
   deepEqual([...resultArms.decisions].sort(), ["eq", "flow", "literal", "member", "index", "call", "construct", "op", "construct-literal",
     "protocol", "refine", "discharge", "default", "closure", "deferred", "error"].sort());
-  assert.equal(resultArms.operations.size, 18);
+  deepEqual([...resultArms.operations].sort(), ["native-operator", "bigint-operator", "string-operator", "boolean-operator",
+    "absence-test", "array-extent", "object-construction", "array-construction", "exact-array-construction", "protocol", "conversion",
+    "library", "core", "pointer-address", "pointer-read", "pointer-write", "pointer-offset", "type-query", "discard"].sort());
   assert.equal(resultArms.deferred.size, 14);
   assert.equal(resultArms.public.size, 10);
   deepEqual([...nestedArms.stringOperators].sort(), ["+", "==", "!=", "===", "!==", "<", "<=", ">", ">="].sort());
@@ -4470,5 +4472,5 @@ test("the independent logic inventory includes every approved port and every nam
     "no-open-in-solution", "check-recorded", "decision-kind", "binding-vector-complete", "parameter-mapping-total", "endpoint-agreement", "proof-reference",
     "proof-order", "qualified-reference", "body-completion-endpoints", "construction-part-total", "protocol-channels", "api-endpoint-role", "deferred-invocation",
     "access-location", "closure-capture-total", "closure-capture-binding"].sort());
-  console.log("F.ir-infer logic ports15/15 input-outer-arms35/35 result-outer-arms56/56 rules35/35 limits0/0 nested-string9/9 boolean7/7 native29/29 bigint29/29 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
+  console.log("F.ir-infer logic ports15/15 input-outer-arms35/35 result-outer-arms57/57 rules35/35 limits0/0 nested-string9/9 boolean7/7 native29/29 bigint29/29 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
 });
