@@ -231,7 +231,12 @@ export function removeUnchangedContents(deps: BodyRoundDeps, output: Map<number,
 }
 export function operandOrigins(input: BodyRoundInput, constants: readonly OriginsId[], state: readonly OriginsId[], operand: MirOperand,
   statics: StaticSlots = null, fields: HeldProjections | null = null): OriginsId {
-  if (operand.kind === "place" && fields?.places.has(operand.place) === true) return originsId(0);
+  if (operand.kind === "place") {
+    const projection = fields?.places.get(operand.place);
+    if (projection !== undefined) return originsId(projection.includesAbsence ? 1 : 0);
+    const base = input.mir.places[operand.place]?.base;
+    if (base?.kind === "checked" && base.projection.kind === "refined") return originsId(0);
+  }
   return requirePresent(operand.kind === "constant" ? constants[operand.constant] : state[rootSlot(input.mir, operand.place, statics)],
     { owner: "analyses/body", query: null, origin: null, message: "An executing operand retains its actual value-flow Origins." });
 }

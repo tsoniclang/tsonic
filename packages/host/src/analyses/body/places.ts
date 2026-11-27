@@ -25,6 +25,10 @@ export interface StaticCells {
 export function rootSlot(body: MirBody, place: PlaceId, statics: StaticSlots): number {
   const base = body.places[place]?.base;
   if (base?.kind === "local") return base.local;
+  if (base?.kind === "checked" && base.projection.kind === "refined") {
+    const parent = body.places[base.place]?.base;
+    if (parent?.kind === "local") return parent.local;
+  }
   const slot = base?.kind === "static" ? statics?.get(place) : undefined;
   if (slot === undefined) return bodyFrontier("A root place requires its actual selected logical-cell binding.");
   return slot;

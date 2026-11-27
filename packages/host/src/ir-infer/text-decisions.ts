@@ -4,6 +4,7 @@ import { createEvidenceSchemas } from "./text-evidence.js";
 import { createErrorSchemas } from "./text-errors.js";
 import type { ErrorSchemas } from "./text-errors.js";
 import type { ErrorValue } from "../diag/contract.js";
+import type { NarrowedRefinement } from "./contract.js";
 import { createCaptureValuesSchemas } from "./text-capture-values.js";
 import { createPointersSchemas } from "./text-pointers.js";
 import { createCapturesSchemas } from "./text-captures.js";
@@ -72,6 +73,7 @@ export interface LiteralDecisionRecord {
 export interface MemberConstraintDecisionRecord {
   readonly kind: "member";
   readonly member: MemberDecision;
+  readonly refinement: NarrowedRefinement | null;
 }
 
 export interface IndexConstraintDecisionRecord {
@@ -322,7 +324,8 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
 
   const memberConstraintDecisionSchema = recordSchema<MemberConstraintDecisionRecord>("MemberConstraintDecision", "member", read => {
     const member = read("member", () => memberDecisionSchema, value => value.member);
-    return { fields: [member], value: () => ({ kind: "member", member: member.value() }) };
+    const refinement = read("refinement", () => nullableSchema(decisionValues.narrowedRefinementSchema), value => value.refinement);
+    return { fields: [member, refinement], value: () => ({ kind: "member", member: member.value(), refinement: refinement.value() }) };
   });
 
   const indexCarrierSchema = enumSchema<IndexDecision["carrier"]>("IndexCarrier", ["array", "fixed-array"]);

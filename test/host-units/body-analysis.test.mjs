@@ -2117,6 +2117,93 @@ test("counted-loop facts bind the actual placed initializer, counter and checked
   }
 });
 
+test("a selected field proof survives a read-only call and records the actual interfering write call", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { fieldRefinementsOf } = await import("../../packages/host/dist/ir-facts/index.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const fixture = await loadFrontFixture();
+  for (const writtenField of [null, "other", "flag"]) {
+    const writes = writtenField === "flag";
+    const branch = writtenField === "other"
+      ? "if (undefined === box.flag) return false; else { inspect(box); return box.flag; }"
+      : "if (box.flag !== undefined) { inspect(box); return box.flag; } return false;";
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Box = { flag: boolean | undefined; other: boolean | undefined };
+      function inspect(box: Box): void { ${writtenField === null ? "" : `box.${writtenField} = undefined;`} }
+      export function read(box: Box): boolean {
+        ${branch}
+      }
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+      && row.tir.root.statements.nodes[0]?.kind === "IfStatement");
+    const conditional = selected.tir.root.statements.nodes[0];
+    const iteration = writtenField === "other" ? conditional.elseStatement : conditional.thenStatement;
+    const [call, returned] = iteration.statements.nodes;
+    const access = returned.expression;
+    const check = selected.mir.blocks.find(block => block.terminator.kind === "check" && block.terminator.tir.node === access.id)?.terminator;
+    assert.equal(check?.kind, "check");
+    assert.equal(selected.mir.places[check.place].base.projection.kind, "refined");
+    const positions = { node: access.id, guards: [conditional.expression.id] };
+    const expected = writes ? {
+      ...positions, kind: "unproven", reason: {
+        kind: "invalidated", sites: [{ kind: "call", at: { body: selected.tir.body, node: call.expression.id } }],
+      },
+    } : { ...positions, kind: "proven" };
+    const [facts] = selected.facts;
+    assert.deepEqual(facts.refinements.refinements, [expected]);
+    const printed = parseFacts(printFacts(facts));
+    assert.equal(printed.kind, "parsed");
+    assert.deepEqual(printed.value.refinements.refinements, [expected], "the published check proof retains the exact qualified cause");
+    if (!writes) continue;
+    const round = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+    try {
+      pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, roundInput) => {
+        const result = round(deps, roundInput);
+        if (result.kind !== "complete" || result.value.kind !== "ok" || !("facts" in result.value.value)) return result;
+        const pair = result.value.value;
+        if (!pair.facts.refinements.refinements.some(row => row.kind === "unproven" && row.reason.kind === "invalidated")) return result;
+        const refinements = pair.facts.refinements.refinements.map(row => ({ kind: "proven", node: row.node, guards: row.guards }));
+        return { ...result, value: { ...result.value, value: { ...pair, facts: { ...pair.facts,
+          refinements: { ...pair.facts.refinements, refinements } } } } };
+      };
+      assert.throws(() => analyzeHostProgram(input), /Facts handoff: field-refinement-proof-exact/);
+    } finally {
+      pipelineWiring.bodyAnalysis.analyzeBodyRound = round;
+    }
+    const source = sourceOccurrences(selected.tir, createAccount(limits));
+    assert.equal(source.kind, "complete");
+    const proofInput = { sourceOf: node => source.value.get(node), summaryAt: (_block, operation) => {
+      assert.equal(operation.callee.kind, "direct");
+      const activation = operation.callee.resolution.activation;
+      const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+        && row.key.execution.instance.body === activation.body && row.key.execution.provided === 1);
+      assert.ok(summary);
+      return { kind: "complete", value: summary };
+    } };
+    const run = account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, proofInput);
+    const probe = createAccount(limits);
+    assert.deepEqual(run(probe), { kind: "complete", value: [expected] });
+    const { work, entries } = InvocationAccount.stateOf(probe);
+    assert.deepEqual(run(createAccount({ maximumWork: work, maximumResultEntries: entries })), { kind: "complete", value: [expected] });
+    for (const [dimension, caps] of [["work", { maximumWork: work - 1, maximumResultEntries: entries }],
+      ["result-entries", { maximumWork: work, maximumResultEntries: entries - 1 }]]) {
+      const account = createAccount(caps);
+      const stopped = run(account);
+      assert.equal(stopped.kind, "resource-limit");
+      assert.equal(stopped.dimension, dimension);
+      assert.equal(stopped === accountFailure(account), true);
+      const unreadInput = new Proxy({}, { get() { throw new Error("a stopped field proof must not read MIR"); } });
+      assert.equal(fieldRefinementsOf(account, unreadInput, facts.execution.provided, proofInput) === stopped, true);
+    }
+  }
+});
+
 test("zero and every smaller supplied account refuse without partial successful facts or a second allowance", () => {
   const unread = new Proxy({}, { get() { throw new Error("no source input read without entry admission"); } });
   const sourceAccount = createAccount({ ...limits, maximumWork: 0 });

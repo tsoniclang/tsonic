@@ -6,7 +6,7 @@ import type {
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclarationRequest, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SelectedNativeFacts, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
 import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TirSyntaxOccurrence } from "../ir-tir/contract.js";
-import type { MirBody } from "../ir-mir/contract.js";
+import type { MirBody, MirTerminator } from "../ir-mir/contract.js";
 import type { CallbackInput } from "../snapshot/contract.js";
 import type { CallerRefusal, DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import type { Condition, ConditionLimits } from "./conditions-data.js";
@@ -130,6 +130,14 @@ export interface ProvenRefinementFact {
 
 export type RefinementFact = ProvenRefinementFact
   | { readonly kind: "unproven"; readonly node: NodeId; readonly guards: readonly NodeId[]; readonly reason: RefinementReason };
+
+export interface FieldRefinementInputs {
+  readonly sourceOf: (node: NodeId) => TirSyntaxOccurrence | undefined;
+  readonly summaryAt: (block: BlockId, call: Extract<MirTerminator, { readonly kind: "call" }>) => DataflowResult<Summary | null>;
+}
+
+export type FieldRefinementsOf = (account: DataflowAccount, mir: MirBody, provided: number,
+  inputs: FieldRefinementInputs) => DataflowResult<readonly RefinementFact[]>;
 
 export interface IntegerRange {
   readonly minimum: bigint;
@@ -568,6 +576,7 @@ export type FactsRule =
   | "refinements-order" | "reads-order" | "subjects-order" | "writes-order" | "escapes-order"
   | "integer-facts-order" | "integer-facts-domain-exact" | "integer-range-valid" | "integer-proofs-consistent" | "integer-proof-exact"
   | "index-bound-proof-exact"
+  | "field-refinement-proof-exact"
   | "counted-loops-order" | "counted-loop-endpoints-resolve" | "counted-loop-conditions-exact"
   | "invocations-order" | "callbacks-order" | "activations-order" | "frontiers-order" | "constructions-order"
   | "regions-order" | "suspensions-order" | "errors-order" | "error-invalidations-order"

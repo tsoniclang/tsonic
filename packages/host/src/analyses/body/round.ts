@@ -3,8 +3,8 @@ import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "
 import { requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
 import type { BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, ProjectionPathId } from "../../ids/contract.js";
 import { boundProducerId, originsId, producerId, valueContextId } from "../../ids/index.js";
-import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundProducer, CaptureBinding, CaptureLocation, CountedLoopProofs, EffectPaths, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, OpenBoundary, Origins, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, ValueArgument, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
-import { admitSummaryIdentity, countedLoopsOf } from "../../ir-facts/index.js";
+import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundProducer, CaptureBinding, CaptureLocation, CountedLoopProofs, EffectPaths, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, OpenBoundary, Origins, Producer, ReadOriginsFact, RefinementFact, SubjectOriginsFact, Summary, ValueArgument, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
+import { admitSummaryIdentity, countedLoopsOf, fieldRefinementsOf } from "../../ir-facts/index.js";
 import type { MirLocal, MirOperand, MirPlace, MirTerminator } from "../../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { TirArgument, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
@@ -111,6 +111,13 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (growth !== null) return growth;
       projectedPlaces ??= [];
       projectedPlaces.push(place);
+    } else if (place.base.kind === "checked" && place.base.projection.kind === "refined"
+      && mir.places[place.base.place]?.base.kind === "local") {
+      const storage = valueKind(deps, place.storage);
+      const cut = accountFailure(account);
+      if (cut !== null) return cut;
+      if (storage !== "primitive")
+        return bodyFrontier("A narrowed scalar view requires its actual saved local storage and present carrier.");
     } else if (place.base.kind !== "local")
       return bodyFrontier("BodyAnalysis requires the actual selected projection or static-cell producer for this place.");
   }
@@ -119,6 +126,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const preparedProjections = preparedSource === null || projectedPlaces === null ? null : heldProjections(deps, input, preparedSource.value, projectedPlaces);
   if (preparedProjections !== null && preparedProjections.kind !== "complete") return preparedProjections;
   const projections = preparedProjections?.value ?? null;
+  if (projections?.includesAbsence === true) {
+    hasAbsence = true;
+    hasOptional = true;
+  }
   let referenceFormals: Map<number, "field" | "array"> | null = null;
   let objectValues: Set<LocalId> | null = null;
   for (const local of mir.locals) {
@@ -961,12 +972,16 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (work !== null) return work;
       const place = mir.places[terminator.place];
       const syntax = source.value.get(terminator.tir.node);
-      if (place?.base.kind !== "checked" || place.base.projection.kind !== "index" || syntax?.kind !== "ElementAccessExpression"
-        || projections?.places.has(place.id) !== true)
-        return bodyFrontier("A bounds check requires its actual admitted typed receiver and index.");
       const point = { block: block.id, statement: null };
-      const stopped = read({ kind: "place", place: place.base.place }, syntax.expression, assigned, point)
-        ?? read(place.base.projection.operand, syntax.argumentExpression, assigned, point);
+      if (place?.base.kind !== "checked") return bodyFrontier("A check must retain its actual selected view.");
+      let stopped: DataflowStop | null;
+      if (place.base.projection.kind === "index" && syntax?.kind === "ElementAccessExpression" && projections?.places.has(place.id) === true) {
+        stopped = read({ kind: "place", place: place.base.place }, syntax.expression, assigned, point)
+          ?? read(place.base.projection.operand, syntax.argumentExpression, assigned, point);
+      } else if (place.base.projection.kind === "refined" && syntax?.kind === "PropertyAccessExpression" && syntax.tsonic.role === "value"
+        && syntax.tsonic.narrowing?.kind === "narrowed" && mir.places[place.base.place]?.base.kind === "local") {
+        stopped = read({ kind: "place", place: place.base.place }, syntax, assigned, point);
+      } else return bodyFrontier("A check requires its actual admitted typed receiver and index or selected narrowing.");
       if (stopped !== null) return stopped;
     }
     let operandIndex = 0;
@@ -1039,13 +1054,17 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   if (retained.kind !== "complete") return retained;
   const integers: IntegerFact[] = [];
   let hasFor = false;
+  let hasNarrowedField = false;
   for (const node of source.value.values()) {
     const nodeWork = chargeWork(account, 1);
     if (nodeWork !== null) return nodeWork;
     hasFor ||= node.kind === "ForStatement";
     if (node.tsonic !== null && "convertedType" in node.tsonic) {
-      if (node.tsonic.narrowing !== null)
-        return bodyFrontier("BodyAnalysis requires the actual selected guard proof/invalidation relation for this refinement.");
+      if (node.tsonic.narrowing !== null) {
+        if (node.kind !== "PropertyAccessExpression" || node.tsonic.role !== "value" || node.tsonic.narrowing.kind !== "narrowed")
+          return bodyFrontier("BodyAnalysis requires the actual selected guard proof/invalidation relation for this refinement.");
+        hasNarrowedField = true;
+      }
       const integerWork = chargeResultEntries(account, 1);
       if (integerWork !== null) return integerWork;
       integers.push({ node: node.id, range: null, nonnegative: false });
@@ -1056,6 +1075,26 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   })
     : noCountedProofs;
   if (counted.kind !== "complete") return counted;
+  let refinements: readonly RefinementFact[] = counted.value.refinements;
+  if (hasNarrowedField) {
+    const fields = fieldRefinementsOf(account, mir, execution.provided, {
+      sourceOf: node => source.value.get(node),
+      summaryAt: block => {
+        const selected = solved.value.calls?.get(block);
+        return { kind: "complete", value: selected === undefined || isCallError(selected) || isLeastCall(selected) ? null : selected };
+      },
+    });
+    if (fields.kind !== "complete") return fields;
+    if (counted.value.refinements.length === 0) refinements = fields.value;
+    else {
+      const length = counted.value.refinements.length + fields.value.length;
+      const paid = chargeWork(account, length) ?? chargeResultEntries(account, 1 + length);
+      if (paid !== null) return paid;
+      const ordered = orderedRows([...counted.value.refinements, ...fields.value], (left, right) => left.node - right.node, account);
+      if (ordered.kind !== "complete") return ordered;
+      refinements = ordered.value;
+    }
+  }
   if (counted.value.ranges.length !== 0) {
     const retained = chargeResultEntries(account, counted.value.ranges.length + 1);
     if (retained !== null) return retained;
@@ -1139,7 +1178,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     captureEffects.push({ index, reads: read.value, writes: write.value });
   }
   const value: BodyRoundValue = { facts: { execution, arena, liveness, initialization: { reads: initialization.value },
-    refinements: { refinements: counted.value.refinements, integers: integerRows.value, countedLoops: counted.value.loops }, origins: { points: [], reads: readRows.value,
+    refinements: { refinements, integers: integerRows.value, countedLoops: counted.value.loops }, origins: { points: [], reads: readRows.value,
       subjects: subjectRows.value, writes, escapes: retained.value.escapes, invocations, callbacks: [], activations, frontiers: [],
       constructions: [], instanceRegions: [], exitContents: { onReturn: normal.value.body, onUnwind: unwound.value.body } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] }, rawLocations: [],

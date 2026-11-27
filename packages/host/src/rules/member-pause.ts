@@ -8,7 +8,7 @@ export interface MemberOwner {
 }
 
 export type MemberDestination = { readonly kind: "member" } | { readonly kind: "contribution";
-  readonly occurrence: NodeRef; readonly key: ContributionKey; readonly result: TyId };
+  readonly occurrence: NodeRef; readonly key: ContributionKey; readonly result: TyId; readonly checkedRead: TyId | null };
 
 export type MemberPhase =
   | { readonly kind: "inventory"; readonly receiver: TyId; readonly key: MemberKey; readonly declaration: DefId;

@@ -851,6 +851,12 @@ export function verifyValues(
         const node = place.base.tir.body === context.source.body ? findSourceNode(nodes, place.base.tir.node) : undefined;
         const expected = selectedType(node);
         if (expected !== null) match(place.storage, expected, "projection-type", site);
+        const source = node?.node;
+        if (source?.kind === "PropertyAccessExpression" && source.tsonic.role === "value" && source.tsonic.narrowing?.kind === "narrowed") {
+          const narrowing = source.tsonic.narrowing;
+          if (narrowing.source !== parent.storage || narrowing.failure !== context.selectedNativeFacts.absentAccessFailure)
+            report("projection-type", site);
+        }
         break;
       }
     }

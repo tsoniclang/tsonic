@@ -3,10 +3,10 @@ import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
   AtomicContribution, ConstraintScheme, ContributionKey, ContributionOutcome, FlowConstraint, InferenceValue,
   ArrayExtentConstraint, IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
-  OperationDecision, OperatorConstraint, RuleTable, VariableBound,
+  NarrowedRefinement, OperationDecision, OperatorConstraint, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
-import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayExtentOf, nativeArrayHoldingOf, readType } from "../ir-types/index.js";
+import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayExtentOf, nativeArrayHoldingOf, optionalValueDomainOf, readType } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
 import { at as where, callerDefect, notDecidedYet } from "./frontier.js";
@@ -173,6 +173,16 @@ export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstr
   };
 }
 
+export function narrowOptionalRead(deps: RulesDeps, occurrence: NodeRef, source: TyId, checked: TyId): NarrowedRefinement | null {
+  if (source === checked) return null;
+  const domain = optionalValueDomainOf(readType(deps.types, source), type => readType(deps.types, type));
+  if (domain.kind !== "optional-value" || domain.present !== checked) return null;
+  const root = { kind: "body", value: occurrence } satisfies TypeEvidence["component"];
+  return { kind: "narrowed", source, result: checked, failure: deps.selectedNativeFacts.absentAccessFailure,
+    proof: { steps: [{ from: { root, path: [{ kind: "optional-value" }] }, to: { root, path: [] },
+      rule: "identity", premises: [] }], conclusion: 0 } };
+}
+
 function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspension, answers: readonly MemberRuleAnswer[]): MemberStep {
   const { phase, origin, destination } = MemberSuspension.consume(owner, paused);
   const answer = answers[0];
@@ -232,10 +242,12 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
     location: { kind: "data", receiver: "by-reference", check: { kind: "none" } } };
   if (destination.kind === "member") return { kind: "done", value: ok({ kind: "member", value: { kind: "decided", decision } }) };
   const variable = variableOf(deps, destination.result, destination.occurrence, null);
-  const value = resultEvidence(deps, selected, destination.occurrence, []);
+  const refinement = access === "read" && destination.checkedRead !== null
+    ? narrowOptionalRead(deps, destination.occurrence, selected, destination.checkedRead) : null;
+  const value = resultEvidence(deps, refinement === null ? selected : refinement.result, destination.occurrence, []);
   return { kind: "done", value: ok({ kind: "contribution", value: {
     bounds: variable === null ? [] : [bound(destination.key, variable, "producer", { value, error: null })],
-    decision: { kind: "member", member: decision }, selectedCandidate: null,
+    decision: { kind: "member", member: decision, refinement }, selectedCandidate: null,
   } }) };
 }
 
@@ -304,7 +316,8 @@ function memberScheme(deps: RulesDeps, owner: MemberOwner): MemberContributionSc
       return decideMember(deps, owner, {
         context: { occurrence: constraint.occurrence, bindings: constraint.bindings, origin: input.origin }, receiver: selected.value,
         key: constraint.key, origins: constraint.origins, access: constraint.access }, input.storage,
-      { kind: "contribution", occurrence: constraint.occurrence, key: input.contribution.key, result: constraint.result });
+      { kind: "contribution", occurrence: constraint.occurrence, key: input.contribution.key, result: constraint.result,
+        checkedRead: input.checkedRead });
     },
   };
 }

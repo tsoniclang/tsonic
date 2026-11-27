@@ -8,7 +8,7 @@ import type {
 } from "./contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
-import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeArrayHoldingOf } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeArrayHoldingOf, optionalValueDomainOf } from "../ir-types/index.js";
 import { requiresLocation, sameSource } from "./capture-law.js";
 import { printDocument } from "./print.js";
 import { candidateKey, compareContribution, compareNumber, compareText, constraintKey, contributionKey, emit, nodeKey, ordinal } from "./verify-contributions.js";
@@ -274,7 +274,19 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
       else if (decision.operation?.kind === "deferred") deferredReferences(context, decision.operation.deferred, constraint, site, output);
       break;
     case "op": case "construct-literal": case "protocol": pending.push({ kind: "operation", value: decision.operation }); break;
-    case "member": memberReferences(input, decision.member, site, endpoints, output); break;
+    case "member": {
+      memberReferences(input, decision.member, site, endpoints, output);
+      const refinement = decision.refinement;
+      if (refinement !== null) {
+        const source = input.types.terms[refinement.source];
+        const domain = source === undefined ? null : optionalValueDomainOf(source, type => input.types.terms[type] ?? null);
+        if (constraint?.value.kind !== "member" || constraint.value.access !== "read" || decision.member.location.kind !== "data"
+          || decision.member.read !== refinement.source || domain?.kind !== "optional-value" || domain.present !== refinement.result)
+          emit(output, "operation-types", site, "refinement");
+        pending.push({ kind: "proof", value: refinement.proof });
+      }
+      break;
+    }
     case "refine": if (decision.refinement.kind === "narrowed") pending.push({ kind: "proof", value: decision.refinement.proof }); break;
     case "discharge":
       if (constraint?.value.kind === "discharge" &&
@@ -453,6 +465,12 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
     decisionRecords(context, record, target, output);
     if (target !== undefined && target.value.kind === "op" && record.decision.kind === "op") operationTypes(input, finals, target.value, record.decision.operation, site, output);
     if (target?.value.kind === "index" && record.decision.kind === "index") indexTypes(input, finals, target.value, record.decision.index, site, output);
+    if (target?.value.kind === "member" && record.decision.kind === "member" && record.decision.refinement !== null) {
+      const type = target.value.result;
+      const result = input.types.terms[type];
+      const finalized = result?.kind === "open" && result.group === input.group.id ? finals.get(result.variable)?.type : type;
+      if (finalized !== record.decision.refinement.result) emit(output, "operation-types", site, "result");
+    }
     if (target?.value.kind === "default" && target.value.rule === "literal-native-default" && target.value.type === null
       && record.decision.kind === "default" && record.decision.type !== finals.get(target.value.variable)?.type)
       emit(output, "decision-kind", site, "decision");

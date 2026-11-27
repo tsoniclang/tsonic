@@ -1,4 +1,4 @@
-import type { DataflowResult, DataflowStop } from "../dataflow/contract.js";
+import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { ParameterMapping } from "../ir-infer/contract.js";
 import type { TirArgument } from "../ir-tir/contract.js";
@@ -9,13 +9,14 @@ import type { Violation } from "../diag/contract.js";
 import type { NodeId, NodeRef } from "../ids/contract.js";
 import { admitIntegerKey, encodeKey } from "../ids/index.js";
 import type { DeclarationTarget } from "../ir-hir/contract.js";
+import type { MirTerminator } from "../ir-mir/contract.js";
 import type { TirNode } from "../ir-tir/contract.js";
 import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
 import { instanceKey } from "../ir-types/index.js";
 import { verifyCells } from "./verify-cells.js";
 import type {
   ArgumentTransport, ArgumentTransportKey, BoundActivation, CompareBoundActivations, CompareConstructionAlternatives, ConstructionAlternative, EscapeFact, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
-  CountedLoopFact, CountedLoopProofs, RetentionFact, VerifyFacts,
+  CountedLoopFact, CountedLoopProofs, FactsVerificationContext, RefinementFact, RetentionFact, Summary, SummaryKey, VerifyFacts,
 } from "./contract.js";
 import { collectSelectionChecks, compareNumbers, ownerKey, relationalUsage, sameBindings, validIndex, verifyRelationalArena } from "./verify-relations.js";
 import { factBindingInputs } from "./binding-inputs.js";
@@ -23,6 +24,66 @@ import { verifyFactBindings } from "./verify-bindings.js";
 import { bodyNodes } from "./verify-body-nodes.js";
 import { verifyLiveness } from "./verify-liveness.js";
 import { countedLoops } from "./counted-loops.js";
+import { fieldRefinements } from "./field-refinements.js";
+import { admitSummaryIdentity } from "./summary-key.js";
+
+function refinementCallSummary(call: Extract<MirTerminator, { readonly kind: "call" }>, context: FactsVerificationContext,
+  account: DataflowAccount): DataflowResult<Summary | null> {
+  const paid = chargeWork(account, 1);
+  if (paid !== null) return paid;
+  const callee = call.callee;
+  const instance = callee.kind === "body" ? callee.instance
+    : callee.kind === "direct" && callee.resolution.decision.activation === null ? callee.resolution.activation : null;
+  if (instance === null) return { kind: "complete", value: null };
+  const arguments_ = call.arguments;
+  if (call.receiver !== null || callee.kind === "body" && arguments_.length !== 0) return { kind: "complete", value: null };
+  let provided = 0;
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    const argument = arguments_[index];
+    if (argument?.kind === "omitted") continue;
+    if (index !== provided || argument?.kind !== "value" || argument.passing !== "by-value") return { kind: "complete", value: null };
+    provided += 1;
+  }
+  const held = chargeResultEntries(account, 2);
+  if (held !== null) return held;
+  const key: SummaryKey = { kind: "body", execution: { instance, provided } };
+  const qualified = admitSummaryIdentity(key, account);
+  if (qualified !== null) return qualified;
+  const selected = context.summaryOf(key);
+  if (selected === null) return { kind: "complete", value: null };
+  const supplied = admitSummaryIdentity(selected.key, account);
+  if (supplied !== null) return supplied;
+  return { kind: "complete", value: summaryKey(selected.key) === summaryKey(key) ? selected : null };
+}
+
+function sameRefinement(actual: RefinementFact, expected: RefinementFact, account: DataflowAccount): boolean | DataflowStop {
+  const paid = chargeWork(account, 1 + actual.guards.length);
+  if (paid !== null) return paid;
+  if (actual.kind !== expected.kind || actual.guards.length !== expected.guards.length
+    || actual.guards.some((guard, index) => guard !== expected.guards[index])) return false;
+  if (actual.kind === "proven" || expected.kind === "proven") return true;
+  const prior = actual.reason;
+  const next = expected.reason;
+  if (prior.kind !== next.kind) return false;
+  if (prior.kind === "guard-not-proven" || next.kind === "guard-not-proven") {
+    if (prior.kind !== "guard-not-proven" || next.kind !== "guard-not-proven") return false;
+    return chargeWork(account, prior.detail.length + next.detail.length) ?? prior.detail === next.detail;
+  }
+  if (prior.sites.length !== next.sites.length) return false;
+  for (let index = 0; index < prior.sites.length; index += 1) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    const left = prior.sites[index];
+    const right = next.sites[index];
+    if (left === undefined || right === undefined || left.kind !== right.kind || left.at.node !== right.at.node) return false;
+    const qualified = chargeWork(account, left.at.body.length + right.at.body.length);
+    if (qualified !== null) return qualified;
+    if (left.at.body !== right.at.body) return false;
+  }
+  return true;
+}
 
 const compareText = (left: string, right: string): number => left === right ? 0 : left < right ? -1 : 1;
 const compareNullableNumber = (left: number | null, right: number | null, nullOrder: -1 | 1): number => {
@@ -296,6 +357,10 @@ for (const violation of rows) {
     loopProofs ??= countedLoops(account, mir, provided, {
       sourceOf: node => nodes.get(node), mirBody: context.mirBody, nativeFacts: context.nativeFacts,
     });
+  let fieldProofs: DataflowResult<readonly RefinementFact[]> | null = null;
+  const provedFields = (): DataflowResult<readonly RefinementFact[]> =>
+    fieldProofs ??= fieldRefinements(account, mir, provided, { sourceOf: node => nodes.get(node),
+      summaryAt: (_block, call) => refinementCallSummary(call, context, account) });
   const proofAt = <Row extends { readonly node: NodeId }>(rows: readonly Row[], id: NodeId): DataflowResult<Row | null> => {
     let lower = 0;
     let upper = rows.length;
@@ -321,6 +386,19 @@ for (const violation of rows) {
     if (step !== null) return step;
  const stop = node(guard); if (stop !== null) return stop; }
     const source = nodes.get(refinement.node);
+    if (source?.kind === "PropertyAccessExpression" && source.tsonic.role === "value" && source.tsonic.narrowing?.kind === "narrowed") {
+      const proved = provedFields();
+      if (proved.kind !== "complete") return proved;
+      const proof = proofAt(proved.value, refinement.node);
+      if (proof.kind !== "complete") return proof;
+      const matching = proof.value !== null && sameRefinement(refinement, proof.value, account);
+      if (typeof matching !== "boolean") return matching;
+      if (!matching) {
+        const invalid = report("field-refinement-proof-exact", at(refinement.node),
+          "A field refinement must retain its actual guard, receiver and reaching write effects.");
+        if (invalid !== null) return invalid;
+      }
+    }
     if (refinement.kind === "proven" && source?.kind === "ElementAccessExpression" && "index" in source.tsonic) {
       const proved = provedLoops();
       if (proved.kind !== "complete") return proved;

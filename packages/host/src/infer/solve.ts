@@ -467,7 +467,14 @@ function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
           return stop === null;
         }) : null;
       if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, origin, unit);
-      return deps.rules.constraints.member.evaluate({ ...common, constraint, origin, storage });
+      let checkedRead: TyId | null = null;
+      if (storage !== null && constraint.access === "read" && node?.kind === "PropertyAccessExpression" && node.tsonic.role === "value") {
+        const stopped = admitTypePublicationStep(deps.typeWork);
+        if (stopped !== null) return refuseTypeConstruction(deps.typeWork, stopped, origin, unit);
+        const read = node.tsonic.value.views.read;
+        if (read.kind === "available") checkedRead = read.value;
+      }
+      return deps.rules.constraints.member.evaluate({ ...common, constraint, origin, storage, checkedRead });
     }
     case "index": return deps.rules.constraints.index.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin });
     case "op": return deps.rules.constraints.op.evaluate({ ...common, constraint: item.reached.constraint });

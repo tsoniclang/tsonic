@@ -4,7 +4,7 @@ import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeR
 import { decodeBodyId } from "../ids/index.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
-import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, IndexDecision, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { ApplicationDecision, BodyTyping, ConstraintDecision, EmbeddingDecision, FlowRole, IndexDecision, InferredSignaturePart, RuleOutcome } from "../ir-infer/contract.js";
 import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirLayoutOperand,
   TirLocal, TirResolution, TirSelection, TypedBinary, TypedIndex, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { TirEnumResolution } from "../ir-tir/contract.js";
@@ -221,7 +221,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const variables: ({ readonly kind: "local" | "literal" | "literal-decision"; readonly id: number; readonly type: TyId }
     | { readonly kind: "contextual-literal"; readonly type: TyId; target: number | null } | undefined)[] = [];
   const applications: (RuleOutcome<ApplicationDecision> | undefined)[] = [];
-  const members: (MemberDecision | undefined)[] = [];
+  const members: (Extract<ConstraintDecision, { readonly kind: "member" }> | undefined)[] = [];
   const indexes: (IndexDecision | undefined)[] = [];
   const calleeTypes = new Map<NodeId, TyId>();
   const read = { operations: new Set<number>(), flows: new Set<number>(), variables: new Set<number>(), applications: new Set<number>(),
@@ -270,10 +270,14 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     } else if (constraint.kind === "member") {
       if (constraint.access === "call" || decision.kind !== "member" || members[position] !== undefined)
         return callerDefect("a member access retains its one actual selected member decision", origin);
-      const result = constraint.access === "write" ? decision.member.write : decision.member.read;
+      const result = decision.refinement === null
+        ? constraint.access === "write" ? decision.member.write : decision.member.read
+        : decision.refinement.result;
+      if (decision.refinement !== null && (constraint.access !== "read" || decision.refinement.source !== decision.member.read))
+        return callerDefect("a refined field value must retain its selected read storage", origin);
       if (result === null || result !== finalType(constraint.result, origin))
         return callerDefect("a selected member access retains its actual finalized result type", origin);
-      members[position] = decision.member;
+      members[position] = decision;
     } else if (constraint.kind === "index") {
       if (decision.kind !== "index" || indexes[position] !== undefined || nodes[position]?.kind !== "ElementAccessExpression")
         return callerDefect("an index must retain its one actual selected operand decision", origin);
@@ -459,7 +463,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const statementOf = (node: HirNode): Statement<TypedPhase> => requirePresent(statements[nodePosition(node.id)], failure("compiler defect", built(node), node.origin));
   const expressionOf = (node: HirNode): Expression<TypedPhase> => requirePresent(expressions[nodePosition(node.id)], failure("compiler defect", built(node), node.origin));
 
-  const valueOf = (position: number, type: TyId, origin: Origin): TypedValue => {
+  const valueOf = (position: number, type: TyId, origin: Origin, narrowing: TypedValue["narrowing"] = null): TypedValue => {
     const variable = variables[position]?.type;
     read.variables.add(position);
     if (variable !== undefined && variable !== type) callerDefect("the variable at the occurrence and its decision disagree on its type", origin);
@@ -481,7 +485,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         } } };
       } else notElaboratedYet(`a conversion of kind ${flow.embedding.kind}`, origin);
     }
-    const value: TypedValue = { type, convertedType, conversion, narrowing: null, evidenceIndex: null, demand: demands[position] ?? { kind: "always" } };
+    const value: TypedValue = { type, convertedType, conversion, narrowing, evidenceIndex: null, demand: demands[position] ?? { kind: "always" } };
     values[position] = value;
     return value;
   };
@@ -1105,7 +1109,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           return;
         }
         if (building) {
-          const member = members[position] ?? compilerDefect("a property access has no actual selected member decision", node.origin);
+          const { member, refinement } = members[position] ?? compilerDefect("a property access has no actual selected member decision", node.origin);
           if (node.questionDotToken !== null || node.name.kind !== "Identifier" || node.name.tsonic.role !== "property-name")
             return callerDefect("a property access retains its actual checked nonoptional name", node.origin);
           if (member.getter !== null || member.setter !== null)
@@ -1122,7 +1126,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
             tsonic = { role: "assignment-target", selection, access };
           } else {
             if (member.read === null) return callerDefect("a property read requires its actual selected type", node.origin);
-            tsonic = { role: "value", ...valueOf(position, member.read, node.origin), selection };
+            tsonic = { role: "value", ...valueOf(position, refinement === null ? member.read : refinement.result, node.origin, refinement), selection };
           }
           read.members.add(position);
           expressions[position] = { ...header(node), kind: "PropertyAccessExpression", expression: expressionOf(node.expression),

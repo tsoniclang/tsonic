@@ -1803,7 +1803,7 @@ test("member declarations and accessor endpoints use actual independent declarat
   const member = { key: constraint.key, origins: [], selectedDeclarations: [definition], primary: definition,
     read: 0, write: null, getter: declarationFacts.endpoints[1], setter: null, bindings: emptyBindings, location: { kind: "accessor" } };
   const solved = value => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 },
-    decision: { kind: "member", member: value } }] });
+    decision: { kind: "member", member: value, refinement: null } }] });
   const input = { constraints: [constraintSet([constraint])], bindingScopes: [emptyScope, emptyScope], solution: solved(member) };
   const foreign = `D[${moduleIdentity};foreign]`;
   ruleCase("endpoint-agreement", input, { ...input, solution: solved({ ...member, primary: foreign }) },
@@ -2426,8 +2426,11 @@ test("all decision, mapping, embedding, operation and protocol-step arms retain 
   ];
   const decisions = [recordGolden("eq", { equivalent: scalarGolden(false) }, "eq"),
     ...embeddings.flatMap(embedding => [recordGolden("flow", { embedding }, "flow"), recordGolden("literal", { embedding }, "literal")]),
-    recordGolden("member", { member }, "member"),
-    ...dataMembers.map(data => recordGolden("member", { member: data }, "member")),
+    recordGolden("member", { member, refinement: nullGolden }, "member"),
+    ...dataMembers.map(data => recordGolden("member", { member: data, refinement: nullGolden }, "member")),
+    recordGolden("member", { member: dataMembers[0], refinement: recordGolden("narrowed", {
+      source: typeGolden, result: typeGolden, proof: proofGolden, failure: scalarGolden("unwind"),
+    }, "narrowed") }, "member"),
     ...["array", "fixed-array"].flatMap(carrier => ["unwind", "abort"].map(failure => recordGolden("index", {
       index: recordGolden("IndexDecision", { carrier: scalarGolden(carrier),
         holding: scalarGolden(carrier === "array" ? "by-reference" : "in-place"), receiver: typeGolden, key: typeGolden,
@@ -3207,7 +3210,7 @@ test("check, failure, execution, location and activation fields refuse an unknow
       { conversion: scalarGolden("numeric"), proof: proofGolden, check: requiredCheckGolden("unwind") }, "conversion") }, "flow")]),
     member: solutionGolden([recordGolden("member", { member: recordGolden("MemberDecision", { key: textKeyGolden, origins: emptyGolden,
       selectedDeclarations: emptyGolden, primary: nullGolden, read: typeGolden, write: nullGolden, getter: nullGolden, setter: nullGolden,
-      bindings: bindingGolden, location: dataLocationGolden(noCheckGolden, "in-place") }) }, "member")]),
+      bindings: bindingGolden, location: dataLocationGolden(noCheckGolden, "in-place") }), refinement: nullGolden }, "member")]),
     call: solutionGolden([recordGolden("call", { application: applicationGolden([], scalarGolden("at-creation")), operation: nullGolden }, "call")]),
     operation: solutionGolden([recordGolden("op", { operation: operationGolden(recordGolden("discard", {}, "discard"),
       invocationGolden(true, "abort")) }, "op")]),
@@ -3243,6 +3246,7 @@ test("check, failure, execution, location and activation fields refuse an unknow
     ["operation", ', execution=invocation(writesStorage=true, failure="abort")', "execution"],
     ["operation", ', failure="abort"', "failure"],
     ["narrowed", ', failure="abort"', "failure"],
+    ["member", ", refinement=null", "refinement"],
   ]) {
     const text = documents[name].text;
     const offset = text.indexOf(removed);

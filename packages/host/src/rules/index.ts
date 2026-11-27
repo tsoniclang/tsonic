@@ -6,7 +6,7 @@ import type { CreateRuleTable, RulesDeps, TypePatternMatch } from "./contract.js
 import { decideEmbedding } from "./embed.js";
 import { callerDefect, notDecidedYet } from "./frontier.js";
 import { decideOperator } from "./operators.js";
-import { decideIndex, flowScheme, indexScheme, memberRules, operatorScheme } from "./schemes.js";
+import { decideIndex, flowScheme, indexScheme, memberRules, narrowOptionalRead, operatorScheme } from "./schemes.js";
 import { localVariableRule, signatureVariableRule } from "./variables.js";
 import { defaultScheme, literalVariableRule } from "./literal-default.js";
 import { decideLiteralFit, literalScheme } from "./literal-fit.js";
@@ -65,7 +65,11 @@ export const createRuleTable: CreateRuleTable = deps => {
     operator: input => decided(decideOperator(deps, input.operator, input.operands, input.context.occurrence, input.context.origin)),
     literalFit: input => decided(decideLiteralFit(deps, input.literal, input.destination.type, input.context.origin)),
     protocol: atContext("protocol"),
-    refinement: atContext("refinement"),
+    refinement: input => {
+      if (input.source.type === input.checked.type) return decided({ kind: "identity", type: input.source.type });
+      const refinement = narrowOptionalRead(deps, input.context.occurrence, input.source.type, input.checked.type);
+      return refinement === null ? notDecidedYet("the refinement rule", input.context.origin) : decided(refinement);
+    },
     library: atContext("library"),
     core: atContext("core"),
     closure: atContext("closure"),

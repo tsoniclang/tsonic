@@ -6,7 +6,7 @@ import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayo
   checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
   readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
-import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeArrayHoldingOf, sameInstance, verifyTypes } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeArrayHoldingOf, optionalValueDomainOf, sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
@@ -853,6 +853,18 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     verifyOccurrenceRole(node, original, emit);
     verifyValueEndpoints(body, node, emit);
     verifyOccurrenceOperation(node, input.types, emit);
+    if (node.kind === "PropertyAccessExpression" && node.tsonic.role === "value" && node.tsonic.narrowing?.kind === "narrowed") {
+      const paid = admit({ kind: "row" });
+      if (paid !== null) return { kind: "resource-stop", stop: paid };
+      const { selection, narrowing } = node.tsonic;
+      const source = input.types.terms[narrowing.source];
+      const domain = source === undefined ? null : optionalValueDomainOf(source, type => input.types.terms[type] ?? null);
+      const read = original?.kind === "PropertyAccessExpression" && original.tsonic.role === "value" ? original.tsonic.value.views.read : null;
+      if (read?.kind !== "available" || read.value !== narrowing.result || selection.kind !== "decided"
+        || selection.decision.decision.location.kind !== "data" || selection.decision.decision.read !== narrowing.source
+        || domain?.kind !== "optional-value" || domain.present !== narrowing.result)
+        emit("refinement-destination", node, "a narrowed field requires its completed native storage and actual checked read endpoint");
+    }
     if ((node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression")
       && (node.tsonic.role === "array-extent" || original?.kind === "PropertyAccessExpression" && original.tsonic.role === "array-extent")) {
       const paid = admit({ kind: "row" });

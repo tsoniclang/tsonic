@@ -12,12 +12,13 @@ import { valueKind } from "./values.js";
 
 type ScalarProjection = Extract<Projection, { readonly kind: "field" | "element" | "index" }>;
 
-type HeldProjection = { readonly holder: LocalId } & ScalarProjection;
+type HeldProjection = { readonly holder: LocalId; readonly includesAbsence: boolean } & ScalarProjection;
 type ReceiverProducer = LocalRef | NodeId;
 
 export interface HeldProjections {
   readonly references: ReadonlySet<LocalId>;
   readonly places: ReadonlyMap<PlaceId, HeldProjection>;
+  readonly includesAbsence: boolean;
 }
 
 function fieldSelection(place: MirPlace, node: TirSyntaxOccurrence | undefined): MemberSelection {
@@ -46,6 +47,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
   const places = new Map<PlaceId, HeldProjection>();
   const holders = new Map<LocalId, ReceiverProducer>();
   const references = new Set<LocalId>();
+  let includesAbsence = false;
   for (let position = 0; position < projections.length; position += 1) {
     const admission = chargeWork(account, 4);
     if (admission !== null) return admission;
@@ -75,10 +77,12 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
     if (node?.kind !== "PropertyAccessExpression" && node?.kind !== "ElementAccessExpression")
       return bodyFrontier("A held projection retains its actual selected receiver syntax.");
     const kind = valueKind(deps, place.storage);
-    if (kind !== "primitive") {
+    const optional = member !== null && kind === "primitive-optional";
+    if (kind !== "primitive" && !optional) {
       const cut = accountFailure(account);
       return cut ?? bodyFrontier("A reference-held non-scalar projection requires its actual projected value Origins and cells.");
     }
+    includesAbsence ||= optional;
     let receiver = node.expression;
     while (receiver.kind === "ParenthesizedExpression") {
       const cut = chargeWork(account, 1);
@@ -97,8 +101,9 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       return bodyFrontier("A projected receiver must borrow the actual checked reference through its stable held local.");
     const retained = chargeResultEntries(account, 4);
     if (retained !== null) return retained;
-    places.set(place.id, member !== null ? { holder: holder.id, kind: "field", member }
-      : constant !== null ? { holder: holder.id, kind: "index", constant } : { holder: holder.id, kind: "element" });
+    places.set(place.id, member !== null ? { holder: holder.id, kind: "field", member, includesAbsence: optional }
+      : constant !== null ? { holder: holder.id, kind: "index", constant, includesAbsence: false }
+        : { holder: holder.id, kind: "element", includesAbsence: false });
     holders.set(holder.id, receiverSource);
     references.add(holder.id);
   }
@@ -143,7 +148,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
     assigned.add(destination.local);
   }
   if (assigned.size !== holders.size) return bodyFrontier("Every held reference has its actual producer occurrence.");
-  return { kind: "complete", value: { references, places } };
+  return { kind: "complete", value: { references, places, includesAbsence } };
 }
 
 export function projectionEffects(deps: BodyRoundDeps, referenceFormals: ReadonlyMap<number, "field" | "array">,
@@ -266,7 +271,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       const kind = valueKind(deps, storage);
       const stopped = accountFailure(deps.account);
       if (stopped !== null) return stopped;
-      if (kind !== "primitive" || parameter.values.length === 0)
+      if ((kind !== "primitive" && !(projection.kind === "field" && kind === "primitive-optional")) || parameter.values.length === 0)
         return bodyFrontier("An applied scalar field access requires its actual incoming reference subjects.");
       for (let subject = 0; subject < parameter.values.length; subject += 1) {
         const prepay = chargeWork(deps.account, 2);

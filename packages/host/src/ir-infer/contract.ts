@@ -613,9 +613,15 @@ export type RuleOutcome<Decision> =
   | { readonly kind: "decided"; readonly decision: Decision }
   | { readonly kind: "deferred"; readonly deferred: DeferredDecision };
 
-export type RefinementDecision =
-  | { readonly kind: "identity"; readonly type: TyId }
-  | { readonly kind: "narrowed"; readonly source: TyId; readonly result: TyId; readonly proof: EmbeddingProof; readonly failure: CheckFailure };
+export interface NarrowedRefinement {
+  readonly kind: "narrowed";
+  readonly source: TyId;
+  readonly result: TyId;
+  readonly proof: EmbeddingProof;
+  readonly failure: CheckFailure;
+}
+
+export type RefinementDecision = { readonly kind: "identity"; readonly type: TyId } | NarrowedRefinement;
 
 export interface InferenceValue {
   readonly value: TypeEvidence;
@@ -680,7 +686,7 @@ export type ConstraintDecision =
   | { readonly kind: "error"; readonly error: ErrorValue }
   | { readonly kind: "eq"; readonly equivalent: boolean }
   | { readonly kind: "flow" | "literal"; readonly embedding: EmbeddingDecision }
-  | { readonly kind: "member"; readonly member: MemberDecision }
+  | { readonly kind: "member"; readonly member: MemberDecision; readonly refinement: NarrowedRefinement | null }
   | { readonly kind: "index"; readonly index: IndexDecision }
   | { readonly kind: "call" | "construct"; readonly application: ApplicationDecision;
       readonly operation: RuleOutcome<OperationDecision> | null }
@@ -743,7 +749,9 @@ export type MemberRuleCompletion =
 
 export interface MemberContributionScheme<State> {
   readonly enumerate: (input: EnumerationInput<MemberConstraint>) => Result<readonly AtomicContribution[]>;
-  readonly evaluate: (input: ContributionEvaluation<MemberConstraint> & { readonly origin: Origin; readonly storage: SourceObjectField | null }) =>
+  readonly evaluate: (input: ContributionEvaluation<MemberConstraint> & {
+    readonly origin: Origin; readonly storage: SourceObjectField | null; readonly checkedRead: TyId | null;
+  }) =>
     MemberRuleStep<MemberRuleCompletion, State>;
 }
 
