@@ -228,7 +228,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       maximum: inputs.limits.summaries.maximumComponentSize, site: { kind: "none" }, unit: { request: unit, position: { kind: "result" } } })] } },
   { operations, dependencies });
   if (components.kind !== "complete") return analysisStop(components, unit);
-  const verification: FactsVerificationContext = { types: table, limits: inputs.limits.analyses,
+  const verification: FactsVerificationContext = { types: table, nativeFacts: inputs.snapshot.nativeFacts, limits: inputs.limits.analyses,
     bindingScopeOf: definition => source.descriptions.get(definition)?.generics ?? null,
     sourceBindingScopesOf: target => target.kind === "observations" ? observationProofs?.get(instanceKey(target.instance))?.scopes ?? null : null,
     nominalOf: source.nominalOf, nodeExists: node => sources.nodeOf(node) !== null, localExists: sources.localExists,
@@ -339,7 +339,8 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       }
       const result = pipelineWiring.summaries.convergeComponent({
         analyzeStorageUse: pipelineWiring.liveness.analyzeStorageUse, analyzeBodyRound: pipelineWiring.bodyAnalysis.analyzeBodyRound,
-        environment: { types: table, typeOf: type => readType(source.types, type), mirBody: instance => mir.get(instanceKey(instance)) ?? null,
+        environment: { types: table, nativeFacts: inputs.snapshot.nativeFacts,
+          typeOf: type => readType(source.types, type), mirBody: instance => mir.get(instanceKey(instance)) ?? null,
           signatureOf: signature => readSignature(source.types, signature),
           staticModuleBindingsOf: module => moduleExecutions.get(module)?.instance.bindings ?? null,
           staticTypeOf: reference => reference.kind === "item" ? typed.staticStorageOf(reference.value) : null,

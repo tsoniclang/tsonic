@@ -30,7 +30,7 @@ import { collectCellWrites, recordCaptureWrite, recordCellWrite } from "./writes
 import { collectRetainedValues, retainCallCaptures, retainValue } from "./exits.js";
 import type { ValueEscape, ValueRetention } from "./exits.js";
 
-const noCountedProofs: DataflowResult<CountedLoopProofs> = { kind: "complete", value: { loops: [], ranges: [] } };
+const noCountedProofs: DataflowResult<CountedLoopProofs> = { kind: "complete", value: { loops: [], ranges: [], refinements: [] } };
 
 function operandSite(node: TirSyntaxOccurrence | undefined, position: number, dispatch: boolean): TirSyntaxOccurrence | undefined {
   if (dispatch) {
@@ -1049,7 +1049,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       integers.push({ node: node.id, range: null, nonnegative: false });
     }
   }
-  const counted = hasFor ? countedLoopsOf(account, mir, execution.provided, { sourceOf: node => source.value.get(node), mirBody: deps.mirBody })
+  const counted = hasFor ? countedLoopsOf(account, mir, execution.provided, {
+    sourceOf: node => source.value.get(node), mirBody: deps.mirBody, nativeFacts: deps.nativeFacts,
+  })
     : noCountedProofs;
   if (counted.kind !== "complete") return counted;
   if (counted.value.ranges.length !== 0) {
@@ -1135,7 +1137,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     captureEffects.push({ index, reads: read.value, writes: write.value });
   }
   const value: BodyRoundValue = { facts: { execution, arena, liveness, initialization: { reads: initialization.value },
-    refinements: { refinements: [], integers: integerRows.value, countedLoops: counted.value.loops }, origins: { points: [], reads: readRows.value,
+    refinements: { refinements: counted.value.refinements, integers: integerRows.value, countedLoops: counted.value.loops }, origins: { points: [], reads: readRows.value,
       subjects: subjectRows.value, writes, escapes: retained.value.escapes, invocations, callbacks: [], activations, frontiers: [],
       constructions: [], instanceRegions: [], exitContents: { onReturn: normal.value.body, onUnwind: unwound.value.body } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] }, rawLocations: [],

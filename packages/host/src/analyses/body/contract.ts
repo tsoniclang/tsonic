@@ -4,12 +4,13 @@ import type { DefId, LocalRef, ModuleId, NodeRef, Origin, SigId, SourceNodeRef, 
 import type { AnalysisLimits, BodyFacts, LivenessFacts, ModuleStaticCellRef, ObservationFact, Summary, SummaryAnswer, SummaryKey, SummaryPosition } from "../../ir-facts/contract.js";
 import type { MirBody, MirEntry } from "../../ir-mir/contract.js";
 import type { TirBody } from "../../ir-tir/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantReference, ConstValue, Execution, NativeArrayCarrier, ReceiverAccess, SignatureOf, TypeOf, TypeTable } from "../../ir-types/contract.js";
+import type { ArtifactBindings, BodyInstance, ConstantReference, ConstValue, Execution, NativeArrayCarrier, ReceiverAccess, SelectedNativeFacts, SignatureOf, TypeOf, TypeTable } from "../../ir-types/contract.js";
 
 export type ReadyEnumValueOf = (account: DataflowAccount, reference: Extract<ConstantReference, { readonly context: "enum-member" }>) => DataflowResult<ConstValue | null>;
 
 export interface BodyRoundEnvironment {
   readonly types: TypeTable;
+  readonly nativeFacts: SelectedNativeFacts;
   readonly mirBody: (instance: BodyInstance) => MirBody | null;
   readonly typeOf: TypeOf;
   readonly signatureOf: SignatureOf;

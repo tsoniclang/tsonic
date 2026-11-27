@@ -3,7 +3,7 @@ import type {
   BlockId, BodyId, BoundProducerId, DefId, KeyData, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclarationRequest, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclarationRequest, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SelectedNativeFacts, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
 import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TirSyntaxOccurrence } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
@@ -155,11 +155,13 @@ export interface CountedLoopFact {
 export interface CountedLoopInputs {
   readonly sourceOf: (node: NodeId) => TirSyntaxOccurrence | undefined;
   readonly mirBody: (instance: BodyInstance) => MirBody | null;
+  readonly nativeFacts: SelectedNativeFacts;
 }
 
 export interface CountedLoopProofs {
   readonly loops: readonly CountedLoopFact[];
   readonly ranges: readonly { readonly node: NodeId; readonly range: IntegerRange }[];
+  readonly refinements: readonly Extract<RefinementFact, { readonly kind: "proven" }>[];
 }
 
 export type CountedLoopsOf = (account: DataflowAccount, mir: MirBody, provided: number,
@@ -564,6 +566,7 @@ export type FactsRule =
   | "live-segments-order" | "live-segments-bounds" | "points-order" | "point-refs-resolve"
   | "refinements-order" | "reads-order" | "subjects-order" | "writes-order" | "escapes-order"
   | "integer-facts-order" | "integer-facts-domain-exact" | "integer-range-valid" | "integer-proofs-consistent" | "integer-proof-exact"
+  | "index-bound-proof-exact"
   | "counted-loops-order" | "counted-loop-endpoints-resolve" | "counted-loop-conditions-exact"
   | "invocations-order" | "callbacks-order" | "activations-order" | "frontiers-order" | "constructions-order"
   | "regions-order" | "suspensions-order" | "errors-order" | "error-invalidations-order"
@@ -644,6 +647,7 @@ export interface ObservationVerificationContext extends BindingVerificationConte
 
 export interface FactsVerificationContext extends MetadataVerificationContext, ObservationVerificationContext {
   readonly limits: AnalysisLimits;
+  readonly nativeFacts: SelectedNativeFacts;
   readonly tirBody: (instance: BodyInstance) => TirBody;
   readonly mirBody: (instance: BodyInstance) => MirBody | null;
   readonly signatureIdOf: (request: SignatureRequest) => SigId | null;

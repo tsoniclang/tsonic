@@ -291,6 +291,26 @@ for (const violation of rows) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
  { const stop = node(read.node); if (stop !== null) return stop; } { const stop = place(read.place, at(read.node)); if (stop !== null) return stop; } }
+  let loopProofs: DataflowResult<CountedLoopProofs> | null = null;
+  const provedLoops = (): DataflowResult<CountedLoopProofs> =>
+    loopProofs ??= countedLoops(account, mir, provided, {
+      sourceOf: node => nodes.get(node), mirBody: context.mirBody, nativeFacts: context.nativeFacts,
+    });
+  const proofAt = <Row extends { readonly node: NodeId }>(rows: readonly Row[], id: NodeId): DataflowResult<Row | null> => {
+    let lower = 0;
+    let upper = rows.length;
+    while (lower < upper) {
+      const work = chargeWork(account, 1);
+      if (work !== null) return work;
+      const middle = lower + Math.floor((upper - lower) / 2);
+      const row = rows[middle];
+      if (row === undefined) break;
+      if (row.node < id) lower = middle + 1;
+      else if (row.node > id) upper = middle;
+      else return { kind: "complete", value: row };
+    }
+    return { kind: "complete", value: null };
+  };
   { const stop = nodeOrder(facts.refinements.refinements, "refinements-order"); if (stop !== null) return stop; }
   for (const refinement of facts.refinements.refinements) {
     const step = chargeWork(account, 1);
@@ -300,15 +320,25 @@ for (const violation of rows) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
  const stop = node(guard); if (stop !== null) return stop; }
+    const source = nodes.get(refinement.node);
+    if (refinement.kind === "proven" && source?.kind === "ElementAccessExpression" && "index" in source.tsonic) {
+      const proved = provedLoops();
+      if (proved.kind !== "complete") return proved;
+      const proof = proofAt(proved.value.refinements, refinement.node);
+      if (proof.kind !== "complete") return proof;
+      const expected = proof.value;
+      if (expected === null || refinement.guards.length !== 1 || refinement.guards[0] !== expected.guards[0]) {
+        const stop = report("index-bound-proof-exact", at(refinement.node),
+          "An index bound must follow from the actual comparison and the same reaching MIR receiver and index.");
+        if (stop !== null) return stop;
+      }
+    }
     if (refinement.kind === "unproven" && refinement.reason.kind === "invalidated") for (const invalidation of refinement.reason.sites) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
  const stop = nodeRef(invalidation.at, at(refinement.node)); if (stop !== null) return stop; }
   }
   { const stop = nodeOrder(facts.refinements.integers, "integer-facts-order"); if (stop !== null) return stop; }
-  let loopProofs: DataflowResult<CountedLoopProofs> | null = null;
-  const provedLoops = (): DataflowResult<CountedLoopProofs> =>
-    loopProofs ??= countedLoops(account, mir, provided, { sourceOf: node => nodes.get(node), mirBody: context.mirBody });
   const integerNodes = new Set<NodeId>();
   for (const integer of facts.refinements.integers) {
     const step = chargeWork(account, 1);
@@ -344,24 +374,11 @@ for (const violation of rows) {
     } else if ((range !== null || nonnegative) && valueNodes.has(integer.node)) {
       const proved = provedLoops();
       if (proved.kind !== "complete") return proved;
-      const rows = proved.value.ranges;
-      let lower = 0;
-      let upper = rows.length;
-      let matching = false;
-      while (lower < upper) {
-        const work = chargeWork(account, 1);
-        if (work !== null) return work;
-        const middle = lower + Math.floor((upper - lower) / 2);
-        const row = rows[middle];
-        if (row === undefined) break;
-        if (row.node < integer.node) lower = middle + 1;
-        else if (row.node > integer.node) upper = middle;
-        else {
-          matching = (!nonnegative || row.range.minimum >= 0n)
-            && (range === null || row.range.minimum === minimum && row.range.maximum === maximum);
-          break;
-        }
-      }
+      const proof = proofAt(proved.value.ranges, integer.node);
+      if (proof.kind !== "complete") return proof;
+      const row = proof.value;
+      const matching = row !== null && (!nonnegative || row.range.minimum >= 0n)
+        && (range === null || row.range.minimum === minimum && row.range.maximum === maximum);
       if (!matching) {
         const stop = report("integer-proof-exact", at(integer.node), "A claimed integer interval or nonnegative index must be proved at its reached MIR value occurrence.");
         if (stop !== null) return stop;

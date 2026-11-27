@@ -1990,22 +1990,26 @@ test("an actual empty module traverses its MIR return and proves no storage or c
   assert.equal(proof.value.positions[0].error, null);
 });
 
-test("counted-loop facts bind the actual placed initializer and refuse a reaching counter replacement", async () => {
+test("counted-loop facts bind the actual placed initializer, counter and checked array receiver", async () => {
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const fixture = await loadFrontFixture();
-  for (const { start, write, minimum, counted, audit } of [
-    { start: 0, write: "", minimum: 0n, counted: true, audit: true },
-    { start: 0, write: "i = 3;", minimum: null, counted: false, audit: false },
-    { start: 0, write: "values = replacement;", minimum: 0n, counted: true, audit: false },
-    { start: 1, write: "", minimum: 1n, counted: true, audit: false },
-    { start: 3, write: "", minimum: null, counted: true, audit: false },
+  for (const { start, write, minimum, counted, audit, step = "++i", bound = "3", receiver = "values", proven = false } of [
+    { start: 0, write: "", minimum: 0n, counted: true, audit: "integer" },
+    { start: 0, write: "", minimum: 0n, counted: true, step: "i++" },
+    { start: 0, write: "i = 3;", minimum: null, counted: false },
+    { start: 0, write: "values = replacement;", minimum: 0n, counted: true },
+    { start: 1, write: "", minimum: 1n, counted: true },
+    { start: 3, write: "", minimum: null, counted: true },
+    { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", proven: true, audit: "guard", step: "i++" },
+    { start: 0, write: "values = replacement;", minimum: 0n, counted: true, bound: "values.length", audit: "receiver" },
+    { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", receiver: "replacement" },
   ]) {
     const source = `export function read(values: boolean[], replacement: boolean[]): boolean {
-      for (let i = ${start}; i < 3; ++i) { ${write} if (values[i]) return true; }
+      for (let i = ${start}; i < ${bound}; ${step}) { ${write} if (${receiver}[i]) return true; }
       return false;
     }`;
     const input = analysisInput(fixture, "sdk-minimal", source);
@@ -2019,8 +2023,8 @@ test("counted-loop facts bind the actual placed initializer and refuse a reachin
     const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
     assert.equal(selected.mir.blocks.some(block => block.terminator.kind === "check"), true);
     const [facts] = selected.facts;
-    assert.deepEqual(facts.refinements.refinements, [], "the receiver's extent has not been proved");
     if (!counted) {
+      assert.deepEqual(facts.refinements.refinements, []);
       assert.deepEqual(facts.refinements.countedLoops, []);
       assert.equal(facts.refinements.integers.some(row => row.range !== null), false);
       continue;
@@ -2041,26 +2045,31 @@ test("counted-loop facts bind the actual placed initializer and refuse a reachin
     assert.equal(indexed.kind, "complete");
     const check = selected.mir.blocks.find(block => block.terminator.kind === "check").terminator;
     const access = indexed.value.get(check.tir.node);
-    const range = minimum === null ? null : { minimum, maximum: 2n };
+    const range = minimum === null ? null : { minimum, maximum: bound === "3" ? 2n : (1n << 63n) - 2n };
     assert.equal(access.kind, "ElementAccessExpression");
+    const expectedRefinements = proven ? [{ kind: "proven", node: access.id, guards: [loop.condition.id] }] : [];
+    assert.deepEqual(facts.refinements.refinements, expectedRefinements);
+    assert.deepEqual(decoded.value.refinements.refinements, expectedRefinements);
     assert.deepEqual(facts.refinements.integers.filter(row => row.range !== null),
       range === null ? [] : [{ node: access.argumentExpression.id, range, nonnegative: true }]);
     assert.deepEqual(decoded.value.refinements.integers, facts.refinements.integers);
     if (!audit) continue;
-    const proofInput = { sourceOf: node => indexed.value.get(node), mirBody: instance => {
+    const proofInput = { nativeFacts: operands.snapshot.nativeFacts, sourceOf: node => indexed.value.get(node), mirBody: instance => {
       assert.deepEqual(instance, initializer.instance);
       return initializer.mir;
     } };
     const probe = createAccount(limits);
     const replay = countedLoopsOf(probe, selected.mir, facts.execution.provided, proofInput);
     assert.equal(replay.kind, "complete");
-    assert.deepEqual(replay.value, { loops: facts.refinements.countedLoops, ranges: [{ node: access.argumentExpression.id, range }] });
+    assert.deepEqual(replay.value, {
+      loops: facts.refinements.countedLoops, ranges: [{ node: access.argumentExpression.id, range }], refinements: expectedRefinements,
+    });
     for (const unavailable of [null, selected.mir]) {
       const unbacked = countedLoopsOf(createAccount(limits), selected.mir, facts.execution.provided, {
         ...proofInput, mirBody: () => unavailable,
       });
       assert.equal(unbacked.kind, "complete");
-      assert.deepEqual(unbacked.value, { loops: facts.refinements.countedLoops, ranges: [] });
+      assert.deepEqual(unbacked.value, { loops: facts.refinements.countedLoops, ranges: [], refinements: [] });
     }
     const round = pipelineWiring.bodyAnalysis.analyzeBodyRound;
     let submittedMaximum = 3n;
@@ -2070,14 +2079,21 @@ test("counted-loop facts bind the actual placed initializer and refuse a reachin
         if (outcome.kind !== "complete" || outcome.value.kind !== "ok" || !("facts" in outcome.value.value)) return outcome;
         const pair = outcome.value.value;
         if (!pair.facts.refinements.integers.some(row => row.range !== null)) return outcome;
-        const integers = pair.facts.refinements.integers.map(row => row.range === null ? row
-          : { ...row, range: { ...row.range, maximum: submittedMaximum } });
+        const integers = audit !== "integer" ? pair.facts.refinements.integers
+          : pair.facts.refinements.integers.map(row => row.range === null ? row
+            : { ...row, range: { ...row.range, maximum: submittedMaximum } });
+        const refinements = audit === "integer" ? pair.facts.refinements.refinements
+          : [{ kind: "proven", node: access.id, guards: [audit === "guard" ? loop.condition.right.id : loop.condition.id] }];
         return { ...outcome, value: { ...outcome.value, value: { ...pair, facts: { ...pair.facts,
-          refinements: { ...pair.facts.refinements, integers } } } } };
+          refinements: { ...pair.facts.refinements, integers, refinements } } } } };
       };
-      assert.throws(() => analyzeHostProgram(operands), /Facts handoff: integer-proof-exact/);
-      submittedMaximum = 3;
-      assert.throws(() => analyzeHostProgram(operands), /Facts handoff: integer-range-valid/);
+      if (audit === "integer") {
+        assert.throws(() => analyzeHostProgram(operands), /Facts handoff: integer-proof-exact/);
+        submittedMaximum = 3;
+        assert.throws(() => analyzeHostProgram(operands), /Facts handoff: integer-range-valid/);
+      } else {
+        assert.throws(() => analyzeHostProgram(operands), /Facts handoff: index-bound-proof-exact/);
+      }
     } finally {
       pipelineWiring.bodyAnalysis.analyzeBodyRound = round;
     }
@@ -2087,6 +2103,7 @@ test("counted-loop facts bind the actual placed initializer and refuse a reachin
     const unreadInput = new Proxy({}, { get() { throw new Error("a stopped proof must not read another body"); } });
     const zero = createAccount({ ...limits, maximumWork: 0 });
     assert.equal(countedLoopsOf(zero, unreadInput, facts.execution.provided, proofInput) === accountFailure(zero), true);
+    if (audit === "receiver") continue;
     for (const [dimension, total, key] of [["work", work, "maximumWork"], ["result-entries", entries, "maximumResultEntries"]]) {
       for (let cap = 0; cap < total; cap += 1) {
         const account = createAccount({ ...limits, [key]: cap });
