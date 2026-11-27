@@ -40,6 +40,93 @@ interface ReachingCopy {
   readonly position: number;
 }
 
+function writesOnEdge(term: MirTerminator, current: number, writes: (place: PlaceId) => boolean,
+  account: DataflowAccount): DataflowStop | boolean {
+  let overwritten = false;
+  const stopped = visitMirControlEdges(term, { kind: "edges", admit: () => chargeWork(account, 1),
+    visit: (_role, target, destination) => { if (target === current && destination !== null && writes(destination)) overwritten = true; } });
+  return stopped ?? overwritten;
+}
+
+function receiverCurrent(mir: MirBody, local: LocalId, protectPath: boolean, useBlock: MirBlock, before: number,
+  copies: ReadonlyMap<LocalId, ReachingCopy> | null, flow: Flow, account: DataflowAccount): DataflowResult<boolean> {
+  if (copies === null) return available;
+  const writes = (place: PlaceId): boolean => {
+    const base = mir.places[place]?.base;
+    return base?.kind === "local" ? base.local === local : protectPath;
+  };
+  const scan = (block: MirBlock, start: number, end: number): DataflowStop | boolean => {
+    for (let index = start; index < end; index += 1) {
+      const work = chargeWork(account, 1);
+      if (work !== null) return work;
+      const row = denseRow(block.statements, index);
+      if (row.kind === "assign" ? writes(row.place)
+        : (row.kind === "storage-live" || row.kind === "storage-dead") && row.local === local) return false;
+    }
+    return true;
+  };
+  const uses = copies.values();
+  for (let segment = 0; segment < copies.size; segment += 1) {
+    const paid = chargeWork(account, 1);
+    if (paid !== null) return paid;
+    const use = uses.next();
+    if (use.done) return unavailable;
+    const { block: sampled, position } = use.value;
+    const same = sampled === useBlock && position <= before;
+    const tail = scan(useBlock, same ? position : 0, before);
+    if (typeof tail !== "boolean") return tail;
+    if (!tail) return unavailable;
+    if (!same) {
+      const setup = chargeResultEntries(account, 3);
+      if (setup !== null) return setup;
+      const seen = new Set<number>();
+      const pending: number[] = [useBlock.id];
+      while (pending.length !== 0) {
+        const read = chargeWork(account, 1);
+        if (read !== null) return read;
+        const current = pending.pop();
+        if (current === undefined || current === flow.entry) return unavailable;
+        const incoming = flow.predecessor[current] ?? [];
+        for (let index = 0; index < incoming.length; index += 1) {
+          const paid = chargeWork(account, 1);
+          if (paid !== null) return paid;
+          const predecessor = denseRow(incoming, index);
+          if (flow.reachable[predecessor] !== true) continue;
+          const block = denseRow(mir.blocks, predecessor);
+          const term = block.terminator;
+          if (protectPath && (term.kind === "await" || term.kind === "yield" || term.kind === "delegate"
+            || term.kind === "invoke" && term.operation.decision.execution.kind === "invocation" && term.operation.decision.execution.writesStorage))
+            return unavailable;
+          if (protectPath && term.kind === "call") {
+            const lookup = chargeWork(account, 1);
+            if (lookup !== null) return lookup;
+            const summary = flow.summaryAt(block.id, term);
+            if (summary.kind !== "complete") return summary;
+            const interference = refinementMayWrite(account, summary.value, () => available);
+            if (interference.kind !== "complete") return interference;
+            if (interference.value) return unavailable;
+          }
+          const overwritten = writesOnEdge(term, current, writes, account);
+          if (typeof overwritten !== "boolean") return overwritten;
+          if (overwritten) return unavailable;
+          if (seen.has(predecessor)) continue;
+          const kept = chargeResultEntries(account, block === sampled ? 1 : 2);
+          if (kept !== null) return kept;
+          seen.add(predecessor);
+          const whole = scan(block, block === sampled ? position : 0, block.statements.length);
+          if (typeof whole !== "boolean") return whole;
+          if (!whole) return unavailable;
+          if (block !== sampled) pending.push(predecessor);
+        }
+      }
+      if (!seen.has(sampled.id)) return unavailable;
+    }
+    useBlock = sampled;
+    before = position;
+  }
+  return available;
+}
+
 function returnedCapture(block: MirBlock, call: Call, summaryAt: FieldRefinementInputs["summaryAt"], account: DataflowAccount): DataflowResult<MirClosureCapture | null> {
   if (call.callee.kind !== "body") return missing;
   const summary = summaryAt(block.id, call);
@@ -166,13 +253,22 @@ function fieldOf(mir: MirBody, block: MirBlock, initial: MirOperand, before: num
   let operand = initial;
   let position = before;
   let cursor = block;
-  let aliases: Set<LocalId> | null = null;
+  let aliases: Map<LocalId, ReachingCopy> | null = null;
   let selected: { readonly identity: string; readonly node: NodeId }[] | null = null;
+  let sampledField = false;
+  let current: Field | null = null;
+  const receiver = (local: LocalId): DataflowResult<Field | null> => {
+    const retained = chargeResultEntries(account, 1);
+    return retained ?? { kind: "complete", value: { receiver: local, path: selected ?? noFields } };
+  };
+  const known = (): DataflowResult<Field | null> => ({ kind: "complete", value: current });
   while (operand.kind === "place") {
     const paid = chargeWork(account, 1);
     if (paid !== null) return paid;
     const base = mir.places[operand.place]?.base;
+    if (current !== null && base?.kind !== "local") return known();
     if (base?.kind === "place" && base.projection.kind === "field") {
+      sampledField ||= aliases !== null;
       const member = base.projection.member;
       if (base.place >= operand.place || base.tir.body !== mir.body || member.decision.primary === null || member.decision.location.kind !== "data"
         || member.decision.location.receiver !== "by-reference" || member.decision.location.check.kind !== "none") return missing;
@@ -188,23 +284,38 @@ function fieldOf(mir: MirBody, block: MirBlock, initial: MirOperand, before: num
       operand = { kind: "place", place: base.place };
       continue;
     }
-    if (base?.kind !== "local" || flow.exposed.has(base.local)) return missing;
+    if (base?.kind !== "local") return known();
+    const location = flow.locations.get(base.local);
+    if (location === "exposed") return known();
     const local = mir.locals[base.local];
-    if (local?.role.kind === "parameter" && local.mode === "by-value") {
-      const retained = chargeResultEntries(account, 1);
-      return retained ?? { kind: "complete", value: { receiver: base.local, path: selected ?? noFields } };
+    const parameter = local?.role.kind === "parameter" && local.mode === "by-value";
+    const protectPath = sampledField || (selected?.length ?? 0) > 1;
+    const replaced = parameter && location === "reassigned";
+    if (parameter && !replaced && !protectPath) return receiver(base.local);
+    if (parameter && replaced && current !== null) return known();
+    if (parameter || current === null && local?.role.kind === "user" && local.mode === "local") {
+      const stable = receiverCurrent(mir, base.local, protectPath, block, before, aliases, flow, account);
+      if (stable.kind !== "complete") return stable;
+      if (stable.value && (current === null || parameter)) {
+        const resolved = receiver(base.local);
+        if (resolved.kind !== "complete" || parameter) return resolved;
+        current = resolved.value;
+      }
+      if (parameter) return known();
     }
-    if (local?.role.kind !== "temporary" && local?.role.kind !== "user") return missing;
-    if (aliases?.has(base.local)) return missing;
+    if (local?.role.kind !== "temporary" && local?.role.kind !== "user") return known();
+    if (aliases?.has(base.local)) return known();
     const retained = chargeResultEntries(account, aliases === null ? 2 : 1);
     if (retained !== null) return retained;
-    (aliases ??= new Set()).add(base.local);
     const copy = reachesCopy(mir, cursor, position, base.local, flow, account);
     if (copy.kind !== "complete") return copy;
-    if (copy.value === null) return missing;
+    if (copy.value === null) return known();
+    if (local.role.kind === "user" && (copy.value.operand.kind !== "place" || mir.places[copy.value.operand.place]?.base.kind !== "local"))
+      return known();
+    (aliases ??= new Map()).set(base.local, copy.value);
     ({ operand, position, block: cursor } = copy.value);
   }
-  return missing;
+  return known();
 }
 
 function guardOnEdge(mir: MirBody, block: MirBlock, target: BlockId, field: Field, flow: Flow,
@@ -347,8 +458,9 @@ interface Flow {
   readonly entry: number;
   readonly predecessor: readonly (readonly number[])[];
   readonly reachable: readonly boolean[];
-  readonly exposed: ReadonlySet<LocalId>;
+  readonly locations: ReadonlyMap<LocalId, "exposed" | "reassigned">;
   readonly copies: ReadonlyMap<Call, MirClosureCapture | null> | null;
+  readonly summaryAt: FieldRefinementInputs["summaryAt"];
 }
 
 function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
@@ -365,6 +477,11 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
   if (read.kind !== "complete") return read;
   if (read.value?.path[0]?.node !== check.tir.node) return unproved([], "No proved reaching field receiver.");
   const field = read.value;
+  const canReassign = flow.locations.get(field.receiver) === "reassigned" || mir.locals[field.receiver]?.role.kind === "user";
+  const assignsReceiver = (place: PlaceId): boolean => {
+    const base = mir.places[place]?.base;
+    return base?.kind === "local" && base.local === field.receiver;
+  };
   const guards = new Set<NodeId>();
   const invalidations = new Map<NodeId, RefinementInvalidation>();
   const visited = new Set<number>();
@@ -420,20 +537,27 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
         continue;
       }
       const term = predecessor.terminator;
+      let effectWrites = false;
       if (term.kind === "call") {
         const summary = inputs.summaryAt(predecessor.id, term);
         if (summary.kind !== "complete") return summary;
         const effect = appliedWrite(mir, predecessor, term, summary.value, field, flow, inputs.callBindings, account);
         if (effect.kind !== "complete") return effect;
-        const destination = term.destination === null ? null : mir.places[term.destination]?.base;
-        if (effect.value || destination?.kind === "local" && destination.local === field.receiver) {
-          const invalidated = invalidate("call", term.tir);
-          if (invalidated !== null) return invalidated;
-        }
+        effectWrites = effect.value;
       } else if (term.kind === "await" || term.kind === "yield" || term.kind === "delegate"
         || term.kind === "invoke" && term.operation.decision.execution.kind === "invocation" && term.operation.decision.execution.writesStorage) {
+        effectWrites = true;
+      }
+      if (effectWrites) {
         const invalidated = invalidate("call", term.tir);
         if (invalidated !== null) return invalidated;
+      } else if (canReassign) {
+        const overwritten = writesOnEdge(term, current.id, assignsReceiver, account);
+        if (typeof overwritten !== "boolean") return overwritten;
+        if (overwritten) {
+          const invalidated = invalidate(term.kind === "call" || term.kind === "invoke" ? "call" : "write", term.tir);
+          if (invalidated !== null) return invalidated;
+        }
       }
       if (!visited.has(prior)) {
         const held = chargeResultEntries(account, 1);
@@ -472,12 +596,13 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
   if (order.kind !== "complete") return order;
   const predecessor = predecessors(graph.value, account);
   if (predecessor.kind !== "complete") return predecessor;
-  const exposed = new Set<LocalId>();
-  const exclude = (local: LocalId): DataflowStop | null => {
-    if (exposed.has(local)) return null;
+  const locations = new Map<LocalId, "exposed" | "reassigned">();
+  const remember = (local: LocalId, status: "exposed" | "reassigned"): DataflowStop | null => {
+    const prior = locations.get(local);
+    if (prior === "exposed" || prior === status) return null;
     const held = chargeResultEntries(account, 1);
     if (held !== null) return held;
-    exposed.add(local);
+    locations.set(local, status);
     return null;
   };
   const expose = (start: PlaceId): DataflowStop | null => {
@@ -486,7 +611,7 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
       const paid = chargeWork(account, 1);
       if (paid !== null) return paid;
       const base = mir.places[place]?.base;
-      if (base?.kind === "local") return exclude(base.local);
+      if (base?.kind === "local") return remember(base.local, "exposed");
       if (base?.kind !== "place" && base?.kind !== "checked" || base.place >= place) return null;
       place = base.place;
     }
@@ -516,7 +641,7 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
   if (exposure !== null) return exposure;
   const replaceReceiver = (place: PlaceId): DataflowStop | null => {
     const base = mir.places[place]?.base;
-    return base?.kind === "local" && mir.locals[base.local]?.role.kind === "parameter" ? exclude(base.local) : null;
+    return base?.kind === "local" && mir.locals[base.local]?.role.kind === "parameter" ? remember(base.local, "reassigned") : null;
   };
   const blocks = mir.blocks;
   for (let position = 0; position < blocks.length; position += 1) {
@@ -530,7 +655,7 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
       const statement = denseRow(statements, statementPosition);
       const stopped = statement.kind === "assign" ? replaceReceiver(statement.place)
         : (statement.kind === "storage-live" || statement.kind === "storage-dead")
-          && mir.locals[statement.local]?.role.kind === "parameter" ? exclude(statement.local) : null;
+          && mir.locals[statement.local]?.role.kind === "parameter" ? remember(statement.local, "reassigned") : null;
       if (stopped !== null) return stopped;
     }
     let stopped: DataflowStop | null = null;
@@ -541,7 +666,7 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
     const cut = edge ?? stopped;
     if (cut !== null) return cut;
   }
-  const flow = { entry: entry.block, predecessor: predecessor.value, reachable: order.value.reachable, exposed, copies };
+  const flow = { entry: entry.block, predecessor: predecessor.value, reachable: order.value.reachable, locations, copies, summaryAt: inputs.summaryAt };
   const rows: RefinementFact[] = [];
   for (let position = 0; position < blocks.length; position += 1) {
     const paid = chargeWork(account, 1);

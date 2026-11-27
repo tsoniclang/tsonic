@@ -8,7 +8,7 @@ export async function checkNativeRefinementWalkthrough() {
   const fixture = await loadFrontFixture();
   const { nativeInt32Input } = await import("./native-int32-input.mjs");
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
-  for (const [replace, work, records] of [[false, 115332, 20011], [true, 116240, 20272]]) {
+  for (const [replace, work, records] of [[false, 115362, 20011], [true, 116270, 20272]]) {
     const input = await nativeInt32Input(fixture, `
       function pure(): void {}
       function clear(p: { x: { v: Native } | null }): void { p.x = null; }
@@ -491,4 +491,83 @@ export async function checkNativeFieldRefinement() {
   ]);
   const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
   assert.deepEqual(new Set(checks.map(check => check.tir.node)), new Set(facts.refinements.refinements.map(row => row.node)));
+
+  for (const [name, statements, state] of [
+    ["exit", "if (choose) { box = replacement; return false; } if (box.flag !== undefined) return box.flag;", "proven"],
+    ["before", "box = replacement; if (box.flag !== undefined) return box.flag;", "proven"],
+    ["join", "if (choose) box = replacement; if (box.flag !== undefined) return box.flag;", "proven"],
+    ["saved", "const saved = box; box = replacement; if (saved.flag !== undefined) return saved.flag;", "proven"],
+    ["alias", "const saved = box; box = replacement; if (saved.flag !== undefined) { clear(box); return saved.flag; }", "invalidated"],
+    ["loop", "for (let i = 0; i < 2; ++i) { if (choose) box = replacement; if (box.flag !== undefined) return box.flag; }", "proven"],
+    ["stale-field", "if (box.flag !== (clear(box), undefined)) return box.flag;", "stale"],
+    ["pure", "if (box.flag !== (pure(), undefined)) return box.flag;", "proven"],
+    ["stale-receiver", "if (box.flag !== (box = replacement, undefined)) return box.flag;", "stale"],
+  ]) {
+    const original = analysisInput(fixture, "sdk-minimal", `
+      type Box = { flag: boolean | undefined };
+      function clear(box: Box): void { box.flag = undefined; }
+      function pure(): void {}
+      export function read(box: Box, replacement: Box, choose: boolean): boolean {
+        ${statements}
+        return false;
+      }
+    `);
+    const native = original.snapshot.nativeFacts;
+    const input = { ...original, snapshot: { ...original.snapshot, nativeFacts: { ...native,
+      integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "wrap" }],
+    } } };
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", `${name}: ${JSON.stringify(result.diagnostics)}`);
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const root = selected.tir.root.statements.nodes;
+    const rows = name === "loop" ? root[0].statement.statements.nodes : root;
+    const conditional = rows.filter(row => row.kind === "IfStatement").at(-1);
+    const returned = conditional.thenStatement.kind === "Block" ? conditional.thenStatement.statements.nodes.at(-1) : conditional.thenStatement;
+    const node = returned.expression.id;
+    assert.equal(selected.mir.blocks.some(row => row.terminator.kind === "check" && row.terminator.tir.node === node), true, name);
+    const callBlock = selected.mir.blocks.find(row => row.terminator.kind === "call" && row.terminator.callee.kind === "direct");
+    const guards = state === "stale" ? [] : [conditional.expression.id];
+    const reason = state === "invalidated" ? { kind: "invalidated", sites: [{ kind: "call", at: callBlock.terminator.tir }] }
+      : { kind: "guard-not-proven", detail: "No qualifying presence guard on every reaching path." };
+    const [facts] = selected.facts;
+    const expected = state === "proven" ? { kind: "proven", node, guards } : { kind: "unproven", node, guards, reason };
+    assert.deepEqual(facts.refinements.refinements, [expected], name);
+    if (name !== "stale-field" && name !== "pure") continue;
+
+    const guard = conditional.expression;
+    const sample = callBlock.statements.find(row => row.kind === "assign" && row.tir.node === guard.left.id);
+    assert.equal(sample.value.kind, "use");
+    assert.equal(selected.mir.places[sample.value.operand.place].base.tir.node, guard.left.id);
+    const compared = selected.mir.blocks[callBlock.terminator.next].statements.find(row => row.kind === "assign" && row.tir.node === guard.id);
+    assert.deepEqual(compared.value.left, { kind: "place", place: sample.place });
+    if (name !== "stale-field") continue;
+
+    const source = sourceOccurrences(selected.tir, createAccount(limits));
+    assert.equal(source.kind, "complete");
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const callee = callBlock.terminator.callee.resolution.activation;
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === callee.body);
+    let firstLookup = null;
+    const proofInput = { sourceOf: node => source.value.get(node), callBindings: { lexical: selected.tir.lexicalBindings,
+      scopeOf: definition => captured.value.descriptions.get(definition)?.generics ?? null } };
+    const run = account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, { ...proofInput, summaryAt: (block, operation) => {
+      assert.equal(block, callBlock.id);
+      assert.equal(operation === callBlock.terminator, true);
+      firstLookup ??= InvocationAccount.stateOf(account).work;
+      return { kind: "complete", value: summary };
+    } });
+    const probe = createAccount(limits);
+    assert.deepEqual(run(probe), { kind: "complete", value: [expected] });
+    assert.ok(firstLookup > 0);
+    const cutoff = createAccount({ ...limits, maximumWork: firstLookup - 1 });
+    firstLookup = null;
+    const stopped = run(cutoff);
+    assert.equal(stopped.kind, "resource-limit");
+    assert.equal(stopped === accountFailure(cutoff), true);
+    assert.equal(firstLookup, null);
+    assert.equal(run(cutoff) === stopped, true);
+    assert.equal(firstLookup, null);
+  }
 }
