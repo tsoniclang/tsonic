@@ -3385,6 +3385,48 @@ test("tuple declaration reads keep the actual authored type, independently of a 
   assert.deepEqual(valueType.form, { kind: "available", value: { kind: "scalar", scalar: "number" } });
 });
 
+test("tuple return literals keep the checked slots separate from the actual callable destination", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { readType } = await import("../../packages/host/dist/ir-types/index.js");
+  for (const { annotation, returned, readonly, source, destination } of [
+    { annotation: "readonly [boolean, boolean]", returned: "[flag, false]", readonly: true,
+      source: ["primitive:bool", "literal:boolean"], destination: ["primitive:bool", "primitive:bool"] },
+    { annotation: "[number, number]", returned: "[-1, 2]", readonly: false,
+      source: ["primitive:float64", "primitive:float64"], destination: ["primitive:float64", "primitive:float64"] },
+    { annotation: "[]", returned: "[]", readonly: false, source: [], destination: [] },
+  ]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      export function pair(flag: boolean, choose: boolean): ${annotation} { if (choose) return ${returned}; return ${returned}; }
+    `);
+    const completed = captureSourceBarrier(input);
+    assert.equal(completed.kind, "ok", JSON.stringify(completed.diagnostics));
+    const body = [...completed.value.checked.bodies.values()].find(row => row.root.kind === "Block");
+    assert.ok(body);
+    const [branch, last] = body.root.statements.nodes;
+    const read = type => readType(completed.value.types, type);
+    const category = term => term.kind === "primitive" ? `primitive:${term.primitive}`
+      : term.kind === "literal" ? `literal:${term.value.kind}` : term.kind;
+    for (const literal of [branch.thenStatement.expression, last.expression]) {
+      assert.equal(literal.kind, "ArrayLiteralExpression");
+      assert.equal(literal.tsonic.role, "value");
+      const views = literal.tsonic.value.views;
+      assert.equal(views.read.kind, "available");
+      assert.equal(views.contextual.kind, "available");
+      const selected = read(views.read.value);
+      const context = read(views.contextual.value);
+      assert.equal(selected.kind, "tuple");
+      assert.equal(context.kind, "tuple");
+      assert.equal(selected.readonly, false);
+      assert.equal(context.readonly, readonly);
+      assert.deepEqual(selected.elements.map(row => [row.kind, category(read(row.type))]), source.map(type => ["required", type]));
+      assert.deepEqual(context.elements.map(row => [row.kind, category(read(row.type))]), destination.map(type => ["required", type]));
+      assert.equal(literal.elements.nodes.length, selected.elements.length);
+    }
+  }
+});
+
 test("a finite spread borrows the actual selected producer's written tuple result once", async () => {
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const { createTypeInterner } = await import("../../packages/host/dist/ir-types/index.js");

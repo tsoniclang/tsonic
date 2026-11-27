@@ -60,7 +60,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "ArrayType", "TupleType", "OptionalType", "RestType", "TypeOperator", "IndexedAccessType", "ConditionalType", "InferType", "ThisType", "TypePredicate", "LiteralType", "ParenthesizedType", "MappedType",
   "TemplateLiteralType", "TemplateLiteralTypeSpan", "TemplateHead", "TemplateMiddle", "TemplateTail",
   "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "ElementAccessExpression", "QuestionToken",
-  "ObjectLiteralExpression", "PropertyAssignment"];
+  "ArrayLiteralExpression", "ObjectLiteralExpression", "PropertyAssignment"];
 
 function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): string | null {
   if (node.kind === "QuestionDotToken" && declarationName) return null;
@@ -1195,7 +1195,10 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
         aggregate = { core, role: "layout-quote", call: { body: owner, node: quote }, views: value.value.views };
       }
       if (node.kind === "ArrayLiteralExpression") {
-        if (aggregate.role !== "layout-quote") throw new TypeError("front: a runtime array expression requires its own construction.");
+        const contextual = value.value.views.contextual;
+        if (aggregate.role !== "layout-quote" && !(own.kind === "available" && readType(lowering.deps.types, own.value).kind === "tuple"
+          && contextual.kind === "available" && contextual.value !== null && readType(lowering.deps.types, contextual.value).kind === "tuple"))
+          throw new TypeError("front: a runtime array expression requires its own checked construction source and destination.");
         return { kind: "complete", value: { ...headerOf(node), kind: node.kind, multiLine: node.multiLine,
           elements: { loc: node.elements.loc, nodes: node.elements.nodes.map(operand => expression(lowering, operand)) }, tsonic: aggregate } };
       }
