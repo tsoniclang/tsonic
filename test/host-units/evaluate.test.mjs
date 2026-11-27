@@ -407,10 +407,11 @@ test("crossed optional embeddings cannot borrow another type, payload or floatin
   const unmaterialized = literalWidening("evaluate.optional.crossed-unmaterialized", floatLiteral, floatTarget, rational, "union-injection");
   assert.throws(() => unmaterialized.start(), /actual selected representation transformation/u);
   const integerTarget = declareType("evaluate.optional.crossed.integer", { kind: "optional", value: T.int32 });
+  const otherInteger = declareType("evaluate.optional.crossed.other-integer", { kind: "primitive", primitive: "int8" });
   const integer = embeddingFixture("evaluate.optional.crossed-integer", T.int32, integerTarget, builder => builder.id("input", 0, T.int32),
     "union-injection", [["input", "required", T.int32]]);
   assert.throws(() => product.evaluate({ ...integer.deps,
-    typeOf: type => type === integerTarget ? { kind: "optional", value: T.int8 } : integer.deps.typeOf(type),
+    typeOf: type => type === integerTarget ? { kind: "optional", value: otherInteger } : integer.deps.typeOf(type),
   }, integer.entry, integer.body, [{ kind: "bigint", value: 3n, type: T.int32 }], "compile-time", integer.unit),
   /integer embedding requires the actual selected native present type/u);
   const floating = embeddingFixture("evaluate.optional.crossed-float", T.float64, floatTarget, builder => builder.id("input", 0, T.float64),
