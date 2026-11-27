@@ -203,8 +203,25 @@ function nativeExtent(
     holding: decision.operation.holding, source: sourceLocal(source.expression) } };
 }
 
-function stableExtent(mir: MirBody, loop: NaturalLoop, extent: ExtentBound, storage: CounterStorage,
-  account: DataflowAccount): DataflowResult<boolean> {
+function statementsPreserveExtent(mir: MirBody, block: MirBlock, receiver: LocalId, account: DataflowAccount): DataflowResult<boolean> {
+  const statements = block.statements;
+  for (let index = 0; index < statements.length; index += 1) {
+    const paid = chargeWork(account, 1);
+    if (paid !== null) return paid;
+    const statement = statements[index];
+    if (statement === undefined) return { kind: "complete", value: false };
+    if (statement.kind === "assign") {
+      const target = mir.places[statement.place]?.base;
+      if (target?.kind !== "local" || target.local === receiver) return { kind: "complete", value: false };
+    } else if ((statement.kind === "storage-live" || statement.kind === "storage-dead") && statement.local === receiver) {
+      return { kind: "complete", value: false };
+    }
+  }
+  return { kind: "complete", value: true };
+}
+
+function extentFlow(mir: MirBody, header: MirBlock, first: BlockId, inside: ReadonlySet<number>, extent: ExtentBound,
+  storage: CounterStorage, account: DataflowAccount): DataflowResult<ReadonlyMap<BlockId, boolean> | null> {
   const setup = chargeWork(account, 2);
   if (setup !== null) return setup;
   const base = mir.places[extent.receiver]?.base;
@@ -212,40 +229,52 @@ function stableExtent(mir: MirBody, loop: NaturalLoop, extent: ExtentBound, stor
   if (receiver === undefined || extent.source === null || extent.source.body !== mir.body
     || receiver.source?.body !== extent.source.body || receiver.source.local !== extent.source.local
     || localOwnershipOfMir(receiver.mode) !== "body" || storage.exposedLocals.has(receiver.id)
-    || storage.exposedSources.has(receiver.source.local)) return { kind: "complete", value: false };
-  for (let position = 0; position < loop.members.length; position += 1) {
+    || storage.exposedSources.has(receiver.source.local)) return absent;
+  const guard = statementsPreserveExtent(mir, header, receiver.id, account);
+  if (guard.kind !== "complete") return guard;
+  if (!guard.value) return absent;
+  const room = chargeResultEntries(account, 2);
+  if (room !== null) return room;
+  const preserved = new Map<BlockId, boolean>();
+  const pending: BlockId[] = [];
+  const enqueue = (target: BlockId, safe: boolean): ReturnType<typeof chargeWork> => {
+    if (target === header.id || !inside.has(target)) return null;
+    const prior = preserved.get(target);
+    if (prior === false || prior === safe) return null;
+    const held = chargeResultEntries(account, prior === undefined ? 2 : 1);
+    if (held !== null) return held;
+    preserved.set(target, safe);
+    pending.push(target);
+    return null;
+  };
+  const start = enqueue(first, true);
+  if (start !== null) return start;
+  while (pending.length !== 0) {
     const read = chargeWork(account, 1);
     if (read !== null) return read;
-    const member = loop.members[position];
+    const member = pending.pop();
     const block = member === undefined ? undefined : mir.blocks[member];
-    if (block === undefined) return { kind: "complete", value: false };
-    for (let index = 0; index < block.statements.length; index += 1) {
-      const paid = chargeWork(account, 1);
-      if (paid !== null) return paid;
-      const statement = block.statements[index];
-      if (statement === undefined) return { kind: "complete", value: false };
-      if (statement.kind === "assign") {
-        const target = mir.places[statement.place]?.base;
-        if (target?.kind !== "local" || target.local === receiver.id)
-          return { kind: "complete", value: false };
-      } else if ((statement.kind === "storage-live" || statement.kind === "storage-dead") && statement.local === receiver.id) {
-        return { kind: "complete", value: false };
-      }
+    if (block === undefined) return absent;
+    let safe = preserved.get(block.id) === true;
+    if (safe) {
+      const statements = statementsPreserveExtent(mir, block, receiver.id, account);
+      if (statements.kind !== "complete") return statements;
+      safe = statements.value;
+      if (!safe) preserved.set(block.id, false);
     }
     const terminator = block.terminator;
-    if (terminator.kind === "call" || terminator.kind === "invoke" || terminator.kind === "await"
-      || terminator.kind === "yield" || terminator.kind === "delegate")
-      return { kind: "complete", value: false };
-    let replaced = false;
-    const edge = visitMirControlEdges(terminator, { kind: "edges", admit: () => chargeWork(account, 1),
-      visit: (_kind, _target, destination) => {
-        replaced ||= destination !== null && storage.roots[destination] === receiver.id;
+    const outgoing = safe && terminator.kind !== "call" && terminator.kind !== "invoke" && terminator.kind !== "await"
+      && terminator.kind !== "yield" && terminator.kind !== "delegate";
+    let stopped: ReturnType<typeof chargeWork> = null;
+    const edge = visitMirControlEdges(terminator, { kind: "edges", admit: () => stopped ?? chargeWork(account, 1),
+      visit: (_kind, target, destination) => {
+        stopped ??= enqueue(target, outgoing && (destination === null || storage.roots[destination] !== receiver.id));
       },
     });
-    if (edge !== null) return edge;
-    if (replaced) return { kind: "complete", value: false };
+    const cut = edge ?? stopped;
+    if (cut !== null) return cut;
   }
-  return { kind: "complete", value: true };
+  return { kind: "complete", value: preserved };
 }
 
 function sameReceiver(mir: MirBody, site: IndexSite, extent: ExtentBound, storage: CounterStorage,
@@ -273,8 +302,9 @@ function sameReceiver(mir: MirBody, site: IndexSite, extent: ExtentBound, storag
 
 function collectRanges(mir: MirBody, loop: NaturalLoop, range: IntegerRange, counter: PlaceId,
   source: LocalId, storage: CounterStorage, sites: IndexSites, rows: ProofRows,
-  extent: ExtentBound | null, guard: NodeId, account: DataflowAccount): DataflowResult<null> {
-  let stable: boolean | undefined;
+  extent: ExtentBound | null, header: MirBlock, first: BlockId, inside: ReadonlySet<number>,
+  guard: NodeId, account: DataflowAccount): DataflowResult<null> {
+  let preserved: ReadonlyMap<BlockId, boolean> | null | undefined;
   for (let position = 0; position < loop.members.length; position += 1) {
     const paid = chargeWork(account, 1);
     if (paid !== null) return paid;
@@ -290,16 +320,16 @@ function collectRanges(mir: MirBody, loop: NaturalLoop, range: IntegerRange, cou
       if (retained !== null) return retained;
       rows.ranges.set(known.value, range);
     }
-    if (extent === null || range.minimum < 0n || stable === false || rows.refinements.has(site.node.id)) continue;
+    if (extent === null || range.minimum < 0n || preserved === null || rows.refinements.has(site.node.id)) continue;
     const exact = sameReceiver(mir, site, extent, storage, account);
     if (exact.kind !== "complete") return exact;
     if (!exact.value) continue;
-    if (stable === undefined) {
-      const preserved = stableExtent(mir, loop, extent, storage, account);
-      if (preserved.kind !== "complete") return preserved;
-      stable = preserved.value;
+    if (preserved === undefined) {
+      const result = extentFlow(mir, header, first, inside, extent, storage, account);
+      if (result.kind !== "complete") return result;
+      preserved = result.value;
     }
-    if (!stable) continue;
+    if (preserved?.get(site.block.id) !== true) continue;
     const retained = chargeResultEntries(account, 3);
     if (retained !== null) return retained;
     rows.refinements.set(site.node.id, { kind: "proven", node: site.node.id, guards: [guard] });
@@ -504,7 +534,8 @@ function loopFact(
   const rangeWork = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
   if (rangeWork !== null) return rangeWork;
   const range = { minimum: lower.value, maximum: maximum - 1n };
-  const collected = collectRanges(mir, loop, range, counter.id, binding.local.local, storage, sites.value, proofs, extent.value, condition.id, account);
+  const collected = collectRanges(mir, loop, range, counter.id, binding.local.local, storage, sites.value, proofs,
+    extent.value, header, whenTrue.target, inside, condition.id, account);
   if (collected.kind !== "complete") return collected;
   return { kind: "complete", value: fact };
 }

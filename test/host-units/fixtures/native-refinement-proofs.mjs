@@ -12,7 +12,7 @@ export async function checkNativeCountedLoopProofs() {
   const { pipelineWiring } = await import("../../../packages/host/dist/pipeline/wiring.js");
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const fixture = await loadFrontFixture();
-  for (const { start, write, minimum, counted, audit, step = "++i", bound = "3", receiver = "values", proven = false } of [
+  for (const { start, write, tail = "", minimum, counted, audit, step = "++i", bound = "3", receiver = "values", proven = false } of [
     { start: 0, write: "", minimum: 0n, counted: true, audit: "integer" },
     { start: 0, write: "", minimum: 0n, counted: true, step: "i++" },
     { start: 0, write: "i = 3;", minimum: null, counted: false },
@@ -21,10 +21,12 @@ export async function checkNativeCountedLoopProofs() {
     { start: 3, write: "", minimum: null, counted: true },
     { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", proven: true, audit: "guard", step: "i++" },
     { start: 0, write: "values = replacement;", minimum: 0n, counted: true, bound: "values.length", audit: "receiver" },
+    { start: 0, write: "", tail: "values = replacement;", minimum: 0n, counted: true, bound: "values.length", proven: true, audit: "guard" },
+    { start: 0, write: "if (i < 1) values = replacement;", minimum: 0n, counted: true, bound: "values.length" },
     { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", receiver: "replacement" },
   ]) {
     const source = `export function read(values: boolean[], replacement: boolean[]): boolean {
-      for (let i = ${start}; i < ${bound}; ${step}) { ${write} if (${receiver}[i]) return true; }
+      for (let i = ${start}; i < ${bound}; ${step}) { ${write} if (${receiver}[i]) return true; ${tail} }
       return false;
     }`;
     const input = analysisInput(fixture, "sdk-minimal", source);
