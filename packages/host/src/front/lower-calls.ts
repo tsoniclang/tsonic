@@ -1,7 +1,7 @@
 import type { RawTypeId, TyId } from "../ids/contract.js";
 import type * as Hir from "../ir-hir/contract.js";
 import type { ComponentSelector, TypeBinding } from "../ir-types/contract.js";
-import { readSignature } from "../ir-types/index.js";
+import { admitTypePublicationStep, readSignature } from "../ir-types/index.js";
 import type { RawCallSelection, RawNodeRef } from "./contract.js";
 import { sameSource, sourceOccurrence } from "./bindings.js";
 import { convertRawType, rawSignatureParameter, signatureOf } from "./type-conversion.js";
@@ -38,6 +38,20 @@ export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall)
     || !sameSource(call.invocation, invocation) || !sameSource(candidate.application.invocation, invocation)
     || !sameSource(candidate.application.callee, { module: raw.module, node: node.expression.id }))
     return fail("an applicable candidate must retain its actual selected invocation and callee");
+  if (candidate.sourceArguments.length !== node.arguments.nodes.length)
+    return fail("an applicable candidate must retain every actual authored argument");
+  for (let index = 0; index < node.arguments.nodes.length; index += 1) {
+    const stop = admitTypePublicationStep(deps.typeWork);
+    if (stop !== null) return stop;
+    const syntax = node.arguments.nodes[index];
+    if (syntax === undefined) return fail("an applicable candidate must retain every actual authored argument");
+    const authored = candidate.sourceArguments[index];
+    const operand = syntax.kind === "SpreadElement" ? syntax.expression : syntax;
+    if (authored?.kind !== (syntax.kind === "SpreadElement" ? "spread" : "value")
+      || !sameSource(authored.occurrence, { module: raw.module, node: syntax.id })
+      || !sameSource(authored.expression, { module: raw.module, node: operand.id }))
+      return fail("an applicable candidate must retain the actual authored slot and operand");
+  }
   const application = candidate.application;
   if (application.classArguments.length !== 0 || application.receiver !== null)
     return fail("nonempty call candidate binding conversion is not implemented");

@@ -44,7 +44,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "SwitchStatement", "CaseBlock", "CaseClause", "DefaultClause", "TryStatement", "CatchClause",
   "EmptyStatement", "DebuggerStatement", "LabeledStatement",
   "BinaryExpression", "ConditionalExpression", "ColonToken", "PrefixUnaryExpression", "PostfixUnaryExpression", "PlusToken", "EqualsToken",
-  "CallExpression", "ExcludedExpression", "ExpressionStatement", "ParenthesizedExpression", "VoidExpression",
+  "CallExpression", "SpreadElement", "ExcludedExpression", "ExpressionStatement", "ParenthesizedExpression", "VoidExpression",
   "AsExpression", "TypeAssertionExpression", "SatisfiesExpression", "NonNullExpression",
   "MinusToken", "AsteriskToken", "SlashToken", "PercentToken", "EqualsEqualsToken", "EqualsEqualsEqualsToken", "ExclamationEqualsToken", "ExclamationEqualsEqualsToken",
   "LessThanToken", "LessThanEqualsToken", "GreaterThanToken", "GreaterThanEqualsToken",
@@ -1055,6 +1055,9 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
     case "ParenthesizedExpression": case "NonNullExpression": case "VoidExpression":
       return { kind: "complete", value: { ...headerOf(node), kind: node.kind, expression: expression(lowering, node.expression),
         tsonic: { core: coreOf(lowering, node.id), ...value.value } } };
+    case "SpreadElement":
+      return { kind: "complete", value: { ...headerOf(node), kind: node.kind, expression: expression(lowering, node.expression),
+        tsonic: { core: coreOf(lowering, node.id), ...value.value, protocol: { kind: "unavailable", reason: "not-provided", causes: [] } } } };
     case "AsExpression": case "TypeAssertionExpression": case "SatisfiesExpression": {
       const target = typeOf(node.type, owner);
       if (target.kind !== "complete") return target;
@@ -1267,7 +1270,33 @@ function applicationOf(lowering: Lowering, node: Hir.CallExpression<Syntax>): Co
   }
   lists.push({ id, candidates });
   lowering.candidateLists.set(body, lists);
-  return { kind: "complete", value: { kind: "call", receiver: null, arguments: node.arguments.nodes.map(argument => ({ kind: "value", expression: argument.id })),
+  const arguments_: Hir.HirArgument[] = [];
+  for (const argument of node.arguments.nodes) {
+    if (argument.kind !== "SpreadElement") {
+      arguments_.push({ kind: "value", expression: argument.id });
+      continue;
+    }
+    const checked = checkerViewsOf(lowering, argument.expression.id);
+    if (checked.kind !== "complete") return checked;
+    const read = checked.value.read;
+    let tuple: Hir.CapturedFact<readonly TyId[] | null> = read.kind === "unavailable" ? read : { kind: "available", value: null };
+    if (read.kind === "available") {
+      const term = readType(lowering.deps.types, read.value);
+      if (term?.kind === "tuple") {
+        const elements: TyId[] = [];
+        for (let index = 0; index < term.elements.length; index += 1) {
+          const stop = admitTypePublicationStep(lowering.typeWork);
+          if (stop !== null) return stop;
+          const element = term.elements[index];
+          if (element?.kind !== "required") break;
+          elements.push(element.type);
+        }
+        if (elements.length === term.elements.length) tuple = { kind: "available", value: elements };
+      }
+    }
+    arguments_.push({ kind: "spread", expression: argument.expression.id, tuple });
+  }
+  return { kind: "complete", value: { kind: "call", receiver: null, arguments: arguments_,
     typeArguments, candidates: { kind: "available", value: id }, resolvedSignature } };
 }
 

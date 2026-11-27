@@ -177,7 +177,8 @@ test("raw optional-number calls retain the numeric source token, selected argume
     const [selected] = candidate.arguments.value;
     assert.deepEqual(authored.occurrence, rawArgument);
     assert.deepEqual(selected.sourceArgument, rawArgument);
-    assert.deepEqual(selected.effectiveArgument, rawArgument);
+    assert.equal(selected.effectiveArgumentIndex, 0);
+    assert.equal(selected.sourceForm, "value");
     const view = raw.checkerViews.find(row => row.node.node === argument.id);
     const types = raw.types.types;
     const [authoredType, selectedType] = [authored.component.value, selected.source.value]

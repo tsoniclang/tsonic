@@ -335,7 +335,6 @@ export interface RawAuthoredArgument {
 export interface RawArgumentBinding {
   readonly sourceArgument: RawNodeRef;
   readonly sourceArgumentIndex: number;
-  readonly effectiveArgument: RawNodeRef;
   readonly effectiveArgumentIndex: number;
   readonly sourceForm: "value" | "spread-element" | "spread-sequence";
   readonly spreadElementIndex: number | null;

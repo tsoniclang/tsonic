@@ -3612,6 +3612,18 @@ function declaredTupleRead(scope: CaptureScope, type: Type, declaration: Node | 
   return original?.type === type && original.causes.length === 0 ? annotation : null;
 }
 
+function isDeclaredTupleRead(scope: CaptureScope, node: Node | undefined, answer: ResolvedSourceTypeInfo): boolean {
+  return node !== undefined && answer.causes.length === 0 && scope.checked.ast.kindName(node) === "KindIdentifier"
+    && (scope.shape.isTuple(answer.type) || scope.shape.isTypeReference(answer.type));
+}
+
+function valueTupleAnnotation(scope: CaptureScope, node: Node | undefined, answer: ResolvedSourceTypeInfo | undefined): Node | null {
+  if (answer === undefined || !isDeclaredTupleRead(scope, node, answer)) return null;
+  const symbol = scope.checker.getSymbolAtLocation(node);
+  return symbol !== undefined && admit(scope, "edges")
+    ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(symbol)) : null;
+}
+
 function captureNumericToken(scope: CaptureScope, node: Node): RawNumericLiteral {
   return scope.numericLiterals.get(node) ?? throwInvariant(invariant("A numeric literal requires its exact admitted syntax token."));
 }
@@ -4849,24 +4861,43 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
   const callee = referenceTo(scope, scope.program, application.callee.expression);
   if (callee === null) return scope.meter.refusal !== null ? null : throwInvariant(invariant("The selected callee has no source identity."));
   const sourceArguments: RawAuthoredArgument[] = [];
-  for (const [index, argument] of selected.sourceArguments.entries()) {
+  for (let index = 0; index < selected.sourceArguments.length; index += 1) {
     if (!admit(scope, "edges")) return null;
-    const kind = scope.checked.ast.kindName(argument);
-    if (kind === "KindSpreadElement") throw new TypeError("front: spread call argument capture is not implemented");
+    const argument = selected.sourceArguments[index];
+    if (argument === undefined) return throwInvariant(invariant("A selected call requires its actual dense authored arguments."));
+    const ast = scope.checked.ast;
+    const spread = ast.kindName(argument) === "KindSpreadElement";
+    const operand = spread ? ast.as.AsSpreadElement(argument)?.Expression : argument;
+    if (operand === undefined) return throwInvariant(invariant("A selected spread requires its actual authored operand."));
     const occurrence = referenceTo(scope, scope.program, argument);
     if (occurrence === null) return scope.meter.refusal !== null ? null : throwInvariant(invariant("A call argument has no source identity."));
-    const position = component(scope, invocation, { kind: "argument-place", index });
-    if (position === null || rawType(scope, () => sourceType(scope, { kind: "expression", node: argument }), position, null, null,
-      kind === "KindNumericLiteral" ? argument : null) === null) return null;
-    sourceArguments.push({ occurrence, expression: occurrence, kind: "value", component: available(position) });
+    const expression = spread ? referenceTo(scope, scope.program, operand) : occurrence;
+    if (expression === null) return scope.meter.refusal !== null ? null : throwInvariant(invariant("A spread operand has no source identity."));
+    const position = spread ? component(scope, expression, null) : component(scope, invocation, { kind: "argument-place", index });
+    if (position === null) return null;
+    const answer = spread ? sourceType(scope, { kind: "expression", node: operand }) : undefined;
+    if (scope.meter.refusal !== null) return null;
+    const owned = spread ? valueTupleAnnotation(scope, operand, answer) : null;
+    if (scope.meter.refusal !== null || rawType(scope, () => spread ? answer : sourceType(scope, { kind: "expression", node: operand }), position, owned, null,
+      ast.kindName(operand) === "KindNumericLiteral" ? operand : null) === null) return null;
+    sourceArguments.push({ occurrence, expression, kind: spread ? "spread" : "value", component: available(position) });
   }
   const bindings: RawArgumentBinding[] = [];
-  for (const argument of selected.arguments.values) {
+  for (let index = 0; index < selected.arguments.values.length; index += 1) {
     if (!admit(scope, "edges")) return null;
-    const sourceArgument = referenceTo(scope, scope.program, argument.sourceArgument);
-    const effectiveArgument = referenceTo(scope, scope.program, argument.effectiveArgument);
-    if (sourceArgument === null || effectiveArgument === null)
-      return scope.meter.refusal !== null ? null : throwInvariant(invariant("A selected call argument has no source identity."));
+    const argument = selected.arguments.values[index];
+    if (argument === undefined) return throwInvariant(invariant("A selected call requires its actual dense effective arguments."));
+    const authored = sourceArguments[argument.sourceArgumentIndex];
+    const expansion = argument.spreadElementIndex;
+    if (authored === undefined || selected.sourceArguments[argument.sourceArgumentIndex] !== argument.sourceArgument
+      || argument.effectiveArgumentIndex !== bindings.length
+      || (argument.sourceForm === "spread-element"
+        ? authored.kind !== "spread" || expansion === undefined || !Number.isSafeInteger(expansion) || expansion < 0
+          || Object.is(expansion, -0) || scope.checked.ast.kindName(argument.effectiveArgument) !== "KindSyntheticExpression"
+        : expansion !== undefined || argument.effectiveArgument !== argument.sourceArgument
+          || authored.kind !== (argument.sourceForm === "value" ? "value" : "spread")
+          || (argument.sourceForm === "spread-sequence") !== (argument.parameterForm === "rest-sequence")))
+      return throwInvariant(invariant("A selected transport must retain its actual authored argument and effective slot."));
     const source = component(scope, invocation, { kind: "argument-place", index: argument.effectiveArgumentIndex });
     if (source === null) return null;
     const destination = component(scope, invocation, { kind: "parameter", signature, index: argument.parameterIndex });
@@ -4878,7 +4909,7 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       ? argument.sourceArgument : null;
     if (rawType(scope, () => withoutTypeCause(argument.selectedArgumentType), source, null, null, literalNode) === null
       || rawType(scope, () => withoutTypeCause(argument.selectedParameterType), destination, null) === null) return null;
-    bindings.push({ sourceArgument, sourceArgumentIndex: argument.sourceArgumentIndex, effectiveArgument,
+    bindings.push({ sourceArgument: authored.occurrence, sourceArgumentIndex: argument.sourceArgumentIndex,
       effectiveArgumentIndex: argument.effectiveArgumentIndex, sourceForm: argument.sourceForm, spreadElementIndex: argument.spreadElementIndex ?? null,
       parameterIndex: argument.parameterIndex, parameterForm: argument.parameterForm, source: available(source), destination: available(destination) });
   }
@@ -5165,11 +5196,11 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       if (scope.meter.refusal !== null) break;
       const tuple = kind === "KindArrayLiteralExpression" ? tupleInitializerUse(scope, node, parent, contextual) : null;
       if (scope.meter.refusal !== null) break;
-      const declaredRead = kind === "KindIdentifier" && answer.causes.length === 0
-        && (scope.shape.isTuple(answer.type) || scope.shape.isTypeReference(answer.type));
+      const declaredRead = isDeclaredTupleRead(scope, node, answer);
       const declarationSymbol = declaredRead ? scope.checker.getSymbolAtLocation(node) : undefined;
-      const authoredRead = declarationSymbol !== undefined && admit(scope, "edges")
-        ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol)) : null;
+      const authoredRead = kind === "KindSpreadElement" ? valueTupleAnnotation(scope, ast.as.AsSpreadElement(node)?.Expression, answer)
+        : declarationSymbol !== undefined && admit(scope, "edges")
+          ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol)) : null;
       if (scope.meter.refusal !== null) break;
       let sharedRead: RawTypeId | null = null;
       if (kind === "KindPropertyAccessExpression" && declarationNameRoot === null && !failedSelection) {
