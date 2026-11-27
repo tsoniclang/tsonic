@@ -489,7 +489,7 @@ export const verifyBindingSlots = <Stop extends object>(
     const authored = originals.get(body.root.parent);
     if (authored?.kind === "Parameter" || authored?.kind === "VariableDeclaration" || authored?.kind === "PropertyDeclaration") {
       const creator = nodeOf({ kind: "item", value: { owner: body.owner, node: body.root.parent } });
-      if (creator !== authored || authored.tsonic.initializer !== body.body || authored.initializer !== originals.get(body.root.id))
+      if (creator !== authored || !("initializer" in authored.tsonic) || authored.tsonic.initializer !== body.body || authored.initializer !== originals.get(body.root.id))
         emit("capture-qualified", body.root, "a placed capture must retain its actual creator's separately owned initializer root");
       for (const row of body.captures) {
         const mutable = reassignable(row.local);

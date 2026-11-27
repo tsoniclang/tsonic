@@ -70,6 +70,33 @@ export const describeDefinitions: DescribeDefinitions = (checked, scopes, export
   };
   const root = module.tree;
   const definitions: DefinitionDescription[] = [describe(root.tsonic.definition, root.tsonic.parent, root)];
+  let bindingOwners: Map<HirNode, DefId> | null = null;
+  const bindingOwner = (node: Extract<HirNode, { readonly kind: "BindingElement" }>): DefId | null => {
+    const reached: HirNode[] = [];
+    let element = node;
+    let owner: DefId | null = null;
+    for (;;) {
+      const pattern = element.parent === null ? undefined : nodes[element.parent];
+      if (pattern?.kind !== "ArrayBindingPattern" && pattern?.kind !== "ObjectBindingPattern" || pattern.id >= element.id) return null;
+      const prior = bindingOwners?.get(pattern);
+      if (prior !== undefined) { owner = prior; break; }
+      reached.push(pattern);
+      const container = pattern.parent === null ? undefined : nodes[pattern.parent];
+      if (container?.kind === "VariableDeclaration" && container.name === pattern && !("declaration" in container.tsonic)) {
+        owner = container.tsonic.parent;
+        break;
+      }
+      if (container?.kind === "Parameter" && container.name === pattern && container.dotDotDotToken !== null
+        && container.tsonic.declaration.kind === "definition") {
+        owner = container.tsonic.declaration.definition;
+        break;
+      }
+      if (container?.kind !== "BindingElement" || container.id >= pattern.id || container.name !== pattern) return null;
+      element = container;
+    }
+    for (const pattern of reached) (bindingOwners ??= new Map()).set(pattern, owner);
+    return owner;
+  };
   for (const item of module.items) {
     const node = nodes[item.node];
     if (node === undefined || !Object.is(node.id, item.node))
@@ -83,14 +110,12 @@ export const describeDefinitions: DescribeDefinitions = (checked, scopes, export
       definitions.push(describe(item.definition, encodeDefId({ module, segments: segments.slice(0, -1) }), node));
       continue;
     }
-    if (node.kind === "BindingElement" && node.tsonic.declaration?.kind === "definition") {
-      const pattern = node.parent === null ? undefined : nodes[node.parent];
-      const formal = pattern?.kind === "ArrayBindingPattern" && pattern.parent !== null ? nodes[pattern.parent] : undefined;
-      if (node.tsonic.declaration.definition !== item.definition || pattern?.kind !== "ArrayBindingPattern"
-        || !pattern.elements.nodes.includes(node) || formal?.kind !== "Parameter" || formal.name !== pattern
-        || formal.dotDotDotToken === null || formal.tsonic.declaration.kind !== "definition")
-        return throwInvariant(defect("A definition binding element must belong to its actual checked rest header.", node));
-      definitions.push(describe(item.definition, formal.tsonic.declaration.definition, node));
+    if (node.kind === "BindingElement") {
+      const target = node.tsonic.declaration;
+      const owner = bindingOwner(node);
+      if (target === null || owner === null || target.kind === "definition" && target.definition !== item.definition)
+        return throwInvariant(defect("A named binding element must belong to its actual checked pattern owner.", node));
+      definitions.push(describe(item.definition, owner, node));
       continue;
     }
     if (payload === null || !("parent" in payload))

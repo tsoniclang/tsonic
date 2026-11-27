@@ -4,7 +4,7 @@ import type {
   CheckedNamespace, CheckedNamespaceExport, CheckedProperty, CheckedStaticBlock, CheckedAggregate, CheckedApplication, CheckedBinary, CheckedBinding, CheckedBindingList, CheckedCallable,
   CheckedCallableType, CheckedClass, CheckedClassExpression, CheckedDeclarationFacts, CheckedExpression, CheckedFieldSelector, CheckedInstantiation, CheckedIteration,
   CheckedKeyword, CheckedLiteral, CheckedMember, CheckedName, CheckedPhase, CheckedProjection, CheckedProtocol, CheckedType,
-  CheckedTypeAlias, CheckedTypeParameter, CheckedUnary, CheckedValue, CheckedVariable, CopyCheckedContent, CopyCheckedModule, HirApplication,
+  CheckedTypeAlias, CheckedTypeParameter, CheckedUnary, CheckedValue, CheckedVariable, CheckedPatternVariable, CopyCheckedContent, CopyCheckedModule, HirApplication,
   HirArgument, HirBody, HirCandidate, HirCandidateList, HirCheckerViews, HirCoreCarrier, HirDiagnosticRoot, HirHeritage,
   HirLocal, HirMemoryFieldCapture, HirMemoryGeometryCapture, HirMemoryLayoutCapture, HirObservationCapture,
   HirProtocolFact, HirStoragePlace, ProjectCheckedContent, ProofObligation, SyntaxCopyResult, SyntaxForest, SyntaxImage, SyntaxPhaseCopy, SyntaxRootSlot, SyntaxWalkAdmission,
@@ -345,6 +345,8 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
       })));
   }
   const variable = (row: CheckedVariable) => variableFields(row, 4, value => value);
+  const patternVariable = (row: CheckedPatternVariable) => admit(3, 1, () => following(project.core(row.core), core =>
+    following(captured(row.declaredType, optionalType), declaredType => copied({ core, parent: row.parent, declaredType }))));
   const enumMember = (row: CheckedEnumMember) => variableFields(row, 5, value => ({ ...value, valueSource: row.valueSource }));
 
   function binding(row: CheckedBinding): SyntaxCopyResult<CheckedBinding, Stop> {
@@ -546,7 +548,8 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
     TypeQueryNode: ready(typeSyntax),
     TypeReferenceNode: ready(typeSyntax),
     UnionTypeNode: ready(typeSyntax),
-    VariableDeclaration: ready(variable),
+    VariableDeclaration: ready((row: CheckedPhase["VariableDeclaration"]): SyntaxCopyResult<CheckedPhase["VariableDeclaration"], Stop> =>
+      "declaration" in row ? variable(row) : patternVariable(row)),
     VariableDeclarationList: ready(bindingList),
     VoidExpression: ready(expression<CheckedExpression>(5)),
     YieldExpression: ready(protocolValue),

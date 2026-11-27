@@ -217,7 +217,7 @@ function finishVariable<State>(frame: Frame<State>, index: number): Step<State> 
     inferredTypeBound = { kind: "available", value: type };
   } else if (variable.kind === "signature" && variable.signature.part.kind === "variable") {
     const declaration = deps.itemOf(variable.signature.definition);
-    if (declaration.kind !== "VariableDeclaration" || declaration.type !== null
+    if (declaration.kind !== "VariableDeclaration" || !("initializer" in declaration.tsonic) || declaration.type !== null
       || declaration.initializer?.id !== variable.occurrence.node || declaration.tsonic.initializer !== variable.occurrence.body
       || declaration.tsonic.inferredTypeBound === null)
       return callerDefect(PORT, "an inferred variable requires the bound at its actual checked initializer");
@@ -355,12 +355,12 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
     const layout = isLayoutOperand(body);
     if (owner.kind === "SourceFile" && !layout) return { kind: "placeSignature", placement: { kind: "execution-body", instance,
       completion: internType(deps.types, { kind: "intrinsic", intrinsic: "void" }), error: null } };
-    const initializer = owner.kind === "Parameter" || owner.kind === "VariableDeclaration" ||
-      owner.kind === "PropertyDeclaration" || owner.kind === "EnumMember" ? owner : null;
+    const initializer = (owner.kind === "Parameter" || owner.kind === "VariableDeclaration" ||
+      owner.kind === "PropertyDeclaration" || owner.kind === "EnumMember") && "initializer" in owner.tsonic ? owner.tsonic : null;
     if (layout || initializer !== null) {
       let completion = completions.get(reference);
       if (completion === undefined) {
-        if (!layout && initializer?.kind === "EnumMember")
+        if (!layout && owner.kind === "EnumMember")
           return callerDefect(PORT, "an authored enum initializer retains its solved inferred result");
         const set = present(sets[position], "the actual initializer constraint system");
         const index = set.constraints.findIndex(constraint => constraint.kind === "flow" && constraint.role === "initialization"
@@ -370,8 +370,8 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
         if (constraint?.kind !== "flow" || decision === undefined || decision.kind !== "flow" && decision.kind !== "error")
           return callerDefect(PORT, "the annotated initializer requires its actual completed initialization flow");
         const target = layout ? layoutOperandCompletion(deps.types, body.root, constraint.from) :
-          initializer?.tsonic.initializer === reference && initializer.tsonic.declaredType.kind === "available"
-            ? initializer.tsonic.declaredType.value : null;
+          initializer?.initializer === reference && initializer.declaredType.kind === "available"
+            ? initializer.declaredType.value : null;
         if (target === null || constraint.to !== target)
           return callerDefect(PORT, layout ? "a layout operand completion requires its actual solved operand flow"
             : "an annotated initializer completion requires its actual checked declaration type");

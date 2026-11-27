@@ -782,7 +782,12 @@ export function hirCheckedData(node: Hir.HirNode): HirDataWork {
     case "ForInStatement": case "ForOfStatement":
       return iterationData(node.tsonic);
     case "EnumMember": return enumMemberData(node.tsonic);
-    case "VariableDeclaration": case "Parameter": case "PropertySignature":
+    case "VariableDeclaration": {
+      const value = node.tsonic;
+      return "declaration" in value ? variableData(value) : recordData("CheckedPatternVariable", value, () =>
+        [...coreFields(value), fieldData("parent", definitionData(value.parent)), fieldData("declaredType", capturedData(value.declaredType, slot => nullableData(slot, typeData)))]);
+    }
+    case "Parameter": case "PropertySignature":
     case "PropertyDeclaration":
       return variableData(node.tsonic);
     case "VariableDeclarationList":

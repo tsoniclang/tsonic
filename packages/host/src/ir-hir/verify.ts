@@ -216,7 +216,8 @@ function declarationViolations(module: HirModule, inventory: HirInventory, paths
     const directDefinition = metadata !== null && "definition" in metadata && typeof metadata.definition === "string"
       ? metadata.definition : metadata !== null && "declaration" in metadata && typeof metadata.declaration !== "string" &&
         metadata.declaration !== null && metadata.declaration.kind === "definition" ? metadata.declaration.definition : null;
-    if (!declarationKinds.some(kind => kind === node.kind) || (directDefinition !== null && directDefinition !== item.definition))
+    if (!declarationKinds.some(kind => kind === node.kind) || node.kind === "VariableDeclaration" && !("declaration" in node.tsonic)
+      || (directDefinition !== null && directDefinition !== item.definition))
       report("definition-reference", site, "declaration entry must match its actual node definition");
     if (metadata !== null && "parent" in metadata) {
       const parent = metadata.parent;
@@ -615,14 +616,39 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
       if (body === undefined || body.root !== root || "definition" in metadata && body.owner !== metadata.definition)
         report("body-owner", site, "body metadata must retain its exact owner and syntax root");
     }
-    if (node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "EnumMember" ||
-      node.kind === "PropertySignature" || node.kind === "PropertyDeclaration") {
-      const initializer = node.tsonic.initializer;
+    if (node.kind === "VariableDeclaration") {
+      const ownsStorage = "declaration" in node.tsonic;
+      if (ownsStorage !== (node.name.kind === "Identifier")
+        || !ownsStorage && (node.initializer === null || node.tsonic.parent !== entry.item || entry.body === null
+          || inventory.owners.get(node.initializer) !== entry.body))
+        report("body-owner", site, "a destructuring declaration has no named storage and evaluates its actual source in the enclosing body");
+    }
+    if (node.kind === "BindingElement") {
+      const target = node.tsonic.declaration;
+      const name = node.name?.kind === "Identifier" && node.name.tsonic.role === "declaration-name" ? node.name.tsonic.declaration : null;
+      if (target === null ? node.name?.kind === "Identifier"
+        : target.kind === "definition" ? name?.kind !== "definition" || target.definition !== name.definition || target.definition !== entry.item
+          : name?.kind !== "local" || name.local.body !== target.local.body || name.local.local !== target.local.local)
+        report("binding-capture-owner", site, "a named binding element retains its actual declaration-name target");
+      if (target?.kind === "local") {
+        const body = entry.sourceBody;
+        const local = body?.locals[target.local.local];
+        const slot = node.tsonic.declaredType;
+        if (body?.body !== target.local.body || local?.declaration.kind !== "item" || local.declaration.value.owner !== entry.item
+          || local.declaration.value.node !== node.id || slot.kind !== local.checkerSlot.kind
+          || slot.kind === "available" && local.checkerSlot.kind === "available" && slot.value !== local.checkerSlot.value)
+          report("local-reference", site, "a named binding element retains its exact checked local and native storage type");
+      }
+    }
+    if ((node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "EnumMember" ||
+      node.kind === "PropertySignature" || node.kind === "PropertyDeclaration") && "initializer" in node.tsonic) {
+      const variable = node.tsonic;
+      const initializer = variable.initializer;
       const expectsBound = node.kind === "VariableDeclaration" && node.type === null && node.initializer !== null;
       if (node.kind === "VariableDeclaration") {
         const parent = inventory.parents.get(node);
         const isCatch = parent?.kind === "CatchClause" && parent.variableDeclaration === node;
-        const target = node.tsonic.declaration;
+        const target = variable.declaration;
         const body = target.kind === "local" ? inventory.bodies.get(target.local.body) : undefined;
         const local = target.kind === "local" ? body?.locals[target.local.local] : undefined;
         if (isCatch && (body !== inventory.owners.get(node) || local?.role !== "catch" || local.declaration.kind !== "item"
@@ -630,11 +656,11 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
           || !isCatch && local?.role === "catch")
           report("local-reference", site, "a catch local must retain its actual owned declaration and no initializer");
       }
-      if ((node.tsonic.inferredTypeBound !== null) !== expectsBound)
+      if ((variable.inferredTypeBound !== null) !== expectsBound)
         report("inferred-type-bound", site, "an inferred declaration bound must belong to its unannotated variable initializer");
-      const bound = node.tsonic.inferredTypeBound;
+      const bound = variable.inferredTypeBound;
       if (bound?.kind === "available" && typeof bound.value !== "number") {
-        const target = node.tsonic.declaration;
+        const target = variable.declaration;
         const body = target.kind === "local" ? inventory.bodies.get(target.local.body) : undefined;
         const slot = target.kind === "local" ? body?.locals[target.local.local] : undefined;
         if (!expectsBound || node.initializer === null || target.kind !== "local" || slot?.role !== "binding" ||

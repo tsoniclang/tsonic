@@ -317,6 +317,7 @@ export function createHirSchema(): HirSchema {
     HirHeritage: hirRecord("HirHeritage", [["role", hirLiteral("extends", "implements")], ["type", "TyId"]]),
     CheckedTypeAlias: hirRecord("CheckedTypeAlias", [...declaration, ["parameters", hirArray("TypeParameterData")], ["type", captured("TyId")]]),
     CheckedVariable: hirRecord("CheckedVariable", variableFields),
+    CheckedPatternVariable: hirRecord("CheckedPatternVariable", [...core, ["parent", "DefId"], ["declaredType", captured(hirNullable("TyId"))]]),
     InferredStorageBound: hirRecord("InferredStorageBound", [["type", "TyId"], ["alias", "DefId"], ["sources", hirNullable(hirArray("LocalId"))]]),
     CheckedEnumMember: hirRecord("CheckedEnumMember", [...variableFields, ["valueSource", hirNullable("EnumValueSource")]]),
     EnumValueSource: hirRecord("EnumValueSource", [["definition", "DefId"], ["body", "BodyId"]]),

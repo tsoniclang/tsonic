@@ -509,6 +509,29 @@ test("describeDefinitions: a member with a private name is private; keywords dec
   assert.equal(visibility.get(definitionOf(segment("", 0), segment("m"))), null, "an object literal's method");
 });
 
+test("describeDefinitions: destructuring leaves inherit the exact enclosing definition without owning the source execution", async () => {
+  const { checkedModuleOf, verifyChecked } = await loadFrontFixture();
+  const { checked: module, interner } = checkedModuleOf(`
+    export function start(pair: [boolean, string]): boolean {
+      const [first, second] = pair;
+      return first;
+    }
+  `);
+  assert.deepEqual(verifyChecked(module, interner), []);
+  const input = checked(module);
+  const described = describeChecked(input, []).definitions;
+  const fn = module.tree.statements.nodes[0];
+  const container = fn.body.statements.nodes[0].declarationList.declarations.nodes[0];
+  for (const element of container.name.elements.nodes) {
+    const item = module.items.find(row => row.node === element.id);
+    const row = described.find(row => row.definition === item.definition);
+    assert.equal(row.parent, fn.tsonic.definition);
+    assert.equal(row.kind, "BindingElement");
+    assert.deepEqual(row.bodies, []);
+  }
+  assert.equal(described.some(row => row.kind === "VariableDeclaration"), false);
+});
+
 test("describeDefinitions: a declaration entry whose node is missing or carries no checked declaration is an invariant failure", () => {
   const program = addProgram();
   const failsWith = (module, text) => assert.throws(() => describeChecked(checked(module), []), error => String(error.message).includes(text));

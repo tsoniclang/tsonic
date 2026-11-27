@@ -208,7 +208,8 @@ export function createSyntaxGroup13(readers: () => HirTextReaders): ReadonlyMap<
       const field_exclamationToken = read("exclamationToken", unionReader<Hir.ExclamationToken<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_75]));
       const field_type = read("type", unionReader<Hir.TypeNode<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_3]));
       const field_initializer = read("initializer", unionReader<Hir.Expression<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_2]));
-      const field_tsonic = read("tsonic", readers().record_245);
+      const field_tsonic = read("tsonic", unionReader<Hir.CheckedPhase["VariableDeclaration"]>(() =>
+        [readers().record_245, readers().patternVariable]));
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_name, field_exclamationToken, field_type, field_initializer, field_tsonic], value: () => ({ kind: "VariableDeclaration", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), name: field_name.value(), exclamationToken: field_exclamationToken.value(), type: field_type.value(), initializer: field_initializer.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "VariableDeclaration", value }), accept)],
     ["VariableDeclarationList", accept => syntaxRecord<Hir.VariableDeclarationList<Hir.CheckedPhase>>(read => {

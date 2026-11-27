@@ -95,7 +95,7 @@ export function selectExternalEntries(source: SourceBarrier, views: CheckedSourc
       const original = views.declarationSourceOf(definition);
       const node = original === null ? null : views.nodeOf(original);
       if (node === null) return fail("An external entry declaration must retain its actual checked source.");
-      if (node.kind === "VariableDeclaration" && node.tsonic.declaration.kind === "definition"
+      if (node.kind === "VariableDeclaration" && "declaration" in node.tsonic && node.tsonic.declaration.kind === "definition"
         && node.tsonic.declaration.definition === definition) {
         const growth = chargeResultEntries(account, 1);
         if (growth !== null) return growth;

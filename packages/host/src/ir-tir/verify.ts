@@ -925,7 +925,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       }
       const ownsStorage = storage !== null && selected?.kind === "declarations"
         && selected.definitions.length === 1 && selected.definitions[0] === reference.declaration.owner
-        && declaration?.kind === "VariableDeclaration" && declaration.id === reference.declaration.node
+        && declaration?.kind === "VariableDeclaration" && "declaration" in declaration.tsonic && declaration.id === reference.declaration.node
         && declaration.tsonic.declaration.kind === "definition" && declaration.tsonic.declaration.definition === reference.declaration.owner;
       if (ownsStorage) {
         const paid = admit({ kind: "static-item", declaration: reference.declaration });

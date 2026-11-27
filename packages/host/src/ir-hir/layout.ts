@@ -203,7 +203,7 @@ export const resolveCheckedLayoutAlias: ResolveCheckedLayoutAlias = (deps, body)
   const qualify = deps.admit(2, 0);
   if (qualify !== null) return { kind: "resource-stop", stop: qualify };
   const declaration = deps.parentOf(root);
-  if (declaration?.kind !== "VariableDeclaration" || declaration.tsonic.initializer !== body.body ||
+  if (declaration?.kind !== "VariableDeclaration" || !("initializer" in declaration.tsonic) || declaration.tsonic.initializer !== body.body ||
     declaration.initializer !== root || deps.nodeOf({ kind: "body", value: { body: body.body, node: root.id } }) !== root)
     return absent();
   const list = deps.parentOf(declaration);
@@ -240,7 +240,7 @@ function resolveLayout<Stop extends object>(deps: CheckedLayoutSourceDeps<Stop>,
       continue;
     }
     const layout = checkedLayoutConstructionOf(node);
-    const memory = node.kind === "VariableDeclaration" ? node.tsonic.memory : null;
+    const memory = node.kind === "VariableDeclaration" && "memory" in node.tsonic ? node.tsonic.memory : null;
     const capture = layout ?? (memory?.kind === "available" && memory.value?.kind === "data-layout" ? memory.value : null);
     if (capture !== null) {
       const read = deps.admit(2, 1);
@@ -252,6 +252,7 @@ function resolveLayout<Stop extends object>(deps: CheckedLayoutSourceDeps<Stop>,
       return { kind: "complete", value: { definition: item.owner, capture, node } };
     }
     if (node.kind === "VariableDeclaration") {
+      if (!("declaration" in node.tsonic)) return absent();
       const read = deps.admit(2, 0);
       if (read !== null) return { kind: "resource-stop", stop: read };
       const parent = deps.parentOf(node);

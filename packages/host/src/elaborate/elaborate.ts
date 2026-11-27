@@ -89,7 +89,7 @@ function signaturePartType<State>(deps: ElaborateDeps<State>, body: HirBody, typ
   const declaration = deps.nodeOf({ kind: "item", value: { owner: body.owner, node: root.parent } });
   if (declaration === null || declaration.kind !== "Parameter" && declaration.kind !== "VariableDeclaration" &&
     declaration.kind !== "PropertyDeclaration" && declaration.kind !== "EnumMember"
-    || declaration.initializer !== root || declaration.tsonic.initializer !== body.body)
+    || !("initializer" in declaration.tsonic) || declaration.initializer !== root || declaration.tsonic.initializer !== body.body)
     return callerDefect("an inferred initializer part is not its checked declaration's own expression execution", origin);
   if (part.part.kind === "enum-member-value") {
     if (declaration.kind !== "EnumMember" || part.definition !== body.owner || declaration.tsonic.declaration.kind !== "definition"
@@ -436,7 +436,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (local.declaration.kind === "item" && deps.cuts.declaration(local.declaration.value.owner) !== null) continue;
     const declaration = deps.nodeOf(local.declaration);
     if (local.role !== "binding" && local.role !== "catch" || local.declaration.kind !== "item" || declaration?.kind !== "VariableDeclaration"
-      || declaration.id !== local.declaration.value.node || declaration.tsonic.declaration.kind !== "local"
+      || !("declaration" in declaration.tsonic) || declaration.id !== local.declaration.value.node || declaration.tsonic.declaration.kind !== "local"
       || declaration.tsonic.declaration.local.body !== body.body || !Object.is(declaration.tsonic.declaration.local.local, local.id))
       return notElaboratedYet("the actual checked declaration of a non-parameter local", rootOrigin);
     const parent = local.role === "catch" && declaration.parent !== null ? nodes[nodePosition(declaration.parent)] : undefined;
@@ -558,7 +558,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         names[position] = { ...enumConstant(node, { owner: definition, node: item.id }, aliases), role: checked.role };
         return;
       }
-      if (item.kind !== "VariableDeclaration" || item.tsonic.declaration.kind !== "definition"
+      if (item.kind !== "VariableDeclaration" || !("declaration" in item.tsonic) || item.tsonic.declaration.kind !== "definition"
         || item.tsonic.declaration.definition !== definition)
         return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
       const declaration = { owner: definition, node: item.id };
@@ -735,6 +735,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const variableList = (list: VariableDeclarationList<CheckedPhase>): Result<VariableDeclarationList<TypedPhase>> => {
     const nodes: VariableDeclaration<TypedPhase>[] = [];
     for (const declaration of list.declarations.nodes) {
+      if (!("declaration" in declaration.tsonic)) return notElaboratedYet("selected destructuring projections", declaration.origin);
       const target = declaration.tsonic.declaration;
       if (target.kind === "definition" && moduleStatements !== null) {
         const selected = elaborateVariable(deps, declaration, children, target.definition);

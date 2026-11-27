@@ -53,7 +53,7 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
       if (localRow.role !== "binding" || !admitAlias()) return null;
       const declaration = nodeOf(localRow.declaration);
       if (declaration?.kind !== "VariableDeclaration" || declaration.id !== localRow.declaration.value.node
-        || declaration.origin.module !== body.root.origin.module
+        || !("declaration" in declaration.tsonic) || declaration.origin.module !== body.root.origin.module
         || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== local.body
         || declaration.tsonic.declaration.local.local !== current || checkedVariableStorageOf(declaration) !== type) return null;
       if (declaration.type !== null) {
@@ -142,6 +142,7 @@ export const checkedMemberStorageOf: CheckedMemberStorageOf = access => {
 };
 
 export const checkedVariableStorageOf: CheckedVariableStorageOf = declaration => {
+  if (!("declaration" in declaration.tsonic)) return null;
   const { declaredType, inferredTypeBound } = declaration.tsonic;
   if (declaredType.kind !== "available") return null;
   if (declaredType.value !== null) return declaredType.value;

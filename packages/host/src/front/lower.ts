@@ -52,7 +52,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "AmpersandAmpersandToken", "BarBarToken", "QuestionQuestionToken", "CommaToken",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "NumericLiteral", "BigIntLiteral", "StringLiteral", "NoSubstitutionTemplateLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport", "QualifiedName",
-  "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "HeritageClause", "ExpressionWithTypeArguments",
+  "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "ArrayBindingPattern", "BindingElement", "InterfaceDeclaration", "HeritageClause", "ExpressionWithTypeArguments",
   "ModuleDeclaration", "ModuleBlock",
   "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
   "EnumDeclaration", "EnumMember", "ConstKeyword",
@@ -84,8 +84,10 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
       return (operator === "++" || operator === "--") && unparenthesizedExpression(node.operand).kind !== "Identifier"
         ? `${node.kind} with a non-identifier update target` : null;
     }
-    case "VariableDeclaration": return node.name.kind !== "Identifier" ? "pattern VariableDeclaration"
-      : node.exclamationToken !== null ? "definite-assignment VariableDeclaration" : null;
+    case "VariableDeclaration": return node.exclamationToken !== null ? "definite-assignment VariableDeclaration"
+      : node.name.kind !== "Identifier" && (node.name.kind !== "ArrayBindingPattern" || node.initializer === null) ? "pattern VariableDeclaration" : null;
+    case "BindingElement": return node.dotDotDotToken !== null ? "rest BindingElement"
+      : node.propertyName !== null ? "property BindingElement" : node.initializer !== null ? "default BindingElement" : null;
     case "VariableDeclarationList": return node.flags.includes("AwaitUsing") ? "await using declaration"
       : node.flags.includes("Using") ? "using declaration" : null;
     case "BinaryExpression": {
@@ -320,7 +322,7 @@ interface NodeBodies {
   /** The bodies each body directly encloses, in preorder of their roots. */
   readonly children: ReadonlyMap<BodyId, readonly BodyId[]>;
   readonly locals: ReadonlyMap<NodeId, LocalRef>;
-  readonly variables: readonly { readonly node: Hir.VariableDeclaration<Syntax>; readonly mutable: boolean; readonly local: LocalRef;
+  readonly variables: readonly { readonly node: Hir.VariableDeclaration<Syntax> | Hir.BindingElement<Syntax>; readonly mutable: boolean; readonly local: LocalRef;
     readonly role: "binding" | "catch" }[];
   readonly assignmentTargets: ReadonlyMap<NodeId, "write" | "read-write">;
   readonly labelTargets: ReadonlyMap<NodeId, NodeRef>;
@@ -348,9 +350,10 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
   }
   const labels = new Map<string, LabelBinding>();
   type Frame = { readonly node: Hir.SyntaxNode<Syntax>; readonly context: SourceBodyTransition;
-    readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly mutable: boolean; readonly label: LabelBinding | null };
+    readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly mutable: boolean; readonly label: LabelBinding | null;
+    readonly localPattern: boolean };
   const enter = (node: Hir.SyntaxNode<Syntax>, scope: SourceBodyScope, mutable: boolean, blockVariable: boolean,
-    role: "binding" | "catch"): Frame => {
+    role: "binding" | "catch", localPattern: boolean): Frame => {
     if (!definitionAt.has(node.id) && sourceIdentityName(node, properties, layout) !== null)
       definitionAt.set(node.id, deps.definitionOf({ module: raw.module, node: node.id }));
     const body = scope.body;
@@ -384,16 +387,19 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
       siblings.push(boundary.body);
       children.set(context.lexicalBody, siblings);
     }
-    if (node.kind === "VariableDeclaration" && (body !== moduleBody || blockVariable || role === "catch")) {
+    const ownsLocal = body !== moduleBody || blockVariable || role === "catch";
+    if (node.kind === "VariableDeclaration" && node.name.kind === "Identifier" && ownsLocal
+      || node.kind === "BindingElement" && localPattern && node.name?.kind === "Identifier") {
       const local = { body, local: localId(localCounts.get(body) ?? 0) };
       locals.set(node.id, local);
       localCounts.set(body, local.local + 1);
       variables.push({ node, mutable: role === "catch" || mutable, local, role });
     }
     return { node, context, children: iterateChildrenOfSyntax(node), label,
-      mutable: node.kind === "VariableDeclarationList" ? !node.flags.includes("Const") : mutable };
+      mutable: node.kind === "VariableDeclarationList" ? !node.flags.includes("Const") : mutable,
+      localPattern: node.kind === "VariableDeclaration" ? ownsLocal && node.name.kind === "ArrayBindingPattern" : localPattern };
   };
-  const pending: Frame[] = [enter(raw.tree, { body: moduleBody, lexicalBody: moduleBody, callableBody: null }, true, false, "binding")];
+  const pending: Frame[] = [enter(raw.tree, { body: moduleBody, lexicalBody: moduleBody, callableBody: null }, true, false, "binding", false)];
   for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
     const next = frame.children.next();
     if (next.done) {
@@ -439,7 +445,9 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
       && frame.node.kind === "VariableDeclarationList" && (frame.node.flags.includes("Let") || frame.node.flags.includes("Const"))
       && (enclosing?.kind !== "VariableStatement" || enclosing.parent !== raw.tree.id);
     const role = frame.node.kind === "CatchClause" && child === frame.node.variableDeclaration ? "catch" : "binding";
-    pending.push(enter(child, scope, frame.mutable, blockVariable, role));
+    const localPattern = frame.localPattern && (frame.node.kind === "ArrayBindingPattern" && child.kind === "BindingElement"
+      || (frame.node.kind === "VariableDeclaration" || frame.node.kind === "BindingElement") && frame.node.name === child);
+    pending.push(enter(child, scope, frame.mutable, blockVariable, role, localPattern));
   }
   return { definitions: definitionAt, bodyOf: bodies, captureParent, children, locals, variables, assignmentTargets, labelTargets, layoutRoots };
 }
@@ -1460,8 +1468,46 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
   }
 }
 
+function checkedArrayBinding(lowering: Lowering, pattern: Hir.BindingPattern<Syntax>): ConversionResult<Hir.BindingPattern<Checked>> {
+  if (pattern.kind !== "ArrayBindingPattern") return throwInvariant(invariant("A checked array pattern retains its actual ordered slots."));
+  const nodes: Hir.BindingElement<Checked>[] = [];
+  for (const element of pattern.elements.nodes) {
+    const authored = element.name;
+    let name: Hir.BindingName<Checked> | null = null;
+    let declaration: Hir.DeclarationTarget | null = null;
+    let declaredType: Hir.CapturedFact<TyId | null> = { kind: "available", value: null };
+    if (authored?.kind === "Identifier") {
+      declaration = targetOf(lowering, element.id);
+      const checked = lowering.views.get(element.id);
+      if (checked === undefined) return throwInvariant(invariant("A named binding element retains its own checked slot."));
+      const type = typeFactOf(lowering, checked.read);
+      if (type.kind !== "complete") return type;
+      declaredType = type.value;
+      name = { ...headerOf(authored), kind: "Identifier", text: authored.text,
+        tsonic: { core: coreOf(lowering, authored.id), role: "declaration-name", declaration } };
+    } else if (authored !== null) {
+      const nested = checkedArrayBinding(lowering, authored);
+      if (nested.kind !== "complete") return nested;
+      name = nested.value;
+    }
+    nodes.push({ ...headerOf(element), kind: element.kind, dotDotDotToken: null, propertyName: null, name, initializer: null,
+      tsonic: { core: coreOf(lowering, element.id), declaration, declaredType } });
+  }
+  return { kind: "complete", value: { ...headerOf(pattern), kind: pattern.kind, elements: { loc: pattern.elements.loc, nodes },
+    tsonic: { core: coreOf(lowering, pattern.id), declaration: null, declaredType: { kind: "available", value: null } } } };
+}
+
 function variableDeclaration(lowering: Lowering, node: Hir.VariableDeclaration<Syntax>, owner: DefId): ConversionResult<Hir.VariableDeclaration<Checked>> {
-  if (node.name.kind !== "Identifier") return throwInvariant(invariant("A variable of a written form has no identifier name."));
+  if (node.name.kind !== "Identifier") {
+    if (node.initializer === null) return throwInvariant(invariant("A destructuring variable must have its actual source."));
+    const declared = node.type === null ? null : typeNode(lowering, node.type, owner);
+    if (declared !== null && declared.kind !== "complete") return declared;
+    const name = checkedArrayBinding(lowering, node.name);
+    if (name.kind !== "complete") return name;
+    return { kind: "complete", value: { ...headerOf(node), kind: node.kind, name: name.value, exclamationToken: null,
+      type: declared?.value.node ?? null, initializer: expression(lowering, node.initializer),
+      tsonic: { core: coreOf(lowering, node.id), parent: owner, declaredType: declared?.value.type ?? { kind: "available", value: null } } } };
+  }
   const definition = definitionOf(lowering, node.id);
   const declaration = targetOf(lowering, node.id);
   const declared = node.type === null ? null : typeNode(lowering, node.type, definition);
@@ -1823,7 +1869,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<LoweredM
     authoredTypes: authoredAnnotations(raw),
   };
   for (const { node, mutable, local, role } of structure.variables) {
-    if (node.name.kind !== "Identifier") return throwInvariant(invariant("A variable of a written form has no identifier name."));
+    if (node.name?.kind !== "Identifier") return throwInvariant(invariant("A storage declaration has no actual identifier name."));
     const checked = lowering.views.get(node.id);
     if (checked === undefined) return throwInvariant(invariant("A local variable requires its own captured checked type."));
     if (role === "binding" && mutable && checked.inferredStorageAlias !== null) lowering.inferredStorage.set(node.id, null);

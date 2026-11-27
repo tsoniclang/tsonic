@@ -81,7 +81,7 @@ function completedInitializer<State>(deps: ElaborateDeps<State>, node: VariableD
     return null;
   }
   const root = body.root;
-  if (body.body !== node.tsonic.initializer || body.owner !== definition || root.kind === "Block" || root.kind === "SourceFile"
+  if (!("initializer" in node.tsonic) || body.body !== node.tsonic.initializer || body.owner !== definition || root.kind === "Block" || root.kind === "SourceFile"
     || root.id !== node.initializer?.id || root.parent !== node.id || deps.signatureOf(body.signature).result !== body.completion)
     return defect("A completed initializer must retain its actual declaration, expression and execution result.");
   return root;
@@ -90,7 +90,7 @@ function completedInitializer<State>(deps: ElaborateDeps<State>, node: VariableD
 export function elaborateVariable<State>(deps: ElaborateDeps<State>, node: VariableDeclaration<CheckedPhase>,
   bodies: ReadonlyMap<BodyId, TirBody>, definition: DefId): Result<VariableDeclaration<TypedPhase>> {
   const checked = node.tsonic;
-  if (node.name.kind !== "Identifier" || checked.declaration.kind === "definition" && checked.declaration.definition !== definition)
+  if (node.name.kind !== "Identifier" || !("declaration" in checked) || checked.declaration.kind === "definition" && checked.declaration.definition !== definition)
     return defect("A variable requires its actual checked declaration and identifier.");
   const type = annotation(deps, node.type);
   if (type.kind === "refused") return type;
@@ -107,7 +107,7 @@ export function elaborateVariable<State>(deps: ElaborateDeps<State>, node: Varia
 
 export function elaborateCatchBinding<State>(deps: ElaborateDeps<State>, node: VariableDeclaration<CheckedPhase>,
   local: HirLocal): Result<VariableDeclaration<TypedPhase>> {
-  if (node.name.kind !== "Identifier" || node.initializer !== null || node.tsonic.initializer !== null
+  if (node.name.kind !== "Identifier" || !("initializer" in node.tsonic) || node.initializer !== null || node.tsonic.initializer !== null
     || local.role !== "catch" || local.checkerSlot.kind !== "available")
     return defect("An exception binding requires its actual checked local payload.");
   const storage = local.checkerSlot.value;
@@ -121,6 +121,7 @@ export function elaborateCatchBinding<State>(deps: ElaborateDeps<State>, node: V
 
 function typedVariable(node: VariableDeclaration<CheckedPhase>, identifier: Identifier<CheckedPhase>, type: TypeNode<TypedPhase> | null,
   initializer: Expression<TypedPhase> | null, storage: TyId): VariableDeclaration<TypedPhase> {
+  if (!("declaration" in node.tsonic)) return defect("A named variable has its actual declaration target.");
   return { ...node, name: name(identifier, storage), type, initializer,
     exclamationToken: node.exclamationToken === null ? null : { ...node.exclamationToken, tsonic: null },
     tsonic: { declaration: node.tsonic.declaration, storage, initializer: node.tsonic.initializer } };

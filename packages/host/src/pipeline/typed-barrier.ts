@@ -231,7 +231,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     ({ kind: "no-result", instance, causes: [{ kind: "producer", refusal }], diagnostics: [] });
   const staticStorageOf: StaticStorageOf = declaration => {
     const checked = sources.nodeOf({ kind: "item", value: declaration });
-    if (checked?.kind !== "VariableDeclaration" || checked.tsonic.declaration.kind !== "definition"
+    if (checked?.kind !== "VariableDeclaration" || !("declaration" in checked.tsonic) || checked.tsonic.declaration.kind !== "definition"
       || checked.tsonic.declaration.definition !== declaration.owner || checked.tsonic.declaredType.kind !== "available") return null;
     if (checked.tsonic.declaredType.value !== null) return checked.tsonic.declaredType.value;
     const initializer = checked.tsonic.initializer;

@@ -4502,6 +4502,11 @@ export interface CheckedVariable extends CheckedDeclarationFacts {
   readonly initializer: BodyId | null;
 }
 
+export interface CheckedPatternVariable extends HirCoreCarrier {
+  readonly parent: DefId;
+  readonly declaredType: CapturedFact<TyId | null>;
+}
+
 export interface InferredStorageBound {
   readonly type: TyId;
   readonly alias: DefId;
@@ -4618,7 +4623,7 @@ export interface CheckedPhase extends Phase {
   readonly ExpressionStatement: null;
   readonly Block: null;
   readonly VariableStatement: null;
-  readonly VariableDeclaration: CheckedVariable;
+  readonly VariableDeclaration: CheckedVariable | CheckedPatternVariable;
   readonly VariableDeclarationList: CheckedBindingList;
   readonly BindingPattern: CheckedBinding;
   readonly ParameterDeclaration: CheckedVariable;

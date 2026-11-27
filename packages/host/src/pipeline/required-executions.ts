@@ -197,7 +197,7 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
       }
       if (occurrence === null || occurrence.kind !== "Parameter" && occurrence.kind !== "VariableDeclaration"
         && occurrence.kind !== "PropertyDeclaration") return null;
-      if (occurrence.tsonic.initializer === null) return null;
+      if (!("initializer" in occurrence.tsonic) || occurrence.tsonic.initializer === null) return null;
       const instance: BodyInstance = typeof initializer === "string"
         ? { body: initializer, bindings } : initializer.instance;
       if (instance.body !== occurrence.tsonic.initializer) return null;

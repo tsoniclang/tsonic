@@ -128,7 +128,7 @@ type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" |
   | "CheckedName" | "CheckedBinary" | "CheckedUnary" | "CheckedKeyword" | "CheckedInstantiation"
   | "CheckedAggregate" | "CheckedApplication" | "CheckedMember" | "CheckedProtocol" | "CheckedClosure"
   | "CheckedType" | "CheckedCallableType" | "CheckedFieldSelector" | "MemberStorageSelection" | "DeclarationTarget" | "CheckedCallable" | "CheckedClass" | "CheckedClassExpression"
-  | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "InferredStorageBound" | "CheckedEnumMember" | "EnumValueSource" | "CheckedEnum" | "CheckedNamespace"
+  | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "CheckedPatternVariable" | "InferredStorageBound" | "CheckedEnumMember" | "EnumValueSource" | "CheckedEnum" | "CheckedNamespace"
   | "CheckedImport" | "CheckedExport" | "CheckedExportBinding" | "CheckedNamespaceExport" | "CheckedExportAssignment" | "CheckedStaticBlock"
   | "CheckedProperty" | "CheckedBinding" | "CheckedBindingList" | "CheckedIteration" | "CheckedModule"
   | "CheckedTypeParameter" | "HirLocal" | "HirParam" | "HirLexicalScope" | "HirBody" | "HirDeclarationEntry"
@@ -644,6 +644,7 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly HirHeritage: HirShapeBody;
   readonly CheckedTypeAlias: HirShapeBody;
   readonly CheckedVariable: HirShapeBody;
+  readonly CheckedPatternVariable: HirShapeBody;
   readonly InferredStorageBound: HirShapeBody;
   readonly CheckedEnumMember: HirShapeBody;
   readonly EnumValueSource: HirShapeBody;
@@ -792,7 +793,7 @@ export function createSyntaxSchema(): HirSyntaxSchema {
     ExpressionStatement: node("ExpressionStatement", "null", [["expression", "Expression"]]),
     Block: node("Block", "null", [["statements", list("Statement")], ["multiLine", "boolean"]]),
     VariableStatement: node("VariableStatement", "null", [["modifiers", modifiers], ["declarationList", "VariableDeclarationList"]]),
-    VariableDeclaration: node("VariableDeclaration", "CheckedVariable", [["name", "BindingName"], ["exclamationToken", hirNullable("ExclamationToken")], ["type", annotation], ["initializer", initializer]]),
+    VariableDeclaration: node("VariableDeclaration", hirChoice("CheckedVariable", "CheckedPatternVariable"), [["name", "BindingName"], ["exclamationToken", hirNullable("ExclamationToken")], ["type", annotation], ["initializer", initializer]]),
     VariableDeclarationList: node("VariableDeclarationList", "CheckedBindingList", [["declarations", list("VariableDeclaration")]]),
     ObjectBindingPattern: node("ObjectBindingPattern", "CheckedBinding", [["elements", list("BindingElement")]]),
     ArrayBindingPattern: node("ArrayBindingPattern", "CheckedBinding", [["elements", list("BindingElement")]]),

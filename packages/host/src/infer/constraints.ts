@@ -240,7 +240,9 @@ function ownedParts(deps: InferenceInputs, group: InferenceGroup): ReadonlyMap<B
         } else target = owner.tsonic.body;
         break;
       }
-      case "VariableDeclaration": case "PropertyDeclaration": case "EnumMember": target = owner.tsonic.initializer; break;
+      case "VariableDeclaration": case "PropertyDeclaration": case "EnumMember":
+        target = "initializer" in owner.tsonic ? owner.tsonic.initializer : null;
+        break;
       default: return callerDefect(PORT, "an inferred part belongs to no actual executable declaration");
     }
     if (target === null || !members.has(target)) return callerDefect(PORT, "an inferred part has no producer execution in its group");
@@ -353,7 +355,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
         }
         const owner = deps.itemOf(body.owner);
         if (owner.kind !== "Parameter" && owner.kind !== "VariableDeclaration" && owner.kind !== "PropertyDeclaration"
-          || owner.tsonic.initializer !== body.body || owner.type === null
+          || !("initializer" in owner.tsonic) || owner.tsonic.initializer !== body.body || owner.type === null
           || owner.tsonic.declaredType.kind !== "available" || owner.tsonic.declaredType.value === null
           || owner.type.tsonic.type.kind !== "available" || owner.type.tsonic.type.value !== owner.tsonic.declaredType.value)
           return notInferredYet(PORT, "an expression execution without its actual inferred part or checked declaration annotation", body.root.origin);
@@ -613,7 +615,7 @@ function inspectCheckedExecution(deps: InferenceInputs, body: HirBody, diagnosti
         if (deps.structuralCuts.declaration(definition))
           return { kind: "form-cut", definition, at: { body: body.body, node: current.id } };
         const item = deps.itemOf(definition);
-        if (item.kind === "VariableDeclaration" && item.tsonic.declaration.kind === "definition"
+        if (item.kind === "VariableDeclaration" && "declaration" in item.tsonic && item.tsonic.declaration.kind === "definition"
           && item.tsonic.declaration.definition === definition && item.tsonic.declaredType.kind === "available"
           && item.tsonic.declaredType.value === null)
           for (const part of inferredPartsOf(definition, item)) request(part);
@@ -1071,8 +1073,8 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
     for (const definition of resolution.definitions) {
       const item = walk.generation.deps.itemOf(definition);
       if (resolution.definitions.length === 1 && item.kind === "VariableDeclaration") {
-        const target = item.tsonic.declaration;
-        if (target.kind !== "definition" || target.definition !== definition)
+        const target = "declaration" in item.tsonic ? item.tsonic.declaration : null;
+        if (target?.kind !== "definition" || target.definition !== definition)
           return callerDefect(PORT, "a static read retains its actual qualified variable declaration");
         if (name.role === "assignment-target" && selectedStorage !== checkedVariableStorageOf(item))
           return callerDefect(PORT, "a static assignment retains the actual checked storage type");
@@ -1145,7 +1147,7 @@ function localBinding(deps: InferenceInputs, reference: LocalRef): {
     || local.declaration.kind !== "item")
     return callerDefect(PORT, "a local binding read requires its actual qualified declaration inventory");
   const declaration = deps.itemOf(local.declaration.value.owner);
-  if (declaration.kind !== "VariableDeclaration" || declaration.id !== local.declaration.value.node
+  if (declaration.kind !== "VariableDeclaration" || !("declaration" in declaration.tsonic) || declaration.id !== local.declaration.value.node
     || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== reference.body
     || !Object.is(declaration.tsonic.declaration.local.local, reference.local))
     return callerDefect(PORT, "a local binding read retains its actual checked variable and selected local");

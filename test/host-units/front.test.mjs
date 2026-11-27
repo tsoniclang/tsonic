@@ -3531,6 +3531,44 @@ test("an inferred array binding keeps a selected call's tuple distinct from its 
   }
 });
 
+test("Checked destructuring owns real leaf storage, not a synthetic container local", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const { checked, interner } = checkedModuleOf(`
+    function producer(pair: [boolean, boolean]): [boolean, boolean] { return pair; }
+    export function start(pair: [boolean, boolean]): boolean {
+      const [first, second] = producer(pair);
+      return first;
+    }
+  `);
+  const start = checked.tree.statements.nodes[1];
+  const body = checked.bodies.find(row => row.body === start.tsonic.body);
+  const declaration = start.body.statements.nodes[0].declarationList.declarations.nodes[0];
+  const [first, second] = declaration.name.elements.nodes;
+  assert.equal(body.root === start.body, true);
+  assert.equal(declaration.tsonic.parent, body.owner);
+  assert.equal("declaration" in declaration.tsonic, false);
+  assert.equal(checked.items.some(item => item.node === declaration.id), false);
+  assert.equal(checked.bodies.some(row => row.root === declaration.initializer), false);
+  assert.deepEqual(body.locals.map(local => local.name), ["pair", "first", "second"]);
+  for (const [offset, element] of [first, second].entries()) {
+    const local = body.locals[offset + 1];
+    const item = checked.items.find(row => row.node === element.id);
+    assert.deepEqual(local.declaration, { kind: "item", value: { owner: item.definition, node: element.id } });
+    assert.deepEqual(element.tsonic.declaration, { kind: "local", local: { body: body.body, local: local.id } });
+    assert.deepEqual(local.checkerSlot, element.tsonic.declaredType);
+  }
+  assert.deepEqual(verifyChecked(checked, interner), []);
+  const text = hir.printHir(checked);
+  assert.match(text, /CheckedPatternVariable/);
+  const parsed = hir.parseHir(text);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(hir.printHir(parsed.value), text);
+  assert.deepEqual(verifyChecked(parsed.value, interner), []);
+  const [borrowed, crossed] = parsed.value.tree.statements.nodes[1].body.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes;
+  crossed.tsonic.declaration = borrowed.tsonic.declaration;
+  assert.deepEqual(verifyChecked(parsed.value, interner).map(row => row.rule), ["binding-capture-owner", "local-reference"]);
+});
+
 test("a contextual binding member and an initializer property retain their different source origins", async () => {
   const text = "declare const a: number; declare const c: number; export const [e, {f: selected}] = [a + 1, {f: c}];";
   const { deps, program, module } = openedModule(text);
