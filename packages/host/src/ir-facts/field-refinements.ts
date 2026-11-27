@@ -6,7 +6,8 @@ import type { MirBlock, MirBody, MirClosureCapture, MirOperand, MirTerminator } 
 import { visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { FieldRefinementInputs, FieldRefinementsOf, RefinementFact, RefinementInvalidation, Summary } from "./contract.js";
-import { projectCallFields, refinementMayWrite } from "./apply-summary.js";
+import type { PlacedCopies } from "./apply-summary.js";
+import { admitPlacedCopy, projectCallFields, refinementMayWrite } from "./apply-summary.js";
 import { admitSelectionIdentity } from "./verification.js";
 import { fieldProjectionIdentityData } from "./verify-relations.js";
 
@@ -141,42 +142,6 @@ function receiverCurrent(mir: MirBody, local: LocalId, path: Field["path"] | nul
     before = position;
   }
   return available;
-}
-
-function returnedCapture(block: MirBlock, call: Call, summaryAt: FieldRefinementInputs["summaryAt"], account: DataflowAccount): DataflowResult<MirClosureCapture | null> {
-  if (call.callee.kind !== "body") return missing;
-  const summary = summaryAt(block.id, call);
-  if (summary.kind !== "complete") return summary;
-  const paid = chargeWork(account, 16);
-  if (paid !== null) return paid;
-  const actual = summary.value;
-  if (actual === null || !actual.returns || actual.unwinds || actual.suspends || actual.arena.boundaries.length !== 0
-    || actual.callbacks.length !== 0 || actual.writes.length !== 0 || actual.concurrentWrites.length !== 0
-    || actual.contentsOnReturn.length !== 0 || actual.contentsOnUnwind.length !== 0 || actual.resultCells.length !== 0
-    || actual.initialization.events.length !== 0 || actual.backing.length !== 0) return missing;
-  const result = actual.arena.origins[actual.result];
-  if (result?.kind !== "complete" || result.id !== actual.result || result.includesAbsence || result.producers.length !== 1) return missing;
-  const producerId = result.producers[0];
-  const bound = producerId === undefined ? undefined : actual.arena.boundProducers[producerId];
-  const producer = bound === undefined || bound.id !== producerId ? undefined : actual.arena.producers[bound.producer];
-  if (producer?.kind !== "capture" || producer.path !== null) return missing;
-  const source = call.callee.captures[producer.index];
-  if (source === undefined || source.capture === null) return missing;
-  const captures = actual.captures;
-  for (let position = 0; position < captures.length; position += 1) {
-    const read = chargeWork(account, 1);
-    if (read !== null) return read;
-    const effect = denseRow(captures, position);
-    if (effect.writes.kind !== "complete" || effect.writes.paths.length !== 0) return missing;
-  }
-  const retention = actual.retention;
-  for (let position = 0; position < retention.length; position += 1) {
-    const read = chargeWork(account, 1);
-    if (read !== null) return read;
-    const row = denseRow(retention, position);
-    if (row.into.kind !== "return" || row.source !== producerId) return missing;
-  }
-  return { kind: "complete", value: source };
 }
 
 function copyInBlock(mir: MirBody, block: MirBlock, position: number, local: LocalId,
@@ -480,7 +445,7 @@ interface Flow {
   readonly predecessor: readonly (readonly number[])[];
   readonly reachable: readonly boolean[];
   readonly locations: ReadonlyMap<LocalId, "exposed" | "reassigned">;
-  readonly copies: ReadonlyMap<Call, MirClosureCapture | null> | null;
+  readonly copies: PlacedCopies | null;
   readonly summaryAt: FieldRefinementInputs["summaryAt"];
   readonly callBindings: FieldRefinementInputs["callBindings"];
 }
@@ -643,19 +608,10 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
     admit: () => chargeWork(account, 1), address: expose,
     capture: (capture, block, placed) => {
       if (placed !== null && "destination" in placed && placed.destination !== null && order.value.reachable[block.id] === true) {
-        const paid = chargeWork(account, 1);
-        if (paid !== null) return paid;
-        let selected = copies?.get(placed);
-        if (selected === undefined) {
-          const actual = returnedCapture(block, placed, inputs.summaryAt, account);
-          if (actual.kind !== "complete") return actual;
-          const retained = chargeResultEntries(account, copies === null ? 2 : 1);
-          if (retained !== null) return retained;
-          copies ??= new Map();
-          selected = actual.value;
-          copies.set(placed, selected);
-        }
-        if (selected !== null) return null;
+        const admitted = admitPlacedCopy(copies, block.id, placed, inputs.summaryAt, account);
+        if (admitted.kind !== "complete") return admitted;
+        copies = admitted.value;
+        if (copies.get(placed) != null) return null;
       }
       return capture.capture === "captured-value" ? null : expose(capture.place);
     },

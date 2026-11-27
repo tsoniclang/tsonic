@@ -3,7 +3,7 @@ import { accountFailure, createAccount } from "../../../packages/host/dist/dataf
 
 const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
 
-function checkReachedFieldCuts(stateOf, run, expected, label, afterProbe = () => {}) {
+function checkReachedProofCuts(stateOf, run, expected, label, afterProbe = () => {}) {
   const probe = createAccount(limits);
   const meter = stateOf(probe);
   const charged = { work: [], entries: [] };
@@ -37,7 +37,7 @@ export async function checkNativeRefinementWalkthrough() {
   const fixture = await loadFrontFixture();
   const { nativeInt32Input } = await import("./native-int32-input.mjs");
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
-  for (const [replace, work, records] of [[false, 115362, 20011], [true, 116270, 20272]]) {
+  for (const [replace, work, records] of [[false, 115362, 20011], [true, 116501, 20353]]) {
     const input = await nativeInt32Input(fixture, `
       function pure(): void {}
       function clear(p: { x: { v: Native } | null }): void { p.x = null; }
@@ -307,6 +307,104 @@ export async function checkNativeCountedLoopProofs() {
   }
 }
 
+export async function checkSavedExtentReceivers() {
+  const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
+  const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
+  const { countedLoopsOf } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { sameInstance } = await import("../../../packages/host/dist/ir-types/index.js");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const fixture = await loadFrontFixture();
+  for (const [name, setup, extent, body, proven] of [
+    ["original", "const saved = values;", "values", "if (values[i]) return true;", true],
+    ["saved", "const saved = values;", "values", "if (saved[i]) return true;", true],
+    ["saved extent", "const saved = values;", "saved", "if (values[i]) return true;", true],
+    ["foreign", "const saved = replacement;", "values", "if (saved[i]) return true;", false],
+    ["source replaced on back edge", "const saved = values;", "values", "values = replacement; if (saved[i]) return true;", false],
+    ["source replaced only on exit", "const saved = values;", "values", "if (i < 1) { values = replacement; return saved[i]; }", true],
+    ["saved slot replaced", "let saved = values; saved = replacement;", "values", "if (saved[i]) return true;", false],
+    ["equality restored", "let saved = replacement; saved = values;", "values", "if (saved[i]) return true;", true],
+    ["transitive copy", "const first = values; const saved = first;", "values", "if (saved[i]) return true;", true],
+    ["crossed incoming paths", "let saved = values; if (replacement.length === 0) saved = replacement;", "values", "if (saved[i]) return true;", false],
+    ["equal incoming paths", "let saved = values; if (replacement.length === 0) { values = replacement; saved = replacement; }", "values", "if (saved[i]) return true;", true],
+  ]) {
+    const source = `export function read(values: boolean[], replacement: boolean[]): boolean {
+      ${setup}
+      for (let i = 0; i < ${extent}.length; i++) { ${body} }
+      return false;
+    }`;
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    const captured = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
+    const nativeFacts = { ...captured.nativeFacts,
+      integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] };
+    const result = analyzeHostProgram({ ...input, snapshot: { ...captured, nativeFacts } });
+    assert.equal(result.kind, "ok", `${name}: ${JSON.stringify(result.diagnostics)}`);
+    const chapter = result.value.modules.find(row => row.module === captured.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.params.length === 2);
+    const [facts] = selected.facts;
+    const [declaration] = selected.tir.root.statements.nodes;
+    const loop = selected.tir.root.statements.nodes.find(row => row.kind === "ForStatement");
+    const copyId = declaration.declarationList.declarations.nodes[0].tsonic.initializer;
+    const copy = selected.mir.blocks.map(row => row.terminator).find(term => term.kind === "call" && term.callee.kind === "body"
+      && term.callee.instance.body === copyId);
+    assert.equal(copy.callee.captures.length, 1, name);
+    assert.equal(copy.callee.captures[0].capture, "captured-location", name);
+    assert.notEqual(copy.destination, copy.callee.captures[0].place, name);
+    const checks = selected.mir.blocks.map(row => row.terminator).filter(term => term.kind === "check");
+    assert.equal(checks.length, 1, name);
+    const checked = checks[0];
+    assert.equal(selected.mir.places[checked.place].base.projection.kind, "index", name);
+    const occurrences = sourceOccurrences(selected.tir, createAccount(limits));
+    assert.equal(occurrences.kind, "complete");
+    const access = occurrences.value.get(checked.tir.node);
+    const ranges = [{ node: access.argumentExpression.id, range: { minimum: 0n, maximum: (1n << 63n) - 2n } }];
+    assert.equal(facts.refinements.countedLoops.length, 1, name);
+    assert.deepEqual(facts.refinements.integers.filter(row => row.range !== null).map(({ node, range }) => ({ node, range })), ranges, name);
+    const refinements = proven ? [{ kind: "proven", node: access.id, guards: [loop.condition.id] }] : [];
+    assert.deepEqual(facts.refinements.refinements, refinements, name);
+    if (name !== "saved" && name !== "source replaced on back edge" && name !== "source replaced only on exit") continue;
+
+    const starting = chapter.bodies.find(row => row.kind === "selected"
+      && row.tir.body === loop.initializer.declarations.nodes[0].tsonic.initializer);
+    const inputs = { nativeFacts, sourceOf: node => occurrences.value.get(node), mirBody: instance => {
+      assert.equal(sameInstance(instance, starting.instance), true);
+      return starting.mir;
+    } };
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.provided === 0
+      && sameInstance(row.key.execution.instance, copy.callee.instance));
+    assert.ok(summary);
+    const returned = summary.arena.origins[summary.result];
+    const producer = summary.arena.producers[summary.arena.boundProducers[returned.producers[0]].producer];
+    assert.deepEqual([returned.includesAbsence, returned.producers.length, producer.kind, producer.index, producer.path],
+      [false, 1, "capture", 0, null]);
+    const exact = { loops: facts.refinements.countedLoops, ranges, refinements };
+    let firstSummaryRead = null;
+    const run = account => countedLoopsOf(account, selected.mir, facts.execution.provided, { ...inputs, summaryAt: (block, term) => {
+      assert.equal(term === copy && selected.mir.blocks[block].terminator === term, true);
+      firstSummaryRead ??= InvocationAccount.stateOf(account).work;
+      return { kind: "complete", value: summary };
+    } });
+    checkReachedProofCuts(InvocationAccount.stateOf, run, exact, name, () => {
+      assert.ok(firstSummaryRead > 0, name);
+      const cutoff = createAccount({ ...limits, maximumWork: firstSummaryRead - 1 });
+      firstSummaryRead = null;
+      const stopped = run(cutoff);
+      assert.equal(stopped.kind, "resource-limit", name);
+      assert.equal(stopped === accountFailure(cutoff), true, name);
+      assert.equal(run(cutoff) === stopped, true, name);
+      assert.equal(firstSummaryRead, null, name);
+    });
+    if (name === "saved") {
+      const unavailable = countedLoopsOf(createAccount(limits), selected.mir, facts.execution.provided, {
+        ...inputs, summaryAt: () => ({ kind: "complete", value: null }),
+      });
+      assert.deepEqual(unavailable, { kind: "complete", value: { ...exact, refinements: [] } });
+    }
+  }
+}
+
 export async function checkNativeFieldRefinement() {
   const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
@@ -481,7 +579,7 @@ export async function checkNativeFieldRefinement() {
       return { kind: "complete", value: summary };
     } };
     const run = account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, proofInput);
-    checkReachedFieldCuts(InvocationAccount.stateOf, run, [expected], "nested sibling call write");
+    checkReachedProofCuts(InvocationAccount.stateOf, run, [expected], "nested sibling call write");
   }
 
   const ancestor = analysisInput(fixture, "sdk-minimal", `
@@ -515,7 +613,7 @@ export async function checkNativeFieldRefinement() {
   assert.equal(sourceAncestor.kind, "complete");
   const capturedAncestor = captureSourceBarrier(ancestor);
   assert.equal(capturedAncestor.kind, "ok");
-  checkReachedFieldCuts(InvocationAccount.stateOf, account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, {
+  checkReachedProofCuts(InvocationAccount.stateOf, account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, {
     sourceOf: node => sourceAncestor.value.get(node),
     callBindings: { lexical: selected.tir.lexicalBindings,
       scopeOf: definition => capturedAncestor.value.descriptions.get(definition)?.generics ?? null },
@@ -616,7 +714,7 @@ export async function checkNativeFieldRefinement() {
       firstLookup ??= InvocationAccount.stateOf(account).work;
       return { kind: "complete", value: summary };
     } });
-    checkReachedFieldCuts(InvocationAccount.stateOf, run, [expected], name, () => {
+    checkReachedProofCuts(InvocationAccount.stateOf, run, [expected], name, () => {
       if (name !== "stale-field") return;
       assert.ok(firstLookup > 0);
       const cutoff = createAccount({ ...limits, maximumWork: firstLookup - 1 });
