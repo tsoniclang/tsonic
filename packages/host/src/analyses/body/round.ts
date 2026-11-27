@@ -1270,21 +1270,17 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       integers.push({ node: node.id, range: null, nonnegative: false });
     }
   }
-  const counted = hasFor ? countedLoopsOf(account, mir, execution.provided, {
-    sourceOf: node => source.value.get(node), mirBody: deps.mirBody, nativeFacts: deps.nativeFacts,
-  })
+  const sourceOf = (node: NodeId) => source.value.get(node);
+  const summaryAt = (block: BlockId): DataflowResult<Summary | null> => {
+    const selected = solved.value.calls?.get(block);
+    return { kind: "complete", value: selected === undefined || isCallError(selected) || isLeastCall(selected) ? null : selected };
+  };
+  const counted = hasFor ? countedLoopsOf(account, mir, execution.provided, { sourceOf, summaryAt, mirBody: deps.mirBody, nativeFacts: deps.nativeFacts })
     : noCountedProofs;
   if (counted.kind !== "complete") return counted;
   let refinements: readonly RefinementFact[] = counted.value.refinements;
   if (hasNarrowedField) {
-    const fields = fieldRefinementsOf(account, mir, execution.provided, {
-      sourceOf: node => source.value.get(node),
-      callBindings,
-      summaryAt: block => {
-        const selected = solved.value.calls?.get(block);
-        return { kind: "complete", value: selected === undefined || isCallError(selected) || isLeastCall(selected) ? null : selected };
-      },
-    });
+    const fields = fieldRefinementsOf(account, mir, execution.provided, { sourceOf, summaryAt, callBindings });
     if (fields.kind !== "complete") return fields;
     if (counted.value.refinements.length === 0) refinements = fields.value;
     else {

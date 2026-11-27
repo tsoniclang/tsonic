@@ -9,6 +9,7 @@ import type { TypedPhase } from "../ir-tir/contract.js";
 import { isNativeIntegerPrimitive, nativeIntegerGeometryOf } from "../ir-types/index.js";
 import type { BodyInstance, NativeIntegerPrimitive, ReceiverAccess } from "../ir-types/contract.js";
 import type { CountedLoopFact, CountedLoopInputs, CountedLoopProofs, CountedLoopsOf, IntegerRange } from "./contract.js";
+import { refinementMayWrite } from "./apply-summary.js";
 import { selectedMirBody } from "./verification.js";
 
 interface LoopBinding {
@@ -221,7 +222,7 @@ function statementsPreserveExtent(mir: MirBody, block: MirBlock, receiver: Local
 }
 
 function extentFlow(mir: MirBody, header: MirBlock, first: BlockId, inside: ReadonlySet<number>, extent: ExtentBound,
-  storage: CounterStorage, account: DataflowAccount): DataflowResult<ReadonlyMap<BlockId, boolean> | null> {
+  storage: CounterStorage, inputs: CountedLoopInputs, account: DataflowAccount): DataflowResult<ReadonlyMap<BlockId, boolean> | null> {
   const setup = chargeWork(account, 2);
   if (setup !== null) return setup;
   const base = mir.places[extent.receiver]?.base;
@@ -263,8 +264,20 @@ function extentFlow(mir: MirBody, header: MirBlock, first: BlockId, inside: Read
       if (!safe) preserved.set(block.id, false);
     }
     const terminator = block.terminator;
-    const outgoing = safe && terminator.kind !== "call" && terminator.kind !== "invoke" && terminator.kind !== "await"
-      && terminator.kind !== "yield" && terminator.kind !== "delegate";
+    let outgoing = safe && terminator.kind !== "await" && terminator.kind !== "yield" && terminator.kind !== "delegate";
+    if (outgoing && terminator.kind === "invoke") {
+      const execution = terminator.operation.decision.execution;
+      outgoing = execution.kind === "pure" || execution.kind === "invocation" && !execution.writesStorage;
+    }
+    if (outgoing && terminator.kind === "call") {
+      const lookup = chargeWork(account, 1);
+      if (lookup !== null) return lookup;
+      const answer = inputs.summaryAt(block.id, terminator);
+      if (answer.kind !== "complete") return answer;
+      const writes = refinementMayWrite(account, answer.value, () => ({ kind: "complete", value: true }));
+      if (writes.kind !== "complete") return writes;
+      outgoing = !writes.value;
+    }
     let stopped: ReturnType<typeof chargeWork> = null;
     const edge = visitMirControlEdges(terminator, { kind: "edges", admit: () => stopped ?? chargeWork(account, 1),
       visit: (_kind, target, destination) => {
@@ -303,7 +316,7 @@ function sameReceiver(mir: MirBody, site: IndexSite, extent: ExtentBound, storag
 function collectRanges(mir: MirBody, loop: NaturalLoop, range: IntegerRange, counter: PlaceId,
   source: LocalId, storage: CounterStorage, sites: IndexSites, rows: ProofRows,
   extent: ExtentBound | null, header: MirBlock, first: BlockId, inside: ReadonlySet<number>,
-  guard: NodeId, account: DataflowAccount): DataflowResult<null> {
+  guard: NodeId, inputs: CountedLoopInputs, account: DataflowAccount): DataflowResult<null> {
   let preserved: ReadonlyMap<BlockId, boolean> | null | undefined;
   for (let position = 0; position < loop.members.length; position += 1) {
     const paid = chargeWork(account, 1);
@@ -325,7 +338,7 @@ function collectRanges(mir: MirBody, loop: NaturalLoop, range: IntegerRange, cou
     if (exact.kind !== "complete") return exact;
     if (!exact.value) continue;
     if (preserved === undefined) {
-      const result = extentFlow(mir, header, first, inside, extent, storage, account);
+      const result = extentFlow(mir, header, first, inside, extent, storage, inputs, account);
       if (result.kind !== "complete") return result;
       preserved = result.value;
     }
@@ -535,7 +548,7 @@ function loopFact(
   if (rangeWork !== null) return rangeWork;
   const range = { minimum: lower.value, maximum: maximum - 1n };
   const collected = collectRanges(mir, loop, range, counter.id, binding.local.local, storage, sites.value, proofs,
-    extent.value, header, whenTrue.target, inside, condition.id, account);
+    extent.value, header, whenTrue.target, inside, condition.id, inputs, account);
   if (collected.kind !== "complete") return collected;
   return { kind: "complete", value: fact };
 }

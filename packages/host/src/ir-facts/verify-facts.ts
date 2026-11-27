@@ -6,7 +6,7 @@ import { admitArtifactIdentity, admitOwnerIdentity, recordFinding } from "./veri
 import { escapeTargetKey } from "./escape-key.js";
 import { summaryBindings, summaryDefinition, summaryKey } from "./summary-key.js";
 import type { Violation } from "../diag/contract.js";
-import type { NodeId, NodeRef } from "../ids/contract.js";
+import type { BlockId, NodeId, NodeRef } from "../ids/contract.js";
 import { admitIntegerKey, encodeKey } from "../ids/index.js";
 import type { DeclarationTarget } from "../ir-hir/contract.js";
 import type { MirTerminator } from "../ir-mir/contract.js";
@@ -352,16 +352,17 @@ for (const violation of rows) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
  { const stop = node(read.node); if (stop !== null) return stop; } { const stop = place(read.place, at(read.node)); if (stop !== null) return stop; } }
+  const sourceOf = (node: NodeId) => nodes.get(node);
+  const summaryAt = (_block: BlockId, call: Extract<MirTerminator, { readonly kind: "call" }>) => refinementCallSummary(call, context, account);
   let loopProofs: DataflowResult<CountedLoopProofs> | null = null;
   const provedLoops = (): DataflowResult<CountedLoopProofs> =>
     loopProofs ??= countedLoops(account, mir, provided, {
-      sourceOf: node => nodes.get(node), mirBody: context.mirBody, nativeFacts: context.nativeFacts,
+      sourceOf, summaryAt, mirBody: context.mirBody, nativeFacts: context.nativeFacts,
     });
   let fieldProofs: DataflowResult<readonly RefinementFact[]> | null = null;
   const provedFields = (): DataflowResult<readonly RefinementFact[]> =>
-    fieldProofs ??= fieldRefinements(account, mir, provided, { sourceOf: node => nodes.get(node),
-      callBindings: { lexical: tir.lexicalBindings, scopeOf: context.bindingScopeOf },
-      summaryAt: (_block, call) => refinementCallSummary(call, context, account) });
+    fieldProofs ??= fieldRefinements(account, mir, provided, { sourceOf, summaryAt,
+      callBindings: { lexical: tir.lexicalBindings, scopeOf: context.bindingScopeOf } });
   const proofAt = <Row extends { readonly node: NodeId }>(rows: readonly Row[], id: NodeId): DataflowResult<Row | null> => {
     let lower = 0;
     let upper = rows.length;

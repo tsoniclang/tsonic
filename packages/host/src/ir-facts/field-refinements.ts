@@ -6,7 +6,7 @@ import type { MirBlock, MirBody, MirClosureCapture, MirOperand, MirTerminator } 
 import { visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { FieldRefinementInputs, FieldRefinementsOf, RefinementFact, RefinementInvalidation, Summary } from "./contract.js";
-import { projectCallFields } from "./apply-summary.js";
+import { projectCallFields, refinementMayWrite } from "./apply-summary.js";
 import { admitSelectionIdentity } from "./verification.js";
 import { fieldProjectionIdentityData } from "./verify-relations.js";
 
@@ -302,30 +302,10 @@ function writesField(mir: MirBody, block: MirBlock, before: number, place: Place
 
 function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summary | null, target: Field,
   flow: Flow, bindings: FieldRefinementInputs["callBindings"], account: DataflowAccount): DataflowResult<boolean> {
-  const paid = chargeWork(account, 1);
-  if (paid !== null) return paid;
-  if (summary === null || summary.key.kind !== "body" || summary.suspends || summary.arena.boundaries.length !== 0 || summary.callbacks.length !== 0
-    || summary.writes.length !== 0 || summary.concurrentWrites.length !== 0 || summary.contentsOnReturn.length !== 0
-    || summary.contentsOnUnwind.length !== 0) return available;
-  const captures = summary.captures;
-  for (let position = 0; position < captures.length; position += 1) {
-    const work = chargeWork(account, 1);
-    if (work !== null) return work;
-    const capture = denseRow(captures, position);
-    if (capture.writes.kind === "open" || capture.writes.paths.length !== 0) return available;
-  }
-  const parameters = summary.parameters;
-  for (let position = 0; position < parameters.length; position += 1) {
-    const work = chargeWork(account, 1);
-    if (work !== null) return work;
-    const parameter = denseRow(parameters, position);
-    const writes = parameter.writes;
-    if (writes.kind === "open") return available;
-    const paths = writes.paths;
-    if (paths.length === 0) continue;
-    if (parameter.slot.kind !== "parameter" || call.callee.kind !== "direct") return available;
-    const supplied = call.arguments[parameter.slot.index];
-    const mapping = call.callee.resolution.decision.parameters[parameter.slot.index];
+  return refinementMayWrite(account, summary, (slot, paths, selected) => {
+    if (slot.kind !== "parameter" || call.callee.kind !== "direct") return available;
+    const supplied = call.arguments[slot.index];
+    const mapping = call.callee.resolution.decision.parameters[slot.index];
     if (supplied?.kind !== "value" || supplied.passing !== "by-value"
       || mapping?.kind !== "reference-argument" && mapping?.kind !== "argument") return available;
     const root = fieldOf(mir, block, supplied.operand, block.statements.length, flow, account);
@@ -344,7 +324,7 @@ function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summar
         if (field === undefined) return available;
         compare.field(field.identity);
       }
-      const transported = projectCallFields(account, summary.arena.projections, path,
+      const transported = projectCallFields(account, selected.arena.projections, path,
         mapping.kind === "reference-argument" ? mapping.view : null, bindings, field => {
           const selected = identity(field, account);
           if (selected.kind !== "complete") return selected;
@@ -357,8 +337,8 @@ function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summar
       if (typeof written !== "boolean") return written;
       if (written) return available;
     }
-  }
-  return unavailable;
+    return unavailable;
+  });
 }
 
 interface Flow {

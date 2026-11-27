@@ -4,7 +4,7 @@ import type { DefId, ProjectionPathId } from "../ids/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { BindingVector } from "../ir-types/contract.js";
 import { projectBindingScope } from "../ir-types/index.js";
-import type { BoundProducerRef, CallFieldBindings, LogicalCellRef, ProjectCallFields, RelationalOwner, SummaryWrite } from "./contract.js";
+import type { BoundProducerRef, CallFieldBindings, LogicalCellRef, ParameterSlot, ProjectCallFields, RelationalOwner, Summary, SummaryWrite } from "./contract.js";
 import type { ProjectionPath } from "./arena-data.js";
 import type { AppliedCell, AppliedContext, AppliedSummary, AppliedSubject, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits } from "./application-data.js";
 import type { BoundInitializationCell } from "./initialization-data.js";
@@ -89,6 +89,39 @@ function pick<Value>(values: readonly Value[], index: number): Value {
   const value = validIndex(index, values.length) ? values[index] : undefined;
   if (value === undefined) throw new TypeError("Summary application requires its actual dense ready reference");
   return value;
+}
+
+const mayWrite: { readonly kind: "complete"; readonly value: true } = { kind: "complete", value: true };
+const noWrite: { readonly kind: "complete"; readonly value: false } = { kind: "complete", value: false };
+
+export function refinementMayWrite(account: DataflowAccount, summary: Summary | null,
+  parameterMayWrite: (slot: ParameterSlot, paths: readonly ProjectionPathId[], summary: Summary) => DataflowResult<boolean>,
+): DataflowResult<boolean> {
+  const paid = chargeWork(account, 1);
+  if (paid !== null) return paid;
+  if (summary === null || summary.key.kind !== "body" || summary.suspends || summary.arena.boundaries.length !== 0
+    || summary.callbacks.length !== 0 || summary.writes.length !== 0 || summary.concurrentWrites.length !== 0
+    || summary.contentsOnReturn.length !== 0 || summary.contentsOnUnwind.length !== 0) return mayWrite;
+  const captures = summary.captures;
+  for (let position = 0; position < captures.length; position += 1) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    const writes = pick(captures, position).writes;
+    if (writes.kind === "open" || writes.paths.length !== 0) return mayWrite;
+  }
+  const parameters = summary.parameters;
+  for (let position = 0; position < parameters.length; position += 1) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    const parameter = pick(parameters, position);
+    const writes = parameter.writes;
+    if (writes.kind === "open") return mayWrite;
+    const paths = writes.paths;
+    if (paths.length === 0) continue;
+    const observed = parameterMayWrite(parameter.slot, paths, summary);
+    if (observed.kind !== "complete" || observed.value) return observed;
+  }
+  return noWrite;
 }
 
 function grow(limits: SummaryApplicationLimits, entries = 1): DataflowStop | null {

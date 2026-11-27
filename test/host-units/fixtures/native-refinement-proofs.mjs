@@ -12,7 +12,8 @@ export async function checkNativeCountedLoopProofs() {
   const { pipelineWiring } = await import("../../../packages/host/dist/pipeline/wiring.js");
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const fixture = await loadFrontFixture();
-  for (const { start, write, tail = "", minimum, counted, audit, step = "++i", bound = "3", receiver = "values", proven = false } of [
+  for (const { start, write, tail = "", minimum, counted, audit, callee = "", declaration = null, nativeInvoke = false,
+    step = "++i", bound = "3", receiver = "values", proven = false } of [
     { start: 0, write: "", minimum: 0n, counted: true, audit: "integer" },
     { start: 0, write: "", minimum: 0n, counted: true, step: "i++" },
     { start: 0, write: "i = 3;", minimum: null, counted: false },
@@ -23,22 +24,33 @@ export async function checkNativeCountedLoopProofs() {
     { start: 0, write: "values = replacement;", minimum: 0n, counted: true, bound: "values.length", audit: "receiver" },
     { start: 0, write: "", tail: "values = replacement;", minimum: 0n, counted: true, bound: "values.length", proven: true, audit: "guard" },
     { start: 0, write: "if (i < 1) values = replacement;", minimum: 0n, counted: true, bound: "values.length" },
+    { start: 0, write: "observe(values);", callee: "function observe(value: boolean[]): void {}", minimum: 0n,
+      counted: true, bound: "values.length", proven: true, audit: "call" },
+    { start: 0, write: "observe(values);", callee: 'import { observe } from "./native.js";',
+      declaration: "export declare function observe(value: boolean[]): void;", minimum: 0n, counted: true, bound: "values.length" },
+    { start: 0, write: "if (i + 1 < 0) return false;", nativeInvoke: true, minimum: 0n, counted: true, bound: "values.length", proven: true },
     { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", receiver: "replacement" },
   ]) {
-    const source = `export function read(values: boolean[], replacement: boolean[]): boolean {
+    const source = `${callee}
+    export function read(values: boolean[], replacement: boolean[]): boolean {
       for (let i = ${start}; i < ${bound}; ${step}) { ${write} if (${receiver}[i]) return true; ${tail} }
       return false;
     }`;
     const input = analysisInput(fixture, "sdk-minimal", source);
-    const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source,
+      ...(declaration === null ? {} : { "native.d.ts": declaration }) },
       libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
+    if (declaration !== null) snapshot.source.input.packages.modules.find(row => row.path.endsWith("/native.d.ts")).role = "declaration";
     const operands = { ...input, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts,
-      integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] } } };
+      integerOverflow: [...(nativeInvoke ? [{ carrier: "int64", operation: "add", result: "int64", law: "abort" }] : []),
+        { carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] } } };
     const result = analyzeHostProgram(operands);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
-    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block" && row.tir.params.length === 2);
     assert.equal(selected.mir.blocks.some(block => block.terminator.kind === "check"), true);
+    if (nativeInvoke) assert.deepEqual(selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "invoke")
+      .map(row => row.operation.decision.execution), [{ kind: "invocation", writesStorage: false, failure: "abort" }]);
     const [facts] = selected.facts;
     if (!counted) {
       assert.deepEqual(facts.refinements.refinements, []);
@@ -71,7 +83,18 @@ export async function checkNativeCountedLoopProofs() {
       range === null ? [] : [{ node: access.argumentExpression.id, range, nonnegative: true }]);
     assert.deepEqual(decoded.value.refinements.integers, facts.refinements.integers);
     if (!audit) continue;
-    const proofInput = { nativeFacts: operands.snapshot.nativeFacts, sourceOf: node => indexed.value.get(node), mirBody: instance => {
+    const summaryAt = (block, operation) => {
+      assert.equal(audit, "call");
+      assert.equal(operation === selected.mir.blocks[block].terminator, true);
+      assert.equal(operation.callee.kind, "direct");
+      const activation = operation.callee.resolution.activation;
+      const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === activation.body
+        && row.key.execution.provided === 1);
+      assert.ok(summary);
+      assert.equal(summary.parameters.length, 1);
+      return { kind: "complete", value: summary };
+    };
+    const proofInput = { nativeFacts: operands.snapshot.nativeFacts, sourceOf: node => indexed.value.get(node), summaryAt, mirBody: instance => {
       assert.deepEqual(instance, initializer.instance);
       return initializer.mir;
     } };
@@ -81,6 +104,34 @@ export async function checkNativeCountedLoopProofs() {
     assert.deepEqual(replay.value, {
       loops: facts.refinements.countedLoops, ranges: [{ node: access.argumentExpression.id, range }], refinements: expectedRefinements,
     });
+    if (audit === "call") {
+      const unavailable = countedLoopsOf(createAccount(limits), selected.mir, facts.execution.provided, {
+        ...proofInput, summaryAt: () => ({ kind: "complete", value: null }),
+      });
+      assert.deepEqual(unavailable, { kind: "complete", value: { ...replay.value, refinements: [] } });
+      let lookupWork = null;
+      let lookups = 0;
+      const observeLookup = account => countedLoopsOf(account, selected.mir, facts.execution.provided, { ...proofInput,
+        summaryAt: (block, operation) => {
+          lookups += 1;
+          lookupWork = InvocationAccount.stateOf(account).work;
+          return summaryAt(block, operation);
+        } });
+      assert.deepEqual(observeLookup(createAccount(limits)), replay);
+      assert.equal(lookups, 1);
+      assert.ok(lookupWork > 0);
+      const firstLookup = lookupWork;
+      for (const admitted of [false, true]) {
+        lookups = 0;
+        const account = createAccount({ ...limits, maximumWork: firstLookup - (admitted ? 0 : 1) });
+        const stopped = observeLookup(account);
+        assert.equal(stopped.kind, "resource-limit");
+        assert.equal(stopped.dimension, "work");
+        assert.equal(stopped === accountFailure(account), true);
+        assert.equal(observeLookup(account) === stopped, true);
+        assert.equal(lookups, admitted ? 1 : 0);
+      }
+    }
     for (const unavailable of [null, selected.mir]) {
       const unbacked = countedLoopsOf(createAccount(limits), selected.mir, facts.execution.provided, {
         ...proofInput, mirBody: () => unavailable,
@@ -100,7 +151,7 @@ export async function checkNativeCountedLoopProofs() {
           : pair.facts.refinements.integers.map(row => row.range === null ? row
             : { ...row, range: { ...row.range, maximum: submittedMaximum } });
         const refinements = audit === "integer" ? pair.facts.refinements.refinements
-          : [{ kind: "proven", node: access.id, guards: [audit === "guard" ? loop.condition.right.id : loop.condition.id] }];
+          : [{ kind: "proven", node: access.id, guards: [audit === "receiver" ? loop.condition.id : loop.condition.right.id] }];
         return { ...outcome, value: { ...outcome.value, value: { ...pair, facts: { ...pair.facts,
           refinements: { ...pair.facts.refinements, integers, refinements } } } } };
       };
@@ -120,7 +171,7 @@ export async function checkNativeCountedLoopProofs() {
     const unreadInput = new Proxy({}, { get() { throw new Error("a stopped proof must not read another body"); } });
     const zero = createAccount({ ...limits, maximumWork: 0 });
     assert.equal(countedLoopsOf(zero, unreadInput, facts.execution.provided, proofInput) === accountFailure(zero), true);
-    if (audit === "receiver") continue;
+    if (audit === "receiver" || audit === "call") continue;
     for (const [dimension, total, key] of [["work", work, "maximumWork"], ["result-entries", entries, "maximumResultEntries"]]) {
       for (let cap = 0; cap < total; cap += 1) {
         const account = createAccount({ ...limits, [key]: cap });

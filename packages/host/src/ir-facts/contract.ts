@@ -131,9 +131,12 @@ export interface ProvenRefinementFact {
 export type RefinementFact = ProvenRefinementFact
   | { readonly kind: "unproven"; readonly node: NodeId; readonly guards: readonly NodeId[]; readonly reason: RefinementReason };
 
-export interface FieldRefinementInputs {
+export interface RefinementSources {
   readonly sourceOf: (node: NodeId) => TirSyntaxOccurrence | undefined;
   readonly summaryAt: (block: BlockId, call: Extract<MirTerminator, { readonly kind: "call" }>) => DataflowResult<Summary | null>;
+}
+
+export interface FieldRefinementInputs extends RefinementSources {
   readonly callBindings: CallFieldBindings;
 }
 
@@ -171,8 +174,7 @@ export interface CountedLoopFact {
   readonly step: 1;
 }
 
-export interface CountedLoopInputs {
-  readonly sourceOf: (node: NodeId) => TirSyntaxOccurrence | undefined;
+export interface CountedLoopInputs extends RefinementSources {
   readonly mirBody: (instance: BodyInstance) => MirBody | null;
   readonly nativeFacts: SelectedNativeFacts;
 }
