@@ -1526,7 +1526,8 @@ test("MIR decision-root collection shares admission across bindings, components 
   const stopped = { spent: 0, maximum: 0, exhausted: true };
   const unread = new Proxy({}, { get() { assert.fail("stopped root collection must not read any later input"); } });
   same(decisionReferences(unread, unread, [], [], stopped), [], "already-refused decision roots have no later read");
-  same(verifyValues(unread, unread, unread, unread, stopped), { violations: [], types: [], signatures: [] }, "already-refused value roots have no later read");
+  same(verifyValues(unread, unread, unread, unread, stopped), { violations: [], types: [], signatures: [], stages: false },
+    "already-refused value roots have no later read and no staged array evidence");
   const valueMeter = { spent: 0, maximum: 100000, exhausted: false };
   const expectedValues = verifyValues(body, context, new Map(), new Map(), valueMeter);
   for (let maximum = 0; maximum <= valueMeter.spent; maximum += 1) {
