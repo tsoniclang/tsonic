@@ -963,7 +963,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       if (stop !== null) return { kind: "resource-stop", stop };
     }
     if (node.kind === "ArrayLiteralExpression") {
-      const stop = verifyArrayConstruction(node, original, body.body, input.types, input.selectedNativeFacts, admit, emit);
+      const stop = verifyArrayConstruction(node, original, instance, input.types, input.selectedNativeFacts, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
     }
     if (node.kind === "InterfaceDeclaration") {

@@ -107,7 +107,8 @@ test("an uncontextualized tuple spread literal verifies its actual checked produ
     kind: "decided", decision: { ...decision, decision: { ...decision.decision, result: otherType } },
   } } };
   const violations = [];
-  assert.equal(verifyArrayConstruction(offered, original, body.body, reader.types, reader.selectedNativeFacts,
+  const instance = { body: body.body, bindings: body.bindings };
+  assert.equal(verifyArrayConstruction(offered, original, instance, reader.types, reader.selectedNativeFacts,
     tirReadyReadAdmission(createAccount(input.limits.dataflow)), (rule, at) => violations.push([rule, at.id])), null);
   assert.deepEqual(violations, [["operation-type", node.id]]);
 
@@ -115,7 +116,7 @@ test("an uncontextualized tuple spread literal verifies its actual checked produ
   const account = createAccount({ maximumWork: 0, maximumResultEntries: 1 });
   const stop = chargeWork(account, 1);
   assert.notEqual(stop, null);
-  assert.equal(verifyArrayConstruction(node, unready, body.body, reader.types, reader.selectedNativeFacts,
+  assert.equal(verifyArrayConstruction(node, unready, instance, reader.types, reader.selectedNativeFacts,
     tirReadyReadAdmission(account), () => assert.fail("reported after refusal")) === stop, true);
 });
 

@@ -256,6 +256,38 @@ test("a finite spread of a checked tuple literal constructs its one product befo
   }
 });
 
+test("a finite tuple spread uses the actual instantiated slots of a generic literal", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function take<T>(value: T, flag: boolean): boolean { return flag; }
+    export function start<T>(value: T): boolean { return take(...[value, true]); }
+    export function caller(flag: boolean): boolean { return start(flag); }
+  `);
+  const native = input.snapshot.nativeFacts;
+  const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
+    ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } });
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const rows = chapter.bodies.filter(row => row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0].expression?.arguments?.nodes[0]?.kind === "SpreadElement");
+  assert.deepEqual(rows.map(row => row.kind), ["template", "selected"]);
+  const [open, bound] = rows.map(({ tir }) => {
+    const product = tir.root.statements.nodes[0].expression.arguments.nodes[0].expression;
+    const { type, construction } = product.tsonic;
+    const tuple = result.value.index.types.terms[type];
+    assert.equal(tuple.kind, "tuple");
+    const slot = tuple.elements[0].type;
+    assert.equal(slot, tir.params[0].tsonic.storage);
+    assert.equal(slot, construction.decision.decision.operands[0]);
+    return [type, result.value.index.types.terms[slot]];
+  });
+  assert.notEqual(open[0], bound[0]);
+  assert.equal(open[1].kind, "param");
+  assert.deepEqual(bound[1], { kind: "primitive", primitive: "bool" });
+});
+
 test("authored tuple construction consumes ordered operands and emits one selected product", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

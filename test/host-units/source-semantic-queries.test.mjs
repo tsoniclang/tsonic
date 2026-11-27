@@ -2697,7 +2697,7 @@ test("native range construction has one inferred or contextual carrier and an or
     const source = typed.value.sourceNodeOf({ kind: "body", value: { body: body.body, node: body.root.id } });
     const verify = (root, admit, facts = native) => {
       const found = [];
-      const stopped = verifyArrayConstruction(root, source, body.body, table, facts, admit, (rule, _, detail) => found.push([rule, detail]));
+      const stopped = verifyArrayConstruction(root, source, { body: body.body, bindings: body.bindings }, table, facts, admit, (rule, _, detail) => found.push([rule, detail]));
       return { found, stopped };
     };
     let work = 0;

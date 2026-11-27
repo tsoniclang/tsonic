@@ -567,7 +567,7 @@ export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefine
 };
 
 export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralExpression<TypedPhase>, original: HirNode | undefined,
-  body: BodyId, types: TypeTable, native: InferenceNativeFacts, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  instance: BodyInstance, types: TypeTable, native: InferenceNativeFacts, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
   const reached = admit({ kind: "row" });
   if (reached !== null) return reached;
   const views = original?.kind === "ArrayLiteralExpression" && original.tsonic.role === "value" ? original.tsonic.value.views : null;
@@ -575,6 +575,7 @@ export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralE
   const read = views?.read;
   const expected = context?.kind === "available" ? context.value ?? (read?.kind === "available" ? read.value : null) : null;
   const authored = expected === null ? undefined : types.terms[expected];
+  const { body, bindings } = instance;
   const phase = node.tsonic;
   const target = phase.role === "value" ? types.terms[phase.type] : undefined;
   const decision = phase.role === "value" && phase.construction.kind === "decided" ? phase.construction.decision : null;
@@ -582,13 +583,14 @@ export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralE
   if (target?.kind === "array" || operation?.kind === "exact-array-construction")
     return verifyExactArray(node, original, body, types, native, decision, admit, emit);
   if (authored?.kind !== "tuple" && target?.kind !== "tuple") return null;
+  const boundSlots = context?.kind === "available" && context.value === null && phase.role === "value" && phase.type !== expected;
   const holding = native.carrierHolding;
   for (let index = 0; index < holding.length; index += 1) {
     const stop = admit({ kind: "row" });
     if (stop !== null) return stop;
   }
   if (original?.kind !== "ArrayLiteralExpression" || authored?.kind !== "tuple" || target?.kind !== "tuple" || phase.role !== "value"
-    || (context?.kind === "available" && context.value === null && phase.type !== expected)
+    || authored.readonly !== target.readonly || authored.elements.length !== target.elements.length || boundSlots && bindings.kind !== "instantiated"
     || decision === null || operation?.kind !== "array-construction" || decision.permissionScope !== null
     || decision.decision.execution.kind !== "pure" || decision.decision.result !== phase.type
     || nativeCarrierHoldingOf(holding, "tuple") !== "in-place"
@@ -604,15 +606,36 @@ export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralE
     const stop = admit({ kind: "row" });
     if (stop !== null) return stop;
     const element = node.elements.nodes[index];
+    const sourceElement = original.elements.nodes[index];
+    const sourceSlot = authored.elements[index];
     const slot = target.elements[index];
     const part = operation.parts[index];
     const value = element === undefined ? null : typedValueOf(element);
-    if (element === undefined || original.elements.nodes[index]?.id !== element.id || part === undefined
-      || slot?.kind !== "required" || value === null || !Object.is(part.part, index) || part.member !== null
+    if (element === undefined || sourceElement?.id !== element.id || part === undefined
+      || sourceSlot?.kind !== "required" || slot?.kind !== "required" || slot.declaration !== sourceSlot.declaration
+      || value === null || !Object.is(part.part, index) || part.member !== null
       || part.source.body !== body || part.source.node !== element.id || !slotAt(part.destination, index)
       || decision.decision.operands[index] !== slot.type || value.convertedType !== slot.type) {
       emit("operation-type", element ?? node, "a fixed tuple slot retains its actual operand, type and destination");
       continue;
+    }
+    if (boundSlots) {
+      const paid = admit({ kind: "row" });
+      if (paid !== null) return paid;
+      const payload = sourceElement.tsonic;
+      const sourceValue = payload !== null && "value" in payload ? payload.value : payload;
+      const sourceRead = sourceValue !== null && "views" in sourceValue ? sourceValue.views.read : null;
+      let selected: TyId | null = null;
+      if (sourceRead?.kind === "available") {
+        if (sourceRead.value === sourceSlot.type) selected = value.type;
+        else if (sourceRead.value === value.type) {
+          const paid = admit({ kind: "row" });
+          if (paid !== null) return paid;
+          const checkedLiteral = types.terms[sourceRead.value];
+          if (checkedLiteral?.kind === "literal" && checkedLiteral.base === sourceSlot.type) selected = checkedLiteral.base;
+        }
+      }
+      if (selected !== slot.type) emit("operation-type", element, "a tuple slot requires its actual checked operand type or native literal base");
     }
     const conversion = value.conversion;
     if (part.embedding.kind === "identity") {
