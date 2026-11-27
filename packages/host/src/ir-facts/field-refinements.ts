@@ -23,6 +23,12 @@ const unavailable: { readonly kind: "complete"; readonly value: false } = { kind
 const available: { readonly kind: "complete"; readonly value: true } = { kind: "complete", value: true };
 const noFields: readonly [] = [];
 
+function denseRow<Row>(rows: readonly Row[], index: number): Row {
+  const row = rows[index];
+  if (row === undefined) throw new TypeError("A field proof requires its actual dense input row.");
+  return row;
+}
+
 function identity(member: MemberSelection, account: DataflowAccount): DataflowResult<string> {
   const stop = admitSelectionIdentity(member, account);
   return stop ?? { kind: "complete", value: encodeKey(fieldProjectionIdentityData(member)) };
@@ -53,14 +59,18 @@ function returnedCapture(block: MirBlock, call: Call, summaryAt: FieldRefinement
   if (producer?.kind !== "capture" || producer.path !== null) return missing;
   const source = call.callee.captures[producer.index];
   if (source === undefined || source.capture === null) return missing;
-  for (const effect of actual.captures) {
+  const captures = actual.captures;
+  for (let position = 0; position < captures.length; position += 1) {
     const read = chargeWork(account, 1);
     if (read !== null) return read;
+    const effect = denseRow(captures, position);
     if (effect.writes.kind !== "complete" || effect.writes.paths.length !== 0) return missing;
   }
-  for (const row of actual.retention) {
+  const retention = actual.retention;
+  for (let position = 0; position < retention.length; position += 1) {
     const read = chargeWork(account, 1);
     if (read !== null) return read;
+    const row = denseRow(retention, position);
     if (row.into.kind !== "return" || row.source !== producerId) return missing;
   }
   return { kind: "complete", value: source };
@@ -98,9 +108,11 @@ function reachesCopy(mir: MirBody, block: MirBlock, position: number, local: Loc
   const pending: number[] = [];
   const enqueue = (id: BlockId): boolean | DataflowStop => {
     if (id === flow.entry) return false;
-    for (const earlier of flow.predecessor[id] ?? []) {
+    const incoming = flow.predecessor[id] ?? [];
+    for (let position = 0; position < incoming.length; position += 1) {
       const paid = chargeWork(account, 1);
       if (paid !== null) return paid;
+      const earlier = denseRow(incoming, position);
       if (flow.reachable[earlier] !== true || seen.has(earlier)) continue;
       const retained = chargeResultEntries(account, 2);
       if (retained !== null) return retained;
@@ -295,16 +307,22 @@ function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summar
   if (summary === null || summary.key.kind !== "body" || summary.suspends || summary.arena.boundaries.length !== 0 || summary.callbacks.length !== 0
     || summary.writes.length !== 0 || summary.concurrentWrites.length !== 0 || summary.contentsOnReturn.length !== 0
     || summary.contentsOnUnwind.length !== 0) return available;
-  for (const capture of summary.captures) {
+  const captures = summary.captures;
+  for (let position = 0; position < captures.length; position += 1) {
     const work = chargeWork(account, 1);
     if (work !== null) return work;
+    const capture = denseRow(captures, position);
     if (capture.writes.kind === "open" || capture.writes.paths.length !== 0) return available;
   }
-  for (const parameter of summary.parameters) {
+  const parameters = summary.parameters;
+  for (let position = 0; position < parameters.length; position += 1) {
     const work = chargeWork(account, 1);
     if (work !== null) return work;
-    if (parameter.writes.kind === "open") return available;
-    if (parameter.writes.paths.length === 0) continue;
+    const parameter = denseRow(parameters, position);
+    const writes = parameter.writes;
+    if (writes.kind === "open") return available;
+    const paths = writes.paths;
+    if (paths.length === 0) continue;
     if (parameter.slot.kind !== "parameter" || call.callee.kind !== "direct") return available;
     const supplied = call.arguments[parameter.slot.index];
     const mapping = call.callee.resolution.decision.parameters[parameter.slot.index];
@@ -314,9 +332,10 @@ function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summar
     if (root.kind !== "complete") return root;
     if (root.value === null || root.value.receiver !== target.receiver) return available;
     const actual = root.value;
-    for (const path of parameter.writes.paths) {
+    for (let write = 0; write < paths.length; write += 1) {
       const read = chargeWork(account, 1);
       if (read !== null) return read;
+      const path = denseRow(paths, write);
       const compare = interference(target);
       for (let index = actual.path.length - 1; index >= 0; index -= 1) {
         const step = chargeWork(account, 1);
@@ -387,9 +406,11 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
     const current = mir.blocks[index];
     if (current === undefined) return unproved([], "No qualified predecessor block.");
     if (current.id === flow.entry) bypass = true;
-    for (const [position, statement] of current.statements.entries()) {
+    const statements = current.statements;
+    for (let position = 0; position < statements.length; position += 1) {
       const step = chargeWork(account, 1);
       if (step !== null) return step;
+      const statement = denseRow(statements, position);
       if (statement.kind === "assign") {
         const effect = writesField(mir, current, position, statement.place, field, flow, account);
         if (effect.kind !== "complete") return effect;
@@ -398,9 +419,11 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
       const invalidated = invalidate("write", statement.tir);
       if (invalidated !== null) return invalidated;
     }
-    for (const prior of flow.predecessor[index] ?? []) {
+    const incoming = flow.predecessor[index] ?? [];
+    for (let position = 0; position < incoming.length; position += 1) {
       const step = chargeWork(account, 1);
       if (step !== null) return step;
+      const prior = denseRow(incoming, position);
       if (flow.reachable[prior] !== true) continue;
       const predecessor = mir.blocks[prior];
       if (predecessor === undefined) return unproved([], "No qualified predecessor edge.");
@@ -513,12 +536,16 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
     const base = mir.places[place]?.base;
     return base?.kind === "local" && mir.locals[base.local]?.role.kind === "parameter" ? exclude(base.local) : null;
   };
-  for (const block of mir.blocks) {
+  const blocks = mir.blocks;
+  for (let position = 0; position < blocks.length; position += 1) {
     const paid = chargeWork(account, 1);
     if (paid !== null) return paid;
-    for (const statement of block.statements) {
+    const block = denseRow(blocks, position);
+    const statements = block.statements;
+    for (let statementPosition = 0; statementPosition < statements.length; statementPosition += 1) {
       const read = chargeWork(account, 1);
       if (read !== null) return read;
+      const statement = denseRow(statements, statementPosition);
       const stopped = statement.kind === "assign" ? replaceReceiver(statement.place)
         : (statement.kind === "storage-live" || statement.kind === "storage-dead")
           && mir.locals[statement.local]?.role.kind === "parameter" ? exclude(statement.local) : null;
@@ -534,9 +561,10 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
   }
   const flow = { entry: entry.block, predecessor: predecessor.value, reachable: order.value.reachable, exposed, copies };
   const rows: RefinementFact[] = [];
-  for (const block of mir.blocks) {
+  for (let position = 0; position < blocks.length; position += 1) {
     const paid = chargeWork(account, 1);
     if (paid !== null) return paid;
+    const block = denseRow(blocks, position);
     const check = block.terminator;
     if (check.kind !== "check" || check.tir.body !== mir.body || flow.reachable[block.id] !== true) continue;
     const source = inputs.sourceOf(check.tir.node);

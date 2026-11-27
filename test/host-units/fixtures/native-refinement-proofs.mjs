@@ -212,6 +212,37 @@ export async function checkNativeFieldRefinement() {
     assert.deepEqual(run(probe), { kind: "complete", value: [expected] });
     const { work, entries } = InvocationAccount.stateOf(probe);
     assert.deepEqual(run(createAccount({ maximumWork: work, maximumResultEntries: entries })), { kind: "complete", value: [expected] });
+    let callReadAt = null;
+    let effectReads = 0;
+    const observeCall = account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, { ...proofInput,
+      summaryAt: (block, operation) => {
+        const offered = proofInput.summaryAt(block, operation);
+        const summary = offered.value;
+        assert.equal(summary.captures.length, 0);
+        assert.equal(summary.parameters.length, 1);
+        const [effect] = summary.parameters;
+        const parameters = [effect];
+        Object.defineProperty(parameters, 0, { get: () => { effectReads += 1; return effect; } });
+        callReadAt = InvocationAccount.stateOf(account).work;
+        return { ...offered, value: { ...summary, parameters } };
+      } });
+    const observed = createAccount({ maximumWork: work, maximumResultEntries: entries });
+    assert.deepEqual(observeCall(observed), { kind: "complete", value: [expected] });
+    assert.equal(effectReads, 1);
+    assert.ok(callReadAt !== null);
+    const callPrefix = callReadAt;
+    for (const paidRow of [false, true]) {
+      effectReads = 0;
+      const account = createAccount({ maximumWork: callPrefix + (paidRow ? 2 : 1), maximumResultEntries: entries });
+      const stopped = observeCall(account);
+      assert.equal(callReadAt, callPrefix);
+      assert.equal(stopped.kind, "resource-limit");
+      assert.equal(stopped.dimension, "work");
+      assert.equal(stopped === accountFailure(account), true);
+      assert.equal(effectReads, paidRow ? 1 : 0);
+      assert.equal(observeCall(account) === stopped, true);
+      assert.equal(effectReads, paidRow ? 1 : 0);
+    }
     for (const [dimension, caps] of [["work", { maximumWork: work - 1, maximumResultEntries: entries }],
       ["result-entries", { maximumWork: work, maximumResultEntries: entries - 1 }]]) {
       const account = createAccount(caps);
