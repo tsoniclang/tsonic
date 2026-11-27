@@ -1,6 +1,7 @@
 import { requirePresent } from "../diag/index.js";
 import type { LocalId } from "../ids/contract.js";
 import type { CallExpression, Expression, NewExpression } from "../ir-hir/contract.js";
+import { unparenthesizedExpression } from "../ir-hir/index.js";
 import type { MirCallArgument } from "../ir-mir/contract.js";
 import type { TirApplication, TypedApplication, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { Signature } from "../ir-types/contract.js";
@@ -18,7 +19,7 @@ export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> |
   if (signature.kind !== (node.kind === "NewExpression" ? "construct" : "call"))
     return callerDefect("an application has another selected invocation kind", node.origin);
   if (application.receiver !== null) return notLoweredYet("a call with a receiver", node.origin);
-  const callee = node.expression;
+  const callee = unparenthesizedExpression<TypedPhase>(node.expression);
   const direct = callee.kind === "Identifier" && callee.tsonic.role === "value" && callee.tsonic.resolution.kind === "definition";
   if (direct && node.kind === "CallExpression" && callee.tsonic.resolution.definition !== application.callee.decision.advertised.declaration) {
     const { advertised, api } = application.callee.decision;
@@ -61,7 +62,7 @@ export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> |
       ? "argument-place" : "expression", node: argument });
   }
   if (end !== 0) return callerDefect("a call argument differs from its actual selected mapping", node.origin);
-  if (!direct) lowering.work.push({ kind: "expression", node: callee });
+  if (!direct) lowering.work.push({ kind: "expression", node: node.expression });
   return true;
 }
 

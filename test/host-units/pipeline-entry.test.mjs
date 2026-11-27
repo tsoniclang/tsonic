@@ -10387,14 +10387,16 @@ test("actual checker session declarations survive all Host barriers without runn
   assert.notDeepEqual(nativeCall.tsonic.core.provider, { kind: "available", value: null });
 });
 
-test("two imported overloads select their own bodyless endpoints in either declaration order", async () => {
+test("two imported overloads select their own bodyless endpoints in either declaration order or callee spelling", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
-  const source = `import { pick as choose } from "./native.js";
-    export function readBoolean(value: boolean): boolean { return choose(value); }
-    export function readText(value: string): boolean { return choose(value); }`;
-  for (const order of [["boolean", "string"], ["string", "boolean"]]) {
+  const orders = [["boolean", "string"], ["string", "boolean"]];
+  for (const [order, wrapped] of orders.flatMap(order => [false, true].map(wrapped => [order, wrapped]))) {
+    const invocation = wrapped ? "((choose))" : "choose";
+    const source = `import { pick as choose } from "./native.js";
+      export function readBoolean(value: boolean): boolean { return ${invocation}(value); }
+      export function readText(value: string): boolean { return ${invocation}(value); }`;
     const declarations = order.map(type => `export declare function pick(value: ${type}): boolean;`).join("\n");
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source, "native.d.ts": declarations },
       libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
@@ -10415,9 +10417,15 @@ test("two imported overloads select their own bodyless endpoints in either decla
       const expected = definitions[order.indexOf(type)];
       const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(`;${name}];function;0]`));
       const call = body.tir.root.statements.nodes[0].expression;
-      assert.equal(call.expression.tsonic.resolution.definition, expected);
-      assert.equal(call.expression.tsonic.resolution.aliases.length > 0, true);
-      const callable = index.types.terms[call.expression.tsonic.type];
+      if (wrapped) {
+        assert.equal(call.expression.kind, "ParenthesizedExpression");
+        assert.equal(call.expression.expression.kind, "ParenthesizedExpression");
+      }
+      const callee = wrapped ? call.expression.expression.expression : call.expression;
+      assert.equal(callee.kind, "Identifier");
+      assert.equal(callee.tsonic.resolution.definition, expected);
+      assert.equal(callee.tsonic.resolution.aliases.length > 0, true);
+      const callable = index.types.terms[callee.tsonic.type];
       assert.equal(callable.kind, "callable");
       assert.deepEqual(new Set(callable.calls), new Set(emitted));
       const term = body.mir.blocks.find(row => row.terminator.kind === "call").terminator;
@@ -10430,6 +10438,27 @@ test("two imported overloads select their own bodyless endpoints in either decla
       assert.equal(resolution.decision.completion.signature, resolution.decision.api.signature);
     }
   }
+});
+
+test("parenthesizing a selected ordinary callable preserves the direct call and its sole activation", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const analyze = invocation => {
+    const input = analysisInput(fixture, "sdk-minimal", `function pass(value: boolean): boolean { return value; }
+      export function use(value: boolean): boolean { return ${invocation}(value); }`);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";use];function;0]"));
+    const call = body.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+    assert.equal(call.callee.kind, "direct");
+    assert.equal(call.arguments.length, 1);
+    assert.equal(body.facts[0].origins.activations.length, 1);
+    return { api: call.callee.resolution.decision.api.declaration, activation: call.callee.resolution.activation };
+  };
+  const direct = analyze("pass");
+  assert.notEqual(direct.activation, null);
+  assert.deepEqual(analyze("((pass))"), direct);
 });
 
 test("a wrong-arity overload call returns the original checker diagnostic without selecting a candidate", async () => {

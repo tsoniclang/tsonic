@@ -349,7 +349,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       else if (decision.kind === "deferred" && decision.deferred.invocation.rule === "candidate"
         && decision.deferred.invocation.input.kind === "call") applications[position] = decision;
       else return callerDefect("a call must retain its actual selected or binding-dependent candidate", origin);
-      calleeTypes.set(node.expression.id, finalType(constraint.application.callee, origin));
+      calleeTypes.set(node.id, finalType(constraint.application.callee, origin));
     } else if (constraint.kind === "default") {
       if (constraint.rule === "signature-producers") {
         if (position !== 0 || root.kind !== "Block" || decision.kind !== "default"
@@ -593,7 +593,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       bindings: { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }, aliases } };
   };
 
-  const admitName = (node: Identifier<CheckedPhase>, position: number, parent: NodeId | null):
+  const admitName = (node: Identifier<CheckedPhase>, position: number, calleeOf: NodeId | null):
     void | Extract<Result<never>, { readonly kind: "refused" }> => {
     const checked = node.tsonic;
     if (checked.role !== "value" && checked.role !== "assignment-target") return notElaboratedYet(`a name of role ${checked.role}`, node.origin);
@@ -616,15 +616,13 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     }
     if (resolution.kind === "declarations") {
       const aliases = binding?.aliases ?? [];
-      const callee = calleeTypes.get(node.id);
+      const callee = calleeOf === null ? undefined : calleeTypes.get(calleeOf);
       let definition = resolution.definitions.length === 1 ? resolution.definitions[0] : undefined;
       if (callee !== undefined && checked.role === "value") {
         if (definition === undefined) {
-          const owner = parent === null ? -1 : nodePosition(parent);
-          const held = nodes[owner];
+          const owner = calleeOf === null ? -1 : nodePosition(calleeOf);
           const application = applications[owner];
-          if (held?.kind !== "CallExpression" || held.expression !== node || application?.kind !== "decided"
-            || application.decision.api.body !== null)
+          if (application?.kind !== "decided" || application.decision.api.body !== null)
             return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
           const selected = application.decision.advertised.declaration;
           for (let index = 0; index < resolution.definitions.length; index += 1) {
@@ -810,7 +808,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   };
 
   interface Frame { readonly phase: "visit" | "build"; readonly node: HirNode; readonly loop: NodeId | null;
-    readonly breakTarget: NodeId | null; readonly parent: NodeId | null }
+    readonly breakTarget: NodeId | null; readonly parent: NodeId | null; readonly calleeOf?: NodeId }
   const labelOf = (node: Identifier<CheckedPhase>):
     Identifier<TypedPhase> & { readonly tsonic: Extract<Identifier<TypedPhase>["tsonic"], { readonly role: "label" }> } => {
     const checked = node.tsonic;
@@ -970,8 +968,9 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   let enclosingLoop: NodeId | null = null;
   let enclosingBreak: NodeId | null = null;
   let visiting: NodeId | null = null;
-  const visit = (node: HirNode, loop = enclosingLoop, breakTarget = enclosingBreak): void => {
-    stack.push({ phase: "visit", node, loop, breakTarget, parent: visiting });
+  const visit = (node: HirNode, loop = enclosingLoop, breakTarget = enclosingBreak, calleeOf?: NodeId): void => {
+    stack.push(calleeOf === undefined ? { phase: "visit", node, loop, breakTarget, parent: visiting }
+      : { phase: "visit", node, loop, breakTarget, parent: visiting, calleeOf });
   };
   const visitList = (list: readonly HirNode[], origin: Origin, breakTarget = enclosingBreak): void => {
     for (let index = list.length - 1; index >= 0; index -= 1)
@@ -1443,7 +1442,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
               visit(argument.kind === "SpreadElement" ? argument.expression : argument);
             }
           }
-          visit(node.expression);
+          visit(node.expression, enclosingLoop, enclosingBreak, node.id);
         }
         return;
       case "ParenthesizedExpression":
@@ -1454,7 +1453,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
             : requirePresent(values[nodePosition(node.expression.id)], failure("compiler defect", "an operand without a typed value", node.origin)).convertedType;
           expressions[position] = { ...header(node), kind: "ParenthesizedExpression", expression, tsonic: valueOf(position, type, node.origin) };
         } else {
-          visit(node.expression);
+          visit(node.expression, enclosingLoop, enclosingBreak, frame.calleeOf);
         }
         return;
       case "NonNullExpression": {
@@ -1492,7 +1491,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       }
       case "Identifier":
         if (building) expressions[position] = identifier(node, position);
-        else return admitName(node, position, frame.parent);
+        else return admitName(node, position, frame.calleeOf ?? null);
         return;
       case "ArrayLiteralExpression": {
         if (!building) {
