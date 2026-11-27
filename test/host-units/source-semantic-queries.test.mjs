@@ -2389,7 +2389,11 @@ test("checked primitive annotations retain their selected provider carrier, not 
 type int32 = number;
 export type Qualified = Native;
 export type Shadowed = int32;
-export type Ordinary = number;`;
+export type Ordinary = number;
+export type Bracketed = Native[];
+export type Named = Array<Native>;
+export type Optional = Native | undefined;
+export function identity(value: Native): Native { return value; }`;
   const root = "/project/node_modules/native-fixture";
   const reference = { package: fixture.packageOf("/semantics"), version: "1", moduleSpecifier: "./plugin.js", exportId: "semantics" };
   const semantics = { moduleSpecifier: "native-fixture", packageName: "native-fixture", packageVersion: "1.0.0",
@@ -2406,7 +2410,7 @@ export type Ordinary = number;`;
     assert.equal(captured.kind, "ok");
     const checked = captured.value.modules.find(row => row.module.module === snapshot.entryPoint).module;
     assert.deepEqual(checked.checkerDiagnostics, []);
-    const [, qualified, shadowed, ordinary] = checked.tree.statements.nodes.filter(node => node.kind === "TypeAliasDeclaration");
+    const [, qualified, shadowed, ordinary, bracketed, named, optional] = checked.tree.statements.nodes.filter(node => node.kind === "TypeAliasDeclaration");
     const carrier = declaration => {
       const answer = declaration.type.tsonic.type;
       assert.equal(answer.kind, "available");
@@ -2414,6 +2418,18 @@ export type Ordinary = number;`;
     };
     assert.deepEqual([carrier(qualified), carrier(shadowed), carrier(ordinary)],
       [selected ? "int32" : "float64", "float64", "float64"].map(primitive => ({ kind: "primitive", primitive })));
+    for (const declaration of [bracketed, named, optional]) {
+      const term = carrier(declaration);
+      assert.equal(term.kind, declaration === optional ? "optional" : "array");
+      const element = fixture.types.readType(captured.value.types, term.kind === "optional" ? term.value : term.element);
+      assert.deepEqual(element, carrier(qualified));
+    }
+    const identity = checked.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration");
+    const endpoint = identity.tsonic.signatures.find(row => row.role === "api-body");
+    const signature = fixture.types.readSignature(captured.value.types, endpoint.signature);
+    assert.equal(signature.result, identity.type.tsonic.type.value);
+    assert.equal(signature.parameters[0].type, identity.parameters.nodes[0].type.tsonic.type.value);
+    assert.deepEqual(fixture.types.readType(captured.value.types, signature.result), carrier(qualified));
   }
 });
 

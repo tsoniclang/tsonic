@@ -2496,6 +2496,24 @@ function nativeArrayReadonly(scope: CaptureScope, type: Type, arguments_: readon
   return receipt.value.readonly;
 }
 
+function authoredNativeArrayElement(scope: CaptureScope, syntax: Node | undefined, type: Type, target: CheckerSymbol,
+  inputs: readonly TypeReferenceArgumentInfo[]): DeclaredArgumentUse | null {
+  if (syntax === undefined || !admit(scope, "edges")) return null;
+  const bare = unparenthesizedType(scope, syntax);
+  if (bare === undefined) return null;
+  const bracketed = writtenBracketedElement(scope, bare);
+  const named = bracketed === undefined ? unaryTypeReference(scope, bare) : undefined;
+  const element = bracketed ?? named?.argument;
+  const slot = inputs[0];
+  if (element === undefined || slot?.scope !== "local" || named !== undefined && !bindsWrittenTypeTarget(scope, named.name, target))
+    return null;
+  const parent = sourceType(scope, { kind: "annotation", node: syntax });
+  if (parent?.type !== type || parent.causes.length !== 0) return null;
+  const child = sourceType(scope, { kind: "annotation", node: element });
+  return child?.type === slot.argument && child.causes.length === 0 && admit(scope, "facts")
+    ? { authored: element, selected: element, argument: slot.argument } : null;
+}
+
 function mergedInterfaceDependency(scope: CaptureScope, position: RawComponentId, application: TypeInterfaceApplication,
   rest: ReceiverUse | DeclaredRestUse | null, source: OriginalTypeUse | null, selectedType: Type): RawTypeForm | null {
   if (!admit(scope, "facts")) return null;
@@ -2964,8 +2982,7 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
     const actual = shape.getUnionOrIntersectionTypes(type);
     let written = bindingUse?.kind === "authored-formal-arms" ? bindingUse : null;
     const syntaxKind = scope.checked.ast.kindName(syntax);
-    if (bindingUse === null && (syntaxKind === "KindUnionType" || syntaxKind === "KindIntersectionType") && syntax !== undefined
-      && undefinedUnionSyntax(scope, syntax) === undefined) {
+    if (bindingUse === null && (syntaxKind === "KindUnionType" || syntaxKind === "KindIntersectionType") && syntax !== undefined) {
       if (!admit(scope, "edges")) return null;
       const source = sourceType(scope, { kind: "annotation", node: syntax });
       if (scope.meter.refusal !== null) return null;
@@ -3031,6 +3048,11 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
         if (!admit(scope, "edges")) return null;
         if (shape.getTypeReferenceTarget(type) === bindingUse.nativeTarget) rest = bindingUse;
       }
+      const readonly = nativeArrayReadonly(scope, type, infos);
+      if (scope.meter.refusal !== null) return null;
+      const nativeElement = readonly !== null && scope.sourcePrimitiveFacts && bindingUse === null
+        ? authoredNativeArrayElement(scope, syntax, type, symbol, infos) : null;
+      if (scope.meter.refusal !== null) return null;
       const arguments_: RawTypeArgument[] = [];
       let local = 0;
       for (let index = 0; index < infos.length; index += 1) {
@@ -3047,6 +3069,7 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
           : receiverSlot !== undefined && info.argument === receiverSlot.argument
             ? { authored: receiverSlot.source, selected: receiverSlot.source }
             : restArgument !== null && rest !== null ? { authored: rest.element, selected: null }
+            : index === 0 && nativeElement !== null ? nativeElement
             : originalUse !== null && ordinal !== null && shape.isTuple(info.argument)
               ? authoredTupleArgument(scope, type, originalUse, info.argument, ordinal) : null;
         if (scope.meter.refusal !== null) return null;
@@ -3078,7 +3101,6 @@ function typeForm(scope: CaptureScope, type: Type, task: TypeCapture, originalUs
           if (provider !== undefined) extent = available(null);
         }
       }
-      const readonly = nativeArrayReadonly(scope, type, infos);
       return scope.meter.refusal !== null ? null
         : { kind: "declared", declaration: source, facet: "instance", parameters, arguments: arguments_, definition: null,
             extent, nativeArrayReadonly: readonly };
@@ -4590,7 +4612,9 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
   const declared = declaration !== null && target === null && signature.mapper === undefined && signature.composite === undefined
     ? admittedTypeUse(scope, declaration) : undefined;
   const resultSyntax = declared === undefined ? undefined : scope.checked.ast.typeNode(declared);
-  const originalUse = resultSyntax !== undefined && (scope.checked.ast.kindName(resultSyntax) === "KindUnionType" || scope.checked.ast.kindName(resultSyntax) === "KindThisType" ||
+  const resultKind = scope.checked.ast.kindName(resultSyntax);
+  const originalUse = resultSyntax !== undefined && (resultKind === "KindUnionType" || resultKind === "KindThisType" ||
+    scope.sourcePrimitiveFacts && (resultKind === "KindTypeReference" || resultKind === "KindImportType" || resultKind === "KindArrayType") ||
     declared !== undefined && scope.checked.ast.kindName(declared) === "KindFunctionType" && parameterReferenceName(scope, resultSyntax) !== undefined ||
     receiverInput(scope, resultSyntax) !== undefined || tupleReference(scope, resultSyntax) !== undefined) ? resultSyntax : null;
   const resultPosition = component(scope, owner, { kind: "result", signature: id });
@@ -4622,7 +4646,6 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
       if (declarations !== null) use = { kind: "merged-slot", type: projected.selected, declarations };
     }
   }
-  const resultKind = scope.checked.ast.kindName(resultSyntax);
   const tupleResult = resultSyntax !== undefined && answer?.typeSource !== undefined && scope.shape.isTuple(answer.type)
     && (answer.typeSource === resultSyntax || answer.typeSource === unparenthesizedType(scope, resultSyntax));
   if (scope.meter.refusal !== null) return;
