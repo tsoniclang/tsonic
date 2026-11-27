@@ -1878,6 +1878,7 @@ test("deferred alias applications require a qualified alias and keep ordered arg
   assert.notEqual(insertFixtureType(product, interner, { ...term, arguments: [text, parameter] }), open);
   const { table, types } = completePublication(exportTypes(interner, publicationLimits));
   assert.deepEqual(table.terms[types[open]], { ...term, arguments: [types[parameter], types[text]] });
+  assert.deepEqual(parseTypes(printTypes(table)), { kind: "parsed", value: table });
   const verify = nominal => runTypeVerifier({ ...verificationInputs, table, evidence: [], bindings: [],
     nominalOf: declaration => declaration === definitionId ? nominal : null });
   assert.deepEqual(verify({ kind: "alias", parameterCount: 2 }), []);
@@ -1886,6 +1887,22 @@ test("deferred alias applications require a qualified alias and keep ordered arg
     assert.equal(verify(nominal).some(finding => finding.rule === "nominal-definition"
       && finding.site.type === types[open] && finding.detail[0].value === field), true);
   }
+});
+
+test("published mapped and template types preserve their actual operands on the text boundary", () => {
+  const interner = createTypeInterner();
+  const key = parameterDeclaration(owner, 0);
+  const parameter = product.internType(interner, { kind: "param", parameter: key });
+  const text = product.internType(interner, { kind: "string" });
+  const pattern = insertFixtureType(product, interner,
+    { kind: "template-literal", head: "on", spans: [{ type: parameter, tail: "Changed" }, { type: text, tail: "!" }] });
+  for (const [remap, readonly, optional] of [[pattern, "add", "remove"], [null, "preserve", "add"]]) {
+    insertFixtureType(product, interner, { kind: "projection", source: text, projection: {
+      kind: "mapped", parameter: key, remap, value: parameter, readonly, optional,
+    } });
+  }
+  const { table } = completePublication(exportTypes(interner, publicationLimits));
+  assert.deepEqual(parseTypes(printTypes(table)), { kind: "parsed", value: table });
 });
 
 test("merged interface applications preserve exact independent group identity and native argument order", () => {
