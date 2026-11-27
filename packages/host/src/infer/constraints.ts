@@ -1489,8 +1489,8 @@ function evidenceOf(deps: InferenceInputs, group: InferenceGroup, type: TyId, no
       numeric: null, sum: null, nominal: null, pointer: null }, error: null };
   if (term.kind === "optional") {
     const domain = optionalValueDomainOf(term, value => readType(deps.types, value));
-    if (domain.kind === "optional-value")
-      return { value: { type, component, category: domain.category, numeric: null, sum: null, nominal: null, pointer: null }, error: null };
+    const category: CategoryEvidence = domain.kind === "optional-value" ? domain.category : { kind: "dynamic" };
+    return { value: { type, component, category, numeric: null, sum: null, nominal: null, pointer: null }, error: null };
   }
   if (term.kind === "literal" && term.value.kind === "number") {
     const category: CategoryEvidence = { kind: "known", category: "number" };

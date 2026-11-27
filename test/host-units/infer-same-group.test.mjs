@@ -355,6 +355,39 @@ test("an actual numeric assignment selects against ready native storage without 
   assert.deepEqual(program.deps.rules.literalFit(input, exact), selected);
 });
 
+test("a checked optional field type survives constraint capture without granting a native representation", () => {
+  for (const [payload, category] of [["{ value: boolean }", { kind: "dynamic" }], ["boolean", { kind: "choice",
+    alternatives: [{ kind: "known", category: "boolean" }, { kind: "known", category: "absence" }] }]]) {
+    const program = ready(`export function clear(record: { field: ${payload} | null }): void { record.field = null; }`);
+    const declaration = program.checked.tree.statements.nodes[0];
+    const body = declaration.tsonic.body;
+    const group = program.groups.find(row => row.bodies.includes(body));
+    assert.ok(group);
+    let captured = wiring.infer.constraintsOf(program.deps, group);
+    if (captured.kind === "paused") captured = wiring.infer.resumeConstraintsOf(program.deps, captured.paused,
+      captured.requests.map(request => {
+        assert.equal(request.kind, "declaredSignatureOf");
+        const placed = wiring.decls.declaredSignatureOf(program.inputs, request.request, program.domain.sources.cuts);
+        assert.equal(placed.kind, "done");
+        assert.equal(placed.value.kind, "ok");
+        return { kind: request.kind, value: placed.value.value };
+      }));
+    assert.equal(captured.kind, "done");
+    assert.equal(captured.value.kind, "ok");
+    const constraints = captured.value.value.constraints.find(row => row.body === body);
+    const flow = constraints.constraints.find(row => row.kind === "flow" && row.role === "assignment");
+    const target = declaration.body.statements.nodes[0].expression.left;
+    const qualified = constraints.evidence.find(row => row.value.type === flow.to && row.value.component.kind === "body"
+      && row.value.component.value.body === body && row.value.component.value.node === target.id);
+    assert.ok(qualified);
+    assert.equal(fixture.types.readType(program.interner, qualified.value.type).kind, "optional");
+    assert.equal(qualified.error, null);
+    assert.deepEqual(qualified.value.category, category);
+    assert.equal(qualified.value.nominal, null);
+    assert.equal(qualified.value.pointer, null);
+  }
+});
+
 test("native index Rules use the solved key, reached access and carrier's own bounds failure", () => {
   const program = ready("export function keep(flag: boolean): boolean { return flag; }");
   const checked = program.checked.tree.statements.nodes[0];
