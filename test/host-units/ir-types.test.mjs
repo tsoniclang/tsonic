@@ -67,7 +67,7 @@ test("field scopes borrow the selected binding rows in their own families at exa
     capturedBindings: [captured], selfBindings: [{ kind: "rigid", owner }, self] };
   const scope = { classParameters: [own], methodParameters: [method.parameter], capturedParameters: [], selfOwners: [other] };
   const stop = { origin: "test admission" };
-  const run = (work = Infinity, entries = Infinity) => product.projectBindingScope(vector, scope, (needed, retained) => {
+  const run = (work = Infinity, entries = Infinity, selected = scope) => product.projectBindingScope(vector, selected, (needed, retained) => {
     if (needed > work || retained > entries) return stop;
     work -= needed;
     entries -= retained;
@@ -84,25 +84,40 @@ test("field scopes borrow the selected binding rows in their own families at exa
   const exact = { classParameters: [outer, own], methodParameters: [method.parameter],
     capturedParameters: [captured.parameter], selfOwners: [owner, other] };
   assert.equal(product.projectBindingScope(vector, exact, () => null).value, vector);
-  let work = 0;
-  let entries = 0;
-  product.projectBindingScope(vector, scope, (needed, retained) => { work += needed; entries += retained; return null; });
-  for (let maximum = 0; maximum < work; maximum += 1) {
-    const refused = run(maximum);
-    assert.equal(refused.kind, "resource-stop");
-    assert.equal(refused.stop, stop);
-  }
-  for (let maximum = 0; maximum < entries; maximum += 1) {
-    const refused = run(Infinity, maximum);
-    assert.equal(refused.kind, "resource-stop");
-    assert.equal(refused.stop, stop);
+  const withCapture = { ...scope, capturedParameters: [captured.parameter] };
+  assert.equal(run(Infinity, Infinity, withCapture).value.capturedBindings, vector.capturedBindings);
+  for (const selected of [scope, withCapture]) {
+    let work = 0;
+    let entries = 0;
+    product.projectBindingScope(vector, selected, (needed, retained) => { work += needed; entries += retained; return null; });
+    for (let maximum = 0; maximum < work; maximum += 1) {
+      const refused = run(maximum, Infinity, selected);
+      assert.equal(refused.kind, "resource-stop");
+      assert.equal(refused.stop, stop);
+    }
+    for (let maximum = 0; maximum < entries; maximum += 1) {
+      const refused = run(Infinity, maximum, selected);
+      assert.equal(refused.kind, "resource-stop");
+      assert.equal(refused.stop, stop);
+    }
   }
   const unread = new Proxy({}, { get() { assert.fail("A stopped scope projection must not pull a binding family."); } });
   assert.equal(product.projectBindingScope(unread, unread, () => stop).stop, stop);
-  const firstFamily = { ...vector, get methodBindings() { assert.fail("A refused class family must not read the method family."); } };
+  const beforeMethod = classBindings => ({ ...vector, classBindings,
+    get methodBindings() { assert.fail("A refused class family must not read the method family."); } });
+  const firstFamily = beforeMethod(vector.classBindings);
   assert.deepEqual(product.projectBindingScope(firstFamily, { ...scope, classParameters: [own, outer, own] }, () => null),
     { kind: "complete", value: null });
   assert.equal(product.projectBindingScope(firstFamily, scope, (work, retained) => work + retained === 0 ? null : stop).stop, stop);
+  const emptyMethods = { ...vector, methodBindings: [] };
+  assert.equal(product.projectBindingScope(emptyMethods, { ...scope, methodParameters: [] }, () => null).value.methodBindings,
+    emptyMethods.methodBindings);
+  for (const incomplete of [{ ...scope, methodParameters: [outer] }, { ...scope, capturedParameters: [own] },
+    { ...scope, selfOwners: [definition("ForeignSelf")] }, { ...scope, classParameters: new Array(1) }]) {
+    assert.deepEqual(product.projectBindingScope(vector, incomplete, () => null), { kind: "complete", value: null });
+  }
+  assert.deepEqual(product.projectBindingScope(beforeMethod(new Array(vector.classBindings.length)), scope, () => null),
+    { kind: "complete", value: null });
 });
 
 test("paid table admission rejects foreign aliases, retains the actual nested field, and owns its input", () => {
