@@ -1252,10 +1252,12 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           let tsonic: TypedIndex;
           if (node.tsonic.role === "assignment-target") {
             const storage = checkedMemberStorageOf(node);
-            if (storage === null || index.write !== storage.write || index.read !== storage.read)
+            if (storage === null || index.write === null || index.read !== (storage.read === null ? null : index.write)
+              || variables[position]?.type !== index.write)
               return callerDefect("an index target requires its actual selected storage", node.origin);
-            const access: TargetAccess = storage.read === null ? { kind: "write", storage: storage.write }
-              : { kind: "read-write", storage: storage.write, read: storage.read, narrowing: null, evidenceIndex: null };
+            read.variables.add(position);
+            const access: TargetAccess = index.read === null ? { kind: "write", storage: index.write }
+              : { kind: "read-write", storage: index.write, read: index.read, narrowing: null, evidenceIndex: null };
             tsonic = { role: "assignment-target", index, access };
           } else {
             if (index.read === null || index.write !== null) return callerDefect("an index read requires its selected read alone", node.origin);
@@ -1499,8 +1501,14 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         if (building) {
           const variable = variables[position];
           if (variable?.kind === "literal-decision") return callerDefect("a literal decision has no actual declared variable", node.origin);
-          if (variable?.kind === "contextual-literal" && (variable.target === null || names[variable.target]?.storage !== variable.type))
-            return callerDefect("a contextual literal must use its actual qualified assignment destination", node.origin);
+          if (variable?.kind === "contextual-literal") {
+            const target = variable.target === null ? undefined : nodes[variable.target];
+            const storage = variable.target === null ? null : target?.kind === "Identifier" ? names[variable.target]?.storage
+              : target?.kind === "ElementAccessExpression" ? indexes[variable.target]?.write
+              : target?.kind === "PropertyAccessExpression" ? members[variable.target]?.member.write : null;
+            if (storage !== variable.type)
+              return callerDefect("a contextual literal must use its actual qualified assignment destination", node.origin);
+          }
           const value = valueOf(position, variable?.kind === "literal" || variable?.kind === "contextual-literal"
             ? variable.type : node.tsonic.value.views.read.value, node.origin);
           if (node.kind === "NumericLiteral") {

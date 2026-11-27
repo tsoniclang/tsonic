@@ -18,6 +18,7 @@ import { verifyFacts, verifySummary, printFacts, parseFacts, printSummary, parse
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { checkRepeatedStaticInitialization } from "./fixtures/program-static-exposure.mjs";
 import { checkNativeArrayAlternatives, checkNativeArrayFacts, checkPlacedArrayReturn } from "./fixtures/native-array-initialization.mjs";
+import { nativeInt32Input } from "./fixtures/native-int32-input.mjs";
 
 test("staged native array facts publish one completed backing and the actual unwind", checkNativeArrayFacts);
 test("S-1: a placed native array initializer returns its backing without a new caller allocation", checkPlacedArrayReturn);
@@ -2000,6 +2001,65 @@ test("an actual empty module traverses its MIR return and proves no storage or c
     { modules: [current.execution], entries: [], storage: [] });
   assert.equal(proof.kind, "complete");
   assert.equal(proof.value.positions[0].error, null);
+});
+
+test("native indexed places produce the selected element and the actual counted-loop proof", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const fixture = await loadFrontFixture();
+  for (const [mode, source] of [["loop", `
+      export function read(values: Native[]): Native {
+        let sum: Native = 0;
+        for (let i = 0; i < values.length; i++) sum += values[i];
+        return sum;
+      }
+    `], ["read", `
+      export function read(values: Native[], index: Native, base: Native): Native { return base + values[index]; }
+    `], ["write", `
+      export function write(values: Native[], index: Native, value: Native): Native {
+        values[index] = value; values[index] = 1; return values[index];
+      }
+    `], ["read-write", `
+      export function update(values: Native[], index: Native, value: Native): Native {
+        values[index] += value; return values[index];
+      }
+    `]]) {
+    const input = await nativeInt32Input({ ...fixture, projectSnapshot: specification => fixture.projectSnapshot({
+      ...specification, libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]),
+    }) }, source, true);
+    const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
+      ...input.snapshot.nativeFacts, integerOverflow: [
+        { carrier: "int32", operation: "add", result: "int32", law: "wrap" },
+        { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
+      ],
+    } } });
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.mir.blocks.some(block => block.terminator.kind === "check"));
+    assert.ok(selected);
+    const terms = result.value.index.types.terms;
+    const indexed = sourceOccurrences(selected.tir, createAccount(limits));
+    assert.equal(indexed.kind, "complete");
+    const accesses = [...new Set(selected.mir.blocks.filter(block => block.terminator.kind === "check")
+      .map(block => indexed.value.get(block.terminator.tir.node)))];
+    const read = accesses.find(access => access.kind === "ElementAccessExpression" && access.tsonic.role === "value");
+    assert.ok(read);
+    assert.equal(read.tsonic.index.read, read.tsonic.type);
+    assert.equal(read.tsonic.index.write, null);
+    assert.deepEqual(terms[read.tsonic.type], { kind: "primitive", primitive: "int32" });
+    const writes = accesses.filter(access => access.kind === "ElementAccessExpression" && access.tsonic.role === "assignment-target");
+    assert.equal(writes.length, mode === "write" ? 2 : mode === "read-write" ? 1 : 0);
+    for (const { tsonic } of writes) {
+      assert.equal(tsonic.access.kind, mode);
+      assert.equal(tsonic.access.storage, tsonic.index.write);
+      assert.equal(tsonic.index.write, read.tsonic.type);
+      assert.equal(tsonic.index.read, mode === "read-write" ? read.tsonic.type : null);
+    }
+    const [facts] = selected.facts;
+    const branch = selected.tir.root.statements.nodes.find(row => row.kind === "ForStatement");
+    assert.deepEqual(facts.refinements.refinements, mode === "loop"
+      ? [{ kind: "proven", node: read.id, guards: [branch.condition.id] }] : []);
+  }
 });
 
 test("counted-loop facts bind the actual placed initializer, counter and checked array receiver", async () => {

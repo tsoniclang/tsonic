@@ -365,6 +365,7 @@ test("native index Rules use the solved key, reached access and carrier's own bo
   const element = add({ kind: "primitive", primitive: "bool" });
   const integral = add({ kind: "primitive", primitive: "uint64" });
   const open = add({ kind: "open", group: group.id, variable: 0 });
+  const output = add({ kind: "open", group: group.id, variable: 1 });
   const array = add({ kind: "array", element, readonly: false });
   const frozen = add({ kind: "array", element, readonly: true });
   const fixed = add({ kind: "fixed-array", element, extent: { length: 4n, runtimeBase: "number" } });
@@ -398,6 +399,22 @@ test("native index Rules use the solved key, reached access and carrier's own bo
     assert.deepEqual(program.deps.rules.index({ context, receiver: value(receiver), key: value(integral), access, result: element }).value,
       { kind: "decided", decision: expected });
     assert.throws(() => scheme.evaluate({ ...input, reads: [] }), /final value of each declared read/);
+    const authored = { ...constraint, result: output };
+    const footprint = scheme.enumerate({ constraint: authored, group: group.id, variables: [], reference });
+    assert.equal(footprint.kind, "ok");
+    const [producer] = footprint.value;
+    assert.deepEqual(producer.reads, [0]);
+    assert.deepEqual(producer.bounds, [1]);
+    const evaluated = scheme.evaluate({ ...input, constraint: authored, contribution: producer,
+      evidence: [receiver, open, output].map(type => ({ value: value(type), error: null })) });
+    assert.equal(evaluated.kind, "ok");
+    assert.deepEqual(evaluated.value.decision, { kind: "index", index: expected });
+    const [produced] = evaluated.value.bounds;
+    assert.equal(evaluated.value.bounds.length, 1);
+    assert.equal(produced.kind, "producer");
+    assert.equal(produced.variable, 1);
+    assert.equal(produced.value.type, element);
+    assert.deepEqual(produced.value.component, { kind: "body", value: occurrence });
   }
   for (const [receiver, key, access, result] of [
     [element, integral, "read", element], [array, element, "read", element],

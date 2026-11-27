@@ -146,6 +146,7 @@ test("an index decision keeps its original operands, accessed views, holding and
     { kind: "fixed-array", element: 0, extent: { length: 3n, runtimeBase: "number" } },
     { kind: "open", group, variable: 0 },
     { kind: "array", readonly: true, element: 0 },
+    { kind: "open", group, variable: 1 },
   ] };
   const constraint = { body, index: 0 };
   const key = { node: occurrence, candidate: null, role: { kind: "index" } };
@@ -189,6 +190,25 @@ test("an index decision keeps its original operands, accessed views, holding and
     fullEqual(product.verifyInference(forged).filter(found => found.rule === "contribution-footprint-complete"),
       [violation("contribution-footprint-complete", { kind: "contribution", key }, "bounds")],
       "the declared work must identify the actual open read and no writeback variable");
+  }
+  const selectedResult = (finalType, outputOccurrence = occurrence, bounds = [1]) => {
+    const authored = selected(selection, { result: 6 });
+    const check = { variable: 1, contribution: key,
+      bound: { variable: 1, contribution: key, kind: "producer", value: evidence(0), error: null },
+      outcome: { kind: "satisfied", embedding: { kind: "identity" } } };
+    return { ...authored, constraints: [constraintSet(authored.constraints[0].constraints,
+      [variable, { id: 1, occurrence: outputOccurrence, kind: "local", local: null }])],
+      solution: { ...authored.solution, variables: [...authored.solution.variables,
+        { variable: 1, value: evidence(finalType), error: null }], checks: bounds.length === 0 ? [] : [check] },
+      contributions: [{ ...contribution, bounds }] };
+  };
+  fullEqual(product.verifyInference(selectedResult(0)), [], "the authored index produces exactly its selected element");
+  fullEqual(product.verifyInference(selectedResult(1)), [violation("operation-types", { kind: "constraint", constraint }, "index")],
+    "the output variable cannot select an unrelated key carrier");
+  for (const invalid of [selectedResult(0, occurrence, []), selectedResult(0, { ...occurrence, node: occurrence.node + 1 })]) {
+    fullEqual(product.verifyInference(invalid).filter(found => found.rule === "contribution-footprint-complete"),
+      [violation("contribution-footprint-complete", { kind: "contribution", key }, "bounds")],
+      "the output bound must belong to the same index occurrence");
   }
 });
 
@@ -534,7 +554,7 @@ test("the seven final-record footprint kinds retain every dependency and explici
   const rows = [
     [{ kind: "eq", occurrence, left: 3, right: 4 }, { kind: "equality", direction: "left-to-right" }, [0, 1]],
     [{ kind: "eq", occurrence, left: 4, right: 3 }, { kind: "equality", direction: "right-to-left" }, [0, 1]],
-    [{ kind: "flow", occurrence, from: 1, to: 2, role: "assignment", bindings: emptyBindings }, { kind: "flow" }, [0, 1]],
+    [{ kind: "flow", occurrence, from: 1, to: 2, role: "initialization", bindings: emptyBindings }, { kind: "flow" }, [0, 1]],
     [{ kind: "literal", occurrence, value: { kind: "string", value: "value" }, destination: 3 }, { kind: "literal" }, [0]],
     [{ kind: "op", occurrence, operator: "+", operands: [3, 0], result: 2, permissionScope: null }, { kind: "operator" }, [0, 1]],
     [{ kind: "default", occurrence, variable: 1, rule: "local-producers", type: 3 }, { kind: "default" }, [0, 1]],
@@ -549,6 +569,12 @@ test("the seven final-record footprint kinds retain every dependency and explici
       reads: [], bounds: bounds.slice(0, -1) }] },
     [violation("contribution-footprint-complete", { kind: "contribution", key }, "bounds")], `${constraint.kind} declared-type footprint`);
   }
+  const write = { kind: "flow", occurrence, from: 1, to: 2, role: "assignment", bindings: emptyBindings };
+  const writeSite = { kind: "contribution", key: { node: occurrence, candidate: null, role: { kind: "flow" } } };
+  const fit = { key: writeSite.key, reads: [0, 1], bounds: [], constraint: { body, index: 0 } };
+  const writeInput = { constraints: [constraintSet([write], variables)], contributions: [fit], types, bindingScopes: [emptyScope] };
+  ruleCase("contribution-footprint-complete", writeInput, { ...writeInput, contributions: [{ ...fit, reads: [0], bounds: [1] }] },
+    [violation("contribution-footprint-complete", writeSite, "bounds")], "a value flows to the existing write destination, not into its type selection");
   const flow = { kind: "flow", occurrence, from: 3, to: 4, role: "initialization", bindings: emptyBindings };
   const discharge = { kind: "discharge", occurrence, checkerDiagnostic: 0, obligations: [{ body, index: 1 }, { body, index: 0 }] };
   const key = { node: occurrence, candidate: null, role: { kind: "discharge" } };

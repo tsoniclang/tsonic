@@ -64,18 +64,30 @@ function bound(key: ContributionKey, variable: number, kind: VariableBound["kind
 }
 
 export function decideIndex(deps: RulesDeps, input: IndexInput): IndexDecision {
+  const selected = selectIndex(deps, input);
+  if (selectedIndexResult(selected) !== input.result)
+    return notDecidedYet("an indexed view other than its selected array storage", input.context.origin);
+  return selected;
+}
+
+function selectedIndexResult(index: IndexDecision): TyId {
+  const result = index.read ?? index.write;
+  return result ?? callerDefect("a selected native index must reach its element storage", null);
+}
+
+function selectIndex(deps: RulesDeps, input: Omit<IndexInput, "result">): IndexDecision {
   const receiver = readType(deps.types, input.receiver.type);
   if (receiver.kind !== "array" && receiver.kind !== "fixed-array")
     return notDecidedYet("the selected indexing law of a non-array receiver", input.context.origin);
   const key = readType(deps.types, input.key.type);
   if (key.kind !== "primitive" || !isNativeIntegerPrimitive(key.primitive))
     return notDecidedYet("an array index without a selected native integer", input.context.origin);
-  if (receiver.element !== input.result || (input.access !== "read" && receiver.kind === "array" && receiver.readonly))
+  if (input.access !== "read" && receiver.kind === "array" && receiver.readonly)
     return notDecidedYet("an indexed view other than its selected array storage", input.context.origin);
   const holding = nativeCarrierHoldingOf(deps.selectedNativeFacts.carrierHolding, receiver.kind);
   if (holding === null) return notDecidedYet("an index without its actual selected receiver holding", input.context.origin);
   return { carrier: receiver.kind, holding, receiver: input.receiver.type, key: input.key.type,
-    read: input.access === "write" ? null : input.result, write: input.access === "read" ? null : input.result,
+    read: input.access === "write" ? null : receiver.element, write: input.access === "read" ? null : receiver.element,
     failure: receiver.kind === "array" ? deps.selectedNativeFacts.arrayIndexFailure : deps.selectedNativeFacts.fixedArrayIndexFailure,
     writeCheck: input.access === "read" ? null : deps.selectedNativeFacts.destinationCheck };
 }
@@ -88,8 +100,9 @@ export function indexScheme(deps: RulesDeps): IndexContributionScheme {
         const variable = variableOf(deps, type, constraint.occurrence, group);
         if (variable !== null) reads.add(variable);
       }
+      const result = variableOf(deps, constraint.result, constraint.occurrence, group);
       return one({ node: constraint.occurrence, candidate: null, role: { kind: "index" } },
-        [...reads].sort((left, right) => left - right), [], reference);
+        [...reads].sort((left, right) => left - right), result === null ? [] : [result], reference);
     },
     evaluate: ({ constraint, evidence, reads, origin, contribution }) => {
       const operands = positions(deps, evidence, [constraint.receiver, constraint.key, constraint.result], constraint.occurrence);
@@ -104,11 +117,16 @@ export function indexScheme(deps: RulesDeps): IndexContributionScheme {
       };
       const receiver = resolve(operands[0]);
       const key = resolve(operands[1]);
+      const variable = variableOf(deps, constraint.result, constraint.occurrence, null);
       const error = mergeErrors([receiver, key]);
-      if (error !== null) return ok({ bounds: [], decision: { kind: "error", error }, selectedCandidate: null });
-      const index = decideIndex(deps, { context: { occurrence: contribution.key.node, bindings: constraint.bindings, origin },
-        receiver: receiver.value, key: key.value, access: constraint.access, result: constraint.result });
-      return ok({ bounds: [], decision: { kind: "index", index }, selectedCandidate: null });
+      if (error !== null) return ok(selectionError(internType(deps.types, { kind: "error" }), error,
+        constraint.occurrence, contribution.key, variable));
+      const input = { context: { occurrence: contribution.key.node, bindings: constraint.bindings, origin },
+        receiver: receiver.value, key: key.value, access: constraint.access };
+      const index = variable === null ? decideIndex(deps, { ...input, result: constraint.result }) : selectIndex(deps, input);
+      return ok({ bounds: variable === null ? [] : [bound(contribution.key, variable, "producer", {
+        value: resultEvidence(deps, selectedIndexResult(index), constraint.occurrence, []), error: null,
+      })], decision: { kind: "index", index }, selectedCandidate: null });
     },
   };
 }
@@ -272,11 +290,11 @@ function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, s
 function finishMember(deps: RulesDeps, destination: MemberDestination, error: ErrorValue): MemberStep {
   if (destination.kind === "member") return { kind: "done", value: ok({ kind: "member", value: { kind: "error", error } }) };
   const { occurrence, key, result } = destination;
-  return { kind: "done", value: ok({ kind: "contribution", value: memberError(internType(deps.types, { kind: "error" }),
+  return { kind: "done", value: ok({ kind: "contribution", value: selectionError(internType(deps.types, { kind: "error" }),
     error, occurrence, key, variableOf(deps, result, occurrence, null)) }) };
 }
 
-function memberError(type: TyId, error: NonNullable<InferenceValue["error"]>, occurrence: NodeRef,
+function selectionError(type: TyId, error: NonNullable<InferenceValue["error"]>, occurrence: NodeRef,
   key: ContributionKey, variable: number | null): ContributionOutcome {
   const value: InferenceValue = { error, value: { type, component: { kind: "body", value: occurrence },
     category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null } };
@@ -311,7 +329,7 @@ function memberScheme(deps: RulesDeps, owner: MemberOwner): MemberContributionSc
       if (selected === undefined) return callerDefect("a member read requires the actual value of its receiver variable", null);
       validateValue(deps, selected);
       if (selected.error !== null) return { kind: "done", value: ok({ kind: "contribution", value:
-        memberError(selected.value.type, selected.error, constraint.occurrence, input.contribution.key,
+        selectionError(selected.value.type, selected.error, constraint.occurrence, input.contribution.key,
           variableOf(deps, constraint.result, constraint.occurrence, null)) }) };
       return decideMember(deps, owner, {
         context: { occurrence: constraint.occurrence, bindings: constraint.bindings, origin: input.origin }, receiver: selected.value,
@@ -328,6 +346,11 @@ export function flowScheme(deps: RulesDeps): PaidConstraintScheme<FlowConstraint
       const value = input.constraint;
       const from = variableOf(deps, value.from, value.occurrence, input.group);
       const to = variableOf(deps, value.to, value.occurrence, input.group);
+      if (value.role === "assignment" || value.role === "member-write") {
+        const reads = [from, to].filter((variable): variable is number => variable !== null);
+        return one({ node: value.occurrence, candidate: null, role: { kind: "flow" } },
+          [...new Set(reads)].sort((left, right) => left - right), [], input.reference);
+      }
       if (from !== null && to === null) {
         const variable = input.variables[from];
         if (variable === undefined || variable.id !== from)
@@ -349,14 +372,19 @@ export function flowScheme(deps: RulesDeps): PaidConstraintScheme<FlowConstraint
       const source = from === null ? fromEvidence : input.reads.find(variable => variable.variable === from);
       if (source === undefined || fromEvidence === undefined || toEvidence === undefined)
         return callerDefect("a flow requires its actual finalized source and destination evidence", null);
-      if (to !== null) {
+      const write = value.role === "assignment" || value.role === "member-write";
+      if (to !== null && !write) {
         if (from === to) return ok({ bounds: [], decision: source.error === null
           ? { kind: "flow", embedding: { kind: "identity" } } : { kind: "error", error: source.error }, selectedCandidate: null });
         return ok({ bounds: [bound(key, to, "producer", source)], decision: null, selectedCandidate: null });
       }
-      const error = mergeErrors([source, toEvidence]);
+      const destination = to === null ? toEvidence : input.reads.find(variable => variable.variable === to);
+      if (destination === undefined) return callerDefect("a write fit requires its actual finalized destination", null);
+      validateValue(deps, destination);
+      const error = mergeErrors([source, destination]);
       if (error !== null) return ok({ bounds: [], decision: { kind: "error", error }, selectedCandidate: null });
-      const embedding = decideEmbedding(deps, { ...source.value, component: fromEvidence.value.component }, toEvidence.value,
+      const embedding = decideEmbedding(deps, { ...source.value, component: fromEvidence.value.component },
+        { ...destination.value, component: toEvidence.value.component },
         value.role, value.occurrence, input.origin, work);
       return embedding.kind === "refused" ? embedding
         : ok({ bounds: [], decision: { kind: "flow", embedding: embedding.value }, selectedCandidate: null });

@@ -510,7 +510,8 @@ function indexTypes(input: InferVerificationInput, finals: ReadonlyMap<number, T
   }
   const receiver = input.types.terms[selected.receiver];
   const key = input.types.terms[selected.key];
-  const { access, result } = constraint;
+  const { access } = constraint;
+  const result = expected(constraint.result);
   const holding = nativeCarrierHoldingOf(input.selectedNativeFacts.carrierHolding, selected.carrier);
   if ((receiver?.kind !== "array" && receiver?.kind !== "fixed-array") || receiver.kind !== selected.carrier
     || holding === null || selected.holding !== holding

@@ -50,16 +50,17 @@ function verifyIndex(input: TirVerifierInput, node: ElementAccessExpression<Type
   }
   if (value.role === "value") {
     const read = original.tsonic.role === "value" ? original.tsonic.value.views.read : null;
-    if (read?.kind !== "available" || read.value !== selected.read || value.type !== selected.read
+    if (read?.kind !== "available" || value.type !== selected.read
       || selected.read !== storage.element || selected.write !== null || selected.writeCheck !== null)
       emit("access-location", node, "an indexed read must retain the actual selected element and no write");
   } else {
     const checked = checkedMemberStorageOf(original);
+    const reachedRead = checked?.read == null ? null : storage.element;
     if (checked === null || (storage.kind === "array" && storage.readonly) || selected.write !== storage.element
       || selected.writeCheck !== input.selectedNativeFacts.destinationCheck
-      || selected.write !== checked.write || value.access.storage !== checked.write || selected.read !== checked.read
-      || (value.access.kind === "write" ? checked.read !== null
-        : value.access.read !== checked.read || value.access.narrowing !== null || value.access.evidenceIndex !== null))
+      || value.access.storage !== selected.write || selected.read !== reachedRead
+      || (value.access.kind === "write" ? reachedRead !== null
+        : reachedRead === null || value.access.read !== reachedRead || value.access.narrowing !== null || value.access.evidenceIndex !== null))
       emit("access-location", node, "an indexed write must retain its actual checked write and only its reached read");
   }
 }

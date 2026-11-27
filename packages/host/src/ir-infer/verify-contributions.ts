@@ -282,7 +282,9 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
     const value = current.value;
     switch (value.kind) {
       case "eq": types.add(value.left); types.add(value.right); break;
-      case "flow": types.add(value.from); types.add(value.to); break;
+      case "flow":
+        if (current === root && (value.role === "assignment" || value.role === "member-write") && bounds.size !== 0) return false;
+        types.add(value.from); types.add(value.to); break;
       case "literal": types.add(value.destination); break;
       case "op":
         for (const operand of value.operands) types.add(operand);
@@ -307,11 +309,18 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
           if (obligation !== undefined) pending.push(obligation);
         }
         break;
-      case "index":
+      case "index": {
         if (current !== root) return null;
-        if (bounds.size !== 0) return false;
+        const result = input.types.terms[value.result];
+        if (result?.kind === "open") {
+          const variable = inventory.variables.get(result.variable);
+          if (result.group !== input.group.id || variable?.kind !== "local" || variable.local !== null
+            || nodeKey(variable.occurrence) !== nodeKey(value.occurrence)
+            || bounds.size !== 1 || !bounds.has(result.variable) || reads.includes(result.variable)) return false;
+        } else if (bounds.size !== 0) return false;
         types.add(value.receiver); types.add(value.key);
         break;
+      }
       case "construct-literal":
         if (current !== root) return null;
         if (value.inferredResult === null) {

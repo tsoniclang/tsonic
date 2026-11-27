@@ -315,7 +315,8 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
         const logical = node.kind === "BinaryExpression" && shortCircuitOperatorOf(node.operatorToken.kind, "assignment") !== null;
         const sequence = node.kind === "BinaryExpression" && node.tsonic.role === "sequence";
         if (frame.node.kind === "BinaryExpression" && (compound || frame.node.tsonic.role === "arithmetic" || frame.node.tsonic.role === "comparison")
-          || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "PostfixUnaryExpression" || frame.node.kind === "VoidExpression" || frame.node.kind === "CallExpression"
+          || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "PostfixUnaryExpression" || frame.node.kind === "VoidExpression"
+          || frame.node.kind === "CallExpression" || frame.node.kind === "ElementAccessExpression"
           || frame.node.kind === "PropertyAccessExpression" && (frame.node.tsonic.role === "value" || frame.node.tsonic.role === "array-extent")) {
           const diagnostic = allocate(walk, { kind: "local", local: null, occurrence: refOf(walk, frame.node) });
           if (diagnostic !== null) return refused(diagnostic);
@@ -884,9 +885,10 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     const access = selected.role === "value" ? "read" : selected.access;
     const checked = selected.role === "value" ? selected.value.views.read : null;
     const storage = selected.role === "assignment-target" ? checkedMemberStorageOf(node) : null;
-    const result = checked?.kind === "available" ? checked.value : storage?.write;
-    if (result === undefined || (access === "read-write" && storage?.read !== result))
+    if (selected.role === "value" ? checked?.kind !== "available"
+      : storage === null || (access === "read-write" && storage.read !== storage.write))
       return notInferredYet(PORT, "the actual checked index result and reached storage types", node.origin);
+    const result = present(walk.operators.get(node.id), "the actual native index result position");
     const occurrence = refOf(walk, node);
     const receiver = typeAt(walk, node.expression);
     const key = typeAt(walk, node.argumentExpression);
