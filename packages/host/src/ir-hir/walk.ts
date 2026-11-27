@@ -1,4 +1,4 @@
-import type { ApplicationSyntaxReceipt, Expression, HirNode, IndexSyntaxTree, ParameterSyntaxReceipt, RetainedSyntaxNode, SyntaxStructureReceipt,
+import type { ApplicationSyntaxReceipt, CheckedContextualTupleAssertionOf, Expression, HirNode, IndexSyntaxTree, ParameterSyntaxReceipt, RetainedSyntaxNode, SyntaxStructureReceipt,
   OrdinarySyntaxPhase, ParameterDeclaration, Phase, SyntaxArgumentListReceipt, SyntaxForest, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
   SyntaxCallArgumentsImage, SyntaxInitializerImage, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
@@ -16,6 +16,38 @@ import { missingStructure } from "./child-slot-storage.js";
 export const unparenthesizedExpression: UnparenthesizedExpression = expression => {
   while (expression.kind === "ParenthesizedExpression") expression = expression.expression;
   return expression;
+};
+
+const noContextualTupleProduct = { kind: "complete", value: null } as const;
+
+export const checkedContextualTupleAssertionOf: CheckedContextualTupleAssertionOf = (node, isTuple, admit) => {
+  const reached = admit();
+  if (reached !== null) return { kind: "resource-stop", stop: reached };
+  const { read, contextual } = node.tsonic.views;
+  const target = node.type.tsonic.type;
+  if (read.kind !== "available" || target.kind !== "available" || target.value !== read.value
+    || contextual.kind !== "available" || contextual.value === null || contextual.value === read.value)
+    return noContextualTupleProduct;
+  let parent = node.id;
+  let operand = node.expression;
+  for (;;) {
+    const step = admit();
+    if (step !== null) return { kind: "resource-stop", stop: step };
+    if (operand.parent !== parent) return noContextualTupleProduct;
+    const views = operand.kind === "ParenthesizedExpression" ? operand.tsonic.views
+      : operand.kind === "ArrayLiteralExpression" && operand.tsonic.role === "value" ? operand.tsonic.value.views : null;
+    if (views?.read.kind !== "available" || views.read.value !== read.value
+      || views.contextual.kind !== "available" || views.contextual.value !== contextual.value) return noContextualTupleProduct;
+    if (operand.kind !== "ParenthesizedExpression") break;
+    parent = operand.id;
+    operand = operand.expression;
+  }
+  for (const type of [read.value, contextual.value]) {
+    const step = admit();
+    if (step !== null) return { kind: "resource-stop", stop: step };
+    if (!isTuple(type)) return noContextualTupleProduct;
+  }
+  return { kind: "complete", value: { product: contextual.value, literal: operand.id } };
 };
 
 type PendingNode<PhaseType extends Phase> = (

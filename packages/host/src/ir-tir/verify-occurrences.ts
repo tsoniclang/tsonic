@@ -1,6 +1,6 @@
 import type { BodyId, DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { ArrayLiteralExpression, BindingPattern, CheckedPhase, HirNode, SwitchStatement, VariableDeclaration } from "../ir-hir/contract.js";
-import { checkedLayoutRoleOf, compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
+import { checkedContextualTupleAssertionOf, checkedLayoutRoleOf, compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { Origin } from "../ids/contract.js";
 import type { ApplicationDecision, DeferredDecision, InferenceNativeFacts, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BindingScope, BodyInstance, TypeComponent, TypeEvidence, TypeTable, TypeTerm } from "../ir-types/contract.js";
@@ -565,6 +565,36 @@ export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefine
     emit("typed-value-occurrence", node, "authored value occurrence has no typed value endpoints");
   }
 };
+
+export function verifyTupleAssertionProduct<Stop extends object>(node: TirNode, original: HirNode | undefined,
+  types: TypeTable, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  if ((node.kind !== "AsExpression" && node.kind !== "TypeAssertionExpression") || original?.kind !== node.kind) return null;
+  const checked = checkedContextualTupleAssertionOf(original, type => types.terms[type]?.kind === "tuple", () => admit({ kind: "row" }));
+  if (checked.kind === "resource-stop") return checked.stop;
+  if (checked.value === null) return null;
+  const reached = admit({ kind: "row" });
+  if (reached !== null) return reached;
+  const { literal } = checked.value;
+  const product = node.tsonic.type;
+  const reject = (): null => {
+    emit("operation-type", node, "an identity assertion must retain its actual selected tuple product and original annotation");
+    return null;
+  };
+  if (node.type.id !== original.type.id) return reject();
+  let parent = node.id;
+  let operand = node.expression;
+  for (;;) {
+    const step = admit({ kind: "row" });
+    if (step !== null) return step;
+    const value = typedValueOf(operand);
+    if (operand.parent !== parent || value === null || value.type !== product || value.convertedType !== product
+      || value.conversion.kind !== "identity") return reject();
+    if (operand.kind !== "ParenthesizedExpression")
+      return operand.kind === "ArrayLiteralExpression" && operand.id === literal ? null : reject();
+    parent = operand.id;
+    operand = operand.expression;
+  }
+}
 
 export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralExpression<TypedPhase>, original: HirNode | undefined,
   instance: BodyInstance, types: TypeTable, native: InferenceNativeFacts, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {

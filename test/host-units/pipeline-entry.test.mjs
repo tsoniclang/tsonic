@@ -351,7 +351,11 @@ test("a finite spread of a checked tuple literal constructs its one product befo
   }
 });
 
-test("a saved asserted tuple spreads its one constructed value in authored argument order", async () => {
+for (const [form, initializer] of [
+  ["written", "([make(flag), true] as readonly [boolean, true])"],
+  ["const", "[make(flag), true] as const"],
+  ["grouped prefix const", "(<const>(([make(flag), true])))"],
+]) test(`a saved asserted tuple (${form}) spreads its one constructed value in authored argument order`, async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const input = analysisInput(fixture, "sdk-minimal", `
@@ -359,7 +363,7 @@ test("a saved asserted tuple spreads its one constructed value in authored argum
     function later(): boolean { return false; }
     function take(first: boolean, exact: true, tail: boolean): boolean { return first; }
     export function start(flag: boolean): boolean {
-      const slots: readonly [boolean, true] = ([make(flag), true] as readonly [boolean, true]);
+      const slots: readonly [boolean, true] = ${initializer};
       return take(...slots, later());
     }
   `);
@@ -372,7 +376,12 @@ test("a saved asserted tuple spreads its one constructed value in authored argum
   const { mir, tir } = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
   const [variable, returned] = tir.root.statements.nodes;
   const saved = variable.declarationList.declarations.nodes[0];
-  const literal = saved.initializer.expression.expression;
+  let literal = saved.initializer;
+  while (literal.kind === "ParenthesizedExpression" || literal.kind === "AsExpression" || literal.kind === "TypeAssertionExpression") {
+    assert.deepEqual(literal.tsonic.conversion, { kind: "identity" });
+    literal = literal.expression;
+  }
+  assert.equal(literal.kind, "ArrayLiteralExpression");
   const call = returned.expression;
   const [spread, following] = call.arguments.nodes;
   const calls = mir.blocks.map(row => row.terminator).filter(row => row.kind === "call");
@@ -391,6 +400,38 @@ test("a saved asserted tuple spreads its one constructed value in authored argum
   assert.deepEqual(projected.map(row => row.base.projection.index), [0, 1]);
   assert.equal(projected[0].base.place, projected[1].base.place);
   assert.equal(result.value.index.types.terms[literal.tsonic.type].readonly, true);
+});
+
+test("a bound const tuple return forwards its selected type under the actual generic binding", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function make<T>(value: T): readonly [T, true] { return [value, true] as const; }
+    export function start(flag: boolean): readonly [boolean, true] { return make<boolean>(flag); }
+  `);
+  const facts = input.snapshot.nativeFacts;
+  const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
+    nativeFacts: { ...facts, carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const declaration = readyModuleStatements(readyModuleRoot(chapter.tree)).find(row => row.kind === "FunctionDeclaration" && row.name.text === "make");
+  const bodies = chapter.bodies.filter(row => row.tir.owner === declaration.tsonic.definition);
+  assert.deepEqual(bodies.map(row => row.kind), ["template", "selected"]);
+  const types = result.value.index.types.terms;
+  for (const body of bodies) {
+    const assertion = body.tir.root.statements.nodes[0].expression;
+    const annotation = types[assertion.type.tsonic.type];
+    const product = types[assertion.tsonic.type];
+    assert.equal(annotation.kind, "tuple");
+    assert.equal(annotation.readonly, false);
+    assert.deepEqual(product, { ...annotation, readonly: true });
+    assert.equal(types[product.elements[0].type].kind, body.kind === "template" ? "param" : "primitive");
+    assert.equal(assertion.expression.tsonic.type, assertion.tsonic.type);
+    assert.deepEqual(assertion.tsonic.conversion, { kind: "identity" });
+  }
+  const aggregates = bodies[1].mir.blocks.flatMap(row => row.statements).filter(row => row.kind === "assign" && row.value.kind === "aggregate");
+  assert.deepEqual(aggregates.map(row => [row.tir.node, row.value.aggregate.kind]),
+    [[bodies[1].tir.root.statements.nodes[0].expression.expression.id, "tuple"]]);
 });
 
 test("a conditional finite spread evaluates only its selected tuple before the following argument", async () => {

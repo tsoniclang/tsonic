@@ -8,7 +8,7 @@ import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, compareMemberKeys, internType, internTypeGraph, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { binaryOperatorOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
+import { binaryOperatorOf, checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { bindingDefaultOf, checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
@@ -897,7 +897,19 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     const result = node.tsonic.views.read;
     if (target.kind !== "available" || result.kind !== "available" || target.value !== result.value)
       return notInferredYet(PORT, "an assertion without the same ready authored target and checked result", node.origin);
-    walk.typeOf.set(node.id, result.value);
+    let selected = result.value;
+    if (node.kind !== "SatisfiesExpression") {
+      const operand = typeAt(walk, node.expression);
+      if (typeof operand === "number" && operand !== selected) {
+        const { deps, group } = walk.generation;
+        const contextual = checkedContextualTupleAssertionOf(node, type => readType(deps.types, type).kind === "tuple",
+          () => admitTypePublicationStep(deps.typeWork));
+        if (contextual.kind === "resource-stop")
+          return refuseTypeConstruction(deps.typeWork, contextual.stop, node.origin, { query: "constraintsOf", key: group.id });
+        if (contextual.value?.product === operand) selected = operand;
+      }
+    }
+    walk.typeOf.set(node.id, selected);
   }
   else if (node.kind === "ConditionalExpression") {
     const result = node.tsonic.views.read;

@@ -11,7 +11,7 @@ import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, 
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
-import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyArrayConstruction, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyPatternBinding, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
+import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyArrayConstruction, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyPatternBinding, verifySwitchOperations, verifyTupleAssertionProduct, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
 import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
@@ -968,6 +968,8 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       const stop = verifyArrayConstruction(node, original, instance, input.types, input.selectedNativeFacts, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
     }
+    const assertion = verifyTupleAssertionProduct(node, original, input.types, admit, emit);
+    if (assertion !== null) return { kind: "resource-stop", stop: assertion };
     if (node.kind === "InterfaceDeclaration") {
       const stop = verifyInterfaceInstance(input, node, original, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };

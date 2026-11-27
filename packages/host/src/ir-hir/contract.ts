@@ -4993,6 +4993,13 @@ export type IndexSyntaxTree = <P extends OrdinarySyntaxPhase<P>>(
 
 export type UnparenthesizedExpression = <P extends Phase>(node: Expression<P>) => Expression<P>;
 
+export type CheckedContextualTupleAssertionOf = <Stop extends object>(
+  node: AsExpression<CheckedPhase> | TypeAssertion<CheckedPhase>,
+  isTuple: (type: TyId) => boolean,
+  admit: () => Stop | null,
+) => { readonly kind: "complete"; readonly value: { readonly product: TyId; readonly literal: NodeId } | null }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+
 export type ChildrenOfSyntax = <P extends OrdinarySyntaxPhase<P>>(
   node: SyntaxNode<P>,
 ) => readonly SyntaxNode<P>[];

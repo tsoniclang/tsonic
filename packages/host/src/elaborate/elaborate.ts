@@ -3,7 +3,7 @@ import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeBodyId, encodeBodyId } from "../ids/index.js";
 import type { BinaryExpression, BindingElement, BindingName, BindingPattern, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
-import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedContextualTupleAssertionOf, checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, ConstraintDecision, EmbeddingDecision, FlowRole, IndexDecision, InferredSignaturePart, RuleOutcome } from "../ir-infer/contract.js";
 import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirLayoutOperand, TypedBindingElement,
   TirLocal, TirResolution, TirSelection, TypedBinary, TypedIndex, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
@@ -1482,11 +1482,21 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         const result = node.tsonic.views.read;
         const target = node.type.tsonic.type;
         const operand = values[nodePosition(node.expression.id)];
-        if (target.kind !== "available" || result.kind !== "available" || target.value !== result.value || operand?.convertedType !== result.value)
+        if (target.kind !== "available" || result.kind !== "available" || target.value !== result.value || operand === undefined)
+          return notElaboratedYet("an assertion without the same selected operand, target and result type", node.origin);
+        let selected = result.value;
+        if (operand.convertedType !== selected && node.kind !== "SatisfiesExpression") {
+          const contextual = checkedContextualTupleAssertionOf(node, type => readType(deps.types, type).kind === "tuple",
+            () => admitTypePublicationStep(deps.typeWork));
+          if (contextual.kind === "resource-stop")
+            return refuseTypeConstruction(deps.typeWork, contextual.stop, node.origin, { query: "elaborateBody", key: body.body });
+          if (contextual.value?.product === operand.convertedType) selected = operand.convertedType;
+        }
+        if (operand.convertedType !== selected)
           return notElaboratedYet("an assertion without the same selected operand, target and result type", node.origin);
         expressions[position] = { ...header(node), kind: node.kind, expression: expressionOf(node.expression),
           type: type.value ?? compilerDefect("an assertion has no typed annotation", node.origin),
-          tsonic: valueOf(position, result.value, node.origin) };
+          tsonic: valueOf(position, selected, node.origin) };
         return;
       }
       case "Identifier":

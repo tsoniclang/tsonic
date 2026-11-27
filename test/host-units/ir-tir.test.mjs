@@ -65,6 +65,66 @@ let structureOf;
 const readyStatement = node => ({ kind: "ready-statement", node });
 const readyChapter = root => ({ kind: "ready-root", root });
 
+test("an identity assertion carries the actual contextual tuple product without a second conversion", async () => {
+  const fixture = await loadFrontFixture();
+  const { createAccount, chargeWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { verifyTupleAssertionProduct } = await import("../../packages/host/dist/ir-tir/verify-occurrences.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function flip(flag: boolean): boolean { return !flag; }
+    export function start(flag: boolean): readonly [boolean, true] { return <const>(([flip(flag), true])); }
+  `);
+  const native = input.snapshot.nativeFacts;
+  const configured = { ...input, snapshot: { ...input.snapshot, nativeFacts: {
+    ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } };
+  const checked = captureSourceBarrier(configured);
+  assert.equal(checked.kind, "ok");
+  const typed = typeSourceBarrier(configured, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const reader = typed.value.verifierOf(input.snapshot.entryPoint);
+  const start = reader.source.tree.statements.nodes[1];
+  const body = reader.bodyOf({ body: start.tsonic.body, bindings: { kind: "parametric" } });
+  assert.deepEqual(verifyTir(reader, tirReadyReadAdmission(createAccount(input.limits.dataflow)))(body), { kind: "complete", violations: [] });
+  const node = body.root.statements.nodes[0].expression;
+  const original = reader.nodeOf({ kind: "body", value: { body: body.body, node: node.id } });
+  const source = original.type.tsonic.type.value;
+  const product = original.tsonic.views.contextual.value;
+  assert.notEqual(source, product);
+  assert.equal(node.type.tsonic.type, source);
+  for (const value of [node, node.expression, node.expression.expression, node.expression.expression.expression]) {
+    assert.equal(value.tsonic.type, product);
+    assert.deepEqual(value.tsonic.conversion, { kind: "identity" });
+  }
+  const wrongValue = { ...node, expression: { ...node.expression, expression: {
+    ...node.expression.expression, tsonic: { ...node.expression.expression.tsonic, type: source, convertedType: source },
+  } } };
+  const wrongEndpoint = { ...node, tsonic: { ...node.tsonic, type: source, convertedType: source } };
+  const wrongAnnotation = { ...node, type: { ...node.type, id: start.type.id } };
+  const verify = (candidate, admission, authored = original) => {
+    const violations = [];
+    const stop = verifyTupleAssertionProduct(candidate, authored, reader.types, admission, (rule, at) => violations.push([rule, at.id]));
+    return { stop, violations };
+  };
+  let reads = 0;
+  assert.deepEqual(verify(node, () => { reads += 1; return null; }), { stop: null, violations: [] });
+  for (const candidate of [wrongValue, wrongEndpoint, wrongAnnotation])
+    assert.deepEqual(verify(candidate, tirReadyReadAdmission(createAccount(input.limits.dataflow))), {
+      stop: null, violations: [["operation-type", node.id]],
+    });
+  for (let maximumWork = 0; maximumWork < reads; maximumWork += 1) {
+    const account = createAccount({ maximumWork, maximumResultEntries: 0 });
+    const actual = verify(node, tirReadyReadAdmission(account), maximumWork === 0
+      ? { ...original, get tsonic() { assert.fail("checked assertion read before admission"); } } : original);
+    assert.notEqual(actual.stop, null);
+    assert.equal(actual.stop === chargeWork(account, 1), true);
+    assert.deepEqual(actual.violations, []);
+  }
+});
+
 test("an uncontextualized tuple spread literal verifies its actual checked product, not a same-width alternative", async () => {
   const fixture = await loadFrontFixture();
   const { createAccount, chargeWork } = await import("../../packages/host/dist/dataflow/index.js");

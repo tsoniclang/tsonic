@@ -403,6 +403,34 @@ test("HIR pure walkers handle a genuine 100000-level declared syntax chain itera
 
 const constructorInputs = (count, nullOptionals, reversed) => syntaxConstructorInputs(syntax, nodeList, count, nullOptionals, reversed);
 
+test("HIR contextual tuple assertion borrows only the authored literal, context and admitted source edges", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { readType } = await import("../../packages/host/dist/ir-types/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function selected(flag: boolean): readonly [boolean, true] { return <const>(([flag, true])); }
+    export function direct(flag: boolean): readonly [boolean, true] { return [flag, true] as readonly [boolean, true]; }
+  `);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const module = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const [selected, direct] = module.tree.statements.nodes.map(node => node.body.statements.nodes[0].expression);
+  const expected = selected.tsonic.views.contextual.value;
+  const literal = selected.expression.expression.expression;
+  const read = (node, admit = () => null) => product.checkedContextualTupleAssertionOf(node,
+    type => readType(captured.value.types, type).kind === "tuple", admit);
+  assert.deepEqual(read(selected), { kind: "complete", value: { product: expected, literal: literal.id } });
+  assert.deepEqual(read(direct), { kind: "complete", value: null });
+  assert.deepEqual(read({ ...selected, expression: { ...selected.expression, parent: literal.id } }), { kind: "complete", value: null });
+  const stop = { kind: "resource-limit" };
+  let reached = 0;
+  const refused = read({ ...selected, expression: {
+    ...selected.expression, get parent() { assert.fail("unadmitted assertion operand"); },
+  } }, () => ++reached === 2 ? stop : null);
+  assert.equal(refused.kind === "resource-stop" && refused.stop === stop, true);
+});
+
 test("HIR structural walk pays before checked roots, required children and ordered list elements", async () => {
   const { accountFailure, chargeWork, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
   const fixture = await loadFrontFixture();
@@ -1459,7 +1487,7 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
   assert.deepStrictEqual(Object.keys(product).sort(), [
-    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedReferenceArgumentViewOf", "checkedSourceBindingFieldOf", "checkedSourceObjectFieldsOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
+    "binaryOperatorOf", "callableEndpointKey", "checkedContextualTupleAssertionOf", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedReferenceArgumentViewOf", "checkedSourceBindingFieldOf", "checkedSourceObjectFieldsOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxArgumentList", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
     "projectCheckedContent", "readLayoutDescriptor", "readLayoutSelector", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveCheckedLayoutAlias", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
@@ -3073,9 +3101,9 @@ test("HIR fresh actual declarations retain generic phases, all seven ports and e
       writeFileSync(resolve(stage, owner, name), readFileSync(resolve(source, name)));
   }
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
-  const positive = `import { callableEndpointKey, checkedParameterHeadersOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, iterateChildrenOfSyntax, orderPragmaArguments, parseHir, printHir, selectedEndpointRoleFaults, unparenthesizedExpression, verifyHir, walkSyntaxForest, walkSyntaxTree } from "./ir-hir/index.js";
-import type { CallableEndpointKey, CheckedParameterHeadersOf, EndpointRoleFaults, Expression, HasOverloadEndpoints, HirBody, HirCallableEndpoint, HirNode, SelectedEndpointRoleFaults, HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, IterateChildrenOfSyntax, OrdinarySyntaxPhase, OrderPragmaArguments, ParseHir, PrintHir, UnparenthesizedExpression, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./ir-hir/contract.js";
-import type { BodyId, DefId, ModuleId, NodeId } from "./ids/contract.js";
+  const positive = `import { callableEndpointKey, checkedContextualTupleAssertionOf, checkedParameterHeadersOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, iterateChildrenOfSyntax, orderPragmaArguments, parseHir, printHir, selectedEndpointRoleFaults, unparenthesizedExpression, verifyHir, walkSyntaxForest, walkSyntaxTree } from "./ir-hir/index.js";
+import type { AsExpression, CallableEndpointKey, CheckedContextualTupleAssertionOf, CheckedParameterHeadersOf, EndpointRoleFaults, Expression, HasOverloadEndpoints, HirBody, HirCallableEndpoint, HirNode, SelectedEndpointRoleFaults, HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, IterateChildrenOfSyntax, OrdinarySyntaxPhase, OrderPragmaArguments, ParseHir, PrintHir, UnparenthesizedExpression, VerifyHir, WalkSyntaxForest, WalkSyntaxTree } from "./ir-hir/contract.js";
+import type { BodyId, DefId, ModuleId, NodeId, TyId } from "./ids/contract.js";
 import type { SourceNodeRef } from "./ids/contract.js";
 import { nodeId as issueNode, localId as issueLocal, tyId as issueType, sigId as issueSignature, candidateListId as issueCandidates, expansionId as issueExpansion } from "./ids/index.js";
 import { hostDiagnosticCode } from "./diag/index.js";
@@ -3092,6 +3120,8 @@ const forestResult: Iterable<SyntaxNode<P>> = forest<P, never>([{ path: "module"
 return { childResult, indexResult, walkResult, cursor, forestResult }; }
 export function transparent<P extends Phase>(expression: Expression<P>): Expression<P> {
 const unwrap: UnparenthesizedExpression = unparenthesizedExpression; return unwrap(expression); }
+export function contextual<Stop extends object>(node: AsExpression<CheckedPhase>, isTuple: (type: TyId) => boolean, admit: () => Stop | null) {
+const read: CheckedContextualTupleAssertionOf = checkedContextualTupleAssertionOf; return read(node, isTuple, admit); }
 export function checked(module: HirModule, context: HirVerificationContext) {
 const parse: ParseHir = parseHir; const print: PrintHir = printHir; const verify: VerifyHir = verifyHir;
 const order: OrderPragmaArguments = orderPragmaArguments;
