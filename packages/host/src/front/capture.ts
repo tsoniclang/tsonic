@@ -829,10 +829,70 @@ function captureFieldSource(field: PrimitiveFieldSource | null, selected: Type |
   return null;
 }
 
+function tupleBindingAnnotation(scope: CaptureScope, leaf: Node, enclosing: Node, destination: Type): Node | null {
+  const ast = scope.checked.ast;
+  if (!admit(scope, "facts")) return null;
+  const path: number[] = [];
+  let element = leaf;
+  let pattern = enclosing;
+  for (;;) {
+    if (!admit(scope, "edges")) return null;
+    const binding = ast.as.AsBindingElement(element);
+    if (ast.kindName(pattern) !== "KindArrayBindingPattern" || binding === undefined
+      || binding.Initializer !== undefined || binding.PropertyName !== undefined || binding.DotDotDotToken !== undefined) return null;
+    const elements = ast.as.AsBindingPattern(pattern)?.Elements?.Nodes;
+    if (elements === undefined) return null;
+    let ordinal = 0;
+    for (; ordinal < elements.length; ordinal += 1) {
+      if (!admit(scope, "edges")) return null;
+      if (elements[ordinal] === element) break;
+    }
+    if (ordinal === elements.length || !admit(scope, "facts")) return null;
+    path.push(ordinal);
+    const owner = ast.parent(pattern);
+    if (ast.kindName(owner) === "KindVariableDeclaration") {
+      const variable = ast.as.AsVariableDeclaration(owner);
+      if (variable?.name !== pattern || variable.Initializer === undefined) return null;
+      const written = variable.Type;
+      const receiver = written === undefined
+        ? sourceType(scope, { kind: "expression", node: variable.Initializer })
+        : sourceType(scope, { kind: "annotation", node: written });
+      if (receiver === undefined || receiver.causes.length !== 0) return null;
+      let type = receiver.type;
+      let annotation = written ?? valueTupleAnnotation(scope, variable.Initializer, receiver) ?? undefined;
+      for (let depth = path.length - 1; depth >= 0; depth -= 1) {
+        const source = tupleAnnotationOf(scope, type, annotation);
+        if (source === undefined || !admit(scope, "edges")) return null;
+        const syntax = tupleSyntax(scope, source);
+        const tuple = scope.shape.getTupleInfo(type);
+        if (syntax === undefined || tuple === undefined
+          || syntax.readonly !== tuple.readonly || syntax.elements.length !== tuple.elements.length) return null;
+        const selected = path[depth];
+        if (selected === undefined) return null;
+        const slot = tuple.elements[selected];
+        annotation = syntax.elements[selected];
+        if (slot?.elementKind !== "required" || slot.declaration !== undefined || annotation === undefined) return null;
+        type = slot.type;
+      }
+      return type === destination ? annotation ?? null : null;
+    }
+    if (owner === undefined || ast.kindName(owner) !== "KindBindingElement" || ast.name(owner) !== pattern) return null;
+    const parent = ast.parent(owner);
+    if (parent === undefined) return null;
+    element = owner;
+    pattern = parent;
+  }
+}
+
 function primitiveBindingSource(scope: CaptureScope, element: Node, pattern: Node, name: Node, checked: ResolvedSourceTypeInfo | undefined) {
   const ast = scope.checked.ast;
-  if (!scope.sourcePrimitiveFacts || checked === undefined || checked.causes.length !== 0
-    || ast.kindName(pattern) !== "KindObjectBindingPattern" || !admit(scope, "edges")) return null;
+  if (!scope.sourcePrimitiveFacts || checked === undefined || checked.causes.length !== 0 || !admit(scope, "edges")) return null;
+  const kind = ast.kindName(pattern);
+  if (kind === "KindArrayBindingPattern") {
+    const annotation = tupleBindingAnnotation(scope, element, pattern, checked.type);
+    return annotation === null ? null : { annotation, arm: null };
+  }
+  if (kind !== "KindObjectBindingPattern") return null;
   const owner = ast.parent(pattern);
   const variable = ast.kindName(owner) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(owner) : undefined;
   const binding = ast.as.AsBindingElement(element);
@@ -5543,8 +5603,12 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
         const contexts = scope.tables.tupleArgumentContexts;
         if (contexts !== null && !admit(scope, "edges")) break;
         const formal = contexts?.get(node);
-        contextualSource = formal === undefined ? contextual.typeSource ?? null
+        const variable = ast.kindName(parent) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(parent) : undefined;
+        const written = variable?.Initializer === node && ast.kindName(variable.name) === "KindArrayBindingPattern"
+          ? tupleAnnotationOf(scope, contextual.type, variable.Type) : undefined;
+        contextualSource = formal === undefined ? written ?? contextual.typeSource ?? null
           : formal.type === contextual.type ? formal.annotation : null;
+        if (scope.meter.refusal !== null) break;
       }
       const contextualType = contextual === undefined ? null
         : rawType(scope, () => contextual, component(scope, reference, null), contextualSource, tupleContext);

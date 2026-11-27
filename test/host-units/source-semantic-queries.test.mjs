@@ -2534,6 +2534,37 @@ export function select(o: { a: Native; plain: number; b?: Native }): Native {
     .some(row => row.kind === "assign" && row.value.kind === "convert")), false);
 });
 
+test("tuple binding carries only the selected native slots into their own leaf storage", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = await nativeInt32Input(`
+function pair(): [Native, number] { return [1, 2]; }
+export function direct(): Native {
+  const [native, ordinary] = pair();
+  return native;
+}
+export function nested(value: [number, [Native, number]]): Native {
+  const [, [native, ordinary]]: [number, [Native, number]] = value;
+  return native;
+}`, true);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const { index, modules } = result.value;
+  const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+  const bodies = chapter.bodies.filter(row => row.kind === "selected" && row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0]?.kind === "VariableStatement");
+  assert.equal(bodies.length, 2);
+  for (const { tir, mir } of bodies) {
+    const declaration = tir.root.statements.nodes[0].declarationList.declarations.nodes[0];
+    const [first, second] = declaration.name.elements.nodes;
+    const [native, ordinary] = first.name === null ? second.name.elements.nodes : [first, second];
+    assert.deepEqual([native, ordinary].map(row => [row.name.text, index.types.terms[row.tsonic.storage]]), [
+      ["native", { kind: "primitive", primitive: "int32" }],
+      ["ordinary", { kind: "primitive", primitive: "float64" }],
+    ]);
+    assert.equal(mir.blocks.some(block => block.statements.some(row => row.kind === "assign" && row.value.kind === "convert")), false);
+  }
+});
+
 test("inferred array construction retains its exact spread operand and authored scalar order", async () => {
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
