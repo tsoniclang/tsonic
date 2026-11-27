@@ -21,8 +21,8 @@ import { orderPragmaArguments as orderPragmas } from "./pragmas.js";
 import { callableEndpointKey as endpointKey, checkedParameterHeadersOf as parameterHeaders, hasOverloadEndpoints as overloadEndpoints, selectedEndpointRoleFaults as roleFaults } from "./endpoints.js";
 import type { CreateModuleBindingViews, IsModuleBindingKind, IsTypeOnlyExportStar, ResolveModuleBinding, ResolveModuleExport } from "./contract.js";
 import { createModuleBindingViews as bindingViews, isModuleBindingKind as bindingKind, isTypeOnlyExportStar as typeOnlyExportStar, resolveModuleBinding as resolveBinding, resolveModuleExport as resolveExport } from "./bindings.js";
-import type { CheckedMemberStorageOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldOf, CheckedVariableStorageOf, ReadWriteRootStorageOf, WritableRootStorageOf } from "./contract.js";
-import { checkedMemberStorageOf as memberStorage, checkedSourceObjectHoldingOf as objectHolding, checkedSourceObjectFieldOf as objectField, checkedVariableStorageOf as checkedStorage,
+import type { CheckedMemberStorageOf, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldOf, CheckedVariableStorageOf, ReadWriteRootStorageOf, WritableRootStorageOf } from "./contract.js";
+import { checkedMemberStorageOf as memberStorage, checkedSourceBindingFieldOf as bindingField, checkedSourceObjectHoldingOf as objectHolding, checkedSourceObjectFieldOf as objectField, checkedVariableStorageOf as checkedStorage,
   readWriteRootStorageOf as readWriteStorage, writableRootStorageOf as writableStorage } from "./storage.js";
 import { checkedGroupingFrontierOf as groupingFrontier } from "./grouping-frontier.js";
 import type { CollectInferredStorageSources } from "./contract.js";
@@ -52,6 +52,7 @@ export const checkedVariableStorageOf: CheckedVariableStorageOf = checkedStorage
 export const checkedMemberStorageOf: CheckedMemberStorageOf = memberStorage;
 export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = objectHolding;
 export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = objectField;
+export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = bindingField;
 export const checkedParameterHeadersOf: CheckedParameterHeadersOf = parameterHeaders;
 export const checkedGroupingFrontierOf: CheckedGroupingFrontierOf = groupingFrontier;
 

@@ -4063,6 +4063,10 @@ export type CheckedSourceObjectFieldOf = (body: HirBody, access: PropertyAccessE
   nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null, admitAlias: () => boolean,
 ) => SourceObjectField | null;
 
+export type CheckedSourceBindingFieldOf = (body: HirBody, element: BindingElement<CheckedPhase>, key: MemberKey, field: DefId,
+  nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null, admit: (work?: number) => boolean,
+) => SourceObjectField | null;
+
 export interface HirMemoryGeometryCapture {
   readonly source: CapturedFact<TyId>;
   readonly dataLayoutExpression: SourceNodeRef | null;

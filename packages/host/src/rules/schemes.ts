@@ -234,7 +234,7 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
   if (answer.error !== null)
     return finishMember(deps, destination, { kind: "error", causes: [{ kind: "unit", unit: answer.origin }] });
   const storage = phase.storage;
-  if (storage === null || phase.inventory.optional)
+  if (storage === null || phase.inventory.optional && (access !== "read" || readType(deps.types, selected).kind !== "optional"))
     return notDecidedYet("the actual selected native receiver representation of this member access", origin);
   const decision: MemberDecision = { key: phase.inventory.key, origins: phase.inventory.origins,
     selectedDeclarations: [storage.field], primary: storage.field, bindings: phase.bindings,

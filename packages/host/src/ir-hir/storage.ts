@@ -1,6 +1,7 @@
-import type { CheckedMemberStorageOf, CheckedPhase, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldOf, CheckedVariableStorageOf, HirCoreCapture,
+import type { CheckedMemberStorageOf, CheckedPhase, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldOf, CheckedVariableStorageOf, HirCoreCapture,
   HirNode, ReadWriteRootStorageOf, TypeNode, WritableRootStorageOf } from "./contract.js";
 import type { DefId, LocalId, TyId } from "../ids/contract.js";
+import type { SourceObjectHolding } from "../ir-types/contract.js";
 import { compareMemberKeys } from "../ir-types/index.js";
 import { unparenthesizedExpression } from "./walk.js";
 
@@ -121,15 +122,42 @@ export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, acc
   if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local") return null;
   const formal = checkedSourceObjectHoldingOf(body, receiver.tsonic.resolution.local, nodeOf, itemOf, admitAlias);
   if (formal === null) return null;
-  const declaration = itemOf(formal.declaration);
+  if (qualifiedSourceField(formal, origin.declaration, itemOf) === null) return null;
+  return { ...formal, occurrence: { body: body.body, node: access.id }, field: origin.declaration };
+};
+
+function qualifiedSourceField(holding: SourceObjectHolding, definition: DefId, itemOf: (definition: DefId) => HirNode | null) {
+  const declaration = itemOf(holding.declaration);
   if (declaration?.kind !== "TypeAliasDeclaration" && declaration?.kind !== "Parameter" && declaration?.kind !== "VariableDeclaration"
     || declaration.type?.kind !== "TypeLiteral") return null;
-  const field = itemOf(origin.declaration);
-  if (field?.kind !== "PropertySignature" || field.postfixToken !== null || field.tsonic.parent !== formal.declaration
+  const field = itemOf(definition);
+  if (field?.kind !== "PropertySignature" || field.postfixToken?.kind === "ExclamationToken" || field.tsonic.parent !== holding.declaration
     || field.parent !== declaration.type.id
-    || field.tsonic.declaration.kind !== "definition" || field.tsonic.declaration.definition !== origin.declaration
+    || field.tsonic.declaration.kind !== "definition" || field.tsonic.declaration.definition !== definition
     || !ordinaryObjectRepresentation(field.tsonic.core)) return null;
-  return { ...formal, occurrence: { body: body.body, node: access.id }, field: origin.declaration };
+  return field;
+}
+
+export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, element, key, definition, nodeOf, itemOf, admit) => {
+  const occurrence = { body: body.body, node: element.id };
+  if (!admit() || nodeOf({ kind: "body", value: occurrence }) !== element || element.parent === null
+    || element.name?.kind !== "Identifier" || element.dotDotDotToken !== null || key.kind !== "text") return null;
+  const written = element.propertyName;
+  if (written !== null && (written.kind !== "Identifier" || written.tsonic.role !== "property-name"
+    || written.tsonic.key.kind !== "available" || written.tsonic.key.value.kind !== "text" || written.tsonic.key.value.value !== written.text)) return null;
+  const selector = written?.text ?? element.name.text;
+  if (!admit(key.value.length + selector.length) || key.value !== selector) return null;
+  const pattern = nodeOf({ kind: "body", value: { body: body.body, node: element.parent } });
+  if (pattern?.kind !== "ObjectBindingPattern" || pattern.parent === null || !admit()) return null;
+  const owner = nodeOf({ kind: "body", value: { body: body.body, node: pattern.parent } });
+  if (owner?.kind !== "VariableDeclaration" || owner.name !== pattern || owner.initializer === null) return null;
+  const receiver = unparenthesizedExpression<CheckedPhase>(owner.initializer);
+  if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local") return null;
+  const holding = checkedSourceObjectHoldingOf(body, receiver.tsonic.resolution.local, nodeOf, itemOf, admit);
+  if (holding === null || !admit()) return null;
+  const field = qualifiedSourceField(holding, definition, itemOf);
+  if (field?.name.kind !== "Identifier" || !admit(field.name.text.length + key.value.length) || field.name.text !== key.value) return null;
+  return { ...holding, occurrence, field: definition };
 };
 
 export const checkedMemberStorageOf: CheckedMemberStorageOf = access => {

@@ -2409,6 +2409,50 @@ test("a checked binding default completes against its actual named storage witho
   assert.equal(answer.value.solution.bodies[0].completion, fit.to);
 });
 
+test("object binding reads the actual ordered members and keeps optional absence distinct from the present fit", async () => {
+  const { checkedSourceBindingFieldOf } = await import("../../packages/host/dist/ir-hir/index.js");
+  const program = ready(`export function start(source: { first: boolean; second?: boolean }): boolean {
+    const { first: left, second = !left } = source;
+    return second;
+  }`);
+  const callable = program.checked.tree.statements.nodes[0];
+  const decl = callable.body.statements.nodes[0].declarationList.declarations.nodes[0];
+  const body = program.checked.bodies.find(row => row.root === callable.body);
+  const group = program.inputs.groups.find(row => row.bodies.includes(body.body));
+  const result = program.database.run(program.queries.solutionOf, group.id);
+  assert.equal(result.kind, "completed", JSON.stringify(result.diagnostics));
+  assert.deepEqual(result.diagnostics, []);
+  const set = result.value.constraints.constraints.find(row => row.body === body.body);
+  const slots = set.constraints.flatMap((constraint, index) => constraint.kind === "member" ? [{ constraint, index }] : []);
+  assert.deepEqual(slots.map(row => row.constraint.key.value), ["first", "second"]);
+  const [first, second] = slots;
+  for (const [position, { constraint, index }] of slots.entries()) {
+    const element = decl.name.elements.nodes[position];
+    assert.deepEqual(constraint.occurrence, { body: body.body, node: element.id });
+    assert.equal(constraint.receiver, decl.initializer.tsonic.value.views.read.value);
+    const solved = result.value.solution.constraints.find(row => row.constraint.body === body.body && row.constraint.index === index).decision;
+    assert.equal(solved.kind, "member");
+    assert.equal(solved.member.read, constraint.result);
+    assert.equal(solved.member.primary, constraint.origins[0].declaration);
+    assert.equal(solved.refinement, null);
+    const read = fixture.types.readType(program.interner, solved.member.read);
+    assert.equal(read.kind, position === 0 ? "primitive" : "optional");
+    const fit = set.constraints[index + 1];
+    assert.equal(fit.kind, "flow");
+    const input = read.kind === "optional" ? fixture.types.optionalValueDomainOf(read, type => fixture.types.readType(program.interner, type)).present
+      : solved.member.read;
+    assert.equal(fit.from, input);
+    assert.equal(fit.to, element.tsonic.declaredType.value);
+  }
+  const check = (element, key, field, admit = () => true) => checkedSourceBindingFieldOf(body, element, key, field,
+    program.domain.nodeOf, program.inputs.inference.itemOf, admit);
+  const right = decl.name.elements.nodes[1];
+  assert.equal(check(right, second.constraint.key, second.constraint.origins[0].declaration)?.field, second.constraint.origins[0].declaration);
+  assert.equal(check(right, second.constraint.key, first.constraint.origins[0].declaration), null);
+  assert.equal(check(right, first.constraint.key, first.constraint.origins[0].declaration), null);
+  assert.equal(check(right, second.constraint.key, second.constraint.origins[0].declaration, () => false), null);
+});
+
 test("actual selected member constraints retain their checked origins and distinct receiver and open result evidence", async () => {
   const program = ready("export function read(box:Box):boolean{return box.flag;}export type Box={flag:boolean};\n");
   const source = program.checked.bodies.find(body => body.root.kind === "Block");

@@ -1,11 +1,11 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { BindingScope, BindingVector, CategoryEvidence, Signature, TypeTerm } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, CategoryEvidence, MemberKey, Signature, TypeTerm } from "../ir-types/contract.js";
 import type { BindingPattern, CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirLocal, HirNode, HirParam, HirResolution, CheckedPhase, VariableDeclaration } from "../ir-hir/contract.js";
 import type { ArrayExtentConstraint, CallConstraint, DefaultConstraint, FlowConstraint, IndexConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, WrittenOperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
-import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
+import { admitTypePublicationStep, compareMemberKeys, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { binaryOperatorOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
@@ -676,7 +676,74 @@ function unaryConstraint(walk: Walk, node: HirNode, source: Expression<CheckedPh
   walk.typeOf.set(node.id, result);
 }
 
-function fixedBindingFits(walk: Walk, node: VariableDeclaration<CheckedPhase>): Refusal | undefined {
+function objectBindingFits(walk: Walk, pattern: BindingPattern<CheckedPhase>, source: Expression<CheckedPhase>, receiver: TyId): Refusal | undefined {
+  const { deps, group } = walk.generation;
+  const unit = { query: "constraintsOf", key: group.id };
+  const ready = readType(deps.types, receiver);
+  if (pattern.kind !== "ObjectBindingPattern" || ready.kind !== "shape")
+    return notInferredYet(PORT, "an object binding without its actual closed structural receiver", pattern.origin);
+  for (let index = 0; index < pattern.elements.nodes.length; index += 1) {
+    const reached = admitTypePublicationStep(deps.typeWork);
+    if (reached !== null) return refuseTypeConstruction(deps.typeWork, reached, pattern.origin, unit);
+    const element = present(pattern.elements.nodes[index], "the actual ordered object binding element");
+    const name = element.name;
+    const written = element.propertyName;
+    if (element.dotDotDotToken !== null || name?.kind !== "Identifier" ||
+      written !== null && (written.kind !== "Identifier" || written.tsonic.role !== "property-name"
+        || written.tsonic.key.kind !== "available" || written.tsonic.key.value.kind !== "text"
+        || written.tsonic.key.value.value !== written.text))
+      return notInferredYet(PORT, "an object binding without an actual named data-field selector", element.origin);
+    const key: MemberKey = { kind: "text", value: written?.text ?? name.text };
+    let low = 0;
+    let high = ready.members.length;
+    let member: (typeof ready.members)[number] | null = null;
+    while (low < high) {
+      const step = admitTypePublicationStep(deps.typeWork);
+      if (step !== null) return refuseTypeConstruction(deps.typeWork, step, element.origin, unit);
+      const middle = low + Math.floor((high - low) / 2);
+      const candidate = present(ready.members[middle], "the actual canonical structural member");
+      const compare = admitTypePublicationStep(deps.typeWork, key.value.length + (candidate.key.kind === "text" ? candidate.key.value.length : 0));
+      if (compare !== null) return refuseTypeConstruction(deps.typeWork, compare, element.origin, unit);
+      const order = compareMemberKeys(candidate.key, key);
+      if (order < 0) low = middle + 1;
+      else if (order > 0) high = middle;
+      else { member = candidate; break; }
+    }
+    if (member?.kind !== "property" || member.read === null || member.readOrigins.length !== 1
+      || member.readOrigins[0]?.kind !== "declared")
+      return notInferredYet(PORT, "an object binding without its actual declared data-field read", element.origin);
+    const target = element.tsonic.declaration;
+    const storage = element.tsonic.declaredType;
+    if (target === null || storage.kind !== "available" || storage.value === null)
+      return notInferredYet(PORT, "the actual named destination of an object binding", element.origin);
+    const definition = target.kind === "definition" ? target.definition : localBinding(deps, target.local).definition;
+    if (deps.itemOf(definition) !== element)
+      return callerDefect(PORT, "an object binding fit must target its own actual named leaf");
+    const occurrence = refOf(walk, element);
+    walk.generation.selectionContexts.push({ kind: "member", occurrence, origin: element.origin });
+    walk.draft.constraints.push({ kind: "member", occurrence, receiver, key, access: "read", result: member.read,
+      origins: member.readOrigins, bindings: walk.draft.bindings });
+    walk.draft.evidence.push({ type: receiver, node: source, component: { kind: "body", value: refOf(walk, source) } },
+      { type: member.read, node: element, component: { kind: "body", value: occurrence } });
+    const read = readType(deps.types, member.read);
+    let presentValue = member.read;
+    if (element.initializer !== null && read.kind === "optional") {
+      let stopped: ReturnType<typeof admitTypePublicationStep> = null;
+      const domain = optionalValueDomainOf(read, value => {
+        stopped ??= admitTypePublicationStep(deps.typeWork);
+        return stopped === null ? readType(deps.types, value) : null;
+      });
+      if (stopped !== null) return refuseTypeConstruction(deps.typeWork, stopped, element.origin, unit);
+      if (domain.kind !== "optional-value")
+        return notInferredYet(PORT, "a binding default without the actual native present-value domain", element.origin);
+      presentValue = domain.present;
+    }
+    flow(walk, element, presentValue, storage.value, "initialization", { kind: "item", value: { owner: definition, node: element.id } });
+  }
+  return undefined;
+}
+
+function bindingFits(walk: Walk, node: VariableDeclaration<CheckedPhase>): Refusal | undefined {
   const metadata = node.tsonic;
   if ("declaration" in metadata || node.name.kind === "Identifier" || node.initializer === null)
     return callerDefect(PORT, "a binding pattern retains its exact inline source and role");
@@ -690,9 +757,10 @@ function fixedBindingFits(walk: Walk, node: VariableDeclaration<CheckedPhase>): 
   const value = payload !== null && "value" in payload ? payload.value : payload;
   const checked = value !== null && "views" in value ? value.views.read : null;
   if (checked?.kind !== "available" || metadata.declaredType.kind !== "available")
-    return notInferredYet(PORT, "the actual inferred or annotated tuple of a binding pattern", node.origin);
+    return notInferredYet(PORT, "the actual inferred or annotated receiver of a binding pattern", node.origin);
   const carrier = metadata.declaredType.value ?? checked.value;
   flow(walk, source, typeAt(walk, source), carrier, "initialization", { kind: "body", value: refOf(walk, node) });
+  if (node.name.kind === "ObjectBindingPattern") return objectBindingFits(walk, node.name, source, carrier);
   interface Slots {
     readonly pattern: BindingPattern<CheckedPhase>;
     readonly tuple: Extract<TypeTerm, { readonly kind: "tuple" }>;
@@ -753,7 +821,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     if (!walk.typeOf.has(node.id)) walk.typeOf.set(node.id, node.tsonic.value.views.read.value);
   }
   else if (node.kind === "ParenthesizedExpression") walk.typeOf.set(node.id, typeAt(walk, node.expression));
-  else if (node.kind === "VariableDeclaration") return fixedBindingFits(walk, node);
+  else if (node.kind === "VariableDeclaration") return bindingFits(walk, node);
   else if (node.kind === "CaseClause") {
     const subject = present(caseSubject, "the actual enclosing switch subject");
     const { deps } = walk.generation;

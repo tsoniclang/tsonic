@@ -9,7 +9,7 @@ import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { admitTypePublicationStep, internType, readType, refuseTypeConstruction } from "../ir-types/index.js";
-import { checkedSourceObjectFieldOf } from "../ir-hir/index.js";
+import { checkedSourceBindingFieldOf, checkedSourceObjectFieldOf } from "../ir-hir/index.js";
 import type { BodyInstance, MemberInventory, TypePublicationStop } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
@@ -468,11 +468,16 @@ function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
       const { constraint, origin } = item.reached;
       const node = deps.checkedNodeOf({ kind: "body", value: constraint.occurrence });
       let stop: TypePublicationStop | null = null;
+      const admit = (work = 1): boolean => {
+        stop ??= admitTypePublicationStep(deps.typeWork, work);
+        return stop === null;
+      };
+      const original = constraint.origins.length === 1 ? constraint.origins[0] : undefined;
       const storage = node?.kind === "PropertyAccessExpression"
-        ? checkedSourceObjectFieldOf(deps.hirBody(item.set.body), node, deps.checkedNodeOf, deps.itemOf, () => {
-          stop ??= admitTypePublicationStep(deps.typeWork);
-          return stop === null;
-        }) : null;
+        ? checkedSourceObjectFieldOf(deps.hirBody(item.set.body), node, deps.checkedNodeOf, deps.itemOf, admit)
+        : node?.kind === "BindingElement" && original?.kind === "declared" && constraint.access === "read"
+          ? checkedSourceBindingFieldOf(deps.hirBody(item.set.body), node, constraint.key, original.declaration, deps.checkedNodeOf, deps.itemOf, admit)
+          : null;
       if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, origin, unit);
       let checkedRead: TyId | null = null;
       if (storage !== null && constraint.access === "read" && node?.kind === "PropertyAccessExpression" && node.tsonic.role === "value") {
