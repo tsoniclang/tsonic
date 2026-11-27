@@ -26,12 +26,13 @@ import { wt4 } from "./fixtures/lower-mir/programs/wt4.mjs";
 import { wt6 } from "./fixtures/lower-mir/programs/wt6.mjs";
 import { s7 } from "./fixtures/lower-mir/programs/s7.mjs";
 import { s2, s3, s6 } from "./fixtures/lower-mir/programs/cleanup.mjs";
-import { s1, wt5, wt8, wt9, wt10, wt11 } from "./fixtures/lower-mir/programs/more.mjs";
+import { s1, wt5, wt8, wt9, wt11 } from "./fixtures/lower-mir/programs/more.mjs";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
 import { checkCommaSequence, checkCoalescingAssignment, checkOptionalEmbedding, checkLabelledTransfers, checkVoidOperand } from "./fixtures/typed-occurrence-witnesses.mjs";
 import { checkNativeArrayLowering } from "./fixtures/native-array-initialization.mjs";
+import { nativeRefinementInput } from "./fixtures/native-refinement-proofs.mjs";
 
 // The producer does not lower every construct yet. A construct it does not lower is refused by its one frontier
 // check, a compiler defect whose message starts with FRONTIER. A case that meets it is not a passing case and not a
@@ -5183,22 +5184,42 @@ test("WT-9 guarded: every exit of a suspension passes through the enclosing clea
 // ---- WT-10 ----------------------------------------------------------------------------------
 
 for (const policy of POLICIES) {
-  test(`WT-10 read (${policy.bounds}/${policy.absent}): every narrowed use and every index carries its check`, () => {
-    const program = wt10(policy).program;
-    const mir = lower(program);
+  test(`WT-10 read (${policy.bounds}/${policy.absent}): every narrowed use and every index carries its check`, async () => {
+    const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+    const input = await nativeRefinementInput(await loadFrontFixture(), false, policy);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const { mir } = body;
+    const [, loop, guard] = body.tir.root.statements.nodes;
+    const [pure, firstRead, clear, secondRead] = guard.thenStatement.statements.nodes;
+    const checkedIndex = loop.statement.statements.nodes[0].expression.right.id;
+    const checkedFields = [firstRead, secondRead].map(row => row.expression.right.expression.id);
     // Section 7 part 8, WT-10: "every narrowed use carries its check whether or not it will be proved". R1: "no check
     // is absent because it might be proved". The proof is Refinements' fact; lowering reads none.
-    const failing = policy.absent === "abort" ? "abort" : "escape";
-    for (const label of ["a[i]", "o.x#1", "o.x#2"]) {
-      const found = checks(mir, program.at(label));
-      assert.equal(found.length, 1, label);
-      assert.equal(found[0].failure, failing, label);
+    for (const [node, failure] of [[checkedIndex, policy.bounds], ...checkedFields.map(node => [node, policy.absent])]) {
+      const found = checks(mir, node);
+      assert.equal(found.length, 1, String(node));
+      assert.equal(found[0].failure, failure === "abort" ? "abort" : "escape", String(node));
     }
-    // One loop iteration, both guards true: authored order of the calls and checks.
-    let loop = 0;
-    const path = walk(mir, { decide: point => point.kind !== "switch" ? "normal" : point.node === program.at("for") || point.node === program.at("i<a.length") ? (loop++ === 0) : true });
-    assert.deepEqual(labelled(program, nodesOn(path)), ["a[i]", "pure()", "o.x#1", "clear(o)", "o.x#2"]);
+    const ordered = [checkedIndex, pure.expression.id, checkedFields[0], clear.expression.id, checkedFields[1]];
+    const entry = mir.entries.findIndex(row => row.provided === 3);
+    assert.ok(entry >= 0);
+    const trace = (failureNode = null) => {
+      let iterations = 0;
+      return walk(mir, { entry, decide: point => point.kind === "switch" ? point.node === loop.id ? iterations++ === 0 : true
+        : point.kind === "check" && point.node === failureNode ? "unwind" : "normal" });
+    };
+    const retained = path => nodesOn(path).filter(node => ordered.includes(node));
+    const path = trace();
+    assert.deepEqual(retained(path), ordered);
     assert.equal(path.end, "return");
+    for (const [node, failure] of [[checkedIndex, policy.bounds], ...checkedFields.map(node => [node, policy.absent])]) {
+      const stopped = trace(node);
+      assert.deepEqual(retained(stopped), ordered.slice(0, ordered.indexOf(node) + 1));
+      assert.equal(stopped.end, failure);
+    }
   });
 }
 

@@ -32,13 +32,9 @@ function checkReachedProofCuts(stateOf, run, expected, label, afterProbe = () =>
   }
 }
 
-export async function checkNativeRefinementWalkthrough() {
-  const { loadFrontFixture } = await import("./front/checked-module.mjs");
-  const fixture = await loadFrontFixture();
+export async function nativeRefinementInput(fixture, replace, policy = null) {
   const { nativeInt32Input } = await import("./native-int32-input.mjs");
-  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
-  for (const [replace, work, records] of [[false, 115362, 20011], [true, 116501, 20353]]) {
-    const input = await nativeInt32Input(fixture, `
+  const input = await nativeInt32Input(fixture, `
       function pure(): void {}
       function clear(p: { x: { v: Native } | null }): void { p.x = null; }
       export function read(o: { x: { v: Native } | null }, a: Native[], replacement: Native[]): Native {
@@ -48,16 +44,27 @@ export async function checkNativeRefinementWalkthrough() {
         return sum;
       }
     `, true);
-    const native = input.snapshot.nativeFacts;
-    const prepared = { ...input, snapshot: { ...input.snapshot, nativeFacts: { ...native, integerOverflow: [
+  const { nativeFacts } = input.snapshot;
+  return { ...input, snapshot: { ...input.snapshot, nativeFacts: { ...nativeFacts,
+    arrayIndexFailure: policy?.bounds ?? nativeFacts.arrayIndexFailure,
+    absentAccessFailure: policy?.absent ?? nativeFacts.absentAccessFailure,
+    integerOverflow: [
       { carrier: "int32", operation: "add", result: "int32", law: "wrap" },
       { carrier: "int64", operation: "add", result: "int64", law: "wrap" },
       { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
     ] } } };
+}
+
+export async function checkNativeRefinementWalkthrough() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  for (const [replace, work, records] of [[false, 115362, 20011], [true, 116501, 20353]]) {
+    const prepared = await nativeRefinementInput(fixture, replace);
     const result = analyzeHostProgram(prepared);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
-    const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+    const chapter = modules.find(row => row.module === prepared.snapshot.entryPoint);
     const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
     const [declaration, loop, guard] = selected.tir.root.statements.nodes;
     const sum = declaration.declarationList.declarations.nodes[0];

@@ -66,49 +66,6 @@ export function wt9() {
   return { all, take, guarded };
 }
 
-// WT-10
-//   function pure(): void {}
-//   function clear(p: { x: { v: int32 } | null }): void { p.x = null; }
-//   export function read(o: { x: { v: int32 } | null }, a: int32[]): int32 {
-//     let sum = 0;
-//     for (let i = 0; i < a.length; i++) sum += a[i];
-//     if (o.x !== null) { pure(); sum += o.x.v; }
-//     if (o.x !== null) { clear(o); return o.x.v + sum; }
-//     return sum;
-//   }
-const SIG_PURE = signature("pure", [], T.void);
-const SIG_CLEAR = signature("clear", [["p", T.holder]], T.void);
-const SIG_READ = signature("read", [["o", T.holder], ["a", T.int32Array]], T.int32);
-export function wt10(policy) {
-  const b = builders("read");
-  const ox = label => ({ $: label, ...b.property(b.id("o", 0, T.holder), "x", b.read(T.optBoxV, selection("x", T.optBoxV, T.optBoxV, direct("by-reference")))) });
-  const narrowedV = (label, valueLabel) => ({ $: valueLabel, ...b.property(
-    { $: label, ...b.property(b.id("o", 0, T.holder), "x", b.read(T.boxV, selection("x", T.optBoxV, T.optBoxV, direct("by-reference")),
-      { narrowing: narrowed(T.optBoxV, T.boxV, policy.absent) })) },
-    "v", b.read(T.int32, selection("v", T.int32, T.int32, direct("by-reference")))) });
-  const guard = label => ({ $: label, ...b.comparison(ox(`${label}#o.x`), "ExclamationEqualsEqualsToken", b.keyword("NullKeyword", T.absence), NOT_ABSENT) });
-  const program = typedBody("read", { signature: SIG_READ, completion: T.int32,
-    locals: [["o", "parameter", T.holder], ["a", "parameter", T.int32Array], ["sum", "binding", T.int32, true], ["i", "binding", T.int32, true]],
-    params: [[0, "required", T.holder], [1, "required", T.int32Array]],
-    root: b.block(
-      b.declare([b.variable(b.declName("sum", 2), 2, T.int32, b.num("0", T.int32))]),
-      { $: "for", ...b.forLoop(
-        b.declarationList([b.variable(b.declName("i", 3), 3, T.int32, b.num("0", T.int32))]),
-        { $: "i<a.length", ...b.comparison(b.id("i", 3, T.int32), "LessThanToken",
-          b.property(b.id("a", 1, T.int32Array), "length", b.read(T.int32, selection("length", T.int32, null, direct("by-reference")))), LESS) },
-        b.postfix(b.target("i", 3, T.int32, { kind: "read-write", storage: T.int32, read: T.int32, narrowing: null, evidenceIndex: null }), "PlusPlusToken", T.int32, T.int32, ADD),
-        compound(b, 2, { $: "a[i]", ...b.element(b.id("a", 1, T.int32Array), b.id("i", 3, T.int32),
-          nativeIndex(T.int32Array, T.int32, "read", policy.bounds)) }, "sum+=a[i]", ADD, T.int32)) },
-      b.ifElse(guard("guard#1"), b.block(b.expressionStatement(direct0(b, "pure", SIG_PURE, T.void, "pure()")),
-        compound(b, 2, narrowedV("o.x#1", "o.x.v#1"), "sum+=o.x.v", ADD, T.int32))),
-      b.ifElse(guard("guard#2"), b.block(
-        b.expressionStatement(direct0(b, "clear", SIG_CLEAR, T.void, "clear(o)", [{ $: "o-argument", ...b.id("o", 0, T.holder) }], [mapped(0, 0)],
-          at => [{ kind: "provided", parameter: 0, expression: at("o-argument") }])),
-        b.returns(b.arithmetic(narrowedV("o.x#2", "o.x.v#2"), "PlusToken", b.id("sum", 2, T.int32), T.int32, ADD)))),
-      b.returns(b.id("sum", 2, T.int32))) });
-  return { program };
-}
-
 // WT-11
 //   export function write(): uint32 {
 //     unsafecontext();
