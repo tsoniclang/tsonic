@@ -277,6 +277,97 @@ export async function checkDisjunctiveFieldProofs() {
   }
 }
 
+export async function checkParenthesizedCountedProofs() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
+  const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
+  const { countedLoopsOf } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { unparenthesizedExpression } = await import("../../../packages/host/dist/ir-hir/index.js");
+  const { sameInstance } = await import("../../../packages/host/dist/ir-types/index.js");
+  const fixture = await loadFrontFixture();
+  for (const bound of ["array", "other"]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      export function read(array: boolean[], other: boolean[]): boolean {
+        for (let i = ((0)); (((i) < ((${bound}).length))); (++(i))) {
+          if (((array))[((i))]) return true;
+        }
+        return false;
+      }
+    `);
+    const nativeFacts = { ...input.snapshot.nativeFacts, integerOverflow: [
+      { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
+    ] };
+    const output = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts } });
+    assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
+    const chapter = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const [loop] = body.tir.root.statements.nodes;
+    const [counter] = loop.initializer.declarations.nodes;
+    const initializer = chapter.bodies.find(row => row.kind === "selected" && row.tir.body === counter.tsonic.initializer);
+    assert.ok(initializer);
+    const comparison = unparenthesizedExpression(loop.condition);
+    const indexed = loop.statement.statements.nodes[0].expression;
+    const key = unparenthesizedExpression(indexed.argumentExpression);
+    const expected = {
+      loops: [{ statement: loop.id, counterDeclaration: counter.id, start: { body: initializer.tir.body, node: initializer.tir.root.id },
+        bound: comparison.right.id, body: loop.statement.id, direction: "ascending", comparison: "exclusive-upper-bound", step: 1 }],
+      ranges: [{ node: key.id, range: { minimum: 0n, maximum: (1n << 63n) - 2n } }],
+      refinements: bound === "array" ? [{ kind: "proven", node: indexed.id, guards: [comparison.id] }] : [],
+    };
+    const facts = body.facts.find(row => row.execution.provided === 2);
+    assert.deepEqual(facts.refinements.countedLoops, expected.loops);
+    assert.deepEqual(facts.refinements.integers.filter(row => row.range !== null),
+      expected.ranges.map(row => ({ ...row, nonnegative: true })));
+    assert.deepEqual(facts.refinements.refinements, expected.refinements);
+    assert.deepEqual(body.mir.blocks.filter(row => row.terminator.kind === "check").map(({ terminator }) =>
+      [terminator.tir.node, body.mir.places[terminator.place].base.projection.kind]), [[indexed.id, "index"]]);
+    const occurrences = sourceOccurrences(body.tir, createAccount(limits));
+    assert.equal(occurrences.kind, "complete");
+    const run = account => countedLoopsOf(account, body.mir, 2, {
+      nativeFacts, sourceOf: node => occurrences.value.get(node),
+      summaryAt: () => assert.fail("no ordinary call in this loop"),
+      mirBody: instance => {
+        assert.equal(sameInstance(instance, initializer.instance), true);
+        return initializer.mir;
+      },
+    });
+    if (bound === "array") {
+      checkReachedProofCuts(InvocationAccount.stateOf, run, expected, "parenthesized native proof");
+      let account = createAccount(limits);
+      const reads = [];
+      const properties = ["tsonic", "expression"];
+      const descriptors = properties.map(property => Object.getOwnPropertyDescriptor(loop.condition, property));
+      for (const [index, property] of properties.entries()) Object.defineProperty(loop.condition, property, {
+        configurable: true,
+        get() {
+          assert.equal(accountFailure(account), null);
+          reads.push({ property, work: InvocationAccount.stateOf(account).work });
+          return descriptors[index].value;
+        },
+      });
+      try {
+        assert.deepEqual(run(account), { kind: "complete", value: expected });
+        assert.deepEqual(reads.map(read => read.property), properties);
+        const exact = reads.map(read => read.work);
+        for (const [index, work] of exact.entries()) {
+          reads.length = 0;
+          account = createAccount({ ...limits, maximumWork: work - 1 });
+          const stopped = run(account);
+          assert.equal(stopped.kind, "resource-limit");
+          assert.equal(stopped, accountFailure(account));
+          assert.deepEqual(reads.map(read => read.property), properties.slice(0, index));
+          assert.equal(run(account), stopped);
+          assert.equal(reads.length, index);
+        }
+      } finally {
+        for (const [index, property] of properties.entries()) Object.defineProperty(loop.condition, property, descriptors[index]);
+      }
+    }
+  }
+}
+
 export async function checkNativeCountedLoopProofs() {
   const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
   const { countedLoopsOf, parseFacts, printFacts } = await import("../../../packages/host/dist/ir-facts/index.js");

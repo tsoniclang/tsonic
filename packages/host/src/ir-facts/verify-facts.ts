@@ -23,7 +23,7 @@ import { factBindingInputs } from "./binding-inputs.js";
 import { verifyFactBindings } from "./verify-bindings.js";
 import { bodyNodes } from "./verify-body-nodes.js";
 import { verifyLiveness } from "./verify-liveness.js";
-import { countedLoops } from "./counted-loops.js";
+import { countedLoops, countedSyntax } from "./counted-loops.js";
 import { fieldRefinements } from "./field-refinements.js";
 import { admitSummaryIdentity } from "./summary-key.js";
 
@@ -507,13 +507,14 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
       const stop = report("counted-loop-endpoints-resolve", site, "A counted-loop anchor must retain an actual occurrence in its qualified body.");
       if (stop !== null) return stop;
     }
-    if (statement?.kind !== "ForStatement" || !initialized ||
-      statement.statement.id !== loop.body || statement.condition?.kind !== "BinaryExpression" || statement.condition.operatorToken.kind !== "LessThanToken" ||
-      statement.condition.right.id !== loop.bound || !resolvesCounter(statement.condition.left, counter.tsonic.declaration) ||
+    const syntax = statement?.kind === "ForStatement" && initialized && statement.statement.id === loop.body
+      ? countedSyntax(statement, account) : null;
+    if (syntax !== null && syntax.kind !== "complete") return syntax;
+    const selected = syntax?.value ?? null;
+    if (statement?.kind !== "ForStatement" || !initialized || selected === null
+      || selected.condition.right.id !== loop.bound || !resolvesCounter(selected.counter, counter.tsonic.declaration) ||
       statement.initializer?.kind !== "VariableDeclarationList" || statement.initializer.declarations.nodes.length !== 1 ||
-      statement.initializer.declarations.nodes[0]?.id !== counter.id || statement.incrementor === null ||
-      (statement.incrementor.kind !== "PostfixUnaryExpression" && statement.incrementor.kind !== "PrefixUnaryExpression") ||
-      statement.incrementor.operator !== "PlusPlusToken" || !resolvesCounter(statement.incrementor.operand, counter.tsonic.declaration)) {
+      statement.initializer.declarations.nodes[0]?.id !== counter.id || !resolvesCounter(selected.updated, counter.tsonic.declaration)) {
       { const stop = report("counted-loop-conditions-exact", site, "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment."); if (stop !== null) return stop; }
       continue;
     }

@@ -2,7 +2,7 @@ import type { DataflowAccount, DataflowResult, GraphOrdering, NaturalLoop } from
 import { chargeResultEntries, chargeWork, graphOfMir, naturalLoops, orderGraph, orderRows, predecessors } from "../dataflow/index.js";
 import type { BlockId, LocalId, LocalRef, NodeId, NodeRef, PlaceId, TyId } from "../ids/contract.js";
 import { admitIntegerKey } from "../ids/index.js";
-import type { ElementAccessExpression, ForStatement, Identifier } from "../ir-hir/contract.js";
+import type { BinaryExpression, ElementAccessExpression, Expression, ForStatement, Identifier, PostfixUnaryExpression, PrefixUnaryExpression } from "../ir-hir/contract.js";
 import type { MirBlock, MirBody, MirOperand, MirStatement, MirTerminator } from "../ir-mir/contract.js";
 import { localOwnershipOfMir, visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
@@ -63,6 +63,47 @@ interface ProofRows {
   readonly refinements: Map<NodeId, CountedLoopProofs["refinements"][number]>;
 }
 
+function countedOperand(expression: Expression<TypedPhase> | null, account: DataflowAccount):
+  DataflowResult<Expression<TypedPhase> | null> {
+  let selected = expression;
+  while (selected?.kind === "ParenthesizedExpression") {
+    const payload = chargeWork(account, 1);
+    if (payload !== null) return payload;
+    const annotation = selected.tsonic;
+    if ("role" in annotation || annotation.conversion.kind !== "identity" || annotation.narrowing !== null) return absent;
+    const operand = chargeWork(account, 1);
+    if (operand !== null) return operand;
+    selected = selected.expression;
+  }
+  return { kind: "complete", value: selected };
+}
+
+interface CountedSyntax {
+  readonly condition: BinaryExpression<TypedPhase>;
+  readonly counter: Identifier<TypedPhase>;
+  readonly increment: PrefixUnaryExpression<TypedPhase> | PostfixUnaryExpression<TypedPhase>;
+  readonly updated: Identifier<TypedPhase>;
+}
+
+export function countedSyntax(node: ForStatement<TypedPhase>, account: DataflowAccount): DataflowResult<CountedSyntax | null> {
+  const test = countedOperand(node.condition, account);
+  if (test.kind !== "complete") return test;
+  const condition = test.value;
+  if (condition?.kind !== "BinaryExpression" || condition.operatorToken.kind !== "LessThanToken") return absent;
+  const step = countedOperand(node.incrementor, account);
+  if (step.kind !== "complete") return step;
+  const increment = step.value;
+  if ((increment?.kind !== "PrefixUnaryExpression" && increment?.kind !== "PostfixUnaryExpression")
+    || increment.operator !== "PlusPlusToken") return absent;
+  const counter = countedOperand(condition.left, account);
+  if (counter.kind !== "complete") return counter;
+  if (counter.value?.kind !== "Identifier") return absent;
+  const updated = countedOperand(increment.operand, account);
+  if (updated.kind !== "complete") return updated;
+  return updated.value?.kind === "Identifier"
+    ? { kind: "complete", value: { condition, counter: counter.value, increment, updated: updated.value } } : absent;
+}
+
 function reachingAssignment(block: MirBlock, before: number, place: PlaceId, storage: CounterStorage,
   account: DataflowAccount): DataflowResult<Extract<MirStatement, { readonly kind: "assign" }> | null> {
   const setup = chargeWork(account, 1);
@@ -85,8 +126,8 @@ function reachingAssignment(block: MirBlock, before: number, place: PlaceId, sto
   return absent;
 }
 
-function sourceLocal(expression: ElementAccessExpression<TypedPhase>["expression"]): LocalRef | null {
-  return expression.kind === "Identifier" && expression.tsonic.role === "value" && expression.tsonic.resolution.kind === "local"
+function sourceLocal(expression: Expression<TypedPhase> | null): LocalRef | null {
+  return expression?.kind === "Identifier" && expression.tsonic.role === "value" && expression.tsonic.resolution.kind === "local"
     ? expression.tsonic.resolution.local : null;
 }
 
@@ -105,8 +146,10 @@ function indexSites(mir: MirBody, sourceOf: CountedLoopInputs["sourceOf"], accou
     if (sourceRead !== null) return sourceRead;
     const node = sourceOf(check.tir.node);
     if (node?.kind !== "ElementAccessExpression") continue;
-    const key = node.argumentExpression;
-    if (key.kind !== "Identifier") continue;
+    const operand = countedOperand(node.argumentExpression, account);
+    if (operand.kind !== "complete") return operand;
+    const key = operand.value;
+    if (key?.kind !== "Identifier") continue;
     if (unique.has(key.id)) {
       unique.set(key.id, null);
       continue;
@@ -186,13 +229,17 @@ function indexRead(mir: MirBody, site: IndexSite, counter: PlaceId, counterSourc
 }
 
 function nativeExtent(
-  mir: MirBody, header: MirBlock, right: MirOperand, source: ForStatement<TypedPhase>["condition"],
+  mir: MirBody, header: MirBlock, right: MirOperand, operand: Expression<TypedPhase>,
   carrier: NativeIntegerPrimitive, storage: CounterStorage, inputs: CountedLoopInputs, account: DataflowAccount,
 ): DataflowResult<ExtentBound | null> {
   const setup = chargeWork(account, 3);
   if (setup !== null) return setup;
+  if (right.kind !== "place") return absent;
+  const selectedOperand = countedOperand(operand, account);
+  if (selectedOperand.kind !== "complete") return selectedOperand;
+  const source = selectedOperand.value;
   if (source?.kind !== "PropertyAccessExpression" || source.tsonic.role !== "array-extent"
-    || source.tsonic.operation.kind !== "decided" || right.kind !== "place") return absent;
+    || source.tsonic.operation.kind !== "decided") return absent;
   const row = reachingAssignment(header, header.statements.length - 1, right.place, storage, account);
   if (row.kind !== "complete") return row;
   const assignment = row.value;
@@ -206,9 +253,11 @@ function nativeExtent(
   const geometry = nativeIntegerGeometryOf(carrier, inputs.nativeFacts, work => (stop = chargeWork(account, work)) === null);
   if (stop !== null) return stop;
   if (geometry.kind !== "integer") return absent;
+  const receiver = countedOperand(source.expression, account);
+  if (receiver.kind !== "complete") return receiver;
   const retained = chargeResultEntries(account, 1);
   return retained ?? { kind: "complete", value: { maximum: geometry.maximum, receiver: assignment.value.operand.place,
-    holding: decision.operation.holding, source: sourceLocal(source.expression), read: assignment } };
+    holding: decision.operation.holding, source: sourceLocal(receiver.value), read: assignment } };
 }
 
 function extentReceiver(mir: MirBody, extent: ExtentBound, storage: CounterStorage, account: DataflowAccount): DataflowResult<LocalId | null> {
@@ -230,10 +279,12 @@ function sameReceiver(mir: MirBody, site: IndexSite, extent: ExtentBound, storag
   if (setup !== null) return setup;
   const base = mir.places[site.check.place]?.base;
   const annotation = site.node.tsonic;
-  const expression = site.node.expression;
+  if (base?.kind !== "checked" || !("index" in annotation) || annotation.index.holding !== extent.holding) return unavailable;
+  const receiverOperand = countedOperand(site.node.expression, account);
+  if (receiverOperand.kind !== "complete") return receiverOperand;
+  const expression = receiverOperand.value;
   const local = sourceLocal(expression);
-  if (base?.kind !== "checked" || !("index" in annotation) || annotation.index.holding !== extent.holding
-    || local === null || local.body !== mir.body) return unavailable;
+  if (expression === null || local === null || local.body !== mir.body) return unavailable;
   let indexed = base.place;
   let held: LocalId | null = null;
   if (indexed !== extent.receiver) {
@@ -399,25 +450,23 @@ function loopFact(
   const admission = chargeWork(account, 5);
   if (admission !== null) return admission;
   const initializer = node.initializer;
-  const condition = node.condition;
-  const increment = node.incrementor;
-  if (initializer?.kind !== "VariableDeclarationList" || initializer.declarations.nodes.length !== 1
-    || condition?.kind !== "BinaryExpression" || condition.operatorToken.kind !== "LessThanToken"
-    || (increment?.kind !== "PrefixUnaryExpression" && increment?.kind !== "PostfixUnaryExpression")
-    || increment.operator !== "PlusPlusToken" || loop.backEdges.length !== 1) return absent;
+  if (initializer?.kind !== "VariableDeclarationList" || initializer.declarations.nodes.length !== 1 || loop.backEdges.length !== 1)
+    return absent;
+  const syntax = countedSyntax(node, account);
+  if (syntax.kind !== "complete") return syntax;
+  if (syntax.value === null) return absent;
+  const { condition, counter: counterRead, increment, updated } = syntax.value;
   const variable = initializer.declarations.nodes[0];
   if (variable === undefined || !("declaration" in variable.tsonic)) return absent;
   const binding = variable.tsonic.declaration;
   const start = variable.initializer;
-  if (binding.kind !== "local" || binding.local.body !== mir.body || start === null
-    || condition.left.kind !== "Identifier"
-    || increment.operand.kind !== "Identifier") return absent;
-  const sameCounter = (reference: typeof condition.left | typeof increment.operand): boolean => {
+  if (binding.kind !== "local" || binding.local.body !== mir.body || start === null) return absent;
+  const sameCounter = (reference: Identifier<TypedPhase>): boolean => {
     const annotation = reference.tsonic;
     return "resolution" in annotation && annotation.resolution.kind === "local"
       && annotation.resolution.local.body === mir.body && annotation.resolution.local.local === binding.local.local;
   };
-  if (!sameCounter(condition.left) || !sameCounter(increment.operand)) return absent;
+  if (!sameCounter(counterRead) || !sameCounter(updated)) return absent;
   const header = mir.blocks[loop.header];
   const backEdge = loop.backEdges[0];
   const latch = backEdge === undefined ? undefined : mir.blocks[backEdge];
@@ -460,7 +509,7 @@ function loopFact(
     const prior = reachingAssignment(latch, latch.statements.length - 2, step.value.operand.place, storage, account);
     if (prior.kind !== "complete") return prior;
     const read = prior.value;
-    if (read?.tir.body !== mir.body || read.tir.node !== increment.operand.id || read.value.kind !== "use"
+    if (read?.tir.body !== mir.body || read.tir.node !== updated.id || read.value.kind !== "use"
       || read.value.operand.kind !== "place" || read.value.operand.place !== left.place) return absent;
   }
   if (storage.exposedLocals.has(local.id) || storage.exposedSources.has(binding.local.local)) return absent;
