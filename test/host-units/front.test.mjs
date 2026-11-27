@@ -2020,6 +2020,18 @@ test("the public import boundary prepares distinct configured roots from the sam
   assert.equal(refused.diagnostics[0].code.name, "TSONIC_SOURCE_PREPARATION_INVALID");
 });
 
+test("import preparation reports the original UTF-16 source position with or without a byte-order mark", () => {
+  for (const prefix of ["", "\uFEFF"]) {
+    const text = `${prefix}/* 🚀 */ export const value = ;`;
+    const snapshot = projectSnapshot({ sourceFiles: { "main.mts": text }, libraries: bundled() });
+    const report = front.importPreparationOf(snapshot.source.receipt);
+    assert.deepEqual(report.diagnostics.map(({ code, site }) => ({ code, site })), [{
+      code: { kind: "checker", number: 1109, rendered: "TS1109" },
+      site: { kind: "source", origin: { module: snapshot.entryPoint, start: text.indexOf(";"), length: 1, derived: [] } },
+    }]);
+  }
+});
+
 test("the same roots and source spans cannot reuse a different completed import graph", () => {
   const libraries = [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }];
   const source = entry => `import { choice } from "./${entry}.mjs"; export const selected: boolean = choice;`;
