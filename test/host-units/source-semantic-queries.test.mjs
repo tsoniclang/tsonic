@@ -2382,6 +2382,41 @@ test("an empty source object has a checked zero-part construction, not an empty 
   assert.deepEqual(irInfer.parseConstraints(irInfer.printConstraints(set)), { kind: "parsed", value: set });
 });
 
+test("checked primitive annotations retain their selected provider carrier, not the shared checker number", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const sourceText = `import type { int32 as Native } from "native-fixture";
+type int32 = number;
+export type Qualified = Native;
+export type Shadowed = int32;
+export type Ordinary = number;`;
+  const root = "/project/node_modules/native-fixture";
+  const reference = { package: fixture.packageOf("/semantics"), version: "1", moduleSpecifier: "./plugin.js", exportId: "semantics" };
+  const semantics = { moduleSpecifier: "native-fixture", packageName: "native-fixture", packageVersion: "1.0.0",
+    capabilities: ["primitive"], exports: [fixture.sdk.sourcePrimitive("int32", "int32", "number", true, 32)] };
+  const inputs = analysisInput(fixture, "sdk-minimal", sourceText);
+  for (const selected of [true, false]) {
+    const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": sourceText },
+      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+      providerPackages: [{ root: "/semantics", name: "semantics" }], semanticModules: selected ? [reference] : [],
+      otherPackages: [{ root, name: "native-fixture", modules: { "index.d.ts": ["declaration", "export type int32 = number;", true] } }],
+      extraFiles: { [root + "/package.json"]: '{"name":"native-fixture","version":"1.0.0","types":"index.d.ts"}' } });
+    const extensions = fixture.front.createCheckerExtensions(selected ? [{ reference, value: { kind: "semantics-module", value: semantics } }] : []);
+    const captured = captureSourceBarrier({ ...inputs, snapshot, extensions });
+    assert.equal(captured.kind, "ok");
+    const checked = captured.value.modules.find(row => row.module.module === snapshot.entryPoint).module;
+    assert.deepEqual(checked.checkerDiagnostics, []);
+    const [, qualified, shadowed, ordinary] = checked.tree.statements.nodes.filter(node => node.kind === "TypeAliasDeclaration");
+    const carrier = declaration => {
+      const answer = declaration.type.tsonic.type;
+      assert.equal(answer.kind, "available");
+      return fixture.types.readType(captured.value.types, answer.value);
+    };
+    assert.deepEqual([carrier(qualified), carrier(shadowed), carrier(ordinary)],
+      [selected ? "int32" : "float64", "float64", "float64"].map(primitive => ({ kind: "primitive", primitive })));
+  }
+});
+
 test("inferred array construction retains its exact spread operand and authored scalar order", async () => {
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

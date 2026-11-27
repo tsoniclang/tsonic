@@ -1,7 +1,7 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceCallInfo, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
 import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, hasDeclaredIndexReadEvidence, providerVirtualDeclarationFactKey,
-  sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
+  sourceMarkerFactKey, sourcePrimitiveFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { hostDiagnosticCode, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
@@ -335,6 +335,7 @@ interface CaptureScope extends CaptureAdmission {
   readonly closedOrdinaryPassing: boolean;
   readonly closedOrdinaryExtent: boolean;
   readonly closedOrdinaryApplication: boolean;
+  readonly sourcePrimitiveFacts: boolean;
   readonly diagnosticRoots: Map<CheckerDiagnostic, CheckerDiagnosticRef>;
   readonly callCore: Map<NodeId, CallCore>;
   readonly tables: CaptureTables;
@@ -3394,18 +3395,20 @@ function snapshotDeclaration(program: CheckedProgram, reference: RawNodeRef): bo
 }
 
 function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope,
-  "emptyCoreInventory" | "emptyObservationInventory" | "closedOrdinaryPassing" | "closedOrdinaryExtent" | "closedOrdinaryApplication"> {
+  "emptyCoreInventory" | "emptyObservationInventory" | "closedOrdinaryPassing" | "closedOrdinaryExtent" | "closedOrdinaryApplication" | "sourcePrimitiveFacts"> {
   const contributions = OpenedProgram.contributions(program);
   const table = OpenedProgram.table(program);
   const noRoles = OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0);
-  const closedOrdinaryPassing = contributions.safetyProviders.length === 0 && contributions.compilerExtensions.length === 0 &&
+  const closedCheckerExtensions = contributions.compilerExtensions.length === 0 &&
     ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module" || entry.kind === "declaration-provider");
+  const closedOrdinaryPassing = contributions.safetyProviders.length === 0 && closedCheckerExtensions;
   const semantics = ExtensionTable.semantics(table);
   const emptySemantics = semantics.every(module => module.exports.length === 0);
   const closedOrdinaryApplication = noRoles && closedOrdinaryPassing && emptySemantics;
   return {
     closedOrdinaryPassing,
     closedOrdinaryApplication,
+    sourcePrimitiveFacts: !closedCheckerExtensions || semantics.some(module => module.exports.some(entry => entry.kind === "source-primitive")),
     closedOrdinaryExtent: closedOrdinaryPassing && semantics.every(module =>
       module.exports.every(entry => entry.kind !== "type-marker" || entry.marker !== "fixed-array")),
     emptyCoreInventory: closedOrdinaryApplication && contributions.declarationProviders.length === 0 &&
@@ -3870,13 +3873,30 @@ function exactNumericUnion(scope: CaptureScope, task: TypeCapture): RawTypeForm 
     numericOrigin: sources === null ? { kind: "authored", annotation } : { kind: "indexed-read", annotation, sources } };
 }
 
+function capturedSourcePrimitive(scope: CaptureScope, row: TypeCapture): RawCheckedType["primitive"] | null {
+  const annotation = row.originalUse === null ? row.answer.typeSource : admittedTypeUse(scope, row.originalUse);
+  if (annotation === undefined) return notProvided();
+  const kind = scope.checked.ast.kindName(annotation);
+  if (kind !== "KindTypeReference" && kind !== "KindImportType") return notProvided();
+  if (!admit(scope, "edges")) return null;
+  const primitive = scope.checked.sourceFacts.getFact(annotation, sourcePrimitiveFactKey);
+  if (primitive === undefined) return notProvided();
+  const selected = sourceType(scope, { kind: "annotation", node: annotation });
+  if (scope.meter.refusal !== null) return null;
+  if (selected?.type !== row.answer.type || selected.causes.length !== 0) return notProvided();
+  return admit(scope, "facts") ? available({ primitive: primitive.kind, runtimeBase: primitive.runtimeBase }) : null;
+}
+
 function storeRawType(scope: CaptureScope, row: TypeCapture, form: RawFact<RawTypeForm>, literal: RawLiteral | null,
   alias: RawCheckedType["alias"]): void {
+  const primitive: RawCheckedType["primitive"] | null = scope.sourcePrimitiveFacts && form.kind === "available" && literal === null
+    ? capturedSourcePrimitive(scope, row) : notProvided();
+  if (primitive === null) return;
   scope.tables.types[row.id] = {
     id: row.id, component: row.position, authoredTypeNode: row.originalUse !== null && "module" in row.originalUse ? row.originalUse : null,
     declaration: null, definitionOwner: null, definitionFacet: null,
     definitionParameters: available([]), alias, instantiatedBases: available([]), literal: available(literal),
-    primitive: notProvided(), form,
+    primitive, form,
   };
 }
 

@@ -347,10 +347,12 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
     literal = parsed.value;
   }
   const form = row.form.value;
+  const native = row.primitive.kind === "available" ? row.primitive.value : null;
   let term: TypeTerm;
   const dependencies: Dependency[] = [];
   const reference = (id: RawTypeId): TyId => typeReference(graph, id, dependencies);
-  if (form.kind === "source-environment") {
+  if (native !== null) term = { kind: "primitive", primitive: native.primitive };
+  else if (form.kind === "source-environment") {
     const members = [];
     for (let index = 0; index < form.members.length; index += 1) {
       const stop = admitTypePublicationStep(graph.conversion.typeWork);
