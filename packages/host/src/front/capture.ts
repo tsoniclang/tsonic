@@ -339,6 +339,7 @@ interface CaptureScope extends CaptureAdmission {
   readonly diagnosticRoots: Map<CheckerDiagnostic, CheckerDiagnosticRef>;
   readonly callCore: Map<NodeId, CallCore>;
   readonly tables: CaptureTables;
+  rootAssignmentAnnotations: Map<Node, Node> | null;
   fieldSelectors: Map<NodeId, RawLayoutSelector> | null;
   invalidLayout: Diagnostic | null;
 }
@@ -3801,7 +3802,7 @@ function captureDiagnosticCoverage(scope: CaptureScope, diagnostics: readonly Di
   return rows;
 }
 
-function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: Node): Node | undefined {
+function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: Node, role: "tuple" | "native-array"): Node | undefined {
   const ast = scope.checked.ast;
   let operand = node;
   let owner: Node | undefined = parent;
@@ -3813,6 +3814,10 @@ function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: No
   if (owner === undefined) return undefined;
   if (ast.kindName(owner) === "KindVariableDeclaration" && ast.as.AsVariableDeclaration(owner)?.Initializer === operand)
     return ast.typeNode(owner);
+  if (role === "native-array" && scope.rootAssignmentAnnotations !== null && ast.kindName(owner) === "KindBinaryExpression") {
+    if (!admit(scope, "edges") || ast.as.AsBinaryExpression(owner)?.Right !== operand) return undefined;
+    return scope.rootAssignmentAnnotations.get(owner);
+  }
   if (ast.kindName(owner) === "KindReturnStatement" && ast.as.AsReturnStatement(owner)?.Expression === operand) {
     for (let enclosed: Node | undefined = owner; enclosed !== undefined;) {
       if (!admit(scope, "edges")) return undefined;
@@ -3832,12 +3837,12 @@ function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: No
 function contextualTupleUse(scope: CaptureScope, node: Node, parent: Node | undefined,
   contextual: ResolvedSourceTypeInfo | undefined): ContextualTupleUse | null {
   if (parent === undefined || contextual === undefined || contextual.causes.length !== 0 || !scope.shape.isTuple(contextual.type)) return null;
-  const syntax = tupleAnnotationOf(scope, contextual.type, contextualLiteralAnnotation(scope, node, parent));
+  const syntax = tupleAnnotationOf(scope, contextual.type, contextualLiteralAnnotation(scope, node, parent, "tuple"));
   return syntax === undefined ? null : { kind: "contextual-tuple", syntax, original: contextual.type };
 }
 
 function contextualNativeArrayAnnotation(scope: CaptureScope, node: Node, parent: Node, contextual: ResolvedSourceTypeInfo): Node | null {
-  const annotation = contextualLiteralAnnotation(scope, node, parent);
+  const annotation = contextualLiteralAnnotation(scope, node, parent, "native-array");
   if (annotation === undefined) return null;
   const written = sourceType(scope, { kind: "annotation", node: annotation });
   if (written?.type !== contextual.type || written.causes.length !== 0) return null;
@@ -4823,7 +4828,7 @@ function qualifiedStorageAnnotation(scope: CaptureScope, declaration: Node | und
   return answer?.type === selected.type && answer.causes.length === 0 ? annotation : null;
 }
 
-function capturedStorage(scope: CaptureScope, node: Node, occurrence: RawNodeRef): RawStorageCapture | null {
+function capturedStorage(scope: CaptureScope, node: Node, occurrence: RawNodeRef, assignment: Node | null): RawStorageCapture | null {
   if (!admit(scope, "facts")) return null;
   const outcome = scope.checker.acquireResolvedStorage(node, nativeCaptureAdmission(scope));
   if (outcome.kind === "refused") {
@@ -4847,6 +4852,10 @@ function capturedStorage(scope: CaptureScope, node: Node, occurrence: RawNodeRef
   if (scope.meter.refusal !== null) return null;
   const type = rawType(scope, () => selected.type, component(scope, occurrence, null), written);
   if (type === null) return null;
+  if (assignment !== null && written !== null && selected.writable) {
+    if (!admit(scope, "facts", scope.rootAssignmentAnnotations === null ? 2 : 1)) return null;
+    (scope.rootAssignmentAnnotations ??= new Map()).set(assignment, written);
+  }
   return { node: occurrence, fact: available({ expression, storageExpression, declaration, symbol, type, writable: selected.writable }) };
 }
 
@@ -5396,7 +5405,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
   const queries = checked.getSourceFileQueries(file);
   const scope: CaptureScope = { ...admission, program, file, numericLiterals, syntaxOf: syntax.syntaxOf, checked, checker: queries.checker,
     shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
-    fieldSelectors: null, invalidLayout: null,
+    fieldSelectors: null, invalidLayout: null, rootAssignmentAnnotations: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
       authoredSourceTypes: null, tupleCalls: null, tupleArgumentContexts: null,
       interfaceGroups: { byTarget: new Map(), rows: [] }, interfaceCapture,
@@ -5467,7 +5476,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
         : operator === "KindEqualsToken" || operator !== undefined && operator.startsWith("Kind")
           && writtenCompoundAssignmentKinds.includes(operator.slice(4));
       if (target && ast.children(targetParent)[0] === targetSyntax) {
-        const selected = capturedStorage(scope, node, reference);
+        const selected = capturedStorage(scope, node, reference, operator === "KindEqualsToken" ? targetParent : null);
         if (selected === null) break;
         storage.push(selected);
       }

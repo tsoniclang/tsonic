@@ -88,7 +88,7 @@ export async function checkNativeArrayFacts() {
   assert.equal(summary.unwinds, true);
 }
 
-export async function checkWrittenArrayReturn() {
+export async function checkWrittenArrayDestinations() {
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
   const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
   const { readType } = await import("../../../packages/host/dist/ir-types/index.js");
@@ -99,12 +99,20 @@ export async function checkWrittenArrayReturn() {
     export function empty(): Native[] {
       return (([]));
     }
+    export function replace(xs: Native[], value: Native): Native[] {
+      (xs) = (([0, ...xs, value]));
+      return xs;
+    }
+    export function replaceEmpty(xs: Native[]): Native[] {
+      xs = [];
+      return xs;
+    }
   `);
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
   const chapter = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
   const arrays = chapter.nodes.filter(node => node.kind === "ArrayLiteralExpression");
-  assert.equal(arrays.length, 2);
+  assert.equal(arrays.length, 4);
   for (const node of arrays) {
     const { contextual } = node.tsonic.value.views;
     assert.equal(contextual.kind, "available");
@@ -116,7 +124,7 @@ export async function checkWrittenArrayReturn() {
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const selected = program.value.modules.find(row => row.module === input.snapshot.entryPoint).bodies.filter(row =>
     row.kind === "selected" && row.mir.blocks.some(block => block.terminator.kind === "array-start"));
-  assert.equal(selected.length, 2);
+  assert.equal(selected.length, 4);
   for (const body of selected) {
     const term = program.value.index.types.terms[body.mir.result];
     assert.equal(term.kind, "array");

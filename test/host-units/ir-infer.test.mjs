@@ -2333,6 +2333,23 @@ test("closed operator, flow, default, access and native-carrier spellings each r
   assertRoundTrip("Solution", solution.value, solution.text, "every native carrier is exact representation data, not a JS number cap");
 });
 
+test("native array extent wire retains the actual declaration, operands and selected holding", () => {
+  const declaration = recordGolden("ItemNodeRef", { owner: definitionGolden, node: scalarGolden(3, "n") });
+  const operand = scalarGolden(1, "t");
+  const fields = { declaration, operands: arrayGolden([operand]), result: typeGolden };
+  const constraint = recordGolden("array-extent", { occurrence: nodeGolden, ...fields }, "op");
+  const input = constraintsGolden([{ ...constraint, value: { ...constraint.value, operator: "array-extent", permissionScope: null } }]);
+  assertRoundTrip("Constraints", input.value, input.text, "the qualified extent constraint is not a generic operator spelling");
+  const outcomes = ["in-place", "by-reference"].map(holding => recordGolden("op", { operation:
+    recordGolden("selected", { operation: recordGolden("array-extent", { declaration, holding: scalarGolden(holding) }, "array-extent"),
+      operands: fields.operands, result: fields.result, execution: pureGolden }, "selected") }, "op"));
+  const solution = solutionGolden(outcomes);
+  assertRoundTrip("Solution", solution.value, solution.text, "the same extent role transports either selected holding");
+  const offset = solution.text.indexOf('holding="') + "holding=".length;
+  fieldParseCase("Solution", solution.text.slice(0, offset) + '"native")', offset,
+    ['"in-place"', '"by-reference"'], '"native"');
+});
+
 test("complete captured Core families survive without provider interpretation or missing closed arms", () => {
   const available = value => recordGolden("available", { value }, "available");
   const fieldBindingGolden = (changes = {}) => recordGolden("HirFieldBindingCapture", { occurrence: nodeGolden, bindings: available(bindingGolden),
