@@ -88,6 +88,42 @@ export async function checkNativeArrayFacts() {
   assert.equal(summary.unwinds, true);
 }
 
+export async function checkWrittenArrayReturn() {
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
+  const { readType } = await import("../../../packages/host/dist/ir-types/index.js");
+  const input = await selectedArrayInput(await loadFrontFixture(), `
+    export function range(xs: Native[], value: Native): Native[] {
+      return [0, ...xs, value];
+    }
+    export function empty(): Native[] {
+      return (([]));
+    }
+  `);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const chapter = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+  const arrays = chapter.nodes.filter(node => node.kind === "ArrayLiteralExpression");
+  assert.equal(arrays.length, 2);
+  for (const node of arrays) {
+    const { contextual } = node.tsonic.value.views;
+    assert.equal(contextual.kind, "available");
+    const selected = readType(captured.value.types, contextual.value);
+    assert.equal(selected.kind, "array");
+    assert.deepEqual(readType(captured.value.types, selected.element), { kind: "primitive", primitive: "int32" });
+  }
+  const program = analyzeHostProgram(input);
+  assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
+  const selected = program.value.modules.find(row => row.module === input.snapshot.entryPoint).bodies.filter(row =>
+    row.kind === "selected" && row.mir.blocks.some(block => block.terminator.kind === "array-start"));
+  assert.equal(selected.length, 2);
+  for (const body of selected) {
+    const term = program.value.index.types.terms[body.mir.result];
+    assert.equal(term.kind, "array");
+    assert.deepEqual(program.value.index.types.terms[term.element], { kind: "primitive", primitive: "int32" });
+  }
+}
+
 export async function checkPlacedArrayReturn() {
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
   const input = await selectedArrayInput(await loadFrontFixture(), `
@@ -132,8 +168,9 @@ export async function checkPlacedArrayReturn() {
 
 export async function checkNativeArrayAlternatives() {
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
-  const { arrayReturnSource } = await import("../../../packages/host/dist/analyses/body/array-results.js");
+  const { admitArrayReturn, arrayReturnSource } = await import("../../../packages/host/dist/analyses/body/array-results.js");
   const { accountFailure, createAccount } = await import("../../../packages/host/dist/dataflow/index.js");
+  const { applySummary } = await import("../../../packages/host/dist/ir-facts/index.js");
   const input = await selectedArrayInput(await loadFrontFixture(), `
     function make(xs: Native[], value: Native, borrow: boolean): Native[] {
       if (borrow) return xs;
@@ -166,6 +203,31 @@ export async function checkNativeArrayAlternatives() {
   });
   assert.deepEqual(kinds, ["capture", "call-result"]);
   assert.equal(result.includesAbsence, false);
+  const invocation = facts.origins.invocations.find(row => row.node === call.tir.node);
+  const [alternative] = invocation.alternatives;
+  const context = facts.arena.contexts[alternative.context];
+  const entries = summary.arena.boundProducers.flatMap(bound => {
+    const producer = summary.arena.producers[bound.producer];
+    return producer.kind === "parameter" ? [{ formal: bound.id, actual: context.arguments[producer.index].origins }] : [];
+  });
+  const at = { execution: facts.execution, point: invocation.point };
+  const unknownEffect = { kind: "refused", diagnostics: [] };
+  assert.deepEqual(summary.arena.cells, []);
+  const applied = applySummary({ summary, callee: summary.key, at, context: context.id, caller: facts.arena, entries,
+    cells: [], events: [], eventBindings: [] }, { account: createAccount(input.limits.dataflow),
+    maximumOriginAlternatives: 32, maximumConditionAlternatives: 32, originRefusal: unknownEffect, conditionRefusal: unknownEffect });
+  assert.equal(applied.kind, "complete");
+  assert.equal(applied.value.result.caller.length, 1);
+  const [reference] = applied.value.result.callee;
+  assert.ok(reference);
+  const offered = arrayReturnSource({ account: createAccount(input.limits.dataflow) }, call, summary);
+  assert.equal(offered.kind, "complete");
+  const proof = { ...offered.value, producer: result.producers[1] };
+  assert.equal(admitArrayReturn({ account: createAccount(input.limits.dataflow) }, proof, summary, reference, at, context.id), true);
+  assert.equal(admitArrayReturn({ account: createAccount(input.limits.dataflow) }, proof, summary, reference, at, facts.arena.contexts[0].id), false);
+  const stopped = createAccount({ ...input.limits.dataflow, maximumWork: 0 });
+  const unread = new Proxy(reference, { get() { assert.fail("An unpaid returned origin must remain unread."); } });
+  assert.equal(admitArrayReturn({ account: stopped }, proof, summary, unread, at, context.id) === accountFailure(stopped), true);
   for (const dimension of ["maximumWork", "maximumResultEntries"]) {
     let exact = null;
     for (let cap = 0; cap < 1000; cap += 1) {

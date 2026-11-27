@@ -6,6 +6,9 @@ import { isDeepStrictEqual } from "node:util";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { checkedDomain } from "./fixtures/front/checked-domain.mjs";
 import { nativeInt32Input as buildNativeInt32Input } from "./fixtures/native-int32-input.mjs";
+import { checkWrittenArrayReturn } from "./fixtures/native-array-initialization.mjs";
+
+test("an authored native array return uses its actual written completion carrier", checkWrittenArrayReturn);
 
 let fixture;
 let wiring;
