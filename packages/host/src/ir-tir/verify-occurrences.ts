@@ -570,8 +570,11 @@ export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralE
   body: BodyId, types: TypeTable, native: InferenceNativeFacts, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
   const reached = admit({ kind: "row" });
   if (reached !== null) return reached;
-  const reported = original?.kind === "ArrayLiteralExpression" && original.tsonic.role === "value" ? original.tsonic.value.views.contextual : null;
-  const authored = reported?.kind === "available" && reported.value !== null ? types.terms[reported.value] : undefined;
+  const views = original?.kind === "ArrayLiteralExpression" && original.tsonic.role === "value" ? original.tsonic.value.views : null;
+  const context = views?.contextual;
+  const read = views?.read;
+  const expected = context?.kind === "available" ? context.value ?? (read?.kind === "available" ? read.value : null) : null;
+  const authored = expected === null ? undefined : types.terms[expected];
   const phase = node.tsonic;
   const target = phase.role === "value" ? types.terms[phase.type] : undefined;
   const decision = phase.role === "value" && phase.construction.kind === "decided" ? phase.construction.decision : null;
@@ -585,6 +588,7 @@ export function verifyArrayConstruction<Stop extends object>(node: ArrayLiteralE
     if (stop !== null) return stop;
   }
   if (original?.kind !== "ArrayLiteralExpression" || authored?.kind !== "tuple" || target?.kind !== "tuple" || phase.role !== "value"
+    || (context?.kind === "available" && context.value === null && phase.type !== expected)
     || decision === null || operation?.kind !== "array-construction" || decision.permissionScope !== null
     || decision.decision.execution.kind !== "pure" || decision.decision.result !== phase.type
     || nativeCarrierHoldingOf(holding, "tuple") !== "in-place"

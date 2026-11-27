@@ -1264,7 +1264,7 @@ function prepareArrayHeader(walk: Walk, node: ArrayNode): ArrayHeader | Refusal 
   const source = readType(deps.types, read.value);
   const destination = contextual.value === null ? source : readType(deps.types, contextual.value);
   const tuple = source.kind === "tuple" && destination.kind === "tuple" ? { source, destination } : null;
-  if (tuple !== null ? contextual.value === null || tuple.source.elements.length !== node.elements.nodes.length
+  if (tuple !== null ? tuple.source.elements.length !== node.elements.nodes.length
     || tuple.destination.elements.length !== tuple.source.elements.length
     : source.kind !== "array" || destination.kind !== "array")
     return notInferredYet(PORT, "a construction without matching checked array carriers or fixed tuple arity", node.origin);

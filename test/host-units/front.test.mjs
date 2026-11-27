@@ -3554,7 +3554,7 @@ test("selected nested tuple capture admits the authored literal receipts at the 
     return captureSingleModule(front, { ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule } }, program, module);
   };
   const module = moduleOf(packageOf("/project"), "src/main.ts");
-  const exact = 191;
+  const exact = 187;
   for (const maximum of [0, exact - 1]) assert.deepEqual(capture(maximum), {
     kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum,
       site: { kind: "file", path: "/project/src/main.ts" }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })],

@@ -184,6 +184,70 @@ test("fixed and empty call spreads keep their authored component and later-value
   }
 });
 
+test("a finite spread of a checked tuple literal constructs its one product before the next argument", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const source = `
+    function keep(flag: boolean): boolean { return !flag; }
+    function later(): boolean { return false; }
+    function consume(first: boolean, second: boolean, tail: boolean): boolean { return tail; }
+    export function bare(flag: boolean): boolean { return consume(...[keep(flag), true], later()); }
+    export function grouped(flag: boolean): boolean { return consume(...(([keep(flag), true])), later()); }
+  `;
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const nativeFacts = input.snapshot.nativeFacts;
+  const configured = { ...input, snapshot: { ...input.snapshot, nativeFacts: {
+    ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } };
+  const captured = captureSourceBarrier(configured);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const sourceModule = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const result = analyzeHostProgram(configured);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
+  const literalOf = expression => {
+    while (expression.kind === "ParenthesizedExpression") expression = expression.expression;
+    assert.equal(expression.kind, "ArrayLiteralExpression");
+    return expression;
+  };
+  for (const name of ["bare", "grouped"]) {
+    const original = sourceModule.tree.statements.nodes.find(row => row.kind === "FunctionDeclaration" && row.name.text === name);
+    const authored = literalOf(original.body.statements.nodes[0].expression.arguments.nodes[0].expression);
+    assert.deepEqual(authored.tsonic.value.views.contextual, { kind: "available", value: null });
+    const declaration = declarations.find(row => row.kind === "FunctionDeclaration" && row.name.text === name);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+    const call = body.tir.root.statements.nodes[0].expression;
+    const [spread, later] = call.arguments.nodes;
+    assert.equal(spread.tsonic.role, "finite-call-argument");
+    const literal = literalOf(spread.expression);
+    const calls = body.mir.blocks.map(row => row.terminator).filter(row => row.kind === "call");
+    const [keep, subsequent, consume] = calls;
+    assert.deepEqual(calls.map(row => row.tir.node), [literal.elements.nodes[0].id, later.id, call.id]);
+    const aggregates = body.mir.blocks.flatMap(row => row.statements).filter(row => row.kind === "assign" && row.value.kind === "aggregate");
+    assert.equal(aggregates.length, 1);
+    const [aggregate] = aggregates;
+    assert.equal(body.mir.blocks[keep.next].statements.includes(aggregate), true);
+    assert.equal(body.mir.blocks[keep.next].terminator === subsequent, true);
+    assert.equal(body.mir.blocks[subsequent.next].terminator === consume, true);
+    assert.equal(aggregate.tir.node, literal.id);
+    assert.equal(aggregate.value.aggregate.kind, "tuple");
+    assert.deepEqual(aggregate.value.aggregate.elements[0], { kind: "place", place: keep.destination });
+    const projected = body.mir.blocks[keep.next].statements.filter(row =>
+      row.kind === "assign" && row.tir.node === spread.id && row.value.kind === "use");
+    assert.deepEqual(projected.map(row => {
+      const { base } = body.mir.places[row.value.operand.place];
+      return [base.place, base.projection.index];
+    }), [[aggregate.place, 0], [aggregate.place, 1]]);
+    assert.deepEqual(consume.arguments.slice(0, 2).map(argument => argument.operand),
+      projected.map(row => ({ kind: "place", place: row.place })));
+    assert.deepEqual(consume.arguments[2].operand, { kind: "place", place: subsequent.destination });
+    const transport = body.facts[0].origins.invocations.find(row => row.node === call.id).alternatives[0].arguments;
+    assert.deepEqual(transport.map(row => [row.parameterIndex, row.authoredIndex]), [[0, 0], [1, 0], [2, 1]]);
+  }
+});
+
 test("authored tuple construction consumes ordered operands and emits one selected product", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

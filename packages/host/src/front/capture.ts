@@ -76,6 +76,7 @@ interface CaptureTables {
   tupleCalls: Map<Node, TupleCallUse> | null;
   tupleArgumentContexts: Map<Node, TupleAnnotation> | null;
   tupleLiteralContexts: Map<Node, ContextualTupleUse> | null;
+  tupleLiteralReads: Map<Node, LiteralTupleUse> | null;
   readonly interfaceGroups: { readonly byTarget: Map<Type, RawInterfaceGroup>; readonly rows: RawInterfaceGroup[] };
   readonly interfaceCapture: InterfaceCaptureSession;
   readonly interfaceDescriptions: Map<Type, RawInterfaceDescription>;
@@ -264,16 +265,9 @@ interface ContextualTupleUse {
 
 interface LiteralTupleUse {
   readonly kind: "literal-tuple";
-  readonly source: Node;
   readonly expression: Node;
   readonly original: Type;
 }
-
-type TupleReadUse = LiteralTupleUse | {
-  readonly kind: "tuple-annotation";
-  readonly type: Type;
-  readonly annotation: Node;
-};
 
 type ProjectedOperandUse = {
   readonly kind: "projected-operand";
@@ -3932,7 +3926,33 @@ function contextualTupleUse(scope: CaptureScope, node: Node, parent: Node | unde
 }
 
 function retainTupleLiteral(scope: CaptureScope, source: Node, expression: Node, original: Type): LiteralTupleUse | null {
-  return admit(scope, "facts") ? { kind: "literal-tuple", source, expression, original } : null;
+  const reads = scope.tables.tupleLiteralReads;
+  if (reads !== null && !admit(scope, "edges")) return null;
+  const existing = reads?.get(source);
+  if (existing !== undefined) {
+    if (existing.expression !== expression || existing.original !== original)
+      return throwInvariant(invariant("A tuple literal read must retain its actual expression and native type."));
+    return existing;
+  }
+  if (!admit(scope, "facts", reads === null ? 3 : 2)) return null;
+  const read: LiteralTupleUse = { kind: "literal-tuple", expression, original };
+  (scope.tables.tupleLiteralReads ??= new Map()).set(source, read);
+  return read;
+}
+
+function tupleLiteralRead(scope: CaptureScope, source: Node, original: Type, parent?: Node): LiteralTupleUse | null {
+  const reads = scope.tables.tupleLiteralReads;
+  if (reads === null || !admit(scope, "edges")) return null;
+  const direct = reads.get(source);
+  if (direct !== undefined) return direct.original === original ? direct : null;
+  const ast = scope.checked.ast;
+  if (parent === undefined || ast.kindName(parent) !== "KindParenthesizedExpression" || !admit(scope, "edges")
+    || ast.as.AsParenthesizedExpression(parent)?.Expression !== source)
+    return null;
+  const inherited = reads.get(parent);
+  if (inherited === undefined || inherited.original !== original || !admit(scope, "facts")) return null;
+  reads.set(source, inherited);
+  return inherited;
 }
 
 function contextualNativeArrayAnnotation(scope: CaptureScope, node: Node, parent: Node, contextual: ResolvedSourceTypeInfo): Node | null {
@@ -5312,7 +5332,7 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
   const callee = referenceTo(scope, scope.program, application.callee.expression);
   if (callee === null) return scope.meter.refusal !== null ? null : throwInvariant(invariant("The selected callee has no source identity."));
   const sourceArguments: RawAuthoredArgument[] = [];
-  let tupleSources: Map<number, TupleReadUse> | null = null;
+  let tupleSources: Map<number, TupleAnnotation> | null = null;
   for (let index = 0; index < selected.sourceArguments.length; index += 1) {
     if (!admit(scope, "edges")) return null;
     const argument = selected.sourceArguments[index];
@@ -5329,18 +5349,16 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     if (position === null || !admit(scope, "facts")) return null;
     const answer = sourceType(scope, { kind: "expression", node: operand });
     if (scope.meter.refusal !== null) return null;
-    const tupleLiteral = !spread && answer !== undefined && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
+    const tupleLiteral = answer !== undefined && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
       ? tupleLiteralExpression(scope, operand) : undefined;
     const literal = tupleLiteral === undefined || answer === undefined ? null : retainTupleLiteral(scope, operand, tupleLiteral, answer.type);
     if (scope.meter.refusal !== null) return null;
     const owned = literal === null && (spread || answer !== undefined && scope.shape.isTuple(answer.type))
       ? valueTupleAnnotation(scope, operand, answer) : null;
     if (scope.meter.refusal !== null) return null;
-    if (!spread && (literal !== null || owned !== null && answer !== undefined)) {
-      if (!admit(scope, "facts", (tupleSources === null ? 2 : 1) + (literal === null ? 1 : 0))) return null;
-      if (literal !== null) (tupleSources ??= new Map()).set(index, literal);
-      else if (owned !== null && answer !== undefined)
-        (tupleSources ??= new Map()).set(index, { kind: "tuple-annotation", type: answer.type, annotation: owned });
+    if (!spread && owned !== null && answer !== undefined) {
+      if (!admit(scope, "facts", tupleSources === null ? 3 : 2)) return null;
+      (tupleSources ??= new Map()).set(index, { type: answer.type, annotation: owned });
     }
     enqueueRawType(scope, answer, position, owned, literal, ast.kindName(operand) === "KindNumericLiteral" ? operand : null);
     sourceArguments.push({ occurrence, expression, kind: spread ? "spread" : "value", component: available(position) });
@@ -5371,10 +5389,10 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       && argument.effectiveArgument === argument.sourceArgument && scope.checked.ast.kindName(argument.sourceArgument) === "KindNumericLiteral"
       ? argument.sourceArgument : null;
     const tupleSource = argument.sourceForm === "value" ? tupleSources?.get(argument.sourceArgumentIndex) : undefined;
-    const sourceAnnotation = tupleSource?.kind === "tuple-annotation" && tupleSource.type === argument.selectedArgumentType
-      ? tupleSource.annotation : null;
-    const sourceLiteral = tupleSource?.kind === "literal-tuple" && tupleSource.source === argument.sourceArgument
-      && tupleSource.original === argument.selectedArgumentType ? tupleSource : null;
+    const sourceAnnotation = tupleSource?.type === argument.selectedArgumentType ? tupleSource.annotation : null;
+    const sourceLiteral = argument.sourceForm === "value" && scope.shape.isTuple(argument.selectedArgumentType)
+      ? tupleLiteralRead(scope, argument.sourceArgument, argument.selectedArgumentType) : null;
+    if (scope.meter.refusal !== null) return null;
     const destinationAnnotation = argument.parameterForm === "parameter"
       ? selectedFormalTupleAnnotation(scope, selected, argument.parameterIndex, argument.selectedParameterType) : null;
     if (destinationAnnotation !== null && argument.sourceForm === "value") {
@@ -5547,7 +5565,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
     shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
     fieldSelectors: null, invalidLayout: null, rootAssignmentAnnotations: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
-      authoredSourceTypes: null, tupleCalls: null, tupleArgumentContexts: null, tupleLiteralContexts: null,
+      authoredSourceTypes: null, tupleCalls: null, tupleArgumentContexts: null, tupleLiteralContexts: null, tupleLiteralReads: null,
       interfaceGroups: { byTarget: new Map(), rows: [] }, interfaceCapture,
       interfaceDescriptions: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),
@@ -5776,8 +5794,10 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
           }
         }
       }
-      const tupleValue = tupleContext === null || answer.causes.length !== 0 || !scope.shape.isTuple(answer.type)
-        ? null : retainTupleLiteral(scope, node, tupleContext.expression, answer.type);
+      const tupleValue = (kind === "KindArrayLiteralExpression" || kind === "KindParenthesizedExpression")
+        && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
+        ? tupleLiteralRead(scope, node, answer.type, parent) ?? (tupleContext === null
+          ? null : retainTupleLiteral(scope, node, tupleContext.expression, answer.type)) : null;
       if (scope.meter.refusal !== null) break;
       const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue,
         kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);
