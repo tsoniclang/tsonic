@@ -495,6 +495,49 @@ test("nested const tuple assertions keep the declared slot context across actual
   }
 });
 
+test("a placed grouped initializer captures the same saved tuple storage as its ungrouped read", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const value of ["first", "((first))"]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      function make(flag: boolean): readonly [boolean, true] { return [flag, true]; }
+      export function start(flag: boolean): readonly [boolean, true] {
+        const first: readonly [boolean, true] = make(flag);
+        const second: readonly [boolean, true] = ${value};
+        return second;
+      }
+    `);
+    const native = input.snapshot.nativeFacts;
+    const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
+      nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
+    const owner = name => declarations.find(row => row.kind === "FunctionDeclaration" && row.name.text === name).tsonic.definition;
+    const selected = chapter.bodies.filter(row => row.kind === "selected");
+    const caller = selected.find(row => row.tir.owner === owner("start"));
+    const producer = selected.find(row => row.tir.owner === owner("make"));
+    const [first, second] = caller.tir.root.statements.nodes.slice(0, 2).map(statement => statement.declarationList.declarations.nodes[0]);
+    const firstInitializer = selected.find(row => row.tir.body === first.tsonic.initializer);
+    const secondInitializer = selected.find(row => row.tir.body === second.tsonic.initializer);
+    const source = first.name.tsonic.declaration.local;
+    assert.equal(secondInitializer.tir.root === second.initializer, true);
+    assert.deepEqual(secondInitializer.tir.captures, [{ local: source, capture: "captured-value" }]);
+    const capture = secondInitializer.mir.locals.find(row => row.role.kind === "capture");
+    assert.deepEqual([capture.source, capture.mode, capture.storage], [source, "captured-value", first.tsonic.storage]);
+    const assigned = row => row.mir.blocks.flatMap(block => block.statements).filter(statement =>
+      statement.kind === "assign" && statement.value.kind === "aggregate");
+    assert.equal(assigned(producer).length, 1);
+    assert.equal(assigned(secondInitializer).length, 0);
+    const called = row => row.mir.blocks.map(block => block.terminator)
+      .filter(terminator => terminator.kind === "call")
+      .map(({ callee }) => callee.kind === "body" ? callee.instance.body : callee.resolution.activation.body);
+    assert.deepEqual(called(firstInitializer), [producer.tir.body]);
+    assert.deepEqual(called(secondInitializer), []);
+    assert.deepEqual(called(caller), [firstInitializer.tir.body, secondInitializer.tir.body]);
+  }
+});
+
 test("a conditional finite spread evaluates only its selected tuple before the following argument", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

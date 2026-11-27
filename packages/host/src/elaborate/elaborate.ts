@@ -467,11 +467,19 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   for (const rows of captureLocals.values()) for (const slot of rows.values())
     if (slot === null) return callerDefect("a retained capture requires its actual local slot", rootOrigin);
   const readEvidence = new Set<NodeId>();
-  for (const evidence of constraints.evidence) {
+  if (captureLocals.size !== 0) for (const evidence of constraints.evidence) {
     const component = evidence.value.component;
     if (component.kind !== "body" || component.value.body !== body.body || readEvidence.has(component.value.node)) continue;
     readEvidence.add(component.value.node);
-    const node = nodes[positionOf(component.value)];
+    let node = nodes[positionOf(component.value)];
+    while (node?.kind === "ParenthesizedExpression") {
+      const stop = admitTypePublicationStep(deps.typeWork);
+      if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, node.origin, { query: "elaborateBody", key: body.body });
+      const operand = node.expression;
+      if (nodes[nodePosition(operand.id)] !== operand)
+        return callerDefect("a grouped capture operand must retain its actual checked child in this body", node.origin);
+      node = operand;
+    }
     if (node?.kind !== "Identifier" || node.tsonic.role !== "value" && node.tsonic.role !== "assignment-target"
       || node.tsonic.resolution.kind !== "local") continue;
     const reference = node.tsonic.resolution.local;

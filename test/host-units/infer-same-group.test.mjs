@@ -1084,8 +1084,9 @@ test("many real captured formals read their SAME demanded owner parameter vector
   assert.equal(reads, owner.params.length, "no capture-times-formals search");
 });
 
-test("Elaborate replays the actual solved placed-body rows without selecting modes or guessing capture storage", () => {
-  const program = ready("export function select(a: boolean, b = a): boolean { return b; }\n");
+for (const [operand, grouping] of [["a", 0], ["((a))", 2]])
+test(`Elaborate replays the actual solved placed-body rows for ${operand} without selecting modes or guessing storage`, () => {
+  const program = ready(`export function select(a: boolean, b = ${operand}): boolean { return b; }\n`);
   const records = [...drive(program).values()];
   const body = program.checked.bodies.find(body => body.captures.length === 1);
   const record = records.find(record => record.solution.bodies.some(typing => typing.body === body.body));
@@ -1102,7 +1103,9 @@ test("Elaborate replays the actual solved placed-body rows without selecting mod
   const result = wiring.elaborate.elaborate(deps, input);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.captures === typing.captures, true);
-  assert.deepEqual(result.value.root.tsonic.resolution.local, body.captures[0]);
+  let selected = result.value.root;
+  while (selected.kind === "ParenthesizedExpression") selected = selected.expression;
+  assert.deepEqual(selected.tsonic.resolution.local, body.captures[0]);
   const captured = result.value.locals.find(local => local.role === "capture");
   assert.equal(captured !== undefined, true);
   assert.deepEqual(captured.capturedFrom, body.captures[0]);
@@ -1114,6 +1117,21 @@ test("Elaborate replays the actual solved placed-body rows without selecting mod
     /actual ordered qualified body captures/u);
   assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, typing: { ...input.typing, constraints: { ...constraints, evidence: [] } } }),
     /which no parameter names/u, "no initializer completion or checked slot is substituted for absent actual read evidence");
+
+  for (let maximumWork = 0; maximumWork <= grouping; maximumWork++) {
+    const typeWork = fixture.types.createTypePublicationWork({ maximumWork, maximumCreatedRecords: 0 });
+    const limited = wiring.elaborate.elaborate({ ...deps, typeWork }, input);
+    if (maximumWork === grouping) {
+      assert.equal(limited.kind, "ok");
+      assert.equal(limited.value.locals.find(local => local.role === "capture").storage, captured.storage);
+      continue;
+    }
+    assert.equal(limited.kind, "no-result");
+    assert.equal(limited.causes[0].kind, "producer");
+    assert.equal(limited.causes[0].refusal === fixture.types.typePublicationRefusalOf(typeWork), true);
+    const at = maximumWork === 0 ? body.root : body.root.expression;
+    assert.deepEqual(limited.diagnostics[0].site, { kind: "source", origin: at.origin });
+  }
 });
 
 test("nested real arithmetic allocates source-order variables but evaluates only genuinely final operand evidence", () => {
