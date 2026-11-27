@@ -2063,6 +2063,7 @@ test("counted-loop facts bind the actual placed initializer and refuse a reachin
       assert.deepEqual(unbacked.value, { loops: facts.refinements.countedLoops, ranges: [] });
     }
     const round = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+    let submittedMaximum = 3n;
     try {
       pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, input) => {
         const outcome = round(deps, input);
@@ -2070,11 +2071,13 @@ test("counted-loop facts bind the actual placed initializer and refuse a reachin
         const pair = outcome.value.value;
         if (!pair.facts.refinements.integers.some(row => row.range !== null)) return outcome;
         const integers = pair.facts.refinements.integers.map(row => row.range === null ? row
-          : { ...row, range: { ...row.range, maximum: row.range.maximum + 1n } });
+          : { ...row, range: { ...row.range, maximum: submittedMaximum } });
         return { ...outcome, value: { ...outcome.value, value: { ...pair, facts: { ...pair.facts,
           refinements: { ...pair.facts.refinements, integers } } } } };
       };
       assert.throws(() => analyzeHostProgram(operands), /Facts handoff: integer-proof-exact/);
+      submittedMaximum = 3;
+      assert.throws(() => analyzeHostProgram(operands), /Facts handoff: integer-range-valid/);
     } finally {
       pipelineWiring.bodyAnalysis.analyzeBodyRound = round;
     }

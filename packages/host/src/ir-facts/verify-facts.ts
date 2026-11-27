@@ -318,16 +318,30 @@ for (const violation of rows) {
     if (output !== null) return output;
     integerNodes.add(integer.node); { const stop = node(integer.node); if (stop !== null) return stop; }
     const range = integer.range;
+    let minimum: bigint | null = null;
+    let maximum: bigint | null = null;
     if (range !== null) {
-      const width = admitIntegerKey(range.minimum, work => chargeWork(account, work)) ?? admitIntegerKey(range.maximum, work => chargeWork(account, work));
+      const endpoints = chargeWork(account, 2);
+      if (endpoints !== null) return endpoints;
+      const first = range.minimum;
+      const last = range.maximum;
+      if (typeof first !== "bigint" || typeof last !== "bigint") {
+        const stop = report("integer-range-valid", at(integer.node), "An exact integer interval has ordered bigint endpoints.");
+        if (stop !== null) return stop;
+        continue;
+      }
+      const width = admitIntegerKey(first, work => chargeWork(account, work)) ?? admitIntegerKey(last, work => chargeWork(account, work));
       if (width !== null) return width;
+      minimum = first;
+      maximum = last;
     }
-    if (range !== null && range.minimum > range.maximum) {
+    const nonnegative = integer.nonnegative;
+    if (minimum !== null && maximum !== null && minimum > maximum) {
       const stop = report("integer-range-valid", at(integer.node), "An exact integer interval has ordered bigint endpoints.");
       if (stop !== null) return stop;
-    } else if (range !== null && integer.nonnegative && range.maximum < 0n) {
+    } else if (maximum !== null && nonnegative && maximum < 0n) {
       { const stop = report("integer-proofs-consistent", at(integer.node), "A published interval and nonnegative proof cannot contradict one another."); if (stop !== null) return stop; }
-    } else if ((range !== null || integer.nonnegative) && valueNodes.has(integer.node)) {
+    } else if ((range !== null || nonnegative) && valueNodes.has(integer.node)) {
       const proved = provedLoops();
       if (proved.kind !== "complete") return proved;
       const rows = proved.value.ranges;
@@ -343,8 +357,8 @@ for (const violation of rows) {
         if (row.node < integer.node) lower = middle + 1;
         else if (row.node > integer.node) upper = middle;
         else {
-          matching = (!integer.nonnegative || row.range.minimum >= 0n)
-            && (range === null || row.range.minimum === range.minimum && row.range.maximum === range.maximum);
+          matching = (!nonnegative || row.range.minimum >= 0n)
+            && (range === null || row.range.minimum === minimum && row.range.maximum === maximum);
           break;
         }
       }
