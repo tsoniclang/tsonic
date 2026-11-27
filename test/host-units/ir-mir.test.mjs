@@ -2542,7 +2542,10 @@ for (const kind of ["array", "tuple", "fixed-array"]) {
     const term = kind === "array" ? { kind, element: identities.tyId(1), readonly: false }
       : kind === "fixed-array" ? { kind, element: identities.tyId(1), extent: { length: 1n, runtimeBase: "bigint" } }
       : { kind, elements: [{ kind: "required", type: identities.tyId(1), declaration: null }], readonly: false };
-    const input = { ...context, source, types: { ...context.types, terms: [...context.types.terms, term] } };
+    const holding = context.selectedNativeFacts.carrierHolding;
+    const selectedNativeFacts = kind === "tuple" ? { ...context.selectedNativeFacts,
+      carrierHolding: [...holding, { carrier: "tuple", holding: "in-place" }] } : context.selectedNativeFacts;
+    const input = { ...context, selectedNativeFacts, source, types: { ...context.types, terms: [...context.types.terms, term] } };
     const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
     const place = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
     const constant = { id: identities.constId(0), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } };
@@ -2554,6 +2557,8 @@ for (const kind of ["array", "tuple", "fixed-array"]) {
     ], terminator: { ...base.blocks[0].terminator, tir: { body: base.body, node: identities.nodeId(4) } } }] };
     const at = { kind: "instruction", block: 0, statement: 1 };
     same(verified(body, input), [], `complete ${kind} construction vector`);
+    if (kind === "tuple") same(verified(body, { ...input, selectedNativeFacts: context.selectedNativeFacts }),
+      [expectedViolation("operation-selected", at)], "tuple construction needs its own selected in-place holding");
     const wrongKind = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
       ...body.blocks[0].statements[1], value: { ...value, aggregate: { ...aggregate, kind: kind === "array" ? "fixed-array" : "array" } },
     }] }] };
@@ -2571,18 +2576,22 @@ for (const kind of ["array", "tuple", "fixed-array"]) {
     ] } } } };
     const failingInvoke = { ...invoked, blocks: [{ ...invoked.blocks[0], terminator: { ...invoked.blocks[0].terminator, operation: failing } }, invoked.blocks[1]] };
     same(verified(failingInvoke, failingInput), [], "the actual construction that can fail is a selected explicit invoke, with all part/component metadata retained");
-    same(verified(body, failingInput), [expectedViolation("statement-pure", at)], "a construction that can fail is not a statement (graph law 2)");
+    const failingFindings = kind === "tuple" ? [expectedViolation("operation-selected", at), expectedViolation("statement-pure", at)]
+      : [expectedViolation("statement-pure", at)];
+    same(verified(body, failingInput), failingFindings, "a construction that can fail is not a statement (graph law 2)");
     const wrong = { ...body, constants: [{ ...constant, type: identities.tyId(2), value: { kind: "literal", value: { kind: "string", value: "wrong" } } }] };
     same(verified(wrong, input), [expectedViolation("assignment-type", at)], "physical element type cannot be silently relabelled");
     if (kind === "fixed-array" || kind === "tuple") {
       const empty = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
         ...body.blocks[0].statements[1], value: { ...value, aggregate: { kind, elements: [] } },
       }] }] };
-      same(verified(empty, input), [expectedViolation("assignment-type", at)], "required physical slots cannot disappear");
+      const findings = kind === "tuple" ? [expectedViolation("operation-selected", at), expectedViolation("assignment-type", at)]
+        : [expectedViolation("assignment-type", at)];
+      same(verified(empty, input), findings, "required physical slots cannot disappear");
       const extra = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
         ...body.blocks[0].statements[1], value: { ...value, aggregate: { kind, elements: [aggregate.elements[0], aggregate.elements[0]] } },
       }] }] };
-      same(verified(extra, input), [expectedViolation("assignment-type", at)], "extra physical slots cannot be silently relabelled");
+      same(verified(extra, input), findings, "extra physical slots cannot be silently relabelled");
     }
     if (kind === "tuple") {
       const optionalType = { ...term, elements: [{ kind: "optional", type: identities.tyId(1), declaration: null }] };
@@ -2618,12 +2627,22 @@ for (const kind of ["array", "tuple", "fixed-array"]) {
         const tupleInput = { ...input, types: { ...input.types, terms: [...context.types.terms,
           { ...term, elements }, { kind: "array", element: identities.tyId(1), readonly: false }] } };
         for (const length of [0, 1, 2, 3]) {
+          const operands = Array.from({ length }, (_, index) => index === 0 ? operand : { ...operand, id: identities.nodeId(index + 4) });
+          const selected = { ...construction, decision: { ...construction.decision, operands: operands.map(() => constant.type),
+            operation: { kind: "array-construction", parts: operands.map((node, index) => ({ ...part, part: index,
+              source: { ...part.source, node: node.id }, destination: { ...part.destination, path: [{ kind: "tuple-element", index }] } })) } } };
+          const authored = { ...expression, elements: { ...expression.elements, nodes: operands },
+            tsonic: { ...expression.tsonic, construction: { kind: "decided", decision: selected } } };
+          const authoredInput = { ...tupleInput, source: { ...source,
+            root: { ...source.root, statements: { ...source.root.statements, nodes: [
+              { ...source.root.statements.nodes[0], expression: authored }, source.root.statements.nodes[1],
+            ] } } } };
           const physical = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
             ...body.blocks[0].statements[1], value: { ...value, aggregate: { kind,
               elements: Array.from({ length }, () => aggregate.elements[0]) } },
           }] }] };
           const expected = length < minimum || maximum !== null && length > maximum ? [expectedViolation("assignment-type", at)] : [];
-          same(verified(physical, tupleInput), expected, `C2974 ${label} complete physical arity ${length}, not a lowerer correlation certificate`);
+          same(verified(physical, authoredInput), expected, `C2974 ${label} complete selected arity ${length} independently of the declared minimum and maximum`);
         }
         same(verified(optionalWrong, tupleInput), prefix ? [expectedViolation("assignment-type", at)] : [],
           `C2974 ${label} checks only the unambiguous required prefix and never a rest carrier as an element`);

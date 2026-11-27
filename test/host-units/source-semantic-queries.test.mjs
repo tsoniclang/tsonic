@@ -2382,6 +2382,61 @@ test("an empty source object has a checked zero-part construction, not an empty 
   assert.deepEqual(irInfer.parseConstraints(irInfer.printConstraints(set)), { kind: "parsed", value: set });
 });
 
+test("inferred array construction retains its exact spread operand and authored scalar order", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `export function build(xs: boolean[], value: boolean): boolean {
+    const all = [false, ...xs, value];
+    return value;
+  }`);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const { types, modules } = captured.value;
+  const checked = modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const callable = checked.tree.statements.nodes[0];
+  const declaration = callable.body.statements.nodes[0].declarationList.declarations.nodes[0];
+  const literal = declaration.initializer;
+  assert.equal(literal.kind, "ArrayLiteralExpression");
+  assert.deepEqual(literal.tsonic.value.views.contextual, { kind: "available", value: null });
+  const bodies = new Set(checked.bodies.filter(row => row.root === literal || row.root === callable.body).map(row => row.body));
+  const start = wiring.infer.constraintsOf;
+  const resume = wiring.infer.resumeConstraintsOf;
+  const observed = new Error("observed the authored array constraint before selection");
+  let construction = null;
+  function observe(generated) {
+    if (generated.kind !== "done" || generated.value.kind !== "ok") return generated;
+    for (const set of generated.value.value.constraints) {
+      if (!bodies.has(set.body)) continue;
+      const match = set.constraints.find(row => row.kind === "construct-literal" && row.occurrence.node === literal.id);
+      if (match !== undefined) {
+        construction = match;
+        throw observed;
+      }
+    }
+    return generated;
+  }
+  try {
+    wiring.infer.constraintsOf = (...args) => observe(start(...args));
+    wiring.infer.resumeConstraintsOf = (...args) => observe(resume(...args));
+    assert.throws(() => typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow)), error => error === observed);
+  } finally {
+    wiring.infer.constraintsOf = start;
+    wiring.infer.resumeConstraintsOf = resume;
+  }
+  const [first, spread, last] = literal.elements.nodes;
+  assert.equal(spread.kind, "SpreadElement");
+  assert.ok(construction);
+  assert.equal(construction.construction, "array");
+  assert.equal(construction.result, literal.tsonic.value.views.read.value);
+  assert.equal(construction.destination, null);
+  assert.deepEqual(construction.parts.map(row => [row.kind, row.occurrence]),
+    [["element", first], ["spread", spread.expression], ["element", last]]
+      .map(([role, operand]) => [role, { body: construction.occurrence.body, node: operand.id }]));
+  assert.equal(fixture.types.readType(types, construction.parts[1].type).kind, "array");
+});
+
 test("a checked binding default completes against its actual named storage without an enclosing signature request", () => {
   const program = ready(`export function start(first: boolean, source: { field?: boolean }): boolean {
     const { field = !first } = source;
