@@ -10,7 +10,7 @@ import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeArrayHoldingOf, op
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
-import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
+import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyTupleBinding, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
 import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
@@ -842,6 +842,10 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   }
   for (const node of structure.nodes) {
     const original = inventory.sourceNodes.get(node.id);
+    if (node.kind === "VariableDeclaration") {
+      const stop = verifyTupleBinding(node, original, input.types, admit, emit);
+      if (stop !== null) return { kind: "resource-stop", stop };
+    }
     if (node.kind === "InterfaceDeclaration") {
       const stop = verifyInterfaceInstance(input, node, original, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
@@ -1237,7 +1241,14 @@ export const verifyTypedModule: VerifyTirModule = (input, module, admit) => {
   verifyQualifiedReferences(input, null, structure, emit);
   const declarationOf = declarationInventory(input);
   verifyScalarReferences(structure, sourceNodes, declarationOf, emit);
-  for (const node of structure.nodes) verifyOccurrenceRole(node, sourceNodes.get(node.id), emit);
+  for (const node of structure.nodes) {
+    const original = sourceNodes.get(node.id);
+    if (node.kind === "VariableDeclaration") {
+      const stop = verifyTupleBinding(node, original, input.types, admit, emit);
+      if (stop !== null) return { kind: "resource-stop", stop };
+    }
+    verifyOccurrenceRole(node, original, emit);
+  }
   verifyBodylessParameters(input, structure.nodes, sourceNodes, emit);
   verifyDeclarationNames(structure.nodes, sourceNodes, emit);
   const types = verifyTypePayload(input, { kind: "module", module: module.module }, module, structure, declarationOf, emit, appendViolation, admit);

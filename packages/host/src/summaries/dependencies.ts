@@ -178,7 +178,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
         return value.role === "assignment-target" && member.setter !== null ? callee(at, member.setter, "setter") : null;
       }
       case "VariableDeclaration":
-        return node.tsonic.initializer === null || layoutBindingOf(node.initializer) !== null ? null : initializer(at, node.tsonic.initializer);
+        return !("initializer" in node.tsonic) || node.tsonic.initializer === null || layoutBindingOf(node.initializer) !== null ? null : initializer(at, node.tsonic.initializer);
       case "PropertyDeclaration":
         return node.tsonic.initializer === null ? null : initializer(at, node.tsonic.initializer);
       case "SpreadElement": return "role" in node.tsonic ? null : protocol(at, selected(node.tsonic.protocol));
@@ -251,7 +251,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       const stop = node === null ? null : visit(node, accountedTarget);
       if (stop !== null) return stop;
       const placed = subject.kind === "formal" || (node?.kind === "VariableDeclaration" || node?.kind === "PropertyDeclaration")
-        && node.tsonic.initializer !== null;
+        && "initializer" in node.tsonic && node.tsonic.initializer !== null;
       stack.push({ children: chapterSyntaxSlots(subject)[Symbol.iterator](), callable: node !== null && callableSyntax(node),
         placed, target: node?.kind === "ParenthesizedExpression" ? accountedTarget : selectedTarget,
         targetField: node?.kind === "TaggedTemplateExpression" ? "tag" : "expression" });

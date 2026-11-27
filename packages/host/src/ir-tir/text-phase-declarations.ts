@@ -47,7 +47,7 @@ export interface PhaseDeclarationsTextReads {
 }
 
 export interface PhaseDeclarationsTextModel {
-  readonly work_TypedBinding: TirRecordCodec<TypedBinding>;
+  readonly work_TypedBinding: TirRecordCodec<TypedPhase["VariableDeclaration"]>;
   readonly work_TypedBindingElement: TirRecordCodec<TypedBindingElement>;
   readonly work_TypedBindingPattern: TirRecordCodec<TypedBindingPattern>;
   readonly work_TypedParameter: TirRecordCodec<TypedParameter>;
@@ -89,26 +89,34 @@ export interface PhaseDeclarationsTextModel {
 
 export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDeclarationsTextReads): PhaseDeclarationsTextModel => {
   const { defineRecord, defineSyntaxRecord, syntaxReads, bodyReader, booleanReader, definitionReader, moduleReader, numberReader, typeReader } = kernel;
-  const work_TypedBinding: TirRecordCodec<TypedBinding> = defineRecord<TypedBinding>("TypedBinding", "TypedBinding", null, "TypedBinding", null, null, fields => fields
+  const namedBinding = defineRecord<TypedBinding>("TypedBinding", "TypedBinding", null, "TypedBinding", null, null, fields => fields
     .field("declaration", "DeclarationTarget", value => read.work_DeclarationTarget.write(value.declaration), lazyReader(() => read.work_DeclarationTarget.reader))
     .field("storage", "t", value => referenceWork("t", value.storage), typeReader)
     .field("initializer", "?body", value => nullableWork(value.initializer, actual => scalarWork("body", actual)), nullableReader(bodyReader))
     .finish((field_declaration, field_storage, field_initializer) => ({ declaration: field_declaration, storage: field_storage, initializer: field_initializer })));
+  const patternVariable = defineRecord<Extract<TypedPhase["VariableDeclaration"], { readonly role: "destructuring" }>>(
+    "TypedPatternVariable", "TypedPatternVariable", null, "TypedPatternVariable", null, null, fields => fields.finish(() => ({ role: "destructuring" })));
+  const work_TypedBinding = unionRecord<TypedPhase["VariableDeclaration"]>("TypedBinding", value =>
+    "role" in value ? patternVariable.write(value) : namedBinding.write(value), () => [namedBinding.reader, patternVariable.reader]);
   const bindingElement: TirRecordCodec<TypedBindingElement & { readonly role: "binding" }> = defineRecord<TypedBindingElement & { readonly role: "binding" }>("TypedBindingElement@binding", "TypedBindingElement", { field: "role", value: "binding" }, "TypedBindingElement", null, null, fields => fields
     .field("declaration", "DeclarationTarget", value => read.work_DeclarationTarget.write(value.declaration), lazyReader(() => read.work_DeclarationTarget.reader))
     .field("storage", "t", value => referenceWork("t", value.storage), typeReader)
     .field("initializer", "?body", value => nullableWork(value.initializer, actual => scalarWork("body", actual)), nullableReader(bodyReader))
     .field("role", "'binding", value => scalarWork("'binding", value.role), literalReader<(TypedBindingElement & { readonly role: "binding" })["role"]>("'binding", ["binding"]))
     .finish((field_declaration, field_storage, field_initializer, field_role) => ({ declaration: field_declaration, storage: field_storage, initializer: field_initializer, role: field_role })));
-  const holeElement: TirRecordCodec<TypedBindingElement & { readonly role: "hole" }> = defineRecord<TypedBindingElement & { readonly role: "hole" }>("TypedBindingElement@hole", "TypedBindingElement", { field: "role", value: "hole" }, "TypedBindingElement", null, null, fields => fields
-    .field("role", "'hole", value => scalarWork("'hole", value.role), literalReader<(TypedBindingElement & { readonly role: "hole" })["role"]>("'hole", ["hole"]))
-    .finish((field_role) => ({ role: field_role })));
+  const emptyElement = <Role extends "hole" | "pattern">(role: Role) => defineRecord<{ readonly role: Role }>(
+    `TypedBindingElement@${role}`, "TypedBindingElement", { field: "role", value: role }, "TypedBindingElement", null, null, fields => fields
+      .field("role", `'${role}`, value => scalarWork(`'${role}`, value.role), literalReader<Role>(`'${role}`, [role]))
+      .finish(field_role => ({ role: field_role })));
+  const holeElement = emptyElement("hole");
+  const nestedElement = emptyElement("pattern");
   const work_TypedBindingElement: TirRecordCodec<TypedBindingElement> = unionRecord<TypedBindingElement>("TypedBindingElement", (value: TypedBindingElement): TirTypedRecordWork => {
     switch (value.role) {
       case "binding": return bindingElement.write(value);
       case "hole": return holeElement.write(value);
+      case "pattern": return nestedElement.write(value);
     }
-  }, () => [bindingElement.reader, holeElement.reader]);
+  }, () => [bindingElement.reader, holeElement.reader, nestedElement.reader]);
   const work_TypedBindingPattern: TirRecordCodec<TypedBindingPattern> = defineRecord<TypedBindingPattern>("TypedBindingPattern", "TypedBindingPattern", null, "TypedBindingPattern", null, null, fields => fields
     .field("storage", "t", value => referenceWork("t", value.storage), typeReader)
     .finish((field_storage) => ({ storage: field_storage })));

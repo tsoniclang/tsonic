@@ -1,9 +1,9 @@
 import type { DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { HirNode, SwitchStatement } from "../ir-hir/contract.js";
+import type { BindingPattern, CheckedPhase, HirNode, SwitchStatement, VariableDeclaration } from "../ir-hir/contract.js";
 import { checkedLayoutRoleOf, compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { Origin } from "../ids/contract.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { BindingScope, BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
+import type { BindingScope, BodyInstance, TypeEvidence, TypeTable, TypeTerm } from "../ir-types/contract.js";
 import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeAbsenceComparisonOf, nativeCarrierOf, readLexicalTypeSupport } from "../ir-types/index.js";
 import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirReadyReadAdmission, TirRule, TirTypedSyntax, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
@@ -386,6 +386,76 @@ const assignmentTokens: readonly string[] = (["EqualsToken", "PlusEqualsToken", 
   "GreaterThanGreaterThanGreaterThanEqualsToken", "AmpersandEqualsToken", "BarEqualsToken", "CaretEqualsToken",
   "AmpersandAmpersandEqualsToken", "BarBarEqualsToken", "QuestionQuestionEqualsToken"]);
 
+export function verifyTupleBinding<Stop extends object>(node: VariableDeclaration<TypedPhase>, original: HirNode | undefined,
+  types: TypeTable, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  const checked = original?.kind === "VariableDeclaration" && !("declaration" in original.tsonic) ? original : null;
+  if (!("role" in node.tsonic)) {
+    if (checked !== null) emit("binding-storage", node, "a destructuring container cannot publish named storage");
+    return null;
+  }
+  const paid = admit({ kind: "row" });
+  if (paid !== null) return paid;
+  const source = node.initializer === null ? null : typedValueOf(node.initializer);
+  if (checked?.name.kind !== "ArrayBindingPattern" || node.name.kind !== "ArrayBindingPattern" || source === null
+    || node.initializer?.id !== checked.initializer?.id || node.name.tsonic.storage !== source.convertedType) {
+    emit("binding-storage", node, "a destructuring container must retain its original inline source and actual tuple type");
+    return null;
+  }
+  interface PatternSlots {
+    readonly typed: BindingPattern<TypedPhase>;
+    readonly source: BindingPattern<CheckedPhase>;
+    readonly tuple: Extract<TypeTerm, { readonly kind: "tuple" }>;
+    index: number;
+  }
+  const pending: PatternSlots[] = [];
+  const enter = (typed: BindingPattern<TypedPhase>, source: BindingPattern<CheckedPhase>): Stop | null => {
+    const next = admit({ kind: "row" });
+    if (next !== null) return next;
+    const tuple = types.terms[typed.tsonic.storage];
+    const slots = typed.elements.nodes;
+    if (typed.id !== source.id || typed.kind !== "ArrayBindingPattern" || source.kind !== "ArrayBindingPattern"
+      || tuple?.kind !== "tuple" || slots.length !== source.elements.nodes.length || slots.length > tuple.elements.length)
+      emit("binding-storage", typed, "the fixed pattern must retain its actual complete authored slot inventory");
+    else pending.push({ typed, source, tuple, index: 0 });
+    return null;
+  };
+  const opened = enter(node.name, checked.name);
+  if (opened !== null) return opened;
+  for (let frame = pending.at(-1); frame !== undefined; frame = pending.at(-1)) {
+    const { typed, source, tuple, index } = frame;
+    if (index === typed.elements.nodes.length) { pending.pop(); continue; }
+    const reached = admit({ kind: "row" });
+    if (reached !== null) return reached;
+    frame.index += 1;
+    const element = typed.elements.nodes[index];
+    const authored = source.elements.nodes[index];
+    const slot = tuple.elements[index];
+    if (element === undefined || authored?.id !== element.id || slot?.kind !== "required" || element.initializer !== null
+      || element.dotDotDotToken !== null || element.propertyName !== null) {
+      emit("binding-storage", element ?? typed, "a fixed binding slot must retain its actual authored ordinal and required selected value");
+      continue;
+    }
+    const name = element.name;
+    if (name === null) continue;
+    if (name.kind !== "Identifier") {
+      if (authored.name === null || authored.name.kind === "Identifier" || name.tsonic.storage !== slot.type)
+        emit("binding-storage", element, "a nested pattern must consume its own actual projected tuple slot");
+      else {
+        const nested = enter(name, authored.name);
+        if (nested !== null) return nested;
+      }
+      continue;
+    }
+    const target = authored.tsonic.declaration;
+    const binding = element.tsonic;
+    if (binding.role !== "binding" || binding.storage !== slot.type || binding.initializer !== null || target === null
+      || (target.kind === "local" ? binding.declaration.kind !== "local" || !sameLocalReference(binding.declaration.local, target.local)
+        : binding.declaration.kind !== "definition" || binding.declaration.definition !== target.definition))
+      emit("binding-storage", element, "a fixed binding consumes its selected tuple slot in its actual named storage");
+  }
+  return null;
+}
+
 export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefined, emit: TirOccurrenceEmit): void => {
   if (node.kind === "CallExpression") {
     const expected = original?.kind === "CallExpression" ? checkedLayoutRoleOf(original) : null;
@@ -417,8 +487,11 @@ export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefine
   if (node.kind === "NamespaceExport" && original?.kind === "NamespaceExport" &&
     node.tsonic.definition !== original.tsonic.definition)
     emit("binding-capture-owner", node, "a namespace export must retain its genuine same-node F1 declaration");
-  if (node.kind === "BindingElement" && (node.tsonic.role === "hole") !== (node.name === null)) {
-    emit("binding-element-role-exact", node, "binding element role is hole exactly when its authored name is absent");
+  if (node.kind === "BindingElement") {
+    if ((node.tsonic.role === "hole") !== (node.name === null))
+      emit("binding-element-role-exact", node, "binding element role is hole exactly when its authored name is absent");
+    else if (node.name !== null && node.tsonic.role !== (node.name.kind === "Identifier" ? "binding" : "pattern"))
+      emit("binding-element-role-exact", node, "a binding element must distinguish a named destination from a nested pattern");
   }
   if (node.kind === "BinaryExpression") {
     const role = node.tsonic.role;

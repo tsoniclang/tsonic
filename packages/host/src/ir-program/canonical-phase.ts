@@ -297,7 +297,7 @@ function prepareBindingElement(scan: ProjectionInventory, value: TypedBindingEle
   switch (value.role) {
     case "binding": return paidPhase(scan, 4, () => withPlan(prepareBindingPhase(scan, value), binding =>
       ({ kind: "copied", value: image => ({ ...binding(image), role: "binding" }) })));
-    case "hole": return borrowPhase(scan, 1, value);
+    case "hole": case "pattern": return borrowPhase(scan, 1, value);
   }
 }
 
@@ -710,7 +710,7 @@ export function typedSyntaxPhaseCopy(scan: ProjectionInventory, at: string,
     TypeQueryNode: value => prepareTypePhase(scan, value),
     TypeReferenceNode: value => prepareTypePhase(scan, value),
     UnionTypeNode: value => prepareTypePhase(scan, value),
-    VariableDeclaration: value => prepareBindingPhase(scan, value),
+    VariableDeclaration: value => "role" in value ? borrowPhase(scan, 1, value) : prepareBindingPhase(scan, value),
     VariableDeclarationList: value => prepareVariableList(scan, value, at + ".VariableDeclarationList.tsonic"),
     VoidExpression: value => prepareUnary(scan, value, at + ".VoidExpression.tsonic"),
     YieldExpression: value => prepareProtocolValue(scan, value, at + ".YieldExpression.tsonic"),

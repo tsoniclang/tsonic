@@ -547,7 +547,7 @@ export const verifyBindingSlots = <Stop extends object>(
   };
   for (const node of structure.nodes) {
     if (node.kind === "VariableDeclaration") {
-      binding(node.tsonic, node);
+      if ("declaration" in node.tsonic) binding(node.tsonic, node);
     } else if (node.kind === "BindingElement") {
       const phase = node.tsonic;
       if (phase.role === "binding") binding(phase, node);

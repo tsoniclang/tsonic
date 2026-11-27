@@ -139,8 +139,7 @@ export function nextDeclaration(lowering: Lowering, pending: Extract<Work, { rea
 }
 
 function localBinding(lowering: Lowering, node: VariableDeclaration<TypedPhase>, role: "binding" | "catch"): LocalRef {
-  const selected = node.tsonic;
-  if (node.name.kind !== "Identifier") return notLoweredYet("a destructuring variable declaration", node.origin);
+  const selected = namedBindingOf(node);
   if (selected.declaration.kind !== "local") return notLoweredYet(`a variable declaration of kind ${selected.declaration.kind}`, node.origin);
   const source = selected.declaration.local;
   const actual = lowering.body.locals[source.local];
@@ -149,10 +148,17 @@ function localBinding(lowering: Lowering, node: VariableDeclaration<TypedPhase>,
   return source;
 }
 
+function namedBindingOf(node: VariableDeclaration<TypedPhase>) {
+  const selected = node.tsonic;
+  if (!("declaration" in selected) || node.name.kind !== "Identifier")
+    return notLoweredYet("a destructuring variable declaration", node.origin);
+  return selected;
+}
+
 function startLexicalLocal(lowering: Lowering, scope: LocalScope, node: VariableDeclaration<TypedPhase>,
   source: LocalRef, kind: "user" | "exception"): LocalId | null {
   if (lowering.localOf.has(source.local)) return callerDefect("a local storage slot is declared twice", node.origin);
-  const local = newLocal(lowering.state, node.tsonic.storage, { kind }, "local", source, node.origin);
+  const local = newLocal(lowering.state, namedBindingOf(node).storage, { kind }, "local", source, node.origin);
   if (local === null) return null;
   if (!emitStatement(lowering.state, { ...siteOf(lowering.body, node), kind: "storage-live", local })) return null;
   lowering.localOf.set(source.local, local);
@@ -161,7 +167,7 @@ function startLexicalLocal(lowering: Lowering, scope: LocalScope, node: Variable
 }
 
 export function declareCatchLocal(lowering: Lowering, scope: LocalScope, node: VariableDeclaration<TypedPhase>): PlaceId | null {
-  const type = lowering.typeOf(node.tsonic.storage);
+  const type = lowering.typeOf(namedBindingOf(node).storage);
   if (type.kind !== "intrinsic" || type.intrinsic !== "unknown")
     return callerDefect("an exception destination retains its actual selected unknown storage", node.origin);
   const local = startLexicalLocal(lowering, scope, node, localBinding(lowering, node, "catch"), "exception");
@@ -197,7 +203,7 @@ export function prepareFunctionLocals(lowering: Lowering): boolean {
         if (layoutBindingOf(declaration.initializer) !== null) continue;
         const source = localBinding(lowering, declaration, "binding");
         if (lowering.localOf.has(source.local)) continue;
-        const local = newLocal(lowering.state, declaration.tsonic.storage, { kind: "user" }, "local", source, declaration.origin);
+        const local = newLocal(lowering.state, namedBindingOf(declaration).storage, { kind: "user" }, "local", source, declaration.origin);
         if (local === null) return false;
         lowering.localOf.set(source.local, local);
         if (!emitStatement(lowering.state, { ...siteOf(lowering.body, declaration), kind: "storage-live", local })) return false;
@@ -248,7 +254,7 @@ function initializerOf(lowering: Lowering, node: NodeHeader, body: BodyId): Inte
 }
 
 export function declareLocal(lowering: Lowering, node: VariableDeclaration<TypedPhase>, lexical: boolean): boolean {
-  const selected = node.tsonic;
+  const selected = namedBindingOf(node);
   if (node.initializer !== null && selected.initializer === null)
     return notLoweredYet("a variable initializer without its placed execution", node.origin);
   if (selected.declaration.kind === "definition" && lowering.body.root.kind === "SourceFile") {

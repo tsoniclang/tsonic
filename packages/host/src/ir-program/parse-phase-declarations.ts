@@ -2,9 +2,9 @@ import type { ModuleId, DefId, BodyId, TyId, LocalRef, SourceNodeRef } from "../
 import type { TypeParameter, BindingVector, PassingMode } from "../ir-types/contract.js";
 import type { ImportTarget, HirAttribute, HirCallableEndpoint, DeclarationTarget } from "../ir-hir/contract.js";
 import type { TypedBinding, TypedBindingPattern, TypedParameter, TypedBodyTemplate, TypedCallable, TypedClass, TypedHeritage, TypedInterface, TypedAlias, TypedEnum, TypedStorageDeclaration, TypedStaticBlock, TypedIndexDeclaration, TypedType, TypedPredicate, TypedTypeParameter, TypedImport, TypedImportBinding, TypedModuleReference, TypedExport, TypedExportBinding, TypedNamespaceExport, TypedExportAssignment, TypedNamespace, TypedSourceFile } from "../ir-tir/contract.js";
-import type { Cursor, TextStep } from "./parse-values.js";
-import type { TypedBindingElement } from "../ir-tir/contract.js";
-import { startFieldChoice } from "./parse-values.js";
+import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
+import type { TypedBindingElement, TypedPatternVariable } from "../ir-tir/contract.js";
+import { choice, delimiter, startFieldChoice } from "./parse-values.js";
 import { readBoolean, readStringChoice, openRecord, closeRecord, readModuleId, readDefinitionId, readBodyId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeParameterText, readBindings } from "./parse-types.js";
 import { readLocalRef, readSourceNodeRef } from "./parse-diagnostics.js";
@@ -15,8 +15,8 @@ export function readTypedBindingElementText<Root>(cursor: Cursor, finish: (value
     atomicText(cursor, next => startFieldChoice(next, fields, ["declaration", "role"]), first => {
       switch (first) {
         case "role":
-          return atomicText(cursor, next => readStringChoice(next, ["hole"]), role =>
-            atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role }, finish)));
+          return atomicText(cursor, next => readStringChoice(next, ["hole", "pattern"]), role =>
+            atomicText(cursor, next => closeRecord(next, fields), () => acceptText<TypedBindingElement, Root>({ role }, finish)));
         case "declaration":
           return readDeclarationTargetText(cursor, declaration =>
             fieldText<TyId, Root>(cursor, fields, "storage", (next, done) => atomicText(next, readTypeId, done), storage =>
@@ -27,8 +27,18 @@ export function readTypedBindingElementText<Root>(cursor: Cursor, finish: (value
     }));
 }
 
-export function readTypedBindingText<Root>(cursor: Cursor, finish: (value: TypedBinding) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => openRecord(next, "TypedBinding"), fields =>
+export function readTypedBindingText<Root>(cursor: Cursor, finish: (value: TypedBinding | TypedPatternVariable) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["TypedBinding", "TypedPatternVariable"]), label =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set<string>() };
+      if (label === "TypedPatternVariable")
+        return atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role: "destructuring" }, finish));
+      return readNamedBindingFields(cursor, fields, finish);
+    }));
+}
+
+function readNamedBindingFields<Root>(cursor: Cursor, fields: RecordFields, finish: (value: TypedBinding) => TextStep<Root>): TextStep<Root> {
+  return (
     fieldText<DeclarationTarget, Root>(cursor, fields, "declaration", readDeclarationTargetText, declarationValue =>
     fieldText<TyId, Root>(cursor, fields, "storage", (next, done) => atomicText(next, readTypeId, done), storageValue =>
       fieldText<BodyId | null, Root>(cursor, fields, "initializer", (next, done) => nullableText(next, (next, done) => atomicText(next, readBodyId, done), done), initializerValue =>

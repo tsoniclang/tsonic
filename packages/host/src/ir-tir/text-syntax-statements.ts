@@ -3,7 +3,7 @@ import { lazyReader, literalReader, nullableReader, roleSyntaxReader, sequenceRe
 import type { TirRecordCodec } from "./text-layouts.js";
 import type { TirFormal, TirFormalInitializer, TypedCase } from "./contract.js";
 import type {
-  TypedBinding, TypedBindingElement, TypedBindingPattern, TypedControlTransfer, TypedExport, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedImport, TypedImportBinding, TypedIteration, TypedNamespace, TypedParameter, TypedPhase, TypedStorageDeclaration, TypedVariableList
+  TypedBindingElement, TypedBindingPattern, TypedControlTransfer, TypedExport, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedImport, TypedImportBinding, TypedIteration, TypedNamespace, TypedParameter, TypedPhase, TypedStorageDeclaration, TypedVariableList
 } from "./contract.js";
 import type {
   Origin
@@ -21,7 +21,7 @@ export interface SyntaxStatementsTextReads {
   readonly work_ModifierList: TirRecordCodec<ModifierList<TypedPhase>>;
   readonly work_Origin: TirRecordCodec<Origin>;
   readonly work_TextRange: TirRecordCodec<TextRange>;
-  readonly work_TypedBinding: TirRecordCodec<TypedBinding>;
+  readonly work_TypedBinding: TirRecordCodec<TypedPhase["VariableDeclaration"]>;
   readonly work_TypedBindingElement: TirRecordCodec<TypedBindingElement>;
   readonly work_TypedBindingPattern: TirRecordCodec<TypedBindingPattern>;
   readonly work_TypedCase: TirRecordCodec<TypedCase>;

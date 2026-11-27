@@ -308,9 +308,14 @@ export interface TypedBinding {
   readonly initializer: BodyId | null;
 }
 
+export interface TypedPatternVariable {
+  readonly role: "destructuring";
+}
+
 export type TypedBindingElement =
   | (TypedBinding & { readonly role: "binding" })
-  | { readonly role: "hole" };
+  | { readonly role: "hole" }
+  | { readonly role: "pattern" };
 
 export interface TypedBindingPattern {
   readonly storage: TyId;
@@ -489,7 +494,7 @@ export interface TypedPhase extends Phase {
   readonly ExpressionStatement: null;
   readonly Block: null;
   readonly VariableStatement: null;
-  readonly VariableDeclaration: TypedBinding;
+  readonly VariableDeclaration: TypedBinding | TypedPatternVariable;
   readonly VariableDeclarationList: TypedVariableList;
   readonly BindingPattern: TypedBindingPattern;
   readonly ParameterDeclaration: TypedParameter;

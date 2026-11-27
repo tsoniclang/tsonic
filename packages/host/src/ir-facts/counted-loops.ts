@@ -385,9 +385,10 @@ function loopFact(
     || (increment?.kind !== "PrefixUnaryExpression" && increment?.kind !== "PostfixUnaryExpression")
     || increment.operator !== "PlusPlusToken" || loop.backEdges.length !== 1) return absent;
   const variable = initializer.declarations.nodes[0];
-  const binding = variable?.tsonic.declaration;
-  const start = variable?.initializer;
-  if (variable === undefined || binding?.kind !== "local" || binding.local.body !== mir.body || start == null
+  if (variable === undefined || !("declaration" in variable.tsonic)) return absent;
+  const binding = variable.tsonic.declaration;
+  const start = variable.initializer;
+  if (binding.kind !== "local" || binding.local.body !== mir.body || start === null
     || condition.left.kind !== "Identifier"
     || increment.operand.kind !== "Identifier") return absent;
   const sameCounter = (reference: typeof condition.left | typeof increment.operand): boolean => {

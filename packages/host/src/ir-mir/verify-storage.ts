@@ -881,7 +881,7 @@ export function verifyValues(
         const target = authored?.kind === "BinaryExpression" && authored.tsonic.role === "assignment"
           && (authored.tsonic.calculation === null || statement.value.kind === "use")
           ? staticTarget(authored.left)
-          : authored?.kind === "VariableDeclaration" && authored.tsonic.declaration.kind === "definition"
+          : authored?.kind === "VariableDeclaration" && "declaration" in authored.tsonic && authored.tsonic.declaration.kind === "definition"
             ? authored.tsonic.declaration.definition : statement.value.kind === "use" ? staticUpdateTarget(authored) : null;
         if (meter.exhausted) return { violations, types, signatures };
         const expected = placeType(statement.place, site, target, "static-write-exact");

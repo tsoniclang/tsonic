@@ -2,14 +2,14 @@ import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeBodyId } from "../ids/index.js";
-import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
+import type { BinaryExpression, BindingElement, BindingName, BindingPattern, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, ConstraintDecision, EmbeddingDecision, FlowRole, IndexDecision, InferredSignaturePart, RuleOutcome } from "../ir-infer/contract.js";
-import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirLayoutOperand,
+import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirCallArguments, TirLayoutOperand, TypedBindingElement,
   TirLocal, TirResolution, TirSelection, TypedBinary, TypedIndex, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { TirEnumResolution } from "../ir-tir/contract.js";
-import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
-import { artifactBindingsKey, optionalValueDomainOf, readType, rigidBindings } from "../ir-types/index.js";
+import type { BodyInstance, LiteralValue, TypeTerm } from "../ir-types/contract.js";
+import { admitTypePublicationStep, artifactBindingsKey, optionalValueDomainOf, readType, refuseTypeConstruction, rigidBindings } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput, ElaborateSelectedCall, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
 import { attachFormalDefault, elaborateCatchBinding, elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
 import { declarationAlias, declarationInterface, declarationModifiers, declarationType } from "./declarations.js";
@@ -31,6 +31,7 @@ function matchesNumericLiteral(node: HirNode | undefined, value: LiteralValue): 
 
 interface Flow {
   readonly embedding: EmbeddingDecision;
+  readonly source: TyId;
   readonly destination: TyId;
   readonly role: FlowRole;
 }
@@ -267,7 +268,8 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       if (flows[position] !== undefined) callerDefect("two flow decisions at one occurrence", origin);
       if (decision.kind === "deferred") notElaboratedYet("a deferred conversion", origin);
       if (decision.kind !== "flow") return callerDefect(`a flow constraint solved by a decision of kind ${decision.kind}`, origin);
-      flows[position] = { embedding: decision.embedding, destination: finalType(constraint.to, origin), role: constraint.role };
+      flows[position] = { embedding: decision.embedding, source: finalType(constraint.from, origin),
+        destination: finalType(constraint.to, origin), role: constraint.role };
     } else if (constraint.kind === "member") {
       if (constraint.access === "call" || decision.kind !== "member" || members[position] !== undefined)
         return callerDefect("a member access retains its one actual selected member decision", origin);
@@ -435,6 +437,15 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (local.role === "parameter" || local.role === "capture") continue;
     if (local.declaration.kind === "item" && deps.cuts.declaration(local.declaration.value.owner) !== null) continue;
     const declaration = deps.nodeOf(local.declaration);
+    if (declaration?.kind === "BindingElement" && local.role === "binding") {
+      const target = declaration.tsonic.declaration;
+      const slot = declaration.tsonic.declaredType;
+      if (target?.kind !== "local" || target.local.body !== body.body || target.local.local !== local.id
+        || slot.kind !== "available" || slot.value === null || local.checkerSlot.kind !== "available" || local.checkerSlot.value !== slot.value)
+        return callerDefect("a destructuring local requires its actual named leaf and checked type", declaration.origin);
+      storageOf[local.id] = slot.value;
+      continue;
+    }
     if (local.role !== "binding" && local.role !== "catch" || local.declaration.kind !== "item" || declaration?.kind !== "VariableDeclaration"
       || !("declaration" in declaration.tsonic) || declaration.id !== local.declaration.value.node || declaration.tsonic.declaration.kind !== "local"
       || declaration.tsonic.declaration.local.body !== body.body || !Object.is(declaration.tsonic.declaration.local.local, local.id))
@@ -445,6 +456,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     const selected = local.role === "catch" ? elaborateCatchBinding(deps, declaration, local)
       : elaborateVariable(deps, declaration, children, local.declaration.value.owner);
     if (selected.kind === "refused") return selected;
+    if (!("storage" in selected.value.tsonic)) return callerDefect("a named variable must retain its selected storage", declaration.origin);
     storageOf[local.id] = selected.value.tsonic.storage;
     variablesByNode.set(declaration.id, selected.value);
   }
@@ -732,10 +744,87 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       return notElaboratedYet("a label without its actual enclosing checked control target", node.origin);
     return { ...header(node), kind: node.kind, text: node.text, tsonic: { role: "label", target: checked.target } };
   };
+  const tuplePattern = (pattern: BindingPattern<CheckedPhase>, source: TyId): Result<BindingPattern<TypedPhase>> => {
+    interface PatternFrame {
+      readonly kind: "pattern";
+      readonly pattern: BindingPattern<CheckedPhase>;
+      readonly storage: TyId;
+      readonly tuple: Extract<TypeTerm, { readonly kind: "tuple" }>;
+      readonly through: BindingElement<CheckedPhase> | null;
+      readonly nodes: BindingElement<TypedPhase>[];
+      index: number;
+    }
+    const unit = { query: "elaborateBody", key: body.body };
+    const enter = (pattern: BindingPattern<CheckedPhase>, storage: TyId, through: BindingElement<CheckedPhase> | null):
+      PatternFrame | Extract<Result<never>, { readonly kind: "refused" }> => {
+      const stop = admitTypePublicationStep(deps.typeWork);
+      if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, pattern.origin, unit);
+      const tuple = deps.typeOf(storage);
+      if (tuple.kind !== "tuple" || pattern.kind !== "ArrayBindingPattern" || pattern.elements.nodes.length > tuple.elements.length)
+        return callerDefect("a destructuring pattern requires its actual selected tuple", pattern.origin);
+      return { kind: "pattern", pattern, storage, tuple, through, nodes: [], index: 0 };
+    };
+    const typedElement = (element: BindingElement<CheckedPhase>, name: BindingName<TypedPhase> | null, tsonic: TypedBindingElement):
+      BindingElement<TypedPhase> => ({ ...header(element), kind: element.kind, name, tsonic, initializer: null, dotDotDotToken: null, propertyName: null });
+    const root = enter(pattern, source, null);
+    if (root.kind === "refused") return root;
+    const pending = [root];
+    for (let frame = pending.at(-1); frame !== undefined; frame = pending.at(-1)) {
+      const { pattern, tuple, index } = frame;
+      if (index === pattern.elements.nodes.length) {
+        const image: BindingPattern<TypedPhase> = { ...header(pattern), kind: pattern.kind, tsonic: { storage: frame.storage },
+          elements: { loc: pattern.elements.loc, nodes: frame.nodes } };
+        if (frame.through === null) return { kind: "ok", value: image, diagnostics: [] };
+        pending.pop();
+        requirePresent(pending.at(-1), failure("compiler defect", "a nested pattern lost its actual parent", pattern.origin))
+          .nodes.push(typedElement(frame.through, image, { role: "pattern" }));
+        continue;
+      }
+      const stop = admitTypePublicationStep(deps.typeWork);
+      if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, pattern.origin, unit);
+      frame.index += 1;
+      const element = requirePresent(pattern.elements.nodes[index], failure("compiler defect", "a checked pattern slot is absent", pattern.origin));
+      const slot = tuple.elements[index];
+      if (slot?.kind !== "required" || element.initializer !== null || element.dotDotDotToken !== null || element.propertyName !== null)
+        return notElaboratedYet("a destructuring slot requiring a default or non-fixed projection", element.origin);
+      const name = element.name;
+      if (name === null) { frame.nodes.push(typedElement(element, null, { role: "hole" })); continue; }
+      if (name.kind !== "Identifier") {
+        const child = enter(name, slot.type, element);
+        if (child.kind === "refused") return child;
+        pending.push(child);
+        continue;
+      }
+      const target = element.tsonic.declaration;
+      const position = nodePosition(element.id);
+      const fit = flows[position];
+      if (target === null || fit?.role !== "initialization" || fit.source !== slot.type || fit.embedding.kind !== "identity"
+        || fit.destination !== slot.type || target.kind === "local" && (target.local.body !== body.body || storageOf[target.local.local] !== fit.destination))
+        return notElaboratedYet("a binding slot without its actual solved identity fit and named storage", element.origin);
+      read.flows.add(position);
+      frame.nodes.push(typedElement(element, { ...header(name), kind: name.kind, text: name.text,
+        tsonic: { role: "declaration-name", declaration: target, storage: fit.destination } },
+      { role: "binding", declaration: target, storage: fit.destination, initializer: null }));
+    }
+    return callerDefect("a destructuring pattern must materialize its actual root", pattern.origin);
+  };
   const variableList = (list: VariableDeclarationList<CheckedPhase>): Result<VariableDeclarationList<TypedPhase>> => {
     const nodes: VariableDeclaration<TypedPhase>[] = [];
     for (const declaration of list.declarations.nodes) {
-      if (!("declaration" in declaration.tsonic)) return notElaboratedYet("selected destructuring projections", declaration.origin);
+      if (!("declaration" in declaration.tsonic)) {
+        const source = declaration.initializer;
+        if (source === null || declaration.name.kind === "Identifier")
+          return callerDefect("a typed pattern must retain the checked container and actual source", declaration.origin);
+        const selected = values[nodePosition(source.id)];
+        if (selected === undefined) return callerDefect("a typed pattern requires its completed source value", source.origin);
+        const type = declarationType(deps, declaration.type);
+        if (type.kind === "refused") return type;
+        const pattern = tuplePattern(declaration.name, selected.convertedType);
+        if (pattern.kind === "refused") return pattern;
+        nodes.push({ ...header(declaration), kind: declaration.kind, name: pattern.value,
+          exclamationToken: null, type: type.value, initializer: expressionOf(source), tsonic: { role: "destructuring" } });
+        continue;
+      }
       const target = declaration.tsonic.declaration;
       if (target.kind === "definition" && moduleStatements !== null) {
         const selected = elaborateVariable(deps, declaration, children, target.definition);
@@ -758,6 +847,12 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const visitList = (list: readonly HirNode[], origin: Origin, breakTarget = enclosingBreak): void => {
     for (let index = list.length - 1; index >= 0; index -= 1)
       visit(requirePresent(list[index], failure("compiler defect", "a child index past its list", origin)), enclosingLoop, breakTarget);
+  };
+  const visitPatternSources = (list: VariableDeclarationList<CheckedPhase>): void => {
+    for (let index = list.declarations.nodes.length - 1; index >= 0; index -= 1) {
+      const declaration = requirePresent(list.declarations.nodes[index], failure("compiler defect", "a variable list contains a hole", list.origin));
+      if (!("declaration" in declaration.tsonic) && declaration.initializer !== null) visit(declaration.initializer);
+    }
   };
   const step = (frame: Frame): Extract<Result<never>, { readonly kind: "refused" }> | void => {
     enclosingLoop = frame.loop;
@@ -944,7 +1039,8 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           visit(node.statement, node.id, node.id);
           if (node.incrementor !== null) visit(node.incrementor);
           if (node.condition !== null) visit(node.condition);
-          if (initializer !== null && initializer.kind !== "VariableDeclarationList") visit(initializer);
+          if (initializer?.kind === "VariableDeclarationList") visitPatternSources(initializer);
+          else if (initializer !== null) visit(initializer);
         }
         return;
       }
@@ -954,7 +1050,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           if (variables.kind === "refused") return variables;
           statements[position] = { ...header(node), kind: "VariableStatement", modifiers: declarationModifiers(node.modifiers),
             declarationList: variables.value, tsonic: null };
-        }
+        } else visitPatternSources(node.declarationList);
         return;
       case "ConditionalExpression": {
         if (!building) {

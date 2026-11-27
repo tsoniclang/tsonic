@@ -499,7 +499,7 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
     const startWork = chargeWork(account, 1);
     if (startWork !== null) return startWork;
     const start = loop.start;
-    const initialized = counter?.kind === "VariableDeclaration" && counter.initializer?.id === start.node
+    const initialized = counter?.kind === "VariableDeclaration" && "declaration" in counter.tsonic && counter.initializer?.id === start.node
       && start.body === (counter.tsonic.initializer ?? tir.body);
     if (start.body === tir.body ? !nodes.has(start.node) : !initialized) {
       const stop = report("counted-loop-endpoints-resolve", site, "A counted-loop anchor must retain an actual occurrence in its qualified body.");

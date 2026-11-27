@@ -62,7 +62,7 @@ export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: 
         return bodyFrontier("One static reference must retain its actual declaration node and storage.");
       continue;
     }
-    if (node.kind !== "VariableDeclaration" || node.tsonic.declaration.kind !== "definition") continue;
+    if (node.kind !== "VariableDeclaration" || !("declaration" in node.tsonic) || node.tsonic.declaration.kind !== "definition") continue;
     const definition = node.tsonic.declaration.definition;
     const admission = chargeWork(account, definition.length) ?? chargeResultEntries(account, 1);
     if (admission !== null) return admission;
@@ -81,7 +81,7 @@ export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: 
     if (read !== null) return read;
     const declaration = source.get(call.tir.node);
     if (call.tir.body !== tir.body || call.callee.kind !== "body"
-      || declaration?.kind !== "VariableDeclaration" || declaration.tsonic.declaration.kind !== "definition"
+      || declaration?.kind !== "VariableDeclaration" || !("declaration" in declaration.tsonic) || declaration.tsonic.declaration.kind !== "definition"
       || declaration.tsonic.declaration.definition !== definition || declaration.tsonic.storage !== place.storage
       || declaration.tsonic.initializer !== call.callee.instance.body || destinations.has(call.destination))
       return bodyFrontier("A module static retains its actual declaration, storage and placed initializer.");
@@ -107,7 +107,7 @@ export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: 
     if (growth !== null) return growth;
     named.add(definition);
     if (declaration !== undefined) {
-      if (tir.root.kind !== "SourceFile" || declaration.tsonic.storage !== place.storage
+      if (tir.root.kind !== "SourceFile" || !("storage" in declaration.tsonic) || declaration.tsonic.storage !== place.storage
         || (declaration.tsonic.initializer !== null) !== destinations.has(place.id))
         return bodyFrontier("A module static-cell association retains one actual declaration root and its selected initialization disposition.");
       rows.push({ place: place.id, declaration: { owner: definition, node: declaration.id }, bindings: mir.bindings });

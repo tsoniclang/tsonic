@@ -37,6 +37,49 @@ before(async () => {
 
 const EXPANSION = { maximumDepth: 64, maximumVisits: 4096, maximumUnionMembers: 64, maximumIntersectionMembers: 64 };
 
+test("Typed tuple bindings preserve the actual producer and reject same-carrier crossed destinations", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function produce(pair: [boolean, boolean]): [boolean, boolean] { return pair; }
+    export function start(pair: [boolean, boolean]): boolean {
+      const [first, second] = produce(pair);
+      return first;
+    }
+  `);
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const selected = [...typed.value.bodies.values()].find(body => body.bindings.kind === "instantiated" && body.root.kind === "Block"
+    && body.root.statements.nodes[0]?.kind === "VariableStatement");
+  assert.ok(selected);
+  const inputOf = root => root.statements.nodes[0].declarationList.declarations.nodes[0];
+  const declaration = inputOf(selected.root);
+  assert.deepEqual(declaration.tsonic, { role: "destructuring" });
+  assert.equal(declaration.initializer.kind, "CallExpression");
+  assert.equal(declaration.name.tsonic.storage, declaration.initializer.tsonic.convertedType);
+  const [first, second] = declaration.name.elements.nodes;
+  assert.deepEqual([first, second].map(node => node.tsonic.declaration.local.local), [1, 2]);
+  assert.equal(first.tsonic.storage, second.tsonic.storage);
+  assert.equal(selected.locals.length, 3);
+  const bytes = irTir.printTir(selected);
+  assert.match(bytes, /tsonic=TypedPatternVariable\(\)/u);
+  const decoded = irTir.parseTir(bytes);
+  assert.equal(decoded.kind, "parsed");
+  assert.equal(irTir.printTir(decoded.value), bytes);
+  assert.notEqual(irTir.parseTir(bytes.replace("TypedPatternVariable()", "TypedPatternVariable(storage=t:0)")).kind, "parsed");
+  const proof = typed.value.verifierOf(input.snapshot.entryPoint);
+  assert.deepEqual(verifyBody(proof, selected), []);
+  const crossed = structuredClone(selected);
+  const [borrowed, destination] = inputOf(crossed.root).name.elements.nodes;
+  destination.tsonic.declaration = borrowed.tsonic.declaration;
+  destination.name.tsonic.declaration = borrowed.name.tsonic.declaration;
+  assert.equal(verifyBody(proof, crossed).some(finding => finding.rule === "binding-storage"
+    && finding.detail.some(detail => detail.kind === "text" && detail.value.includes("actual named storage"))), true);
+});
+
 test("checked enum members share only their actual authored execution roots with the verified chapter", async () => {
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");

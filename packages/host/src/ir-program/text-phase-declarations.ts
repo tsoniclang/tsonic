@@ -1,6 +1,6 @@
 import type { TypedBinding, TypedBindingPattern, TypedParameter, TypedCallable, TypedClass, TypedHeritage, TypedInterface, TypedAlias, TypedStorageDeclaration, TypedEnum, TypedImport, TypedModuleReference, TypedImportBinding, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedIndexDeclaration, TypedStaticBlock, TypedType, TypedPredicate, TypedSourceFile, TypedNamespace, TypedExport, TypedTypeParameter, TypedBodyTemplate } from "../ir-tir/contract.js";
 import type { TextWork } from "./text-values.js";
-import type { TypedBindingElement } from "../ir-tir/contract.js";
+import type { TypedBindingElement, TypedPatternVariable } from "../ir-tir/contract.js";
 import { token, text, numericIdentity, identity, field, record, sequence, deferred, boolean, textLocalRef, textSourceNodeRef } from "./text-values.js";
 import { textDeclarationTarget, textHirCallableEndpoint, textHirAttribute, textImportTarget } from "./text-core.js";
 import { textTypeParameter, textBindingVector } from "./text-types.js";
@@ -14,13 +14,14 @@ export function textTypedBindingElement(value: TypedBindingElement): TextWork {
         field("initializer", value.initializer === null ? token("null") : identity("body", value.initializer)),
         field("role", text(value.role)),
       ]);
-      case "hole": return record("TypedBindingElement", [field("role", text(value.role))]);
+      case "hole": case "pattern": return record("TypedBindingElement", [field("role", text(value.role))]);
     }
   });
 }
 
-export function textTypedBinding(value: TypedBinding): TextWork {
+export function textTypedBinding(value: TypedBinding | TypedPatternVariable): TextWork {
   return deferred(value, () => {
+    if ("role" in value) return record("TypedPatternVariable", []);
     return record("TypedBinding", [
       field("declaration", textDeclarationTarget(value.declaration)),
       field("storage", numericIdentity("t", value.storage)),
