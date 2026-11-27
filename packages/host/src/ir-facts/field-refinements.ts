@@ -257,16 +257,18 @@ function guardOnEdge(mir: MirBody, block: MirBlock, target: BlockId, field: Fiel
 
 function interference(target: Field) {
   let depth = 0;
-  let prefix = true;
+  let matchesPath = true;
+  let matchesParent = true;
   let last: string | null = null;
   return {
     field: (key: string): void => {
-      if (depth < target.path.length && target.path[target.path.length - depth - 1]?.identity !== key) prefix = false;
+      matchesParent = matchesPath;
+      if (depth < target.path.length && target.path[target.path.length - depth - 1]?.identity !== key) matchesPath = false;
       depth += 1;
       last = key;
     },
     writes: (account: DataflowAccount): boolean | DataflowStop => {
-      if (prefix && depth <= target.path.length || !prefix && target.path.length > 1) return true;
+      if (matchesPath && depth <= target.path.length || !matchesParent && target.path.length > 1) return true;
       for (let index = 0; index < target.path.length; index += 1) {
         const read = chargeWork(account, 1);
         if (read !== null) return read;

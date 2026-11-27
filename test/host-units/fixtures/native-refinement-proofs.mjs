@@ -400,4 +400,95 @@ export async function checkNativeFieldRefinement() {
       assert.equal(fieldRefinementsOf(account, unreadInput, facts.execution.provided, proofInput) === stopped, true);
     }
   }
+
+  for (const [member, throughCall, proven] of [
+    ["left.other", false, true], ["left.other", true, true],
+    ["spare", false, true], ["spare", true, true],
+    ["left.flag", true, false], ["right.flag", false, false], ["right.flag", true, false],
+  ]) {
+    const write = `box.${member} = undefined;`;
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Box = { left: { flag: boolean | undefined; other: boolean | undefined };
+        right: { flag: boolean | undefined; other: boolean | undefined }; spare: boolean | undefined };
+      ${throughCall ? `function inspect(box: Box): void { ${write} }` : ""}
+      export function read(box: Box): boolean {
+        if (box.left.flag !== undefined) { ${throughCall ? "inspect(box);" : write} return box.left.flag; }
+        return false;
+      }
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", `${member}: ${JSON.stringify(result.diagnostics)}`);
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const [conditional] = selected.tir.root.statements.nodes;
+    const [intervention, returned] = conditional.thenStatement.statements.nodes;
+    const at = { body: selected.tir.body, node: intervention.expression.id };
+    const node = returned.expression.id;
+    const checks = selected.mir.blocks.map(block => block.terminator).filter(row => row.kind === "check" && row.tir.node === node);
+    assert.equal(checks.length, 1);
+    assert.equal(selected.mir.places[checks[0].place].base.projection.kind, "refined");
+    const position = { node, guards: [conditional.expression.id] };
+    const expected = proven ? { kind: "proven", ...position } : { kind: "unproven", ...position,
+      reason: { kind: "invalidated", sites: [{ kind: throughCall ? "call" : "write", at }] } };
+    const [facts] = selected.facts;
+    assert.deepEqual(facts.refinements.refinements, [expected], `${member}, via call = ${throughCall}`);
+    const owner = throughCall ? ";inspect];function;0]" : ";read];function;0]";
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body.includes(owner));
+    const [path] = summary.parameters[0].writes.paths;
+    const stored = summary.arena.projections[path];
+    const writtenFields = stored.parent === null ? [stored] : [summary.arena.projections[stored.parent], stored];
+    assert.equal(writtenFields.map(row => row.projection.member.decision.key.value).join("."), member);
+    if (member !== "left.other" || !throughCall) continue;
+
+    const source = sourceOccurrences(selected.tir, createAccount(limits));
+    assert.equal(source.kind, "complete");
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const proofInput = { sourceOf: node => source.value.get(node), callBindings: { lexical: selected.tir.lexicalBindings,
+      scopeOf: definition => captured.value.descriptions.get(definition)?.generics ?? null }, summaryAt: (block, operation) => {
+      assert.equal(selected.mir.blocks[block].terminator === operation, true);
+      assert.deepEqual(operation.tir, at);
+      return { kind: "complete", value: summary };
+    } };
+    const run = account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, proofInput);
+    const probe = createAccount(limits);
+    assert.deepEqual(run(probe), { kind: "complete", value: [expected] });
+    const { work, entries } = InvocationAccount.stateOf(probe);
+    assert.deepEqual(run(createAccount({ maximumWork: work, maximumResultEntries: entries })), { kind: "complete", value: [expected] });
+    for (const [dimension, maximumWork, maximumResultEntries] of [["work", work - 1, entries], ["result-entries", work, entries - 1]]) {
+      const account = createAccount({ maximumWork, maximumResultEntries });
+      const stopped = run(account);
+      assert.equal(stopped.kind, "resource-limit");
+      assert.equal(stopped.dimension, dimension);
+      assert.equal(stopped === accountFailure(account), true);
+      assert.equal(run(account) === stopped, true);
+    }
+  }
+
+  const ancestor = analysisInput(fixture, "sdk-minimal", `
+    type Box = { left: { flag: boolean | undefined } | null };
+    function clear(box: Box): void { box.left = null; }
+    export function read(box: Box): boolean {
+      if (box.left !== null) {
+        if (box.left.flag !== undefined) { clear(box); return box.left.flag; }
+      }
+      return false;
+    }
+  `);
+  const result = analyzeHostProgram(ancestor);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === ancestor.snapshot.entryPoint);
+  const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+  const [outer] = selected.tir.root.statements.nodes;
+  const [inner] = outer.thenStatement.statements.nodes;
+  const [clear, returned] = inner.thenStatement.statements.nodes;
+  const reason = { kind: "invalidated", sites: [{ kind: "call", at: { body: selected.tir.body, node: clear.expression.id } }] };
+  const [facts] = selected.facts;
+  assert.deepEqual(facts.refinements.refinements, [
+    { kind: "proven", node: inner.expression.left.expression.id, guards: [outer.expression.id] },
+    { kind: "unproven", node: returned.expression.id, guards: [inner.expression.id], reason },
+    { kind: "unproven", node: returned.expression.expression.id, guards: [outer.expression.id], reason },
+  ]);
+  const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
+  assert.deepEqual(new Set(checks.map(check => check.tir.node)), new Set(facts.refinements.refinements.map(row => row.node)));
 }
