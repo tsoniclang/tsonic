@@ -1111,6 +1111,27 @@ test("a selected reference field reads before an intervening call despite a stab
   assert.deepEqual(comparison.value.left, { kind: "place", place: field.place });
 });
 
+test("a selected reference field reads before a store through a possibly aliased held receiver", () => {
+  const program = shaped("referenceField.store", [["first", "required", directBox], ["other", "required", directBox]], T.bool,
+    builder => builder.block(builder.returns(compareBool(builder,
+      { $: "field", ...builder.property(builder.id("first", 0, directBox), "flag", builder.read(T.bool, referenceField)) },
+      { $: "store", ...builder.assign(builder.property(builder.id("other", 1, directBox), "flag", builder.write(referenceField, T.bool)),
+        "EqualsToken", builder.keyword("TrueKeyword", T.bool), T.bool, T.bool) }))));
+  const mir = lowerAtBounds(program, 25);
+  const [entry] = mir.blocks;
+  const sampled = entry.statements.find(row => row.kind === "assign" && row.tir.node === program.at("field"));
+  const write = entry.statements.find(row => row.kind === "assign" && row.tir.node === program.at("store"));
+  const comparison = entry.statements.find(row => row.value?.kind === "binary");
+  assert.equal(sampled.value.kind, "use");
+  const readPlace = mir.places[sampled.value.operand.place].base;
+  const writtenPlace = mir.places[write.place].base;
+  assert.equal(readPlace.tir.node, program.at("field"));
+  assert.notEqual(writtenPlace.place, readPlace.place);
+  assert.deepEqual(writtenPlace.projection.member.decision.key, readPlace.projection.member.decision.key);
+  assert.ok(entry.statements.indexOf(sampled) < entry.statements.indexOf(write));
+  assert.deepEqual(comparison.value.left, { kind: "place", place: sampled.place });
+});
+
 test("selected static field: direct return and exact root writes preserve the authored value", () => {
   const read = shaped("staticField.return", [], T.bool, b => b.block(b.returns(selectedStaticField(b))));
   const directMir = lowerAtBounds(read, 3);

@@ -126,7 +126,9 @@ export function saveBeforeControl(lowering: Lowering, writesStorage: boolean, ca
 }
 
 export function saveBeforeStore(lowering: Lowering, place: PlaceId, local: LocalId | null): boolean {
-  if (local === null || !lowering.preservedLocals.has(local)) return saveReads(lowering, lowering.reads.get(place));
+  if (local === null) return lowering.state.places[place]?.base.kind === "static"
+    ? saveReads(lowering, lowering.reads.get(place)) : saveBeforeControl(lowering, true, false);
+  if (!lowering.preservedLocals.has(local)) return saveReads(lowering, lowering.reads.get(place));
   if (!saveReads(lowering, lowering.exposed)) return false;
   const owner = requirePresent(lowering.state.locals[local], failure("a written local has no storage", null));
   return localOwnershipOfMir(owner.mode) === "body" || saveReads(lowering, lowering.sharedReads);

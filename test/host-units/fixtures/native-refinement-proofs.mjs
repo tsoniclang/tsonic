@@ -538,12 +538,17 @@ export async function checkNativeFieldRefinement() {
     ["alias", "const saved = box; box = replacement; if (saved.flag !== undefined) { clear(box); return saved.flag; }", "invalidated"],
     ["loop", "for (let i = 0; i < 2; ++i) { if (choose) box = replacement; if (box.flag !== undefined) return box.flag; }", "proven"],
     ["stale-field", "if (box.flag !== (clear(box), undefined)) return box.flag;", "stale"],
+    ["stale-possible-alias", "if (box.flag !== (clear(replacement), undefined)) return box.flag;", "stale"],
     ["pure", "if (box.flag !== (pure(), undefined)) return box.flag;", "proven"],
+    ["sibling-during-comparison", "if (box.flag !== (clearOther(box), undefined)) return box.flag;", "proven"],
+    ["direct-sibling-during-comparison", "if (box.flag !== (box.other = undefined, undefined)) return box.flag;", "proven"],
+    ["direct-same-field-during-comparison", "const saved = box; if (box.flag !== (saved.flag = undefined, undefined)) return box.flag;", "stale"],
     ["stale-receiver", "if (box.flag !== (box = replacement, undefined)) return box.flag;", "stale"],
   ]) {
     const original = analysisInput(fixture, "sdk-minimal", `
-      type Box = { flag: boolean | undefined };
+      type Box = { flag: boolean | undefined; other: boolean | undefined };
       function clear(box: Box): void { box.flag = undefined; }
+      function clearOther(box: Box): void { box.other = undefined; }
       function pure(): void {}
       export function read(box: Box, replacement: Box, choose: boolean): boolean {
         ${statements}
@@ -571,13 +576,28 @@ export async function checkNativeFieldRefinement() {
     const [facts] = selected.facts;
     const expected = state === "proven" ? { kind: "proven", node, guards } : { kind: "unproven", node, guards, reason };
     assert.deepEqual(facts.refinements.refinements, [expected], name);
-    if (name === "stale-field" || name === "pure") {
+    if (name === "stale-field" || name === "stale-possible-alias" || name === "pure" || name === "sibling-during-comparison") {
       const guard = conditional.expression;
       const sample = callBlock.statements.find(row => row.kind === "assign" && row.tir.node === guard.left.id);
       assert.equal(sample.value.kind, "use");
       assert.equal(selected.mir.places[sample.value.operand.place].base.tir.node, guard.left.id);
       const compared = selected.mir.blocks[callBlock.terminator.next].statements.find(row => row.kind === "assign" && row.tir.node === guard.id);
       assert.deepEqual(compared.value.left, { kind: "place", place: sample.place });
+    } else if (name.startsWith("direct-") && name.endsWith("-during-comparison")) {
+      const guard = conditional.expression;
+      const authoredWrite = guard.right.expression.left;
+      const block = selected.mir.blocks.find(row => row.terminator.kind === "switch" && row.terminator.operand.kind === "place"
+        && row.statements.some(statement => statement.kind === "assign" && statement.tir.node === guard.id
+          && statement.place === row.terminator.operand.place));
+      const sample = block.statements.findIndex(row => row.kind === "assign" && row.tir.node === guard.left.id);
+      const write = block.statements.findIndex(row => row.kind === "assign" && row.tir.node === authoredWrite.id);
+      assert.equal(sample >= 0 && sample < write, true, name);
+      const sampled = block.statements[sample];
+      assert.equal(sampled.value.kind, "use");
+      assert.equal(selected.mir.places[sampled.value.operand.place].base.tir.node, guard.left.id);
+      const written = selected.mir.places[block.statements[write].place].base;
+      assert.equal(written.projection.member.decision.key.value, state === "proven" ? "other" : "flag");
+      assert.deepEqual(block.statements.at(-1).value.left, { kind: "place", place: sampled.place });
     } else if (name !== "saved" && name !== "loop") continue;
 
     const source = sourceOccurrences(selected.tir, createAccount(limits));
@@ -590,7 +610,8 @@ export async function checkNativeFieldRefinement() {
     const run = account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, { ...proofInput, summaryAt: (block, operation) => {
       assert.equal(operation === selected.mir.blocks[block].terminator, true);
       const callee = operation.callee.kind === "body" ? operation.callee.instance : operation.callee.resolution.activation;
-      const summary = result.value.index.summaries.find(row => row.key.kind === "body" && sameInstance(row.key.execution.instance, callee));
+      const summary = result.value.index.summaries.find(row => row.key.kind === "body" && sameInstance(row.key.execution.instance, callee)
+        && row.key.execution.provided === operation.arguments.length);
       assert.ok(summary);
       firstLookup ??= InvocationAccount.stateOf(account).work;
       return { kind: "complete", value: summary };
