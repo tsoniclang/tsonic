@@ -582,6 +582,23 @@ for (const path of casePaths) {
   });
 }
 
+test("ir-program deferred index wire requires its result and rejects the retired call access", () => {
+  const { index, module } = decodeFixtureJson(readFileSync(resolve(repository,
+    "test/host-cases/ir-program/function/six-deferred-index-read-write.input.json"), "utf8"));
+  const source = product.printModuleBodies(index, module);
+  assert.equal(product.parseModuleBodies(index, source).kind, "parsed");
+  const access = 'access="read-write"';
+  const selection = access + ", result=t:0";
+  const offset = source.indexOf(selection);
+  assert.notEqual(offset, -1);
+  const missing = product.parseModuleBodies(index, source.replace(selection, access));
+  assert.equal(missing.kind, "invalid-text");
+  assert.deepEqual([missing.offset, missing.expected, missing.found], [offset + access.length, [","], ")"]);
+  const retired = product.parseModuleBodies(index, source.replace(selection, 'access="call", result=t:0'));
+  assert.equal(retired.kind, "invalid-text");
+  assert.deepEqual([retired.offset, retired.expected], [offset + "access=".length, ['"read"', '"write"', '"read-write"']]);
+});
+
 test("ir-program binding inventories retain real checked aliases and closed targets through their owning barrier", async () => {
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
@@ -2880,13 +2897,24 @@ function branching(published) {
 }
 const underMirLimit = (fixture, maximumWork) => product.verifyModuleBodies(fixture.index, fixture.module, { ...fixture.context,
   resources: product.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits, createAccount({ maximumWork: 1000000, maximumResultEntries: 1000000000 })), mirVerification: { maximumWork } });
-const MIR_EMPTY_WORK = 4 + 2 + 1 + 11;
-const MIR_BRANCH_WORK = 14 + 5 + 1 + 1 + 16;
+function mirPreparationWork({ blocks, constants, edges }) {
+  const invocation = 1;
+  const syntax = 2 + 2 + 1;
+  const structuralRows = 1 + constants + blocks;
+  const placeInventory = 1;
+  const control = 1 + blocks + 2 * edges + 1;
+  return invocation + syntax + structuralRows + placeInventory + control;
+}
+const MIR_EMPTY_WORK = 4 + 2 + 1 + 11 + mirPreparationWork({ blocks: 1, constants: 0, edges: 0 });
+const MIR_BRANCH_WORK = 14 + 5 + 1 + 1 + 16 + mirPreparationWork({ blocks: 2, constants: 1, edges: 1 });
+const MIR_UNRESOLVED_GOTO_WORK = MIR_EMPTY_WORK - mirPreparationWork({ blocks: 1, constants: 0, edges: 0 })
+  + mirPreparationWork({ blocks: 1, constants: 0, edges: 1 });
+const MIR_SELECTED_OWNER_WORK = 1;
 
 test("ir-program a body past its MIR verification limit refuses the module and names the body", () => {
   const fixture = publicationFixture();
-  const emptyWork = MIR_EMPTY_WORK + 1;
-  const branchWork = MIR_BRANCH_WORK + 1;
+  const emptyWork = MIR_EMPTY_WORK + MIR_SELECTED_OWNER_WORK;
+  const branchWork = MIR_BRANCH_WORK + MIR_SELECTED_OWNER_WORK;
   completeProgramValue(underMirLimit(fixture, emptyWork), { kind: "complete", violations: [] }, "value, decision, storage and reachable-type work share one invocation");
   for (let maximum = 0; maximum < emptyWork; maximum += 1)
     completeProgramValue(underMirLimit(fixture, maximum), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum },
@@ -2898,14 +2926,19 @@ test("ir-program a body past its MIR verification limit refuses the module and n
   for (let maximum = 0; maximum < branchWork; maximum += 1)
     completeProgramValue(underMirLimit(fixture, maximum), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum },
       "the two-block literal graph retains the same original refusal at every insufficient count");
-  assert.equal(underMirLimit(fixture, branchWork).kind, "complete", "at the exact limit the body is verified to the end");
+  completeProgramValue(underMirLimit(fixture, branchWork), { kind: "complete", violations: [] },
+    "at the exact limit the body is verified to the end");
 });
 
 test("ir-program a structurally invalid body under its MIR limit is found invalid, not refused", () => {
   const fixture = publicationFixture();
   const block = fixture.selected.mir.blocks[0];
   block.terminator = { origin: block.origin, tir: block.tir, kind: "goto", target: 99 };
-  const outcome = underMirLimit(fixture, MIR_EMPTY_WORK + 1);
+  const maximumWork = MIR_UNRESOLVED_GOTO_WORK + MIR_SELECTED_OWNER_WORK;
+  completeProgramValue(underMirLimit(fixture, maximumWork - 1),
+    { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum: maximumWork - 1 },
+    "one below the extra successor read and target validation is still a refusal, not a finding");
+  const outcome = underMirLimit(fixture, maximumWork);
   assert.equal(outcome.kind, "complete", "a defect is a finding of a verification that ran to its end");
   completeProgramValue(outcome.violations.filter(violation => violation.rule === "mir-valid"), [{ rule: "mir-valid", site: { kind: "body", instance: fixture.instance },
     detail: [{ kind: "text", value: "edge-target-resolves" }, { kind: "text", value: "normal" }, { kind: "number", value: 99 }] }],
@@ -2915,7 +2948,8 @@ test("ir-program a structurally invalid body under its MIR limit is found invali
 test("ir-program two bodies of one module are metered separately", () => {
   const both = dualInstanceFixture();
   for (const published of both.module.bodies) branching(published);
-  assert.equal(underMirLimit(both, MIR_BRANCH_WORK + 1).kind, "complete", "each body is charged from zero; the instantiated body also pays its selected owner lookup");
+  assert.equal(underMirLimit(both, MIR_BRANCH_WORK + MIR_SELECTED_OWNER_WORK).kind, "complete",
+    "each body is charged from zero; the instantiated body also pays its selected owner lookup");
   completeProgramValue(underMirLimit(both, MIR_BRANCH_WORK), { kind: "resource-limit", body: both.module.bodies[1].instance, dimension: "work", maximum: MIR_BRANCH_WORK },
     "the second body's actual selected binding lookup is not free");
   completeProgramValue(underMirLimit(both, MIR_BRANCH_WORK - 1), { kind: "resource-limit", body: both.module.bodies[0].instance, dimension: "work", maximum: MIR_BRANCH_WORK - 1 },
