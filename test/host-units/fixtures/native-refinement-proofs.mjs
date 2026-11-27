@@ -103,6 +103,110 @@ export async function checkNativeRefinementWalkthrough() {
   }
 }
 
+export async function checkOrderedRefinementProofs() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
+  const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
+  const { countedLoopsOf, fieldRefinementsOf } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
+  const { sameInstance } = await import("../../../packages/host/dist/ir-types/index.js");
+  const fixture = await loadFrontFixture();
+  const read = (input, provided) => {
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.body.includes(";read];function;0]"));
+    const facts = selected.facts.find(row => row.execution.provided === provided);
+    const source = sourceOccurrences(selected.tir, createAccount(limits));
+    assert.equal(source.kind, "complete");
+    return { index: result.value.index, chapter, selected, facts, sourceOf: node => source.value.get(node) };
+  };
+  for (const secondBound of ["right", "left"]) {
+    const text = `
+      export function read(left: boolean[], right: boolean[]): boolean {
+        for (let i = 0; i < left.length; ++i) { if (left[i]) return true; }
+        for (let j = 1; j < ${secondBound}.length; ++j) { if (right[j]) return true; }
+        return false;
+      }
+    `;
+    const base = analysisInput(fixture, "sdk-minimal", text);
+    const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": text },
+      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
+    const nativeFacts = { ...snapshot.nativeFacts, integerOverflow: [
+      { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
+    ] };
+    const { chapter, selected, facts, sourceOf } = read({ ...base, snapshot: { ...snapshot, nativeFacts } }, 2);
+    const loops = selected.tir.root.statements.nodes.slice(0, 2);
+    const checks = loops.map(loop => loop.statement.statements.nodes[0].expression);
+    const starts = loops.map(loop => chapter.bodies.find(row => row.kind === "selected"
+      && row.tir.body === loop.initializer.declarations.nodes[0].tsonic.initializer));
+    assert.notEqual(starts[0].tir.body, starts[1].tir.body);
+    const expected = {
+      loops: loops.map((loop, index) => ({
+        statement: loop.id, counterDeclaration: loop.initializer.declarations.nodes[0].id,
+        start: { body: starts[index].tir.body, node: starts[index].tir.root.id }, bound: loop.condition.right.id,
+        body: loop.statement.id, direction: "ascending", comparison: "exclusive-upper-bound", step: 1,
+      })),
+      ranges: checks.map((check, index) => ({ node: check.argumentExpression.id,
+        range: { minimum: BigInt(index), maximum: (1n << 63n) - 2n } })),
+      refinements: checks.slice(0, secondBound === "right" ? 2 : 1).map((check, index) =>
+        ({ kind: "proven", node: check.id, guards: [loops[index].condition.id] })),
+    };
+    assert.deepEqual(facts.refinements.countedLoops, expected.loops);
+    assert.deepEqual(facts.refinements.integers.filter(row => row.range !== null),
+      expected.ranges.map(row => ({ ...row, nonnegative: true })));
+    assert.deepEqual(facts.refinements.refinements, expected.refinements);
+    assert.deepEqual(selected.mir.blocks.filter(row => row.terminator.kind === "check").map(({ terminator }) =>
+      [terminator.tir.node, selected.mir.places[terminator.place].base.projection.kind]), checks.map(row => [row.id, "index"]));
+    checkReachedProofCuts(InvocationAccount.stateOf, account => countedLoopsOf(account, selected.mir, 2, {
+      nativeFacts, sourceOf,
+      summaryAt: () => assert.fail("the two loops make no ordinary calls"),
+      mirBody: instance => starts.find(row => sameInstance(row.instance, instance))?.mir ?? assert.fail("actual loop initializer required"),
+    }), expected, `two loop proofs: second extent from ${secondBound}`);
+  }
+  for (const mutate of [false, true]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Box = { flag: boolean | undefined };
+      function clear(box: Box): void { box.flag = undefined; }
+      export function read(box: Box, branch: boolean): boolean {
+        if (branch) { if (box.flag === undefined) return false; }
+        else { if (box.flag === undefined) return false; }
+        ${mutate ? "if (branch) clear(box); else clear(box);" : ""}
+        return box.flag;
+      }
+    `);
+    const { index, selected, facts, sourceOf } = read(input, 2);
+    const statements = selected.tir.root.statements.nodes;
+    const branches = statements[0];
+    const guard = body => body.statements.nodes[0].expression.id;
+    const guards = [guard(branches.thenStatement), guard(branches.elseStatement)];
+    const node = statements.at(-1).expression.id;
+    const calls = mutate ? [statements[1].thenStatement.expression, statements[1].elseStatement.expression] : [];
+    const expected = mutate ? [{ kind: "unproven", node, guards, reason: { kind: "invalidated", sites: calls.map(call =>
+      ({ kind: "call", at: { body: selected.tir.body, node: call.id } })) } }] : [{ kind: "proven", node, guards }];
+    assert.deepEqual(facts.refinements.refinements, expected);
+    assert.deepEqual(selected.mir.blocks.filter(row => row.terminator.kind === "check").map(({ terminator }) =>
+      [terminator.tir.node, selected.mir.places[terminator.place].base.projection.kind]), [[node, "refined"]]);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    checkReachedProofCuts(InvocationAccount.stateOf, account => fieldRefinementsOf(account, selected.mir, 2, {
+      sourceOf, callBindings: { lexical: selected.tir.lexicalBindings,
+        scopeOf: owner => captured.value.descriptions.get(owner)?.generics ?? null },
+      summaryAt: (block, operation) => {
+        assert.equal(selected.mir.blocks[block].terminator === operation, true);
+        assert.ok(calls.some(call => call.id === operation.tir.node));
+        assert.equal(operation.callee.kind, "direct");
+        const summary = index.summaries.find(row => row.key.kind === "body" && row.key.execution.provided === 1
+          && sameInstance(row.key.execution.instance, operation.callee.resolution.activation));
+        assert.ok(summary);
+        return { kind: "complete", value: summary };
+      },
+    }), expected, mutate ? "two separate invalidating calls" : "two reaching guards");
+  }
+}
+
 export async function checkNativeCountedLoopProofs() {
   const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
   const { countedLoopsOf, parseFacts, printFacts } = await import("../../../packages/host/dist/ir-facts/index.js");

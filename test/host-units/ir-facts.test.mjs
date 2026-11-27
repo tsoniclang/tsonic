@@ -14,7 +14,7 @@ import { parseSources, readImportGraph } from "../architecture/host/import-graph
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { runCase } from "../host-cases/case.mjs";
 import { signatureRequestKey } from "../../packages/host/dist/ir-types/index.js";
-import { checkCapturedFieldRefinement, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkSavedExtentReceivers } from "./fixtures/native-refinement-proofs.mjs";
+import { checkCapturedFieldRefinement, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkOrderedRefinementProofs, checkSavedExtentReceivers } from "./fixtures/native-refinement-proofs.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const sourceNames = ["index", "print", "parse", "summary-key", "escape-key", "summary-equals", "conditions", "apply-summary", "apply-values", "apply-initialization", "verify-observations", "verify-facts", "verify-relations", "verify-cells", "verify-summary", "verify-metadata", "verify-dependencies", "execution-entry", "binding-inputs", "mir-point", "verification", "verify-bindings", "verify-body-nodes", "verify-initialization", "verify-liveness", "verify-position", "counted-guard", "counted-loops", "field-refinements"];
@@ -61,6 +61,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await suite.test("counted-loop facts use the actual saved array, not the source slot or a previous iteration", checkSavedExtentReceivers);
   await suite.test("a selected field proof survives a read-only call and records the actual interfering write call", checkNativeFieldRefinement);
   await suite.test("a placed captured field write preserves only the independently guarded cell", checkCapturedFieldRefinement);
+  await suite.test("multiple native refinement proofs keep each loop, reaching guard and invalidation in canonical order", checkOrderedRefinementProofs);
 
   await suite.test("a reached nested field effect uses only the exact selected caller correspondence", async () => {
     const { accountFailure, chargeWork, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
