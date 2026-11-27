@@ -55,6 +55,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   suite.after(async () => { await post("Profiler.stopPreciseCoverage"); inspector.disconnect(); });
   const product = await import("../../packages/host/dist/ir-facts/index.js");
 
+  await suite.test("whole fresh strict declaration isolation and genuine readonly consumers", verifyFreshDeclarations);
+
   await suite.test("a reached nested field effect uses only the exact selected caller correspondence", async () => {
     const { accountFailure, chargeWork, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
     const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
@@ -5101,7 +5103,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     assert.equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())).some(row => row.rule === "cross-owner-qualified"), true);
   });
 
-  await suite.test("whole fresh strict declaration isolation and genuine readonly consumers", async () => {
+  async function verifyFreshDeclarations() {
     const module = hostCatalogue.find(row => row.name === "ir-facts");
     const tooling = process.env.TSONIC_TOOLING_ROOT === undefined ? repository : realpathSync(process.env.TSONIC_TOOLING_ROOT);
     const areas = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
@@ -5217,7 +5219,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       }
       writeFileSync(resolve(evidence, "strict-consumers.json"), JSON.stringify(results, null, 2));
     } finally { if (stage !== undefined) deps.discard(stage); }
-  });
+  }
 
   await suite.test("all current actual emitted runtime product files have nonempty source-identified 100 percent coverage", async () => {
     const productPaths = sourceNames.map(name => resolve(repository, `packages/host/dist/ir-facts/${name}.js`));
