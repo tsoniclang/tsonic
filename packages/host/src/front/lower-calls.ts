@@ -20,6 +20,57 @@ function typeOf(conversion: TypeConversion, id: RawTypeId): ConversionResult<TyI
 type RawCall = Extract<RawCallSelection, { readonly kind: "applicable" }>;
 type Call = Hir.CallExpression<Hir.SyntaxPhase>;
 
+export function verifyFiniteCallTransport(conversion: TypeConversion, call: RawCall,
+  arguments_: readonly Hir.HirArgument[]): ConversionResult<void> {
+  const { raw, typeWork } = conversion;
+  const selection = raw.types.candidates[call.candidates]?.candidates[0];
+  if (selection === undefined || selection.arguments.kind !== "available")
+    return fail("finite call transport requires the actual selected argument inventory");
+  const rows = selection.arguments.value;
+  for (let index = 0; index < call.parameters.length; index += 1) {
+    const stop = admitTypePublicationStep(typeWork);
+    if (stop !== null) return stop;
+    const parameter = call.parameters[index];
+    if (parameter === undefined) return fail("finite call transport requires the actual dense selected formals");
+    if (parameter.kind === "rest") return { kind: "complete", value: undefined };
+  }
+  let effective = 0;
+  for (let authored = 0; authored < arguments_.length; authored += 1) {
+    const stop = admitTypePublicationStep(typeWork);
+    if (stop !== null) return stop;
+    const argument = arguments_[authored];
+    const actual = selection.sourceArguments[authored];
+    if (argument === undefined || actual === undefined) return fail("finite call transport requires every actual authored argument");
+    if (argument.kind === "spread" && (argument.tuple.kind !== "available" || argument.tuple.value === null))
+      return { kind: "complete", value: undefined };
+    const count = argument.kind === "value" ? 1 : argument.tuple.kind === "available" ? argument.tuple.value?.length ?? 0 : 0;
+    for (let slot = 0; slot < count; slot += 1, effective += 1) {
+      const stop = admitTypePublicationStep(typeWork);
+      if (stop !== null) return stop;
+      const row = rows[effective];
+      const component = argument.kind === "spread" ? slot : null;
+      if (row?.sourceArgumentIndex !== authored || row.effectiveArgumentIndex !== effective || row.parameterIndex !== effective
+        || row.parameterForm !== "parameter" || row.sourceForm !== (component === null ? "value" : "spread-element")
+        || row.spreadElementIndex !== component || !sameSource(row.sourceArgument, actual.occurrence)
+        || row.source.kind !== "available" || row.destination.kind !== "available")
+        return fail("finite call transport differs from the actual selected argument and formal slots");
+      const paid = admitTypePublicationStep(typeWork, 2);
+      if (paid !== null) return paid;
+      const source = raw.types.components[row.source.value];
+      const destination = raw.types.components[row.destination.value];
+      const from = source?.path;
+      const to = destination?.path;
+      if (from?.prefix !== null || from.step.kind !== "argument-place" || from.step.index !== effective
+        || to?.prefix !== null || to.step.kind !== "parameter" || to.step.index !== effective || to.step.signature !== selection.application.signature
+        || !sameSource(source?.root, call.invocation) || !sameSource(destination?.root, call.invocation))
+        return fail("finite call transport must retain the actual argument and selected formal components");
+    }
+  }
+  if (effective !== rows.length || effective > call.parameters.length)
+    return fail("finite call transport must cover the actual selected effective rows");
+  return { kind: "complete", value: undefined };
+}
+
 export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall): ConversionResult<{
   readonly candidate: Hir.HirCandidate;
   readonly typeArguments: readonly TyId[];

@@ -109,6 +109,11 @@ function mappingReferences(input: InferVerificationInput, decision: ApplicationD
       }
     }
   }
+  if (arguments_ !== null && signature !== undefined && arguments_.some(argument => argument.kind === "spread")
+    && arguments_.every(argument => argument.kind === "value" || argument.tuple !== null)
+    && signature.parameters.every(parameter => parameter.kind !== "rest")
+    && !fixedSpreadMappings(input, arguments_, decision.parameters))
+    emit(output, "parameter-mapping-total", site, "authored-spread-slots");
   const roles = selectedEndpointRoleFaults(overloadedDeclaration(input, decision.advertised.declaration, overloads),
     decision.advertised, decision.api);
   if ((roles & 1) !== 0) emit(output, "api-endpoint-role", site, "advertised");
@@ -130,6 +135,28 @@ function mappingReferences(input: InferVerificationInput, decision: ApplicationD
       if (!exact) emit(output, "body-completion-endpoints", site, "completion");
     }
   }
+}
+
+function fixedSpreadMappings(input: InferVerificationInput, arguments_: readonly ApplicationArgument[],
+  mappings: ApplicationDecision["parameters"]): boolean {
+  let effective = 0;
+  for (const [authored, argument] of arguments_.entries()) {
+    const slots = argument.tuple;
+    if (argument.kind === "spread") {
+      const source = input.types.terms[argument.type];
+      const variable = source?.kind === "open" && source.group === input.group.id ? input.solution?.variables[source.variable] : undefined;
+      const selected = variable === undefined ? source : input.types.terms[variable.value.type];
+      if (slots === null || selected?.kind !== "tuple" || selected.elements.length !== slots.length
+        || slots.some((type, index) => selected.elements[index]?.kind !== "required" || selected.elements[index]?.type !== type)) return false;
+    } else if (slots !== null) return false;
+    for (let slot = 0; slot < (slots?.length ?? 1); slot += 1, effective += 1) {
+      const mapping = mappings[effective];
+      if (mapping?.kind !== "argument" || mapping.parameter !== effective || mapping.argument !== authored
+        || mapping.component !== (slots === null ? null : slot)) return false;
+    }
+  }
+  for (; effective < mappings.length; effective += 1) if (mappings[effective]?.kind === "argument") return false;
+  return true;
 }
 
 type DecisionWork =

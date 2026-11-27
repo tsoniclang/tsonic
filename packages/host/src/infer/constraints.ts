@@ -467,7 +467,8 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
     case "ConditionalExpression": yield node.condition; yield node.whenTrue; yield node.whenFalse; return;
     case "CallExpression":
       yield node.expression;
-      yield* node.arguments.nodes;
+      for (const argument of node.arguments.nodes)
+        yield argument.kind === "SpreadElement" ? argument.expression : argument;
       return;
     case "ObjectLiteralExpression":
       if (node.tsonic.role !== "layout-quote") yield* node.properties.nodes;
@@ -877,10 +878,16 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       ? candidate.endpoints.value : null;
     const signature = endpoints === null ? null : readSignature(walk.generation.deps.types, endpoints.apiSignature);
     const arguments_ = captured.value.arguments.map((argument, index): DraftArgument => {
-      const source = node.arguments.nodes[index];
-      if (source === undefined || argument.kind !== "value" || argument.expression !== source.id)
-        return notInferredYet(PORT, "the actual selected source transport of a spread call argument", node.origin);
+      const syntax = node.arguments.nodes[index];
+      const source = syntax?.kind === "SpreadElement" ? syntax.expression : syntax;
+      if (source === undefined || argument.kind !== (syntax?.kind === "SpreadElement" ? "spread" : "value") || argument.expression !== source.id)
+        return callerDefect(PORT, "actual selected source transport requires the authored slot and its checked operand");
       const type = typeAt(walk, source);
+      if (argument.kind === "spread") {
+        if (argument.tuple.kind !== "available" || argument.tuple.value === null)
+          return notInferredYet(PORT, "the selected protocol of a nonfinite call spread", source.origin);
+        return { occurrence: refOf(walk, source), kind: "spread", type, tuple: argument.tuple.value, closure: null };
+      }
       const quote = layoutQuotation(source);
       if (quote !== null) {
         const capturedSignature = captured.value.resolvedSignature;
@@ -914,20 +921,31 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       walk.draft.evidence.push({ type, node: source, component: { kind: "body", value: refOf(walk, source) } });
     }
     for (const [index, argument] of arguments_.entries()) {
-      const source = node.arguments.nodes[index];
+      const syntax = node.arguments.nodes[index];
+      const source = syntax?.kind === "SpreadElement" ? syntax.expression : syntax;
       if (source === undefined) return callerDefect(PORT, "a call retains every actual argument occurrence");
-      walk.draft.evidence.push({ type: argument.type, node: source, component: { kind: "body", value: argument.occurrence } });
+      const component = { kind: "body", value: argument.occurrence } satisfies SourceNodeRef;
+      walk.draft.evidence.push({ type: argument.type, node: source, component });
+      if (argument.tuple !== null) for (const type of argument.tuple) walk.draft.evidence.push({ type, node: source, component });
     }
     let declaredSignature: Signature | undefined;
-    if (endpoints !== null && signature !== null && signature.kind === "call" && signature.receiver === null && signature.typeParameters.length === 0
-      && arguments_.length <= signature.parameters.length) for (const [index, argument] of arguments_.entries()) {
+    let effective = 0;
+    if (endpoints !== null && signature !== null && signature.kind === "call" && signature.receiver === null && signature.typeParameters.length === 0)
+      for (const [authored, argument] of arguments_.entries()) {
+      const index = effective;
+      if (argument.kind === "spread") {
+        if (argument.tuple === null) return callerDefect(PORT, "a fixed spread must retain its actual selected tuple slots");
+        effective += argument.tuple.length;
+        continue;
+      }
+      effective += 1;
       const formal = signature.parameters[index];
       const actual = readySlotType(walk.generation, argument.type);
       if (formal === undefined || formal.kind === "rest" || formal.passing !== "by-value"
         || actual === undefined || formal.type === actual) continue;
       const originalType = readType(walk.generation.deps.types, actual);
       if (originalType.kind === "open" || originalType.kind === "error") continue;
-      const source = present(node.arguments.nodes[index], "the actual argument requiring a flow");
+      const source = present(node.arguments.nodes[authored], "the actual argument requiring a flow");
       if (layoutQuotation(source) !== null) continue;
       declaredSignature ??= readSignature(walk.generation.deps.types, endpoints.api.signature);
       const declared = declaredSignature.parameters[index];
@@ -1230,7 +1248,7 @@ function evidenceOf(deps: InferenceInputs, group: InferenceGroup, type: TyId, no
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: term.definition, pointer: null }, error };
   if (term.kind === "callable") return { value: { type, component, category: { kind: "known", category: "callable" },
     numeric: null, sum: null, nominal: null, pointer: null }, error: null };
-  if (term.kind === "array" || term.kind === "fixed-array")
+  if (term.kind === "array" || term.kind === "fixed-array" || term.kind === "tuple")
     return { value: { type, component, category: { kind: "known", category: "object" },
       numeric: null, sum: null, nominal: null, pointer: null }, error: null };
   if (term.kind === "intrinsic" && term.intrinsic === "absence")

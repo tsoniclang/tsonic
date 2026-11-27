@@ -3386,13 +3386,15 @@ test("tuple declaration reads keep the actual authored type, independently of a 
 
 test("a finite spread borrows the actual selected producer's written tuple result once", async () => {
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
-  const opened = openedModule(`
+  const { createTypeInterner } = await import("../../packages/host/dist/ir-types/index.js");
+  const source = `
     let pair: [boolean, string];
     function producer(): [boolean, string] { return pair; }
     function take(first: boolean, second: string, later: boolean): boolean { return later; }
     function later(): boolean { return false; }
     export function start(): boolean { return take(...producer(), later()); }
-  `);
+  `;
+  const opened = openedModule(source);
   const checked = OpenedProgram.checked(opened.program);
   const acquisitions = new Map();
   const borrowed = { ...checked, getSourceFileQueries: file => {
@@ -3433,6 +3435,20 @@ test("a finite spread borrows the actual selected producer's written tuple resul
     [["spread", spread.id, producer.id], ["value", later.id, later.id]]);
   assert.deepEqual(candidate.arguments.value.map(row => [row.sourceArgumentIndex, row.effectiveArgumentIndex, row.spreadElementIndex, row.parameterIndex]),
     [[0, 0, 0, 0], [0, 1, 1, 1], [1, 2, null, 2]]);
+  const declared = identifySingleModule(front, { module: raw,
+    componentRoots: raw.types.components.map(row => row.root).filter(root => root.module === raw.module) });
+  assert.equal(declared.kind, "ok");
+  const lower = selected => lowerWithReadyExports(lowerDepsFor(declared.value, createTypeInterner(), source), selected);
+  assert.equal(lower(raw).kind, "ok");
+  for (const [changed, cause] of [
+    [{ spreadElementIndex: 1 }, "differs from the actual selected argument and formal slots"],
+    [{ destination: candidate.arguments.value[1].destination }, "must retain the actual argument and selected formal components"],
+  ]) {
+    const malformed = { ...raw, types: { ...raw.types, candidates: raw.types.candidates.map(list => list.id !== applied.candidates ? list
+      : { ...list, candidates: [{ ...candidate, arguments: { kind: "available", value: candidate.arguments.value
+        .map((row, index) => index === 0 ? { ...row, ...changed } : row) } }] }) } };
+    assert.throws(() => lower(malformed), { name: "TypeError", message: `front: finite call transport ${cause}` });
+  }
 });
 
 test("inferred array destructuring preserves independent native read and contextual tuple slots", () => {

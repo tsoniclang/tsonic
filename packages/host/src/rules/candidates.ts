@@ -42,8 +42,6 @@ function originalCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
   })) return callerDefect("an authored type argument must match the original binder's actual selected binding", origin);
   if (signature.kind !== "call" || signature.receiver !== null || signature.typeParameters.length !== 0)
     return notDecidedYet("the native applicability of a receiver, formal or generic candidate", origin);
-  if (input.arguments.length > signature.parameters.length)
-    return notDecidedYet("the actual selected extra or rest formal transport", origin);
   const callee = readType(deps.types, input.callee.type);
   const valueSignature = original.typeParameters.length !== 0 ? original.id : signature.id;
   if (callee.kind !== "callable" || !callee.calls.includes(valueSignature))
@@ -51,14 +49,35 @@ function originalCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
   return { candidate, signature, original };
 }
 
+function* fixedOperands(deps: RulesDeps, input: Omit<CandidateInput, "context">, origin: Origin) {
+  for (const [index, argument] of input.arguments.entries()) {
+    if (argument.kind === "value") {
+      if (argument.tuple !== null) return callerDefect("a value argument cannot supply a spread slot vector", origin);
+      yield { index, component: null, value: argument.value };
+      continue;
+    }
+    const selected = readType(deps.types, argument.value.type);
+    if (selected.kind !== "tuple" || argument.tuple === null || selected.elements.length !== argument.tuple.length)
+      return notDecidedYet("the complete selected tuple of a finite call spread", origin);
+    for (const [component, value] of argument.tuple.entries()) {
+      const element = selected.elements[component];
+      if (element?.kind !== "required" || element.type !== value.type)
+        return callerDefect("a finite call spread must retain its actual ordered required slots", origin);
+      yield { index, component, value };
+    }
+  }
+}
+
 function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context">, ready: PreparedCandidate, origin: Origin,
   checkedArguments: CallConstraint["application"]["arguments"] | null): Result<ApplicationDecision> {
   const { candidate, signature, original } = ready;
   const parameters: ParameterMapping[] = [];
+  const supplied = fixedOperands(deps, input, origin);
   for (const [index, parameter] of signature.parameters.entries()) {
     if (parameter.kind === "rest" || parameter.passing !== "by-value")
       return notDecidedYet("the actual selected spread or non-value argument transport", origin);
-    if (index >= input.arguments.length) {
+    const next = supplied.next();
+    if (next.done) {
       if (candidate.api.body === null || !parameter.acceptsOmission)
         return notDecidedYet("the actual selected omission capability of a fixed formal", origin);
       const declared = original.parameters[index];
@@ -78,12 +97,9 @@ function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
       }
       return notDecidedYet("the selected value of an omitted fixed formal", origin);
     }
-    const argument = input.arguments[index];
-    if (argument === undefined) return callerDefect("a supplied argument must occupy its authored position", origin);
-    if (argument.kind !== "value" || argument.tuple !== null)
-      return notDecidedYet("the actual selected spread or non-value argument transport", origin);
+    const argument = next.value;
     if (checkedArguments !== null && argument.value.type !== parameter.type) {
-      const checked = checkedArguments[index];
+      const checked = checkedArguments[argument.index];
       if (checked === undefined || readType(deps.types, checked.type).kind === "open")
         return notDecidedYet("the actual inferred argument embedding contribution", origin);
     }
@@ -98,8 +114,11 @@ function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
     }
     if (form === null)
       return notDecidedYet("the actual selected argument embedding contribution", origin);
-    parameters.push({ kind: "argument", parameter: index, argument: index, component: null, passing: parameter.passing });
+    if (argument.component !== null && form !== "identity")
+      return notDecidedYet("the actual embedding of a selected tuple component", origin);
+    parameters.push({ kind: "argument", parameter: index, argument: argument.index, component: argument.component, passing: parameter.passing });
   }
+  if (!supplied.next().done) return notDecidedYet("the actual selected extra or rest formal transport", origin);
   return { kind: "ok", diagnostics: [], value: { candidate: candidate.ordinal, advertised: candidate.advertised, api: candidate.api,
     bindings: candidate.bindings, implementationBindings: candidate.bindings, parameters,
     completion: { signature: signature.id, completion: signature.result, yielded: null, sent: null },
@@ -132,10 +151,14 @@ export function callScheme(deps: RulesDeps): CallContributionScheme {
         if (variable !== null) reads.add(variable);
       }
       for (const argument of application.arguments) {
-        if (argument.kind !== "value" || argument.tuple !== null || argument.closure !== null)
+        if ((argument.kind === "spread") !== (argument.tuple !== null) || argument.closure !== null)
           return notDecidedYet("the argument, receiver and generic contribution footprints", null);
         const variable = variableOf(deps, argument.type, input.constraint.occurrence, input.group);
         if (variable !== null) reads.add(variable);
+        if (argument.tuple !== null) for (const type of argument.tuple) {
+          const slot = variableOf(deps, type, input.constraint.occurrence, input.group);
+          if (slot !== null) reads.add(slot);
+        }
       }
       const result = variableOf(deps, application.result, input.constraint.occurrence, input.group);
       return { kind: "ok", diagnostics: [], value: [{ key: { node: input.constraint.occurrence, candidate: candidate.ordinal,
@@ -147,7 +170,8 @@ export function callScheme(deps: RulesDeps): CallContributionScheme {
       const capturedCallee = input.evidence[0];
       const result = input.evidence[1];
       const argumentStart = 2 + constraint.application.typeArguments.length;
-      if (input.evidence.length !== argumentStart + constraint.application.arguments.length || capturedCallee === undefined || result === undefined
+      const evidenceCount = argumentStart + constraint.application.arguments.reduce((count, argument) => count + 1 + (argument.tuple?.length ?? 0), 0);
+      if (input.evidence.length !== evidenceCount || capturedCallee === undefined || result === undefined
         || capturedCallee.value.type !== constraint.application.callee || result.value.type !== constraint.application.result)
         return callerDefect("a call contribution requires its actual callee and result evidence", null);
       const finals = input.reads.length === 0 ? null : new Map(input.reads.map(value => [value.variable, value]));
@@ -167,13 +191,23 @@ export function callScheme(deps: RulesDeps): CallContributionScheme {
         return resolved(evidence);
       });
       const argumentValues: InferenceValue[] = [];
-      const arguments_ = constraint.application.arguments.map((argument, index) => {
-        const evidence = input.evidence[index + argumentStart];
+      let evidenceIndex = argumentStart;
+      const arguments_ = constraint.application.arguments.map(argument => {
+        const evidence = input.evidence[evidenceIndex++];
         if (evidence === undefined || evidence.value.type !== argument.type)
           return callerDefect("a call argument requires its actual selected occurrence evidence", null);
         const value = resolved(evidence);
         argumentValues.push(value);
-        return { occurrence: argument.occurrence, kind: argument.kind, value: value.value, tuple: null };
+        const tuple = argument.tuple === null ? null : argument.tuple.map(type => {
+          const slot = input.evidence[evidenceIndex++];
+          const root = slot?.value.component;
+          if (slot?.value.type !== type || root?.kind !== "body" || root.value.body !== argument.occurrence.body || root.value.node !== argument.occurrence.node)
+            return callerDefect("a call spread requires its actual ordered slot evidence", input.origin);
+          const selected = resolved(slot);
+          argumentValues.push(selected);
+          return selected.value;
+        });
+        return { occurrence: argument.occurrence, kind: argument.kind, value: value.value, tuple };
       });
       const destination = variableOf(deps, constraint.application.result, constraint.occurrence, null);
       const error = mergeErrors([callee, ...typeArguments, ...argumentValues]);

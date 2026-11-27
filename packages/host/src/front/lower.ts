@@ -15,7 +15,7 @@ import { childSourceBody, enterSourceBody, layoutSourceRoles } from "./source-bo
 import type { LayoutSelectorRole, LayoutSourceRoles } from "./source-bodies.js";
 import type { SourceBodyScope, SourceBodyTransition } from "./source-bodies.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
-import { lowerCall } from "./lower-calls.js";
+import { lowerCall, verifyFiniteCallTransport } from "./lower-calls.js";
 import { lowerLayoutApplication } from "./lower-layout.js";
 import { lowerObjectProperties } from "./lower-members.js";
 import { convertRawType, createTypeConversion, signatureOf } from "./type-conversion.js";
@@ -1283,14 +1283,14 @@ function applicationOf(lowering: Lowering, node: Hir.CallExpression<Syntax>): Co
     resolvedSignature = { kind: "unavailable", reason: "checker-error",
       causes: [{ kind: "diagnostic", diagnostic: { kind: "checker", diagnostic } }] };
   }
-  lists.push({ id, candidates });
-  lowering.candidateLists.set(body, lists);
   const arguments_: Hir.HirArgument[] = [];
+  let hasSpread = false;
   for (const argument of node.arguments.nodes) {
     if (argument.kind !== "SpreadElement") {
       arguments_.push({ kind: "value", expression: argument.id });
       continue;
     }
+    hasSpread = true;
     const checked = checkerViewsOf(lowering, argument.expression.id);
     if (checked.kind !== "complete") return checked;
     const read = checked.value.read;
@@ -1311,6 +1311,12 @@ function applicationOf(lowering: Lowering, node: Hir.CallExpression<Syntax>): Co
     }
     arguments_.push({ kind: "spread", expression: argument.expression.id, tuple });
   }
+  if (call.kind === "applicable" && hasSpread) {
+    const verified = verifyFiniteCallTransport(lowering, call, arguments_);
+    if (verified.kind !== "complete") return verified;
+  }
+  lists.push({ id, candidates });
+  lowering.candidateLists.set(body, lists);
   return { kind: "complete", value: { kind: "call", receiver: null, arguments: arguments_,
     typeArguments, candidates: { kind: "available", value: id }, resolvedSignature } };
 }

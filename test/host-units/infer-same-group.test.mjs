@@ -154,6 +154,46 @@ function drive(program) {
   return completed;
 }
 
+test("a finite call spread selects each real tuple slot and the following authored argument", () => {
+  const program = ready(`
+    function take(first: boolean, second: string, tail: boolean): boolean { return tail; }
+    function producer(pair: [boolean, string]): [boolean, string] { return pair; }
+    function later(): boolean { return false; }
+    export function start(pair: [boolean, string]): boolean { return take(...producer(pair), later()); }
+  `);
+  const source = program.checked.tree.statements.nodes[3].body.statements.nodes[0].expression;
+  const [spread, tail] = source.arguments.nodes;
+  const record = [...drive(program).values()].find(row => row.constraints.some(set =>
+    set.constraints.some(constraint => constraint.kind === "call" && constraint.occurrence.node === source.id)));
+  assert.ok(record);
+  const set = record.constraints.find(candidate => candidate.constraints.some(constraint =>
+    constraint.kind === "call" && constraint.occurrence.node === source.id));
+  const index = set.constraints.findIndex(constraint => constraint.kind === "call" && constraint.occurrence.node === source.id);
+  const constraint = set.constraints[index];
+  const [operand, later] = constraint.application.arguments;
+  assert.deepEqual([operand.kind, operand.occurrence.node, later.kind, later.occurrence.node], ["spread", spread.expression.id, "value", tail.id]);
+  assert.equal(spread.expression.kind, "CallExpression");
+  const tuple = fixture.types.readType(program.interner, spread.expression.tsonic.views.read.value);
+  assert.equal(tuple.kind, "tuple");
+  assert.deepEqual(operand.tuple, tuple.elements.map(element => element.type));
+  const selected = record.solution.constraints.find(row => row.constraint.body === set.body && row.constraint.index === index).decision;
+  assert.equal(selected.kind, "call");
+  assert.deepEqual(selected.application.parameters, [
+    { kind: "argument", parameter: 0, argument: 0, component: 0, passing: "by-value" },
+    { kind: "argument", parameter: 1, argument: 0, component: 1, passing: "by-value" },
+    { kind: "argument", parameter: 2, argument: 1, component: null, passing: "by-value" },
+  ]);
+  const producer = record.solution.constraints.find(row => row.constraint.body === set.body &&
+    set.constraints[row.constraint.index]?.occurrence.node === spread.expression.id);
+  assert.equal(producer.decision.kind, "call");
+  assert.equal(producer.decision.application.result, spread.expression.tsonic.views.read.value);
+  const crossed = { ...record, solution: { ...record.solution, constraints: record.solution.constraints.map(row => row.decision === selected
+    ? { ...row, decision: { ...selected, application: { ...selected.application, parameters: selected.application.parameters
+      .map((parameter, ordinal) => ordinal === 0 ? { ...parameter, component: 1 } : parameter) } } } : row) } };
+  assert.equal(verifyRecord(program, crossed).some(row => row.rule === "parameter-mapping-total"
+    && row.detail.some(detail => detail.kind === "text" && detail.value === "authored-spread-slots")), true);
+});
+
 test("a checked no-value result has one default decision and no invented producer", () => {
   const program = ready("export function quit() { return; } export function value(flag: boolean) { return flag; }");
   const records = [...drive(program).values()];
@@ -291,7 +331,7 @@ test("native index Rules use the solved key, reached access and carrier's own bo
     const [contribution] = listed.value;
     assert.deepEqual(contribution.reads, [0]);
     assert.deepEqual(contribution.bounds, []);
-    const expected = { carrier, receiver, key: integral, read: access === "write" ? null : element,
+    const expected = { carrier, holding: carrier === "array" ? "by-reference" : "in-place", receiver, key: integral, read: access === "write" ? null : element,
       write: access === "read" ? null : element, failure,
       writeCheck: access === "read" ? null : program.nativeFacts.destinationCheck };
     const input = { constraint, contribution, evidence: [receiver, open, element].map(type => ({ value: value(type), error: null })),
