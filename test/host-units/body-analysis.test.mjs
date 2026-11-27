@@ -2023,6 +2023,12 @@ test("native indexed places produce the selected element and the actual counted-
       export function update(values: Native[], index: Native, value: Native): Native {
         values[index] += value; return values[index];
       }
+    `], ["replace", `
+      export function replace(values: Native[], replacement: Native[]): Native {
+        let sum: Native = 0;
+        for (let i = 0; i < values.length; i++) { values = replacement; sum += values[i]; }
+        return sum;
+      }
     `]]) {
     const input = await nativeInt32Input({ ...fixture, projectSnapshot: specification => fixture.projectSnapshot({
       ...specification, libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]),
@@ -2057,6 +2063,7 @@ test("native indexed places produce the selected element and the actual counted-
     }
     const [facts] = selected.facts;
     const branch = selected.tir.root.statements.nodes.find(row => row.kind === "ForStatement");
+    assert.equal(facts.refinements.countedLoops.length, mode === "loop" || mode === "replace" ? 1 : 0);
     assert.deepEqual(facts.refinements.refinements, mode === "loop"
       ? [{ kind: "proven", node: read.id, guards: [branch.condition.id] }] : []);
   }

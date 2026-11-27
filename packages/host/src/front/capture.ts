@@ -4812,6 +4812,17 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
   };
 }
 
+function qualifiedStorageAnnotation(scope: CaptureScope, declaration: Node | undefined, selected: ResolvedSourceTypeInfo | undefined): Node | null {
+  if (!scope.sourcePrimitiveFacts || declaration === undefined || selected === undefined || selected.causes.length !== 0
+    || !admit(scope, "edges")) return null;
+  const kind = scope.checked.ast.kindName(declaration);
+  if (kind !== "KindParameter" && kind !== "KindVariableDeclaration") return null;
+  const annotation = scope.checked.ast.typeNode(declaration);
+  if (annotation === undefined) return null;
+  const answer = sourceType(scope, { kind: "annotation", node: annotation });
+  return answer?.type === selected.type && answer.causes.length === 0 ? annotation : null;
+}
+
 function capturedStorage(scope: CaptureScope, node: Node, occurrence: RawNodeRef): RawStorageCapture | null {
   if (!admit(scope, "facts")) return null;
   const outcome = scope.checker.acquireResolvedStorage(node, nativeCaptureAdmission(scope));
@@ -4832,7 +4843,9 @@ function capturedStorage(scope: CaptureScope, node: Node, occurrence: RawNodeRef
     return throwInvariant(invariant("A captured storage answer must retain its actual expression and storage syntax."));
   const symbol = selected.symbol === undefined ? null : rawSymbol(scope, selected.symbol);
   if (selected.symbol !== undefined && symbol === null) return null;
-  const type = rawType(scope, () => selected.type, component(scope, occurrence, null), null);
+  const written = qualifiedStorageAnnotation(scope, selected.declaration, selected.type);
+  if (scope.meter.refusal !== null) return null;
+  const type = rawType(scope, () => selected.type, component(scope, occurrence, null), written);
   if (type === null) return null;
   return { node: occurrence, fact: available({ expression, storageExpression, declaration, symbol, type, writable: selected.writable }) };
 }
@@ -5498,8 +5511,9 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       const answer = sourceType(scope, { kind: "expression", node });
       if (scope.meter.refusal !== null) break;
       const selected = patternName === undefined || parent === undefined ? null : primitiveBindingSource(scope, node, parent, patternName, answer);
+      const written = kind === "KindVariableDeclaration" ? qualifiedStorageAnnotation(scope, node, answer) : null;
       if (scope.meter.refusal !== null) break;
-      const read = enqueueRawType(scope, answer, position, selected?.annotation ?? null, selected?.arm ?? null, null);
+      const read = enqueueRawType(scope, answer, position, selected?.annotation ?? written, selected?.arm ?? null, null);
       const storageAlias = kind === "KindVariableDeclaration" ? inferredStorageAlias(scope, node, answer) : null;
       if (scope.meter.refusal !== null) break;
       const name = patternName ?? ast.name(node);
