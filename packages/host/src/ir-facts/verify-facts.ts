@@ -15,13 +15,14 @@ import { instanceKey } from "../ir-types/index.js";
 import { verifyCells } from "./verify-cells.js";
 import type {
   ArgumentTransport, ArgumentTransportKey, BoundActivation, CompareBoundActivations, CompareConstructionAlternatives, ConstructionAlternative, EscapeFact, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
-  RetentionFact, VerifyFacts,
+  CountedLoopFact, RetentionFact, VerifyFacts,
 } from "./contract.js";
 import { collectSelectionChecks, compareNumbers, ownerKey, relationalUsage, sameBindings, validIndex, verifyRelationalArena } from "./verify-relations.js";
 import { factBindingInputs } from "./binding-inputs.js";
 import { verifyFactBindings } from "./verify-bindings.js";
 import { bodyNodes } from "./verify-body-nodes.js";
 import { verifyLiveness } from "./verify-liveness.js";
+import { countedLoops } from "./counted-loops.js";
 
 const compareText = (left: string, right: string): number => left === right ? 0 : left < right ? -1 : 1;
 const compareNullableNumber = (left: number | null, right: number | null, nullOrder: -1 | 1): number => {
@@ -338,20 +339,30 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
       ? resolution.local.body === declaration.local.body && resolution.local.local === declaration.local.local
       : resolution.kind === "definition" && declaration.kind === "definition" && resolution.definition === declaration.definition;
   };
+  let provedLoops: readonly CountedLoopFact[] | null = null;
   for (const loop of facts.refinements.countedLoops) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
 
     const site = at(loop.statement);
-    for (const endpoint of [loop.statement, loop.counterDeclaration, loop.start, loop.bound, loop.body]) {
+    for (const endpoint of [loop.statement, loop.counterDeclaration, loop.bound, loop.body]) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
 
-      if (!nodes.has(endpoint)) { const stop = report("counted-loop-endpoints-resolve", site, "All five counted-loop endpoints retain actual occurrences in this body."); if (stop !== null) return stop; }
+      if (!nodes.has(endpoint)) { const stop = report("counted-loop-endpoints-resolve", site, "A counted-loop anchor must retain an actual occurrence in its qualified body."); if (stop !== null) return stop; }
     }
     const statement = nodes.get(loop.statement);
     const counter = nodes.get(loop.counterDeclaration);
-    if (statement?.kind !== "ForStatement" || counter?.kind !== "VariableDeclaration" || counter.initializer?.id !== loop.start ||
+    const startWork = chargeWork(account, 1);
+    if (startWork !== null) return startWork;
+    const start = loop.start;
+    const initialized = counter?.kind === "VariableDeclaration" && counter.initializer?.id === start.node
+      && start.body === (counter.tsonic.initializer ?? tir.body);
+    if (start.body === tir.body ? !nodes.has(start.node) : !initialized) {
+      const stop = report("counted-loop-endpoints-resolve", site, "A counted-loop anchor must retain an actual occurrence in its qualified body.");
+      if (stop !== null) return stop;
+    }
+    if (statement?.kind !== "ForStatement" || !initialized ||
       statement.statement.id !== loop.body || statement.condition?.kind !== "BinaryExpression" || statement.condition.operatorToken.kind !== "LessThanToken" ||
       statement.condition.right.id !== loop.bound || !resolvesCounter(statement.condition.left, counter.tsonic.declaration) ||
       statement.initializer?.kind !== "VariableDeclarationList" || statement.initializer.declarations.nodes.length !== 1 ||
@@ -359,6 +370,34 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
       (statement.incrementor.kind !== "PostfixUnaryExpression" && statement.incrementor.kind !== "PrefixUnaryExpression") ||
       statement.incrementor.operator !== "PlusPlusToken" || !resolvesCounter(statement.incrementor.operand, counter.tsonic.declaration)) {
       { const stop = report("counted-loop-conditions-exact", site, "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment."); if (stop !== null) return stop; }
+      continue;
+    }
+    if (provedLoops === null) {
+      const derived = countedLoops(account, mir, provided, node => nodes.get(node));
+      if (derived.kind !== "complete") return derived;
+      provedLoops = derived.value;
+    }
+    let lower = 0;
+    let upper: number = provedLoops.length;
+    let matching = false;
+    while (lower < upper) {
+      const work = chargeWork(account, 1);
+      if (work !== null) return work;
+      const middle = lower + Math.floor((upper - lower) / 2);
+      const proof: CountedLoopFact | undefined = provedLoops[middle];
+      if (proof === undefined) break;
+      if (proof.statement < loop.statement) lower = middle + 1;
+      else if (proof.statement > loop.statement) upper = middle;
+      else {
+        matching = proof.counterDeclaration === loop.counterDeclaration && proof.start.body === start.body && proof.start.node === start.node
+          && proof.bound === loop.bound && proof.body === loop.body && proof.direction === loop.direction
+          && proof.comparison === loop.comparison && proof.step === loop.step;
+        break;
+      }
+    }
+    if (!matching) {
+      const stop = report("counted-loop-conditions-exact", site, "A counted loop must be proved by its entry's MIR control flow and owned counter storage.");
+      if (stop !== null) return stop;
     }
   }
 

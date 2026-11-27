@@ -16,7 +16,7 @@ import { runCase } from "../host-cases/case.mjs";
 import { signatureRequestKey } from "../../packages/host/dist/ir-types/index.js";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const sourceNames = ["index", "print", "parse", "summary-key", "escape-key", "summary-equals", "conditions", "apply-summary", "apply-values", "apply-initialization", "verify-observations", "verify-facts", "verify-relations", "verify-cells", "verify-summary", "verify-metadata", "verify-dependencies", "execution-entry", "binding-inputs", "mir-point", "verification", "verify-bindings", "verify-body-nodes", "verify-initialization", "verify-liveness", "verify-position"];
+const sourceNames = ["index", "print", "parse", "summary-key", "escape-key", "summary-equals", "conditions", "apply-summary", "apply-values", "apply-initialization", "verify-observations", "verify-facts", "verify-relations", "verify-cells", "verify-summary", "verify-metadata", "verify-dependencies", "execution-entry", "binding-inputs", "mir-point", "verification", "verify-bindings", "verify-body-nodes", "verify-initialization", "verify-liveness", "verify-position", "counted-loops"];
 const sourceFiles = ["contract", "conditions-data", "initialization-data", "cells-data", "relations-data", "arena-data", "summary-data", "application-data", "dependency-data", ...sourceNames].map(name => `packages/host/src/ir-facts/${name}.ts`);
 const hash = text => createHash("sha256").update(text).digest("hex");
 const sourceHashes = sourceFiles.map(path => [path, hash(readFileSync(resolve(repository, path)))]);
@@ -319,7 +319,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   }
   await textCase("one real call component", graph(), graphText, product.printDependencyInventory, product.parseDependencyInventory);
   await suite.test("every exported value is an exact current own-contract port", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["admitArtifactIdentity", "admitBindingIdentity", "admitSelectionIdentity", "admitStorageIdentity", "admitSummaryIdentity", "applySummary", "argumentTransportKey", "bindInitialization", "compareBoundActivations", "compareConstructionAlternatives", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "escapeTargetKey", "fieldProjectionIdentityData", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "staticDeclarationKey", "staticInitializationCellOf", "staticInitializationOf", "summaryEquals", "summaryKey", "summaryPositionKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
+    assert.deepEqual(Object.keys(product).sort(), ["admitArtifactIdentity", "admitBindingIdentity", "admitSelectionIdentity", "admitStorageIdentity", "admitSummaryIdentity", "applySummary", "argumentTransportKey", "bindInitialization", "compareBoundActivations", "compareConstructionAlternatives", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "countedLoopsOf", "escapeTargetKey", "fieldProjectionIdentityData", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "staticDeclarationKey", "staticInitializationCellOf", "staticInitializationOf", "summaryEquals", "summaryKey", "summaryPositionKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
   });
   await suite.test("required verifier accounts retain exact measured path budgets and the original first stop", async () => {
     const flow = await import("../../packages/host/dist/dataflow/index.js");
@@ -1516,12 +1516,55 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     supplied.tir.locals = Array.from({ length: count }, (_, id) => ({ id, declaration: { kind: "body", value: nodeRef(id * 13 + 3) }, name: "counter", role: "binding", capturedFrom: null, mutable: true, storage: 0 }));
     for (const local of supplied.tir.locals.slice(1)) supplied.mir.locals.push({ id: local.id, storage: 0, role: { kind: "user" }, mode: "local",
       source: { body, local: local.id }, origin: sourceOrigin(local.declaration.value.node) });
+    supplied.mir.places = supplied.mir.locals.map(local => ({ id: local.id, base: { kind: "local", local: local.id },
+      storage: local.storage, origin: local.origin }));
+    const integer = value => ({ kind: "number", token: String(value),
+      value: { numerator: BigInt(value), denominator: 1n, negativeZero: false } });
+    supplied.mir.constants = [
+      { id: 0, type: 0, value: { kind: "literal", value: integer(0) } },
+      { id: 1, type: 0, value: { kind: "literal", value: integer(10) } },
+      { id: 2, type: 3, value: { kind: "literal", value: { kind: "boolean", value: true } } },
+    ];
+    const temp = storage => {
+      const id = supplied.mir.locals.length;
+      supplied.mir.locals.push({ id, storage, role: { kind: "temporary" }, mode: "local", source: null, origin: sourceOrigin() });
+      supplied.mir.places.push({ id, storage, base: { kind: "local", local: id }, origin: sourceOrigin() });
+      return id;
+    };
+    const instruction = (node, value) => ({ ...value, origin: sourceOrigin(node), tir: nodeRef(node) });
+    const place = local => ({ kind: "place", place: local });
+    const constant = id => ({ kind: "constant", constant: id });
+    const assign = (node, target, value) => instruction(node, { kind: "assign", place: target, value, step: null });
+    const mirOperation = ({ operation: decision, permissionScope }) => ({ decision, permissionScope });
+    supplied.mir.blocks = supplied.tir.root.statements.nodes.flatMap((statement, local) => {
+      const variable = statement.initializer.declarations.nodes[0];
+      const comparison = statement.condition;
+      const increment = statement.incrementor;
+      const guardPlace = temp(3);
+      const stepped = temp(0);
+      const begin = local * 3;
+      return [
+        instruction(statement.id, { id: begin,
+          statements: [assign(variable.id, local, { kind: "use", operand: constant(0) })],
+          terminator: instruction(statement.id, { kind: "goto", target: begin + 1 }) }),
+        instruction(statement.id, { id: begin + 1,
+          statements: [assign(comparison.id, guardPlace, { kind: "binary", operation: mirOperation(comparison.tsonic.operation.decision),
+            left: place(local), right: constant(1) })],
+          terminator: instruction(statement.id, { kind: "switch", operand: place(guardPlace), targets: [{ constant: 2, target: begin + 2 }],
+            otherwise: begin + 3, step: null }) }),
+        instruction(statement.id, { id: begin + 2,
+          statements: [assign(increment.id, stepped, { kind: "unary", operation: mirOperation(increment.tsonic.operation.decision), operand: place(local) }),
+            assign(increment.id, local, { kind: "use", operand: place(stepped) })],
+          terminator: instruction(statement.id, { kind: "goto", target: begin + 1 }) }),
+      ];
+    });
+    supplied.mir.blocks.push(instruction(0, { id: count * 3, statements: [], terminator: instruction(0, { kind: "return", value: null }) }));
     supplied.context.localExists = selected => selected.body === body
       ? supplied.tir.locals.some(local => Object.is(local.id, selected.local)) : selected.body === otherBody && selected.local === 0;
     input.refinements.integers = Array.from({ length: count }, (_, local) => [5, 6, 7, 9, 10, 11].map(node =>
       ({ node: local * 13 + node, range: null, nonnegative: false }))).flat();
     input.refinements.countedLoops = Array.from({ length: count }, (_, local) => ({ statement: local * 13 + 1, counterDeclaration: local * 13 + 3,
-      start: local * 13 + 5, bound: local * 13 + 9, body: local * 13 + 12, direction: "ascending", comparison: "exclusive-upper-bound", step: 1 }));
+      start: nodeRef(local * 13 + 5), bound: local * 13 + 9, body: local * 13 + 12, direction: "ascending", comparison: "exclusive-upper-bound", step: 1 }));
   };
   const loopMessage = "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment.";
   for (const [name, statements, later, absentCount] of [
@@ -1534,7 +1577,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())), [
       ...(later === null ? [] : [violation("counted-loops-order", nodeSite(later), orderMessage)]),
       ...Array.from({ length: absentCount }, () => [
-        violation("counted-loop-endpoints-resolve", nodeSite(NaN), "All five counted-loop endpoints retain actual occurrences in this body."),
+        violation("counted-loop-endpoints-resolve", nodeSite(NaN), "A counted-loop anchor must retain an actual occurrence in its qualified body."),
         violation("counted-loop-conditions-exact", nodeSite(NaN), loopMessage),
       ]).flat(),
     ], "whole statement order and actual five-endpoint/condition findings");
@@ -1547,8 +1590,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     input => { input.refinements.countedLoops.push(clone(input.refinements.countedLoops[1])); },
     [violation("counted-loops-order", nodeSite(14), orderMessage)]);
   for (const endpoint of ["statement", "counterDeclaration", "start", "bound", "body"]) await factOpposite(`counted-loop-endpoints-resolve ${endpoint}`, countedLoop,
-    input => { input.refinements.countedLoops[0][endpoint] = 99; }, [
-      violation("counted-loop-endpoints-resolve", nodeSite(endpoint === "statement" ? 99 : 1), "All five counted-loop endpoints retain actual occurrences in this body."),
+    input => { input.refinements.countedLoops[0][endpoint] = endpoint === "start" ? nodeRef(99) : 99; }, [
+      violation("counted-loop-endpoints-resolve", nodeSite(endpoint === "statement" ? 99 : 1), "A counted-loop anchor must retain an actual occurrence in its qualified body."),
       violation("counted-loop-conditions-exact", nodeSite(endpoint === "statement" ? 99 : 1), loopMessage),
     ]);
   await factOpposite("counted-loop-conditions-exact actual comparison counter", countedLoop, (input, supplied) => {
@@ -1557,9 +1600,15 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await factOpposite("counted-loop-conditions-exact actual increment counter", countedLoop, (input, supplied) => {
     supplied.tir.root.statements.nodes[0].incrementor.operand.tsonic.resolution.local = { body: otherBody, local: 0 };
   }, [violation("counted-loop-conditions-exact", nodeSite(1), loopMessage)]);
+  await factOpposite("counted-loop start does not borrow an equal numeric node from another body", countedLoop, input => {
+    input.refinements.countedLoops[0].start = { body: otherBody, node: 5 };
+  }, [
+    violation("counted-loop-endpoints-resolve", nodeSite(1), "A counted-loop anchor must retain an actual occurrence in its qualified body."),
+    violation("counted-loop-conditions-exact", nodeSite(1), loopMessage),
+  ]);
   for (const [endpoint, actual] of [["statement", 12], ["counterDeclaration", 4], ["start", 9], ["bound", 5], ["body", 13]]) {
     await factOpposite(`a resolving ${endpoint} still has its exact counted-loop role`, countedLoop,
-      input => { input.refinements.countedLoops[0][endpoint] = actual; },
+      input => { input.refinements.countedLoops[0][endpoint] = endpoint === "start" ? nodeRef(actual) : actual; },
       [violation("counted-loop-conditions-exact", nodeSite(endpoint === "statement" ? actual : 1), loopMessage)]);
   }
   for (const [name, amend] of [
@@ -1583,13 +1632,45 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     ["a decrement instead of a unit increment", (input, supplied) => { supplied.tir.root.statements.nodes[0].incrementor.operator = "MinusMinusToken"; }],
   ]) await factOpposite(`typed counted-loop evidence rejects ${name}`, countedLoop, amend,
     [violation("counted-loop-conditions-exact", nodeSite(1), loopMessage)]);
-  await factOpposite("a definition-bound counted loop preserves the actual definition identity", (input, supplied) => {
-    countedLoop(input, supplied); const loop = supplied.tir.root.statements.nodes[0];
+  await suite.test("counted-loop syntax names a definition but does not prove an owned counter", () => {
+    const input = bodyFacts();
+    const supplied = setup(input);
+    countedLoop(input, supplied);
+    const loop = supplied.tir.root.statements.nodes[0];
     loop.initializer.declarations.nodes[0].tsonic.declaration = { kind: "definition", definition: definitions.f };
     loop.initializer.declarations.nodes[0].name.tsonic.declaration = { kind: "definition", definition: definitions.f };
     for (const reference of [loop.condition.left, loop.incrementor.operand]) reference.tsonic.resolution = { kind: "definition", definition: definitions.f, aliases: [] };
-  }, (input, supplied) => { supplied.tir.root.statements.nodes[0].incrementor.operand.tsonic.resolution.definition = definitions.other; },
-  [violation("counted-loop-conditions-exact", nodeSite(1), loopMessage)]);
+    equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())), [
+      violation("counted-loop-conditions-exact", nodeSite(1), "A counted loop must be proved by its entry's MIR control flow and owned counter storage."),
+    ], "definition identity without a proved local");
+    loop.incrementor.operand.tsonic.resolution.definition = definitions.other;
+    equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())), [
+      violation("counted-loop-conditions-exact", nodeSite(1), loopMessage),
+    ], "a changed definition does not even resolve to the same counter");
+  });
+  for (const [name, amend] of [
+    ["another counter assignment", supplied => {
+      const [preheader, , latch] = supplied.mir.blocks;
+      latch.statements.unshift(clone(preheader.statements[0]));
+    }],
+    ["same storage through a refined place", supplied => {
+      const [preheader, , latch] = supplied.mir.blocks;
+      const alias = supplied.mir.places.length;
+      supplied.mir.places.push({ ...supplied.mir.places[0], id: alias,
+        base: { kind: "place", place: 0, projection: { kind: "refined" }, tir: nodeRef(3) } });
+      latch.statements.unshift({ ...preheader.statements[0], place: alias });
+    }],
+    ["a taken address even when candidate escape flags are absent", supplied => {
+      const [preheader, , latch] = supplied.mir.blocks;
+      latch.statements.unshift({ ...preheader.statements[0], place: latch.statements[0].place,
+        value: { kind: "address-of", place: 0, type: 0 } });
+    }],
+    ["a bypassed increment", supplied => {
+      supplied.mir.blocks[2].statements = [];
+    }],
+  ]) await factOpposite(`counted-loop claim does not survive ${name}`, countedLoop, (_input, supplied) => amend(supplied), [
+    violation("counted-loop-conditions-exact", nodeSite(1), "A counted loop must be proved by its entry's MIR control flow and owned counter storage."),
+  ]);
 
   const completePaths = () => ({ kind: "complete", paths: [] });
   const parameter = (declaration = definitions.parameter, type = 0) => ({ declaration, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false });
@@ -3457,9 +3538,14 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   for (const [row, authored] of refinementRows) await factTransport(`refinement transport ${row.kind} ${row.reason?.kind ?? "complete"}`, ["refinements", "refinements"], "refinements=[]", row, authored);
   await factTransport("exact interval transport beyond the JS integer cap", ["refinements", "integers"], "integers=[]", { node: 1, range: { minimum: -9007199254740993n, maximum: 9007199254740993n }, nonnegative: false },
     "IntegerFact(node=n:1, range=IntegerRange(minimum=-9007199254740993n, maximum=9007199254740993n), nonnegative=false)");
-  const loopRecord = { statement: 1, counterDeclaration: 3, start: 5, bound: 9, body: 12, direction: "ascending", comparison: "exclusive-upper-bound", step: 1 };
-  const loopText = 'CountedLoopFact(statement=n:1, counterDeclaration=n:3, start=n:5, bound=n:9, body=n:12, direction="ascending", comparison="exclusive-upper-bound", step=1)';
+  const loopRecord = { statement: 1, counterDeclaration: 3, start: nodeRef(5), bound: 9, body: 12, direction: "ascending", comparison: "exclusive-upper-bound", step: 1 };
+  const loopText = `CountedLoopFact(statement=n:1, counterDeclaration=n:3, start=${nodeText(5)}, bound=n:9, body=n:12, direction="ascending", comparison="exclusive-upper-bound", step=1)`;
   await factTransport("all five counted-loop endpoints transport", ["refinements", "countedLoops"], "countedLoops=[]", loopRecord, loopText);
+  await suite.test("a counted-loop start cannot decode without its owning body", () => {
+    const bareStart = loopText.replace(nodeText(5), "n:5");
+    const text = emptyFactsText.replace("countedLoops=[]", `countedLoops=${arrayText([bareStart])}`);
+    assert.equal(product.parseFacts(text).kind, "invalid-text");
+  });
   await suite.test("literal numeric unions reject other well-formed numbers at their own field", () => {
     const text = emptyFactsText.replace("countedLoops=[]", `countedLoops=${arrayText([loopText.replace("step=1", "step=0")])}`);
     const offset = text.indexOf("step=0") + 5; const before = text.slice(0, offset).split("\n");
@@ -4924,7 +5010,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     const areas = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
     const deps = isolationDeps(tooling, areas.areas.map(area => area.directory));
     const interfaces = ["ids/contract", "ids/index", "diag/contract", "ir-types/contract", "ir-types/index", "ir-hir/contract", "ir-hir/index",
-      "ir-infer/contract", "ir-tir/contract", "ir-tir/index", "ir-mir/contract", "snapshot/contract", "dataflow/contract", "dataflow/index"].map(name => `packages/host/src/${name}.ts`);
+      "ir-infer/contract", "ir-tir/contract", "ir-tir/index", "ir-mir/contract", "ir-mir/index", "snapshot/contract", "dataflow/contract", "dataflow/index"].map(name => `packages/host/src/${name}.ts`);
     const files = new Map();
     const visit = directory => {
       for (const entry of readdirSync(resolve(repository, directory), { withFileTypes: true })) {

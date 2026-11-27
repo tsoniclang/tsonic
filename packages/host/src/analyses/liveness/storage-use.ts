@@ -5,8 +5,8 @@ import type { CaptureFact, LivenessFacts, LiveSegment, StoreLiveness } from "../
 import type { BlockId } from "../../ids/contract.js";
 import type { Execution } from "../../ir-types/contract.js";
 import { sameInstance } from "../../ir-types/index.js";
-import type { MirClosureCapture, MirTerminator } from "../../ir-mir/contract.js";
-import { localOwnershipOfMir } from "../../ir-mir/index.js";
+import type { MirTerminator } from "../../ir-mir/contract.js";
+import { localOwnershipOfMir, visitMirStorageExposures } from "../../ir-mir/index.js";
 import type { StorageUseDeps, StorageUseInput } from "./contract.js";
 import type { Analysis, Bits, Edge } from "./model.js";
 import { captureByLocation, defect, required, refusalOf, emptyBits, hasBit, lattice, placeFactsOf, placeOf, statementReads,
@@ -44,41 +44,28 @@ function escapesOf(analysis: Analysis, addressTaken: boolean[], captured: boolea
     if (targets === undefined) { targets = []; rows.set(local.source.local, targets); }
     targets.push(local.id);
   }
-  const captures = (list: readonly MirClosureCapture[]): void => {
-    for (const capture of list) {
-      if (!work(analysis)) return;
+  visitMirStorageExposures(analysis.body, {
+    admit: () => chargeWork(analysis.account, 1),
+    address: place => {
+      handOut(analysis, place, addressTaken);
+      return accountFailure(analysis.account);
+    },
+    capture: capture => {
       const location = captureByLocation(capture);
       handOut(analysis, capture.place, captured);
-      if (stopped(analysis)) return;
+      const stopped = accountFailure(analysis.account);
+      if (stopped !== null) return stopped;
       const root = placeOf(analysis, capture.place);
-      if (location && root.root !== null && !root.throughDeref && !setBit(analysis, analysis.escaped, root.root)) return;
+      if (location && root.root !== null && !root.throughDeref && !setBit(analysis, analysis.escaped, root.root))
+        return accountFailure(analysis.account);
       for (const local of sources.get(capture.local.body)?.get(capture.local.local) ?? []) {
-        if (!work(analysis)) return;
+        if (!work(analysis)) return accountFailure(analysis.account);
         captured[local] = true;
-        if (location && !setBit(analysis, analysis.escaped, local)) return;
+        if (location && !setBit(analysis, analysis.escaped, local)) return accountFailure(analysis.account);
       }
-    }
-  };
-  for (const block of analysis.body.blocks) {
-    if (!work(analysis)) return;
-    for (const statement of block.statements) {
-      if (!work(analysis)) return;
-      if (statement.kind !== "assign") continue;
-      if (statement.value.kind === "address-of") handOut(analysis, statement.value.place, addressTaken);
-      else if (statement.value.kind === "closure") captures(statement.value.captures);
-      if (stopped(analysis)) return;
-    }
-    const terminator = block.terminator;
-    if (terminator.kind === "call") {
-      for (const row of terminator.arguments) {
-        if (!work(analysis)) return;
-        if (row.kind === "place") handOut(analysis, row.place, addressTaken);
-        if (stopped(analysis)) return;
-      }
-      if (terminator.callee.kind === "body") captures(terminator.callee.captures);
-      if (stopped(analysis)) return;
-    }
-  }
+      return null;
+    },
+  });
 }
 function observed(analysis: Analysis, place: number, after: Bits): boolean {
   const facts = placeOf(analysis, place);

@@ -24,7 +24,7 @@ const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8")).areas.map(area => area.directory);
 const names = ["index", "print", "parse", "verify", "verify-control", "verify-laws", "verify-storage", "verify-types", "local-ownership", "text", "text-decisions",
-  "completion", "constant-projection", "project-values", "verify-departure"];
+  "completion", "constant-projection", "project-values", "verify-departure", "storage-exposures"];
 const runtimeFiles = names.map(name => resolve(repository, `packages/host/dist/ir-mir/${name}.js`));
 const sourceFiles = [...names, "contract"].map(name => `packages/host/src/ir-mir/${name}.ts`);
 const evidenceDirectory = resolve(repository, ".analysis/20261111-f-ir-mir/unit-proof");
@@ -454,7 +454,7 @@ for (const level of ["function", "verifier"]) for (const name of readdirSync(res
 
 test("MIR public index has exactly the current wire, verification and projection ports", () => {
   same(Object.keys(product).sort(), ["constantKeyOfMir", "isMirCompletionControl", "localOwnershipOfMir", "parseMir", "prepareMirExecutionGraph",
-    "printMir", "projectMirConstantKey", "projectMirConstantOrdinals", "projectMirValues", "transferMirCompletion", "verifyMir", "visitMirControlEdges"],
+    "printMir", "projectMirConstantKey", "projectMirConstantOrdinals", "projectMirValues", "transferMirCompletion", "verifyMir", "visitMirControlEdges", "visitMirStorageExposures"],
   "exact public value inventory");
 });
 
@@ -858,6 +858,26 @@ test("MIR projects the same ordered suspension successors without reading an unr
     assert.deepEqual(targets, [1, 3, 5].slice(0, maximum));
     assert.equal(admitted, Math.min(maximum + 1, edges.length));
   }
+});
+
+test("MIR storage exposure admits actual call operands and preserves the original early stop", () => {
+  const passed = callSetup("borrow-shared");
+  same(verified(passed.body, passed.context), [], "an admitted call passes its actual storage place");
+  const visited = [];
+  const visitor = { admit: () => null, address: place => { visited.push(place); return null; },
+    capture: () => assert.fail("an ordinary call is not a closure capture") };
+  assert.equal(product.visitMirStorageExposures(passed.body, visitor), null);
+  assert.deepEqual(visited, [passed.body.blocks[0].terminator.arguments[0].place]);
+
+  const counter = { admitted: 0 };
+  const stop = { kind: "resource-limit" };
+  const original = passed.body.blocks[0].terminator;
+  const guarded = { ...passed.body, blocks: [{ ...passed.body.blocks[0], terminator: { ...original,
+    arguments: [{ get kind() { assert.fail("the first refused operand is not read"); } }] } }] };
+  assert.equal(product.visitMirStorageExposures(guarded, {
+    ...visitor, admit: () => counter.admitted++ === 2 ? stop : null,
+  }) === stop, true);
+  assert.deepEqual(visited, [0]);
 });
 
 test("MIR missing API signatures retain physical receiver and every argument reference", () => {

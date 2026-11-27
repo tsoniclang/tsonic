@@ -432,7 +432,7 @@ const integerFact = (writer: Writer, value: IntegerFact): void => record(writer,
 ]);
 const countedLoop = (writer: Writer, value: CountedLoopFact): void => record(writer, "CountedLoopFact", [
   ["statement", () => identity(writer, "n", value.statement)], ["counterDeclaration", () => identity(writer, "n", value.counterDeclaration)],
-  ["start", () => identity(writer, "n", value.start)], ["bound", () => identity(writer, "n", value.bound)],
+  ["start", () => nodeRef(writer, value.start)], ["bound", () => identity(writer, "n", value.bound)],
   ["body", () => identity(writer, "n", value.body)], ["direction", () => scalar(writer, value.direction)],
   ["comparison", () => scalar(writer, value.comparison)], ["step", () => scalar(writer, value.step)],
 ]);

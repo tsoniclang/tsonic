@@ -24,6 +24,8 @@ import { escapeTargetKey as identifyEscapeTarget } from "./escape-key.js";
 import { applySummary as apply } from "./apply-summary.js";
 import { applyInitialization as bind, staticDeclarationKey as keyStaticDeclaration, staticInitializationCellOf as readStaticCell, staticInitializationOf as applyStatics } from "./apply-initialization.js";
 import { summaryEquals as equalSummaries } from "./summary-equals.js";
+import type { CountedLoopsOf } from "./contract.js";
+import { countedLoops } from "./counted-loops.js";
 
 export const conditionAnd: ConditionAnd = andConditions;
 export const conditionOr: ConditionOr = orConditions;
@@ -33,6 +35,7 @@ export const conditionSubstitute: ConditionSubstitute = substituteConditions;
 export const printFacts: PrintFacts = writeFacts;
 export const parseFacts: ParseFacts = readFacts;
 export const verifyFacts: VerifyFacts = checkFacts;
+export const countedLoopsOf: CountedLoopsOf = countedLoops;
 export const verifyLiveness: VerifyLiveness = checkLiveness;
 export const printObservations: PrintObservations = writeObservations;
 export const parseObservations: ParseObservations = readObservations;

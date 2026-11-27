@@ -629,7 +629,7 @@ const integerFact: Decode<IntegerFact> = (state, input) => then(fields(state, in
 const countedLoop: Decode<CountedLoopFact> = (state, input) => then(fields(state, input, "CountedLoopFact"), values =>
     then(readField(state, values, "statement", node), statementValue =>
     then(readField(state, values, "counterDeclaration", node), counterDeclarationValue =>
-    then(readField(state, values, "start", node), startValue =>
+    then(readField(state, values, "start", nodeRef), startValue =>
     then(readField(state, values, "bound", node), boundValue =>
     then(readField(state, values, "body", node), bodyValue =>
     then(readField(state, values, "direction", (state, input) => literal(state, input, ["ascending"])), directionValue =>

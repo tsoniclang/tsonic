@@ -5,7 +5,7 @@ import type {
 } from "../ids/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclarationRequest, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
 import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js";
-import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
+import type { MemberSelection, ResolvedCallee, TirBody, TirSyntaxOccurrence } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { CallbackInput } from "../snapshot/contract.js";
 import type { CallerRefusal, DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
@@ -144,13 +144,16 @@ export interface IntegerFact {
 export interface CountedLoopFact {
   readonly statement: NodeId;
   readonly counterDeclaration: NodeId;
-  readonly start: NodeId;
+  readonly start: NodeRef;
   readonly bound: NodeId;
   readonly body: NodeId;
   readonly direction: "ascending";
   readonly comparison: "exclusive-upper-bound";
   readonly step: 1;
 }
+
+export type CountedLoopsOf = (account: DataflowAccount, mir: MirBody, provided: number,
+  source: (node: NodeId) => TirSyntaxOccurrence | undefined) => DataflowResult<readonly CountedLoopFact[]>;
 
 export interface RefinementFacts {
   readonly refinements: readonly RefinementFact[];

@@ -14,7 +14,7 @@ import { lowerToMir } from "../../packages/host/dist/lower-mir/index.js";
 import { verifyMir } from "../../packages/host/dist/ir-mir/index.js";
 import { analyzeStorageUse } from "../../packages/host/dist/analyses/liveness/index.js";
 import { accountFailure, createAccount, refuseAccount, remainingWork } from "../../packages/host/dist/dataflow/index.js";
-import { verifyFacts, verifySummary, printFacts, parseFacts, printSummary, parseSummary, escapeTargetKey } from "../../packages/host/dist/ir-facts/index.js";
+import { verifyFacts, verifySummary, printFacts, parseFacts, printSummary, parseSummary, escapeTargetKey, countedLoopsOf } from "../../packages/host/dist/ir-facts/index.js";
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { checkRepeatedStaticInitialization } from "./fixtures/program-static-exposure.mjs";
 
@@ -1988,6 +1988,71 @@ test("an actual empty module traverses its MIR return and proves no storage or c
     { modules: [current.execution], entries: [], storage: [] });
   assert.equal(proof.kind, "complete");
   assert.equal(proof.value.positions[0].error, null);
+});
+
+test("counted-loop facts bind the actual placed initializer and refuse a reaching counter replacement", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const fixture = await loadFrontFixture();
+  for (const write of ["", "i = 3;"]) {
+    const source = `export function read(values: boolean[]): boolean {
+      for (let i = 0; i < 3; ++i) { ${write} if (values[i]) return true; }
+      return false;
+    }`;
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
+    const result = analyzeHostProgram({ ...input, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts,
+      integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] } } });
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+    assert.equal(selected.mir.blocks.some(block => block.terminator.kind === "check"), true);
+    const [facts] = selected.facts;
+    assert.deepEqual(facts.refinements.refinements, [], "the receiver's extent has not been proved");
+    assert.equal(facts.refinements.integers.some(row => row.range !== null), false);
+    if (write !== "") {
+      assert.deepEqual(facts.refinements.countedLoops, []);
+      continue;
+    }
+    const [loop] = selected.tir.root.statements.nodes;
+    const [counter] = loop.initializer.declarations.nodes;
+    const initializer = chapter.bodies.find(row => row.kind === "selected" && row.tir.body === counter.tsonic.initializer);
+    assert.notEqual(initializer.tir.body, selected.tir.body);
+    assert.deepEqual(facts.refinements.countedLoops, [{
+      statement: loop.id, counterDeclaration: counter.id, start: { body: initializer.tir.body, node: initializer.tir.root.id },
+      bound: loop.condition.right.id, body: loop.statement.id, direction: "ascending", comparison: "exclusive-upper-bound", step: 1,
+    }]);
+    const printed = printFacts(facts);
+    const decoded = parseFacts(printed);
+    assert.equal(decoded.kind, "parsed");
+    assert.deepEqual(decoded.value.refinements.countedLoops, facts.refinements.countedLoops);
+    const indexed = sourceOccurrences(selected.tir, createAccount(limits));
+    assert.equal(indexed.kind, "complete");
+    const sourceOf = node => indexed.value.get(node);
+    const probe = createAccount(limits);
+    const replay = countedLoopsOf(probe, selected.mir, facts.execution.provided, sourceOf);
+    assert.equal(replay.kind, "complete");
+    assert.deepEqual(replay.value, facts.refinements.countedLoops);
+    const { work, entries } = InvocationAccount.stateOf(probe);
+    const exact = countedLoopsOf(createAccount({ maximumWork: work, maximumResultEntries: entries }), selected.mir, facts.execution.provided, sourceOf);
+    assert.equal(exact.kind, "complete");
+    const unreadInput = new Proxy({}, { get() { throw new Error("a stopped proof must not read another body"); } });
+    const zero = createAccount({ ...limits, maximumWork: 0 });
+    assert.equal(countedLoopsOf(zero, unreadInput, facts.execution.provided, sourceOf) === accountFailure(zero), true);
+    for (const [dimension, total, key] of [["work", work, "maximumWork"], ["result-entries", entries, "maximumResultEntries"]]) {
+      for (let cap = 0; cap < total; cap += 1) {
+        const account = createAccount({ ...limits, [key]: cap });
+        const stopped = countedLoopsOf(account, selected.mir, facts.execution.provided, sourceOf);
+        assert.equal(stopped.kind, "resource-limit");
+        assert.equal(stopped.dimension, dimension);
+        assert.equal(stopped === accountFailure(account), true);
+        assert.equal(countedLoopsOf(account, unreadInput, facts.execution.provided, sourceOf) === stopped, true);
+      }
+    }
+  }
 });
 
 test("zero and every smaller supplied account refuse without partial successful facts or a second allowance", () => {
