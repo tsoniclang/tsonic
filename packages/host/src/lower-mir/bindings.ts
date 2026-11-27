@@ -1,13 +1,14 @@
 import { requirePresent } from "../diag/index.js";
 import type { BlockId, BodyId, LocalId, LocalRef, PlaceId, TyId } from "../ids/contract.js";
-import type { Block, CaseBlock, NodeHeader, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
+import type { BindingPattern, Block, CaseBlock, NodeHeader, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import type { MirCleanupTransfer, MirClosureCapture, MirUnwind } from "../ir-mir/contract.js";
-import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
+import type { TirNode, TypedBinding, TypedPhase } from "../ir-tir/contract.js";
 import { layoutBindingOf } from "../ir-tir/index.js";
+import type { TypeTerm } from "../ir-types/contract.js";
 import type { InternalBodyInput } from "./contract.js";
 import type { CleanupScope, HandlerScope, LocalScope, Lowering, ProtectedScope, Work } from "./model.js";
 import { callerDefect, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
-import { exposeLocal, saveBeforeControl } from "./operands.js";
+import { exposeLocal, popOperand, saveBeforeControl, saveBeforeStore, saveRead, tupleElementPlace } from "./operands.js";
 import { buildDetachedBlock, constantOperand, emitStatement, enterBlock, newBlock, newLocal, placeOfLocal, placeOfStatic, terminate } from "./state.js";
 
 export function beginLocalScope(lowering: Lowering): LocalScope {
@@ -138,8 +139,7 @@ export function nextDeclaration(lowering: Lowering, pending: Extract<Work, { rea
   return true;
 }
 
-function localBinding(lowering: Lowering, node: VariableDeclaration<TypedPhase>, role: "binding" | "catch"): LocalRef {
-  const selected = namedBindingOf(node);
+function localBinding(lowering: Lowering, node: NodeHeader, selected: TypedBinding, role: "binding" | "catch"): LocalRef {
   if (selected.declaration.kind !== "local") return notLoweredYet(`a variable declaration of kind ${selected.declaration.kind}`, node.origin);
   const source = selected.declaration.local;
   const actual = lowering.body.locals[source.local];
@@ -155,10 +155,10 @@ function namedBindingOf(node: VariableDeclaration<TypedPhase>) {
   return selected;
 }
 
-function startLexicalLocal(lowering: Lowering, scope: LocalScope, node: VariableDeclaration<TypedPhase>,
-  source: LocalRef, kind: "user" | "exception"): LocalId | null {
+function startLexicalLocal(lowering: Lowering, scope: LocalScope, node: NodeHeader,
+  source: LocalRef, storage: TyId, kind: "user" | "exception"): LocalId | null {
   if (lowering.localOf.has(source.local)) return callerDefect("a local storage slot is declared twice", node.origin);
-  const local = newLocal(lowering.state, namedBindingOf(node).storage, { kind }, "local", source, node.origin);
+  const local = newLocal(lowering.state, storage, { kind }, "local", source, node.origin);
   if (local === null) return null;
   if (!emitStatement(lowering.state, { ...siteOf(lowering.body, node), kind: "storage-live", local })) return null;
   lowering.localOf.set(source.local, local);
@@ -167,11 +167,34 @@ function startLexicalLocal(lowering: Lowering, scope: LocalScope, node: Variable
 }
 
 export function declareCatchLocal(lowering: Lowering, scope: LocalScope, node: VariableDeclaration<TypedPhase>): PlaceId | null {
-  const type = lowering.typeOf(namedBindingOf(node).storage);
+  const selected = namedBindingOf(node);
+  const type = lowering.typeOf(selected.storage);
   if (type.kind !== "intrinsic" || type.intrinsic !== "unknown")
     return callerDefect("an exception destination retains its actual selected unknown storage", node.origin);
-  const local = startLexicalLocal(lowering, scope, node, localBinding(lowering, node, "catch"), "exception");
+  const local = startLexicalLocal(lowering, scope, node, localBinding(lowering, node, selected, "catch"), selected.storage, "exception");
   return local === null ? null : placeOfLocal(lowering.state, local);
+}
+
+function* patternBindings(pattern: BindingPattern<TypedPhase>): Generator<{ readonly node: NodeHeader; readonly binding: TypedBinding }> {
+  const pending = [{ pattern, index: 0 }];
+  for (let frame = pending.at(-1); frame !== undefined; frame = pending.at(-1)) {
+    if (frame.index === frame.pattern.elements.nodes.length) { pending.pop(); continue; }
+    const element = requirePresent(frame.pattern.elements.nodes[frame.index++], failure("a fixed binding list has a hole", frame.pattern.origin));
+    const phase = element.tsonic;
+    if (phase.role === "binding") yield { node: element, binding: phase };
+    else if (phase.role === "pattern") {
+      if (element.name?.kind !== "ArrayBindingPattern") return callerDefect("a nested binding lacks its actual array pattern", element.origin);
+      pending.push({ pattern: element.name, index: 0 });
+    }
+  }
+}
+
+function* storageBindings(node: VariableDeclaration<TypedPhase>): Generator<{ readonly node: NodeHeader; readonly binding: TypedBinding }> {
+  if ("declaration" in node.tsonic) yield { node, binding: namedBindingOf(node) };
+  else {
+    if (node.name.kind !== "ArrayBindingPattern") return callerDefect("a fixed destructuring source lacks its actual array pattern", node.origin);
+    yield* patternBindings(node.name);
+  }
 }
 
 export function prepareCaseLocals(lowering: Lowering, block: CaseBlock<TypedPhase>): boolean {
@@ -184,9 +207,11 @@ export function prepareCaseLocals(lowering: Lowering, block: CaseBlock<TypedPhas
       return notLoweredYet("a disposal declaration in the shared lexical scope of a switch", statement.origin);
     if (!list.flags.includes("Let") && !list.flags.includes("Const")) continue;
     scope ??= { kind: "case", parent: lowering.scope, locals: [] };
-    for (const declaration of list.declarations.nodes)
-      if (layoutBindingOf(declaration.initializer) === null &&
-        startLexicalLocal(lowering, scope, declaration, localBinding(lowering, declaration, "binding"), "user") === null) return false;
+    for (const declaration of list.declarations.nodes) {
+      if (layoutBindingOf(declaration.initializer) !== null) continue;
+      for (const { node, binding } of storageBindings(declaration))
+        if (startLexicalLocal(lowering, scope, node, localBinding(lowering, node, binding, "binding"), binding.storage, "user") === null) return false;
+    }
   }
   if (scope !== null) lowering.scope = scope;
   return true;
@@ -201,12 +226,14 @@ export function prepareFunctionLocals(lowering: Lowering): boolean {
       for (const declaration of node.declarations.nodes) {
         if (declaration.kind !== "VariableDeclaration") return callerDefect("a missing variable declaration", declaration.origin);
         if (layoutBindingOf(declaration.initializer) !== null) continue;
-        const source = localBinding(lowering, declaration, "binding");
-        if (lowering.localOf.has(source.local)) continue;
-        const local = newLocal(lowering.state, namedBindingOf(declaration).storage, { kind: "user" }, "local", source, declaration.origin);
-        if (local === null) return false;
-        lowering.localOf.set(source.local, local);
-        if (!emitStatement(lowering.state, { ...siteOf(lowering.body, declaration), kind: "storage-live", local })) return false;
+        for (const { node, binding } of storageBindings(declaration)) {
+          const source = localBinding(lowering, node, binding, "binding");
+          if (lowering.localOf.has(source.local)) continue;
+          const local = newLocal(lowering.state, binding.storage, { kind: "user" }, "local", source, node.origin);
+          if (local === null) return false;
+          lowering.localOf.set(source.local, local);
+          if (!emitStatement(lowering.state, { ...siteOf(lowering.body, node), kind: "storage-live", local })) return false;
+        }
       }
       continue;
     }
@@ -253,7 +280,93 @@ function initializerOf(lowering: Lowering, node: NodeHeader, body: BodyId): Inte
     failure("caller defect: a placed initializer has no supplied execution data", node.origin));
 }
 
+function preparePattern(lowering: Lowering, node: VariableDeclaration<TypedPhase>, lexical: boolean): boolean {
+  if (node.name.kind !== "ArrayBindingPattern" || node.initializer === null)
+    return callerDefect("a fixed destructuring declaration must retain its actual source and array pattern", node.origin);
+  let hasDestination = false;
+  for (const { node: element, binding } of patternBindings(node.name)) {
+    hasDestination = true;
+    if (binding.declaration.kind === "definition") {
+      if (lowering.body.root.kind !== "SourceFile") return callerDefect("a static binding must belong to its module execution", element.origin);
+      continue;
+    }
+    const source = localBinding(lowering, element, binding, "binding");
+    if (lexical) {
+      const scope = requirePresent(lowering.scope ?? undefined, failure("a lexical pattern lacks its actual scope", element.origin));
+      if (scope.kind !== "case") {
+        if (startLexicalLocal(lowering, scope, element, source, binding.storage, "user") === null) return false;
+        continue;
+      }
+    }
+    requirePresent(lowering.localOf.get(source.local), failure("a pattern binding lacks its preallocated local", element.origin));
+  }
+  lowering.work.push(hasDestination ? { kind: "pattern-value", node: node.name } : { kind: "discard", node, read: null },
+    { kind: "expression", node: node.initializer });
+  return true;
+}
+
+export function finishPatternValue(lowering: Lowering, pattern: BindingPattern<TypedPhase>): boolean {
+  let source = popOperand(lowering, failure("a destructuring pattern lacks its evaluated source", pattern.origin));
+  if (source.storage !== pattern.tsonic.storage || source.operand.kind !== "place")
+    return callerDefect("a destructuring pattern must consume its selected tuple place", pattern.origin);
+  if (source.kind !== "plain") for (const { binding } of patternBindings(pattern)) {
+    const target = binding.declaration;
+    if ((target.kind === "local" && source.kind === "local-read" && lowering.localOf.get(target.local.local) === source.local)
+      || (target.kind === "definition" && (source.kind === "shared-field" || lowering.preservedLocals.has(source.local)))) {
+      const saved = saveRead(lowering, source);
+      if (saved === null) return false;
+      source = saved;
+      break;
+    }
+  }
+  if (source.operand.kind !== "place") return callerDefect("a prepared tuple must remain a place", pattern.origin);
+  interface ProjectionFrame {
+    readonly pattern: BindingPattern<TypedPhase>;
+    readonly place: PlaceId;
+    readonly tuple: Extract<TypeTerm, { readonly kind: "tuple" }>;
+    index: number;
+  }
+  const open = (node: BindingPattern<TypedPhase>, place: PlaceId): ProjectionFrame => {
+    const tuple = lowering.typeOf(node.tsonic.storage);
+    if (node.kind !== "ArrayBindingPattern" || tuple.kind !== "tuple" || node.elements.nodes.length > tuple.elements.length)
+      return callerDefect("a fixed binding must retain its actual tuple slot inventory", node.origin);
+    return { pattern: node, place, tuple, index: 0 };
+  };
+  const pending = [open(pattern, source.operand.place)];
+  for (let frame = pending.at(-1); frame !== undefined; frame = pending.at(-1)) {
+    const { pattern: current, place: root, tuple, index } = frame;
+    if (index === current.elements.nodes.length) { pending.pop(); continue; }
+    frame.index += 1;
+    const element = requirePresent(current.elements.nodes[index], failure("a fixed binding list has a hole", current.origin));
+    const slot = tuple.elements[index];
+    const binding = element.tsonic;
+    if (slot?.kind !== "required" || element.initializer !== null || element.dotDotDotToken !== null || element.propertyName !== null)
+      return callerDefect("a fixed pattern must retain its actual required slot", element.origin);
+    if (binding.role === "hole") continue;
+    const site = siteOf(lowering.body, element);
+    const projected = tupleElementPlace(lowering, root, index, slot.type, site);
+    if (projected === null) return false;
+    if (binding.role === "pattern") {
+      if (element.name?.kind !== "ArrayBindingPattern" || element.name.tsonic.storage !== slot.type)
+        return callerDefect("a nested binding must consume its own projected tuple", element.origin);
+      pending.push(open(element.name, projected));
+      continue;
+    }
+    if (binding.storage !== slot.type || binding.initializer !== null || element.name?.kind !== "Identifier")
+      return callerDefect("a fixed slot must have its actual named storage and identity fit", element.origin);
+    const target = binding.declaration;
+    const local = target.kind === "definition" ? null : requirePresent(localFromSource(lowering, target.local),
+      failure("a fixed slot lacks its actual destination local", element.origin));
+    const place = target.kind === "definition" ? placeOfStatic(lowering.state, target.definition, slot.type, element.origin)
+      : placeOfLocal(lowering.state, requirePresent(local ?? undefined, failure("a fixed slot's local destination is absent", element.origin)));
+    if (place === null || !saveBeforeStore(lowering, place, local) || !emitStatement(lowering.state,
+      { ...site, kind: "assign", place, value: { kind: "use", operand: { kind: "place", place: projected } }, step: null })) return false;
+  }
+  return true;
+}
+
 export function declareLocal(lowering: Lowering, node: VariableDeclaration<TypedPhase>, lexical: boolean): boolean {
+  if ("role" in node.tsonic) return preparePattern(lowering, node, lexical);
   const selected = namedBindingOf(node);
   if (node.initializer !== null && selected.initializer === null)
     return notLoweredYet("a variable initializer without its placed execution", node.origin);
@@ -269,14 +382,14 @@ export function declareLocal(lowering: Lowering, node: VariableDeclaration<Typed
     }
     return initializePlace(lowering, node, destination, selected.storage, selected.initializer);
   }
-  const source = localBinding(lowering, node, "binding");
+  const source = localBinding(lowering, node, selected, "binding");
   let local = lowering.localOf.get(source.local);
   if (lexical) {
     const scope = requirePresent(lowering.scope ?? undefined, failure("a lexical declaration has no enclosing scope", node.origin));
     if (scope.kind === "case") {
       if (local === undefined) return callerDefect("a case declaration has no live shared lexical slot", node.origin);
     } else {
-      const allocated = startLexicalLocal(lowering, scope, node, source, "user");
+      const allocated = startLexicalLocal(lowering, scope, node, source, selected.storage, "user");
       if (allocated === null) return false;
       local = allocated;
     }

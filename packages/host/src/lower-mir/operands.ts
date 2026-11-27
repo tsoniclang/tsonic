@@ -6,7 +6,7 @@ import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { DiscardRead, Evaluated, Lowering } from "./model.js";
 import { failure } from "./model.js";
 import type { ReadAnchor } from "./state.js";
-import { emitAtRead, emitBeforeTerminator, emitStatement, markRead, newLocal, placeOfLocal } from "./state.js";
+import { emitAtRead, emitBeforeTerminator, emitStatement, markRead, newLocal, newPlace, placeOfLocal } from "./state.js";
 
 /** Pushes an evaluated operand; one read in place from a handed-out local is also exposed. */
 export function pushOperand(lowering: Lowering, evaluated: Evaluated): void {
@@ -64,6 +64,10 @@ function materializeRead(lowering: Lowering, operand: MirOperand, storage: TyId,
 
 export function readPlace(lowering: Lowering, place: PlaceId, storage: TyId, site: MirSite): Evaluated | null {
   return materializeRead(lowering, { kind: "place", place }, storage, site, null);
+}
+
+export function tupleElementPlace(lowering: Lowering, base: PlaceId, index: number, storage: TyId, site: MirSite): PlaceId | null {
+  return newPlace(lowering.state, { kind: "place", place: base, projection: { kind: "element", index }, tir: site.tir }, storage, site.origin);
 }
 
 export function saveRead(lowering: Lowering, pending: Evaluated): Evaluated | null {

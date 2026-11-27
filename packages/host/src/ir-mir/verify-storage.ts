@@ -810,6 +810,11 @@ export function verifyValues(
     switch (projection.kind) {
       case "field": break;
       case "element":
+        if (place.base.tir.body === context.source.body) {
+          const source = findSourceNode(nodes, place.base.tir.node);
+          if (source?.node.kind === "BindingElement" && (source.bindingOrdinal === null || source.bindingOrdinal !== projection.index
+            || source.node.tsonic.role === "hole" || place.base.kind !== "place")) report("projection-valid", site);
+        }
         if (parentTerm !== null) {
           if (parentTerm.kind === "tuple") {
             const element = densePosition(projection.index, parentTerm.elements.length) ? parentTerm.elements[projection.index] : undefined;
@@ -878,11 +883,26 @@ export function verifyValues(
         const actual = rvalueType(statement.value, source, site);
         if (meter.exhausted) return { violations, types, signatures };
         const authored = source?.node;
+        const binding = authored?.kind === "BindingElement" && authored.tsonic.role === "binding" && authored.tsonic.initializer === null
+          ? authored.tsonic.declaration : null;
+        if (binding !== null) {
+          const operand = statement.value.kind === "use" && statement.value.operand.kind === "place" ? statement.value.operand.place : null;
+          const projected = operand !== null && densePosition(operand, body.places.length) ? body.places[operand]?.base : undefined;
+          if (projected?.kind !== "place" || projected.projection.kind !== "element"
+            || projected.tir.body !== statement.tir.body || projected.tir.node !== statement.tir.node) report("projection-valid", site);
+          if (binding.kind === "local") {
+            const destination = densePosition(statement.place, body.places.length) ? body.places[statement.place]?.base : undefined;
+            const local = destination?.kind === "local" && densePosition(destination.local, body.locals.length)
+              ? body.locals[destination.local]?.source : undefined;
+            if (local?.body !== binding.local.body || local.local !== binding.local.local) report("local-storage-exact", site);
+          }
+        }
         const target = authored?.kind === "BinaryExpression" && authored.tsonic.role === "assignment"
           && (authored.tsonic.calculation === null || statement.value.kind === "use")
           ? staticTarget(authored.left)
           : authored?.kind === "VariableDeclaration" && "declaration" in authored.tsonic && authored.tsonic.declaration.kind === "definition"
-            ? authored.tsonic.declaration.definition : statement.value.kind === "use" ? staticUpdateTarget(authored) : null;
+            ? authored.tsonic.declaration.definition : binding?.kind === "definition" ? binding.definition
+              : statement.value.kind === "use" ? staticUpdateTarget(authored) : null;
         if (meter.exhausted) return { violations, types, signatures };
         const expected = placeType(statement.place, site, target, "static-write-exact");
         if (expected !== null) match(actual, expected, "assignment-type", site);

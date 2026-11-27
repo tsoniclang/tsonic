@@ -6,8 +6,8 @@ import type { TirApplication, TypedApplication, TypedPhase, TypedValue } from ".
 import type { Signature } from "../ir-types/contract.js";
 import type { Lowering, Work } from "./model.js";
 import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf, workNode } from "./model.js";
-import { exposeLocal, held, popOperand, pushOperand, readPlace, saveBeforeControl, temporary } from "./operands.js";
-import { enterBlock, newBlock, newPlace, placeOfLocal, terminate } from "./state.js";
+import { exposeLocal, held, popOperand, pushOperand, readPlace, saveBeforeControl, temporary, tupleElementPlace } from "./operands.js";
+import { enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
 import { unwindToHandler } from "./bindings.js";
 
 export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> | NewExpression<TypedPhase>, selected: TypedApplication): boolean {
@@ -110,8 +110,7 @@ export function finishCallSpread(lowering: Lowering, { node, count }: Extract<Wo
   for (let index = 0; index < count; index += 1) {
     const slot = tuple.elements[index];
     if (slot?.kind !== "required") return callerDefect("a finite call spread requires its actual required tuple slot", node.origin);
-    const place = newPlace(lowering.state, { kind: "place", place: source.operand.place,
-      projection: { kind: "element", index }, tir: site.tir }, slot.type, node.origin);
+    const place = tupleElementPlace(lowering, source.operand.place, index, slot.type, site);
     if (place === null) return false;
     const value = readPlace(lowering, place, slot.type, site);
     if (value === null) return false;

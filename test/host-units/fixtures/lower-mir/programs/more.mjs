@@ -209,7 +209,7 @@ export function s1() {
       b.declare([{ kind: "VariableDeclaration", exclamationToken: null, type: null,
         name: { $: "[p,q]", kind: "ArrayBindingPattern", elements: { $list: true, nodes: [element("p", 0, "p"), element("q", 1, "q")] }, tsonic: { storage: T.int32Pair } },
         initializer: direct0(b, "pair", SIG_PAIR, T.int32Pair, "pair()"),
-        tsonic: { declaration: { kind: "local", local: b.localRef(0) }, storage: T.int32Pair, initializer: null } }]),
+        tsonic: { role: "pattern", storage: T.int32Pair } }]),
       b.returns({ $: "p+q", ...b.arithmetic(b.id("p", 0, T.int32), "PlusToken", b.id("q", 1, T.int32), T.int32, ADD) })) });
   return { program };
 }

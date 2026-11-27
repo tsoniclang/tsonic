@@ -321,6 +321,7 @@ export function verifyCompletionControl(body: MirBody, control: ControlInventory
 
 export interface SourceNode {
   readonly node: TirSyntaxOccurrence;
+  readonly bindingOrdinal: number | null;
   readonly operations: ReadonlySet<string>;
   readonly callees: ReadonlySet<string>;
   readonly protocols: readonly TirProtocol[];
@@ -388,7 +389,7 @@ const mirOccurrenceSlots: ChapterSyntaxSlots = function* (subject) {
   const callable = kind === "FunctionDeclaration" || kind === "FunctionExpression" || kind === "ArrowFunction"
     || kind === "Constructor" || kind === "MethodDeclaration" || kind === "GetAccessor" || kind === "SetAccessor";
   const initializer = kind === "PropertyDeclaration" || kind === "PropertySignature" || kind === "EnumMember"
-    || kind === "VariableDeclaration" || kind === "Parameter";
+    || kind === "VariableDeclaration" && "declaration" in subject.node.tsonic || kind === "Parameter";
   for (const slot of chapterSyntaxSlots(subject)) {
     const field = slot.fields[0];
     if (field === "parameters" && callable || field === "initializer" && initializer
@@ -412,8 +413,29 @@ export function sourceNodes(source: TirBody, texts: WireTexts, meter: WorkMeter)
     }
   }
   const nodes = new Map<NodeId, SourceNode>();
+  let bindingEdge: { readonly node: TirSyntaxOccurrence; readonly ordinal: number } | null = null;
+  const slots: ChapterSyntaxSlots = function* (subject) {
+    if (subject.node.kind !== "ArrayBindingPattern") { yield* mirOccurrenceSlots(subject); return; }
+    for (const slot of mirOccurrenceSlots(subject)) {
+      const [field, vector, ordinal] = slot.fields;
+      if (slot.kind !== "syntax" || field !== "elements" || vector !== "nodes" || typeof ordinal !== "number") {
+        yield slot;
+        continue;
+      }
+      yield { ...slot, read: () => {
+        const child = slot.read();
+        if (child?.kind === "ordinary" && child.node.kind === "BindingElement") bindingEdge = { node: child.node, ordinal };
+        return child;
+      } };
+    }
+  };
+  const bindingOrdinal = (node: TirSyntaxOccurrence): number | null => {
+    const edge = bindingEdge;
+    bindingEdge = null;
+    return edge?.node === node ? edge.ordinal : null;
+  };
   let cleanup = false;
-  for (const subject of indexChapterSyntax(roots(), mirOccurrenceSlots, () => admitWork(meter, 1))) {
+  for (const subject of indexChapterSyntax(roots(), slots, () => admitWork(meter, 1))) {
     if (subject.kind === "checked") continue;
     if (!admitWork(meter, 1)) return null;
     const node = subject.node;
@@ -472,7 +494,7 @@ export function sourceNodes(source: TirBody, texts: WireTexts, meter: WorkMeter)
       }
       steps.push(row);
     }
-    nodes.set(node.id, { node, operations, callees, protocols, steps, bodies });
+    nodes.set(node.id, { node, bindingOrdinal: bindingOrdinal(node), operations, callees, protocols, steps, bodies });
   }
   return meter.exhausted ? null : { nodes, cleanup };
 }

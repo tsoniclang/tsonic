@@ -255,6 +255,79 @@ test("authored MIR: finite spreads evaluate the one producer and take its slots 
   }
 });
 
+test("authored MIR: a fixed destructuring initializes its own locals from one tuple producer", async () => {
+  const fixture = await loadFrontFixture();
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { lowerMirDeps, mirVerificationContext } = await import("../../packages/host/dist/pipeline/lower-mir-step.js");
+  const { internType, viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function produce(pair: [boolean, boolean]): [boolean, boolean] { return pair; }
+    export function start(pair: [boolean, boolean]): boolean {
+      const [first, second] = produce(pair);
+      return first;
+    }
+  `);
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const ready = typed.value;
+  const selected = [...ready.bodies.values()].find(body => body.bindings.kind === "instantiated" && body.root.kind === "Block"
+    && body.root.statements.nodes[0]?.kind === "VariableStatement");
+  assert.ok(selected);
+  const declaration = selected.root.statements.nodes[0].declarationList.declarations.nodes[0];
+  const leaves = declaration.name.elements.nodes;
+  const identity = instanceKey({ body: selected.body, bindings: selected.bindings });
+  const entries = ready.required.provided.get(identity);
+  assert.deepEqual(entries, [1]);
+  const interner = checked.value.types;
+  const run = { selectedNativeFacts: input.snapshot.nativeFacts, interner, table: viewTypes(interner),
+    defs: { completionSelector: internType(interner, { kind: "primitive", primitive: "int32" }),
+      exceptionStorage: internType(interner, { kind: "intrinsic", intrinsic: "unknown" }) },
+    lowering: input.limits.lowering, verification: input.limits.mirVerification, declarationOf: ready.declarationOf,
+    bodyOwner: body => fixture.ids.decodeBodyId(body).value.owner, bodyOf: instance => ready.bodies.get(instanceKey(instance)) ?? null };
+  const deps = lowerMirDeps(run, { request: { query: "mirBody", key: identity }, position: { kind: "result" } });
+  const lowered = lowerRequired(deps, selected, [], entries);
+  assert.equal(lowered.kind, "ok", JSON.stringify(lowered.diagnostics));
+  const mir = lowered.value;
+  const context = mirVerificationContext(run, selected, entries);
+  assert.deepEqual(verifyMir(mir, context), { kind: "complete", violations: [] });
+  const calls = mir.blocks.filter(block => block.terminator.kind === "call");
+  assert.deepEqual(calls.map(block => block.terminator.tir.node), [declaration.initializer.id]);
+  const [{ terminator: producer }] = calls;
+  const assigns = mir.blocks[producer.next].statements.filter(statement =>
+    statement.kind === "assign" && leaves.some(leaf => leaf.id === statement.tir.node));
+  assert.deepEqual(assigns.map(statement => statement.tir.node), leaves.map(leaf => leaf.id));
+  for (const [index, statement] of assigns.entries()) {
+    assert.equal(statement.value.kind, "use");
+    assert.equal(statement.value.operand.kind, "place");
+    const projected = mir.places[statement.value.operand.place];
+    assert.deepEqual(projected.base, { kind: "place", place: producer.destination,
+      projection: { kind: "element", index }, tir: statement.tir });
+    const destination = mir.places[statement.place];
+    assert.equal(destination.base.kind, "local");
+    assert.deepEqual(mir.locals[destination.base.local].source, leaves[index].tsonic.declaration.local);
+  }
+  const wrongSlot = structuredClone(mir);
+  wrongSlot.places[assigns[0].value.operand.place].base.projection.index = 1;
+  const slotCheck = verifyMir(wrongSlot, context);
+  assert.equal(slotCheck.kind, "complete");
+  assert.equal(slotCheck.violations.some(finding => finding.rule === "projection-valid" &&
+    finding.site.kind === "place" && finding.site.place === assigns[0].value.operand.place), true);
+  const wrongLocal = structuredClone(mir);
+  const crossed = wrongLocal.blocks[producer.next].statements.find(statement => statement.tir.node === leaves[0].id && statement.kind === "assign");
+  crossed.place = assigns[1].place;
+  const localCheck = verifyMir(wrongLocal, context);
+  assert.equal(localCheck.kind, "complete");
+  assert.equal(localCheck.violations.some(finding => finding.rule === "local-storage-exact" &&
+    finding.site.kind === "instruction" && finding.site.block === producer.next), true);
+  const refused = lowerRequired({ ...deps, limits: { maximumRecords: 0 } }, selected, [], entries);
+  assert.equal(refused.kind, "refused");
+  assert.equal("value" in refused, false);
+});
+
 test("authored MIR: array destinations check at the selected time and reuse the evaluated location", async () => {
   const fixture = await loadFrontFixture();
   const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
