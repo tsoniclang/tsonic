@@ -14,7 +14,7 @@ import { parseSources, readImportGraph } from "../architecture/host/import-graph
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { runCase } from "../host-cases/case.mjs";
 import { signatureRequestKey } from "../../packages/host/dist/ir-types/index.js";
-import { checkCapturedFieldRefinement, checkDisjunctiveFieldProofs, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkOrderedRefinementProofs, checkParenthesizedCountedProofs, checkSavedExtentReceivers } from "./fixtures/native-refinement-proofs.mjs";
+import { checkCapturedFieldRefinement, checkDisjunctiveFieldProofs, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkOrderedRefinementProofs, checkParenthesizedCountedProofs, checkRefinementClaimRoles, checkSavedExtentReceivers } from "./fixtures/native-refinement-proofs.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const sourceNames = ["index", "print", "parse", "summary-key", "escape-key", "summary-equals", "conditions", "apply-summary", "apply-values", "apply-initialization", "verify-observations", "verify-facts", "verify-relations", "verify-cells", "verify-summary", "verify-metadata", "verify-dependencies", "execution-entry", "binding-inputs", "mir-point", "verification", "verify-bindings", "verify-body-nodes", "verify-initialization", "verify-liveness", "verify-position", "counted-guard", "counted-loops", "field-refinements"];
@@ -64,6 +64,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await suite.test("multiple native refinement proofs keep each loop, reaching guard and invalidation in canonical order", checkOrderedRefinementProofs);
   await suite.test("disjunctive native field proof retains each actual guard and the reached invalidation", checkDisjunctiveFieldProofs);
   await suite.test("parenthesized counted operands preserve the actual range and require the same array extent", checkParenthesizedCountedProofs);
+  await suite.test("a refinement claim needs an actual selected narrowing or index proof role", checkRefinementClaimRoles);
 
   await suite.test("a reached nested field effect uses only the exact selected caller correspondence", async () => {
     const { accountFailure, chargeWork, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
@@ -1186,7 +1187,6 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   const simpleOrders = [
     ["stores-order", ["liveness", "stores"], node => ({ node, point: { block: 0, statement: null }, edge: null, observed: true })],
     ["initialization-order", ["initialization", "reads"], node => ({ node, place: 0, assigned: true })],
-    ["refinements-order", ["refinements", "refinements"], node => ({ node, guards: [], kind: "proven" })],
     ["reads-order", ["origins", "reads"], node => ({ node, place: 0, origins: 0 })],
     ["subjects-order", ["origins", "subjects"], node => ({ node, role: "value", path: null, origins: 0 })],
     ["writes-order", ["origins", "writes"], node => ({ node, point: { block: 0, statement: null }, operation: "initialization", destination: "binding", targets: [], owner: null, values: [], boundaries: [] })],
@@ -4522,19 +4522,17 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     supplied.tir.root.statements.nodes = [child, { ...header(2), kind: "EmptyStatement", tsonic: null }];
     equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())), [], "complete distinct actual node identity control");
   });
-  await factOpposite("original raw refinement guards retain their own actual sites", input => {
-    input.refinements.refinements = [{ node: 1, kind: "proven", guards: [2] }];
-  }, input => { input.refinements.refinements[0].guards = [99]; },
-  [violation("node-resolves", nodeSite(99), "Every fact retains an actual source occurrence in its declared body domain.")]);
-  await factOpposite("original raw invalidated refinement retains every qualified site", input => {
-    input.refinements.refinements = [{ node: 1, kind: "unproven", guards: [2], reason: { kind: "invalidated", sites: [{ kind: "write", at: nodeRef(3) }] } }];
-  }, input => { input.refinements.refinements[0].reason.sites[0].at.node = 99; },
-  [violation("node-resolves", nodeSite(1), "Every fact retains an actual source occurrence in its declared body domain.")]);
-  await suite.test("original raw unproven refinement has its distinct non-invalidation reason", () => {
-    const input = bodyFacts(); const supplied = setup(input);
-    input.refinements.refinements = [{ node: 1, guards: [2], kind: "unproven", reason: { kind: "guard-not-proven", detail: "unknown" } }];
-    equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())), [], "complete genuine unproven guard result");
-  });
+  const unsupportedRefinement = violation("refinement-role-exact", nodeSite(1),
+    "A refinement must describe a selected field narrowing or an independently provable index check.");
+  for (const [name, row, expected] of [
+    ["unresolved guard", { node: 1, kind: "proven", guards: [99] },
+      [violation("node-resolves", nodeSite(99), "Every fact retains an actual source occurrence in its declared body domain."), unsupportedRefinement]],
+    ["unresolved invalidation", { node: 1, kind: "unproven", guards: [2], reason: { kind: "invalidated", sites: [{ kind: "write", at: nodeRef(99) }] } },
+      [unsupportedRefinement, violation("node-resolves", nodeSite(1), "Every fact retains an actual source occurrence in its declared body domain.")]],
+    ["valid guard identity with no refinement role", { node: 1, guards: [2], kind: "unproven", reason: { kind: "guard-not-proven", detail: "unknown" } },
+      [unsupportedRefinement]],
+  ]) await factOpposite(`raw refinement claims retain their exact findings: ${name}`, unchanged,
+    input => { input.refinements.refinements = [row]; }, expected);
   await suite.test("original raw genuine prefix unit increment remains a counted loop", () => {
     const input = bodyFacts(); const supplied = setup(input); countedLoop(input, supplied);
     supplied.tir.root.statements.nodes[0].incrementor.kind = "PrefixUnaryExpression";

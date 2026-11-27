@@ -585,7 +585,7 @@ export type FactsRule =
   | "capture-locations-exact" | "context-arguments-total" | "node-resolves" | "place-resolves"
   | "mir-point-resolves" | "stores-order" | "locals-order" | "captures-order" | "initialization-order"
   | "live-segments-order" | "live-segments-bounds" | "points-order" | "point-refs-resolve"
-  | "refinements-order" | "reads-order" | "subjects-order" | "writes-order" | "escapes-order"
+  | "refinements-order" | "refinement-role-exact" | "reads-order" | "subjects-order" | "writes-order" | "escapes-order"
   | "integer-facts-order" | "integer-facts-domain-exact" | "integer-range-valid" | "integer-proofs-consistent" | "integer-proof-exact"
   | "index-bound-proof-exact"
   | "field-refinement-proof-exact"

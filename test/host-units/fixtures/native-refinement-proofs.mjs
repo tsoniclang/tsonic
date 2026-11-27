@@ -3,6 +3,54 @@ import { accountFailure, createAccount } from "../../../packages/host/dist/dataf
 
 const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
 
+async function auditRefinementClaims(input, select, change, rule) {
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { pipelineWiring } = await import("../../../packages/host/dist/pipeline/wiring.js");
+  const original = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+  let reached = false;
+  try {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, body) => {
+      const result = original(deps, body);
+      if (result.kind !== "complete" || result.value.kind !== "ok" || !("facts" in result.value.value) || !select(body)) return result;
+      const pair = result.value.value;
+      const refinements = change(pair.facts.refinements.refinements, body);
+      reached = true;
+      return { ...result, value: { ...result.value, value: { ...pair, facts: { ...pair.facts,
+        refinements: { ...pair.facts.refinements, refinements } } } } };
+    };
+    assert.throws(() => analyzeHostProgram(input), {
+      name: "TypeError", message: `The BodyAnalysis producer failed its Facts handoff: ${rule}.`,
+    });
+    assert.equal(reached, true);
+  } finally {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = original;
+  }
+}
+
+export async function checkRefinementClaimRoles() {
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", "export function simple(): boolean { return true; }");
+  const control = analyzeHostProgram(input);
+  assert.equal(control.kind, "ok");
+  const isSimple = body => body.tir.body.includes(";simple];function;0]");
+  const chapter = control.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const original = chapter.bodies.find(row => row.kind === "selected" && isSimple(row));
+  assert.equal(original.mir.blocks.some(row => row.terminator.kind === "check"), false);
+  assert.deepEqual(original.facts[0].refinements.refinements, []);
+  for (const kind of ["proven", "unproven"]) {
+    await auditRefinementClaims(input, isSimple, (rows, body) => {
+      assert.deepEqual(rows, []);
+      const occurrence = body.tir.root.statements.nodes[0].expression;
+      assert.equal(occurrence.kind, "TrueKeyword");
+      const common = { node: occurrence.id, guards: [] };
+      return [kind === "proven" ? { ...common, kind }
+        : { ...common, kind, reason: { kind: "guard-not-proven", detail: "no check" } }];
+    }, "refinement-role-exact");
+  }
+}
+
 function checkReachedProofCuts(stateOf, run, expected, label, afterProbe = () => {}) {
   const probe = createAccount(limits);
   const meter = stateOf(probe);
@@ -144,7 +192,8 @@ export async function checkOrderedRefinementProofs() {
     const nativeFacts = { ...snapshot.nativeFacts, integerOverflow: [
       { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
     ] };
-    const { chapter, selected, facts, sourceOf } = read({ ...base, snapshot: { ...snapshot, nativeFacts } }, 2);
+    const input = { ...base, snapshot: { ...snapshot, nativeFacts } };
+    const { chapter, selected, facts, sourceOf } = read(input, 2);
     const loops = selected.tir.root.statements.nodes.slice(0, 2);
     const checks = loops.map(loop => loop.statement.statements.nodes[0].expression);
     const starts = loops.map(loop => chapter.bodies.find(row => row.kind === "selected"
@@ -165,6 +214,19 @@ export async function checkOrderedRefinementProofs() {
     assert.deepEqual(facts.refinements.integers.filter(row => row.range !== null),
       expected.ranges.map(row => ({ ...row, nonnegative: true })));
     assert.deepEqual(facts.refinements.refinements, expected.refinements);
+    if (secondBound === "right") {
+      const isSelected = body => body.tir.body === selected.tir.body;
+      await auditRefinementClaims(input, isSelected, rows => {
+        assert.deepEqual(rows, expected.refinements);
+        return [...rows].reverse();
+      }, "refinements-order");
+      await auditRefinementClaims(input, isSelected, rows => {
+        assert.deepEqual(rows, expected.refinements);
+        const [first, second] = rows;
+        return [{ node: first.node, guards: first.guards, kind: "unproven",
+          reason: { kind: "guard-not-proven", detail: "no check" } }, second];
+      }, "refinement-role-exact");
+    }
     assert.deepEqual(selected.mir.blocks.filter(row => row.terminator.kind === "check").map(({ terminator }) =>
       [terminator.tir.node, selected.mir.places[terminator.place].base.projection.kind]), checks.map(row => [row.id, "index"]));
     checkReachedProofCuts(InvocationAccount.stateOf, account => countedLoopsOf(account, selected.mir, 2, {

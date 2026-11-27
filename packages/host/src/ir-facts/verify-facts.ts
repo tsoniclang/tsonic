@@ -400,8 +400,7 @@ for (const violation of rows) {
           "A field refinement must retain its actual guard, receiver and reaching write effects.");
         if (invalid !== null) return invalid;
       }
-    }
-    if (refinement.kind === "proven" && source?.kind === "ElementAccessExpression" && "index" in source.tsonic) {
+    } else if (refinement.kind === "proven" && source?.kind === "ElementAccessExpression" && "index" in source.tsonic) {
       const proved = provedLoops();
       if (proved.kind !== "complete") return proved;
       const proof = proofAt(proved.value.refinements, refinement.node);
@@ -412,6 +411,10 @@ for (const violation of rows) {
           "An index bound must follow from the actual comparison and the same reaching MIR receiver and index.");
         if (stop !== null) return stop;
       }
+    } else if (source !== undefined) {
+      const stop = report("refinement-role-exact", at(refinement.node),
+        "A refinement must describe a selected field narrowing or an independently provable index check.");
+      if (stop !== null) return stop;
     }
     if (refinement.kind === "unproven" && refinement.reason.kind === "invalidated") for (const invalidation of refinement.reason.sites) {
     const step = chargeWork(account, 1);
