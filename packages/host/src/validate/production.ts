@@ -13,7 +13,7 @@ export const indexForms: IndexFormDiagnostics = (deps, module) => {
     const next = frame.children.next();
     if (next.done) { stack.pop(); continue; }
     const { node, fields } = next.value;
-    const unsupported = node.kind === "ModuleDeclaration" || node.kind === "Decorator" || node.kind === "AccessorKeyword"
+    const unsupported = node.kind === "ModuleDeclaration" || node.kind === "Decorator" || node.kind === "AccessorKeyword" || node.kind === "DebuggerStatement"
       || deps.role === "source" && (node.kind === "DeclareKeyword" || node.kind === "ImportEqualsDeclaration"
         || node.kind === "ExportAssignment" && node.isExportEquals);
     if (unsupported) {

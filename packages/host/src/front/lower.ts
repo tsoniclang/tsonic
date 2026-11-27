@@ -42,7 +42,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "BigIntKeyword", "AnyKeyword", "UnknownKeyword", "NeverKeyword", "ObjectKeyword", "UndefinedKeyword", "VoidKeyword",
   "Block", "ReturnStatement", "ThrowStatement", "IfStatement", "WhileStatement", "DoStatement", "ForStatement", "BreakStatement", "ContinueStatement",
   "SwitchStatement", "CaseBlock", "CaseClause", "DefaultClause", "TryStatement", "CatchClause",
-  "EmptyStatement", "LabeledStatement",
+  "EmptyStatement", "DebuggerStatement", "LabeledStatement",
   "BinaryExpression", "ConditionalExpression", "ColonToken", "PrefixUnaryExpression", "PostfixUnaryExpression", "PlusToken", "EqualsToken",
   "CallExpression", "ExpressionStatement", "ParenthesizedExpression", "VoidExpression",
   "AsExpression", "TypeAssertionExpression", "SatisfiesExpression", "NonNullExpression",
@@ -1311,7 +1311,7 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
           block: block(lowering, handler.block), tsonic: null },
         finallyBlock: node.finallyBlock === null ? null : block(lowering, node.finallyBlock), tsonic: null } };
     }
-    case "EmptyStatement":
+    case "EmptyStatement": case "DebuggerStatement":
       return { kind: "complete", value: { ...headerOf(node), kind: node.kind, tsonic: null } };
     case "BreakStatement": case "ContinueStatement":
       return { kind: "complete", value: { ...headerOf(node), kind: node.kind,

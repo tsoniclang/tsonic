@@ -3155,6 +3155,17 @@ test("syntax assembly consumes an admitted 20000-expression numbering iterativel
   assert.throws(() => captureNode({ ...context, numbering: { ...context.numbering, parents: new Map() } }, root, null), /admitted parent/u);
 });
 
+test("checked lowering retains the authored debugger leaf without replacing it with an empty statement", () => {
+  const { raw, checked, interner } = checkedModuleOf("debugger; ;");
+  const [source, empty] = raw.tree.statements.nodes;
+  const [retained, retainedEmpty] = checked.tree.statements.nodes;
+  assert.equal(source.kind, "DebuggerStatement");
+  assert.equal(empty.kind, "EmptyStatement");
+  assert.deepEqual(retained, source);
+  assert.deepEqual(retainedEmpty, empty);
+  assert.deepEqual(verifyChecked(checked, interner), []);
+});
+
 test("checked expression assembly consumes a constructed 20000-parenthesis domain without source-depth recursion", async () => {
   const hir = await import("../../packages/host/dist/ir-hir/index.js");
   const types = await import("../../packages/host/dist/ir-types/index.js");

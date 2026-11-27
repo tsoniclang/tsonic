@@ -101,6 +101,71 @@ test("the original Forms refusal and an independent checker error both survive e
   }
 });
 
+test("authored debugger statements reach Forms at their exact checked occurrences without hiding an independent error", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const independent = "export function independent(): boolean { return missing; }";
+  const nested = "export function nested(): boolean { debugger; return missing; }";
+  const unsupported = "TSONIC_SOURCE_FORM_UNSUPPORTED";
+  for (const [sourceText, codes] of [
+    [`debugger;\n${independent}`, [unsupported, "TS2304"]],
+    [`${independent}\ndebugger;`, ["TS2304", unsupported]],
+    [nested, [unsupported, "TS2304"]],
+    ["export function repeated(): boolean { debugger; debugger; return true; }", [unsupported, unsupported]],
+  ]) {
+    const input = analysisInput(fixture, "sdk-minimal", sourceText);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const main = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+    const authored = main.nodes.filter(node => node.kind === "DebuggerStatement");
+    assert.deepEqual(authored.map(node => [node.origin.start, node.origin.length, node.tsonic]),
+      [...sourceText.matchAll(/debugger;/gu)].map(match => [match.index, "debugger;".length, null]));
+    const originalChecker = main.module.checkerDiagnostics.find(row => row.code.rendered === "TS2304");
+    const report = wiring.validate.formDiagnostics;
+    const earned = new Map();
+    wiring.validate.formDiagnostics = (deps, site, unit) => {
+      assert.equal(site.report === site.cut && authored.includes(site.report), true);
+      assert.equal(earned.has(site.report), false);
+      const result = report(deps, site, unit);
+      earned.set(site.report, result.diagnostics[0]);
+      assert.deepEqual(result.value.report.position, { kind: "module-node", module: main.module.module, node: site.report.id });
+      return result;
+    };
+    try {
+      const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));
+      assert.equal(typed.kind, "refused");
+      assert.equal(Object.hasOwn(typed, "value"), false);
+      assert.deepEqual(typed.diagnostics.map(row => row.code.rendered), codes);
+      const forms = typed.diagnostics.filter(row => row.code.rendered === unsupported);
+      assert.equal(forms.length, authored.length);
+      for (const [position, node] of authored.entries()) {
+        assert.equal(forms[position] === earned.get(node) && forms[position].site.origin === node.origin, true);
+        assert.deepEqual(forms[position].arguments, [{ kind: "text", value: "DebuggerStatement" }]);
+      }
+      assert.equal(typed.diagnostics.find(row => row.code.rendered === "TS2304") === originalChecker, true);
+    } finally {
+      wiring.validate.formDiagnostics = report;
+    }
+  }
+  const denied = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", "debugger;"));
+  assert.equal(denied.kind, "refused");
+  assert.deepEqual(denied.diagnostics.map(row => row.code.rendered), [unsupported]);
+  assert.equal(Object.hasOwn(denied, "value"), false);
+  const quoted = analysisInput(fixture, "sdk-minimal", 'export function text(): string { return "debugger;"; }');
+  const captured = captureSourceBarrier(quoted);
+  assert.equal(captured.kind, "ok");
+  const typed = typeSourceBarrier(quoted, captured.value, createAccount(quoted.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  assert.deepEqual(typed.diagnostics, []);
+  const control = analyzeHostProgram(analysisInput(fixture, "sdk-minimal",
+    "/* debugger; */ function debuggerValue(): boolean { return true; } export function read(): boolean { return debuggerValue(); }"));
+  assert.equal(control.kind, "ok");
+  assert.deepEqual(control.diagnostics, []);
+});
+
 test("selected throw refuses the immediate effect-only operand, keeping independent diagnostics in either source order", async () => {
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
