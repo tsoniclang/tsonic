@@ -465,6 +465,7 @@ export function sourceNodes(source: TirBody, texts: WireTexts, meter: WorkMeter)
         selection(payload.selection.decision);
       }
       if ("member" in payload && payload.member.kind === "decided") selection(payload.member.decision);
+      if (node.kind === "BindingElement" && node.tsonic.role === "field-binding") selection(node.tsonic.field);
       if ("protocol" in payload && payload.protocol.kind === "decided") protocols.push(payload.protocol.decision);
       if ("protocols" in payload) {
         const offered = payload.protocols;

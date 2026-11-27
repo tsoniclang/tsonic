@@ -8,8 +8,8 @@ import type { TypeTerm } from "../ir-types/contract.js";
 import type { InternalBodyInput } from "./contract.js";
 import type { CleanupScope, HandlerScope, LocalScope, Lowering, ProtectedScope, Work } from "./model.js";
 import { callerDefect, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
-import { exposeLocal, popOperand, saveBeforeControl, saveBeforeStore, saveRead, tupleElementPlace } from "./operands.js";
-import { buildDetachedBlock, constantOperand, emitStatement, enterBlock, newBlock, newLocal, placeOfLocal, placeOfStatic, terminate } from "./state.js";
+import { exposeLocal, holdReceiver, popOperand, saveBeforeControl, saveBeforeStore, saveRead, temporary, tupleElementPlace } from "./operands.js";
+import { buildDetachedBlock, constantOperand, emitStatement, enterBlock, newBlock, newLocal, newPlace, placeOfLocal, placeOfStatic, terminate } from "./state.js";
 
 export function beginLocalScope(lowering: Lowering): LocalScope {
   const scope: LocalScope = { kind: "block", parent: lowering.scope, locals: [] };
@@ -181,7 +181,7 @@ function* patternBindings(pattern: BindingPattern<TypedPhase>): Generator<{ read
     if (frame.index === frame.pattern.elements.nodes.length) { pending.pop(); continue; }
     const element = requirePresent(frame.pattern.elements.nodes[frame.index++], failure("a fixed binding list has a hole", frame.pattern.origin));
     const phase = element.tsonic;
-    if (phase.role === "binding") yield { node: element, binding: phase };
+    if (phase.role === "binding" || phase.role === "field-binding") yield { node: element, binding: phase };
     else if (phase.role === "pattern") {
       if (element.name?.kind !== "ArrayBindingPattern") return callerDefect("a nested binding lacks its actual array pattern", element.origin);
       pending.push({ pattern: element.name, index: 0 });
@@ -192,7 +192,7 @@ function* patternBindings(pattern: BindingPattern<TypedPhase>): Generator<{ read
 function* storageBindings(node: VariableDeclaration<TypedPhase>): Generator<{ readonly node: NodeHeader; readonly binding: TypedBinding }> {
   if ("declaration" in node.tsonic) yield { node, binding: namedBindingOf(node) };
   else {
-    if (node.name.kind !== "ArrayBindingPattern") return callerDefect("a fixed destructuring source lacks its actual array pattern", node.origin);
+    if (node.name.kind === "Identifier") return callerDefect("a destructuring source lacks its actual binding pattern", node.origin);
     yield* patternBindings(node.name);
   }
 }
@@ -281,8 +281,8 @@ function initializerOf(lowering: Lowering, node: NodeHeader, body: BodyId): Inte
 }
 
 function preparePattern(lowering: Lowering, node: VariableDeclaration<TypedPhase>, lexical: boolean): boolean {
-  if (node.name.kind !== "ArrayBindingPattern" || node.initializer === null)
-    return callerDefect("a fixed destructuring declaration must retain its actual source and array pattern", node.origin);
+  if (node.name.kind === "Identifier" || node.initializer === null)
+    return callerDefect("a destructuring declaration must retain its actual source and ordered pattern", node.origin);
   let hasDestination = false;
   for (const { node: element, binding } of patternBindings(node.name)) {
     hasDestination = true;
@@ -305,8 +305,72 @@ function preparePattern(lowering: Lowering, node: VariableDeclaration<TypedPhase
   return true;
 }
 
+function bindingDestination(lowering: Lowering, element: NodeHeader, binding: TypedBinding): PlaceId | null {
+  const target = binding.declaration;
+  const local = target.kind === "definition" ? null : requirePresent(localFromSource(lowering, target.local),
+    failure("a binding lacks its actual destination local", element.origin));
+  const place = target.kind === "definition" ? placeOfStatic(lowering.state, target.definition, binding.storage, element.origin)
+    : placeOfLocal(lowering.state, requirePresent(local ?? undefined, failure("a binding's local destination is absent", element.origin)));
+  return place !== null && saveBeforeStore(lowering, place, local) ? place : null;
+}
+
+function finishObjectPattern(lowering: Lowering, pattern: BindingPattern<TypedPhase>, holder: PlaceId): boolean {
+  const { state } = lowering;
+  for (const element of pattern.elements.nodes) {
+    const binding = element.tsonic;
+    if (binding.role !== "field-binding" || element.name?.kind !== "Identifier")
+      return callerDefect("a field binding requires its actual selected read and named destination", element.origin);
+    const site = siteOf(lowering.body, element);
+    const read = binding.field.decision.read;
+    const location = binding.field.decision.location;
+    if (read === null || location.kind !== "data" || location.receiver !== "by-reference" || location.check.kind !== "none")
+      return callerDefect("a field binding must read its selected stable reference-held member", element.origin);
+    const field = newPlace(state, { kind: "place", place: holder, projection: { kind: "field", member: binding.field }, tir: site.tir }, read, site.origin);
+    const destination = bindingDestination(lowering, element, binding);
+    if (field === null || destination === null) return false;
+    if (binding.present === null) {
+      if (binding.storage !== read) return callerDefect("a direct binding reads its actual destination type", element.origin);
+      if (!emitStatement(state, { ...site, kind: "assign", place: destination, value: { kind: "use", operand: { kind: "place", place: field } }, step: null }))
+        return false;
+      continue;
+    }
+    if (binding.initializer === null || binding.present !== binding.storage)
+      return callerDefect("a conditional binding requires its independently placed initializer and present type", element.origin);
+    const snapshot = temporary(lowering, read, site);
+    if (snapshot === null || !emitStatement(state, { ...site, kind: "assign", place: snapshot,
+      value: { kind: "use", operand: { kind: "place", place: field } }, step: null })) return false;
+    const absence = constantOperand(state, read, { kind: "literal", value: { kind: "absence" } });
+    if (absence === null) return false;
+    const absent = newBlock(state, site);
+    if (absent === null) return false;
+    const present = newBlock(state, site);
+    if (present === null) return false;
+    const next = newBlock(state, site);
+    if (next === null) return false;
+    const view = newPlace(state, { kind: "checked", place: snapshot, projection: { kind: "refined" }, tir: site.tir },
+      binding.present, site.origin);
+    if (view === null) return false;
+    terminate(state, { ...site, kind: "switch", operand: { kind: "place", place: snapshot },
+      targets: [{ constant: absence.constant, target: absent }], otherwise: present, step: null });
+    enterBlock(state, present);
+    if (!emitStatement(state, { ...site, kind: "assign", place: destination, value: { kind: "use", operand: { kind: "place", place: view } }, step: null }))
+      return false;
+    terminate(state, { ...site, kind: "goto", target: next });
+    enterBlock(state, absent);
+    if (!initializePlace(lowering, element, destination, binding.storage, binding.initializer)) return false;
+    terminate(state, { ...site, kind: "goto", target: next });
+    enterBlock(state, next);
+  }
+  return true;
+}
+
 export function finishPatternValue(lowering: Lowering, pattern: BindingPattern<TypedPhase>): boolean {
   let source = popOperand(lowering, failure("a destructuring pattern lacks its evaluated source", pattern.origin));
+  if (pattern.kind === "ObjectBindingPattern") {
+    if (source.storage !== pattern.tsonic.storage) return callerDefect("an object binding must consume its actual selected receiver", pattern.origin);
+    const held = holdReceiver(lowering, source);
+    return held !== null && finishObjectPattern(lowering, pattern, held);
+  }
   if (source.storage !== pattern.tsonic.storage || source.operand.kind !== "place")
     return callerDefect("a destructuring pattern must consume its selected tuple place", pattern.origin);
   if (source.kind !== "plain") for (const { binding } of patternBindings(pattern)) {
@@ -352,14 +416,10 @@ export function finishPatternValue(lowering: Lowering, pattern: BindingPattern<T
       pending.push(open(element.name, projected));
       continue;
     }
-    if (binding.storage !== slot.type || binding.initializer !== null || element.name?.kind !== "Identifier")
+    if (binding.role !== "binding" || binding.storage !== slot.type || binding.initializer !== null || element.name?.kind !== "Identifier")
       return callerDefect("a fixed slot must have its actual named storage and identity fit", element.origin);
-    const target = binding.declaration;
-    const local = target.kind === "definition" ? null : requirePresent(localFromSource(lowering, target.local),
-      failure("a fixed slot lacks its actual destination local", element.origin));
-    const place = target.kind === "definition" ? placeOfStatic(lowering.state, target.definition, slot.type, element.origin)
-      : placeOfLocal(lowering.state, requirePresent(local ?? undefined, failure("a fixed slot's local destination is absent", element.origin)));
-    if (place === null || !saveBeforeStore(lowering, place, local) || !emitStatement(lowering.state,
+    const place = bindingDestination(lowering, element, binding);
+    if (place === null || !emitStatement(lowering.state,
       { ...site, kind: "assign", place, value: { kind: "use", operand: { kind: "place", place: projected } }, step: null })) return false;
   }
   return true;

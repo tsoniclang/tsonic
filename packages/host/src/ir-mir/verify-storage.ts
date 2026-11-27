@@ -867,6 +867,9 @@ export function verifyValues(
         const expected = selectedType(node);
         if (expected !== null) match(place.storage, expected, "projection-type", site);
         const source = node?.node;
+        if (source?.kind === "BindingElement" && source.tsonic.role === "field-binding"
+          && (source.tsonic.present !== place.storage || source.tsonic.field.decision.read !== parent.storage))
+          report("projection-type", site);
         if (source?.kind === "PropertyAccessExpression" && source.tsonic.role === "value" && source.tsonic.narrowing?.kind === "narrowed") {
           const narrowing = source.tsonic.narrowing;
           if (narrowing.source !== parent.storage || narrowing.failure !== context.selectedNativeFacts.absentAccessFailure)

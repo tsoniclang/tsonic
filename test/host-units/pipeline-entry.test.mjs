@@ -169,10 +169,12 @@ test("authored tuple construction consumes ordered operands and emits one select
 
 test("verified Typed object bindings retain a native absence split and their separately placed default", async () => {
   const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
   const { parseTir, printTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
-  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { parseModuleBodies, printModuleBodies, tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { verifyMir } = await import("../../packages/host/dist/ir-mir/index.js");
   const input = analysisInput(fixture, "sdk-minimal", `
     export function bind(source: { first: boolean; second?: boolean }): boolean {
       const { first: left, second = !left } = source;
@@ -212,6 +214,52 @@ test("verified Typed object bindings retain a native absence split and their sep
   assert.equal(rejected.kind, "complete");
   assert.equal(rejected.violations.some(row => row.rule === "binding-storage" && row.detail.some(detail => detail.kind === "text"
     && detail.value.startsWith("the field read and selected native present"))), true);
+
+  const published = analyzeHostProgram(input);
+  assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
+  const { index, modules } = published.value;
+  const module = modules.find(module => module.module === input.snapshot.entryPoint);
+  const selected = module.bodies.find(row => row.kind === "selected" && row.tir.body === enclosing.body);
+  const { mir } = selected;
+  const fields = mir.places.filter(row => row.base.kind === "place" && row.base.projection.kind === "field");
+  assert.deepEqual(fields.map(row => row.base.tir.node), [left.id, right.id]);
+  assert.equal(fields[0].base.place, fields[1].base.place);
+  const holder = fields[0].base.place;
+  const statements = mir.blocks.flatMap(block => block.statements);
+  assert.equal(statements.filter(row => row.kind === "assign" && row.place === holder).length, 1);
+  const split = mir.blocks.find(block => block.terminator.kind === "switch" && block.terminator.tir.node === right.id);
+  const { targets: [only], otherwise, operand } = split.terminator;
+  assert.deepEqual(mir.constants[only.constant].value, { kind: "literal", value: { kind: "absence" } });
+  assert.equal(split.statements.at(-1).place, operand.place);
+  assert.deepEqual(split.statements.at(-1).value.operand, { kind: "place", place: fields[1].id });
+  const absent = mir.blocks[only.target].terminator;
+  const present = mir.blocks[otherwise];
+  assert.equal(absent.kind, "call");
+  assert.equal(absent.callee.instance.body, child.body);
+  assert.equal(present.statements[0].place, absent.destination);
+  assert.equal(mir.places[present.statements[0].value.operand.place].base.place, operand.place);
+  assert.equal(present.terminator.kind, "goto");
+  assert.equal(mir.blocks[absent.next].terminator.target, present.terminator.target);
+  assert.equal(mir.blocks.filter(block => block.terminator.kind === "call" && block.terminator.tir.node === right.id).length, 1);
+  const summary = index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === enclosing.body);
+  assert.deepEqual(summary.parameters[0].reads.paths.map(path => summary.arena.projections[path].projection.member.decision.key.value).sort(),
+    ["first", "second"]);
+  const programText = printModuleBodies(index, module);
+  const programParsed = parseModuleBodies(index, programText);
+  assert.equal(programParsed.kind, "parsed");
+  assert.equal(printModuleBodies(index, programParsed.value), programText);
+
+  const ready = { selectedNativeFacts: input.snapshot.nativeFacts, source: selected.tir, types: index.types,
+    limits: input.limits.mirVerification, requiredEntries: mir.entries.map(entry => entry.provided), declarationOf: result.value.declarationOf,
+    bodyOwner: identity => fixture.ids.decodeBodyId(identity).value.owner,
+    bodyOf: instance => module.bodies.find(row => row.kind === "selected" && row.tir.body === instance.body)?.tir ?? null };
+  assert.deepEqual(verifyMir(mir, ready).violations, []);
+  const crossed = { ...mir, blocks: mir.blocks.map(block => block === split ? { ...split,
+    terminator: { ...split.terminator, targets: [{ ...only, target: otherwise }], otherwise: only.target } } : block) };
+  const rejectedSplit = verifyMir(crossed, ready);
+  assert.equal(rejectedSplit.kind, "complete");
+  assert.equal(rejectedSplit.violations.some(row => row.rule === "check-place-exact"), true);
+  assert.equal(rejectedSplit.violations.some(row => row.rule === "checked-place-available"), true);
 });
 
 test("installed ES2024 publishes a qualified scalar indexed write and read within its original allowance", async () => {

@@ -171,7 +171,7 @@ export function verifyLaws(
   const privateLocation = new Uint8Array(body.places.length);
   // How the check of a checked place fails, by its decision: 1 unwinds, 2 ends the process, 0 when no decision says.
   const failureOf = new Uint8Array(body.places.length);
-  const checkedAt = new Map<number, CheckedBase>();
+  const checkedAt = new Map<number, { readonly base: CheckedBase; readonly place: PlaceId }>();
   for (const [position, place] of body.places.entries()) {
     if (place === undefined) continue;
     if (place.base.kind === "local") {
@@ -190,8 +190,8 @@ export function verifyLaws(
         // One node can carry checks of several kinds (an element that is also narrowed); each kind has one view.
         const key = place.base.tir.node * 6 + viewKind(place.base.projection);
         const first = checkedAt.get(key);
-        if (first === undefined) checkedAt.set(key, place.base);
-        else if (!sameView(first, place.base)) reportPlace("check-place-single", place.id);
+        if (first === undefined) checkedAt.set(key, { base: place.base, place: place.id });
+        else if (!sameView(first.base, place.base)) reportPlace("check-place-single", place.id);
       }
       const parent = place.base.projection.kind === "refined" && densePosition(place.base.place, position) ? body.places[place.base.place] : undefined;
       if (parent !== undefined && parent.base.kind === "local" && densePosition(parent.base.local, body.locals.length)) {
@@ -221,7 +221,7 @@ export function verifyLaws(
     // a receiver reached by reference is a value captured once: a local's own cell, written once and not handed out.
     const view = decisionOfView(place.base, sourceOf(place.base.tir));
     if (view !== null) {
-      if ((view.check.kind === "required") !== (place.base.kind === "checked")) reportPlace("check-place-exact", place.id);
+      if ((view.check.kind !== "none") !== (place.base.kind === "checked")) reportPlace("check-place-exact", place.id);
       if (view.check.kind === "required" && Object.is(place.id, position)) failureOf[position] = view.check.failure === "abort" ? 2 : 1;
       if (view.receiver === "by-reference") {
         const cell = read(cellOf, place.base.place, -1);
@@ -498,10 +498,56 @@ export function verifyLaws(
       const terminator = block.terminator;
       switch (terminator.kind) {
         case "goto": case "unreachable": break;
-        case "switch":
+        case "switch": {
           useOperand(terminator.operand, block.id, null);
-          for (const edge of edges) give(edgePosition(edge), snapshot());
+          const node = sourceOf(terminator.tir)?.node;
+          let availableOnPresent: PlaceId | null = null;
+          if (node?.kind === "BindingElement" && node.tsonic.role === "field-binding" && node.tsonic.present !== null) {
+            chargeWork(meter, 12);
+            if (meter.exhausted) return false;
+            const binding = node.tsonic;
+            const view = checkedAt.get(node.id * 6 + viewKind({ kind: "refined" }));
+            const only = terminator.targets.length === 1 ? terminator.targets[0] : undefined;
+            const constant = only === undefined ? undefined : body.constants[only.constant];
+            const copy = block.statements.at(-1);
+            const field = copy?.kind === "assign" && copy.value.kind === "use" && copy.value.operand.kind === "place"
+              ? body.places[copy.value.operand.place] : undefined;
+            const absent = only === undefined ? undefined : body.blocks[only.target]?.terminator;
+            const present = body.blocks[terminator.otherwise];
+            const store = present?.statements[0];
+            const continuation = absent?.kind === "call" ? body.blocks[absent.next]?.terminator : undefined;
+            const absentEdge = edges[0];
+            const presentEdge = edges[1];
+            const target = store?.kind === "assign" ? body.places[store.place]?.base : undefined;
+            const local = target?.kind === "local" ? body.locals[target.local]?.source : null;
+            const destination = binding.declaration.kind === "local" ? local?.body === binding.declaration.local.body
+              && local.local === binding.declaration.local.local : target?.kind === "static" && target.definition === binding.declaration.definition;
+            if (view === undefined || stable[view.place] !== 1 || terminator.operand.kind !== "place"
+              || terminator.operand.place !== view.base.place || terminator.step !== null
+              || only === undefined || only.target === terminator.otherwise || constant?.type !== binding.field.decision.read
+              || constant.value.kind !== "literal" || constant.value.value.kind !== "absence"
+              || edges.length !== 2 || absentEdge === undefined || presentEdge === undefined
+              || incoming[edgePosition(absentEdge)] !== 1 || incoming[edgePosition(presentEdge)] !== 1
+              || copy?.kind !== "assign" || copy.place !== view.base.place || copy.tir.body !== body.body || copy.tir.node !== node.id
+              || field?.base.kind !== "place" || field.base.projection.kind !== "field"
+              || field.base.tir.body !== body.body || field.base.tir.node !== node.id
+              || field.base.projection.member.decision.primary !== binding.field.decision.primary
+              || !destination || store?.kind !== "assign" || store.tir.body !== body.body || store.tir.node !== node.id
+              || store.value.kind !== "use" || store.value.operand.kind !== "place" || store.value.operand.place !== view.place
+              || present?.statements.length !== 1 || present.terminator.kind !== "goto"
+              || continuation?.kind !== "goto" || continuation.target !== present.terminator.target
+              || absent?.kind !== "call" || absent.tir.body !== body.body || absent.tir.node !== node.id || absent.callee.kind !== "body"
+              || absent.callee.instance.body !== binding.initializer || absent.destination !== store.place
+              || absent.receiver !== null || absent.arguments.length !== 0 || absent.step !== null) {
+              reportAt("check-place-exact", block.id, null);
+            } else availableOnPresent = view.place;
+          }
+          for (const [index, edge] of edges.entries()) {
+            if (availableOnPresent !== null && index === 1 && !begin(availableOnPresent)) return false;
+            give(edgePosition(edge), snapshot());
+          }
           break;
+        }
         case "return": useOperand(terminator.value, block.id, null); break;
         case "throw": useOperand(terminator.operand, block.id, null); break;
         case "check": {
@@ -758,7 +804,7 @@ export function verifyLaws(
 
 /** What the decision of a projected place says: whether it requires a check, and how its receiver is reached where the decision is an access. */
 interface ViewDecision {
-  readonly check: CheckRequirement;
+  readonly check: CheckRequirement | { readonly kind: "branch" };
   readonly receiver: ReceiverAccess | null;
 }
 
@@ -776,6 +822,8 @@ function decisionOfView(base: ProjectedBase, source: SourceNode | undefined): Vi
   if (source === undefined) return null;
   const payload = source.node.tsonic;
   if (base.projection.kind === "refined") {
+    if (source.node.kind === "BindingElement" && source.node.tsonic.role === "field-binding" && source.node.tsonic.present !== null)
+      return { check: { kind: "branch" }, receiver: null };
     const narrowing = payload !== null && "narrowing" in payload ? payload.narrowing : null;
     return { check: narrowing !== null && narrowing.kind === "narrowed" ? { kind: "required", failure: narrowing.failure } : { kind: "none" }, receiver: null };
   }

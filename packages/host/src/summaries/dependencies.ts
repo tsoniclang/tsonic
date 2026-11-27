@@ -181,6 +181,9 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
         return !("initializer" in node.tsonic) || node.tsonic.initializer === null || layoutBindingOf(node.initializer) !== null ? null : initializer(at, node.tsonic.initializer);
       case "PropertyDeclaration":
         return node.tsonic.initializer === null ? null : initializer(at, node.tsonic.initializer);
+      case "BindingElement":
+        return node.tsonic.role !== "field-binding" || node.tsonic.present === null || node.tsonic.initializer === null
+          ? null : initializer(at, node.tsonic.initializer);
       case "SpreadElement": return "role" in node.tsonic ? null : protocol(at, selected(node.tsonic.protocol));
       case "YieldExpression": case "AwaitExpression":
       case "ForInStatement": case "ForOfStatement": return protocol(at, selected(node.tsonic.protocol));
@@ -250,7 +253,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       if (growth !== null) return growth;
       const stop = node === null ? null : visit(node, accountedTarget);
       if (stop !== null) return stop;
-      const placed = subject.kind === "formal" || (node?.kind === "VariableDeclaration" || node?.kind === "PropertyDeclaration")
+      const placed = subject.kind === "formal" || (node?.kind === "VariableDeclaration" || node?.kind === "PropertyDeclaration" || node?.kind === "BindingElement")
         && "initializer" in node.tsonic && node.tsonic.initializer !== null;
       stack.push({ children: chapterSyntaxSlots(subject)[Symbol.iterator](), callable: node !== null && callableSyntax(node),
         placed, target: node?.kind === "ParenthesizedExpression" ? accountedTarget : selectedTarget,

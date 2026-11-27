@@ -196,14 +196,20 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
           || occurrence.tsonic.parent !== decision.api.declaration) return null;
       }
       if (occurrence === null || occurrence.kind !== "Parameter" && occurrence.kind !== "VariableDeclaration"
-        && occurrence.kind !== "PropertyDeclaration") return null;
-      if (!("initializer" in occurrence.tsonic) || occurrence.tsonic.initializer === null) return null;
+        && occurrence.kind !== "PropertyDeclaration" && occurrence.kind !== "BindingElement") return null;
       const instance: BodyInstance = typeof initializer === "string"
         ? { body: initializer, bindings } : initializer.instance;
-      if (instance.body !== occurrence.tsonic.initializer) return null;
+      if (occurrence.kind !== "BindingElement" && (!("initializer" in occurrence.tsonic) || instance.body !== occurrence.tsonic.initializer))
+        return null;
       const checked = sources.bodies.get(instance.body);
       if (checked === undefined || checked.params.length !== 0 || checked.root !== occurrence.initializer)
         return fail("A placed initializer requires its actual separately owned parameterless source.");
+      if (occurrence.kind === "BindingElement") {
+        const admit = chargeWork(account, 1 + checked.owner.length);
+        if (admit !== null) return null;
+        if (typeof initializer !== "string" || sources.nodeOf({ kind: "item", value: { owner: checked.owner, node: occurrence.id } }) !== occurrence)
+          return fail("A selected binding default requires its actual checked named leaf and lexical execution.");
+      }
       return { kind: "body", execution: { instance, provided: 0 } };
     };
     const calleeAt: Parameters<typeof pipelineWiring.summaries.dependenciesOf>[0]["calleeAt"] = (at, callee) => {

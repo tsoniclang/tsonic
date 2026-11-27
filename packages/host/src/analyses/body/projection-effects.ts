@@ -23,6 +23,14 @@ export interface HeldProjections {
 
 function fieldSelection(place: MirPlace, node: TirSyntaxOccurrence | undefined): MemberSelection {
   const base = place.base;
+  if (base.kind === "place" && base.projection.kind === "field" && node?.kind === "BindingElement" && node.tsonic.role === "field-binding") {
+    const field = node.tsonic.field;
+    if (field.decision.location.kind !== "data" || field.decision.location.receiver !== "by-reference"
+      || field.decision.location.check.kind !== "none" || field.decision.read !== place.storage
+      || field.decision.primary !== base.projection.member.decision.primary)
+      return bodyFrontier("A binding retains its actual selected reference-held field read.");
+    return field;
+  }
   if (base.kind !== "place" || base.projection.kind !== "field" || node?.kind !== "PropertyAccessExpression"
     || node.tsonic.role !== "value" && node.tsonic.role !== "assignment-target")
     return bodyFrontier("A field retains its actual selected receiver syntax.");
@@ -74,7 +82,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       if (literal?.kind === "bigint") constant = literal.value;
       else if (literal?.kind === "number" && literal.value.denominator === 1n) constant = literal.value.numerator;
     }
-    if (node?.kind !== "PropertyAccessExpression" && node?.kind !== "ElementAccessExpression")
+    if (node?.kind !== "PropertyAccessExpression" && node?.kind !== "ElementAccessExpression" && node?.kind !== "BindingElement")
       return bodyFrontier("A held projection retains its actual selected receiver syntax.");
     const kind = valueKind(deps, place.storage);
     const optional = member !== null && kind === "primitive-optional";
@@ -83,7 +91,16 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       return cut ?? bodyFrontier("A reference-held non-scalar projection requires its actual projected value Origins and cells.");
     }
     includesAbsence ||= optional;
-    let receiver = node.expression;
+    let receiver;
+    if (node.kind === "BindingElement") {
+      const admission = chargeWork(account, 2);
+      if (admission !== null) return admission;
+      const pattern = node.parent === null ? undefined : source.get(node.parent);
+      const declaration = pattern?.kind === "ObjectBindingPattern" && pattern.parent !== null ? source.get(pattern.parent) : undefined;
+      if (declaration?.kind !== "VariableDeclaration" || declaration.name !== pattern || declaration.initializer === null)
+        return bodyFrontier("A held binding projection retains its original evaluated source.");
+      receiver = declaration.initializer;
+    } else receiver = node.expression;
     while (receiver.kind === "ParenthesizedExpression") {
       const cut = chargeWork(account, 1);
       if (cut !== null) return cut;
