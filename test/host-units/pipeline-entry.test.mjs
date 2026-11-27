@@ -851,6 +851,44 @@ test("verified Typed object bindings retain a native absence split and their sep
   assert.equal(rejectedSplit.violations.some(row => row.rule === "checked-place-available"), true);
 });
 
+test("an always-present destructured field has no placed default execution edge", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const optional of [false, true]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      function fallback(): boolean { return false; }
+      export function read(box: { flag${optional ? "?" : ""}: boolean }): boolean {
+        const { flag = fallback() } = box;
+        return flag;
+      }
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index, modules } = result.value;
+    const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+    const enclosing = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block" && row.tir.params.length === 1);
+    assert.ok(enclosing);
+    const binding = enclosing.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].name.elements.nodes[0];
+    assert.equal(binding.tsonic.role, "field-binding");
+    assert.equal(binding.tsonic.present !== null, optional);
+    const edges = index.dependencyInventory.dependencies.filter(row => row.dependent.instance.body === enclosing.tir.body);
+    const terminators = enclosing.mir.blocks.map(block => block.terminator).filter(row => row.kind === "switch" || row.kind === "call");
+    if (!optional) {
+      assert.deepEqual(edges, []);
+      assert.deepEqual(terminators, []);
+      continue;
+    }
+    const initializer = chapter.bodies.find(row => row.kind === "selected" && row.tir.body === binding.tsonic.initializer);
+    assert.ok(initializer);
+    assert.equal(initializer.tir.root.kind, "CallExpression");
+    assert.deepEqual(edges.map(row => [row.at.node, row.reason, row.target]), [
+      [binding.id, "initializer", { kind: "body", execution: { instance: initializer.instance, provided: 0 } }],
+    ]);
+    assert.deepEqual(terminators.map(row => [row.tir.node, row.kind]), [[binding.id, "switch"], [binding.id, "call"]]);
+    assert.equal(terminators[1].callee.instance.body, initializer.tir.body);
+  }
+});
+
 test("installed ES2024 publishes a qualified scalar indexed write and read within its original allowance", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
