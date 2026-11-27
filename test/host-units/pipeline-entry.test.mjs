@@ -4,6 +4,7 @@ import { createAccount as createDataflowAccount } from "../../packages/host/dist
 import { test } from "node:test";
 import { captureSingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
+import { checkNativeRefinementWalkthrough } from "./fixtures/native-refinement-proofs.mjs";
 import { captureCheckedMarkers } from "./fixtures/front/checked-markers.mjs";
 import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
 import { checkInterruptedModuleInitialization, checkSelectedStaticExposure } from "./fixtures/program-static-exposure.mjs";
@@ -6101,75 +6102,7 @@ test("unannotated integral initializers select native int64 before materializing
   }
 });
 
-test("WT-10 retains the counted range, exact call invalidation and both kinds of explicit checks", async () => {
-  const fixture = await loadFrontFixture();
-  const { nativeInt32Input } = await import("./fixtures/native-int32-input.mjs");
-  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  for (const [replace, work, records] of [[false, 115332, 20011], [true, 116231, 20272]]) {
-    const input = await nativeInt32Input(fixture, `
-      function pure(): void {}
-      function clear(p: { x: { v: Native } | null }): void { p.x = null; }
-      export function read(o: { x: { v: Native } | null }, a: Native[], replacement: Native[]): Native {
-        let sum = 0;
-        for (let i = 0; i < a.length; i++) { ${replace ? "a = replacement;" : ""} sum += a[i]; }
-        if (o.x !== null) { pure(); sum += o.x.v; clear(o); sum += o.x.v; }
-        return sum;
-      }
-    `, true);
-    const native = input.snapshot.nativeFacts;
-    const prepared = { ...input, snapshot: { ...input.snapshot, nativeFacts: { ...native, integerOverflow: [
-      { carrier: "int32", operation: "add", result: "int32", law: "wrap" },
-      { carrier: "int64", operation: "add", result: "int64", law: "wrap" },
-      { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
-    ] } } };
-    const result = analyzeHostProgram(prepared);
-    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
-    const { index, modules } = result.value;
-    const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
-    const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
-    const [declaration, loop, guard] = selected.tir.root.statements.nodes;
-    const sum = declaration.declarationList.declarations.nodes[0];
-    assert.equal(sum.type, null);
-    assert.deepEqual(index.types.terms[sum.tsonic.storage], { kind: "primitive", primitive: "int32" });
-    const facts = selected.facts.find(row => row.execution.provided === 3);
-    const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
-    const indexCheck = checks.find(row => selected.mir.places[row.place].base.projection.kind === "index");
-    const fieldChecks = checks.filter(row => selected.mir.places[row.place].base.projection.kind === "refined");
-    assert.equal(checks.length, 3);
-    assert.equal(fieldChecks.length, 2);
-    const measured = facts.refinements.countedLoops.find(row => row.statement === loop.id);
-    const indexProof = facts.refinements.refinements.find(row => row.node === indexCheck.tir.node);
-    if (replace) assert.equal(indexProof, undefined);
-    else {
-      assert.equal(indexProof.kind, "proven");
-      assert.ok(measured);
-    }
-    const clear = selected.mir.blocks.map(row => row.terminator).find(row => row.kind === "call"
-      && row.callee.kind === "direct" && row.callee.resolution.decision.api.declaration.includes(";clear]"));
-    assert.ok(clear);
-    assert.deepEqual(fieldChecks.map(check => facts.refinements.refinements.find(row => row.node === check.tir.node)), [
-      { kind: "proven", node: fieldChecks[0].tir.node, guards: [guard.expression.id] },
-      { kind: "unproven", node: fieldChecks[1].tir.node, guards: [guard.expression.id],
-        reason: { kind: "invalidated", sites: [{ kind: "call", at: clear.tir }] } },
-    ]);
-    const bounded = (maximumWork, maximumResultEntries) => analyzeHostProgram({ ...prepared, limits: { ...prepared.limits,
-      dataflow: { maximumWork, maximumResultEntries },
-    } });
-    assert.equal(bounded(work, records).kind, "ok");
-    for (const [limit, maximumWork, maximumResultEntries, maximum] of [
-      ["work", work - 1, records, work - 1],
-      ["result-entries", work, records - 1, records - 1],
-    ]) {
-      const refused = bounded(maximumWork, maximumResultEntries);
-      assert.equal(refused.kind, "refused");
-      assert.equal("value" in refused, false);
-      assert.deepEqual(refused.diagnostics.map(row => [row.source, row.code.rendered, row.site, row.arguments]), [
-        ["pipeline", "TSONIC_COMPILER_RESOURCE_LIMIT", { kind: "none" },
-          [{ kind: "text", value: limit }, { kind: "number", value: maximum }]],
-      ]);
-    }
-  }
-});
+test("WT-10 retains the counted range, exact call invalidation and both kinds of explicit checks", checkNativeRefinementWalkthrough);
 
 test("the actual selected compound writes infer one exact native storage carrier before literal defaulting", async () => {
   const fixture = await loadFrontFixture();
