@@ -66,7 +66,7 @@ export const createRuleTable: CreateRuleTable = deps => {
       const selected = decideCandidate(deps, input, work);
       return selected.kind === "refused" ? selected : decided(selected.value);
     },
-    operator: input => decided(decideOperator(deps, input.operator, input.operands, input.context.occurrence, input.context.origin)),
+    operator: input => decided(decideOperator(deps, input.operator, input.operands, input.context.occurrence, input.context.origin, null)),
     literalFit: (input, work) => {
       const selected = decideLiteralFit(deps, input.literal, input.destination.type, input.context.origin, work);
       return selected.kind === "refused" ? selected : decided(selected.value);
@@ -74,7 +74,7 @@ export const createRuleTable: CreateRuleTable = deps => {
     protocol: atContext("protocol"),
     refinement: input => {
       if (input.source.type === input.checked.type) return decided({ kind: "identity", type: input.source.type });
-      const refinement = narrowOptionalRead(deps, input.context.occurrence, input.source.type, input.checked.type);
+      const refinement = narrowOptionalRead(deps, input.context.occurrence, input.source.type, input.checked.type, null);
       return refinement === null ? notDecidedYet("the refinement rule", input.context.origin) : decided(refinement);
     },
     library: atContext("library"),

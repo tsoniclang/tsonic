@@ -226,6 +226,106 @@ test("an optional reference store retains the qualified field and the single nat
   }
 });
 
+test("a nested held field reaches Typed IR through both independently selected source declarations", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { indexSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");
+  const { verifyTir, parseTir, printTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function read(first: { child: { flag: boolean } }, other: { child: { flag: boolean } }): boolean {
+      return (first.child).flag;
+    }
+  `);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const typed = typeSourceBarrier(input, captured.value, createTypedAccount(input));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const proof = typed.value.verifierOf(input.snapshot.entryPoint);
+  const body = proof.module.bodies.find(row => row.root.kind === "Block" && row.bindings.kind === "instantiated");
+  assert.ok(body);
+  const leaf = body.root.statements.nodes[0].expression;
+  const child = leaf.expression.expression;
+  const through = [child, leaf].map(access => access.tsonic.selection.decision.decision);
+  assert.deepEqual(through.map(row => [row.key.value, row.location.receiver]),
+    [["child", "by-reference"], ["flag", "by-reference"]]);
+  assert.equal(through[0].read, leaf.expression.tsonic.convertedType);
+  assert.deepEqual(verifyTir(proof, tirReadyReadAdmission(createTypedAccount(input)))(body), { kind: "complete", violations: [] });
+  const text = printTir(body);
+  const parsed = parseTir(text);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(printTir(parsed.value), text);
+
+  const properties = Array.from(indexSyntaxTree(proof.source.tree)).filter(node => node.kind === "PropertySignature" && node.name.text === "flag");
+  const sameName = properties.find(node => node.tsonic.declaration.definition !== through[1].primary);
+  assert.ok(sameName);
+  const crossed = { ...proof, declarationSourceOf: definition => definition === through[1].primary
+    ? proof.declarationSourceOf(sameName.tsonic.declaration.definition) : proof.declarationSourceOf(definition) };
+  const rejected = verifyTir(crossed, tirReadyReadAdmission(createTypedAccount(input)))(body);
+  assert.equal(rejected.kind, "complete");
+  assert.equal(rejected.violations.some(finding => finding.rule === "access-location" && finding.site.node === leaf.id), true);
+});
+
+test("a qualified optional reference comparison and its guarded nested read retain actual MIR presence operations", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { lowerMirDeps, mirVerificationContext } = await import("../../packages/host/dist/pipeline/lower-mir-step.js");
+  const { lowerToMir } = await import("../../packages/host/dist/lower-mir/index.js");
+  const { internType, instanceKey, viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
+  const { verifyMir } = await import("../../packages/host/dist/ir-mir/index.js");
+  for (const [absence, comparison, operand] of [["null", "(holder.child) !== null", 0], ["undefined", "undefined !== holder.child", 1]]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      export function read(holder: { child: { flag: boolean } | ${absence} }): boolean {
+        if (${comparison}) return holder.child.flag;
+        return false;
+      }
+    `);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const typed = typeSourceBarrier(input, captured.value, createTypedAccount(input));
+    assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+    const proof = typed.value.verifierOf(input.snapshot.entryPoint);
+    const body = proof.module.bodies.find(row => row.root.kind === "Block" && row.bindings.kind === "instantiated");
+    assert.ok(body);
+    const branch = body.root.statements.nodes[0];
+    const condition = branch.expression;
+    const guarded = branch.thenStatement.expression.expression;
+    const tested = condition.tsonic.operation.decision.decision;
+    assert.deepEqual(tested.operation, { kind: "absence-test", negated: true });
+    const narrowing = guarded.tsonic.narrowing;
+    assert.equal(narrowing.kind, "narrowed");
+    assert.equal(narrowing.source, tested.operands[operand]);
+    assert.equal(narrowing.result, guarded.tsonic.convertedType);
+    assert.equal(narrowing.failure, input.snapshot.nativeFacts.absentAccessFailure);
+    const interner = captured.value.types;
+    const defs = { completionSelector: internType(interner, { kind: "primitive", primitive: "int32" }),
+      exceptionStorage: internType(interner, { kind: "intrinsic", intrinsic: "unknown" }) };
+    const run = { selectedNativeFacts: input.snapshot.nativeFacts, interner, table: viewTypes(interner), defs,
+      lowering: input.limits.lowering, verification: input.limits.mirVerification, declarationOf: typed.value.declarationOf,
+      bodyOwner: identity => captured.value.checked.bodies.get(identity)?.owner ?? null,
+      bodyOf: instance => typed.value.bodies.get(instanceKey(instance)) ?? null };
+    const requiredEntries = [1];
+    const unit = { request: { query: "mirBody", key: instanceKey(body) }, position: { kind: "result" } };
+    const lowered = lowerToMir(lowerMirDeps(run, unit), body, [], requiredEntries);
+    assert.equal(lowered.kind, "ok", JSON.stringify(lowered.diagnostics));
+    const context = mirVerificationContext(run, body, requiredEntries);
+    assert.deepEqual(verifyMir(lowered.value, context).violations, []);
+    const check = lowered.value.blocks.find(block => block.terminator.kind === "check" && block.terminator.tir.node === guarded.id);
+    assert.ok(check);
+    const checked = lowered.value.places[check.terminator.place];
+    assert.equal(checked.base.projection.kind, "refined");
+    assert.equal(checked.storage, narrowing.result);
+    const damaged = structuredClone(lowered.value);
+    const compare = damaged.blocks.flatMap(block => block.statements).find(row => row.kind === "assign" && row.tir.node === condition.id);
+    assert.equal(compare.value.kind, "binary");
+    compare.value.operation.decision.operation.negated = false;
+    const rejected = verifyMir(damaged, context);
+    assert.equal(rejected.violations.some(row => row.rule === "operation-selected"), true);
+  }
+});
+
 test("a write-only optional reference field records absence on the actual receiver without reading the field", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -2080,20 +2180,25 @@ test("an immutable ordinary object alias reads the field of the original referen
   assert.equal(projection.kind, "field");
   assert.equal(projection.member.decision.primary, chosen.tsonic.selection.decision.decision.primary);
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
-  const { checkedSourceObjectFieldOf } = await import("../../packages/host/dist/ir-hir/index.js");
+  const { checkedSourceObjectFieldsOf } = await import("../../packages/host/dist/ir-hir/index.js");
   const captured = captureSourceBarrier(input);
   assert.equal(captured.kind, "ok");
   const checked = captured.value.checked;
   const body = checked.bodies.get(caller.instance.body);
   const access = body.root.statements.nodes.at(-1).expression;
   const itemOf = definition => checked.nodeOf(checked.declarationSourceOf(definition));
-  for (const [cap, reads, complete] of [[0, 0, false], [1, 1, false], [2, 2, true]]) {
+  const scalar = () => assert.fail("a scalar field has no object domain to open");
+  for (const [cap, reads, complete] of [[0, 0, false], [1, 1, false], [2, 2, false], [3, 3, false], [6, 3, true]]) {
     let remaining = cap;
     let read = 0;
-    const proof = checkedSourceObjectFieldOf(body, access, reference => {
+    const proof = checkedSourceObjectFieldsOf(body, reference => {
       read += 1;
       return checked.nodeOf(reference);
-    }, itemOf, () => remaining-- > 0);
+    }, itemOf, scalar, work => {
+      if (work > remaining) return false;
+      remaining -= work;
+      return true;
+    }).field(access);
     assert.equal(read, reads);
     assert.equal(proof !== null, complete);
     if (proof !== null) {
@@ -2106,8 +2211,8 @@ test("an immutable ordinary object alias reads the field of the original referen
   assert.equal(openCapture.kind, "ok");
   const openChecked = openCapture.value.checked;
   const openBody = openChecked.bodies.get(caller.instance.body);
-  assert.equal(checkedSourceObjectFieldOf(openBody, openBody.root.statements.nodes.at(-1).expression, openChecked.nodeOf,
-    definition => openChecked.nodeOf(openChecked.declarationSourceOf(definition)), () => true), null);
+  assert.equal(checkedSourceObjectFieldsOf(openBody, openChecked.nodeOf,
+    definition => openChecked.nodeOf(openChecked.declarationSourceOf(definition)), scalar, () => true).field(openBody.root.statements.nodes.at(-1).expression), null);
 });
 
 test("a copied reference captured by a detached initializer preserves its value without creating a caller cell", async () => {
@@ -6392,7 +6497,7 @@ test(`native local compound ${name} reads before its right-hand write and stores
       const valid = structuredClone(assignment);
       const checks = node => {
         const findings = [];
-        verifyOccurrenceOperation(node, types, rule => findings.push(rule));
+        verifyOccurrenceOperation(node, types, null, rule => findings.push(rule));
         return findings;
       };
       assert.deepEqual(checks(valid), []);
@@ -6470,7 +6575,7 @@ test("native local Boolean conditional assignment skips the RHS and target write
     const invalid = structuredClone(assignment);
     invalid.left.tsonic.access = { kind: "write", storage: type };
     const findings = [];
-    verifyOccurrenceOperation(invalid, types, rule => findings.push(rule));
+    verifyOccurrenceOperation(invalid, types, null, rule => findings.push(rule));
     assert.deepEqual(findings, ["operation-type"]);
     const entry = body.mir.blocks[body.mir.entries.find(row => row.provided === body.tir.params.length).block];
     const snapshots = entry.statements.filter(row => row.kind === "assign" && row.tir.node === assignment.left.id && row.value.kind === "use");
@@ -7696,7 +7801,7 @@ test("non-null assertions over already-present native values preserve the operan
     invalid.expression.tsonic.convertedType = toggle.tir.completion === body.tir.completion
       ? callers[2].tir.completion : toggle.tir.completion;
     const findings = [];
-    verifyOccurrenceOperation(invalid, types, rule => findings.push(rule));
+    verifyOccurrenceOperation(invalid, types, null, rule => findings.push(rule));
     assert.deepEqual(findings, ["operation-type"]);
     const calls = body.mir.blocks.filter(block => block.terminator.kind === "call");
     assert.equal(calls.length, index === 0 ? 1 : 0);

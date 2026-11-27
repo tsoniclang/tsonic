@@ -1318,6 +1318,7 @@ test("recursive generic inference defers the candidate with its distinct placed 
         ...row, decision: { kind: "deferred", deferred: changed },
       }) },
     placedSignatureOf: identity => identity === original.body ? original.signature : null,
+    readySourceField: program.inputs.inference.readySourceField,
     ...program.verification(group, publication.constraints, publication) }).map(row => row.rule);
   assert.deepEqual(verify({ ...deferred, invocation: { ...deferred.invocation, input: { ...deferred.invocation.input,
     candidates: [{ ...application, apiSignature: original.signature }],
@@ -1422,7 +1423,8 @@ test("real explicit and inferred calls retain their original endpoint, applied c
   }) };
   const placed = new Map(publication.solution.bodies.map(body => [body.body, body.signature]));
   const invalid = irInfer.verifyInference({ group, constraints: publication.constraints.constraints, contributions: publication.contributions,
-    solution: crossed, placedSignatureOf: body => placed.get(body) ?? null, ...program.verification(group, publication.constraints, publication) });
+    solution: crossed, placedSignatureOf: body => placed.get(body) ?? null, readySourceField: program.inputs.inference.readySourceField,
+    ...program.verification(group, publication.constraints, publication) });
   assert.deepEqual(invalid.map(({ rule, detail }) => [rule, detail.map(part => part.value)]), [["endpoint-agreement", ["completion"]]]);
   const deps = { cuts: program.domain.sources.cuts, types: program.interner, typeWork: program.base.declarations.typeWork, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
     nominalOf: program.scopes.nominalOf, bindingScopeOf: program.inputs.inference.bindingScopeOf,
@@ -2788,7 +2790,7 @@ test("object binding reads the actual ordered members and keeps optional absence
     assert.equal(fit.to, element.tsonic.declaredType.value);
   }
   const check = (element, key, field, admit = () => true) => checkedSourceBindingFieldOf(body, element, key, field,
-    program.domain.nodeOf, program.inputs.inference.itemOf, admit);
+    program.domain.nodeOf, program.inputs.inference.itemOf, type => fixture.types.readType(program.interner, type), admit);
   const right = decl.name.elements.nodes[1];
   assert.equal(check(right, second.constraint.key, second.constraint.origins[0].declaration)?.field, second.constraint.origins[0].declaration);
   assert.equal(check(right, second.constraint.key, first.constraint.origins[0].declaration), null);
@@ -2805,17 +2807,19 @@ test("an absence write uses its actual checked ordinary reference field", () => 
   const input = program.inputs.inference;
   const readType = type => fixture.types.readType(program.interner, type);
   const prove = (access, typeOf = readType, admit = () => true, nodeOf = program.domain.nodeOf) =>
-    fixture.hir.checkedSourceOptionalObjectFieldOf(body, access, nodeOf, input.itemOf, typeOf, admit);
+    fixture.hir.checkedSourceObjectFieldsOf(body, nodeOf, input.itemOf, typeOf, admit).field(access);
   const proof = prove(target);
   assert.ok(proof);
   const occurrence = node => ({ kind: "body", value: { body: body.body, node: node.id } });
   assert.deepEqual(proof.occurrence, occurrence(target).value);
   assert.equal(proof.field, target.tsonic.origins.value[0].declaration);
-  assert.equal(proof.storage, target.tsonic.place.value.write.value);
-  assert.equal(readType(proof.storage).value, proof.present);
-  assert.equal(readType(proof.present).kind, "shape");
+  const { presence } = proof;
+  assert.ok(presence);
+  assert.equal(presence.storage, target.tsonic.place.value.write.value);
+  assert.equal(readType(presence.storage).value, presence.present);
+  assert.equal(readType(presence.present).kind, "shape");
   assert.equal(prove({ ...target }), null, "a lookalike occurrence cannot supply the source witness");
-  assert.equal(prove(target, type => type === proof.present ? readType(proof.storage) : readType(type)), null);
+  assert.equal(prove(target, type => type === presence.present ? readType(presence.storage) : readType(type))?.presence, null);
   assert.equal(prove(target, () => assert.fail("an unadmitted field cannot read Types"), () => false,
     () => assert.fail("an unadmitted field cannot read source")), null);
   const solved = program.database.run(program.queries.solutionOf, group.id);
@@ -2824,11 +2828,78 @@ test("an absence write uses its actual checked ordinary reference field", () => 
   const set = solved.value.constraints.constraints.find(row => row.body === body.body);
   const index = set.constraints.findIndex(row => row.kind === "flow" && row.occurrence.node === assignment.right.id);
   assert.ok(index >= 0);
-  assert.equal(set.constraints[index].to, proof.storage);
+  assert.equal(set.constraints[index].to, presence.storage);
   const decision = solved.value.solution.constraints.find(row => row.constraint.body === body.body && row.constraint.index === index);
   assert.deepEqual(decision.decision, { kind: "flow", embedding: { kind: "conversion", conversion: "absence", check: { kind: "none" },
     proof: { conclusion: 0, steps: [{ from: { root: occurrence(assignment.right), path: [] }, to: { root: occurrence(target), path: [] },
       rule: "absence", premises: [] }] } } });
+});
+
+test("nested field selection borrows its actual checked predecessor and never crosses a same-named member", () => {
+  const program = ready(`
+    export function read(first: { child: { value: boolean } }, other: { child: { value: boolean } }): boolean {
+      return (first.child).value;
+    }
+  `);
+  const body = program.checked.bodies.find(candidate => candidate.root.kind === "Block");
+  const statement = body.root.statements.nodes[0];
+  const access = statement.expression;
+  const receiver = access.expression.expression;
+  const root = receiver.expression.tsonic.resolution.local;
+  const expectedParent = receiver.tsonic.origins.value[0].declaration;
+  const expectedField = access.tsonic.origins.value[0].declaration;
+  const typeOf = type => fixture.types.readType(program.interner, type);
+  const { itemOf } = program.inputs.inference;
+  const requests = [];
+  const paid = [];
+  let beforeLeaf = -1;
+  const fields = fixture.hir.checkedSourceObjectFieldsOf(body, program.domain.nodeOf, definition => {
+    if (definition === expectedField) beforeLeaf = paid.length - 1;
+    requests.push(definition);
+    return itemOf(definition);
+  }, typeOf, (work, records) => {
+    paid.push([work, records]);
+    return true;
+  });
+  assert.equal(fields.ready(receiver.id), null);
+  const parent = fields.field(receiver);
+  assert.ok(parent);
+  assert.deepEqual(requests.splice(0), [expectedParent]);
+  const nested = fields.field(access);
+  assert.ok(nested);
+  assert.equal(nested.parent === parent, true);
+  assert.deepEqual(nested.local, root);
+  assert.equal(nested.receiver, receiver.tsonic.value.views.read.value);
+  assert.equal(nested.declaration, expectedParent);
+  assert.equal(nested.field, expectedField);
+  assert.deepEqual(requests, [expectedField]);
+  assert.equal(fields.field(access) === nested, true);
+  assert.equal(fields.ready(access.id) === nested, true);
+  assert.deepEqual(requests, [expectedField]);
+  assert.ok(beforeLeaf > 0);
+  let remaining = beforeLeaf;
+  const cut = fixture.hir.checkedSourceObjectFieldsOf(body, program.domain.nodeOf,
+    definition => {
+      assert.notEqual(definition, expectedField, "the unadmitted child declaration is unread");
+      return itemOf(definition);
+    }, typeOf, () => remaining-- > 0);
+  assert.ok(cut.field(receiver));
+  assert.equal(cut.field(access), null);
+  assert.equal(cut.ready(access.id), null);
+  const other = program.checked.tree.statements.nodes[0].parameters.nodes[1].type.members.nodes[0].type.members.nodes[0];
+  const crossed = fixture.hir.checkedSourceObjectFieldsOf(body, program.domain.nodeOf,
+    definition => definition === expectedField ? other : itemOf(definition), typeOf, () => true);
+  assert.equal(crossed.field(access), null);
+
+  const group = program.inputs.groups.find(candidate => candidate.bodies.includes(body.body));
+  const solved = program.database.run(program.queries.solutionOf, group.id);
+  assert.equal(solved.kind, "completed", JSON.stringify(solved.diagnostics));
+  assert.deepEqual(solved.diagnostics, []);
+  const decisions = solved.value.solution.constraints.flatMap(row => row.constraint.body === body.body && row.decision.kind === "member"
+    ? [row.decision.member] : []);
+  assert.deepEqual(decisions.map(row => row.primary), [expectedParent, expectedField]);
+  assert.deepEqual(decisions.map(row => row.location.receiver), ["by-reference", "by-reference"]);
+  assert.equal(paid.every(([work, records]) => work > 0 || records > 0), true);
 });
 
 test("actual selected member constraints retain their checked origins and distinct receiver and open result evidence", async () => {
@@ -2873,7 +2944,8 @@ test("actual selected member constraints retain their checked origins and distin
   assert.deepEqual(inferIr.parseConstraints(inferIr.printConstraints(set)), { kind: "parsed", value: set });
   const verification = program.verification(group, generated.value.value, null);
   assert.deepEqual(inferIr.verifyInference({ ...verification, group, constraints: generated.value.value.constraints, placedSignatureOf: () => null,
-    contributions: [], solution: null, bindingScopes: set.constraints.filter(constraint => constraint.kind === "flow" || constraint.kind === "member")
+    readySourceField: program.inputs.inference.readySourceField, contributions: [], solution: null,
+    bindingScopes: set.constraints.filter(constraint => constraint.kind === "flow" || constraint.kind === "member")
       .map(() => program.descriptions.get(source.owner).generics) }), []);
   const scheme = program.inputs.inference.rules.constraints.member;
   const reference = { body: set.body, index: set.constraints.indexOf(member) };
@@ -2893,9 +2965,9 @@ test("actual selected member constraints retain their checked origins and distin
   assert.equal(solveRefusal.value.diagnostics.length, 1);
   assert.deepEqual(solveRefusal.value.diagnostics[0].arguments,
     [{ kind: "text", value: "atomic contributions per group" }, { kind: "number", value: 0 }]);
-  const { checkedSourceObjectFieldOf } = await import("../../packages/host/dist/ir-hir/index.js");
-  const storage = checkedSourceObjectFieldOf(source, access, program.domain.nodeOf, program.inputs.inference.itemOf,
-    () => assert.fail("a direct held reference has no alias edge"));
+  const { checkedSourceObjectFieldsOf } = await import("../../packages/host/dist/ir-hir/index.js");
+  const storage = checkedSourceObjectFieldsOf(source, program.domain.nodeOf, program.inputs.inference.itemOf,
+    () => assert.fail("a scalar field has no object domain to open"), () => true).field(access);
   assert.equal(storage?.receiver, member.receiver);
   const evaluation = { constraint: member, contribution, candidates: set.candidates, evidence, reads: [], origin: access.origin, storage };
   const awaitingInventory = scheme.evaluate(evaluation);

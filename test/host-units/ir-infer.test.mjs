@@ -120,11 +120,11 @@ function verificationInput(records = {}) {
   const nodeMap = new Map(nodes.map(row => [row.owner.kind === "body" ? `body:${row.owner.value.body}` : `item:${row.owner.value.owner}`, new Set(row.ids)]));
   const localMap = new Map(locals.map(row => [row.body, new Set(row.ids)]));
   return { group: { id: group, bodies: [body], signatures: [] }, constraints: [constraintSet()], contributions: [], solution: null,
-    types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature] }, bindingScopes: [],
+    types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature] }, bindingScopes: [], readySourceField: () => null,
     selectedNativeFacts: {
       carrierHolding: [{ carrier: "array", holding: "by-reference" }, { carrier: "fixed-array", holding: "in-place" }],
       arrayExtents: [], arrayConstruction: null, allocationFailure: "observable",
-      arrayIndexFailure: "unwind", fixedArrayIndexFailure: "abort", destinationCheck: "before-value",
+      arrayIndexFailure: "unwind", fixedArrayIndexFailure: "abort", absentAccessFailure: "abort", destinationCheck: "before-value",
     },
     ...input,
     declarationOf: value => declarationMap.get(value) ?? null, nominalOf: value => nominalMap.get(value) ?? null,

@@ -768,7 +768,7 @@ export function verifySwitchOperations(node: SwitchStatement<TypedPhase>, table:
   }
 }
 
-export const verifyOccurrenceOperation = (node: TirNode, table: TypeTable, emit: TirOccurrenceEmit): void => {
+export const verifyOccurrenceOperation = (node: TirNode, table: TypeTable, qualifiedPresent: TyId | null, emit: TirOccurrenceEmit): void => {
   if (node.kind === "ThrowStatement") {
     let producer = node.expression;
     while (producer.kind === "ParenthesizedExpression") {
@@ -849,7 +849,7 @@ export const verifyOccurrenceOperation = (node: TirNode, table: TypeTable, emit:
         && operator !== "ExclamationEqualsToken" && operator !== "ExclamationEqualsEqualsToken")
       || decision.operation.negated !== (operator === "ExclamationEqualsToken" || operator === "ExclamationEqualsEqualsToken")
       || left === undefined || right === undefined || result?.kind !== "primitive" || result.primitive !== "bool"
-      || nativeAbsenceComparisonOf(table.terms[left], table.terms[right], type => table.terms[type] ?? null) !== "native-absence")
+      || nativeAbsenceComparisonOf(table.terms[left], table.terms[right], type => table.terms[type] ?? null, qualifiedPresent) !== "native-absence")
       emit("operation-type", node, "a binary absence test must preserve its authored equality and its actual native presence endpoints");
   }
   if (node.kind === "VoidExpression") {

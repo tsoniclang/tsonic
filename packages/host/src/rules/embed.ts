@@ -1,7 +1,7 @@
 import type { NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { Result } from "../diag/contract.js";
 import type { EmbeddingDecision, FlowRole, RuleWork } from "../ir-infer/contract.js";
-import type { ExactRational, LiteralTypeValue, SourceOptionalObjectField, TypeComponent, TypeEvidence, TypePublicationStop } from "../ir-types/contract.js";
+import type { ExactRational, LiteralTypeValue, SourceObjectField, TypeComponent, TypeEvidence, TypePublicationStop } from "../ir-types/contract.js";
 import { admitTypePublicationStep, exactFloat64LiteralFit, isNativeIntegerPrimitive, literalCompatibilityOf, optionalValueDomainOf,
   readType, refuseTypeConstruction, viewTypes } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
@@ -31,7 +31,7 @@ export function integerLiteralFit(deps: RulesDeps, literal: LiteralTypeValue, to
   }
 }
 
-export function embeddingForm(deps: RulesDeps, from: TyId, to: TyId, work: RuleWork, optionalField: SourceOptionalObjectField | null):
+export function embeddingForm(deps: RulesDeps, from: TyId, to: TyId, work: RuleWork, optionalField: SourceObjectField | null):
   "identity" | "literal-fit" | "absence" | "union-injection" | "incompatible-domain" | "lossy-numeric" | TypePublicationStop | null {
   const stopped = admitTypePublicationStep(work.typeWork, 0);
   if (stopped !== null) return stopped;
@@ -59,7 +59,7 @@ export function embeddingForm(deps: RulesDeps, from: TyId, to: TyId, work: RuleW
   if (!absent && boolean === null && number === null && text === null && integer === null) return null;
   if (absent && target.kind === "primitive" && target.primitive === "bool") return "incompatible-domain";
   if (target.kind !== "optional") return null;
-  if (absent && optionalField !== null && optionalField.storage === to && optionalField.present === target.value) return "absence";
+  if (absent && optionalField?.presence?.storage === to && optionalField.presence.present === target.value) return "absence";
   const domain = optionalValueDomainOf(target, value => readType(deps.types, value));
   if (domain.kind !== "optional-value") return null;
   if (absent) return "absence";
@@ -70,11 +70,11 @@ export function embeddingForm(deps: RulesDeps, from: TyId, to: TyId, work: RuleW
 }
 
 export function decideEmbedding(deps: RulesDeps, from: TypeEvidence, to: TypeEvidence, role: FlowRole | "bound", occurrence: NodeRef, origin: Origin, work: RuleWork,
-  optionalField: SourceOptionalObjectField | null)
+  optionalField: SourceObjectField | null)
   : Result<EmbeddingDecision> {
   if (optionalField !== null && (role !== "assignment" && role !== "member-write" || to.component.kind !== "body"
     || optionalField.occurrence.body !== to.component.value.body || optionalField.occurrence.node !== to.component.value.node
-    || optionalField.storage !== to.type || occurrence.body !== optionalField.occurrence.body))
+    || optionalField.presence?.storage !== to.type || occurrence.body !== optionalField.occurrence.body))
     return callerDefect("an optional reference write requires its actual checked destination", origin);
   return decideComponentEmbedding(deps, { type: from.type, at: { root: from.component, path: [] } },
     { type: to.type, at: { root: to.component, path: [] } }, role, occurrence, origin, work, optionalField);
@@ -86,7 +86,7 @@ interface EmbeddingEndpoint {
 }
 
 export function decideComponentEmbedding(deps: RulesDeps, from: EmbeddingEndpoint, to: EmbeddingEndpoint,
-  role: FlowRole | "bound", occurrence: NodeRef, origin: Origin, work: RuleWork, optionalField: SourceOptionalObjectField | null): Result<EmbeddingDecision> {
+  role: FlowRole | "bound", occurrence: NodeRef, origin: Origin, work: RuleWork, optionalField: SourceObjectField | null): Result<EmbeddingDecision> {
   const selected = componentEmbedding(deps, from, to, origin, work, optionalField);
   if (selected !== null) return selected;
   const source = readType(deps.types, from.type);
@@ -95,7 +95,7 @@ export function decideComponentEmbedding(deps: RulesDeps, from: EmbeddingEndpoin
 }
 
 export function componentEmbedding(deps: RulesDeps, from: EmbeddingEndpoint, to: EmbeddingEndpoint,
-  origin: Origin, work: RuleWork, optionalField: SourceOptionalObjectField | null): Result<EmbeddingDecision> | null {
+  origin: Origin, work: RuleWork, optionalField: SourceObjectField | null): Result<EmbeddingDecision> | null {
   const form = embeddingForm(deps, from.type, to.type, work, optionalField);
   const ok = (value: EmbeddingDecision): Result<EmbeddingDecision> => ({ kind: "ok", value, diagnostics: [] });
   if (form === "identity") return ok({ kind: "identity" });

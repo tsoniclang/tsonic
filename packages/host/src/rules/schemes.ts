@@ -1,9 +1,9 @@
 import type { ErrorValue, Result } from "../diag/contract.js";
 import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
-  AtomicContribution, ConstraintScheme, ContributionKey, ContributionOutcome, FlowContributionScheme, InferenceValue,
+  AtomicContribution, ContributionKey, ContributionOutcome, FlowContributionScheme, InferenceValue,
   ArrayExtentConstraint, IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
-  NarrowedRefinement, OperationDecision, OperatorConstraint, RuleTable, VariableBound,
+  NarrowedRefinement, OperationDecision, OperatorContributionScheme, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
 import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, readType } from "../ir-types/index.js";
@@ -144,7 +144,7 @@ function selectArrayExtent(deps: RulesDeps, constraint: ArrayExtentConstraint, o
     operands: [selected.type], result: internType(deps.types, { kind: "primitive", primitive: result }), execution: { kind: "pure" } };
 }
 
-export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstraint> {
+export function operatorScheme(deps: RulesDeps): OperatorContributionScheme {
   return {
     enumerate: input => {
       const value = input.constraint;
@@ -177,7 +177,7 @@ export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstr
       });
       const evidence = operands.map(operand => operand.value);
       const operation = value.operator === "array-extent" ? selectArrayExtent(deps, value, evidence)
-        : decideOperator(deps, value.operator, evidence, value.occurrence, null);
+        : decideOperator(deps, value.operator, evidence, value.occurrence, null, input.reference);
       if (variable === null && value.result !== operation.result)
         return notDecidedYet(`an operator ${value.operator} whose result type is not the decided one, at ${where(value.occurrence)}`, null);
       const key = input.contribution.key;
@@ -191,10 +191,13 @@ export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstr
   };
 }
 
-export function narrowOptionalRead(deps: RulesDeps, occurrence: NodeRef, source: TyId, checked: TyId): NarrowedRefinement | null {
+export function narrowOptionalRead(deps: RulesDeps, occurrence: NodeRef, source: TyId, checked: TyId, field: SourceObjectField | null): NarrowedRefinement | null {
   if (source === checked) return null;
-  const domain = optionalValueDomainOf(readType(deps.types, source), type => readType(deps.types, type));
-  if (domain.kind !== "optional-value" || domain.present !== checked) return null;
+  const presence = field?.presence;
+  if (presence?.storage !== source || presence.present !== checked) {
+    const domain = optionalValueDomainOf(readType(deps.types, source), type => readType(deps.types, type));
+    if (domain.kind !== "optional-value" || domain.present !== checked) return null;
+  }
   const root = { kind: "body", value: occurrence } satisfies TypeEvidence["component"];
   return { kind: "narrowed", source, result: checked, failure: deps.selectedNativeFacts.absentAccessFailure,
     proof: { steps: [{ from: { root, path: [{ kind: "optional-value" }] }, to: { root, path: [] },
@@ -261,7 +264,7 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
   if (destination.kind === "member") return { kind: "done", value: ok({ kind: "member", value: { kind: "decided", decision } }) };
   const variable = variableOf(deps, destination.result, destination.occurrence, null);
   const refinement = access === "read" && destination.checkedRead !== null
-    ? narrowOptionalRead(deps, destination.occurrence, selected, destination.checkedRead) : null;
+    ? narrowOptionalRead(deps, destination.occurrence, selected, destination.checkedRead, storage) : null;
   const value = resultEvidence(deps, refinement === null ? selected : refinement.result, destination.occurrence, []);
   return { kind: "done", value: ok({ kind: "contribution", value: {
     bounds: variable === null ? [] : [bound(destination.key, variable, "producer", { value, error: null })],

@@ -94,12 +94,14 @@ export const optionalValueDomainOf: OptionalValueDomainOf = (term, typeOf) => {
     : { kind: "not-optional-value" };
 };
 
-export const nativeAbsenceComparisonOf: NativeAbsenceComparisonOf = (left, right, typeOf) => {
+export const nativeAbsenceComparisonOf: NativeAbsenceComparisonOf = (left, right, typeOf, qualifiedPresent) => {
   if (left === undefined || right === undefined) return "unavailable";
   const leftIsAbsence = left.kind === "intrinsic" && left.intrinsic === "absence";
   const rightIsAbsence = right.kind === "intrinsic" && right.intrinsic === "absence";
   if (leftIsAbsence && rightIsAbsence) return "native-absence";
   if (!leftIsAbsence && !rightIsAbsence) return "unavailable";
-  const domain = optionalValueDomainOf(leftIsAbsence ? right : left, typeOf);
+  const optional = leftIsAbsence ? right : left;
+  if (qualifiedPresent !== null && optional.kind === "optional" && optional.value === qualifiedPresent) return "native-absence";
+  const domain = optionalValueDomainOf(optional, typeOf);
   return domain.kind === "optional-value" ? "native-absence" : domain.kind === "resource-stop" ? "resource-stop" : "unavailable";
 };

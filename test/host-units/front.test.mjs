@@ -3654,6 +3654,7 @@ test("a checked object pattern keeps its selector, local and default execution i
 
 test("an inline object annotation earns the same source holding as an authored alias", async () => {
   const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const { readType } = await import("../../packages/host/dist/ir-types/index.js");
   const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
   for (const [prefix, annotation] of [["", "{ field: boolean }"], ["type Input = { field: boolean };", "Input"]]) {
     const { checked, interner } = checkedModuleOf(
@@ -3668,7 +3669,8 @@ test("an inline object annotation earns the same source holding as an authored a
       owner: definition, node: checked.items.find(item => item.definition === definition).node,
     } });
     const actual = callable.body.statements.nodes[0].expression;
-    const selected = hir.checkedSourceObjectFieldOf(body, actual, domain.nodeOf, itemOf, () => true);
+    const fields = items => hir.checkedSourceObjectFieldsOf(body, domain.nodeOf, items, type => readType(interner, type), () => true);
+    const selected = fields(itemOf).field(actual);
     assert.ok(selected);
     assert.deepEqual(selected.local, { body: body.body, local: body.locals[0].id });
     const owner = itemOf(selected.declaration);
@@ -3676,7 +3678,7 @@ test("an inline object annotation earns the same source holding as an authored a
     const field = itemOf(selected.field);
     assert.equal(field === owner.type.members.nodes[0], true);
     const wrong = definition => definition === selected.field ? { ...field, parent: owner.id } : itemOf(definition);
-    assert.equal(hir.checkedSourceObjectFieldOf(body, actual, domain.nodeOf, wrong, () => true), null);
+    assert.equal(fields(wrong).field(actual), null);
   }
 });
 

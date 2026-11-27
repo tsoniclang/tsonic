@@ -388,19 +388,27 @@ test("native presence comparison borrows only the actual optional payload", asyn
   const optional = { kind: "optional", value: payload };
   const absence = { kind: "intrinsic", intrinsic: "absence" };
   const unread = () => assert.fail("no optional payload is needed");
-  assert.equal(nativeAbsenceComparisonOf(absence, absence, unread), "native-absence");
-  assert.equal(nativeAbsenceComparisonOf(undefined, absence, unread), "unavailable");
-  assert.equal(nativeAbsenceComparisonOf(optional, optional, unread), "unavailable");
-  assert.equal(nativeAbsenceComparisonOf(absence, boolean, unread), "unavailable");
+  assert.equal(nativeAbsenceComparisonOf(absence, absence, unread, null), "native-absence");
+  assert.equal(nativeAbsenceComparisonOf(undefined, absence, unread, null), "unavailable");
+  assert.equal(nativeAbsenceComparisonOf(optional, optional, unread, null), "unavailable");
+  assert.equal(nativeAbsenceComparisonOf(absence, boolean, unread, null), "unavailable");
   for (const [left, right] of [[absence, optional], [optional, absence]]) {
     assert.equal(nativeAbsenceComparisonOf(left, right, type => {
       assert.equal(type, payload);
       return readType(arena, type);
-    }), "native-absence");
+    }, null), "native-absence");
     assert.equal(nativeAbsenceComparisonOf(left, right, type => {
       assert.equal(type, payload);
       return null;
-    }), "resource-stop");
+    }, null), "resource-stop");
+  }
+  const reference = insertFixtureType(product, arena, { kind: "shape", members: [], calls: [], constructs: [], indexes: [] });
+  const nullable = { kind: "optional", value: reference };
+  const typeOf = type => readType(arena, type);
+  for (const [left, right] of [[absence, nullable], [nullable, absence]]) {
+    assert.equal(nativeAbsenceComparisonOf(left, right, typeOf, null), "unavailable");
+    assert.equal(nativeAbsenceComparisonOf(left, right, typeOf, payload), "unavailable");
+    assert.equal(nativeAbsenceComparisonOf(left, right, unread, reference), "native-absence");
   }
 });
 

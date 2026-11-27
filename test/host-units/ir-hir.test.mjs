@@ -77,27 +77,35 @@ test("a mutable reference holds only its actual closed source declarations and s
     const sources = body.params.slice(0, 2).map(formal => formal.local);
     assert.equal(reassignment.expression.right.tsonic.resolution.local.local, sources[1]);
     assert.equal(box.tsonic.definition === twin.tsonic.definition, false);
+    const scalar = () => assert.fail("A scalar field annotation has no object value to open.");
     if (sourceType === "Twin") {
-      assert.equal(product.checkedSourceObjectFieldOf(body, read, checked.nodeOf, itemOf, () => true), null);
+      assert.equal(product.checkedSourceObjectFieldsOf(body, checked.nodeOf, itemOf, scalar, () => true).field(read), null);
       continue;
     }
     assert.equal(bound.kind, "available");
     assert.deepEqual(bound.value.sources, sources);
     const expectedField = { local, declaration: box.tsonic.definition, receiver: slot.checkerSlot.value,
-      occurrence: { body: body.body, node: place.id }, field: place.tsonic.origins.value[0].declaration };
-    for (const [cap, expected] of [[0, []], [1, [slot.declaration]], [2, [slot.declaration]],
-      [3, [slot.declaration]], [4, [slot.declaration, body.locals[sources[1]].declaration]],
-      [5, [slot.declaration, body.locals[sources[1]].declaration, body.locals[sources[0]].declaration]]]) {
+      occurrence: { body: body.body, node: place.id }, field: place.tsonic.origins.value[0].declaration, parent: null, presence: null };
+    const access = bodySource(place.id, body.body);
+    const first = body.locals[sources[0]].declaration;
+    const second = body.locals[sources[1]].declaration;
+    for (const [cap, expected] of [[0, []], [1, [access]], [2, [access, slot.declaration]], [4, [access, slot.declaration]],
+      [5, [access, slot.declaration, second]], [6, [access, slot.declaration, second, first]],
+      [8, [access, slot.declaration, second, first]], [9, [access, slot.declaration, second, first]]]) {
       let remaining = cap;
       const reads = [];
-      const proof = product.checkedSourceObjectFieldOf(body, place, reference => {
+      const proof = product.checkedSourceObjectFieldsOf(body, reference => {
         reads.push(reference);
         return checked.nodeOf(reference);
-      }, itemOf, () => remaining-- > 0);
+      }, itemOf, scalar, work => {
+        if (work > remaining) return false;
+        remaining -= work;
+        return true;
+      }).field(place);
       assert.deepEqual(reads, expected, `prefix at ${cap}`);
-      assert.deepEqual(proof, cap === 5 ? expectedField : null);
+      assert.deepEqual(proof, cap === 9 ? expectedField : null);
     }
-    assert.deepEqual(product.checkedSourceObjectFieldOf(body, read, checked.nodeOf, itemOf, () => true),
+    assert.deepEqual(product.checkedSourceObjectFieldsOf(body, checked.nodeOf, itemOf, scalar, () => true).field(read),
       { ...expectedField, occurrence: { body: body.body, node: read.id } });
   }
 });
@@ -1367,7 +1375,7 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
   assert.deepStrictEqual(Object.keys(product).sort(), [
-    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceBindingFieldOf", "checkedSourceObjectFieldOf", "checkedSourceObjectHoldingOf", "checkedSourceOptionalObjectFieldOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
+    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutGeometryOperands", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceBindingFieldOf", "checkedSourceObjectFieldsOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxArgumentList", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
     "projectCheckedContent", "readLayoutDescriptor", "readLayoutSelector", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveCheckedLayoutAlias", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",

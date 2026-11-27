@@ -1,7 +1,7 @@
 import type { Diagnostic, Result, UnitAnswerPosition, UnitRequest } from "../diag/contract.js";
 import type { BodyId, DefId, ModuleId, NodeRef, Origin, SourceNodeRef } from "../ids/contract.js";
-import type { BindingScope, BindingVector, Signature, SignatureRequest, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
-import type { CheckedPhase, CheckedTypingCuts, Declaration, HirBindingViews, HirBody, HirCandidateList, HirModuleBinding, HirNode } from "../ir-hir/contract.js";
+import type { BindingScope, BindingVector, Signature, SignatureRequest, SourceObjectField, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
+import type { CheckedPhase, CheckedSourceObjectFieldReader, CheckedTypingCuts, Declaration, HirBindingViews, HirBody, HirCandidateList, HirModuleBinding, HirNode } from "../ir-hir/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
 import type { AtomicContribution, CaptureRow, ConstraintSet, FinalVariable, InferenceGroup, InferredPartRequest, InferredPartType, MemberRuleAnswer, MemberRuleNeed, PlacedSignature, RecordedCheck, RuleTable, SignaturePlacement, Solution, SolvedConstraint, TypeProductionNeed, TypeProductionAnswer } from "../ir-infer/contract.js";
 import type { Step } from "../step/contract.js";
@@ -40,6 +40,8 @@ export interface InferenceInputs extends GroupDeps, HirBindingViews {
 
 export interface InferDeps<State> extends InferenceInputs {
   readonly rules: RuleTable<State>;
+  readonly sourceFields: (body: BodyId) => CheckedSourceObjectFieldReader | null;
+  readonly readySourceField: (occurrence: NodeRef) => SourceObjectField | null;
 }
 
 export interface DeclaredSignatureRequest {

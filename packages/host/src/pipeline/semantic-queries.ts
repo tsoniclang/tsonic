@@ -246,7 +246,7 @@ export function createSourceSemanticQueries(base: SourceSemanticInputs, ready: S
     if (step.value.kind === "refused") return { kind: "done", value: step.value };
     if (placements === null) return fail("A completed inference group requires its actual Decls placement answers.");
     const publication = completeInference(group, constraints, step.value.value,
-      inputs.verification(group, constraints, step.value.value), placements, inputs.inference.hirBody);
+      inputs.verification(group, constraints, step.value.value), placements, inputs.inference.hirBody, inference.readySourceField);
     return { kind: "done", value: { kind: "ok", value: { ...publication, checkedCuts: inference.cuts }, positions: publication.positions,
       diagnostics: step.value.diagnostics, emissions: [] } };
   }

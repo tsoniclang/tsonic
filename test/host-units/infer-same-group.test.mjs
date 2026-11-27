@@ -89,7 +89,7 @@ test("candidate requests borrow the checked bodyless endpoint and reject a cross
 
 function verifyRecord(program, record) {
   return irInfer.verifyInference({ ...record, ...verificationViews(program, record),
-    placedSignatureOf: body => record.placements.get(body) ?? null });
+    placedSignatureOf: body => record.placements.get(body) ?? null, readySourceField: program.deps.readySourceField });
 }
 
 function drive(program) {
@@ -267,7 +267,7 @@ test("verified group placement retains the actual endpoint and rejects a same-ta
   const answer = first.handoff.answers[0];
   const foreign = second.handoff.answers[0];
   const views = verificationViews(program, first);
-  const complete = handoff => completeInference(first.group, first.generated, first, views, handoff, program.deps.hirBody);
+  const complete = handoff => completeInference(first.group, first.generated, first, views, handoff, program.deps.hirBody, program.deps.readySourceField);
   assert.equal(complete(first.handoff).placed.get(body) === answer.value, true);
   assert.equal(views.types.signatures[foreign.value.signature.id] === foreign.value.signature, true);
   assert.throws(() => complete({ ...first.handoff, answers: [foreign] }), /actual complete bindings/u);
@@ -284,7 +284,7 @@ test("verified group placement retains the actual endpoint and rejects a same-ta
   const crossedResult = { ...first, solution: { ...first.solution, bodies: [{ ...first.solution.bodies[0], signature: crossedId }] } };
   const crossedHandoff = { ...first.handoff, answers: [{ ...answer, value: { ...answer.value, signature: crossed } }] };
   assert.throws(() => completeInference(first.group, first.generated, crossedResult, verificationViews(program, crossedResult),
-    crossedHandoff, program.deps.hirBody), /actual checked signature owner occurrence/u);
+    crossedHandoff, program.deps.hirBody, program.deps.readySourceField), /actual checked signature owner occurrence/u);
   for (const request of [
     { ...answer.value.request, endpoint: "api-signature" },
     { ...answer.value.request, ordinal: 1 },
@@ -1338,7 +1338,7 @@ test("actual Rules propagate only dependent error operands with every original c
     constraint, variables: system.variables, candidates: [], evidence: [...values, system.evidence[2]] });
   assert.equal(enumeration.kind, "ok");
   const evaluate = operands => scheme.evaluate({ constraint, contribution: enumeration.value[0],
-    evidence: [...operands, system.evidence[2]], reads: [], candidates: [] });
+    evidence: [...operands, system.evidence[2]], reads: [], candidates: [], reference: null });
   const combined = evaluate(values);
   assert.equal(combined.kind, "ok");
   assert.equal(combined.value.decision.kind, "error");

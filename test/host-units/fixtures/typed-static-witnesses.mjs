@@ -75,7 +75,7 @@ export async function checkCompoundStaticAssignment() {
       "compound assignment calculation differs from its authored operator, operands or storage"],
     ]) {
       const findings = [];
-      verifyOccurrenceOperation({ ...returned.expression, tsonic: { ...returned.expression.tsonic, calculation } }, index.types,
+      verifyOccurrenceOperation({ ...returned.expression, tsonic: { ...returned.expression.tsonic, calculation } }, index.types, null,
         (rule, node, message) => findings.push([rule, node.id, message]));
       assert.deepEqual(findings, [["operation-type", returned.expression.id, detail]]);
     }

@@ -192,7 +192,7 @@ export async function checkCoalescingAssignment() {
       assert.deepEqual(assignment.right.tsonic.demand, { kind: "selected", control: assignment.left.id, when: "absent" });
       const wrongRight = { ...assignment.right, tsonic: { ...assignment.right.tsonic, convertedType: types.terms[type].value } };
       const findings = [];
-      verifyOccurrenceOperation({ ...assignment, right: wrongRight }, types,
+      verifyOccurrenceOperation({ ...assignment, right: wrongRight }, types, null,
         (rule, node, detail) => findings.push([rule, node.id, detail]));
       assert.deepEqual(findings, [["operation-type", assignment.id,
         "conditional assignment requires its read-write storage and only its selected RHS embedding"]]);
@@ -473,7 +473,7 @@ export async function checkVoidOperand() {
       if (invalid === "result") changed.tsonic.type = changed.tsonic.convertedType = decision.result = body.tir.params[0].tsonic.storage;
       if (invalid === "operand") decision.operands[0] = expression.tsonic.type;
       const findings = [];
-      verifyOccurrenceOperation(changed, types, rule => findings.push(rule));
+      verifyOccurrenceOperation(changed, types, null, rule => findings.push(rule));
       assert.deepEqual(findings, ["operation-type"], invalid);
     }
     assert.equal(body.mir.blocks.length, 2);

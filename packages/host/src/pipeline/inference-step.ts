@@ -170,7 +170,8 @@ function verifyPlacement(request: PlacementPaused["requests"][number], answer: P
 }
 
 export function completeInference(group: InferenceGroup, constraints: GroupConstraints, result: GroupSolution,
-  views: InferenceViews, placements: CompletedPlacement, bodyOf: (body: BodyId) => HirBody): InferencePublication {
+  views: InferenceViews, placements: CompletedPlacement, bodyOf: (body: BodyId) => HirBody,
+  readySourceField: InferVerificationInput["readySourceField"]): InferencePublication {
   if (placements.answers.length !== group.bodies.length || placements.requests.length !== group.bodies.length)
     return fail("Inference verification needs the actual placement request and answer of every group body.");
   const placed = new Map<BodyId, PlacedSignature>();
@@ -184,7 +185,7 @@ export function completeInference(group: InferenceGroup, constraints: GroupConst
     placed.set(body, verifyPlacement(request, answer, checked, views));
   }
   const violations = verifyInference({ ...views, group, constraints: constraints.constraints, ...result,
-    placedSignatureOf: body => placed.get(body)?.signature.id ?? null });
+    placedSignatureOf: body => placed.get(body)?.signature.id ?? null, readySourceField });
   if (violations.length !== 0) return fail(`The completed inference group violates ${violations[0]?.rule}.`);
   const signatureVariables = new Map<string, Extract<InferenceVariable, { readonly kind: "signature" }>>();
   let count = 0;

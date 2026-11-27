@@ -8825,7 +8825,7 @@ test("an unrefined non-null occurrence retains the same already-present typed op
     for (const narrowing of [null, { kind: "identity", type }]) {
       const tsonic = { ...typedValue(type), narrowing, evidenceIndex: null };
       const findings = [];
-      verifyOccurrenceOperation({ ...header(4, 2), kind: "NonNullExpression", expression, tsonic }, table,
+      verifyOccurrenceOperation({ ...header(4, 2), kind: "NonNullExpression", expression, tsonic }, table, null,
         rule => findings.push(rule));
       assert.deepEqual(findings, expected, `type ${type}, operand ${operand}, refinement ${narrowing?.kind ?? "none"}`);
     }

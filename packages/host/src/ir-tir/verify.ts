@@ -1,10 +1,10 @@
 import type { BodyId, CandidateListId, DefId, ItemNodeRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { encodeBodyId, encodeKey } from "../ids/index.js";
-import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
+import type { CheckedPhase, CheckedSourceObjectFieldReader, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf,
-  checkedSourceBindingFieldOf, checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
-  checkedSourceOptionalObjectFieldOf, readWriteRootStorageOf, resolveModuleBinding, unparenthesizedExpression, walkSyntaxTree,
+  checkedSourceBindingFieldOf, checkedSourceObjectFieldsOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
+  readWriteRootStorageOf, resolveModuleBinding, unparenthesizedExpression, walkSyntaxTree,
   writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, sameInstance, verifyTypes } from "../ir-types/index.js";
@@ -31,8 +31,45 @@ export interface TirSourceInventory {
   readonly nestedRoots: ReadonlySet<NodeId>;
 }
 
+function sourceFieldsOf<Stop extends object>(input: TirVerifierInput, body: HirBody | undefined, admit: TirReadyReadAdmission<Stop>) {
+  let stopped: Stop | null = null;
+  let missing = false;
+  let reader: CheckedSourceObjectFieldReader | null = null;
+  const work = (work: number, records: number): boolean => {
+    stopped ??= admit({ kind: "source-field-proof", work, records });
+    return stopped === null;
+  };
+  const read = (reference: SourceNodeRef) => {
+    if (reference.kind === "item") stopped ??= admit({ kind: "source-declaration", definition: reference.value.owner });
+    if (stopped !== null) return null;
+    const node = input.nodeOf(reference);
+    if (node === null || node.id !== reference.value.node) { missing = true; return null; }
+    return node;
+  };
+  const item = (definition: DefId) => {
+    stopped ??= admit({ kind: "source-declaration", definition });
+    if (stopped !== null) return null;
+    const reference = input.declarationSourceOf(definition);
+    if (reference?.kind !== "item" || reference.value.owner !== definition) { missing = true; return null; }
+    const node = input.nodeOf(reference);
+    if (node === null || node.id !== reference.value.node) { missing = true; return null; }
+    return node;
+  };
+  const field: CheckedSourceObjectFieldReader = access => {
+    missing = false;
+    if (body === undefined) return null;
+    if (reader === null) {
+      if (!work(1, 3)) return null;
+      reader = checkedSourceObjectFieldsOf(body, read, item, type => input.types.terms[type], work).field;
+    }
+    return reader(access);
+  };
+  return { field, work, stop: () => stopped, missing: () => missing };
+}
+
 function verifyOptionalReferenceWrite<Stop extends object>(input: TirVerifierInput, inventory: TirSourceInventory,
-  node: TirNode, original: HirNode | undefined, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  node: TirNode, original: HirNode | undefined, fields: ReturnType<typeof sourceFieldsOf<Stop>>,
+  admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
   const right = typedValueOf(node);
   if (right?.conversion.kind !== "convert") return null;
   const operation = right.conversion.operation.decision.operation;
@@ -43,26 +80,17 @@ function verifyOptionalReferenceWrite<Stop extends object>(input: TirVerifierInp
   if (paid !== null) return paid;
   const authored = original?.parent == null ? undefined : inventory.sourceNodes.get(original.parent);
   const parent = authored === undefined ? undefined : inventory.typedOfSource.get(authored);
-  const body = inventory.original;
   const target = authored?.kind === "BinaryExpression" && authored.right === original
     ? unparenthesizedExpression<CheckedPhase>(authored.left) : null;
-  let stopped: Stop | null = null;
-  const witness = target?.kind === "PropertyAccessExpression" && target.tsonic.role === "assignment-target" && body !== undefined
-    ? checkedSourceOptionalObjectFieldOf(body, target, input.nodeOf, definition => {
-      stopped ??= admit({ kind: "source-declaration", definition });
-      if (stopped !== null) return null;
-      const reference = input.declarationSourceOf(definition);
-      return reference?.kind === "item" && reference.value.owner === definition ? input.nodeOf(reference) : null;
-    }, type => input.types.terms[type], (work, records) => {
-      stopped ??= admit({ kind: "source-field-proof", work, records });
-      return stopped === null;
-    }) : null;
+  const witness = target?.kind === "PropertyAccessExpression" && target.tsonic.role === "assignment-target"
+    ? fields.field(target) : null;
+  const stopped = fields.stop();
   if (stopped !== null) return stopped;
   const source = input.types.terms[operation.from];
   const { proof } = operation.embedding;
   const step = proof.steps[0];
   if (parent?.kind !== "BinaryExpression" || parent.tsonic.role !== "assignment" || parent.right !== node || parent.id !== authored?.id
-    || witness === null || witness.storage !== operation.to || parent.tsonic.storage !== witness.storage
+    || witness?.presence?.storage !== operation.to || parent.tsonic.storage !== witness.presence.storage
     || source?.kind !== "intrinsic" || source.intrinsic !== "absence" || right.conversion.role !== "assignment"
     || operation.embedding.check.kind !== "none" || proof.conclusion !== 0 || proof.steps.length !== 1
     || step?.rule !== "absence" || step.premises.length !== 0 || step.from.path.length !== 0 || step.to.path.length !== 0
@@ -70,6 +98,31 @@ function verifyOptionalReferenceWrite<Stop extends object>(input: TirVerifierInp
     || !sameSourceReference(step.to.root, { kind: "body", value: witness.occurrence }))
     emit("operation-type", node, "an absence write to an optional reference requires its actual checked field and qualified conversion");
   return null;
+}
+
+function checkedComparisonPayload<Stop extends object>(input: TirVerifierInput, node: TirNode, original: HirNode | undefined,
+  fields: ReturnType<typeof sourceFieldsOf<Stop>>): TyId | null {
+  if (node.kind !== "BinaryExpression" || node.tsonic.role !== "comparison" || node.tsonic.operation.kind !== "decided"
+    || original?.kind !== "BinaryExpression" || original.tsonic.role !== "comparison") return null;
+  const { operands, operation } = node.tsonic.operation.decision.decision;
+  if (operation.kind !== "absence-test" || operands.length !== 2) return null;
+  const [leftType, rightType] = operands;
+  if (leftType === undefined || rightType === undefined) return null;
+  const left = input.types.terms[leftType];
+  const right = input.types.terms[rightType];
+  const selected = left?.kind === "optional" && right?.kind === "intrinsic" && right.intrinsic === "absence" ? 0
+    : right?.kind === "optional" && left?.kind === "intrinsic" && left.intrinsic === "absence" ? 1 : null;
+  if (selected === null) return null;
+  const term = selected === 0 ? left : right;
+  if (term?.kind !== "optional" || input.types.terms[term.value]?.kind !== "shape") return null;
+  let checked = selected === 0 ? original.left : original.right;
+  while (checked.kind === "ParenthesizedExpression") {
+    if (!fields.work(1, 0)) return null;
+    checked = checked.expression;
+  }
+  if (checked.kind !== "PropertyAccessExpression" || checked.tsonic.role !== "value") return null;
+  const proof = fields.field(checked)?.presence;
+  return proof != null && proof.storage === operands[selected] && proof.present === term.value ? proof.present : null;
 }
 
 function verifyIndex(input: TirVerifierInput, node: ElementAccessExpression<TypedPhase>, original: HirNode | undefined,
@@ -849,6 +902,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   const boundary = readSourceBoundary(body.body, input.source, input.nodeOf);
   const structure = inspectTirStructure(body, createTirLayouts(), boundary.nestedRoots);
   const inventory = verifySourcePreservation(body, input.source, input.module, boundary, emit);
+  const fields = sourceFieldsOf(input, inventory.original, admit);
   for (const node of structure.excluded)
     emit("kind-children-shape", node, "An excluded source expression cannot occupy a Typed syntax slot.");
   verifyBodylessParameters(input, structure.nodes, inventory.sourceNodes, emit);
@@ -912,8 +966,11 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
         emit("authored-order-preserved", node, "a selected spread requires its actual authored operand and owner");
     }
     verifyValueEndpoints(body, node, emit);
-    verifyOccurrenceOperation(node, input.types, emit);
-    const write = verifyOptionalReferenceWrite(input, inventory, node, original, admit, emit);
+    const qualified = checkedComparisonPayload(input, node, original, fields);
+    const comparisonStop = fields.stop();
+    if (comparisonStop !== null) return { kind: "resource-stop", stop: comparisonStop };
+    verifyOccurrenceOperation(node, input.types, qualified, emit);
+    const write = verifyOptionalReferenceWrite(input, inventory, node, original, fields, admit, emit);
     if (write !== null) return { kind: "resource-stop", stop: write };
     if (node.kind === "PropertyAccessExpression" && node.tsonic.role === "value" && node.tsonic.narrowing?.kind === "narrowed") {
       const paid = admit({ kind: "row" });
@@ -922,9 +979,13 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       const source = input.types.terms[narrowing.source];
       const domain = source === undefined ? null : optionalValueDomainOf(source, type => input.types.terms[type] ?? null);
       const read = original?.kind === "PropertyAccessExpression" && original.tsonic.role === "value" ? original.tsonic.value.views.read : null;
+      const witness = domain?.kind !== "optional-value" && original?.kind === "PropertyAccessExpression" ? fields.field(original)?.presence : null;
+      const stopped = fields.stop();
+      if (stopped !== null) return { kind: "resource-stop", stop: stopped };
+      const present = domain?.kind === "optional-value" ? domain.present : witness?.storage === narrowing.source ? witness.present : null;
       if (read?.kind !== "available" || read.value !== narrowing.result || selection.kind !== "decided"
         || selection.decision.decision.location.kind !== "data" || selection.decision.decision.read !== narrowing.source
-        || domain?.kind !== "optional-value" || domain.present !== narrowing.result)
+        || present !== narrowing.result)
         emit("refinement-destination", node, "a narrowed field requires its completed native storage and actual checked read endpoint");
     }
     if ((node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression")
@@ -1197,8 +1258,8 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
           if (stopped !== null) return null;
           const reference = input.declarationSourceOf(definition);
           return reference?.kind === "item" && reference.value.owner === definition ? read(reference) : null;
-        }, (work = 1) => {
-          for (let count = 0; count < work && stopped === null; count += 1) stopped = admit({ kind: "row" });
+        }, type => input.types.terms[type], (work, records) => {
+          stopped ??= admit({ kind: "source-field-proof", work, records });
           return stopped === null;
         }) : null;
       if (stopped !== null) return { kind: "resource-stop", stop: stopped };
@@ -1239,35 +1300,36 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
           || (selected.kind === "read-write" && (selected.read !== storage.read || member.decision.read !== storage.read)))
           emit("access-location", member.node, "reference-held field assignment must retain its actual checked write and reached read types");
       }
-      let stopped: Stop | null = null;
-      let missing = false;
-      const read = (reference: SourceNodeRef) => {
-        const node = input.nodeOf(reference);
-        if (node === null || node.id !== reference.value.node) { missing = true; return null; }
-        return node;
-      };
-      const holding = checkedSourceObjectFieldOf(inventory.original, original, reference => {
-        if (reference.kind !== "item") return null;
-        stopped ??= admit({ kind: "source-declaration", definition: reference.value.owner });
-        return stopped === null ? read(reference) : null;
-      }, definition => {
-        stopped ??= admit({ kind: "source-declaration", definition });
-        if (stopped !== null) return null;
-        const reference = input.declarationSourceOf(definition);
-        if (reference?.kind !== "item" || reference.value.owner !== definition) { missing = true; return null; }
-        return read(reference);
-      }, () => {
-        stopped ??= admit({ kind: "row" });
-        return stopped === null;
-      });
+      const holding = fields.field(original);
+      const stopped = fields.stop();
       if (stopped !== null) return { kind: "resource-stop", stop: stopped };
       const { location, primary } = member.decision;
       if (holding !== null) {
         if (table?.receiver !== holding.receiver || primary !== holding.field || location.kind !== "data"
           || location.receiver !== "by-reference" || location.check.kind !== "none")
           emit("access-location", member.node, "ordinary object parameter access must retain its actual reference-held field");
-      } else if (missing && location.kind === "data" && location.receiver === "by-reference")
-        emit("access-location", member.node, "reference-held access requires its independently qualified source declarations");
+        if (holding.presence !== null && original.tsonic.role === "value") {
+          const read = original.tsonic.value.views.read;
+          if (read.kind === "available" && read.value === holding.presence.present) {
+            const narrowing = typedValueOf(member.node)?.narrowing;
+            if (narrowing?.kind !== "narrowed" || narrowing.source !== holding.presence.storage || narrowing.result !== holding.presence.present
+              || narrowing.failure !== input.selectedNativeFacts.absentAccessFailure)
+              emit("refinement-destination", member.node, "an optional reference payload requires its actual selected presence check");
+          }
+        }
+      } else if (location.kind === "data" && location.receiver === "by-reference") {
+        let path = fields.missing();
+        if (!path && table !== null && input.types.terms[table.receiver]?.kind === "shape") {
+          let receiver = original.expression;
+          while (receiver.kind === "ParenthesizedExpression") {
+            const read = admit({ kind: "row" });
+            if (read !== null) return { kind: "resource-stop", stop: read };
+            receiver = receiver.expression;
+          }
+          path = receiver.kind === "PropertyAccessExpression";
+        }
+        if (path) emit("access-location", member.node, "reference-held access requires its independently qualified source declarations");
+      }
     }
     if (member.selection === null) verifyMemberDecision(member.decision, member.node, members, emit);
     else verifyMemberSelection(member.selection, member.node, members, emit);

@@ -4,7 +4,6 @@ import type { CheckFailure, HandleActivation, MemberTypeAccess, NativeArrayCarri
 import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativeIntegerPrimitive, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 import type { Step } from "../step/contract.js";
-import type { SourceOptionalObjectField } from "../ir-types/contract.js";
 
 export type InferredPart =
   | { readonly kind: "return" | "yield" | "variable" | "field" }
@@ -791,7 +790,19 @@ export interface PaidConstraintScheme<ConstraintKind extends Constraint> {
 export interface FlowContributionScheme {
   readonly enumerate: PaidConstraintScheme<FlowConstraint>["enumerate"];
   readonly evaluate: (input: ContributionEvaluation<FlowConstraint> & { readonly origin: Origin;
-    readonly optionalField: SourceOptionalObjectField | null }, work: RuleWork) => Result<ContributionOutcome>;
+    readonly optionalField: SourceObjectField | null }, work: RuleWork) => Result<ContributionOutcome>;
+}
+
+export interface QualifiedOperatorField {
+  readonly operand: 0 | 1;
+  readonly field: SourceObjectField;
+}
+
+export interface OperatorContributionScheme {
+  readonly enumerate: ConstraintScheme<OperatorConstraint>["enumerate"];
+  readonly evaluate: (input: ContributionEvaluation<OperatorConstraint> & {
+    readonly reference: QualifiedOperatorField | null;
+  }) => Result<ContributionOutcome>;
 }
 
 export interface IndexContributionScheme {
@@ -816,7 +827,7 @@ export interface ConstraintSchemes<State> {
   readonly eq: ConstraintScheme<EqualityConstraint>;
   readonly flow: FlowContributionScheme;
   readonly literal: PaidConstraintScheme<LiteralConstraint>;
-  readonly op: ConstraintScheme<OperatorConstraint>;
+  readonly op: OperatorContributionScheme;
   readonly member: MemberContributionScheme<State>;
   readonly index: IndexContributionScheme;
   readonly call: CallContributionScheme;
@@ -925,6 +936,7 @@ export interface InferenceNativeFacts {
   readonly allocationFailure: "observable" | "abort";
   readonly arrayIndexFailure: CheckFailure;
   readonly fixedArrayIndexFailure: CheckFailure;
+  readonly absentAccessFailure: CheckFailure;
   readonly destinationCheck: "before-value" | "after-value";
 }
 
@@ -938,6 +950,7 @@ export interface InferVerificationInput extends InferenceBindingInput {
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeExists: (node: SourceNodeRef) => boolean;
   readonly localExists: (local: LocalRef) => boolean;
+  readonly readySourceField: (occurrence: NodeRef) => SourceObjectField | null;
 }
 
 export type PrintConstraints = (constraints: ConstraintSet) => string;

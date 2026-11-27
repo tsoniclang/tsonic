@@ -651,8 +651,20 @@ export function verifyValues(
       const left = decision.operands[0];
       const right = decision.operands[1];
       const result = term(decision.result);
-      const comparison = nativeAbsenceComparisonOf(left === undefined ? undefined : term(left) ?? undefined,
-        right === undefined ? undefined : term(right) ?? undefined, term);
+      const first = left === undefined ? undefined : term(left) ?? undefined;
+      const second = right === undefined ? undefined : term(right) ?? undefined;
+      const optional = first?.kind === "optional" ? first : second?.kind === "optional" ? second : null;
+      let qualifiedPresent: TyId | null = null;
+      if (optional !== null && term(optional.value)?.kind === "shape") {
+        if (!admitWork(meter, 1)) return null;
+        const occurrence = source?.node;
+        const selected = occurrence?.kind === "BinaryExpression" && occurrence.tsonic.role === "comparison"
+          && occurrence.tsonic.operation.kind === "decided" ? occurrence.tsonic.operation.decision.decision : null;
+        if (selected?.kind === "selected" && selected.operation.kind === "absence-test" && selected.operation.negated === identity.negated
+          && selected.operands.length === 2 && selected.operands[0] === left && selected.operands[1] === right && selected.result === decision.result)
+          qualifiedPresent = optional.value;
+      }
+      const comparison = nativeAbsenceComparisonOf(first, second, term, qualifiedPresent);
       if (meter.exhausted) return null;
       if (comparison !== "native-absence" || decision.execution.kind !== "pure" || result?.kind !== "primitive" || result.primitive !== "bool")
         report("operation-selected", site);

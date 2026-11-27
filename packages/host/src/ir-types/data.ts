@@ -368,9 +368,11 @@ export interface SourceObjectHolding {
 export interface SourceObjectField extends SourceObjectHolding {
   readonly occurrence: NodeRef;
   readonly field: DefId;
+  readonly parent: SourceObjectField | null;
+  readonly presence: SourceObjectFieldPresence | null;
 }
 
-export interface SourceOptionalObjectField extends SourceObjectField {
+export interface SourceObjectFieldPresence {
   readonly storage: TyId;
   readonly present: TyId;
 }

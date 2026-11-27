@@ -307,8 +307,12 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
       if (refinement !== null) {
         const source = input.types.terms[refinement.source];
         const domain = source === undefined ? null : optionalValueDomainOf(source, type => input.types.terms[type] ?? null);
+        const qualified = domain?.kind !== "optional-value" && constraint?.value.kind === "member"
+          ? input.readySourceField(constraint.value.occurrence) : null;
+        const reference = qualified?.presence?.storage === refinement.source && qualified.field === decision.member.primary
+          && qualified.presence.present === refinement.result && refinement.failure === input.selectedNativeFacts.absentAccessFailure;
         if (constraint?.value.kind !== "member" || constraint.value.access !== "read" || decision.member.location.kind !== "data"
-          || decision.member.read !== refinement.source || domain?.kind !== "optional-value" || domain.present !== refinement.result)
+          || decision.member.read !== refinement.source || !reference && (domain?.kind !== "optional-value" || domain.present !== refinement.result))
           emit(output, "operation-types", site, "refinement");
         pending.push({ kind: "proof", value: refinement.proof });
       }
