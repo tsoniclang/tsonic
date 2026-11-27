@@ -442,6 +442,38 @@ test("memberTypeOf opens exactly the original checked getter and setter arms", a
   }
 });
 
+test("memberTypeOf keeps independently bound accessor values on the same checked declaration", async () => {
+  const fixture = await loadFrontFixture();
+  const actual = fixture.checkedModuleOf("export type Holder<T> = { get flag(): T; set flag(value: T | null); };");
+  const [alias] = actual.checked.tree.statements.nodes;
+  const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
+  const scope = fixture.hir.deriveDeclarationScopes(actual.checked, nodes).bindingScopeOf(alias.tsonic.definition);
+  const [parameter] = scope.classParameters;
+  const original = alias.type.tsonic.type.value;
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner,
+    typeWork: fixtureTypeWork(types), typeExpansion: expansion };
+  const originalInventory = answer(deps, original);
+  const originalValue = declarations.memberTypeOf(deps, { receiver: original, member: 0, access: "read" }).value;
+  assert.equal(originalValue.kind, "ok");
+  assert.deepEqual(types.readType(actual.interner, originalValue.value.read), { kind: "param", parameter });
+  const applied = [];
+  for (const term of [{ kind: "string" }, { kind: "primitive", primitive: "bool" }]) {
+    const bound = types.internType(actual.interner, term);
+    const bindings = { ...types.rigidBindings(scope), classBindings: [{ kind: "bound", parameter, type: bound }] };
+    const sealed = types.substitute(actual.interner, [original], bindings, expansion, deps.typeWork);
+    assert.equal(sealed.kind, "complete");
+    const [receiver] = sealed.value;
+    assert.deepEqual(answer(deps, receiver).accessors, originalInventory.accessors);
+    const value = declarations.memberTypeOf(deps, { receiver, member: 0, access: "read-write" }).value;
+    assert.equal(value.kind, "ok");
+    assert.equal(value.value.read, bound);
+    assert.deepEqual(types.readType(actual.interner, value.value.write), { kind: "optional", value: bound });
+    applied.push(receiver);
+  }
+  assert.notEqual(applied[0], applied[1]);
+  assert.deepEqual(declarations.memberTypeOf(deps, { receiver: original, member: 0, access: "read" }).value, originalValue);
+});
+
 test("membersOf consumes construct correspondence metadata but never a constructor parameter or result type", () => {
   const interner = types.createTypeInterner();
   const boolean = insertFixtureType(types, interner, { kind: "primitive", primitive: "bool" });
