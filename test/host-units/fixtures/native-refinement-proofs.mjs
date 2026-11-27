@@ -282,6 +282,7 @@ export async function checkNativeFieldRefinement() {
   const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
   const { fieldRefinementsOf, parseFacts, printFacts } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { sameInstance } = await import("../../../packages/host/dist/ir-types/index.js");
   const { analysisInput } = await import("./front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
   const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
@@ -533,41 +534,65 @@ export async function checkNativeFieldRefinement() {
     const [facts] = selected.facts;
     const expected = state === "proven" ? { kind: "proven", node, guards } : { kind: "unproven", node, guards, reason };
     assert.deepEqual(facts.refinements.refinements, [expected], name);
-    if (name !== "stale-field" && name !== "pure") continue;
-
-    const guard = conditional.expression;
-    const sample = callBlock.statements.find(row => row.kind === "assign" && row.tir.node === guard.left.id);
-    assert.equal(sample.value.kind, "use");
-    assert.equal(selected.mir.places[sample.value.operand.place].base.tir.node, guard.left.id);
-    const compared = selected.mir.blocks[callBlock.terminator.next].statements.find(row => row.kind === "assign" && row.tir.node === guard.id);
-    assert.deepEqual(compared.value.left, { kind: "place", place: sample.place });
-    if (name !== "stale-field") continue;
+    if (name === "stale-field" || name === "pure") {
+      const guard = conditional.expression;
+      const sample = callBlock.statements.find(row => row.kind === "assign" && row.tir.node === guard.left.id);
+      assert.equal(sample.value.kind, "use");
+      assert.equal(selected.mir.places[sample.value.operand.place].base.tir.node, guard.left.id);
+      const compared = selected.mir.blocks[callBlock.terminator.next].statements.find(row => row.kind === "assign" && row.tir.node === guard.id);
+      assert.deepEqual(compared.value.left, { kind: "place", place: sample.place });
+    } else if (name !== "saved") continue;
 
     const source = sourceOccurrences(selected.tir, createAccount(limits));
     assert.equal(source.kind, "complete");
     const captured = captureSourceBarrier(input);
     assert.equal(captured.kind, "ok");
-    const callee = callBlock.terminator.callee.resolution.activation;
-    const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === callee.body);
     let firstLookup = null;
     const proofInput = { sourceOf: node => source.value.get(node), callBindings: { lexical: selected.tir.lexicalBindings,
       scopeOf: definition => captured.value.descriptions.get(definition)?.generics ?? null } };
     const run = account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, { ...proofInput, summaryAt: (block, operation) => {
-      assert.equal(block, callBlock.id);
-      assert.equal(operation === callBlock.terminator, true);
+      assert.equal(operation === selected.mir.blocks[block].terminator, true);
+      const callee = operation.callee.kind === "body" ? operation.callee.instance : operation.callee.resolution.activation;
+      const summary = result.value.index.summaries.find(row => row.key.kind === "body" && sameInstance(row.key.execution.instance, callee));
+      assert.ok(summary);
       firstLookup ??= InvocationAccount.stateOf(account).work;
       return { kind: "complete", value: summary };
     } });
     const probe = createAccount(limits);
+    const meter = InvocationAccount.stateOf(probe);
+    const charged = { work: [], entries: [] };
+    const consumed = { work: 0, entries: 0 };
+    for (const dimension of ["work", "entries"]) Object.defineProperty(meter, dimension, {
+      get: () => consumed[dimension], set: next => {
+        if (next > consumed[dimension]) charged[dimension].push(next);
+        consumed[dimension] = next;
+      },
+    });
     assert.deepEqual(run(probe), { kind: "complete", value: [expected] });
-    assert.ok(firstLookup > 0);
-    const cutoff = createAccount({ ...limits, maximumWork: firstLookup - 1 });
-    firstLookup = null;
-    const stopped = run(cutoff);
-    assert.equal(stopped.kind, "resource-limit");
-    assert.equal(stopped === accountFailure(cutoff), true);
-    assert.equal(firstLookup, null);
-    assert.equal(run(cutoff) === stopped, true);
-    assert.equal(firstLookup, null);
+    if (name === "stale-field") {
+      assert.ok(firstLookup > 0);
+      const cutoff = createAccount({ ...limits, maximumWork: firstLookup - 1 });
+      firstLookup = null;
+      const stopped = run(cutoff);
+      assert.equal(stopped.kind, "resource-limit");
+      assert.equal(stopped === accountFailure(cutoff), true);
+      assert.equal(firstLookup, null);
+      assert.equal(run(cutoff) === stopped, true);
+      assert.equal(firstLookup, null);
+    }
+    assert.deepEqual(run(createAccount({ maximumWork: consumed.work, maximumResultEntries: consumed.entries })),
+      { kind: "complete", value: [expected] });
+    for (const [category, dimension] of [["work", "work"], ["entries", "result-entries"]]) {
+      assert.ok(charged[category].length > 0, `${name}: ${dimension}`);
+      for (const cut of charged[category]) {
+        const account = createAccount({ maximumWork: category === "work" ? cut - 1 : consumed.work,
+          maximumResultEntries: category === "entries" ? cut - 1 : consumed.entries });
+        const stopped = run(account);
+        assert.equal(stopped.kind, "resource-limit", `${name}: ${dimension} ${cut - 1}`);
+        assert.equal(stopped.dimension, dimension);
+        assert.equal(stopped === accountFailure(account), true);
+        assert.equal(run(account) === stopped, true);
+      }
+    }
   }
 }
