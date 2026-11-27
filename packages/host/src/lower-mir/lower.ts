@@ -19,6 +19,7 @@ import { argumentPlace, enterCall, finishCall, finishCallSpread } from "./calls.
 import { beginLocalScope, declareLocal, declarations, endLocalScope, enterLocalBlock, finishPatternValue, initializeAbsence, initializeLocal, leaveProtectedScopes, nextDeclaration, prepareFunctionLocals, unwindToHandler } from "./bindings.js";
 import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, placeOfStatic, terminate } from "./state.js";
 import { placeCheckAvailable, placeCheckStamp } from "./state.js";
+import { beginNativeArray, nativeArray } from "./array-initialization.js";
 
 // The lowering of one typed body into its MIR graph.
 //
@@ -165,6 +166,7 @@ function walk(lowering: Lowering): boolean {
           : next.kind === "declarations" ? nextDeclaration(lowering, next)
           : next.kind === "pattern-value" ? finishPatternValue(lowering, next.node)
           : next.kind === "tuple-value" ? tupleValue(lowering, next)
+          : next.kind === "native-array" ? nativeArray(lowering, next)
           : next.kind === "scope-end" ? endLocalScope(lowering, next.node, next.scope)
         : next.kind === "argument-place" ? argumentPlace(lowering, next.node)
         : next.kind === "call" ? finishCall(lowering, next)
@@ -408,9 +410,9 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       const phase = node.tsonic;
       if (phase.role !== "value" || phase.construction.kind !== "decided")
         return callerDefect("an array literal requires its actual selected construction", node.origin);
-      if (phase.construction.decision.decision.operation.kind === "exact-array-construction")
-        return notLoweredYet("staged native array initialization", node.origin);
       value(lowering, phase, node);
+      if (phase.construction.decision.decision.operation.kind === "exact-array-construction")
+        return beginNativeArray(lowering, node, phase.construction.decision.decision);
       return tupleValue(lowering, { kind: "tuple-value", node, operation: phase.construction.decision, position: 0 });
     }
     case "ConditionalExpression": {

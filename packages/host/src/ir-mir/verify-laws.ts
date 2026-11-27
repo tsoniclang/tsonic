@@ -118,6 +118,10 @@ export function verifyLaws(
   for (const block of body.blocks) {
     if (block === undefined) continue;
     for (const [position, statement] of block.statements.entries()) {
+      if (statement.kind === "array-finish") {
+        const start = body.blocks[statement.start]?.terminator;
+        if (start?.kind === "array-start") written(start.place);
+      }
       if (statement.kind !== "assign") continue;
       written(statement.place);
       if (statement.value.kind === "address-of") handed(statement.value.place);
@@ -143,6 +147,10 @@ export function verifyLaws(
       case "goto": case "switch": case "check": case "throw": case "return": case "unreachable": break;
     }
     if ("unwind" in terminator && terminator.unwind.kind === "handler") written(terminator.unwind.exception);
+    else if (terminator.kind === "array-start") {
+      if (terminator.extentFailure.kind === "handler") written(terminator.extentFailure.exception);
+      if (terminator.allocationFailure.kind === "handler") written(terminator.allocationFailure.exception);
+    }
   }
 
   // The local of a parameter that is not passed by value or moved is the caller's storage (the source referent, with
@@ -254,7 +262,7 @@ export function verifyLaws(
   /** The block a terminator continues to, or -1. */
   const continues = (block: MirBlock, position: number): number => {
     switch (block.terminator.kind) {
-      case "goto": case "check": case "call": case "invoke": case "await": case "yield": case "delegate":
+      case "goto": case "check": case "call": case "invoke": case "array-start": case "await": case "yield": case "delegate":
       case "cleanup-enter": case "cleanup-discard": case "cleanup-resume":
         return readContinuation(control, position);
       case "switch": case "throw": case "return": case "unreachable": case "unwind-propagate": return -1;
@@ -493,7 +501,11 @@ export function verifyLaws(
           useValue(statement.value, block.id, index);
           use(statement.place, block.id, index);
           stored(statement.place);
-        } else if (densePosition(statement.local, body.locals.length)) touched(statement.local);
+        } else if (statement.kind === "array-element") useOperand(statement.operand, block.id, index);
+        else if (statement.kind === "array-finish") {
+          const start = body.blocks[statement.start]?.terminator;
+          if (start?.kind === "array-start") stored(start.place);
+        } else if (statement.kind !== "array-range" && densePosition(statement.local, body.locals.length)) touched(statement.local);
       }
       const terminator = block.terminator;
       switch (terminator.kind) {
@@ -570,6 +582,10 @@ export function verifyLaws(
         case "invoke":
           for (const operand of terminator.operands) useOperand(operand, block.id, null);
           break;
+        case "array-start":
+          useOperand(terminator.range, block.id, null);
+          stored(terminator.place);
+          break;
         case "await": case "yield":
           useOperand(terminator.operand, block.id, null);
           break;
@@ -579,8 +595,13 @@ export function verifyLaws(
       }
       // The failure edge and the return edge of a suspension leave before the effect; the place of a failing
       // check is not available on its failure edge.
-      const failure = edges.at(-1);
-      if (failure?.kind === "unwind" || failure?.kind === "carry") give(edgePosition(failure), carried(snapshot(), failure.destination, block.id));
+      if (terminator.kind === "array-start") {
+        for (const failure of edges) if (failure.kind === "unwind" || failure.kind === "carry")
+          give(edgePosition(failure), carried(snapshot(), failure.destination, block.id));
+      } else {
+        const failure = edges.at(-1);
+        if (failure?.kind === "unwind" || failure?.kind === "carry") give(edgePosition(failure), carried(snapshot(), failure.destination, block.id));
+      }
       const completed = edges[1];
       if (completed?.kind === "suspension-return") give(edgePosition(completed), carried(snapshot(), completed.destination, block.id));
       switch (terminator.kind) {
@@ -670,6 +691,7 @@ export function verifyLaws(
           ? texts.operation(value.operation) : null, statement.place, block.id, position);
         continue;
       }
+      if (statement.kind !== "storage-live" && statement.kind !== "storage-dead") continue;
       // Law 8: a marker is about a slot the body owns. Storage the body does not own carries none, begin or end.
       if (read(notOwned, statement.local, 0) === 1) {
         reportAt("storage-marker-exact", block.id, position);

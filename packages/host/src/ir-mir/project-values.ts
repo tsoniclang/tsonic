@@ -66,6 +66,8 @@ export const projectMirValues: ProjectMirValues = (ops, constantOf) => {
   });
   const statement = (read: () => MirStatement, at: string) => ops.read<MirStatement>(() => {
     const value = read();
+    if (value.kind === "array-element") return ops.record(6, () => then(operand(() => value.operand), operand =>
+      copied({ origin: value.origin, tir: value.tir, kind: "array-element", start: value.start, part: value.part, operand })));
     if (value.kind !== "assign") return copied(value);
     return ops.record(6, () => then(rvalue(() => value.value, at + ".value"), source =>
       copied({ origin: value.origin, tir: value.tir, kind: "assign", place: value.place, value: source, step: value.step })));
@@ -106,6 +108,10 @@ export const projectMirValues: ProjectMirValues = (ops, constantOf) => {
           origin: value.origin, tir: value.tir, kind: "invoke", operation, operands,
           destination: value.destination, next: value.next, unwind: value.unwind, step: value.step,
         }))));
+      case "array-start": return ops.record(8, () => then(optionalOperand(() => value.range), range => copied({
+        origin: value.origin, tir: value.tir, kind: "array-start", place: value.place, range, next: value.next,
+        extentFailure: value.extentFailure, allocationFailure: value.allocationFailure,
+      })));
       case "await": return ops.record(8, () => then(operand(() => value.operand), operand => copied({
         origin: value.origin, tir: value.tir, kind: "await", operand, destination: value.destination,
         resume: value.resume, unwind: value.unwind, step: value.step,

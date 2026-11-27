@@ -5,7 +5,7 @@ import type { BlockId, LocalId, OriginsId } from "../../ids/contract.js";
 import { originsId } from "../../ids/index.js";
 import type { AppliedSummary, RelationalArena } from "../../ir-facts/contract.js";
 import type { CallCaptureTransport } from "./calls.js";
-import type { MirCompletionState, MirOperand, MirPendingCompletion, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
+import type { MirCompletionState, MirOperand, MirPendingCompletion, MirStatement, MirTerminator, MirUnwind } from "../../ir-mir/contract.js";
 import { transferMirCompletion } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { callValueEffects, isCallError, isLeastCall } from "./calls.js";
@@ -14,7 +14,7 @@ import type { StaticCalleeCells } from "./static-calls.js";
 import { bodyFrontier, readSlot, rootSlot } from "./places.js";
 import type { StorageSlots } from "./places.js";
 import type { HeldProjections } from "./projection-effects.js";
-import { cleanupTarget, selectedCallAt } from "./storage.js";
+import { arrayDestination, cleanupTarget, selectedCallAt } from "./storage.js";
 import { appliedOrigins, joinOrigins, valueKind } from "./values.js";
 import type { OpenCallTransport, ReadCallBoundary } from "./open-calls.js";
 import { noCallBoundary } from "./open-calls.js";
@@ -26,6 +26,8 @@ export interface CurrentValues {
   readonly completion?: MirCompletionState<OriginsId>;
 }
 export type ValueState = CurrentValues | null;
+
+export type ArrayOrigins = ReadonlyMap<BlockId, OriginsId> | null;
 
 function withValues(state: ValueState | undefined, origins: readonly OriginsId[], contents: ReadonlySet<number>): CurrentValues {
   const completion = state?.completion;
@@ -242,13 +244,15 @@ export function operandOrigins(input: BodyRoundInput, constants: readonly Origin
 }
 
 export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, constants: readonly OriginsId[],
-  initial: readonly OriginsId[], state: readonly OriginsId[], statement: MirStatement, slots: StorageSlots = null, fields: HeldProjections | null = null):
+  initial: readonly OriginsId[], state: readonly OriginsId[], statement: MirStatement, arrays: ArrayOrigins,
+  slots: StorageSlots = null, fields: HeldProjections | null = null):
   DataflowResult<readonly OriginsId[]> {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
   const step = chargeWork(deps.account, 1);
   if (step !== null) return step;
-  if (statement.kind === "assign" && fields?.places.has(statement.place) === true) return { kind: "complete", value: state };
+  if (statement.kind === "array-element" || statement.kind === "array-range"
+    || statement.kind === "assign" && fields?.places.has(statement.place) === true) return { kind: "complete", value: state };
   const work = chargeWork(deps.account, state.length) ?? chargeResultEntries(deps.account, state.length);
   if (work !== null) return work;
   const next = [...state];
@@ -279,6 +283,10 @@ export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, consta
     next[local] = operand !== null ? operandOrigins(input, constants, state, operand, slots, fields)
       : requirePresent(initial[local], { owner: "analyses/body", query: null, origin: statement.origin,
         message: "A selected pure scalar operation retains its storage disposition." });
+  } else if (statement.kind === "array-finish") {
+    const produced = requirePresent(arrays?.get(statement.start), { owner: "analyses/body", query: null, origin: statement.origin,
+      message: "A completed native array retains the actual allocation producer." });
+    next[rootSlot(input.mir, arrayDestination(input.mir, statement.start), slots)] = produced;
   } else next[statement.local] = requirePresent(initial[statement.local], { owner: "analyses/body", query: null,
     origin: statement.origin, message: "A storage reset retains the local's uninitialized value disposition." });
   return { kind: "complete", value: next };
@@ -288,7 +296,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: CurrentValues,
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  transport: OpenCallTransport | null,
+  transport: OpenCallTransport | null, arrays: ArrayOrigins,
   slots: StorageSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldProjections | null = null,
   objectValues: ReadonlySet<LocalId> | null = null): ForwardProblem<ValueState> {
   return {
@@ -332,12 +340,13 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
     },
     statement: (statement, state) => {
       if (state === null) return state;
-      const next = transferValue(deps, input, constants, initial, state.origins, statement, slots, fields);
+      const next = transferValue(deps, input, constants, initial, state.origins, statement, arrays, slots, fields);
       if (next.kind !== "complete") return state;
       const admission = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
       if (admission !== null) return state;
       const local = statement.kind === "assign" ? fields?.places.has(statement.place) === true
-        ? null : rootSlot(input.mir, statement.place, slots) : statement.local;
+        ? null : rootSlot(input.mir, statement.place, slots)
+        : statement.kind === "storage-live" || statement.kind === "storage-dead" ? statement.local : null;
       const changed = local !== null && tracked.has(local) ? currentContent(deps, state.contents, local, statement.kind === "assign") : null;
       if (changed !== null && changed.kind !== "complete") return state;
       return withValues(state, next.value, changed === null ? state.contents : changed.value);
@@ -359,6 +368,20 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         if (incoming.completion?.carried != null) return bodyFrontier("An unwind cannot overwrite an in-flight failure.");
         return edge(target, withCompletion(incoming, { active: incoming.completion?.active ?? null, carried: origins }));
       };
+      const failure = (unwind: MirUnwind, from: CurrentValues, payload: () => OriginsId): boolean => {
+        if (unwind.kind === "carry") return carry(unwind.target, payload(), from);
+        if (unwind.kind !== "handler") return true;
+        const { exception, target } = unwind;
+        if (exception === null) return edge(target, from);
+        if (chargeWork(account, from.origins.length + 1) !== null
+          || chargeResultEntries(account, from.origins.length + 2) !== null) return false;
+        const local = rootSlot(input.mir, exception, slots);
+        const written = [...from.origins];
+        written[local] = payload();
+        const contents = tracked.has(local) ? currentContent(deps, from.contents, local, true) : null;
+        return (contents === null || contents.kind === "complete")
+          && edge(target, withValues(from, written, contents?.value ?? from.contents));
+      };
       if (terminator.kind === "cleanup-enter" || terminator.kind === "cleanup-resume" || terminator.kind === "cleanup-discard") {
         if (chargeWork(account, 1) !== null || chargeResultEntries(account, terminator.kind === "cleanup-enter" ? 3 : 2) !== null) return outgoing;
         const moved = transferMirCompletion(terminator, state.completion ?? { active: null, carried: null });
@@ -366,29 +389,28 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
           return bodyFrontier("A value transfer must retain its exact qualified cleanup continuation.");
         edge(moved.target, withCompletion(state, moved.state));
       } else if (terminator.kind === "goto") edge(terminator.target, state);
+      else if (terminator.kind === "array-start") {
+        const local = rootSlot(input.mir, terminator.place, slots);
+        let reset = state;
+        const uninitialized = requirePresent(initial[local], { owner: "analyses/body", query: null, origin: terminator.origin,
+          message: "A new array stage resets only its own unwritten storage." });
+        if (state.origins[local] !== uninitialized) {
+          if (chargeWork(account, state.origins.length) !== null || chargeResultEntries(account, state.origins.length + 2) !== null) return outgoing;
+          const written = [...state.origins];
+          written[local] = uninitialized;
+          reset = withValues(state, written, state.contents);
+        }
+        const payload = () => originsId(0);
+        if (edge(terminator.next, reset) && failure(terminator.extentFailure, reset, payload))
+          failure(terminator.allocationFailure, reset, payload);
+      }
       else if (terminator.kind === "invoke" || terminator.kind === "check" || terminator.kind === "throw" || terminator.kind === "unwind-propagate") {
         if ((terminator.kind === "invoke" || terminator.kind === "check") && !edge(terminator.next, state)) return outgoing;
         const propagating = terminator.kind === "unwind-propagate";
         const payload = () => terminator.kind === "throw" ? operandOrigins(input, constants, state.origins, terminator.operand, slots, fields)
           : propagating ? state.completion?.carried ?? bodyFrontier("A propagated unwind has its actual carried origins.") : originsId(0);
         const from = propagating ? withCompletion(state, { active: state.completion?.active ?? null, carried: null }) : state;
-        if (terminator.unwind.kind === "carry") {
-          carry(terminator.unwind.target, payload(), from);
-          return outgoing;
-        }
-        if (terminator.unwind.kind !== "handler") return outgoing;
-        const { exception, target } = terminator.unwind;
-        if (exception === null) edge(target, from);
-        else {
-          if (chargeWork(account, state.origins.length + 1) !== null
-            || chargeResultEntries(account, state.origins.length + 2) !== null) return outgoing;
-          const local = rootSlot(input.mir, exception, slots);
-          const written = [...state.origins];
-          written[local] = payload();
-          const contents = tracked.has(local) ? currentContent(deps, state.contents, local, true) : null;
-          if (contents !== null && contents.kind !== "complete") return outgoing;
-          edge(target, withValues(from, written, contents?.value ?? state.contents));
-        }
+        failure(terminator.unwind, from, payload);
       }
       else if (terminator.kind === "switch") {
         for (const target of terminator.targets) if (!edge(target.target, state)) return outgoing;
@@ -466,11 +488,11 @@ export function solveValueOrigins(deps: BodyRoundDeps, input: BodyRoundInput, ar
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
   slots: StorageSlots, staticCallees: StaticCalleeCells | null, fields: HeldProjections | null, objectValues: ReadonlySet<LocalId> | null,
-  transport: OpenCallTransport | null): DataflowResult<FlowSolution<ValueState>> {
+  transport: OpenCallTransport | null, arrays: ArrayOrigins): DataflowResult<FlowSolution<ValueState>> {
   const work = chargeWork(deps.account, 1 + cells.length) ?? chargeResultEntries(deps.account, 4 + cells.length);
   if (work !== null) return work;
   const tracked = new Set(cells);
   const problem = valueProblem(deps, input, arena, values, constants, initial, { origins: boundary, contents: new Set() },
-    reachable, admit, captures, tracked, calls, transport, slots, staticCallees, cells, fields, objectValues);
+    reachable, admit, captures, tracked, calls, transport, arrays, slots, staticCallees, cells, fields, objectValues);
   return solve(input.mir, input.execution.provided, problem, deps.account);
 }

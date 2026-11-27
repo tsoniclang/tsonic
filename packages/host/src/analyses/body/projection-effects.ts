@@ -238,6 +238,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       const identity = origins.producers[index];
       const subject = identity === undefined ? undefined : bound[identity];
       const producer = subject === undefined ? undefined : producers[subject.producer];
+      if (producer?.kind === "allocation" && producer.path === null && projection.kind !== "field") continue;
       if (producer?.kind !== "parameter" || producer.path !== null
         || referenceFormals?.get(producer.index) !== (projection.kind === "field" ? "field" : "array"))
         return bodyFrontier("A held projection requires its actual incoming reference producer and storage family.");

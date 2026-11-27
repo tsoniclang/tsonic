@@ -18,13 +18,16 @@ import { compileIsolated, isolationDeps } from "../architecture/host/isolation.m
 import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { checkNativeArrayVerification } from "./fixtures/native-array-initialization.mjs";
+
+test("staged native array verification rejects an incomplete or crossed backing", checkNativeArrayVerification);
 
 const preparationMeter = () => ({ spent: 0, maximum: Number.MAX_SAFE_INTEGER, exhausted: false });
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8")).areas.map(area => area.directory);
 const names = ["index", "print", "parse", "verify", "verify-control", "verify-laws", "verify-storage", "verify-types", "local-ownership", "text", "text-decisions",
-  "completion", "constant-projection", "project-values", "verify-departure", "storage-exposures"];
+  "completion", "constant-projection", "project-values", "verify-array-initialization", "verify-departure", "storage-exposures"];
 const runtimeFiles = names.map(name => resolve(repository, `packages/host/dist/ir-mir/${name}.js`));
 const sourceFiles = [...names, "contract"].map(name => `packages/host/src/ir-mir/${name}.ts`);
 const evidenceDirectory = resolve(repository, ".analysis/20261111-f-ir-mir/unit-proof");

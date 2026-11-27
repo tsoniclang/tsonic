@@ -248,12 +248,26 @@ export function createBodyWire(): Wire<MirBody> {
     return record<MirSite & { readonly kind: Kind; readonly local: LocalId }>(kind, () => siteFields((origin, tir) =>
       field("local", () => localWire, value => value.local, local => finish(() => ({ origin, tir, kind, local })))));
   }
+  const arrayElement = record<Extract<MirStatement, { readonly kind: "array-element" }>>("array-element", () => siteFields((origin, tir) =>
+    field("start", () => blockWire, value => value.start, start =>
+      field("part", () => numberWire, value => value.part, part =>
+        field("operand", () => operandWire, value => value.operand, operand =>
+          finish(() => ({ origin, tir, kind: "array-element", start, part, operand })))))));
+  const arrayRange = record<Extract<MirStatement, { readonly kind: "array-range" }>>("array-range", () => siteFields((origin, tir) =>
+    field("start", () => blockWire, value => value.start, start =>
+      field("part", () => numberWire, value => value.part, part => finish(() => ({ origin, tir, kind: "array-range", start, part }))))));
+  const arrayFinish = record<Extract<MirStatement, { readonly kind: "array-finish" }>>("array-finish", () => siteFields((origin, tir) =>
+    field("start", () => blockWire, value => value.start, start => finish(() => ({ origin, tir, kind: "array-finish", start })))));
 
   const statementWire: Wire<MirStatement> = variants([
     choice("assign", () => assignStatement), choice("storage-live", () => storageStatement("storage-live")), choice("storage-dead", () => storageStatement("storage-dead")),
+    choice("array-element", () => arrayElement), choice("array-range", () => arrayRange), choice("array-finish", () => arrayFinish),
   ], (value, path, next) => {
     switch (value.kind) {
       case "assign": return assignStatement.write(value, path, next);
+      case "array-element": return arrayElement.write(value, path, next);
+      case "array-range": return arrayRange.write(value, path, next);
+      case "array-finish": return arrayFinish.write(value, path, next);
       case "storage-live": case "storage-dead": return storageStatement(value.kind).write(value, path, next);
     }
   });
@@ -367,6 +381,14 @@ export function createBodyWire(): Wire<MirBody> {
               field("step", () => stepWire, value => value.step, step =>
                 finish(() => ({ origin, tir, kind: "invoke", operation, operands, destination, next, unwind, step }))))))))));
 
+  const arrayStart = record<Extract<MirTerminator, { readonly kind: "array-start" }>>("array-start", () => siteFields((origin, tir) =>
+    field("place", () => placeWire, value => value.place, place =>
+      field("range", () => nullable(() => operandWire), value => value.range, range =>
+        field("next", () => blockWire, value => value.next, next =>
+          field("extentFailure", () => unwindWire, value => value.extentFailure, extentFailure =>
+            field("allocationFailure", () => unwindWire, value => value.allocationFailure, allocationFailure =>
+              finish(() => ({ origin, tir, kind: "array-start", place, range, next, extentFailure, allocationFailure })))))))));
+
   const awaitTerminator = record<MirTerminator & { readonly kind: "await" }>("await", () => siteFields((origin, tir) =>
     field("operand", () => operandWire, value => value.operand, operand =>
       field("destination", () => placeWire, value => value.destination, destination =>
@@ -420,7 +442,7 @@ export function createBodyWire(): Wire<MirBody> {
 
   const terminatorWire: Wire<MirTerminator> = variants([
     choice("goto", () => gotoTerminator), choice("switch", () => switchTerminator), choice("check", () => checkTerminator),
-    choice("call", () => callTerminator), choice("invoke", () => invokeTerminator),
+    choice("call", () => callTerminator), choice("invoke", () => invokeTerminator), choice("array-start", () => arrayStart),
     choice("await", () => awaitTerminator), choice("yield", () => yieldTerminator), choice("delegate", () => delegateTerminator), choice("throw", () => throwTerminator),
     choice("cleanup-enter", () => cleanupEnter), choice("cleanup-resume", () => cleanupResume), choice("cleanup-discard", () => cleanupDiscard),
     choice("unwind-propagate", () => unwindPropagate),
@@ -432,6 +454,7 @@ export function createBodyWire(): Wire<MirBody> {
       case "check": return checkTerminator.write(value, path, next);
       case "call": return callTerminator.write(value, path, next);
       case "invoke": return invokeTerminator.write(value, path, next);
+      case "array-start": return arrayStart.write(value, path, next);
       case "await": return awaitTerminator.write(value, path, next);
       case "yield": return yieldTerminator.write(value, path, next);
       case "delegate": return delegateTerminator.write(value, path, next);

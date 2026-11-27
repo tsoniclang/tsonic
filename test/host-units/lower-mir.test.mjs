@@ -31,6 +31,7 @@ import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
 import { checkCommaSequence, checkCoalescingAssignment, checkOptionalEmbedding, checkLabelledTransfers, checkVoidOperand } from "./fixtures/typed-occurrence-witnesses.mjs";
+import { checkNativeArrayLowering } from "./fixtures/native-array-initialization.mjs";
 
 // The producer does not lower every construct yet. A construct it does not lower is refused by its one frontier
 // check, a compiler defect whose message starts with FRONTIER. A case that meets it is not a passing case and not a
@@ -83,7 +84,7 @@ const UNIT = { request: { query: "mirBody", key: ["unit"] }, position: { kind: "
 // The coverage gate: every runtime file of lower-mir at 100% of lines, branches and functions over this bank and the
 // case modules it loads; the type-only contract is not applicable.
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "lower", "state", "model", "operands", "control", "calls", "bindings"].map(name => resolve(repository, `packages/host/dist/lower-mir/${name}.js`));
+const runtimeFiles = ["index", "lower", "state", "model", "operands", "control", "calls", "bindings", "array-initialization"].map(name => resolve(repository, `packages/host/dist/lower-mir/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
@@ -163,6 +164,7 @@ test("authored MIR: coalescing assignment evaluates the RHS only for absent stor
 test("authored MIR: optional embeddings preserve the selected payload or native absence", checkOptionalEmbedding);
 test("authored MIR: labelled transfers keep the selected loop or block destination", checkLabelledTransfers);
 test("authored MIR: void evaluates its operand exactly once", checkVoidOperand);
+test("authored MIR: staged native arrays copy the reached range before later expressions", checkNativeArrayLowering);
 
 test("authored MIR: finite spreads evaluate the one producer and take its slots before the next argument", async () => {
   const fixture = await loadFrontFixture();

@@ -1,7 +1,7 @@
 import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "../../dataflow/index.js";
 import { requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
-import type { BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, ProjectionPathId } from "../../ids/contract.js";
+import type { BlockId, BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, ProjectionPathId } from "../../ids/contract.js";
 import { boundProducerId, originsId, producerId, valueContextId } from "../../ids/index.js";
 import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundProducer, CaptureBinding, CaptureLocation, CountedLoopProofs, EffectPaths, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, OpenBoundary, Origins, Producer, ProjectionPath, ReadOriginsFact, RefinementFact, SubjectOriginsFact, Summary, ValueArgument, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, countedLoopsOf, fieldRefinementsOf } from "../../ir-facts/index.js";
@@ -13,7 +13,7 @@ import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } f
 import type { CallError, ReadCallApplication } from "./calls.js";
 import { applyScalarCall, bindCallInitialization, callCaptureBindings, callCellIndex, callInstance, isCallError, isLeastCall, scalarArgument } from "./calls.js";
 import { orderedRows, selectedSourceApplication, sourceOccurrences } from "./source.js";
-import { assignedEntry, selectedCallAt, solveAssigned, statementOperands, terminatorOperands, transferAssigned, unwrittenCause } from "./storage.js";
+import { arrayDestination, assignedEntry, selectedCallAt, solveAssigned, statementOperands, terminatorOperands, transferAssigned, unwrittenCause } from "./storage.js";
 import type { AssignedState } from "./storage.js";
 import { prepareCallCaptures } from "./captures.js";
 import { noCallBoundaries, noCallBoundary, openCallTransport } from "./open-calls.js";
@@ -437,7 +437,6 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       cells.push(cell);
     }
   }
-  const entryBoundCount = boundProducers.length;
   const argumentWork = chargeWork(account, signature.parameters.length) ?? chargeResultEntries(account, hasAbsence ? 1 : 0);
   if (argumentWork !== null) return argumentWork;
   const contexts: ValueContext[] = [{ id: valueContextId(0), receiver: signature.receiver === null ? null
@@ -461,7 +460,45 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     contextReferences += references;
     return null;
   };
-  let projectionEffects = referenceFormals === null ? null : createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations);
+  const staged = solved.value.arrays;
+  let arrays: Map<BlockId, OriginsId> | null = null;
+  if (staged !== null && buildFacts) {
+    const setup = chargeResultEntries(account, 1);
+    if (setup !== null) return setup;
+    arrays = new Map();
+    for (const [block, start] of staged) {
+      const work = chargeWork(account, 3);
+      if (work !== null) return work;
+      const place = mir.places[start.place];
+      if (place === undefined) return bodyFrontier("A new array allocation retains its actual result place.");
+      const type = deps.typeOf(place.storage);
+      const node = source.value.get(start.tir.node);
+      const cut = accountFailure(account);
+      if (cut !== null) return cut;
+      const construction = node?.kind === "ArrayLiteralExpression" && node.tsonic.role === "value" ? node.tsonic.construction : null;
+      const operation = construction?.kind === "decided" ? construction.decision.decision.operation : null;
+      if (type.kind !== "array" || operation?.kind !== "exact-array-construction")
+        return bodyFrontier("A new array allocation retains the original selected construction.");
+      const elements = valueKind(deps, type.element);
+      const kindStop = accountFailure(account);
+      if (kindStop !== null) return kindStop;
+      if (elements !== "primitive" && elements !== "origin-free-product")
+        return bodyFrontier("A native array with reference elements requires its actual element retention relation.");
+      const growth = bounded("maximumOriginAlternatives", 1) ?? admitRelations(3, 3) ?? chargeResultEntries(account, 6);
+      if (growth !== null) return growth;
+      const producer = producerId(producers.length);
+      const bound = boundProducerId(boundProducers.length);
+      const origins = originsId(originRows.length);
+      producers.push({ id: producer, path: null, kind: "allocation", at: { kind: "node", node: { kind: "body", value: start.tir } } });
+      boundProducers.push({ id: bound, producer, bindings: tir.lexicalBindings, context: valueContextId(0) });
+      originRows.push({ id: origins, kind: "complete", producers: [bound], includesAbsence: false });
+      arrays.set(block, origins);
+    }
+  }
+  const summaryProducerCount = producers.length;
+  const summaryBoundCount = boundProducers.length;
+  let projectionEffects = referenceFormals === null && (arrays === null || projections === null) ? null
+    : createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations);
   const boundarySetup = hasOpenCalls ? chargeResultEntries(account, 3) : null;
   if (boundarySetup !== null) return boundarySetup;
   const transport = hasOpenCalls ? openCallTransport(deps, input, producers, boundaries, admitRelations) : null;
@@ -510,7 +547,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const originsOf = (operand: MirOperand): OriginsId => operandOrigins(input, constantOrigins, currentOrigins, operand, storageSlots, projections);
   const flow = buildFacts && (hasReference || hasOptional || cellLocals.length !== 0) ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
     localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals, solved.value.calls,
-    storageSlots, staticCallees, projections, objectValues, transport) : null;
+    storageSlots, staticCallees, projections, objectValues, transport, arrays) : null;
   if (flow !== null && flow.kind !== "complete") return flow;
   let causalNeed: CallError | null = null;
   let directFailures: Map<NodeId, UninitializedRead> | null = null;
@@ -690,7 +727,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       const operands = statementOperands(statement);
       let index = 0;
       for (const operand of operands) {
-        const result = read(operand, operandSite(source.value.get(statement.tir.node), index, false), assigned,
+        const site = source.value.get(statement.tir.node);
+        const result = read(operand, statement.kind === "array-element" ? site : operandSite(site, index, false), assigned,
           { block: block.id, statement: position });
         if (result !== null) return result;
         index += 1;
@@ -721,7 +759,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const place: Extract<MirOperand, { readonly kind: "place" }> = { kind: "place", place: statement.place };
         const local = rootSlot(mir, statement.place, storageSlots);
         const capture = capturedLocals.get(local);
-        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, storageSlots, projections);
+        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, arrays, storageSlots, projections);
         if (transferred.kind !== "complete") return transferred;
         currentOrigins = transferred.value;
         const storeWork = chargeResultEntries(account, 3);
@@ -748,9 +786,17 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           values: [{ source: statement.tir, origins: storedOrigins, reason: null }], boundaries: [] });
       }
       if (buildFacts && statement.kind !== "assign" && (hasReference || hasOptional)) {
-        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, storageSlots, projections);
+        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, arrays, storageSlots, projections);
         if (transferred.kind !== "complete") return transferred;
         currentOrigins = transferred.value;
+      }
+      if (buildFacts && statement.kind === "array-finish") {
+        const growth = chargeResultEntries(account, 3);
+        if (growth !== null) return growth;
+        const place = arrayDestination(mir, statement.start);
+        writes.push({ point: { block: block.id, statement: position }, node: statement.tir.node, operation: "initialization",
+          destination: "binding", targets: [], owner: null,
+          values: [{ source: statement.tir, origins: originsOf({ kind: "place", place }), reason: null }], boundaries: [] });
       }
       const next = transferAssigned(mir, statement, assigned, account, storageSlots);
       const transferStop = accountFailure(account);
@@ -1019,7 +1065,24 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     }
     let operandIndex = 0;
     for (const operand of terminatorOperands(terminator)) {
-      const result = read(operand, operandSite(source.value.get(terminator.tir.node), operandIndex, terminator.kind === "switch"), assigned,
+      let site = source.value.get(terminator.tir.node);
+      if (terminator.kind === "array-start") {
+        const work = chargeWork(account, 1);
+        if (work !== null) return work;
+        const construction = site?.kind === "ArrayLiteralExpression" && site.tsonic.role === "value" ? site.tsonic.construction : null;
+        const operation = construction?.kind === "decided" ? construction.decision.decision.operation : null;
+        if (operation?.kind !== "exact-array-construction") return bodyFrontier("A range read retains its actual verified operand.");
+        site = undefined;
+        for (let index = 0; index < operation.parts.length; index += 1) {
+          const work = chargeWork(account, 1);
+          if (work !== null) return work;
+          const part = operation.parts[index];
+          if (part?.kind !== "spread") continue;
+          site = source.value.get(part.source.node);
+          break;
+        }
+      } else site = operandSite(site, operandIndex, terminator.kind === "switch");
+      const result = read(operand, site, assigned,
         { block: block.id, statement: null });
       if (result !== null) return result;
       operandIndex += 1;
@@ -1032,8 +1095,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         operation: "initialization", destination: "binding", targets: [], owner: null,
         values: [{ source: terminator.tir, origins: empty, reason: null }], boundaries: [] });
     }
-    const escapesExecution = (terminator.kind === "throw" || terminator.kind === "invoke" || terminator.kind === "check" || terminator.kind === "unwind-propagate")
-      && terminator.unwind.kind === "escape";
+    const escapesExecution = terminator.kind === "array-start"
+      ? terminator.extentFailure.kind === "escape" || terminator.allocationFailure.kind === "escape"
+      : (terminator.kind === "throw" || terminator.kind === "invoke" || terminator.kind === "check" || terminator.kind === "unwind-propagate")
+        && terminator.unwind.kind === "escape";
     if (flow !== null && (terminator.kind === "return" || escapesExecution)) {
       const state = flow.value.exit[block.id];
       const origins = requirePresent(state?.origins, { owner: "analyses/body", query: null, origin: terminator.origin,
@@ -1062,7 +1127,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       const state = cellMustAtExit(deps, boundarySlots, assigned.written, unwindAssigned);
       if (state.kind !== "complete") return state;
       unwindAssigned = state.value;
-      if (terminator.kind === "invoke" || terminator.kind === "check") continue;
+      if (terminator.kind === "invoke" || terminator.kind === "check" || terminator.kind === "array-start") continue;
       const origins = terminator.kind === "throw" ? originsOf(terminator.operand) : flow?.value.exit[block.id]?.completion?.carried ?? empty;
       const joined = joinOrigins(deps, values.value, thrownOrigins, origins, admitUnion);
       if (typeof joined !== "number") return joined;
@@ -1172,12 +1237,12 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   if (normal.kind !== "complete") return normal;
   const unwound = collectCellWrites(deps, cells.length, boundarySlots.length, unwindContents);
   if (unwound.kind !== "complete") return unwound;
-  const projected = contexts.length === 1 ? null : chargeWork(account, formalCount + boundarySlots.length + entryBoundCount)
-    ?? chargeResultEntries(account, formalCount + boundarySlots.length + entryBoundCount + 1);
+  const projected = contexts.length === 1 ? null : chargeWork(account, formalCount + boundarySlots.length + summaryBoundCount)
+    ?? chargeResultEntries(account, formalCount + boundarySlots.length + summaryBoundCount + 1);
   if (projected !== null) return projected;
   const summaryArena = contexts.length === 1 ? arena : { ...arena,
-    producers: boundaries.length === 0 ? producers.slice(0, formalCount + capturedEntries.length) : producers, cells: cells.slice(0, boundarySlots.length),
-    boundProducers: boundProducers.slice(0, entryBoundCount), contexts: [requirePresent(contexts[0],
+    producers: boundaries.length === 0 ? producers.slice(0, summaryProducerCount) : producers, cells: cells.slice(0, boundarySlots.length),
+    boundProducers: boundProducers.slice(0, summaryBoundCount), contexts: [requirePresent(contexts[0],
       { owner: "analyses/body", query: null, origin: null, message: "A scalar boundary projection retains its actual entry context." })] };
   const summary: Summary = { key: { kind: "body", execution }, signature: tir.signature, arena: summaryArena,
     parameters: [], captures: [],

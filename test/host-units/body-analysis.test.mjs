@@ -17,6 +17,9 @@ import { accountFailure, createAccount, refuseAccount, remainingWork } from "../
 import { verifyFacts, verifySummary, printFacts, parseFacts, printSummary, parseSummary, escapeTargetKey, countedLoopsOf } from "../../packages/host/dist/ir-facts/index.js";
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { checkRepeatedStaticInitialization } from "./fixtures/program-static-exposure.mjs";
+import { checkNativeArrayFacts } from "./fixtures/native-array-initialization.mjs";
+
+test("staged native array facts publish one completed backing and the actual unwind", checkNativeArrayFacts);
 
 const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
 const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 128, maximumConditionAlternatives: 128,
@@ -3474,7 +3477,7 @@ test("optional value transfer rejects an unselected or unsupported replacement o
   const constants = initializer.mir.constants.map(() => 0);
   const input = { mir: initializer.mir };
   const call = value => transferValue({ types, typeOf: type => types.terms[type], account: createAccount(limits) }, input,
-    constants, state, state, { ...defaultValue, value });
+    constants, state, state, { ...defaultValue, value }, null);
   const value = defaultValue.value;
   assert.throws(() => call({ ...value, kind: "unary" }), /actual selected optional value conversion/);
   assert.throws(() => call({ ...value, to: value.operation.decision.operation.from }), /actual selected absent or present optional conversion/);
@@ -4383,7 +4386,7 @@ test("the direct least round evaluates its supplied argument without applying ei
   const account = createAccount(limits);
   const effects = valueProblem({ ...current.deps, account }, current.input, pair.facts.arena,
     indexedOrigins(current, pair.facts.arena.origins), [], initial, boundary, current.input.mir.blocks.map(() => true),
-    () => null, new Map(), new Set([0, 1]), new Map([[point.block, least]]), null);
+    () => null, new Map(), new Set([0, 1]), new Map([[point.block, least]]), null, null);
   const noContinuation = { ...operation, get destination() { assert.fail("a least value edge cannot apply a selected destination"); },
     get unwind() { assert.fail("a least value edge cannot apply an unwind effect"); } };
   assert.deepEqual(effects.terminator(noContinuation, boundary, account, point.block), []);
@@ -4582,7 +4585,7 @@ test("the canonical reference lattice compares values, pays joins and treats unr
   const boundary = contentState(state);
   const make = (account = createAccount(limits), answer = summary, reachable = current.input.mir.blocks.map(() => true), admit = () => null) =>
     valueProblem({ ...current.deps, account }, current.input, pair.facts.arena, values, [], initial, boundary, reachable, admit, new Map(),
-      new Set([0, 1]), new Map([[point.block, answer]]), null);
+      new Set([0, 1]), new Map([[point.block, answer]]), null, null);
   const problem = make();
   const lattice = problem.lattice;
   assert.equal(lattice.equals(boundary, boundary, createAccount(limits)), true);
@@ -4629,7 +4632,7 @@ test("the canonical reference lattice compares values, pays joins and treats unr
       assert.equal(kernel.lattice.join(unread, [], account), unread);
       assert.equal(transferValue({ ...current.deps, account }, new Proxy({}, {
         get() { assert.fail("No transfer input after stop."); },
-      }), [], [], unread, {}), stop);
+      }), [], [], unread, {}, null), stop);
     }
     assert.equal(complete, true);
   }
@@ -4683,7 +4686,7 @@ test("real many-slot joins and immediate callee exit contents use one linear pai
     const activation = pair.facts.origins.activations.find(row => row.point.block === block.id);
     const contexts = new Map([[block.id, pair.facts.arena.contexts[activation.context].captures]]);
     const make = account => valueProblem({ ...current.deps, account }, current.input, pair.facts.arena, values, [], origins, state,
-      current.input.mir.blocks.map(() => true), () => null, contexts, new Set(locals), new Map([[block.id, summary]]), null);
+      current.input.mir.blocks.map(() => true), () => null, contexts, new Set(locals), new Map([[block.id, summary]]), null, null);
     const expected = new Set(locals);
     const length = origins.length;
     const joinWork = 3 * length + count + 1;
@@ -4887,7 +4890,7 @@ test("selected reference-call helpers keep genuine unsupported inputs explicit a
     /selected call-result representation/);
   assert.throws(() => transferValue(current.deps, current.input, [], initial, state,
     { kind: "assign", place: operation.destination, tir: operation.tir, origin: operation.origin,
-      value: { kind: "convert", operand: operation.arguments[0].operand } }), /reference operation value producer/);
+      value: { kind: "convert", operand: operation.arguments[0].operand } }, null), /reference operation value producer/);
 });
 
 test("canonical Origins unions retain strict supersets and deduplicate genuine overlapping alternatives", () => {

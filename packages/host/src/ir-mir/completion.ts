@@ -1,7 +1,12 @@
 import type { BlockId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { MirBlock, MirCompletionFault, MirCompletionState, MirExecutionEdge, MirFixedControlEdge, MirPendingCompletion,
+import type { MirBlock, MirCompletionFault, MirCompletionState, MirExecutionEdge, MirFixedControlEdge, MirPendingCompletion, MirTerminator, MirUnwind,
   PrepareMirExecutionGraph, TransferMirCompletion } from "./contract.js";
+
+export function hasUnwindKind(terminator: MirTerminator, kind: MirUnwind["kind"]): boolean {
+  return terminator.kind === "array-start" ? terminator.extentFailure.kind === kind || terminator.allocationFailure.kind === kind
+    : "unwind" in terminator && terminator.unwind.kind === kind;
+}
 
 export const transferCompletion: TransferMirCompletion = (terminator, state) => {
   switch (terminator.kind) {
@@ -122,7 +127,7 @@ export const prepareExecutionGraph: PrepareMirExecutionGraph = (body, roots, con
     if (terminator.kind === "unwind-propagate") {
       if (state.carried === null) return invalid(block.id, "carried-propagation");
     } else if (state.carried !== null && terminator.kind !== "goto") return invalid(block.id, "carried-propagation");
-    if (state.active !== null && (terminator.kind === "return" || "unwind" in terminator && terminator.unwind.kind === "escape"))
+    if (state.active !== null && (terminator.kind === "return" || hasUnwindKind(terminator, "escape")))
       return invalid(block.id, "pending-exit");
     const edges = controls(block.id);
     let carry: MirExecutionEdge | undefined;

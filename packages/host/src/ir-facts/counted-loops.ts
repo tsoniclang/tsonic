@@ -67,7 +67,7 @@ function reachingAssignment(block: MirBlock, before: number, place: PlaceId, sto
     const statement = block.statements[position];
     if (statement === undefined) return absent;
     if (statement.kind !== "assign") {
-      if (statement.local === local) return absent;
+      if ((statement.kind === "storage-live" || statement.kind === "storage-dead") && statement.local === local) return absent;
       continue;
     }
     if (storage.roots[statement.place] !== local) continue;
@@ -228,7 +228,9 @@ function stableExtent(mir: MirBody, loop: NaturalLoop, extent: ExtentBound, stor
         const target = mir.places[statement.place]?.base;
         if (target?.kind !== "local" || target.local === receiver.id)
           return { kind: "complete", value: false };
-      } else if (statement.local === receiver.id) return { kind: "complete", value: false };
+      } else if ((statement.kind === "storage-live" || statement.kind === "storage-dead") && statement.local === receiver.id) {
+        return { kind: "complete", value: false };
+      }
     }
     const terminator = block.terminator;
     if (terminator.kind === "call" || terminator.kind === "invoke" || terminator.kind === "await"
@@ -353,7 +355,8 @@ function validateBindings(
       if (read !== null) return read;
       const statement = block.statements[index];
       if (statement === undefined || (statement.kind === "assign"
-        ? writesCounter(statement.place) && statement !== roles.commit : statement.local === roles.local))
+        ? writesCounter(statement.place) && statement !== roles.commit
+        : (statement.kind === "storage-live" || statement.kind === "storage-dead") && statement.local === roles.local))
         return { kind: "complete", value: false };
     }
     let crossing = false;

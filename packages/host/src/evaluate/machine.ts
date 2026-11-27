@@ -312,7 +312,7 @@ function execute(machine: Machine): void {
     frame.statement += 1;
     if (statement.kind === "storage-live") frame.cells.set(statement.local, { value: null });
     else if (statement.kind === "storage-dead") frame.cells.delete(statement.local);
-    else {
+    else if (statement.kind === "assign") {
       const local = localPlace(machine, statement.place, statement);
       if (local === null) return;
       frame.work.push({ kind: "store", local, site: statement });
@@ -327,13 +327,14 @@ function execute(machine: Machine): void {
           break;
         default: return fail("Evaluate has not implemented this selected rvalue.", statement.origin);
       }
-    }
+    } else return fail("Evaluate has not implemented staged native array storage.", statement.origin);
     return;
   }
   const terminator = block.terminator;
   if (!step(machine, terminator.origin)) return;
   switch (terminator.kind) {
     case "goto": frame.block = terminator.target; frame.statement = 0; return;
+    case "array-start": return fail("Evaluate has not implemented staged native array storage.", terminator.origin);
     case "return":
       if (terminator.value === null) returnValue(machine, null, terminator);
       else frame.work.push({ kind: "return", site: terminator }, { kind: "read", operand: terminator.value, site: terminator });

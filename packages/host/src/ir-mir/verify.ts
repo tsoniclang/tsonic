@@ -9,6 +9,7 @@ import type { MirBody, MirConstantValue, MirRule, MirVerification, MirVerificati
 import { admitWork, chargeWork, createWireTexts, densePosition, sourceNodes, validOrigin, verifyCompletionControl, verifyEdges, verifySelections } from "./verify-control.js";
 import type { WorkMeter } from "./verify-control.js";
 import { placeLocations, verifyStorage, verifyValues } from "./verify-storage.js";
+import { verifyArrayInitialization } from "./verify-array-initialization.js";
 import { verifyLaws } from "./verify-laws.js";
 import { componentReferences, verifyTypeReferences } from "./verify-types.js";
 import type { SignatureReference, TypeReference } from "./verify-types.js";
@@ -507,6 +508,8 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
       return { kind: "complete", violations: [...rows, ...values.violations, ...edges.violations, ...selections, execution.violation, ...decisions] };
     control = execution.control;
   }
+  const arrays = values.stages ? verifyArrayInitialization(body, nodes, input.types, places, control, meter) : [];
+  if (meter.exhausted) return refusal;
   const storage = verifyStorage(body, places, control, meter);
   if (meter.exhausted) return refusal;
   const laws = verifyLaws(body, input, nodes, texts, places, control, meter);
@@ -516,7 +519,7 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
   const references = verifyTypeReferences(input.types, types, signatures, meter);
   if (meter.exhausted) return refusal;
   const violations: Violation<MirRule, MirViolationSite>[] = [];
-  for (const family of [rows, values.violations, edges.violations, selections, storage, laws, decisions,
+  for (const family of [rows, values.violations, edges.violations, selections, arrays, storage, laws, decisions,
     references]) for (const violation of family) violations.push(violation);
   return { kind: "complete", violations };
 }

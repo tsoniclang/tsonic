@@ -1,6 +1,7 @@
 import type { BlockId, BodyId, NodeId } from "../ids/contract.js";
 import type { TirSyntaxOccurrence } from "../ir-tir/contract.js";
 import type { MirExecutionPoint, MirTerminator } from "./contract.js";
+import { hasUnwindKind } from "./completion.js";
 
 type SourceTry = Extract<TirSyntaxOccurrence, { readonly kind: "TryStatement" }>;
 type SourceLookup = (node: NodeId) => TirSyntaxOccurrence | undefined;
@@ -91,7 +92,7 @@ export function verifyRequiredDepartures(body: BodyId, points: readonly MirExecu
       if (region === null || region.owner.finallyBlock === null || entries.get(region.owner.finallyBlock.id) !== terminator.entry
         || (region.arm === "cleanup") !== (terminator.kind === "cleanup-discard"))
         return { block: block.id, reason: "cleanup-departure-order" };
-    } else if (region !== null && (terminator.kind === "return" || "unwind" in terminator && terminator.unwind.kind === "escape")) {
+    } else if (region !== null && (terminator.kind === "return" || hasUnwindKind(terminator, "escape"))) {
       return { block: block.id, reason: "required-cleanup" };
     }
     for (let ordinal = 0; ordinal < edges.length; ordinal += 1) {

@@ -26,6 +26,18 @@ export interface AssignedState {
 
 export type Assigned = AssignedState | null;
 
+export function arrayDestination(body: MirBody, start: BlockId): PlaceId {
+  const terminator = body.blocks[start]?.terminator;
+  if (terminator?.kind !== "array-start") return bodyFrontier("A completed array retains its actual verified start.");
+  return terminator.place;
+}
+
+function arrayLocal(body: MirBody, place: PlaceId): LocalId {
+  const base = body.places[place]?.base;
+  if (base?.kind !== "local") return bodyFrontier("A staged array retains its verified temporary.");
+  return base.local;
+}
+
 export function localSlotLifetimes(input: BodyRoundInput, entries: readonly Assigned[],
   account: DataflowAccount): DataflowResult<ReadonlyMap<LocalId, readonly LogicalCellLifetime[]>> {
   const admitted = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
@@ -98,29 +110,45 @@ export function solveStorageLive(input: Pick<BodyRoundInput, "execution" | "mir"
   const problem: ForwardProblem<StorageLive> = {
     direction: "forward", boundary: new Set(), lattice: storageLiveLattice(input.mir.locals.length + 1),
     statement: (statement, state, borrowed) => {
-      if (state === null || statement.kind !== "storage-live" && statement.kind !== "storage-dead") return state;
+      if (state === null || statement.kind === "assign" || statement.kind === "array-element" || statement.kind === "array-range") return state;
+      const opens = statement.kind !== "storage-dead";
       const growth = chargeWork(borrowed, state.size + 1)
-        ?? chargeResultEntries(borrowed, state.size + (statement.kind === "storage-live" ? 2 : 1));
+        ?? chargeResultEntries(borrowed, state.size + (opens ? 2 : 1));
       if (growth !== null) return state;
       const next = new Set(state);
-      if (statement.kind === "storage-live") next.add(statement.local);
-      else next.delete(statement.local);
+      const local = statement.kind === "array-finish" ? arrayLocal(input.mir, arrayDestination(input.mir, statement.start)) : statement.local;
+      if (opens) next.add(local);
+      else next.delete(local);
       return next;
     },
     terminator: (terminator, state, borrowed, _block, resumed) => {
       if (state === null) return [];
       if (chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 1) !== null) return [];
       const outgoing: { readonly target: BlockId; readonly state: StorageLive }[] = [];
-      const edge = (target: BlockId): boolean => {
+      const edge = (target: BlockId, outgoingState: StorageLive = state): boolean => {
         if (chargeWork(borrowed, 1) !== null) return false;
         if (entries[target] === null || entries[target] === undefined) return true;
         if (chargeResultEntries(borrowed, 1) !== null) return false;
-        outgoing.push({ target, state });
+        outgoing.push({ target, state: outgoingState });
         return true;
       };
       const cleanup = cleanupTarget(terminator, resumed);
       if (cleanup !== null) edge(cleanup);
       else if (terminator.kind === "goto") edge(terminator.target);
+      else if (terminator.kind === "array-start") {
+        const local = arrayLocal(input.mir, terminator.place);
+        let next = state;
+        if (state.has(local)) {
+          if (chargeWork(borrowed, state.size) !== null || chargeResultEntries(borrowed, state.size + 1) !== null) return [];
+          const reset = new Set(state);
+          reset.delete(local);
+          next = reset;
+        }
+        if (!edge(terminator.next, next)) return outgoing;
+        for (const unwind of [terminator.extentFailure, terminator.allocationFailure]) {
+          if ((unwind.kind === "carry" || unwind.kind === "handler") && !edge(unwind.target, next)) return outgoing;
+        }
+      }
       else if (terminator.kind === "call" || terminator.kind === "invoke" || terminator.kind === "check") {
         if (!edge(terminator.next)) return outgoing;
         if (terminator.unwind.kind === "carry" || terminator.unwind.kind === "handler") edge(terminator.unwind.target);
@@ -156,6 +184,7 @@ export function selectedCallAt(calls: ReadonlyMap<BlockId, SelectedCall> | null,
 }
 
 export function statementOperands(statement: MirStatement): readonly MirOperand[] {
+  if (statement.kind === "array-element") return [statement.operand];
   if (statement.kind !== "assign") return [];
   const value = statement.value;
   switch (value.kind) {
@@ -186,6 +215,7 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
       return [terminator.operand];
     case "switch": return [terminator.operand];
     case "invoke": return terminator.operands;
+    case "array-start": return terminator.range === null ? [] : [terminator.range];
     case "goto": case "unreachable": case "check": case "cleanup-enter": case "cleanup-resume": case "cleanup-discard": case "unwind-propagate": return [];
     default: return bodyFrontier("BodyAnalysis needs the selected call, failure or suspension transport for this terminator.");
   }
@@ -199,9 +229,15 @@ export function transferAssigned(body: MirBody, statement: MirStatement, state: 
   account: DataflowAccount, slots: StorageSlots = null): Assigned {
   if (state === null || accountFailure(account) !== null) return state;
   if (statement.kind === "assign") return assignDestination(body, statement.place, state, account, slots, true);
+  if (statement.kind === "array-finish") return assignDestination(body, arrayDestination(body, statement.start), state, account, slots, true);
+  if (statement.kind === "array-element" || statement.kind === "array-range") return state;
+  return resetAssigned(statement.local, state, account);
+}
+
+function resetAssigned(local: LocalId, state: AssignedState, account: DataflowAccount): AssignedState {
   if (chargeWork(account, 1 + state.written.size) !== null || chargeResultEntries(account, state.written.size + 2) !== null) return state;
   const written = new Set(state.written);
-  written.delete(statement.local);
+  written.delete(local);
   return { written, taint: state.taint };
 }
 
@@ -376,7 +412,8 @@ export function assignedLattice(stateBound: number): Lattice<Assigned> {
 export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "execution" | "mir">, source: ReadCallApplication, slots: StorageSlots = null,
   staticCellCount = 0, observeCall: ((summary: Summary) => DataflowStop | null) | null = null, staticSlot: StaticCalleeCells | null = null):
   DataflowResult<{ readonly entry: readonly Assigned[]; readonly reachable: readonly boolean[]; readonly error: CallError | null;
-    readonly calls: ReadonlyMap<BlockId, SelectedCall> | null }> {
+    readonly calls: ReadonlyMap<BlockId, SelectedCall> | null;
+    readonly arrays: ReadonlyMap<BlockId, Extract<MirTerminator, { readonly kind: "array-start" }>> | null }> {
   const { account } = deps;
   const entry = chargeWork(account, 1);
   if (entry !== null) return entry;
@@ -391,12 +428,32 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
   }
   let error: CallError | null = null;
   let calls: Map<BlockId, SelectedCall> | null = null;
+  let arrays: Map<BlockId, Extract<MirTerminator, { readonly kind: "array-start" }>> | null = null;
   let answers: Map<string, RoundCallRead> | null = null;
   const problem: ForwardProblem<Assigned> = {
     direction: "forward", boundary: { written: boundary, taint: null },
     lattice: assignedLattice(body.locals.length + staticCellCount + 1),
     statement: (statement, state, borrowed) => transferAssigned(body, statement, state, borrowed, slots),
     terminator: (terminator, state, borrowed, block, resumed) => {
+      if (terminator.kind === "array-start") {
+        if (state === null || chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 2) !== null) return [];
+        if (arrays?.has(block) !== true) {
+          if (chargeResultEntries(borrowed, arrays === null ? 2 : 1) !== null) return [];
+          arrays ??= new Map();
+          arrays.set(block, terminator);
+        }
+        const local = arrayLocal(body, terminator.place);
+        const reset = state.written.has(local) ? resetAssigned(local, state, borrowed) : state;
+        if (accountFailure(borrowed) !== null) return [];
+        const targets = [{ target: terminator.next, state: reset }];
+        for (const unwind of [terminator.extentFailure, terminator.allocationFailure]) {
+          if (unwind.kind !== "handler" && unwind.kind !== "carry") continue;
+          const handled = assignedHandler(body, unwind, reset, borrowed, slots);
+          if (handled === null) return [];
+          targets.push(handled);
+        }
+        return targets;
+      }
       if (terminator.kind === "call" || terminator.kind === "invoke" || terminator.kind === "check") {
         if (state === null) return [];
         let next = state;
@@ -475,5 +532,5 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
   if (solved.kind !== "complete") return solved;
   const collect = chargeResultEntries(account, 1);
   if (collect !== null) return collect;
-  return { kind: "complete", value: { entry: solved.value.entry, reachable: solved.value.reachable, error, calls } };
+  return { kind: "complete", value: { entry: solved.value.entry, reachable: solved.value.reachable, error, calls, arrays } };
 }

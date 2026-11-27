@@ -198,7 +198,7 @@ export function emitStatement(state: LowerState, statement: MirStatement): boole
   state.current.statements.push(statement);
   if (state.placeChecks !== null) {
     if (statement.kind === "assign") checkedPlaceWrite(state, statement.place);
-    else checkedCellWrite(state, statement.local);
+    else if (statement.kind === "storage-live" || statement.kind === "storage-dead") checkedCellWrite(state, statement.local);
   }
   return true;
 }

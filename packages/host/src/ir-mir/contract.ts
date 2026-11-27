@@ -199,6 +199,9 @@ export interface MirStepRef {
 // operand's set is enumerated.
 export type MirStatement = MirSite & (
   | { readonly kind: "assign"; readonly place: PlaceId; readonly value: MirRvalue; readonly step: MirStepRef | null }
+  | { readonly kind: "array-element"; readonly start: BlockId; readonly part: number; readonly operand: MirOperand }
+  | { readonly kind: "array-range"; readonly start: BlockId; readonly part: number }
+  | { readonly kind: "array-finish"; readonly start: BlockId }
   | { readonly kind: "storage-live"; readonly local: LocalId }
   | { readonly kind: "storage-dead"; readonly local: LocalId }
 );
@@ -265,6 +268,8 @@ export type MirTerminator = MirSite & (
       readonly next: BlockId; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "invoke"; readonly operation: TypedOperation; readonly operands: readonly MirOperand[];
       readonly destination: PlaceId | null; readonly next: BlockId; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
+  | { readonly kind: "array-start"; readonly place: PlaceId; readonly range: MirOperand | null;
+      readonly next: BlockId; readonly extentFailure: MirUnwind; readonly allocationFailure: MirUnwind }
   | { readonly kind: "await"; readonly operand: MirOperand; readonly destination: PlaceId;
       readonly resume: BlockId; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "yield"; readonly operand: MirOperand | null; readonly destination: PlaceId;
@@ -388,6 +393,7 @@ export type MirRule =
   | "constant-type"
   | "metadata-constant-not-materialised"
   | "assignment-type"
+  | "array-initialization-exact"
   | "static-read-exact" | "static-write-exact"
   | "operation-selected"
   | "edge-target-resolves"

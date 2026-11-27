@@ -9,7 +9,7 @@ import { chapterSyntaxSlots, indexChapterSyntax, layoutObservationOf, rawValueTy
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
 import type { MirBlock, MirBody, MirControlEdgeKind, MirControlProjection, MirExecutionEdge, MirExecutionPoint, MirFixedControlEdge, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite, VisitMirControlEdges } from "./contract.js";
-import { prepareExecutionGraph } from "./completion.js";
+import { hasUnwindKind, prepareExecutionGraph } from "./completion.js";
 import type { CleanupDeparture } from "./verify-departure.js";
 import { verifyRequiredDepartures } from "./verify-departure.js";
 
@@ -107,6 +107,12 @@ export const visitControlEdges: VisitMirControlEdges = (terminator, projection) 
       if (stop !== null) return stop;
       visitAdmittedEdge(projection, "normal", terminator.next, terminator.kind === "check" ? null : terminator);
       return visitUnwindEdge(terminator.unwind, projection);
+    }
+    case "array-start": {
+      const stop = projection.admit();
+      if (stop !== null) return stop;
+      visitAdmittedEdge(projection, "normal", terminator.next, null);
+      return visitUnwindEdge(terminator.extentFailure, projection) ?? visitUnwindEdge(terminator.allocationFailure, projection);
     }
     case "await": case "yield": case "delegate": {
       const stop = projection.admit();
@@ -240,7 +246,7 @@ export function verifyEdges(body: MirBody, meter: WorkMeter): {
 
 export function isCompletionControl(terminator: MirTerminator): boolean {
   return terminator.kind === "cleanup-enter" || terminator.kind === "cleanup-resume" || terminator.kind === "cleanup-discard"
-    || terminator.kind === "unwind-propagate" || "unwind" in terminator && terminator.unwind.kind === "carry";
+    || terminator.kind === "unwind-propagate" || hasUnwindKind(terminator, "carry");
 }
 
 export function verifyCompletionControl(body: MirBody, control: ControlInventory, nodes: ReadonlyMap<NodeId, SourceNode>, meter: WorkMeter):

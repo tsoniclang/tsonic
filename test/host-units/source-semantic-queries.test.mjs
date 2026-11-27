@@ -5,6 +5,7 @@ import { before, test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { checkedDomain } from "./fixtures/front/checked-domain.mjs";
+import { nativeInt32Input as buildNativeInt32Input } from "./fixtures/native-int32-input.mjs";
 
 let fixture;
 let wiring;
@@ -2383,24 +2384,7 @@ test("an empty source object has a checked zero-part construction, not an empty 
   assert.deepEqual(irInfer.parseConstraints(irInfer.printConstraints(set)), { kind: "parsed", value: set });
 });
 
-async function nativeInt32Input(sourceText, selected) {
-  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
-  const source = 'import type { int32 as Native } from "native-fixture";\n' + sourceText;
-  const root = "/project/node_modules/native-fixture";
-  const reference = { package: fixture.packageOf("/semantics"), version: "1", moduleSpecifier: "./plugin.js", exportId: "semantics" };
-  const semantics = { moduleSpecifier: "native-fixture", packageName: "native-fixture", packageVersion: "1.0.0",
-    capabilities: ["primitive"], exports: [fixture.sdk.sourcePrimitive("int32", "int32", "number", true, 32)] };
-  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
-    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
-    providerPackages: [{ root: "/semantics", name: "semantics" }], semanticModules: selected ? [reference] : [],
-    otherPackages: [{ root, name: "native-fixture", modules: { "index.d.ts": ["declaration", "export type int32 = number;", true] } }],
-    extraFiles: { [root + "/package.json"]: '{"name":"native-fixture","version":"1.0.0","types":"index.d.ts"}' } });
-  const extensions = fixture.front.createCheckerExtensions(selected ? [{ reference, value: { kind: "semantics-module", value: semantics } }] : []);
-  const carrierHolding = [...snapshot.nativeFacts.carrierHolding, { carrier: "int32", holding: "in-place" },
-    { carrier: "tuple", holding: "in-place" }].sort((left, right) => left.carrier < right.carrier ? -1 : 1);
-  return { ...analysisInput(fixture, "sdk-minimal", source), extensions,
-    snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts, carrierHolding } } };
-}
+const nativeInt32Input = (sourceText, selected) => buildNativeInt32Input(fixture, sourceText, selected);
 
 test("checked primitive annotations retain their selected provider carrier, not the shared checker number", async () => {
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

@@ -3,7 +3,7 @@ import { throwInvariant } from "../diag/index.js";
 import type { BlockId, BodyId, LocalId, LocalRef, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, Statement, SwitchStatement, ThrowStatement, TryStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
 import type { ArrayLiteralExpression, BindingPattern, CaseClause, CaseOrDefaultClause, DefaultClause, ElementAccessExpression, PropertyAccessExpression, SpreadElement } from "../ir-hir/contract.js";
-import type { IndexDecision } from "../ir-infer/contract.js";
+import type { IndexDecision, NativeArrayConstructionOperation } from "../ir-infer/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
 import type { CheckFailure } from "../ir-types/contract.js";
 import type { MemberSelection, TirApplication, TirBody, TirDemand, TirModuleRoot, TypedOperation, TypedValueOccurrence, TypedPhase, TypedValue } from "../ir-tir/contract.js";
@@ -68,6 +68,18 @@ export interface SwitchTarget<Clause extends CaseOrDefaultClause<TypedPhase> = C
   readonly position: number;
 }
 
+export interface NativeArrayWork {
+  readonly kind: "native-array";
+  readonly node: ArrayLiteralExpression<TypedPhase>;
+  readonly operation: NativeArrayConstructionOperation;
+  readonly operands: readonly TyId[];
+  readonly result: TyId;
+  readonly range: number;
+  readonly position: number;
+  readonly afterOperand: boolean;
+  readonly started: { readonly start: BlockId; readonly place: PlaceId } | null;
+}
+
 export type Work =
   | { readonly kind: "module"; readonly node: TirModuleRoot; readonly position: number }
   | { readonly kind: "statement"; readonly node: Statement<TypedPhase> }
@@ -86,6 +98,7 @@ export type Work =
   | { readonly kind: "declarations"; readonly node: VariableDeclarationList<TypedPhase>; readonly lexical: boolean; readonly position: number }
   | { readonly kind: "pattern-value"; readonly node: BindingPattern<TypedPhase> }
   | { readonly kind: "tuple-value"; readonly node: ArrayLiteralExpression<TypedPhase>; readonly operation: TypedOperation; readonly position: number }
+  | NativeArrayWork
   | { readonly kind: "scope-end"; readonly node: NodeHeader; readonly scope: LocalScope }
   | { readonly kind: "call"; readonly node: CallExpression<TypedPhase> | NewExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
   | { readonly kind: "call-spread"; readonly node: SpreadElement<TypedPhase>; readonly count: number }

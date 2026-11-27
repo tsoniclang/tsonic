@@ -5,7 +5,7 @@ import type { Expression } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ExactRational, LiteralValue, TypeTerm } from "../ir-types/contract.js";
 import { literalCompatibilityOf, nativeAbsenceComparisonOf, nativeArrayExtentOf, nativeCarrierHoldingOf } from "../ir-types/index.js";
-import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
+import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { admitWork, chargeWork, densePosition, edgePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
 import type { ControlEdge, ControlFlow, SourceNode, WorkMeter } from "./verify-control.js";
 import type { SignatureReference, TypeReference } from "./verify-types.js";
@@ -27,6 +27,9 @@ export function rvalueOperands(value: MirRvalue): readonly MirOperand[] {
 
 export function terminatorOperands(terminator: MirTerminator): readonly MirOperand[] {
   const operands: MirOperand[] = [];
+  const exception = (unwind: MirUnwind): void => {
+    if (unwind.kind === "handler" && unwind.exception !== null) operands.push({ kind: "place", place: unwind.exception });
+  };
   switch (terminator.kind) {
     case "goto": case "unreachable": case "cleanup-enter": case "cleanup-resume": case "cleanup-discard": return operands;
     case "return": if (terminator.value !== null) operands.push(terminator.value); return operands;
@@ -46,6 +49,11 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
       if (terminator.destination !== null) operands.push({ kind: "place", place: terminator.destination });
       break;
     case "check": operands.push({ kind: "place", place: terminator.place }); break;
+    case "array-start":
+      if (terminator.range !== null) operands.push(terminator.range);
+      exception(terminator.extentFailure);
+      exception(terminator.allocationFailure);
+      return operands;
     case "await": operands.push(terminator.operand, { kind: "place", place: terminator.destination }); break;
     case "yield":
       if (terminator.operand !== null) operands.push(terminator.operand);
@@ -57,8 +65,7 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
     case "throw": operands.push(terminator.operand); break;
     case "unwind-propagate": break;
   }
-  if (terminator.unwind.kind === "handler" && terminator.unwind.exception !== null)
-    operands.push({ kind: "place", place: terminator.unwind.exception });
+  exception(terminator.unwind);
   return operands;
 }
 
@@ -436,20 +443,33 @@ export function verifyStorage(
       }
       return true;
     };
+    const mark = (local: LocalId, live: boolean): void => {
+      if (markedIn[local] !== serial) marked.push(local);
+      markedIn[local] = serial;
+      liveAfter[local] = live ? 1 : 0;
+    };
     for (const [position, statement] of block.statements.entries()) {
       const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: position };
       if (statement.kind === "assign") {
         if (!use([{ kind: "place", place: statement.place }, ...rvalueOperands(statement.value)], site)) return [];
-      } else {
+      } else if (statement.kind === "array-element") {
+        if (!use([statement.operand], site)) return [];
+      } else if (statement.kind === "array-finish") {
+        const start = body.blocks[statement.start]?.terminator;
+        const root = start?.kind === "array-start" ? places.get(start.place)?.root : undefined;
+        if (root != null) mark(root.id, true);
+      } else if (statement.kind !== "array-range") {
         const local = densePosition(statement.local, body.locals.length) ? body.locals[statement.local] : undefined;
         if (local === undefined || !Object.is(local.id, statement.local)) continue;
         if (statement.kind === "storage-dead") requireLive(local.id, site);
-        if (markedIn[local.id] !== serial) marked.push(local.id);
-        markedIn[local.id] = serial;
-        liveAfter[local.id] = statement.kind === "storage-live" ? 1 : 0;
+        mark(local.id, statement.kind === "storage-live");
       }
     }
     if (!use(terminatorOperands(block.terminator), { kind: "instruction", body: body.body, block: block.id, statement: null })) return [];
+    if (block.terminator.kind === "array-start") {
+      const root = places.get(block.terminator.place)?.root;
+      if (root != null) mark(root.id, false);
+    }
     rankOf[ordered.position] = readings.length;
     const reading: StorageReading = { rank: readings.length, block, changes: marked.map(local => ({ local, live: liveAfter[local] === 1 })),
       decided, awaiting, start: null, waiting: null, read: false, edges: control.edgesAt(ordered.position), next: null };
@@ -530,6 +550,7 @@ export interface ValueVerification {
   readonly violations: readonly Violation<MirRule, MirViolationSite>[];
   readonly types: TypeReference[];
   readonly signatures: SignatureReference[];
+  readonly stages: boolean;
 }
 
 /** Whether a rational is in canonical form: a positive denominator coprime to the numerator; negative zero only for zero. */
@@ -555,7 +576,8 @@ export function verifyValues(
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const types: TypeReference[] = [];
   const signatures: SignatureReference[] = [];
-  if (meter.exhausted) return { violations, types, signatures };
+  const result = { violations, types, signatures, stages: false };
+  if (meter.exhausted) return result;
   const reference = (type: TyId, site: MirViolationSite): boolean => {
     chargeWork(meter, 1);
     if (meter.exhausted) return false;
@@ -758,11 +780,11 @@ export function verifyValues(
   };
   for (let position = 0; position < body.locals.length; position += 1) {
     chargeWork(meter, 1);
-    if (meter.exhausted) return { violations, types, signatures };
+    if (meter.exhausted) return result;
     const local = body.locals[position];
     if (local === undefined) continue;
     const site: MirViolationSite = { kind: "local", body: body.body, local: local.id };
-    if (!reference(local.storage, site)) return { violations, types, signatures };
+    if (!reference(local.storage, site)) return result;
     if (local.role.kind === "completion") {
       const selected = term(local.storage);
       if (selected !== null && !(selected.kind === "primitive" && selected.primitive === "int32")) report("completion-selector-total", site);
@@ -792,25 +814,25 @@ export function verifyValues(
   };
   for (let position = 0; position < body.constants.length; position += 1) {
     chargeWork(meter, 1);
-    if (meter.exhausted) return { violations, types, signatures };
+    if (meter.exhausted) return result;
     const constant = body.constants[position];
     if (constant === undefined) continue;
     const site: MirViolationSite = { kind: "constant", body: body.body, constant: constant.id };
-    if (!reference(constant.type, site)) return { violations, types, signatures };
+    if (!reference(constant.type, site)) return result;
     // A number literal's rational is checked for canonical form first, once, whatever the declared type.
     const literal = constant.value.kind === "literal" ? constant.value.value : null;
     const invalid = literal !== null && (literal.kind === "number" && !canonicalRational(literal.value, meter)
       || !literalHeld(literal, constant.type));
-    if (meter.exhausted) return { violations, types, signatures };
+    if (meter.exhausted) return result;
     if (invalid) report("constant-type", site);
   }
   for (let position = 0; position < body.places.length; position += 1) {
     chargeWork(meter, 1);
-    if (meter.exhausted) return { violations, types, signatures };
+    if (meter.exhausted) return result;
     const place = body.places[position];
     if (place === undefined) continue;
     const site: MirViolationSite = { kind: "place", body: body.body, place: place.id };
-    if (!reference(place.storage, site)) return { violations, types, signatures };
+    if (!reference(place.storage, site)) return result;
     if (place.base.kind !== "place" && place.base.kind !== "checked" || !densePosition(place.base.place, position)) continue;
     const parent = body.places[place.base.place];
     if (parent === undefined || !Object.is(parent.id, place.base.place)) continue;
@@ -882,19 +904,19 @@ export function verifyValues(
   }
   for (let blockPosition = 0; blockPosition < body.blocks.length; blockPosition += 1) {
     chargeWork(meter, 1);
-    if (meter.exhausted) return { violations, types, signatures };
+    if (meter.exhausted) return result;
     const block = body.blocks[blockPosition];
     if (block === undefined) continue;
     for (let position = 0; position < block.statements.length; position += 1) {
       chargeWork(meter, 1);
-      if (meter.exhausted) return { violations, types, signatures };
+      if (meter.exhausted) return result;
       const statement = block.statements[position];
       if (statement === undefined) continue;
       const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: position };
       if (statement.kind === "assign") {
         const source = statement.tir.body === context.source.body ? findSourceNode(nodes, statement.tir.node) : undefined;
         const actual = rvalueType(statement.value, source, site);
-        if (meter.exhausted) return { violations, types, signatures };
+        if (meter.exhausted) return result;
         const authored = source?.node;
         const binding = authored?.kind === "BindingElement" && authored.tsonic.role === "binding" && authored.tsonic.initializer === null
           ? authored.tsonic.declaration : null;
@@ -916,16 +938,19 @@ export function verifyValues(
           : authored?.kind === "VariableDeclaration" && "declaration" in authored.tsonic && authored.tsonic.declaration.kind === "definition"
             ? authored.tsonic.declaration.definition : binding?.kind === "definition" ? binding.definition
               : statement.value.kind === "use" ? staticUpdateTarget(authored) : null;
-        if (meter.exhausted) return { violations, types, signatures };
+        if (meter.exhausted) return result;
         const expected = placeType(statement.place, site, target, "static-write-exact");
         if (expected !== null) match(actual, expected, "assignment-type", site);
-      } else {
+      } else if (statement.kind === "array-element") {
+        result.stages = true;
+        operandType(statement.operand, site);
+      } else if (statement.kind === "storage-live" || statement.kind === "storage-dead") {
         const local = densePosition(statement.local, body.locals.length) ? body.locals[statement.local] : undefined;
         if (local === undefined || !Object.is(local.id, statement.local)) report("operand-resolves", site);
-      }
+      } else result.stages = true;
     }
     chargeWork(meter, 1);
-    if (meter.exhausted) return { violations, types, signatures };
+    if (meter.exhausted) return result;
     const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: null };
     const terminator = block.terminator;
     const sourceNode = terminator.tir.body === context.source.body ? findSourceNode(nodes, terminator.tir.node) : undefined;
@@ -943,6 +968,11 @@ export function verifyValues(
         }
         break;
       case "check": placeType(terminator.place, site); break;
+      case "array-start":
+        result.stages = true;
+        placeType(terminator.place, site);
+        if (terminator.range !== null) operandType(terminator.range, site);
+        break;
       case "call": {
         if (terminator.callee.kind === "body") {
           // The signature of an internal body is not a record of this context; operands and the destination resolve.
@@ -960,7 +990,7 @@ export function verifyValues(
         }
         const decision = terminator.callee.resolution.decision;
         if (!signatureReference(decision.api.signature, site) || !signatureReference(decision.advertised.signature, site)
-          || !signatureReference(decision.completion.signature, site)) return { violations, types, signatures };
+          || !signatureReference(decision.completion.signature, site)) return result;
         const signature = densePosition(decision.completion.signature, context.types.signatures.length)
           ? context.types.signatures[decision.completion.signature] : undefined;
         if (terminator.callee.kind === "indirect") {
@@ -1007,16 +1037,16 @@ export function verifyValues(
             else if (argument.kind === "place") placeType(argument.place, site);
           }
         }
-        if (!reference(decision.result, site)) return { violations, types, signatures };
+        if (!reference(decision.result, site)) return result;
         if (terminator.destination !== null) match(placeType(terminator.destination, site), decision.result, "call-destination-type", site);
         break;
       }
       case "invoke":
         for (let position = 0; position < terminator.operation.decision.operands.length; position += 1) {
           chargeWork(meter, 1);
-          if (meter.exhausted) return { violations, types, signatures };
+          if (meter.exhausted) return result;
           const type = terminator.operation.decision.operands[position];
-          if (type !== undefined && !reference(type, site)) return { violations, types, signatures };
+          if (type !== undefined && !reference(type, site)) return result;
         }
         if (terminator.operands.length !== terminator.operation.decision.operands.length) report("operation-selected", site);
         for (const [position, operand] of terminator.operands.entries()) {
@@ -1024,10 +1054,10 @@ export function verifyValues(
           const expected = terminator.operation.decision.operands[position];
           if (expected !== undefined) match(actual, expected, "operation-selected", site);
         }
-        if (!reference(terminator.operation.decision.result, site)) return { violations, types, signatures };
+        if (!reference(terminator.operation.decision.result, site)) return result;
         if (terminator.destination !== null) {
           const target = staticUpdateTarget(sourceNode?.node);
-          if (meter.exhausted) return { violations, types, signatures };
+          if (meter.exhausted) return result;
           const actual = target === null ? placeType(terminator.destination, site)
             : placeType(terminator.destination, site, null, "static-write-exact");
           match(actual, terminator.operation.decision.result, "call-destination-type", site);
@@ -1044,18 +1074,24 @@ export function verifyValues(
       }
       case "throw": operandType(terminator.operand, site); break;
     }
-    if ("unwind" in terminator && terminator.unwind.kind === "handler" && terminator.unwind.exception !== null) {
-      const storage = placeType(terminator.unwind.exception, site);
+    const checkException = (unwind: MirUnwind): void => {
+      if (unwind.kind !== "handler" || unwind.exception === null) return;
+      const storage = placeType(unwind.exception, site);
       if (storage !== null) {
         const selected = term(storage);
         if (selected !== null && !(selected.kind === "intrinsic" && selected.intrinsic === "unknown")) report("exception-destination-type", site);
       }
+    };
+    if ("unwind" in terminator) checkException(terminator.unwind);
+    else if (terminator.kind === "array-start") {
+      checkException(terminator.extentFailure);
+      checkException(terminator.allocationFailure);
     }
   }
   chargeWork(meter, 1);
-  if (meter.exhausted) return { violations, types, signatures };
+  if (meter.exhausted) return result;
   const bodySite: MirViolationSite = { kind: "body", body: body.body };
   match(body.result, context.source.completion, "assignment-type", bodySite);
   reference(body.result, bodySite);
-  return { violations, types, signatures };
+  return result;
 }

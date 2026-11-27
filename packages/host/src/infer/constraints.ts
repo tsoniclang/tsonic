@@ -88,7 +88,19 @@ interface Walk {
 
 type Frame = { readonly node: HirNode; readonly readWriteTarget: boolean; readonly caseSubject?: Expression<CheckedPhase> } &
   ({ readonly kind: "enter"; readonly statementList: boolean; readonly nativeDefault: "none" | "owned" | "operand" }
-    | { readonly kind: "leave" });
+    | { readonly kind: "leave" }
+    | { readonly kind: "array-leave"; readonly header: ArrayHeader });
+
+type ArrayNode = Extract<HirNode, { readonly kind: "ArrayLiteralExpression" }>;
+type Tuple = Extract<TypeTerm, { readonly kind: "tuple" }>;
+interface ArrayHeader {
+  readonly kind: "array-header";
+  readonly node: ArrayNode;
+  readonly source: TyId;
+  readonly destination: TyId | null;
+  readonly tuple: { readonly source: Tuple; readonly destination: Tuple } | null;
+  readonly inferredResult: TyId | null;
+}
 
 export const constraintsOf: ConstraintsOf = (deps, group) => {
   validateInferenceLimits(PORT, deps.limits, deps.graph);
@@ -310,6 +322,11 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
           walk.operators.set(frame.node.id, internType(deps.types,
             { kind: "open", group: group.id, variable: generation.nextVariable - 1 }));
         }
+        if (node.kind === "ArrayLiteralExpression" && node.tsonic.role !== "layout-quote") {
+          const header = prepareArrayHeader(walk, node);
+          if (header.kind === "refused") return { kind: "done", value: header };
+          pending.push({ ...frame, kind: "array-leave", header });
+        } else pending.push({ ...frame, kind: "leave" });
         const children = Array.from(childrenOf(node, frame.statementList));
         const operatorOperand = node.kind === "BinaryExpression" && (node.tsonic.role === "arithmetic" || node.tsonic.role === "comparison")
           || node.kind === "PrefixUnaryExpression" && node.operator !== "ExclamationToken" && node.tsonic.role === "value";
@@ -318,7 +335,6 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
         const readWriteTarget = node.kind === "ParenthesizedExpression" && frame.readWriteTarget
           || (node.kind === "PostfixUnaryExpression" || node.kind === "PrefixUnaryExpression")
             && (node.operator === "PlusPlusToken" || node.operator === "MinusMinusToken");
-        pending.push({ ...frame, kind: "leave" });
         for (let index = children.length - 1; index >= 0; index -= 1) {
           const child = present(children[index], "a checked syntax child");
           const caseSubject = node.kind === "SwitchStatement" && child === node.caseBlock ? node.expression
@@ -330,7 +346,8 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
             ...(caseSubject === undefined ? {} : { caseSubject }) });
         }
       } else {
-        const result = leave(walk, frame.node, frame.readWriteTarget, frame.caseSubject);
+        const result = frame.kind === "array-leave" ? arrayConstruction(walk, frame.header)
+          : leave(walk, frame.node, frame.readWriteTarget, frame.caseSubject);
         if (result !== undefined) return { kind: "done", value: result };
       }
     }
@@ -859,7 +876,6 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       return notInferredYet(PORT, "the exact contextual formal of a layout quotation", node.origin);
     walk.typeOf.set(node.id, type.value);
   }
-  else if (node.kind === "ArrayLiteralExpression") return arrayConstruction(walk, node);
   else if (node.kind === "ObjectLiteralExpression") objectConstruction(walk, node);
   else if (node.kind === "ElementAccessExpression") {
     const selected = node.tsonic;
@@ -1184,28 +1200,45 @@ function objectConstruction(walk: Walk, node: Extract<HirNode, { readonly kind: 
   walk.typeOf.set(node.id, read.value);
 }
 
-function arrayConstruction(walk: Walk, node: Extract<HirNode, { readonly kind: "ArrayLiteralExpression" }>): Refusal | undefined {
+function prepareArrayHeader(walk: Walk, node: ArrayNode): ArrayHeader | Refusal {
   if (node.tsonic.role !== "value") return notInferredYet(PORT, "an executable array literal without its checked value", node.origin);
-  const { read, contextual } = node.tsonic.value.views;
   const { deps, group } = walk.generation;
   const unit = { query: "constraintsOf", key: group.id };
   const start = admitTypePublicationStep(deps.typeWork, 2);
   if (start !== null) return refuseTypeConstruction(deps.typeWork, start, node.origin, unit);
+  const { read, contextual } = node.tsonic.value.views;
   if (read.kind !== "available" || contextual.kind !== "available")
     return notInferredYet(PORT, "an array literal without its actual checked source and contextual answer", node.origin);
   const source = readType(deps.types, read.value);
   const destination = contextual.value === null ? source : readType(deps.types, contextual.value);
-  const fixed = source.kind === "tuple" && destination.kind === "tuple";
-  if (fixed ? contextual.value === null || source.elements.length !== node.elements.nodes.length || destination.elements.length !== source.elements.length
+  const tuple = source.kind === "tuple" && destination.kind === "tuple" ? { source, destination } : null;
+  if (tuple !== null ? contextual.value === null || tuple.source.elements.length !== node.elements.nodes.length
+    || tuple.destination.elements.length !== tuple.source.elements.length
     : source.kind !== "array" || destination.kind !== "array")
     return notInferredYet(PORT, "a construction without matching checked array carriers or fixed tuple arity", node.origin);
+  let inferredResult: TyId | null = null;
+  if (tuple === null && contextual.value === null) {
+    const allocated = allocate(walk, { kind: "local", local: null, occurrence: refOf(walk, node) });
+    if (allocated !== null) return { kind: "refused", diagnostics: [allocated] };
+    const admitted = admitTypePublicationStep(deps.typeWork, 1, 1);
+    if (admitted !== null) return refuseTypeConstruction(deps.typeWork, admitted, node.origin, unit);
+    inferredResult = internType(deps.types, { kind: "open", group: group.id, variable: walk.generation.nextVariable - 1 });
+  }
+  return { kind: "array-header", node, source: read.value, destination: contextual.value, tuple, inferredResult };
+}
+
+function arrayConstruction(walk: Walk, header: ArrayHeader): Refusal | undefined {
+  const { node, source, destination, tuple, inferredResult } = header;
+  const { deps, group } = walk.generation;
+  const unit = { query: "constraintsOf", key: group.id };
   const parts: DraftLiteralPart[] = [];
   for (let index = 0; index < node.elements.nodes.length; index += 1) {
     const reached = admitTypePublicationStep(deps.typeWork);
     if (reached !== null) return refuseTypeConstruction(deps.typeWork, reached, node.origin, unit);
     const element = node.elements.nodes[index];
     if (element === undefined || element.kind === "OmittedExpression"
-      || fixed && (element.kind === "SpreadElement" || source.elements[index]?.kind !== "required" || destination.elements[index]?.kind !== "required"))
+      || tuple !== null && (element.kind === "SpreadElement" || tuple.source.elements[index]?.kind !== "required"
+        || tuple.destination.elements[index]?.kind !== "required"))
       return notInferredYet(PORT, "an actual authored value at every reached construction part", node.origin);
     const operand = element.kind === "SpreadElement" ? element.expression : element;
     const occurrence = refOf(walk, operand);
@@ -1215,20 +1248,12 @@ function arrayConstruction(walk: Walk, node: Extract<HirNode, { readonly kind: "
   }
   const occurrence = refOf(walk, node);
   const component: SourceNodeRef = { kind: "body", value: occurrence };
-  let inferredResult: TyId | null = null;
-  if (!fixed && contextual.value === null) {
-    const allocated = allocate(walk, { kind: "local", local: null, occurrence });
-    if (allocated !== null) return { kind: "refused", diagnostics: [allocated] };
-    const admitted = admitTypePublicationStep(deps.typeWork, 1, 1);
-    if (admitted !== null) return refuseTypeConstruction(deps.typeWork, admitted, node.origin, unit);
-    inferredResult = internType(deps.types, { kind: "open", group: group.id, variable: walk.generation.nextVariable - 1 });
-  }
-  if (contextual.value !== null) walk.draft.evidence.push({ type: contextual.value, node, component });
-  walk.draft.evidence.push({ type: read.value, node, component });
+  if (destination !== null) walk.draft.evidence.push({ type: destination, node, component });
+  walk.draft.evidence.push({ type: source, node, component });
   walk.draft.constraints.push({ kind: "construct-literal", occurrence, construction: "array", parts,
-    destination: contextual.value, result: read.value, inferredResult });
+    destination, result: source, inferredResult });
   walk.generation.selectionContexts.push({ kind: "construction", occurrence, origin: node.origin, bindings: walk.draft.bindings });
-  walk.typeOf.set(node.id, inferredResult ?? contextual.value ?? read.value);
+  walk.typeOf.set(node.id, inferredResult ?? destination ?? source);
   return undefined;
 }
 

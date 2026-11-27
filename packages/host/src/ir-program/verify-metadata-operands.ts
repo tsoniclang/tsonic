@@ -272,6 +272,7 @@ export function verifyMetadataOperands(published: Extract<PublishedBody, { reado
         break;
       case "await":
       case "throw": operand(value.operand, value, path + ".operand"); break;
+      case "array-start": if (value.range !== null) operand(value.range, value, path + ".range"); break;
       case "yield": if (value.operand !== null) operand(value.operand, value, path + ".operand"); break;
       case "delegate": operand(value.iterator, value, path + ".iterator"); break;
       case "return": if (value.value !== null) operand(value.value, value, path + ".value"); break;
@@ -282,7 +283,10 @@ export function verifyMetadataOperands(published: Extract<PublishedBody, { reado
     for (const [position, statement] of block.statements.entries()) {
       switch (statement.kind) {
         case "storage-live":
-        case "storage-dead": break;
+        case "storage-dead":
+        case "array-range":
+        case "array-finish": break;
+        case "array-element": operand(statement.operand, statement, path + ".statements[" + position + "].operand"); break;
         case "assign": rvalue(statement.value, statement, path + ".statements[" + position + "].value"); break;
       }
       if (refusal !== null) return stopped(refusal);

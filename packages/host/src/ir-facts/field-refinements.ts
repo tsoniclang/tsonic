@@ -221,7 +221,7 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
         const effect = writesField(mir, statement.place, field, account);
         if (effect.kind !== "complete") return effect;
         if (!effect.value) continue;
-      } else if (statement.local !== field.receiver) continue;
+      } else if ((statement.kind !== "storage-live" && statement.kind !== "storage-dead") || statement.local !== field.receiver) continue;
       const invalidated = invalidate("write", statement.tir);
       if (invalidated !== null) return invalidated;
     }
@@ -328,7 +328,8 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
       const read = chargeWork(account, 1);
       if (read !== null) return read;
       const stopped = statement.kind === "assign" ? replaceReceiver(statement.place)
-        : mir.locals[statement.local]?.role.kind === "parameter" ? exclude(statement.local) : null;
+        : (statement.kind === "storage-live" || statement.kind === "storage-dead")
+          && mir.locals[statement.local]?.role.kind === "parameter" ? exclude(statement.local) : null;
       if (stopped !== null) return stopped;
     }
     let stopped: DataflowStop | null = null;

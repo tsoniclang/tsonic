@@ -159,6 +159,7 @@ export function writeEffect(analysis: Analysis, state: Bits, place: number): boo
   return true;
 }
 export function statementReads(analysis: Analysis, statement: MirStatement, uses: Bits): boolean {
+  if (statement.kind === "array-element") return operandReads(analysis, uses, statement.operand);
   return statement.kind !== "assign"
     || readPlace(analysis, uses, statement.place, true) && rvalueReads(analysis, uses, statement.value);
 }
@@ -169,6 +170,12 @@ export function statementBefore(analysis: Analysis, statement: MirStatement, aft
     case "assign":
       if (!writeEffect(analysis, state, statement.place)) return after;
       break;
+    case "array-finish": {
+      const start = analysis.body.blocks[statement.start]?.terminator;
+      if (start?.kind !== "array-start") return defect("an array completion has no verified start");
+      if (!writeEffect(analysis, state, start.place)) return after;
+      break;
+    }
     case "storage-live": case "storage-dead":
       if (analysis.body.locals[statement.local] === undefined) return defect(`storage marker names missing local ${statement.local}`);
       if (!setBit(analysis, state, statement.local, false)) return after;
@@ -204,6 +211,11 @@ export function terminatorShape(analysis: Analysis, terminator: MirTerminator, u
     case "check":
       if (!readPlace(analysis, uses, terminator.place) || !edge(terminator.next, null, null)) return [];
       unwind(terminator.unwind);
+      break;
+    case "array-start":
+      if (terminator.range !== null && !operandReads(analysis, uses, terminator.range)
+        || !edge(terminator.next, null, null) || !unwind(terminator.extentFailure)) return [];
+      unwind(terminator.allocationFailure);
       break;
     case "call":
       if (terminator.callee.kind === "indirect" && !operandReads(analysis, uses, terminator.callee.operand)) return [];
@@ -263,6 +275,7 @@ export function terminatorBefore(analysis: Analysis, terminator: MirTerminator, 
     if (edge.writes !== null && !writeEffect(analysis, incoming, edge.writes)) return analysis.zero;
     if (!orInto(analysis, state, incoming)) return analysis.zero;
   }
+  if (terminator.kind === "array-start" && !writeEffect(analysis, state, terminator.place)) return analysis.zero;
   return orInto(analysis, state, uses) && orInto(analysis, state, analysis.escaped) ? state : analysis.zero;
 }
 export function lattice(analysis: Analysis): Lattice<Bits> {
