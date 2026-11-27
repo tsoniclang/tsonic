@@ -353,11 +353,25 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
         const original = constraint?.value.kind === "construct-literal" ? constraint.value : null;
         if (original !== null && (original.parts.length !== operation.parts.length ||
           operation.kind !== `${original.construction}-construction`)) emit(output, "construction-part-total", site, "parts");
+        const expected = original?.construction === "array" ? original.destination ?? original.result : null;
+        const tuple = expected === null ? null : input.types.terms[expected];
+        if (tuple?.kind === "tuple" && (task.value.result !== expected || task.value.execution.kind !== "pure"
+          || tuple.elements.length !== operation.parts.length || task.value.operands.length !== operation.parts.length))
+          emit(output, "construction-part-total", site, "parts");
         for (const [index, part] of operation.parts.entries()) {
           const source = original?.parts[index];
           if (part.part !== index || Object.is(part.part, -0) || source !== undefined &&
             (part.source.body !== source.occurrence.body || part.source.node !== source.occurrence.node))
             emit(output, "construction-part-total", site, "parts");
+          if (tuple?.kind === "tuple" && original !== null) {
+            const element = tuple.elements[index];
+            const { root, path } = part.destination;
+            if (source?.kind !== "element" || element?.kind !== "required" || task.value.operands[index] !== element.type
+              || part.member !== null || part.embedding.kind === "refused" || root.kind !== "body"
+              || root.value.body !== original.occurrence.body || root.value.node !== original.occurrence.node || path.length !== 1
+              || path[0]?.kind !== "tuple-element" || !Object.is(path[0].index, index))
+              emit(output, "construction-part-total", site, "parts");
+          }
           if (part.member !== null) memberReferences(input, part.member, site, endpoints, output);
           pending.push({ kind: "embedding", value: part.embedding });
         }

@@ -261,6 +261,8 @@ export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, consta
       const kind = valueKind(deps, storage.storage);
       const stopped = accountFailure(deps.account);
       if (stopped !== null) return stopped;
+      if (statement.value.kind === "aggregate" && (statement.value.aggregate.kind !== "tuple" || kind !== "origin-free-product"))
+        return bodyFrontier("A constructed product needs its actual selected content and Origins proof.");
       if (kind === "reference" || kind === "array-reference") return bodyFrontier("BodyAnalysis requires the actual selected reference operation value producer.");
       if (kind === "primitive-optional" || kind === "reference-optional") {
         const value = statement.value;

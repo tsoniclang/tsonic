@@ -34,6 +34,9 @@ interface ParameterPosition {
 }
 type ParameterIndex = Map<BodyId, ReadonlyMap<LocalId, ParameterPosition>>;
 type DraftProperty = Omit<Extract<LiteralPart, { readonly kind: "property" }>, "type"> & { readonly type: Slot };
+type DraftLiteralPart = DraftProperty
+  | (Omit<Extract<LiteralPart, { readonly kind: "element" }>, "type"> & { readonly type: Slot })
+  | (Omit<Extract<LiteralPart, { readonly kind: "spread" }>, "type"> & { readonly type: Slot });
 type DraftArgument = Omit<CallConstraint["application"]["arguments"][number], "type"> & { readonly type: Slot };
 type DraftCall = Omit<CallConstraint, "application"> & {
   readonly application: Omit<CallConstraint["application"], "arguments"> & { readonly arguments: readonly DraftArgument[] };
@@ -45,7 +48,7 @@ type DraftConstraint =
   | Omit<MemberConstraint, "receiver" | "result"> & { readonly receiver: Slot; readonly result: Slot }
   | Omit<IndexConstraint, "receiver" | "key"> & { readonly receiver: Slot; readonly key: Slot }
   | Omit<LiteralConstraint, "destination"> & { readonly destination: Slot }
-  | Omit<LiteralConstructionConstraint, "parts"> & { readonly parts: readonly DraftProperty[] }
+  | Omit<LiteralConstructionConstraint, "parts"> & { readonly parts: readonly DraftLiteralPart[] }
   | DraftCall | DefaultConstraint;
 
 interface Draft {
@@ -485,7 +488,8 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
       return;
     case "ArrayLiteralExpression":
       if (node.tsonic.role === "layout-quote") return;
-      return notInferredYet(PORT, "an executable ArrayLiteralExpression", node.origin);
+      for (const element of node.elements.nodes) yield element.kind === "SpreadElement" ? element.expression : element;
+      return;
     case "ArrowFunction":
       if ("role" in node.tsonic) return;
       return notInferredYet(PORT, "an executable ArrowFunction", node.origin);
@@ -779,6 +783,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       return notInferredYet(PORT, "the exact contextual formal of a layout quotation", node.origin);
     walk.typeOf.set(node.id, type.value);
   }
+  else if (node.kind === "ArrayLiteralExpression") return tupleConstruction(walk, node);
   else if (node.kind === "ObjectLiteralExpression") objectConstruction(walk, node);
   else if (node.kind === "ElementAccessExpression") {
     const selected = node.tsonic;
@@ -1098,7 +1103,45 @@ function objectConstruction(walk: Walk, node: Extract<HirNode, { readonly kind: 
   if (contextual.value !== null) walk.draft.evidence.push({ type: contextual.value, node, component });
   walk.draft.evidence.push({ type: read.value, node, component });
   walk.draft.constraints.push({ kind: "construct-literal", occurrence, construction: "object", parts, destination: contextual.value, result: read.value });
+  walk.generation.selectionContexts.push({ kind: "construction", occurrence, origin: node.origin, bindings: walk.draft.bindings });
   walk.typeOf.set(node.id, read.value);
+}
+
+function tupleConstruction(walk: Walk, node: Extract<HirNode, { readonly kind: "ArrayLiteralExpression" }>): Refusal | undefined {
+  if (node.tsonic.role !== "value") return notInferredYet(PORT, "an executable array literal without its checked value", node.origin);
+  const { read, contextual } = node.tsonic.value.views;
+  const { deps, group } = walk.generation;
+  const unit = { query: "constraintsOf", key: group.id };
+  const start = admitTypePublicationStep(deps.typeWork, 2);
+  if (start !== null) return refuseTypeConstruction(deps.typeWork, start, node.origin, unit);
+  if (read.kind !== "available" || contextual.kind !== "available" || contextual.value === null)
+    return notInferredYet(PORT, "a tuple literal without its actual value and contextual destination", node.origin);
+  const source = readType(deps.types, read.value);
+  const destination = readType(deps.types, contextual.value);
+  if (source.kind !== "tuple" || destination.kind !== "tuple" || source.elements.length !== node.elements.nodes.length
+    || destination.elements.length !== source.elements.length)
+    return notInferredYet(PORT, "a literal without matching fixed tuple source and destination arity", node.origin);
+  const parts: DraftLiteralPart[] = [];
+  for (let index = 0; index < node.elements.nodes.length; index += 1) {
+    const reached = admitTypePublicationStep(deps.typeWork);
+    if (reached !== null) return refuseTypeConstruction(deps.typeWork, reached, node.origin, unit);
+    const element = node.elements.nodes[index];
+    if (element === undefined || element.kind === "SpreadElement" || element.kind === "OmittedExpression"
+      || source.elements[index]?.kind !== "required" || destination.elements[index]?.kind !== "required")
+      return notInferredYet(PORT, "an actual required value for every fixed tuple slot", node.origin);
+    const occurrence = refOf(walk, element);
+    const type = typeAt(walk, element);
+    parts.push({ kind: "element", occurrence, type });
+    walk.draft.evidence.push({ type, node: element, component: { kind: "body", value: occurrence } });
+  }
+  const occurrence = refOf(walk, node);
+  const component: SourceNodeRef = { kind: "body", value: occurrence };
+  walk.draft.evidence.push({ type: contextual.value, node, component }, { type: read.value, node, component });
+  walk.draft.constraints.push({ kind: "construct-literal", occurrence, construction: "array", parts,
+    destination: contextual.value, result: read.value });
+  walk.generation.selectionContexts.push({ kind: "construction", occurrence, origin: node.origin, bindings: walk.draft.bindings });
+  walk.typeOf.set(node.id, contextual.value);
+  return undefined;
 }
 
 function enumValueType(walk: Walk, member: EnumMember<CheckedPhase>, definition: DefId): Slot {

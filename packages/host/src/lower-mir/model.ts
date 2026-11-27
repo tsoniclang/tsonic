@@ -2,7 +2,7 @@ import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BlockId, BodyId, LocalId, LocalRef, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, Statement, SwitchStatement, ThrowStatement, TryStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
-import type { BindingPattern, CaseClause, CaseOrDefaultClause, DefaultClause, ElementAccessExpression, PropertyAccessExpression, SpreadElement } from "../ir-hir/contract.js";
+import type { ArrayLiteralExpression, BindingPattern, CaseClause, CaseOrDefaultClause, DefaultClause, ElementAccessExpression, PropertyAccessExpression, SpreadElement } from "../ir-hir/contract.js";
 import type { IndexDecision } from "../ir-infer/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
 import type { CheckFailure } from "../ir-types/contract.js";
@@ -85,6 +85,7 @@ export type Work =
   | { readonly kind: "declaration"; readonly node: VariableDeclaration<TypedPhase>; readonly lexical: boolean }
   | { readonly kind: "declarations"; readonly node: VariableDeclarationList<TypedPhase>; readonly lexical: boolean; readonly position: number }
   | { readonly kind: "pattern-value"; readonly node: BindingPattern<TypedPhase> }
+  | { readonly kind: "tuple-value"; readonly node: ArrayLiteralExpression<TypedPhase>; readonly operation: TypedOperation; readonly position: number }
   | { readonly kind: "scope-end"; readonly node: NodeHeader; readonly scope: LocalScope }
   | { readonly kind: "call"; readonly node: CallExpression<TypedPhase> | NewExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
   | { readonly kind: "call-spread"; readonly node: SpreadElement<TypedPhase>; readonly count: number }

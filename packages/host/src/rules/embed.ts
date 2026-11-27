@@ -1,6 +1,6 @@
 import type { NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { EmbeddingDecision, FlowRole } from "../ir-infer/contract.js";
-import type { ExactRational, TypeEvidence } from "../ir-types/contract.js";
+import type { ExactRational, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
 import { exactFloat64LiteralFit, optionalValueDomainOf, readType } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { at, notDecidedYet, termName } from "./frontier.js";
@@ -43,13 +43,23 @@ export function embeddingForm(deps: RulesDeps, from: TyId, to: TyId):
 
 export function decideEmbedding(deps: RulesDeps, from: TypeEvidence, to: TypeEvidence, role: FlowRole | "bound", occurrence: NodeRef, origin: Origin | null)
   : EmbeddingDecision {
+  return decideComponentEmbedding(deps, { type: from.type, at: { root: from.component, path: [] } },
+    { type: to.type, at: { root: to.component, path: [] } }, role, occurrence, origin);
+}
+
+interface EmbeddingEndpoint {
+  readonly type: TyId;
+  readonly at: TypeComponent;
+}
+
+export function decideComponentEmbedding(deps: RulesDeps, from: EmbeddingEndpoint, to: EmbeddingEndpoint,
+  role: FlowRole | "bound", occurrence: NodeRef, origin: Origin | null): EmbeddingDecision {
   const form = embeddingForm(deps, from.type, to.type);
   if (form === "identity") return { kind: "identity" };
   if (form === "incompatible-domain") return { kind: "refused", reason: form };
   if (form !== null) {
     return { kind: "conversion", conversion: form, check: { kind: "none" },
-      proof: { steps: [{ from: { root: from.component, path: [] }, to: { root: to.component, path: [] },
-        rule: form, premises: [] }], conclusion: 0 } };
+      proof: { steps: [{ from: from.at, to: to.at, rule: form, premises: [] }], conclusion: 0 } };
   }
   const source = readType(deps.types, from.type);
   const target = readType(deps.types, to.type);

@@ -87,9 +87,8 @@ export interface DefaultRoleRecord {
 
 }
 
-export interface ConstructionPartRoleRecord {
-  readonly kind: "construction-part";
-  readonly part: number;
+export interface ConstructionRoleRecord {
+  readonly kind: "construction";
 }
 
 export interface ContributionsSchemas {
@@ -114,7 +113,7 @@ export interface ContributionsSchemas {
   readonly refinementRoleSchema: RecordSchema<RefinementRoleRecord>;
   readonly dischargeRoleSchema: RecordSchema<DischargeRoleRecord>;
   readonly defaultRoleSchema: RecordSchema<DefaultRoleRecord>;
-  readonly constructionPartRoleSchema: RecordSchema<ConstructionPartRoleRecord>;
+  readonly constructionRoleSchema: RecordSchema<ConstructionRoleRecord>;
 }
 
 export function createContributionsSchemas(data: DataSchemas): ContributionsSchemas {
@@ -141,7 +140,7 @@ export function createContributionsSchemas(data: DataSchemas): ContributionsSche
   });
 
   const contributionRoleSchema: RecordSchema<ContributionRole> = unionSchema<ContributionRole>("ContributionRole",
-    () => [equalityRoleSchema, flowContributionSchema, selectionRoleSchema, argumentFlowSchema, receiverFlowSchema, contextFlowSchema, closureFlowSchema, applicationResultSchema, memberRoleSchema, indexRoleSchema, operatorRoleSchema, literalRoleSchema, protocolRoleSchema, refinementRoleSchema, dischargeRoleSchema, defaultRoleSchema, constructionPartRoleSchema], value => {
+    () => [equalityRoleSchema, flowContributionSchema, selectionRoleSchema, argumentFlowSchema, receiverFlowSchema, contextFlowSchema, closureFlowSchema, applicationResultSchema, memberRoleSchema, indexRoleSchema, operatorRoleSchema, literalRoleSchema, protocolRoleSchema, refinementRoleSchema, dischargeRoleSchema, defaultRoleSchema, constructionRoleSchema], value => {
     switch (value.kind) {
       case "equality": return equalityRoleSchema.stage(value);
       case "flow": return flowContributionSchema.stage(value);
@@ -159,7 +158,7 @@ export function createContributionsSchemas(data: DataSchemas): ContributionsSche
       case "refinement": return refinementRoleSchema.stage(value);
       case "discharge": return dischargeRoleSchema.stage(value);
       case "default": return defaultRoleSchema.stage(value);
-      case "construction-part": return constructionPartRoleSchema.stage(value);
+      case "construction": return constructionRoleSchema.stage(value);
     }
   });
 
@@ -236,9 +235,8 @@ export function createContributionsSchemas(data: DataSchemas): ContributionsSche
     return { fields: [], value: () => ({ kind: "default" }) };
   });
 
-  const constructionPartRoleSchema = recordSchema<ConstructionPartRoleRecord>("ConstructionPartRole", "construction-part", read => {
-    const part = read("part", () => numberSchema, value => value.part);
-    return { fields: [part], value: () => ({ kind: "construction-part", part: part.value() }) };
+  const constructionRoleSchema = recordSchema<ConstructionRoleRecord>("ConstructionRole", "construction", () => {
+    return { fields: [], value: () => ({ kind: "construction" }) };
   });
-  return { constraintRefSchema, atomicContributionSchema, contributionKeySchema, contributionRoleSchema, equalityRoleSchema, equalityDirectionSchema, flowContributionSchema, selectionRoleSchema, argumentFlowSchema, receiverFlowSchema, contextFlowSchema, closureFlowSchema, applicationResultSchema, memberRoleSchema, indexRoleSchema, operatorRoleSchema, literalRoleSchema, protocolRoleSchema, refinementRoleSchema, dischargeRoleSchema, defaultRoleSchema, constructionPartRoleSchema };
+  return { constraintRefSchema, atomicContributionSchema, contributionKeySchema, contributionRoleSchema, equalityRoleSchema, equalityDirectionSchema, flowContributionSchema, selectionRoleSchema, argumentFlowSchema, receiverFlowSchema, contextFlowSchema, closureFlowSchema, applicationResultSchema, memberRoleSchema, indexRoleSchema, operatorRoleSchema, literalRoleSchema, protocolRoleSchema, refinementRoleSchema, dischargeRoleSchema, defaultRoleSchema, constructionRoleSchema };
 }

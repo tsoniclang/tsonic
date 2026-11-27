@@ -1,10 +1,10 @@
-import type { DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { BindingPattern, CheckedPhase, HirNode, SwitchStatement, VariableDeclaration } from "../ir-hir/contract.js";
+import type { BodyId, DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { ArrayLiteralExpression, BindingPattern, CheckedPhase, HirNode, SwitchStatement, VariableDeclaration } from "../ir-hir/contract.js";
 import { checkedLayoutRoleOf, compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { Origin } from "../ids/contract.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { BindingScope, BodyInstance, TypeEvidence, TypeTable, TypeTerm } from "../ir-types/contract.js";
-import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeAbsenceComparisonOf, nativeCarrierOf, readLexicalTypeSupport } from "../ir-types/index.js";
+import type { BindingScope, BodyInstance, NativeCarrierHolding, TypeComponent, TypeEvidence, TypeTable, TypeTerm } from "../ir-types/contract.js";
+import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeAbsenceComparisonOf, nativeCarrierHoldingOf, nativeCarrierOf, readLexicalTypeSupport } from "../ir-types/index.js";
 import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirReadyReadAdmission, TirRule, TirTypedSyntax, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
 import { enterTirInline, roleSyntaxReference, tirPathText } from "./text-layouts.js";
@@ -519,6 +519,68 @@ export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefine
     emit("typed-value-occurrence", node, "authored value occurrence has no typed value endpoints");
   }
 };
+
+export function verifyTupleConstruction<Stop extends object>(node: ArrayLiteralExpression<TypedPhase>, original: HirNode | undefined,
+  body: BodyId, types: TypeTable, holding: readonly NativeCarrierHolding[], admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  const reached = admit({ kind: "row" });
+  if (reached !== null) return reached;
+  const reported = original?.kind === "ArrayLiteralExpression" && original.tsonic.role === "value" ? original.tsonic.value.views.contextual : null;
+  const authored = reported?.kind === "available" && reported.value !== null ? types.terms[reported.value] : undefined;
+  const phase = node.tsonic;
+  const target = phase.role === "value" ? types.terms[phase.type] : undefined;
+  if (authored?.kind !== "tuple" && target?.kind !== "tuple") return null;
+  const decision = phase.role === "value" && phase.construction.kind === "decided" ? phase.construction.decision : null;
+  const operation = decision?.decision.operation;
+  for (let index = 0; index < holding.length; index += 1) {
+    const stop = admit({ kind: "row" });
+    if (stop !== null) return stop;
+  }
+  if (original?.kind !== "ArrayLiteralExpression" || authored?.kind !== "tuple" || target?.kind !== "tuple" || phase.role !== "value"
+    || decision === null || operation?.kind !== "array-construction" || decision.permissionScope !== null
+    || decision.decision.execution.kind !== "pure" || decision.decision.result !== phase.type
+    || nativeCarrierHoldingOf(holding, "tuple") !== "in-place"
+    || original.elements.nodes.length !== node.elements.nodes.length || node.elements.nodes.length !== target.elements.length
+    || target.elements.length !== operation.parts.length || decision.decision.operands.length !== operation.parts.length) {
+    emit("operation-type", node, "a fixed tuple literal requires its actual authored inventory and selected inline product");
+    return null;
+  }
+  const slotAt = (component: TypeComponent, index: number): boolean => component.root.kind === "body"
+    && component.root.value.body === body && component.root.value.node === node.id && component.path.length === 1
+    && component.path[0]?.kind === "tuple-element" && Object.is(component.path[0].index, index);
+  for (let index = 0; index < operation.parts.length; index += 1) {
+    const stop = admit({ kind: "row" });
+    if (stop !== null) return stop;
+    const element = node.elements.nodes[index];
+    const slot = target.elements[index];
+    const part = operation.parts[index];
+    const value = element === undefined ? null : typedValueOf(element);
+    if (element === undefined || original.elements.nodes[index]?.id !== element.id || part === undefined
+      || slot?.kind !== "required" || value === null || !Object.is(part.part, index) || part.member !== null
+      || part.source.body !== body || part.source.node !== element.id || !slotAt(part.destination, index)
+      || decision.decision.operands[index] !== slot.type || value.convertedType !== slot.type) {
+      emit("operation-type", element ?? node, "a fixed tuple slot retains its actual operand, type and destination");
+      continue;
+    }
+    const conversion = value.conversion;
+    if (part.embedding.kind === "identity") {
+      if (conversion.kind !== "identity" || value.type !== slot.type)
+        emit("conversion-carried", element, "a tuple identity fit retains its actual value and slot type");
+      continue;
+    }
+    const applied = conversion.kind === "convert" ? conversion.operation.decision.operation : null;
+    const expected = part.embedding.kind === "conversion" ? part.embedding.proof.steps[part.embedding.proof.conclusion] : undefined;
+    const carried = applied?.kind === "conversion" && applied.embedding.kind === "conversion"
+      ? applied.embedding.proof.steps[applied.embedding.proof.conclusion] : undefined;
+    if (part.embedding.kind !== "conversion" || applied?.kind !== "conversion" || applied.embedding.kind !== "conversion"
+      || applied.embedding.conversion !== part.embedding.conversion || applied.from !== value.type || applied.to !== slot.type
+      || expected === undefined || carried === undefined || !slotAt(expected.to, index) || !slotAt(carried.to, index)
+      || expected.from.root.kind !== "body" || expected.from.root.value.body !== body || expected.from.root.value.node !== element.id
+      || expected.from.path.length !== 0 || carried.from.path.length !== 0 || !sameSourceReference(expected.from.root, carried.from.root)) {
+      emit("conversion-carried", element, "a tuple conversion retains its actual selected slot fit");
+    }
+  }
+  return null;
+}
 
 export const verifyOperationShape = (operation: TypedOperation, node: TirNode, emit: TirOccurrenceEmit): void => {
   const decision = operation.decision;

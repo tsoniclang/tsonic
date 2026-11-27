@@ -86,7 +86,7 @@ function solve<State>(deps: InferDeps<State>, group: InferenceGroup, generated: 
           return refused(...diagnostics, limitDiagnostic(group, "inference dependency work", deps.graph.maximumWork));
         (defaults ??= new Map()).set(variable.id, constraint);
       }
-      const source = constraint.kind === "member" || constraint.kind === "index" || constraint.kind === "call"
+      const source = constraint.kind === "member" || constraint.kind === "index" || constraint.kind === "call" || constraint.kind === "construct-literal"
         ? generated.selectionContexts[selectionPosition++] : undefined;
       const reached = reach(constraint, set.evidence, offset, source);
       offset += reached.evidence.length;
@@ -412,7 +412,7 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
 }
 
 function reach(constraint: Constraint, evidence: readonly InferenceValue[], offset: number, source: SelectionConstraintContext | undefined): Reached {
-  if (constraint.kind === "member" || constraint.kind === "index" || constraint.kind === "call") {
+  if (constraint.kind === "member" || constraint.kind === "index" || constraint.kind === "call" || constraint.kind === "construct-literal") {
     if (source?.occurrence.body !== constraint.occurrence.body || source.occurrence.node !== constraint.occurrence.node)
       return callerDefect(PORT, "a selection constraint requires its actual checked occurrence origin in constraint order");
     if (constraint.kind === "member" && source.kind === "member")
@@ -423,6 +423,9 @@ function reach(constraint: Constraint, evidence: readonly InferenceValue[], offs
       return { kind: "call", constraint, origin: source.origin, scope: source.scope, evidence: evidence.slice(offset,
         offset + 2 + (constraint.application.receiver === null ? 0 : 1) + constraint.application.typeArguments.length
         + constraint.application.arguments.reduce((length, argument) => length + 1 + (argument.tuple?.length ?? 0), 0)) };
+    if (constraint.kind === "construct-literal" && source.kind === "construction")
+      return { kind: "construct-literal", constraint, origin: source.origin, bindings: source.bindings,
+        evidence: evidence.slice(offset, offset + constraint.parts.length + (constraint.destination === null ? 1 : 2)) };
     return callerDefect(PORT, "a selection context must have the same role as its constraint");
   }
   if (constraint.kind === "op") return { kind: "op", constraint, evidence: evidence.slice(offset, offset + constraint.operands.length + 1) };
@@ -444,6 +447,9 @@ function enumerate<State>(deps: InferDeps<State>, group: InferenceGroup, set: Co
     case "member": return remainingContributions === 0
       ? { kind: "refused", diagnostics: [limitDiagnostic(group, "atomic contributions per group", deps.limits.maximumAtomicContributionsPerGroup)] }
       : deps.rules.constraints.member.enumerate({ ...common, constraint: reached.constraint });
+    case "construct-literal": return remainingContributions === 0
+      ? { kind: "refused", diagnostics: [limitDiagnostic(group, "atomic contributions per group", deps.limits.maximumAtomicContributionsPerGroup)] }
+      : deps.rules.constraints.constructLiteral.enumerate({ ...common, constraint: reached.constraint });
     case "index": return deps.rules.constraints.index.enumerate({ ...common, constraint: reached.constraint });
     case "op": return deps.rules.constraints.op.enumerate({ ...common, constraint: reached.constraint });
     case "flow": return deps.rules.constraints.flow.enumerate({ ...common, constraint: reached.constraint });
@@ -482,6 +488,8 @@ function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
     case "literal": return deps.rules.constraints.literal.evaluate({ ...common, constraint: item.reached.constraint });
     case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin,
       scope: item.reached.scope, typeWork: deps.typeWork, unit });
+    case "construct-literal": return deps.rules.constraints.constructLiteral.evaluate({ ...common, constraint: item.reached.constraint,
+      origin: item.reached.origin, bindings: item.reached.bindings, typeWork: deps.typeWork, unit });
     case "default": return deps.rules.constraints.default.evaluate({ ...common, constraint: item.reached.constraint });
   }
 }

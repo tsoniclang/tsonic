@@ -2080,7 +2080,7 @@ test("all seventeen contribution roles preserve complete key payloads and both e
     recordGolden("argument-flow", { argument: scalarGolden(1), component: scalarGolden(2) }, "argument-flow"),
     recordGolden("context-flow", { argument: scalarGolden(1), parameter: scalarGolden(2) }, "context-flow"),
     recordGolden("closure-result-flow", { argument: scalarGolden(1), result: scalarGolden(2) }, "closure-result-flow"),
-    recordGolden("construction-part", { part: scalarGolden(3) }, "construction-part")];
+    recordGolden("construction", {}, "construction")];
   const contributions = roles.map((role, index) => recordGolden("AtomicContribution", {
     key: recordGolden("ContributionKey", { node: nodeGolden, candidate: index % 2 === 0 ? nullGolden : scalarGolden(1), role }),
     reads: arrayGolden([scalarGolden(0), scalarGolden(2)]), bounds: arrayGolden([scalarGolden(1)]), constraint: referenceGolden }));
@@ -2121,7 +2121,7 @@ test("all contribution role ranks and numeric payload columns have complete adja
     entry(3, { kind: "member" }), entry(4, { kind: "index" }), entry(5, { kind: "operator" }),
     entry(6, { kind: "literal" }), entry(7, { kind: "protocol" }), entry(8, { kind: "refinement" }),
     entry(9, { kind: "discharge" }), entry(10, { kind: "default" }),
-    entry(11, { kind: "construction-part", part: 0 }), entry(11, { kind: "construction-part", part: 1 }),
+    entry(11, { kind: "construction" }),
     entry(2, { kind: "argument-flow", argument: 0, component: 0 }, 0),
     entry(2, { kind: "argument-flow", argument: 0, component: 1 }, 0),
     entry(2, { kind: "argument-flow", argument: 1, component: 0 }, 0),
@@ -2206,12 +2206,12 @@ test("application contribution roles retain actual arguments, closures, receiver
     "selection, original candidate and node ownership are independent conditions");
   const construction = { kind: "construct-literal", occurrence, construction: "array", parts: [{ kind: "element", occurrence, type: 0 }],
     destination: null, result: 0 };
-  for (const part of [-0, 1]) {
-    const invalid = contribution({ kind: "construction-part", part }, null);
-    ruleCase("contribution-role", { constraints: [constraintSet([construction])], contributions: [contribution({ kind: "construction-part", part: 0 }, null)] },
-      { constraints: [constraintSet([construction])], contributions: [invalid] },
-      [violation("contribution-role", { kind: "contribution", key: invalid.key }, "role")], "construction part is an actual dense ordinal");
-  }
+  const invalidConstruction = contribution({ kind: "operator" }, null);
+  for (const parts of [construction.parts, []])
+    ruleCase("contribution-role", { constraints: [constraintSet([{ ...construction, parts }])],
+      contributions: [contribution({ kind: "construction" }, null)] },
+    { constraints: [constraintSet([{ ...construction, parts }])], contributions: [invalidConstruction] },
+    [violation("contribution-role", { kind: "contribution", key: invalidConstruction.key }, "role")], "one contribution owns the full construction, including no operands");
   const equality = { kind: "eq", occurrence, left: 0, right: 0 };
   const directed = { kind: "equality", direction: "left-to-right" };
   const foreignCandidate = contribution(directed);
@@ -2878,9 +2878,12 @@ test("the three corrected equality helpers retain full later-field vectors and r
     "the whole genuine equality document is valid before testing any later field");
   const wrong = contribution.text.replace("role=equality(", "role=EqualityRole(");
   const offset = wrong.indexOf("EqualityRole");
-  fieldParseCase("Contributions", wrong, offset, ["equality", "flow", "selection", "argument-flow", "receiver-flow", "context-flow",
+  const roles = ["equality", "flow", "selection", "argument-flow", "receiver-flow", "context-flow",
     "closure-result-flow", "application-result", "member", "index", "operator", "literal", "protocol", "refinement", "discharge", "default",
-    "construction-part"], "EqualityRole");
+    "construction"];
+  fieldParseCase("Contributions", wrong, offset, roles, "EqualityRole");
+  const retired = contribution.text.replace("role=equality(", "role=construction-part(");
+  fieldParseCase("Contributions", retired, retired.indexOf("construction-part"), roles, "construction-part");
   const prefix = contribution.text.slice(0, contribution.text.indexOf("reads="));
   fieldParseCase("Contributions", prefix + "reads=false)", prefix.length + "reads=".length, ["["], "false");
   const bounds = contribution.text.slice(0, contribution.text.indexOf("bounds="));
@@ -4026,9 +4029,8 @@ test("transported numbers have exact total public key ordering before domain ref
     role: field === "argument" ? { kind: "argument-flow", argument: value, component: 0 }
       : field === "component" ? { kind: "argument-flow", argument: 0, component: value }
         : field === "parameter" ? { kind: "context-flow", argument: 0, parameter: value }
-          : field === "result" ? { kind: "closure-result-flow", argument: 0, result: value }
-            : field === "part" ? { kind: "construction-part", part: value } : { kind: "flow" } });
-  for (const field of ["node", "candidate", "argument", "component", "parameter", "result", "part"]) {
+          : field === "result" ? { kind: "closure-result-flow", argument: 0, result: value } : { kind: "flow" } });
+  for (const field of ["node", "candidate", "argument", "component", "parameter", "result"]) {
     for (let index = 0; index + 1 < numbers.length; index += 1) {
       const lower = keyFor(field, numbers[index]);
       const upper = keyFor(field, numbers[index + 1]);
@@ -4348,7 +4350,7 @@ test("the independent logic inventory includes every approved port and every nam
     "construct-literal", "protocol", "refine", "discharge", "default", "closure"].sort());
   deepEqual([...inputArms.variables].sort(), ["signature", "local", "binder", "literal"].sort());
   deepEqual([...inputArms.contributions].sort(), ["equality", "flow", "selection", "argument-flow", "receiver-flow", "context-flow",
-    "closure-result-flow", "application-result", "member", "index", "operator", "literal", "protocol", "refinement", "discharge", "default", "construction-part"].sort());
+    "closure-result-flow", "application-result", "member", "index", "operator", "literal", "protocol", "refinement", "discharge", "default", "construction"].sort());
   deepEqual([...resultArms.decisions].sort(), ["eq", "flow", "literal", "member", "index", "call", "construct", "op", "construct-literal",
     "protocol", "refine", "discharge", "default", "closure", "deferred", "error"].sort());
   assert.equal(resultArms.operations.size, 17);

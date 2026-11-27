@@ -163,6 +163,7 @@ function walk(lowering: Lowering): boolean {
         : next.kind === "declaration" ? declareLocal(lowering, next.node, next.lexical)
           : next.kind === "declarations" ? nextDeclaration(lowering, next)
           : next.kind === "pattern-value" ? finishPatternValue(lowering, next.node)
+          : next.kind === "tuple-value" ? tupleValue(lowering, next)
           : next.kind === "scope-end" ? endLocalScope(lowering, next.node, next.scope)
         : next.kind === "argument-place" ? argumentPlace(lowering, next.node)
         : next.kind === "call" ? finishCall(lowering, next)
@@ -382,6 +383,13 @@ function directStaticValue(node: Expression<TypedPhase>) {
 function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
   const { state, body } = lowering;
   switch (node.kind) {
+    case "ArrayLiteralExpression": {
+      const phase = node.tsonic;
+      if (phase.role !== "value" || phase.construction.kind !== "decided")
+        return callerDefect("a tuple literal requires its actual selected construction", node.origin);
+      value(lowering, phase, node);
+      return tupleValue(lowering, { kind: "tuple-value", node, operation: phase.construction.decision, position: 0 });
+    }
     case "ConditionalExpression": {
       const selection = node.tsonic.selection;
       if (selection.kind !== "conditional" || selection.control !== node.condition.id
@@ -563,6 +571,39 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     default:
       return notLoweredYet(`the expression ${node.kind}`, node.origin);
   }
+}
+
+function tupleValue(lowering: Lowering, pending: Extract<Work, { readonly kind: "tuple-value" }>): boolean {
+  const { node, position } = pending;
+  const { decision } = pending.operation;
+  if (decision.operation.kind !== "array-construction" || decision.execution.kind !== "pure"
+    || decision.operands.length !== node.elements.nodes.length || decision.operation.parts.length !== node.elements.nodes.length)
+    return callerDefect("a tuple literal requires its actual pure ordered construction", node.origin);
+  if (position < node.elements.nodes.length) {
+    const element = node.elements.nodes[position];
+    const part = decision.operation.parts[position];
+    if (element === undefined || part?.part !== position || part.source.body !== lowering.body.body || part.source.node !== element.id)
+      return callerDefect("a tuple slot requires its actual typed operand in source order", node.origin);
+    lowering.work.push({ ...pending, position: position + 1 }, { kind: "expression", node: element });
+    return true;
+  }
+  const type = lowering.typeOf(decision.result);
+  if (type.kind !== "tuple" || type.elements.length !== position)
+    return callerDefect("a tuple literal must build its actual selected product storage", node.origin);
+  const elements: MirOperand[] = [];
+  for (let index = position - 1; index >= 0; index -= 1) {
+    const part = popOperand(lowering, failure("a tuple slot is missing its evaluated value", node.origin));
+    const slot = type.elements[index];
+    if (slot?.kind !== "required" || part.storage !== slot.type || decision.operands[index] !== slot.type)
+      return callerDefect("a tuple construction operand must retain its initialized slot type", node.origin);
+    elements[index] = part.operand;
+  }
+  const site = siteOf(lowering.body, node);
+  const place = temporary(lowering, decision.result, site);
+  if (place === null || !emitStatement(lowering.state, { ...site, kind: "assign", place,
+    value: { kind: "aggregate", type: decision.result, aggregate: { kind: "tuple", elements } }, step: null })) return false;
+  pushOperand(lowering, held(place, decision.result, site));
+  return true;
 }
 
 function unary(lowering: Lowering, node: NodeHeader & { readonly kind: "PrefixUnaryExpression" | "TypeOfExpression" | "VoidExpression" },

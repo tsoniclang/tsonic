@@ -10,7 +10,7 @@ import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, 
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
-import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyTupleBinding, verifyValueEndpoints } from "./verify-occurrences.js";
+import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyTupleBinding, verifyTupleConstruction, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
 import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
@@ -844,6 +844,10 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     const original = inventory.sourceNodes.get(node.id);
     if (node.kind === "VariableDeclaration") {
       const stop = verifyTupleBinding(node, original, input.types, admit, emit);
+      if (stop !== null) return { kind: "resource-stop", stop };
+    }
+    if (node.kind === "ArrayLiteralExpression") {
+      const stop = verifyTupleConstruction(node, original, body.body, input.types, input.selectedNativeFacts.carrierHolding, admit, emit);
       if (stop !== null) return { kind: "resource-stop", stop };
     }
     if (node.kind === "InterfaceDeclaration") {

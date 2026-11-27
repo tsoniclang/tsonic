@@ -12,6 +12,7 @@ import { defaultScheme, literalVariableRule } from "./literal-default.js";
 import { decideLiteralFit, literalScheme } from "./literal-fit.js";
 import { callScheme, decideCandidate } from "./candidates.js";
 import { decideCaptureModes } from "./captures.js";
+import { constructLiteral, constructionScheme } from "./construction.js";
 import { matchTypePattern as matchPattern } from "./type-pattern.js";
 
 export { decideCaptureModes };
@@ -57,7 +58,7 @@ export const createRuleTable: CreateRuleTable = deps => {
     member,
     resumeMember,
     index: input => decided(decideIndex(deps, input)),
-    constructLiteral: atContext("literal-construction"),
+    constructLiteral: (input, work, unit) => constructLiteral(deps, input, work, unit),
     candidate: input => {
       const selected = decideCandidate(deps, input);
       return selected.kind === "refused" ? selected : decided(selected.value);
@@ -83,7 +84,7 @@ export const createRuleTable: CreateRuleTable = deps => {
       index: indexScheme(deps),
       call: callScheme(deps),
       construct: atConstraint("construct"),
-      constructLiteral: atConstraint("literal-construction"),
+      constructLiteral: constructionScheme(deps),
       protocol: atConstraint("protocol"),
       refine: atConstraint("refinement"),
       discharge: atConstraint("discharge"),

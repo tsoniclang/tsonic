@@ -3,7 +3,7 @@ import { throwInvariant } from "../diag/index.js";
 import type { NodeRef, Origin } from "../ids/contract.js";
 import type { AtomicContribution, Constraint, ConstraintDecision, ConstraintSet, DefaultConstraint, FinalVariable, InferenceGroup,
   InferenceValue, InferenceVariable, MemberRuleNeed, RecordedCheck, VariableBound } from "../ir-infer/contract.js";
-import type { BindingScope, MemberInventory } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, MemberInventory } from "../ir-types/contract.js";
 
 const authority: { readonly owner: "infer" } = { owner: "infer" };
 
@@ -15,6 +15,8 @@ export type Reached =
   | { readonly kind: "op"; readonly constraint: Extract<Constraint, { readonly kind: "op" }>; readonly evidence: readonly InferenceValue[] }
   | { readonly kind: "call"; readonly constraint: Extract<Constraint, { readonly kind: "call" }>;
       readonly evidence: readonly InferenceValue[]; readonly origin: Origin; readonly scope: BindingScope }
+  | { readonly kind: "construct-literal"; readonly constraint: Extract<Constraint, { readonly kind: "construct-literal" }>;
+      readonly evidence: readonly InferenceValue[]; readonly origin: Origin; readonly bindings: BindingVector }
   | { readonly kind: "default"; readonly constraint: DefaultConstraint; readonly evidence: readonly InferenceValue[] }
   | { readonly kind: "literal"; readonly constraint: Extract<Constraint, { readonly kind: "literal" }>; readonly evidence: readonly InferenceValue[] }
   | { readonly kind: "flow"; readonly constraint: Extract<Constraint, { readonly kind: "flow" }>; readonly evidence: readonly InferenceValue[] };

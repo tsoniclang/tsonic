@@ -270,7 +270,7 @@ export type ContributionRole =
   | { readonly kind: "closure-result-flow"; readonly argument: number; readonly result: number }
   | { readonly kind: "application-result" }
   | { readonly kind: "member" | "index" | "operator" | "literal" | "protocol" | "refinement" | "discharge" | "default" }
-  | { readonly kind: "construction-part"; readonly part: number };
+  | { readonly kind: "construction" };
 
 export interface ContributionKey {
   readonly node: NodeRef;
@@ -765,6 +765,13 @@ export interface IndexContributionScheme {
   readonly evaluate: (input: ContributionEvaluation<IndexConstraint> & { readonly origin: Origin }) => Result<ContributionOutcome>;
 }
 
+export interface ConstructionContributionScheme {
+  readonly enumerate: (input: EnumerationInput<LiteralConstructionConstraint>) => Result<readonly AtomicContribution[]>;
+  readonly evaluate: (input: ContributionEvaluation<LiteralConstructionConstraint> & {
+    readonly origin: Origin; readonly bindings: BindingVector; readonly typeWork: TypePublicationWork; readonly unit: UnitRequest;
+  }) => Result<ContributionOutcome>;
+}
+
 export interface CallContributionScheme {
   readonly enumerate: (input: EnumerationInput<CallConstraint>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<CallConstraint> & { readonly origin: Origin;
@@ -780,7 +787,7 @@ export interface ConstraintSchemes<State> {
   readonly index: IndexContributionScheme;
   readonly call: CallContributionScheme;
   readonly construct: ConstraintScheme<ConstructConstraint>;
-  readonly constructLiteral: ConstraintScheme<LiteralConstructionConstraint>;
+  readonly constructLiteral: ConstructionContributionScheme;
   readonly protocol: ConstraintScheme<ProtocolConstraint>;
   readonly refine: ConstraintScheme<RefinementConstraint>;
   readonly discharge: ConstraintScheme<DischargeConstraint>;
@@ -803,7 +810,7 @@ export interface RuleTable<State> {
   readonly member: (input: MemberInput, storage: SourceObjectField | null) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly resumeMember: (state: State, answers: readonly MemberRuleAnswer[]) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly index: (input: IndexInput) => Result<RuleOutcome<IndexDecision>>;
-  readonly constructLiteral: (input: LiteralConstructionInput) => Result<RuleOutcome<OperationDecision>>;
+  readonly constructLiteral: (input: LiteralConstructionInput, typeWork: TypePublicationWork, unit: UnitRequest) => Result<RuleOutcome<OperationDecision>>;
   readonly candidate: (input: CandidateInput) => Result<RuleOutcome<ApplicationDecision>>;
   readonly operator: (input: OperatorInput) => Result<RuleOutcome<OperationDecision>>;
   readonly literalFit: (input: LiteralFitInput) => Result<RuleOutcome<EmbeddingDecision>>;

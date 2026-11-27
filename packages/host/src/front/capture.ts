@@ -5415,7 +5415,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
           }
         }
       }
-      const tupleValue: LiteralTupleUse | null = kind === "KindArrayLiteralExpression" && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
+      const tupleValue: LiteralTupleUse | null = tupleContext !== null && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
         ? { kind: "literal-tuple", expression: node, original: answer.type } : null;
       const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue,
         kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);

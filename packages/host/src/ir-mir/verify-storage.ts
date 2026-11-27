@@ -682,6 +682,16 @@ export function verifyValues(
         const selected = term(value.type);
         const aggregate = value.aggregate;
         const operands = rvalueOperands(value);
+        const authored = node?.node;
+        if (aggregate.kind === "tuple" && authored?.kind === "ArrayLiteralExpression") {
+          const phase = authored.tsonic;
+          const construction = phase.role === "value" && phase.construction.kind === "decided" ? phase.construction.decision.decision : null;
+          if (construction?.operation.kind !== "array-construction" || construction.execution.kind !== "pure"
+            || construction.result !== value.type || construction.operands.length !== operands.length
+            || construction.operation.parts.length !== operands.length || authored.elements.nodes.length !== operands.length
+            || nativeCarrierHoldingOf(context.selectedNativeFacts.carrierHolding, "tuple") !== "in-place")
+            report("operation-selected", site);
+        }
         switch (aggregate.kind) {
           case "array": case "tuple": case "fixed-array": {
             if (selected !== null && selected.kind !== aggregate.kind) report("assignment-type", site);

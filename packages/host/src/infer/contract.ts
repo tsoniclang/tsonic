@@ -1,6 +1,6 @@
 import type { Diagnostic, Result, UnitAnswerPosition, UnitRequest } from "../diag/contract.js";
 import type { BodyId, DefId, ModuleId, NodeRef, Origin, SourceNodeRef } from "../ids/contract.js";
-import type { BindingScope, Signature, SignatureRequest, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, Signature, SignatureRequest, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import type { CheckedPhase, CheckedTypingCuts, Declaration, HirBindingViews, HirBody, HirCandidateList, HirModuleBinding, HirNode } from "../ir-hir/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
 import type { AtomicContribution, CaptureRow, ConstraintSet, FinalVariable, InferenceGroup, InferredPartRequest, InferredPartType, MemberRuleAnswer, MemberRuleNeed, PlacedSignature, RecordedCheck, RuleTable, SignaturePlacement, Solution, SolvedConstraint, TypeProductionNeed, TypeProductionAnswer } from "../ir-infer/contract.js";
@@ -98,7 +98,8 @@ export type MemberSolveContinuation<State> = MemberSolveSuspension<InferDeps<Sta
 export type SelectionConstraintContext = {
   readonly occurrence: NodeRef;
   readonly origin: Origin;
-} & ({ readonly kind: "member" | "index" } | { readonly kind: "call"; readonly scope: BindingScope });
+} & ({ readonly kind: "member" | "index" } | { readonly kind: "call"; readonly scope: BindingScope }
+  | { readonly kind: "construction"; readonly bindings: BindingVector });
 
 export interface GroupConstraints {
   readonly constraints: readonly ConstraintSet[];

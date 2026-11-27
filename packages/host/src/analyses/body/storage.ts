@@ -161,6 +161,9 @@ export function statementOperands(statement: MirStatement): readonly MirOperand[
   switch (value.kind) {
     case "use": case "unary": case "convert": return [value.operand];
     case "binary": return [value.left, value.right];
+    case "aggregate":
+      if (value.aggregate.kind === "tuple") return value.aggregate.elements;
+      return bodyFrontier("BodyAnalysis needs the actual aggregate, capture or backing producer for this operation.");
     default: return bodyFrontier("BodyAnalysis needs the actual aggregate, capture or backing producer for this operation.");
   }
 }

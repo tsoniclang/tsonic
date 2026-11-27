@@ -5421,7 +5421,8 @@ test("private replay preserves actual operands and refuses unsupported applicabl
   const operand = { kind: "place", place: assignment.place };
   for (const kind of ["use", "unary", "convert"]) assert.deepEqual(statementOperands({ ...assignment,
     value: { kind, operand } }), [operand]);
-  assert.throws(() => statementOperands({ ...assignment, value: { kind: "aggregate" } }), /aggregate, capture or backing/);
+  assert.throws(() => statementOperands({ ...assignment,
+    value: { kind: "aggregate", type: T.int32Array, aggregate: { kind: "array", elements: [] } } }), /aggregate, capture or backing/);
   assert.deepEqual(terminatorOperands({ kind: "unreachable" }), []);
   assert.throws(() => terminatorOperands({ kind: "call" }), /call, failure or suspension/);
   assert.equal(readLocal(body, { kind: "constant", constant: 0 }), null);

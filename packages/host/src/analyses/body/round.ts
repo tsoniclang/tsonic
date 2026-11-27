@@ -50,6 +50,7 @@ function operandSite(node: TirSyntaxOccurrence | undefined, position: number, di
   if (node?.kind === "PrefixUnaryExpression" || node?.kind === "PostfixUnaryExpression") return node.operand;
   if (node?.kind === "PropertyAccessExpression" && node.tsonic.role === "array-extent") return node.expression;
   if (node?.kind === "ReturnStatement" && node.expression !== null) return node.expression;
+  if (node?.kind === "ArrayLiteralExpression") return node.elements.nodes[position];
   if (node?.kind === "ThrowStatement") return node.expression;
   return node;
 }
@@ -713,7 +714,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           values: [{ source: stored, origins: originsOf(statement.value.operand), reason: null }], boundaries: [] });
       } else if (buildFacts && statement.kind === "assign") {
         const value = statement.value;
-        if (value.kind !== "use" && (value.kind !== "unary" && value.kind !== "binary" && value.kind !== "convert"
+        const tuple = value.kind === "aggregate" && value.aggregate.kind === "tuple";
+        if (value.kind !== "use" && !tuple && (value.kind !== "unary" && value.kind !== "binary" && value.kind !== "convert"
           || value.operation.decision.kind !== "selected" || value.operation.decision.execution.kind !== "pure"))
           return bodyFrontier("BodyAnalysis requires the actual selected operation effect and Origins transport.");
         const place: Extract<MirOperand, { readonly kind: "place" }> = { kind: "place", place: statement.place };

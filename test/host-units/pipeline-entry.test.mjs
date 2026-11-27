@@ -100,6 +100,73 @@ test("fixed and empty call spreads keep their authored component and later-value
   }
 });
 
+test("authored tuple construction consumes ordered operands and emits one selected product", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const withInlineTuple = source => {
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    const facts = input.snapshot.nativeFacts;
+    return { ...input, snapshot: { ...input.snapshot,
+      nativeFacts: { ...facts, carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } };
+  };
+  const source = `
+    function keep(flag: boolean): boolean { return flag; }
+    function flip(flag: boolean): boolean { return !flag; }
+    function pair(flag: boolean): readonly [boolean, boolean] { return [keep(flag), flip(flag)]; }
+    export function start(flag: boolean): boolean { const [left, right] = pair(flag); return left; }
+  `;
+  const input = withInlineTuple(source);
+  const program = analyzeHostProgram(input);
+  assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
+  const findTuple = body => body.root.kind === "Block" && body.root.statements.nodes[0]?.expression?.kind === "ArrayLiteralExpression";
+  const selected = program.value.modules.find(row => row.module === input.snapshot.entryPoint).bodies
+    .find(row => row.kind === "selected" && findTuple(row.tir));
+  assert.ok(selected);
+  const typedLiteral = selected.tir.root.statements.nodes[0].expression;
+  const calls = selected.mir.blocks.map(block => block.terminator).filter(term => term.kind === "call");
+  assert.deepEqual(calls.map(term => term.tir.node), typedLiteral.elements.nodes.map(element => element.id));
+  const aggregates = selected.mir.blocks.flatMap(block => block.statements)
+    .filter(statement => statement.kind === "assign" && statement.value.kind === "aggregate");
+  assert.equal(aggregates.length, 1);
+  assert.equal(aggregates[0].tir.node, typedLiteral.id);
+  assert.deepEqual(aggregates[0].value.aggregate, { kind: "tuple",
+    elements: calls.map(term => ({ kind: "place", place: term.destination })) });
+  assert.equal(program.value.index.types.terms[aggregates[0].value.type].readonly, true);
+  assert.equal(aggregates[0].value.type, selected.tir.completion);
+
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok");
+  const typed = typeSourceBarrier(input, checked.value, createTypedAccount(input));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const candidate = [...typed.value.bodies.values()].find(body => body.bindings.kind === "instantiated" && findTuple(body));
+  assert.ok(candidate);
+  const forged = structuredClone(candidate);
+  const literal = forged.root.statements.nodes[0].expression;
+  const [first, second] = literal.tsonic.construction.decision.decision.operation.parts;
+  first.destination = second.destination;
+  const verifier = typed.value.verifierOf(input.snapshot.entryPoint);
+  const rejected = verifyTir(verifier, tirReadyReadAdmission(createTypedAccount(input)))(forged);
+  assert.equal(rejected.kind, "complete");
+  assert.equal(rejected.violations.some(finding => finding.rule === "operation-type" && finding.detail.some(detail =>
+    detail.kind === "text" && detail.value.startsWith("a fixed tuple slot retains"))), true);
+  for (const [annotation, expression, size] of [["[number, number]", "[1, 2]", 2], ["[]", "[]", 0]]) {
+    const opposite = withInlineTuple(`export function pair(): ${annotation} { return ${expression}; }`);
+    const completed = analyzeHostProgram(opposite);
+    assert.equal(completed.kind, "ok", JSON.stringify(completed.diagnostics));
+    const body = completed.value.modules.find(row => row.module === opposite.snapshot.entryPoint).bodies
+      .find(row => row.kind === "selected" && findTuple(row.tir));
+    assert.ok(body);
+    const built = body.mir.blocks.flatMap(block => block.statements)
+      .filter(statement => statement.kind === "assign" && statement.value.kind === "aggregate");
+    assert.equal(built.length, 1);
+    assert.equal(built[0].value.aggregate.elements.length, size);
+  }
+});
+
 test("installed ES2024 publishes a qualified scalar indexed write and read within its original allowance", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

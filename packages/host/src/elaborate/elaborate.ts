@@ -264,6 +264,31 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       const scope = constraint.permissionScope;
       if (scope !== null) positionOf(scope);
       operations[position] = { decision: decision.operation, permissionScope: scope === null ? null : scope.node };
+    } else if (constraint.kind === "construct-literal") {
+      const node = nodes[position];
+      if (decision.kind !== "construct-literal" || node?.kind !== "ArrayLiteralExpression" || operations[position] !== undefined
+        || decision.operation.operation.kind !== "array-construction" || decision.operation.execution.kind !== "pure"
+        || decision.operation.result !== finalType(constraint.destination ?? constraint.result, origin))
+        return callerDefect("a tuple literal requires its one actual selected construction operation", origin);
+      const { operands, operation } = decision.operation;
+      if (operation.parts.length !== node.elements.nodes.length || operation.parts.length !== constraint.parts.length
+        || operands.length !== operation.parts.length)
+        return callerDefect("a tuple literal retains every authored operand and selected slot in order", origin);
+      for (let index = 0; index < operation.parts.length; index += 1) {
+        const part = operation.parts[index];
+        const source = constraint.parts[index];
+        const element = node.elements.nodes[index];
+        const destination = operands[index];
+        if (part?.part !== index || source?.kind !== "element" || element === undefined || destination === undefined
+          || part.source.body !== body.body || part.source.node !== element.id
+          || source.occurrence.body !== body.body || source.occurrence.node !== element.id)
+          return callerDefect("a tuple slot binds its actual authored operand", origin);
+        const slot = positionOf(part.source);
+        if (flows[slot] !== undefined || part.embedding.kind === "refused")
+          return callerDefect("a tuple slot requires its one actual initialization fit", element.origin);
+        flows[slot] = { embedding: part.embedding, source: finalType(source.type, element.origin), destination, role: "initialization" };
+      }
+      operations[position] = { decision: decision.operation, permissionScope: null };
     } else if (constraint.kind === "flow") {
       if (flows[position] !== undefined) callerDefect("two flow decisions at one occurrence", origin);
       if (decision.kind === "deferred") notElaboratedYet("a deferred conversion", origin);
@@ -1362,6 +1387,27 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         if (building) expressions[position] = identifier(node, position);
         else admitName(node, position);
         return;
+      case "ArrayLiteralExpression": {
+        if (!building) {
+          for (const part of node.elements.nodes) visit(part);
+          return;
+        }
+        const construction = operations[position];
+        if (node.tsonic.role !== "value" || construction?.decision.operation.kind !== "array-construction")
+          return notElaboratedYet("a tuple literal without its actual constructor decision and authored parts", node.origin);
+        const elements = node.elements.nodes.map((part, index) => {
+          const value = values[nodePosition(part.id)];
+          if (value === undefined || value.convertedType !== construction.decision.operands[index])
+            return callerDefect("a tuple operand must use its selected initialized slot type", part.origin);
+          return expressionOf(part);
+        });
+        read.operations.add(position);
+        expressions[position] = { ...header(node), kind: node.kind, multiLine: node.multiLine,
+          elements: { loc: node.elements.loc, nodes: elements },
+          tsonic: { role: "value", construction: { kind: "decided", decision: construction },
+            ...valueOf(position, construction.decision.result, node.origin) } };
+        return;
+      }
       case "TrueKeyword": case "FalseKeyword": case "NumericLiteral": case "BigIntLiteral": case "StringLiteral":
       case "NoSubstitutionTemplateLiteral": case "NullKeyword": {
         if (node.tsonic.role !== "value" || node.tsonic.value.views.read.kind !== "available")

@@ -68,9 +68,8 @@ export function roleParts(role: ContributionRole): readonly KeyData[] {
     case "argument-flow": return [role.kind, role.argument, role.component];
     case "context-flow": return [role.kind, role.argument, role.parameter];
     case "closure-result-flow": return [role.kind, role.argument, role.result];
-    case "construction-part": return [role.kind, role.part];
     case "flow": case "selection": case "receiver-flow": case "application-result": case "member": case "index":
-    case "operator": case "literal": case "protocol": case "refinement": case "discharge": case "default": return [role.kind];
+    case "operator": case "literal": case "protocol": case "refinement": case "discharge": case "default": case "construction": return [role.kind];
   }
 }
 
@@ -92,7 +91,7 @@ function roleOrder(role: ContributionRole): readonly [number, number, number] {
     case "refinement": return [13, 0, 0];
     case "discharge": return [14, 0, 0];
     case "default": return [15, 0, 0];
-    case "construction-part": return [16, role.part, 0];
+    case "construction": return [16, 0, 0];
   }
 }
 
@@ -175,7 +174,7 @@ function roleMatches(value: Constraint, key: ContributionKey): boolean {
       case "receiver-flow": return value.application.receiver !== null;
       case "application-result": return true;
       case "equality": case "flow": case "member": case "index": case "operator": case "literal": case "protocol":
-      case "refinement": case "discharge": case "default": case "construction-part": return false;
+      case "refinement": case "discharge": case "default": case "construction": return false;
     }
   }
   if (key.candidate !== null) return false;
@@ -186,7 +185,7 @@ function roleMatches(value: Constraint, key: ContributionKey): boolean {
     case "op": return role.kind === "operator";
     case "member": return role.kind === "member";
     case "index": return role.kind === "index";
-    case "construct-literal": return role.kind === "construction-part" && ordinal(role.part) && role.part < value.parts.length;
+    case "construct-literal": return role.kind === "construction";
     case "protocol": return role.kind === "protocol";
     case "refine": return role.kind === "refinement";
     case "discharge": return role.kind === "discharge";
@@ -313,7 +312,12 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
         if (bounds.size !== 0) return false;
         types.add(value.receiver); types.add(value.key);
         break;
-      case "member": case "construct-literal": case "call": case "construct": case "protocol": return null;
+      case "construct-literal":
+        if (current !== root) return null;
+        if (bounds.size !== 0) return false;
+        for (const part of value.parts) types.add(part.type);
+        break;
+      case "member": case "call": case "construct": case "protocol": return null;
     }
   }
   for (const variable of variables) if (!bounds.has(variable)) return false;
