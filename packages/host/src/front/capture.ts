@@ -3906,8 +3906,12 @@ function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: No
   const ast = scope.checked.ast;
   let operand = node;
   let owner: Node | undefined = parent;
-  while (owner !== undefined && ast.kindName(owner) === "KindParenthesizedExpression") {
-    if (!admit(scope, "edges") || ast.as.AsParenthesizedExpression(owner)?.Expression !== operand) return undefined;
+  while (owner !== undefined) {
+    if (ast.kindName(owner) === "KindParenthesizedExpression") {
+      if (!admit(scope, "edges") || ast.as.AsParenthesizedExpression(owner)?.Expression !== operand) return undefined;
+    } else if (role === "tuple" && ast.isConstAssertion(owner)) {
+      if (tupleAssertion(scope, owner)?.Expression !== operand) return undefined;
+    } else break;
     operand = owner;
     owner = ast.parent(owner);
   }
@@ -4099,8 +4103,7 @@ function valueTupleRead(scope: CaptureScope, node: Node | undefined, answer: Res
       const target = assertion.Type;
       if (target === undefined) return null;
       const annotation = sourceType(scope, { kind: "annotation", node: target });
-      if (annotation?.type !== answer.type || annotation.causes.length !== 0
-        || !admit(scope, "edges") || scope.shape.getTupleInfo(answer.type)?.readonly !== true) return null;
+      if (annotation?.type !== answer.type || annotation.causes.length !== 0) return null;
       return retainTupleLiteral(scope, node, literal, answer.type);
     }
   }
@@ -6151,11 +6154,15 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
           const contexts = scope.tables.tupleArgumentContexts;
           if (contexts !== null && !admit(scope, "edges")) break;
           const formal = contexts?.get(node);
-          const variable = ast.kindName(parent) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(parent) : undefined;
-          const written = variable?.Initializer === node && ast.kindName(variable.name) === "KindArrayBindingPattern"
-            ? tupleAnnotationOf(scope, contextual.type, variable.Type) : undefined;
-          contextualSource = formal === undefined ? written ?? contextual.typeSource ?? null
-            : formal.type === contextual.type ? formal.annotation : null;
+          if (formal !== undefined) contextualSource = formal.type === contextual.type ? formal.annotation : null;
+          else {
+            const variable = ast.kindName(parent) === "KindVariableDeclaration" ? ast.as.AsVariableDeclaration(parent) : undefined;
+            const wrapped = kind === "KindAsExpression" || kind === "KindTypeAssertionExpression" || kind === "KindParenthesizedExpression";
+            const written = variable?.Initializer === node && ast.kindName(variable.name) === "KindArrayBindingPattern" ? variable.Type
+              : parent !== undefined && contextual.typeSource === undefined && wrapped
+                ? contextualLiteralAnnotation(scope, node, parent, "tuple") : undefined;
+            contextualSource = tupleAnnotationOf(scope, contextual.type, written) ?? contextual.typeSource ?? null;
+          }
         } else if (scope.sourcePrimitiveFacts && kind === "KindArrayLiteralExpression" && parent !== undefined) {
           contextualSource = contextualNativeArrayAnnotation(scope, node, parent, contextual);
         }

@@ -3869,6 +3869,51 @@ test("a const tuple assertion keeps the actual annotation root and operand slot 
     [[0, 0, 0], [0, 1, 1], [1, null, 2]]);
 });
 
+test("a saved tuple keeps its written initializer context across either const assertion", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  for (const syntax of ["[flip(flag), true] as const", "((<const>[flip(flag), true]))"]) {
+    const { snapshot } = analysisInput(fixture, "sdk-minimal", `
+      function flip(flag: boolean): boolean { return !flag; }
+      export function start(flag: boolean): readonly [boolean, true] {
+        const slots: readonly [boolean, true] = ${syntax};
+        return slots;
+      }
+    `);
+    const { deps, program } = fixture.openAndCapture(snapshot);
+    const { entryPoint: module } = snapshot;
+    const result = captureSingleModule(front, deps, program, module);
+    assert.equal(result.kind, "ok");
+    const raw = result.value;
+    const declaration = raw.tree.statements.nodes[1].body.statements.nodes[0].declarationList.declarations.nodes[0];
+    const annotationOf = node => raw.types.types[raw.annotations.find(row => row.node === node.id).type];
+    const written = annotationOf(declaration.type);
+    assert.equal(written.form.value.readonly, true);
+    assert.deepEqual(written.authoredTypeNode, { module, node: declaration.type.id });
+    for (let node = declaration.initializer; ; node = node.expression) {
+      const { read, contextual } = raw.checkerViews.find(row => row.node.node === node.id);
+      const value = raw.types.types[read.value];
+      const destination = raw.types.types[contextual.value];
+      assert.notEqual(value.id, destination.id);
+      for (const [row, readonly] of [[value, false], [destination, true]]) {
+        assert.equal(row.form.value.kind, "tuple");
+        assert.equal(row.form.value.readonly, readonly);
+        assert.deepEqual(raw.types.components[row.component].root, { module, node: node.id });
+        assert.deepEqual(row.form.value.elements.map(element => {
+          const slot = raw.types.types[element.type];
+          return slot.literal.value?.value ?? slot.form.value.scalar;
+        }), ["boolean", true]);
+      }
+      if (node.kind === "AsExpression" || node.kind === "TypeAssertionExpression") {
+        const assertion = annotationOf(node.type);
+        assert.deepEqual(assertion.authoredTypeNode, { module, node: node.type.id });
+        assert.equal(assertion.form.value.readonly, value.form.value.readonly);
+      }
+      if (node.kind === "ArrayLiteralExpression") break;
+    }
+  }
+});
+
 test("inferred array destructuring preserves independent native read and contextual tuple slots", () => {
   const { deps, program, module } = openedModule(
     "declare const a: number; declare const c: number; export const [e, f] = [a + 1, c];");
