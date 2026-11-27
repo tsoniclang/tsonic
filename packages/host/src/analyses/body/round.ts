@@ -30,7 +30,9 @@ import { collectCellWrites, recordCaptureWrite, recordCellWrite } from "./writes
 import { collectRetainedValues, retainCallCaptures, retainValue } from "./exits.js";
 import type { ValueEscape, ValueRetention } from "./exits.js";
 
-const noCountedProofs: DataflowResult<CountedLoopProofs> = { kind: "complete", value: { loops: [], ranges: [], refinements: [] } };
+const noCountedProofs: { readonly kind: "complete"; readonly value: CountedLoopProofs } = {
+  kind: "complete", value: { loops: [], ranges: [], refinements: [] },
+};
 
 function operandSite(node: TirSyntaxOccurrence | undefined, position: number, dispatch: boolean): TirSyntaxOccurrence | undefined {
   if (dispatch) {

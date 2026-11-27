@@ -122,13 +122,14 @@ export type RefinementReason =
   | { readonly kind: "invalidated"; readonly sites: readonly [RefinementInvalidation, ...RefinementInvalidation[]] }
   | { readonly kind: "guard-not-proven"; readonly detail: string };
 
-export type RefinementFact = {
+export interface ProvenRefinementFact {
+  readonly kind: "proven";
   readonly node: NodeId;
   readonly guards: readonly NodeId[];
-} & (
-  | { readonly kind: "proven" }
-  | { readonly kind: "unproven"; readonly reason: RefinementReason }
-);
+}
+
+export type RefinementFact = ProvenRefinementFact
+  | { readonly kind: "unproven"; readonly node: NodeId; readonly guards: readonly NodeId[]; readonly reason: RefinementReason };
 
 export interface IntegerRange {
   readonly minimum: bigint;
@@ -161,7 +162,7 @@ export interface CountedLoopInputs {
 export interface CountedLoopProofs {
   readonly loops: readonly CountedLoopFact[];
   readonly ranges: readonly { readonly node: NodeId; readonly range: IntegerRange }[];
-  readonly refinements: readonly Extract<RefinementFact, { readonly kind: "proven" }>[];
+  readonly refinements: readonly ProvenRefinementFact[];
 }
 
 export type CountedLoopsOf = (account: DataflowAccount, mir: MirBody, provided: number,
