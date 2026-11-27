@@ -3546,6 +3546,39 @@ test("inferred array destructuring preserves independent native read and context
   }
 });
 
+test("selected nested tuple capture admits the authored literal receipts at the exact fact boundary", async () => {
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const source = "function take(pair: [[boolean]]): boolean { return false; } export function start(flag: boolean): boolean { return take(([[flag]])); }";
+  const capture = maximumCapturedFactsPerModule => {
+    const { deps, program, module } = openedModule(source);
+    return captureSingleModule(front, { ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule } }, program, module);
+  };
+  const module = moduleOf(packageOf("/project"), "src/main.ts");
+  const exact = 191;
+  for (const maximum of [0, exact - 1]) assert.deepEqual(capture(maximum), {
+    kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum,
+      site: { kind: "file", path: "/project/src/main.ts" }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })],
+  });
+  const result = capture(exact);
+  assert.equal(result.kind, "ok");
+  const raw = result.value;
+  const invocation = raw.tree.statements.nodes[1].body.statements.nodes[0].expression;
+  const [argument] = invocation.arguments.nodes;
+  const selected = raw.calls.find(row => row.invocation.node === invocation.id);
+  assert.equal(selected.kind, "applicable");
+  const [candidate] = raw.types.candidates[selected.candidates].candidates;
+  assert.deepEqual(candidate.sourceArguments.map(row => row.occurrence), [{ module, node: argument.id }]);
+  const { read, contextual } = raw.checkerViews.find(row => row.node.node === argument.id);
+  assert.notEqual(read.value, contextual.value);
+  for (const view of [read, contextual]) {
+    const root = raw.types.types[view.value];
+    assert.deepEqual(raw.types.components[root.component].root, { module, node: argument.id });
+    const [inner] = root.form.value.elements;
+    const [leaf] = raw.types.types[inner.type].form.value.elements;
+    assert.deepEqual(raw.types.types[leaf.type].form, { kind: "available", value: { kind: "scalar", scalar: "boolean" } });
+  }
+});
+
 test("an inferred array binding keeps a selected call's tuple distinct from its binding context", () => {
   for (const [tuple, pattern, roles] of [
     ["[boolean, string]", "first, second", ["required", "required"]],
