@@ -3557,6 +3557,100 @@ test("an authored nested finite spread retains its own effective tuple slots and
   assert.equal(analyzed.kind, "ok", JSON.stringify(analyzed.diagnostics));
 });
 
+test("mixed tuple spread slots retain their native union order and own authored source", async () => {
+  const fixture = await loadFrontFixture();
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = `
+    function take(first: [boolean], second: [number], last: boolean): boolean { return last; }
+    function next(value: boolean): boolean { return !value; }
+    export function start(flag: boolean, value: number): boolean {
+      return take(...([[flag], [value]] as [[boolean], [number]]), next(flag));
+    }
+  `;
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const opened = fixture.openAndCapture(input.snapshot);
+  const module = input.snapshot.entryPoint;
+  const capture = (session, maximumCapturedFactsPerModule) => captureSingleModule(front, { ...session.deps,
+    navigationCapture: { ...session.deps.navigationCapture, maximumCapturedFactsPerModule },
+  }, session.program, module);
+  const exact = 504;
+  assert.deepEqual(capture(fixture.openAndCapture(input.snapshot), exact - 1), { kind: "refused", diagnostics: [resourceLimitDiagnostic({
+    owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum: exact - 1, site: { kind: "file", path: "/project/src/main.ts" },
+    unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } },
+  })] });
+  const captured = capture(opened, exact);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const invocation = raw.tree.statements.nodes[2].body.statements.nodes[0].expression;
+  const [spread, later] = invocation.arguments.nodes;
+  const call = raw.calls.find(row => row.invocation.node === invocation.id);
+  const [selected] = raw.types.candidates[call.candidates].candidates;
+  assert.deepEqual(selected.arguments.value.map(row => [row.sourceArgument.node, row.spreadElementIndex, row.parameterIndex]),
+    [[spread.id, 0, 0], [spread.id, 1, 1], [later.id, null, 2]]);
+  const scalarOf = row => {
+    assert.equal(row.form.value.kind, "tuple");
+    assert.equal(row.form.value.elements.length, 1);
+    return raw.types.types[row.form.value.elements[0].type].form.value.scalar;
+  };
+  assert.deepEqual(selected.arguments.value.slice(0, 2).map(row => scalarOf(raw.types.types.find(type => type.component === row.source.value))),
+    ["boolean", "number"]);
+  const union = raw.types.types[raw.checkerViews.find(row => row.node.node === spread.id).read.value];
+  assert.equal(union.form.value.kind, "union");
+  const unionOrder = union.form.value.members.map((member, index) => {
+    const row = raw.types.types[member];
+    assert.deepEqual(raw.types.components[row.component].root, { module, node: spread.id });
+    assert.deepEqual(raw.types.components[row.component].path, { prefix: null, step: { kind: "union-member", index } });
+    return scalarOf(row);
+  });
+  const nativeSpreads = program => {
+    const checked = OpenedProgram.checked(program);
+    const file = checked.getSourceFile("/project/src/main.ts");
+    const stack = [file];
+    const spreads = [];
+    for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
+      if (checked.ast.kindName(node) === "KindSpreadElement") spreads.push(node);
+      for (const child of checked.ast.children(node)) if (child !== undefined) stack.push(child);
+    }
+    spreads.sort((left, right) => checked.ast.authoredRange(left).start - checked.ast.authoredRange(right).start);
+    return { checked, file, spreads };
+  };
+  const native = nativeSpreads(opened.program);
+  const queries = native.checked.getSourceFileQueries(native.file);
+  const nativeUnion = queries.checker.acquireSourceType({ kind: "expression", node: native.spreads[0] }, () => null).value.type;
+  const actual = queries.checker.acquireResolvedCall(native.checked.ast.parent(native.spreads[0]), () => null).value.selection.arguments.values;
+  assert.deepEqual(unionOrder, queries.typeShape.getUnionOrIntersectionTypes(nativeUnion).map(type =>
+    ["boolean", "number"][actual.find(row => row.selectedArgumentType === type).spreadElementIndex]));
+  const facts = input.snapshot.nativeFacts;
+  const published = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: { ...facts,
+    carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
+  assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
+
+  const second = analysisInput(fixture, "sdk-minimal", source + `
+    function other(first: [boolean], second: [string]): boolean { return false; }
+    export function alternate(flag: boolean, value: string): boolean {
+      return other(...([[flag], [value]] as [[boolean], [string]]));
+    }
+  `);
+  const independent = fixture.openAndCapture(second.snapshot);
+  const { checked, file, spreads: [firstSpread, alternateSpread] } = nativeSpreads(independent.program);
+  assert.equal(captureSingleModule(front, independent.deps, independent.program, module).kind, "ok");
+  const crossed = { ...checked, getSourceFileQueries: queried => {
+    const original = checked.getSourceFileQueries(queried);
+    return { ...original, checker: { ...original.checker, acquireSourceType: (request, admit) =>
+      original.checker.acquireSourceType(queried === file && request.kind === "expression" && request.node === firstSpread
+        ? { ...request, node: alternateSpread } : request, admit) } };
+  } };
+  const files = OpenedProgram.modules(independent.program).modules.map(entry => OpenedProgram.file(independent.program,
+    entry.kind === "snapshot" ? entry.module : entry.document.module));
+  const altered = OpenedProgram.create(crossed, OpenedProgram.table(independent.program), files,
+    OpenedProgram.libraryData(independent.program), OpenedProgram.contributions(independent.program));
+  assert.throws(() => captureSingleModule(front, independent.deps, altered, module), { name: "TypeError",
+    message: "front: a spread union tuple member requires its actual effective argument at this authored spread" });
+});
+
 test("a rejected nested spread retains its actual candidate and original checker obligation", async () => {
   const fixture = await loadFrontFixture();
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
