@@ -204,11 +204,12 @@ test("S-1 composes an actual field default with a once-evaluated tuple producer 
   const input = { ...original, snapshot: { ...original.snapshot, nativeFacts: { ...facts,
     carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
   } } };
-  const run = maximumWork => analyzeHostProgram({ ...input, limits: { ...input.limits,
-    dataflow: { ...input.limits.dataflow, maximumWork },
+  const run = (maximumWork, maximumResultEntries) => analyzeHostProgram({ ...input, limits: { ...input.limits,
+    dataflow: { maximumWork, maximumResultEntries },
   } });
-  const exact = 129002;
-  const result = run(exact);
+  const work = 129002;
+  const records = 17518;
+  const result = run(work, records);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
   const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
   const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
@@ -249,12 +250,18 @@ test("S-1 composes an actual field default with a once-evaluated tuple producer 
     assert.deepEqual(transport.map(row => row.projection === null ? null : executionFacts.arena.projections[row.projection].projection),
       [{ kind: "index", constant: 0n }, { kind: "index", constant: 1n }, null]);
   }
-  const refused = run(exact - 1);
-  assert.equal(refused.kind, "refused");
-  assert.equal("value" in refused, false);
-  assert.deepEqual(refused.diagnostics.map(row => [row.source, row.code.rendered, row.arguments]), [
-    ["pipeline", "TSONIC_COMPILER_RESOURCE_LIMIT", [{ kind: "text", value: "work" }, { kind: "number", value: exact - 1 }]],
-  ]);
+  for (const [limit, maximumWork, maximumResultEntries, maximum] of [
+    ["work", work - 1, records, work - 1],
+    ["result-entries", work, records - 1, records - 1],
+  ]) {
+    const refused = run(maximumWork, maximumResultEntries);
+    assert.equal(refused.kind, "refused");
+    assert.equal("value" in refused, false);
+    assert.deepEqual(refused.diagnostics.map(row => [row.source, row.code.rendered, row.site, row.arguments]), [
+      ["pipeline", "TSONIC_COMPILER_RESOURCE_LIMIT", { kind: "none" },
+        [{ kind: "text", value: limit }, { kind: "number", value: maximum }]],
+    ]);
+  }
 });
 
 test("a finite spread of a checked tuple literal constructs its one product before the next argument", async () => {
