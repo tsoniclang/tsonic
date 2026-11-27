@@ -6,9 +6,9 @@ import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayo
   checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
   readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
-import { isNativeIntegerPrimitive, nativeArrayHoldingOf, sameInstance, verifyTypes } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeArrayHoldingOf, sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
-import type { CallExpression, ElementAccessExpression } from "../ir-hir/contract.js";
+import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
 import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
@@ -62,6 +62,26 @@ function verifyIndex(input: TirVerifierInput, node: ElementAccessExpression<Type
         : value.access.read !== checked.read || value.access.narrowing !== null || value.access.evidenceIndex !== null))
       emit("access-location", node, "an indexed write must retain its actual checked write and only its reached read");
   }
+}
+
+function verifyArrayExtent(input: TirVerifierInput, node: PropertyAccessExpression<TypedPhase> | ElementAccessExpression<TypedPhase>,
+  original: HirNode | undefined, emit: TirOccurrenceEmit): void {
+  const value = node.tsonic;
+  const checked = original?.kind === "PropertyAccessExpression" && original.tsonic.role === "array-extent" ? original.tsonic : null;
+  const operation = value.role === "array-extent" && value.operation.kind === "decided" ? value.operation.decision : null;
+  const selected = operation?.decision.operation;
+  const operand = operation?.decision.operands[0];
+  const carrier = operand === undefined ? undefined : input.types.terms[operand];
+  const result = operation === null ? undefined : input.types.terms[operation.decision.result];
+  if (value.role !== "array-extent" || node.kind !== "PropertyAccessExpression" || node.questionDotToken !== null
+    || checked === null || selected?.kind !== "array-extent" || operation === null
+    || operation.permissionScope !== null || operation.decision.execution.kind !== "pure" || operation.decision.operands.length !== 1
+    || checked.selectedMember.owner !== selected.declaration.owner || checked.selectedMember.node !== selected.declaration.node
+    || typedValueOf(node.expression)?.convertedType !== operand || value.type !== operation.decision.result
+    || (carrier?.kind !== "array" && carrier?.kind !== "fixed-array") || result?.kind !== "primitive"
+    || result.primitive !== nativeArrayExtentOf(input.selectedNativeFacts.arrayExtents, carrier.kind)
+    || selected.holding !== nativeArrayHoldingOf(input.selectedNativeFacts.carrierHolding, carrier.kind))
+    emit("access-location", node, "an array extent must retain its checked declaration, actual receiver and selected native result");
 }
 
 const validRange = (start: number, length: number): boolean =>
@@ -833,6 +853,12 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     verifyOccurrenceRole(node, original, emit);
     verifyValueEndpoints(body, node, emit);
     verifyOccurrenceOperation(node, input.types, emit);
+    if ((node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression")
+      && (node.tsonic.role === "array-extent" || original?.kind === "PropertyAccessExpression" && original.tsonic.role === "array-extent")) {
+      const paid = admit({ kind: "row" });
+      if (paid !== null) return { kind: "resource-stop", stop: paid };
+      verifyArrayExtent(input, node, original, emit);
+    }
     if (node.kind === "ElementAccessExpression" && "index" in node.tsonic) {
       const paid = admit({ kind: "row" });
       if (paid !== null) return { kind: "resource-stop", stop: paid };

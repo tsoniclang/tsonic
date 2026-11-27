@@ -1,6 +1,6 @@
-import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, CandidateListId, DefId, GroupId, ItemNodeRef, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, UnitRequest, Violation } from "../diag/contract.js";
-import type { CheckFailure, HandleActivation, MemberTypeAccess, NativeArrayCarrier, NativeCarrierHolding, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
+import type { CheckFailure, HandleActivation, MemberTypeAccess, NativeArrayCarrier, NativeArrayExtent, NativeCarrierHolding, ReceiverAccess, SourceObjectField, TypePublicationWork } from "../ir-types/contract.js";
 import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 import type { Step } from "../step/contract.js";
@@ -77,14 +77,25 @@ export interface LiteralConstraint {
   readonly destination: TyId;
 }
 
-export interface OperatorConstraint {
+export interface OperatorConstraintInputs {
   readonly kind: "op";
   readonly occurrence: NodeRef;
-  readonly operator: HirUnaryOperator | HirBinaryOperator;
   readonly operands: readonly TyId[];
   readonly result: TyId;
+}
+
+export interface WrittenOperatorConstraint extends OperatorConstraintInputs {
+  readonly operator: HirUnaryOperator | HirBinaryOperator;
   readonly permissionScope: NodeRef | null;
 }
+
+export interface ArrayExtentConstraint extends OperatorConstraintInputs {
+  readonly operator: "array-extent";
+  readonly declaration: ItemNodeRef;
+  readonly permissionScope: null;
+}
+
+export type OperatorConstraint = WrittenOperatorConstraint | ArrayExtentConstraint;
 
 export interface MemberConstraint {
   readonly kind: "member";
@@ -559,6 +570,7 @@ export type OperationIdentity =
   | { readonly kind: "string-operator"; readonly operator: "+" | "==" | "!=" | "===" | "!==" | "<" | "<=" | ">" | ">=" }
   | { readonly kind: "boolean-operator"; readonly operator: "!" | "&&" | "||" | "==" | "!=" | "===" | "!==" }
   | { readonly kind: "absence-test"; readonly negated: boolean }
+  | { readonly kind: "array-extent"; readonly declaration: ItemNodeRef; readonly holding: ReceiverAccess }
   | { readonly kind: "object-construction" | "array-construction"; readonly parts: readonly ConstructionPartDecision[] }
   | { readonly kind: "protocol"; readonly protocol: ProtocolKind; readonly asynchronous: boolean;
       readonly steps: readonly ProtocolStepDecision[]; readonly value: TyId; readonly completion: TyId;
@@ -859,6 +871,7 @@ export interface InferenceBindingInput {
 
 export interface IndexNativeFacts {
   readonly carrierHolding: readonly NativeCarrierHolding[];
+  readonly arrayExtents: readonly NativeArrayExtent[];
   readonly arrayIndexFailure: CheckFailure;
   readonly fixedArrayIndexFailure: CheckFailure;
   readonly destinationCheck: "before-value" | "after-value";

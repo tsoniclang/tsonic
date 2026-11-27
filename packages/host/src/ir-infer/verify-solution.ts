@@ -8,7 +8,7 @@ import type {
 } from "./contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
-import { isNativeIntegerPrimitive, nativeArrayHoldingOf } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeArrayHoldingOf } from "../ir-types/index.js";
 import { requiresLocation, sameSource } from "./capture-law.js";
 import { printDocument } from "./print.js";
 import { candidateKey, compareContribution, compareNumber, compareText, constraintKey, contributionKey, emit, nodeKey, ordinal } from "./verify-contributions.js";
@@ -348,6 +348,22 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
 // below its top, and this verifier has no substitution.
 function operationTypes(input: InferVerificationInput, finals: ReadonlyMap<number, TypeEvidence>, constraint: OperatorConstraint,
   operation: OperationDecision, site: InferSite, output: Violation<InferRule, InferSite>[]): void {
+  if (constraint.operator === "array-extent") {
+    const selected = operation.operation;
+    const receiver = operation.operands[0];
+    const native = receiver === undefined ? undefined : input.types.terms[receiver];
+    const result = input.types.terms[operation.result];
+    if (selected.kind !== "array-extent" || selected.declaration.owner !== constraint.declaration.owner
+      || selected.declaration.node !== constraint.declaration.node
+      || !input.nodeExists({ kind: "item", value: constraint.declaration })
+      || operation.operands.length !== 1 || operation.execution.kind !== "pure"
+      || (native?.kind !== "array" && native?.kind !== "fixed-array") || result?.kind !== "primitive"
+      || result.primitive !== nativeArrayExtentOf(input.selectedNativeFacts.arrayExtents, native.kind)
+      || selected.holding !== nativeArrayHoldingOf(input.selectedNativeFacts.carrierHolding, native.kind))
+      emit(output, "operation-types", site, "array-extent");
+  } else if (operation.operation.kind === "array-extent") {
+    emit(output, "operation-types", site, "array-extent");
+  }
   const expected = (type: TyId): TyId | null => {
     const term = input.types.terms[type];
     if (term === undefined) return null;
@@ -355,6 +371,7 @@ function operationTypes(input: InferVerificationInput, finals: ReadonlyMap<numbe
       case "open": return term.group === input.group.id ? finals.get(term.variable)?.type ?? null : type;
       case "primitive": case "string": case "intrinsic": case "enum": case "param": case "merged-parameter":
       case "self": case "error": return type;
+      case "array": case "fixed-array": return constraint.operator === "array-extent" ? type : null;
       default: return null;
     }
   };

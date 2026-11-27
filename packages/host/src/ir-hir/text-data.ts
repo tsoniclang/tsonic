@@ -589,7 +589,8 @@ function applicationNodeData(value: Hir.CheckedApplication): HirDataWork {
 }
 
 function memberFields(value: Hir.CheckedMember): readonly HirDataField[] {
-  if (value.role === "enum-member") return [fieldData("value", valueData(value.value)), fieldData("selectedMember", itemRefData(value.selectedMember))];
+  if (value.role === "enum-member" || value.role === "array-extent")
+    return [fieldData("value", valueData(value.value)), fieldData("selectedMember", itemRefData(value.selectedMember))];
   const origins = fieldData("origins", capturedData(value.origins, origins => arrayData(origins, memberOriginData)));
   const accessor = fieldData("accessor", capturedData(value.accessor, selected => nullableData(selected, applicationData)));
   switch (value.role) {

@@ -1,7 +1,7 @@
 import { encodeKey } from "../ids/index.js";
 import type { KeyData } from "../ids/contract.js";
 import type { Violation } from "../diag/contract.js";
-import type { IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, NativeArrayHoldingOf, NativeIntegerGeometryOf } from "./contract.js";
+import type { IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, NativeArrayExtentOf, NativeArrayHoldingOf, NativeIntegerGeometryOf } from "./contract.js";
 import type { NativeBinaryFloatPrimitive, NativeIntegerPrimitive, NativeSignedIntegerPrimitive, NativePrimitive } from "./data.js";
 import type { CheckFailure, NativeArithmeticCarrier, NativeConversionResult, NativeFactsRule, NativeFactsSite,
   NativeFloatingFormat, NativeRounding, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
@@ -23,6 +23,7 @@ function conversionData(value: NativeConversionResult): KeyData {
 export function nativeFactsKey(value: SelectedNativeFacts): string {
   return encodeKey([
     value.carrierHolding.map(row => [row.carrier, row.holding]),
+    value.arrayExtents.map(row => [row.carrier, row.result]),
     value.nativeIntegerWidths.map(row => [row.carrier, row.bits]),
     value.floatingFormats.map(row => [row.carrier, row.interchange, row.nanSignObservable, row.nanPayloadObservable, row.signalingNaNObservable]),
     value.integerOverflow.map(row => [row.carrier, row.operation, row.result, row.law]),
@@ -159,6 +160,18 @@ export const nativeArrayHoldingOf: NativeArrayHoldingOf = (facts, carrier) => {
   return holding;
 };
 
+export const nativeArrayExtentOf: NativeArrayExtentOf = (facts, carrier) => {
+  if (!Array.isArray(facts) || facts.length > 2) return null;
+  let result: NativeIntegerPrimitive | null = null;
+  for (const row of facts) {
+    if (row?.carrier !== carrier) continue;
+    const actual = row.result;
+    if (result !== null || !isNativeIntegerPrimitive(actual)) return null;
+    result = actual;
+  }
+  return result;
+};
+
 export function verifyNativeFacts(value: SelectedNativeFacts): readonly Violation<NativeFactsRule, NativeFactsSite>[] {
   const findings: Violation<NativeFactsRule, NativeFactsSite>[] = [];
   const add = (rule: NativeFactsRule, field: string, index: number | null): void => {
@@ -187,6 +200,8 @@ export function verifyNativeFacts(value: SelectedNativeFacts): readonly Violatio
   rows(value.carrierHolding, "carrierHolding", MAX_CARRIER_HOLDINGS, row => row.carrier,
     row => (row.carrier === "array" || row.carrier === "fixed-array" || isNativePrimitive(row.carrier))
       && (row.holding === "in-place" || row.holding === "by-reference"));
+  rows(value.arrayExtents, "arrayExtents", 2, row => row.carrier,
+    row => (row.carrier === "array" || row.carrier === "fixed-array") && isNativeIntegerPrimitive(row.result));
   rows(value.nativeIntegerWidths, "nativeIntegerWidths", 2, row => row.carrier,
     row => (row.carrier === "native-int" || row.carrier === "native-uint") && Number.isSafeInteger(row.bits) && row.bits > 0);
   rows(value.floatingFormats, "floatingFormats", 3, row => row.carrier,

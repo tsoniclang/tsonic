@@ -1,10 +1,18 @@
 import type * as Hir from "./contract.js";
 import type * as Ids from "../ids/contract.js";
 import type * as Types from "../ir-types/contract.js";
-import { recordReader, sequenceReader, unionReader } from "./text-construction.js";
+import { literalReader, recordReader, sequenceReader, unionReader } from "./text-construction.js";
 import type { ReadField } from "./text-construction.js";
 import type { HirTextReaders, HirReadGroup8 } from "./text-read-model.js";
 export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
+  const arrayExtent = recordReader<Extract<Hir.CheckedMember, { readonly role: "array-extent" }>>("CheckedMember", read => {
+    const core = read("core", readers().record_84);
+    const role = read("role", literalReader<"array-extent">(["array-extent"]));
+    const value = read("value", readers().record_140);
+    const selectedMember = read("selectedMember", readers().record_8);
+    return { fields: [core, role, value, selectedMember],
+      value: () => ({ core: core.value(), role: role.value(), value: value.value(), selectedMember: selectedMember.value() }) };
+  });
   const record_240 = recordReader<{ readonly core: Hir.HirCoreCapture; readonly role: "value"; readonly value: Hir.CheckedValue; readonly origins: Hir.CapturedFact<readonly Types.MemberOrigin[]>; readonly accessor: Hir.CapturedFact<Hir.HirApplication | null> }>("CheckedMember", read => {
       const field_core = read("core", readers().record_84);
       const field_role = read("role", readers().literal_93);
@@ -213,5 +221,5 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
       const field_nodes = read("nodes", sequenceReader(readers().syntax_50));
       return { fields: [field_loc, field_nodes], value: () => ({ loc: field_loc.value(), nodes: field_nodes.value() }) };
     });
-  return { record_240, record_241, record_242, record_243, record_244, record_245, record_246, record_248, record_249, record_250, record_251, record_252, record_253, record_254, record_255, record_256, record_257, record_258, record_259, record_260, record_261, record_262, record_263, record_265, record_266, record_267, record_268, record_269, enumMember };
+  return { arrayExtent, record_240, record_241, record_242, record_243, record_244, record_245, record_246, record_248, record_249, record_250, record_251, record_252, record_253, record_254, record_255, record_256, record_257, record_258, record_259, record_260, record_261, record_262, record_263, record_265, record_266, record_267, record_268, record_269, enumMember };
 }

@@ -362,7 +362,7 @@ export function decisionReferences(
           if (meter.exhausted) return;
         }
         break;
-      case "native-operator": case "bigint-operator": case "string-operator": case "boolean-operator": case "absence-test":
+      case "native-operator": case "bigint-operator": case "string-operator": case "boolean-operator": case "absence-test": case "array-extent":
       case "pointer-address": case "pointer-read": case "pointer-write": case "pointer-offset": case "type-query": case "discard": break;
     }
   };

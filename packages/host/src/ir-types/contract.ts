@@ -5,7 +5,7 @@ import type { MemberTypeAccess, MemberTypeRequest } from "./data.js";
 import type { TypeArena } from "./arena.js";
 import type { LimitStop, PublicationAccount, TypePublicationLimits, TypePublicationStop } from "./work.js";
 export type { TypePublicationLimits, TypePublicationStop } from "./work.js";
-import type { NativeArrayCarrier, NativeCarrierHolding, NativeFactsRule, NativeFactsSite, NativeFloatingFormat, PlatformDeclaration,
+import type { NativeArrayCarrier, NativeArrayExtent, NativeCarrierHolding, NativeFactsRule, NativeFactsSite, NativeFloatingFormat, PlatformDeclaration,
   ReceiverAccess, SelectedNativeFacts } from "./native-facts-data.js";
 export type * from "./data.js";
 export type * from "./native-facts-data.js";
@@ -16,6 +16,7 @@ export type CompareIndexSignatures = (left: IndexInventoryEntry, right: IndexInv
 export type CompareMemberKeys = (left: MemberKey, right: MemberKey) => number;
 export type NativeFactsKey = (facts: SelectedNativeFacts) => string;
 export type NativeArrayHoldingOf = (facts: readonly NativeCarrierHolding[], carrier: NativeArrayCarrier) => ReceiverAccess | null;
+export type NativeArrayExtentOf = (facts: readonly NativeArrayExtent[], carrier: NativeArrayCarrier) => NativeIntegerPrimitive | null;
 export type IsNativeIntegerPrimitive = (primitive: NativePrimitive) => primitive is NativeIntegerPrimitive;
 export type IsNativeSignedIntegerPrimitive = (primitive: NativePrimitive) => primitive is NativeSignedIntegerPrimitive;
 export type IsNativeBinaryFloatPrimitive = (primitive: NativePrimitive | "bigint") => primitive is NativeBinaryFloatPrimitive;

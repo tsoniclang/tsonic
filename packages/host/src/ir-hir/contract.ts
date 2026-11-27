@@ -4423,6 +4423,7 @@ export type CheckedMember = HirCoreCarrier & (
       readonly origins: CapturedFact<readonly MemberOrigin[]>;
       readonly accessor: CapturedFact<HirApplication | null> }
   | { readonly role: "enum-member"; readonly value: CheckedValue; readonly selectedMember: ItemNodeRef }
+  | { readonly role: "array-extent"; readonly value: CheckedValue; readonly selectedMember: ItemNodeRef }
   | { readonly role: "assignment-target"; readonly views: HirCheckerViews;
       readonly place: CapturedFact<HirStoragePlace>; readonly access: "write" | "read-write";
       readonly origins: CapturedFact<readonly MemberOrigin[]>;

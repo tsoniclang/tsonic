@@ -2,11 +2,11 @@ import type { ErrorValue, Result } from "../diag/contract.js";
 import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
   AtomicContribution, ConstraintScheme, ContributionKey, ContributionOutcome, FlowConstraint, InferenceValue,
-  IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
-  OperatorConstraint, RuleTable, VariableBound,
+  ArrayExtentConstraint, IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
+  OperationDecision, OperatorConstraint, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
-import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayHoldingOf, readType } from "../ir-types/index.js";
+import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayExtentOf, nativeArrayHoldingOf, readType } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
 import { at as where, callerDefect, notDecidedYet } from "./frontier.js";
@@ -113,6 +113,19 @@ export function indexScheme(deps: RulesDeps): IndexContributionScheme {
   };
 }
 
+function selectArrayExtent(deps: RulesDeps, constraint: ArrayExtentConstraint, operands: readonly TypeEvidence[]): OperationDecision {
+  const selected = operands[0];
+  if (operands.length !== 1 || selected === undefined) return callerDefect("an array extent requires its actual sole receiver", null);
+  const receiver = readType(deps.types, selected.type);
+  if (receiver.kind !== "array" && receiver.kind !== "fixed-array")
+    return notDecidedYet("an extent without its actual native array receiver", null);
+  const result = nativeArrayExtentOf(deps.selectedNativeFacts.arrayExtents, receiver.kind);
+  const holding = nativeArrayHoldingOf(deps.selectedNativeFacts.carrierHolding, receiver.kind);
+  if (result === null || holding === null) return notDecidedYet("the actual selected native array extent and holding laws", null);
+  return { kind: "selected", operation: { kind: "array-extent", declaration: constraint.declaration, holding },
+    operands: [selected.type], result: internType(deps.types, { kind: "primitive", primitive: result }), execution: { kind: "pure" } };
+}
+
 export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstraint> {
   return {
     enumerate: input => {
@@ -144,13 +157,15 @@ export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstr
             category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error })],
         decision: { kind: "error", error }, selectedCandidate: null,
       });
-      const operation = decideOperator(deps, value.operator, operands.map(operand => operand.value), value.occurrence, null);
+      const evidence = operands.map(operand => operand.value);
+      const operation = value.operator === "array-extent" ? selectArrayExtent(deps, value, evidence)
+        : decideOperator(deps, value.operator, evidence, value.occurrence, null);
       if (variable === null && value.result !== operation.result)
         return notDecidedYet(`an operator ${value.operator} whose result type is not the decided one, at ${where(value.occurrence)}`, null);
       const key = input.contribution.key;
       return ok({
         bounds: variable === null ? [] : [bound(key, variable, "producer",
-          { value: resultEvidence(deps, operation.result, value.occurrence, operands.map(operand => operand.value)), error: null })],
+          { value: resultEvidence(deps, operation.result, value.occurrence, evidence), error: null })],
         decision: { kind: "op", operation },
         selectedCandidate: null,
       });

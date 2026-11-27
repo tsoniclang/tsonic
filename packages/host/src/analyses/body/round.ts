@@ -46,6 +46,7 @@ function operandSite(node: TirSyntaxOccurrence | undefined, position: number, di
     return position === 0 ? node.left : node.right;
   }
   if (node?.kind === "PrefixUnaryExpression" || node?.kind === "PostfixUnaryExpression") return node.operand;
+  if (node?.kind === "PropertyAccessExpression" && node.tsonic.role === "array-extent") return node.expression;
   if (node?.kind === "ReturnStatement" && node.expression !== null) return node.expression;
   if (node?.kind === "ThrowStatement") return node.expression;
   return node;

@@ -538,6 +538,7 @@ export function verifySelections(
     if (selected.permissionScope !== null && !knownNode(selected.permissionScope)) report("tir-node-resolves", site);
     const identity = selected.decision.operation;
     if (identity.kind === "library" || identity.kind === "core") definition(identity.declaration, site);
+    if (identity.kind === "array-extent") definition(identity.declaration.owner, site);
     if (identity.kind === "protocol") for (const step of identity.steps) {
       if (step.operation.kind === "core") definition(step.operation.declaration, site);
       if (step.operation.kind === "call") {

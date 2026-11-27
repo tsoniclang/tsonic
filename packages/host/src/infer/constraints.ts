@@ -2,7 +2,7 @@ import type { Diagnostic, Result } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingScope, BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
 import type { CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirLocal, HirNode, HirParam, HirResolution, CheckedPhase } from "../ir-hir/contract.js";
-import type { CallConstraint, DefaultConstraint, FlowConstraint, IndexConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, OperatorConstraint } from "../ir-infer/contract.js";
+import type { ArrayExtentConstraint, CallConstraint, DefaultConstraint, FlowConstraint, IndexConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, WrittenOperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
@@ -40,7 +40,8 @@ type DraftCall = Omit<CallConstraint, "application"> & {
 };
 type DraftConstraint =
   | Omit<FlowConstraint, "from" | "to"> & { readonly from: Slot; readonly to: Slot }
-  | Omit<OperatorConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot }
+  | Omit<WrittenOperatorConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot }
+  | Omit<ArrayExtentConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot }
   | Omit<MemberConstraint, "receiver" | "result"> & { readonly receiver: Slot; readonly result: Slot }
   | Omit<IndexConstraint, "receiver" | "key"> & { readonly receiver: Slot; readonly key: Slot }
   | Omit<LiteralConstraint, "destination"> & { readonly destination: Slot }
@@ -298,7 +299,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
         const sequence = node.kind === "BinaryExpression" && node.tsonic.role === "sequence";
         if (frame.node.kind === "BinaryExpression" && (compound || frame.node.tsonic.role === "arithmetic" || frame.node.tsonic.role === "comparison")
           || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "PostfixUnaryExpression" || frame.node.kind === "VoidExpression" || frame.node.kind === "CallExpression"
-          || frame.node.kind === "PropertyAccessExpression" && frame.node.tsonic.role === "value") {
+          || frame.node.kind === "PropertyAccessExpression" && (frame.node.tsonic.role === "value" || frame.node.tsonic.role === "array-extent")) {
           const diagnostic = allocate(walk, { kind: "local", local: null, occurrence: refOf(walk, frame.node) });
           if (diagnostic !== null) return refused(diagnostic);
           walk.operators.set(frame.node.id, internType(deps.types,
@@ -488,7 +489,7 @@ function* childrenOf(node: HirNode, statementList: boolean): Generator<HirNode, 
 
 function collectOriginalDiagnostics(deps: InferenceInputs, body: HirBody, node: HirNode, diagnostics: Set<Diagnostic>): void {
   const annotation = node.tsonic;
-  let fact = annotation === null || !("role" in annotation) ? null : annotation.role === "value" || annotation.role === "enum-member" ? annotation.value.views.read
+  let fact = annotation === null || !("role" in annotation) ? null : annotation.role === "value" || annotation.role === "enum-member" || annotation.role === "array-extent" ? annotation.value.views.read
     : annotation.role === "assignment-target" ? annotation.place.kind === "available" ? annotation.place.value.read : annotation.place : null;
   if (node.kind === "ConditionalExpression" || node.kind === "VoidExpression") fact = node.tsonic.views.read;
   else if (node.kind === "AsExpression" || node.kind === "TypeAssertionExpression" || node.kind === "SatisfiesExpression") {
@@ -642,7 +643,7 @@ function inspectCheckedExecution(deps: InferenceInputs, body: HirBody, diagnosti
   return { kind: "complete", lists };
 }
 
-function unaryConstraint(walk: Walk, node: HirNode, source: Expression<CheckedPhase>, operator: OperatorConstraint["operator"]): void {
+function unaryConstraint(walk: Walk, node: HirNode, source: Expression<CheckedPhase>, operator: WrittenOperatorConstraint["operator"]): void {
   const occurrence = refOf(walk, node);
   const result = present(walk.operators.get(node.id), "the actual unary operator result position");
   const operand = typeAt(walk, source);
@@ -706,7 +707,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
   else if (node.kind === "ObjectLiteralExpression") objectConstruction(walk, node);
   else if (node.kind === "ElementAccessExpression") {
     const selected = node.tsonic;
-    if (selected.role === "enum-member" || node.questionDotToken !== null)
+    if (selected.role === "enum-member" || selected.role === "array-extent" || node.questionDotToken !== null)
       return notInferredYet(PORT, "this selected element access", node.origin);
     const access = selected.role === "value" ? "read" : selected.access;
     const checked = selected.role === "value" ? selected.value.views.read : null;
@@ -725,6 +726,17 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     walk.typeOf.set(node.id, result);
   }
   else if (node.kind === "PropertyAccessExpression") {
+    if (node.tsonic.role === "array-extent") {
+      const occurrence = refOf(walk, node);
+      const receiver = typeAt(walk, node.expression);
+      const result = present(walk.operators.get(node.id), "the actual native extent result position");
+      walk.draft.constraints.push({ kind: "op", occurrence, operator: "array-extent", operands: [receiver], result,
+        declaration: node.tsonic.selectedMember, permissionScope: null });
+      walk.draft.evidence.push({ type: receiver, node: node.expression, component: { kind: "body", value: refOf(walk, node.expression) } },
+        { type: result, node, component: { kind: "body", value: occurrence } });
+      walk.typeOf.set(node.id, result);
+      return undefined;
+    }
     if (node.tsonic.role === "enum-member") {
       const declaration = node.tsonic.selectedMember;
       const member = walk.generation.deps.itemOf(declaration.owner);

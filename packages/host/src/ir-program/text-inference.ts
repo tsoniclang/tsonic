@@ -1,6 +1,6 @@
 import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, CheckRequirement, ClosureDecision, ClosureInput, OperationExecution, DeferredDecision, EmbeddingDecision, MemberDecision, ApplicationDecision, ConstructionPartDecision, OperationDecision, RefinementDecision, DeferredInvocation, EmbeddingProof, ParameterMapping, CompletionEndpoint, OperationIdentity, RuleOutcome, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionInput, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, CorrespondenceStep, ProtocolStepDecision, RuleContext, LiteralConstructionPart, CandidateArgument, CandidateEndpoint, ProtocolStepOperation } from "../ir-infer/contract.js";
 import type { TextWork } from "./text-values.js";
-import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textNodeRef, textLocalRef, textOrigin, textDiagnostic } from "./text-values.js";
+import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textItemNodeRef, textNodeRef, textLocalRef, textOrigin, textDiagnostic } from "./text-values.js";
 import { textMemberKey, textMemberOrigin, textBindingVector, textTypeComponent, textTypeEvidence, textLiteralValue } from "./text-types.js";
 import { textHirCallableEndpoint, textHirCoreCapture } from "./text-core.js";
 
@@ -298,6 +298,8 @@ export function textOperationIdentity(value: OperationIdentity): TextWork {
         return record(value.kind, [
       field("negated", boolean(value.negated)),
     ]);
+      case "array-extent":
+        return record(value.kind, [field("declaration", textItemNodeRef(value.declaration)), field("holding", text(value.holding))]);
       case "object-construction":
       case "array-construction":
         return record(value.kind, [

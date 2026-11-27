@@ -1,4 +1,4 @@
-import type { DefId, BodyId, TyId, SigId, LocalRef, NodeRef, Origin } from "../ids/contract.js";
+import type { DefId, BodyId, ItemNodeRef, TyId, SigId, LocalRef, NodeRef, Origin } from "../ids/contract.js";
 import type { Diagnostic } from "../diag/contract.js";
 import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 import type { NativePrimitive, BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
@@ -7,7 +7,7 @@ import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, Logical
 import type { Cursor, RecordFields, TextStep, TextReader } from "./parse-values.js";
 import { delimiter, readNumber, choice, readBoolean, readStringChoice, readSignatureId, openRecord, closeRecord, readDefinitionId, readBodyId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeEvidenceText, readTypeComponentText, readMemberKeyText, readMemberOriginText, readLiteralValueText, readBindings } from "./parse-types.js";
-import { readLocalRef, readNodeRef, readDiagnostic, readOrigin } from "./parse-diagnostics.js";
+import { readItemNodeRef, readLocalRef, readNodeRef, readDiagnostic, readOrigin } from "./parse-diagnostics.js";
 import { readHirCallableEndpointText, readHirCoreCaptureText } from "./parse-core.js";
 
 export function readDeferredDecisionText<Root>(cursor: Cursor, finish: (value: DeferredDecision) => TextStep<Root>): TextStep<Root> {
@@ -316,7 +316,7 @@ export function readBackedIdentityText<Root>(
 }
 
 export function readOperationIdentityText<Root>(cursor: Cursor, finish: (value: OperationIdentity) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["native-operator","bigint-operator","string-operator","boolean-operator","absence-test","object-construction","array-construction","protocol","conversion","library","core","pointer-address","pointer-read","pointer-write","pointer-offset","type-query","discard"]), label =>
+  return atomicText(cursor, next => choice(next, ["native-operator","bigint-operator","string-operator","boolean-operator","absence-test","array-extent","object-construction","array-construction","protocol","conversion","library","core","pointer-address","pointer-read","pointer-write","pointer-offset","type-query","discard"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
@@ -341,6 +341,11 @@ export function readOperationIdentityText<Root>(cursor: Cursor, finish: (value: 
           return fieldText<boolean, Root>(cursor, fields, "negated", (next, done) => atomicText(next, readBoolean, done), negatedValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
         acceptText({ kind: label, negated: negatedValue }, finish)));
+        case "array-extent":
+          return fieldText<ItemNodeRef, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readItemNodeRef, done), declaration =>
+            fieldText<ReceiverAccess, Root>(cursor, fields, "holding", (next, done) =>
+              atomicText(next, value => readStringChoice(value, ["in-place", "by-reference"]), done), holding =>
+                atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, declaration, holding }, finish))));
         case "object-construction":
         case "array-construction":
           return fieldText<readonly (ConstructionPartDecision)[], Root>(cursor, fields, "parts", (next, done) => arrayText(next, readConstructionPartDecisionText, done), partsValue =>

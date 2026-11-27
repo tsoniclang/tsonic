@@ -1,4 +1,4 @@
-import type { ApplicationArgument, ApplicationConstraintData, CaptureSource, ClosureCapture, Constraint, ConstraintRef, ConstraintSet, InferenceGroup, InferenceVariable, InferredPart, InferredSignaturePart, LiteralPart, LogicalCapture } from "./contract.js";
+import type { ApplicationArgument, ApplicationConstraintData, ArrayExtentConstraint, CaptureSource, ClosureCapture, Constraint, ConstraintRef, ConstraintSet, InferenceGroup, InferenceVariable, InferredPart, InferredSignaturePart, LiteralPart, LogicalCapture } from "./contract.js";
 import type { CaptureValuesSchemas } from "./text-capture-values.js";
 import type { CapturesSchemas } from "./text-captures.js";
 import type { ContributionsSchemas } from "./text-contributions.js";
@@ -288,7 +288,7 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
   const { hirCandidateListSchema } = captureValues;
   const { hirCoreCaptureSchema } = captures;
   const { constraintRefSchema } = contributions;
-  const { bindingVectorSchema, bodySchema, booleanSchema, candSchema, defSchema, groupSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, passingModeSchema, tSchema } = data;
+  const { bindingVectorSchema, bodySchema, booleanSchema, candSchema, defSchema, groupSchema, itemNodeRefSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, passingModeSchema, tSchema } = data;
   const constraintSetSchema = recordSchema<ConstraintSet>("ConstraintSet", "ConstraintSet", read => {
     const group = read("group", () => groupSchema, value => value.group);
     const body = read("body", () => bodySchema, value => value.body);
@@ -401,12 +401,12 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
   const ruleIdentitySchema = enumSchema("RuleIdentity", ["embed","domain-fit","memory-equivalent","member","index","construct-literal","candidate","operator","literal-fit","protocol","refinement","library","core","closure"]);
 
   const constraintSchema: RecordSchema<Constraint> = unionSchema<Constraint>("Constraint",
-    () => [equalityConstraintSchema, flowConstraintSchema, literalConstraintSchema, operatorConstraintSchema, memberConstraintSchema, indexConstraintSchema, callConstraintSchema, constructConstraintSchema, literalConstructionConstraintSchema, protocolConstraintSchema, refinementConstraintSchema, dischargeConstraintSchema, defaultConstraintSchema, closureConstraintSchema], value => {
+    () => [equalityConstraintSchema, flowConstraintSchema, literalConstraintSchema, operatorConstraintSchema, arrayExtentConstraintSchema, memberConstraintSchema, indexConstraintSchema, callConstraintSchema, constructConstraintSchema, literalConstructionConstraintSchema, protocolConstraintSchema, refinementConstraintSchema, dischargeConstraintSchema, defaultConstraintSchema, closureConstraintSchema], value => {
     switch (value.kind) {
       case "eq": return equalityConstraintSchema.stage(value);
       case "flow": return flowConstraintSchema.stage(value);
       case "literal": return literalConstraintSchema.stage(value);
-      case "op": return operatorConstraintSchema.stage(value);
+      case "op": return value.operator === "array-extent" ? arrayExtentConstraintSchema.stage(value) : operatorConstraintSchema.stage(value);
       case "member": return memberConstraintSchema.stage(value);
       case "index": return indexConstraintSchema.stage(value);
       case "call": return callConstraintSchema.stage(value);
@@ -450,6 +450,15 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
     const result = read("result", () => tSchema, value => value.result);
     const permissionScope = read("permissionScope", () => nullableSchema(nodeRefSchema), value => value.permissionScope);
     return { fields: [occurrence, operator, operands, result, permissionScope], value: () => ({ kind: "op", occurrence: occurrence.value(), operator: operator.value(), operands: operands.value(), result: result.value(), permissionScope: permissionScope.value() }) };
+  });
+
+  const arrayExtentConstraintSchema = recordSchema<ArrayExtentConstraint>("ArrayExtentConstraint", "array-extent", read => {
+    const occurrence = read("occurrence", () => nodeRefSchema, value => value.occurrence);
+    const declaration = read("declaration", () => itemNodeRefSchema, value => value.declaration);
+    const operands = read("operands", () => arraySchema(tSchema), value => value.operands);
+    const result = read("result", () => tSchema, value => value.result);
+    return { fields: [occurrence, declaration, operands, result], value: () => ({ kind: "op", operator: "array-extent",
+      occurrence: occurrence.value(), declaration: declaration.value(), operands: operands.value(), result: result.value(), permissionScope: null }) };
   });
 
   const memberConstraintSchema = recordSchema<MemberConstraintRecord>("MemberConstraint", "member", read => {

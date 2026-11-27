@@ -106,7 +106,7 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
 };
 
 export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, access, nodeOf, itemOf, admitAlias) => {
-  if (access.questionDotToken !== null || access.tsonic.role === "enum-member" || access.tsonic.origins.kind !== "available"
+  if (access.questionDotToken !== null || access.tsonic.role === "enum-member" || access.tsonic.role === "array-extent" || access.tsonic.origins.kind !== "available"
     || access.tsonic.origins.value.length !== 1 || access.tsonic.accessor.kind !== "available" || access.tsonic.accessor.value !== null) return null;
   const origin = access.tsonic.origins.value[0];
   if (origin?.kind !== "declared") return null;

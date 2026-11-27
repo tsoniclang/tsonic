@@ -186,7 +186,7 @@ export interface OperationsSchemas {
 
 export function createOperationsSchemas(constraints: ConstraintsSchemas, data: DataSchemas, decisionValues: DecisionValuesSchemas, evidence: EvidenceSchemas, invocations: InvocationsSchemas): OperationsSchemas {
   const { logicalCaptureSchema, operatorSchema, protocolKindSchema } = constraints;
-  const { bindingVectorSchema, booleanSchema, defSchema, localRefSchema, nodeRefSchema, numberSchema, tSchema } = data;
+  const { bindingVectorSchema, booleanSchema, defSchema, itemNodeRefSchema, localRefSchema, nodeRefSchema, numberSchema, tSchema } = data;
   const { applicationDecisionSchema, embeddingDecisionSchema, failureKindSchema, memberDecisionSchema } = decisionValues;
   const { typeComponentSchema } = evidence;
   const { deferredDecisionSchema } = invocations;
@@ -239,13 +239,14 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
   });
 
   const operationIdentitySchema: RecordSchema<OperationIdentity> = unionSchema<OperationIdentity>("OperationIdentity",
-    () => [nativeOperatorSchema, bigintOperatorSchema, stringOperatorSchema, booleanOperatorSchema, absenceTestSchema, objectConstructionSchema, arrayConstructionSchema, protocolOperationSchema, conversionOperationSchema, libraryOperationSchema, coreOperationSchema, pointerAddressSchema, pointerReadSchema, pointerWriteSchema, pointerOffsetSchema, typeQuerySchema, discardSchema], value => {
+    () => [nativeOperatorSchema, bigintOperatorSchema, stringOperatorSchema, booleanOperatorSchema, absenceTestSchema, arrayExtentOperationSchema, objectConstructionSchema, arrayConstructionSchema, protocolOperationSchema, conversionOperationSchema, libraryOperationSchema, coreOperationSchema, pointerAddressSchema, pointerReadSchema, pointerWriteSchema, pointerOffsetSchema, typeQuerySchema, discardSchema], value => {
     switch (value.kind) {
       case "native-operator": return nativeOperatorSchema.stage(value);
       case "bigint-operator": return bigintOperatorSchema.stage(value);
       case "string-operator": return stringOperatorSchema.stage(value);
       case "boolean-operator": return booleanOperatorSchema.stage(value);
       case "absence-test": return absenceTestSchema.stage(value);
+      case "array-extent": return arrayExtentOperationSchema.stage(value);
       case "object-construction": return objectConstructionSchema.stage(value);
       case "array-construction": return arrayConstructionSchema.stage(value);
       case "protocol": return protocolOperationSchema.stage(value);
@@ -289,6 +290,13 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
   const absenceTestSchema = recordSchema<AbsenceTestRecord>("AbsenceTest", "absence-test", read => {
     const negated = read("negated", () => booleanSchema, value => value.negated);
     return { fields: [negated], value: () => ({ kind: "absence-test", negated: negated.value() }) };
+  });
+
+  const holdingSchema = enumSchema("ArrayExtentHolding", ["in-place", "by-reference"]);
+  const arrayExtentOperationSchema = recordSchema<Extract<OperationIdentity, { readonly kind: "array-extent" }>>("ArrayExtentOperation", "array-extent", read => {
+    const declaration = read("declaration", () => itemNodeRefSchema, value => value.declaration);
+    const holding = read("holding", () => holdingSchema, value => value.holding);
+    return { fields: [declaration, holding], value: () => ({ kind: "array-extent", declaration: declaration.value(), holding: holding.value() }) };
   });
 
   const objectConstructionSchema = recordSchema<ObjectConstructionRecord>("ObjectConstruction", "object-construction", read => {

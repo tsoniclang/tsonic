@@ -5,7 +5,7 @@ import type {
   BindingVector, LiteralValue, MemberKey, MemberOrigin, TypeComponent, TypeEvidence
 } from "../ir-types/contract.js";
 import type {
-  LocalRef, NodeRef, Origin
+  ItemNodeRef, LocalRef, NodeRef, Origin
 } from "../ids/contract.js";
 import type {
   HirCallableEndpoint, HirCoreCapture
@@ -20,6 +20,7 @@ import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, nullableWork, sequenceWork, withBindingOwner } from "./text-layouts.js";
 
 export interface RuleInputsTextReads {
+  readonly work_ItemNodeRef: TirRecordCodec<ItemNodeRef>;
   readonly work_BindingVector: TirRecordCodec<BindingVector>;
   readonly work_ConstructionPartDecision: TirRecordCodec<ConstructionPartDecision>;
   readonly work_Diagnostic: TirRecordCodec<Diagnostic>;
@@ -112,6 +113,12 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
   const work_OperationIdentity_absence_test: TirRecordCodec<OperationIdentity & { readonly kind: "absence-test" }> = defineRecord<OperationIdentity & { readonly kind: "absence-test" }>("OperationIdentity#absence-test", "OperationIdentity", { field: "kind", value: "absence-test" }, "absence-test", null, null, fields => fields
     .field("negated", "boolean", value => scalarWork("boolean", value.negated), booleanReader)
     .finish((field_negated) => ({ kind: "absence-test", negated: field_negated })));
+  type ArrayExtent = Extract<OperationIdentity, { readonly kind: "array-extent" }>;
+  const arrayExtent = defineRecord<ArrayExtent>("OperationIdentity#array-extent", "OperationIdentity", { field: "kind", value: "array-extent" },
+    "array-extent", null, null, fields => fields
+      .field("declaration", "ItemNodeRef", value => read.work_ItemNodeRef.write(value.declaration), lazyReader(() => read.work_ItemNodeRef.reader))
+      .field("holding", "ReceiverAccess", value => scalarWork("ReceiverAccess", value.holding), literalReader<ArrayExtent["holding"]>("ReceiverAccess", ["in-place", "by-reference"]))
+      .finish((declaration, holding) => ({ kind: "array-extent", declaration, holding })));
   const work_OperationIdentity_object_construction: TirRecordCodec<OperationIdentity & { readonly kind: "object-construction" | "array-construction" }> = defineRecord<OperationIdentity & { readonly kind: "object-construction" | "array-construction" }>("OperationIdentity#object-construction", "OperationIdentity", { field: "kind", value: "object-construction" }, "object-construction", null, null, fields => fields
     .field("parts", "[ConstructionPartDecision]", value => sequenceWork("[ConstructionPartDecision]", value.parts, actual => read.work_ConstructionPartDecision.write(actual)), sequenceReader("[ConstructionPartDecision]", lazyReader(() => read.work_ConstructionPartDecision.reader)))
     .finish((field_parts) => ({ kind: "object-construction", parts: field_parts })));
@@ -380,6 +387,7 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
       case "string-operator": return work_OperationIdentity_string_operator.write(value);
       case "boolean-operator": return work_OperationIdentity_boolean_operator.write(value);
       case "absence-test": return work_OperationIdentity_absence_test.write(value);
+      case "array-extent": return arrayExtent.write(value);
       case "object-construction": return work_OperationIdentity_object_construction.write(value);
       case "array-construction": return work_OperationIdentity_array_construction.write(value);
       case "protocol": return work_OperationIdentity_protocol.write(value);
@@ -393,7 +401,7 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
       case "type-query": return work_OperationIdentity_type_query.write(value);
       case "discard": return work_OperationIdentity_discard.write(value);
     }
-  }, () => [work_OperationIdentity_native_operator.reader, work_OperationIdentity_bigint_operator.reader, work_OperationIdentity_string_operator.reader, work_OperationIdentity_boolean_operator.reader, work_OperationIdentity_absence_test.reader, work_OperationIdentity_object_construction.reader, work_OperationIdentity_array_construction.reader, work_OperationIdentity_protocol.reader, work_OperationIdentity_conversion.reader, work_OperationIdentity_library.reader, work_OperationIdentity_core.reader, work_OperationIdentity_pointer_address.reader, work_OperationIdentity_pointer_read.reader, work_OperationIdentity_pointer_write.reader, work_OperationIdentity_pointer_offset.reader, work_OperationIdentity_type_query.reader, work_OperationIdentity_discard.reader]);
+  }, () => [work_OperationIdentity_native_operator.reader, work_OperationIdentity_bigint_operator.reader, work_OperationIdentity_string_operator.reader, work_OperationIdentity_boolean_operator.reader, work_OperationIdentity_absence_test.reader, arrayExtent.reader, work_OperationIdentity_object_construction.reader, work_OperationIdentity_array_construction.reader, work_OperationIdentity_protocol.reader, work_OperationIdentity_conversion.reader, work_OperationIdentity_library.reader, work_OperationIdentity_core.reader, work_OperationIdentity_pointer_address.reader, work_OperationIdentity_pointer_read.reader, work_OperationIdentity_pointer_write.reader, work_OperationIdentity_pointer_offset.reader, work_OperationIdentity_type_query.reader, work_OperationIdentity_discard.reader]);
   const work_DeferredInvocation: TirRecordCodec<DeferredInvocation> = unionRecord<DeferredInvocation>("DeferredInvocation", (value: DeferredInvocation): TirTypedRecordWork => {
     switch (value.rule) {
       case "embed": return work_DeferredInvocation_rule_embed.write(value);

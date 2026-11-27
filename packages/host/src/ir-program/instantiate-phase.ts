@@ -231,6 +231,11 @@ function prepareOperationIdentity(scan: ProjectionInventory, value: OperationIde
     case "native-operator": case "bigint-operator": case "string-operator": case "boolean-operator":
     case "absence-test": case "pointer-address": case "pointer-read": case "pointer-write": case "pointer-offset":
     case "type-query": case "discard": return borrowPhase(scan, 1, value);
+    case "array-extent": return paidPhase(scan, 4, () => {
+      const { owner, node } = value.declaration;
+      const holding = value.holding;
+      return { kind: "copied", value: () => ({ kind: "array-extent", declaration: { owner, node }, holding }) };
+    });
     case "object-construction": case "array-construction": return paidPhase(scan, 2, () => {
       const kind = value.kind;
       const parts = prepareProjectionRows(scan, value.parts, (read, index) =>

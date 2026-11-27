@@ -272,6 +272,7 @@ export interface HirReadGroup7 {
   readonly record_239: HirReader<Hir.CheckedProperty>;
 }
 export interface HirReadGroup8 {
+  readonly arrayExtent: HirReader<Extract<Hir.CheckedMember, { readonly role: "array-extent" }>>;
   readonly record_240: HirReader<{ readonly core: Hir.HirCoreCapture; readonly role: "value"; readonly value: Hir.CheckedValue; readonly origins: Hir.CapturedFact<readonly Types.MemberOrigin[]>; readonly accessor: Hir.CapturedFact<Hir.HirApplication | null> }>;
   readonly record_241: HirReader<{ readonly kind: "available"; readonly value: Hir.HirApplication | null; }>;
   readonly record_242: HirReader<{ readonly core: Hir.HirCoreCapture; readonly role: "assignment-target"; readonly views: Hir.HirCheckerViews; readonly place: Hir.CapturedFact<Hir.HirStoragePlace>; readonly access: "read-write" | "write"; readonly origins: Hir.CapturedFact<readonly Types.MemberOrigin[]>; readonly accessor: Hir.CapturedFact<Hir.HirApplication | null> }>;

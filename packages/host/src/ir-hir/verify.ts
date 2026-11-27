@@ -554,6 +554,19 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
         || member.tsonic.declaration.kind !== "definition" || member.tsonic.declaration.definition !== selected.owner)
         report("definition-reference", site, "an enum access must retain its actual checked selector, nominal type and member");
     }
+    if ((node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression") && node.tsonic.role === "array-extent") {
+      const selected = node.tsonic.selectedMember;
+      const member = sourceNodeData({ kind: "item", value: selected }, module, inventory, context, paths)?.node;
+      const name = node.kind === "PropertyAccessExpression" && node.name.kind === "Identifier" ? node.name.tsonic : null;
+      const origins = name?.role === "property-name" && name.origins.kind === "available" ? name.origins.value : [];
+      const original = origins.length === 1 ? origins[0] : undefined;
+      if (node.kind !== "PropertyAccessExpression" || node.questionDotToken !== null || name?.role !== "property-name"
+        || name.key.kind !== "available" || name.key.value.kind !== "text" || name.key.value.value !== "length"
+        || original?.kind !== "declared" || original.declaration !== selected.owner
+        || member?.kind !== "PropertySignature" || member.tsonic.declaration.kind !== "definition"
+        || member.tsonic.declaration.definition !== selected.owner || member.name.kind !== "Identifier" || member.name.text !== "length")
+        report("definition-reference", site, "an array extent read must retain its actual checked length declaration");
+    }
     if (node.kind === "CallExpression" && node.tsonic.application.kind === "available") {
       const application = node.tsonic.application.value;
       const authored = node.arguments.nodes;

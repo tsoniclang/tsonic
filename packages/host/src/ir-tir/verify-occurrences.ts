@@ -574,6 +574,9 @@ export const verifyOccurrenceOperation = (node: TirNode, table: TypeTable, emit:
   const outcome = "operation" in phase ? phase.operation : "construction" in phase ? phase.construction : null;
   if (outcome?.kind !== "decided") return;
   const decision = outcome.decision.decision;
+  if (decision.operation.kind === "array-extent"
+    && (node.kind !== "PropertyAccessExpression" || node.tsonic.role !== "array-extent"))
+    emit("operation-type", node, "an array extent may only select its actual checked property read");
   if (node.kind === "VoidExpression") {
     const result = table.terms[decision.result];
     if (decision.operation.kind !== "discard" || decision.execution.kind !== "pure"

@@ -469,6 +469,22 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     case "PropertyAccessExpression": {
       const payload = node.tsonic;
       if (payload.role === "enum-member") return enumOperand(lowering, node, payload, payload.resolution);
+      if (payload.role === "array-extent") {
+        const operation = payload.operation.kind === "decided" ? payload.operation.decision : null;
+        const selection = operation?.decision.operation;
+        if (operation === null || selection?.kind !== "array-extent" || node.questionDotToken !== null)
+          return callerDefect("an array extent has no actual selected native read", node.origin);
+        value(lowering, payload, node);
+        const direct = selection.holding === "in-place" ? directStaticValue(node.expression) : null;
+        lowering.work.push({ kind: "operation", node, operation, form: "unary" });
+        if (direct === null) lowering.work.push({ kind: "expression", node: node.expression });
+        else {
+          const place = placeOfStatic(state, direct.definition, direct.storage, node.expression.origin);
+          if (place === null) return false;
+          pushOperand(lowering, held(place, direct.storage, siteOf(body, node.expression)));
+        }
+        return true;
+      }
       if (payload.role !== "value") return notLoweredYet(`a property access of role ${payload.role}`, node.origin);
       if (node.questionDotToken !== null) return notLoweredYet("a selected optional field read", node.origin);
       if (payload.selection.kind !== "decided") return callerDefect("a deferred member read", node.origin);
@@ -734,6 +750,8 @@ function operation(lowering: Lowering, pendingOperation: Extract<Work, { readonl
   const right = popOperand(lowering, failure("an operation was reached without its final operand", node.origin));
   const left = pendingOperation.form === "binary" ? popOperand(lowering, failure("an operation was reached without its left operand", node.origin)) : null;
   const site = siteOf(body, node);
+  if (selected.decision.operation.kind === "array-extent" && selected.decision.operation.holding === "in-place" && right.operand.kind !== "place")
+    return callerDefect("an in-place array extent must read its actual retained place", node.origin);
   const execution = selected.decision.execution;
   if (execution.kind === "pure") {
     const result = temporary(lowering, selected.decision.result, site);

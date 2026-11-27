@@ -488,7 +488,7 @@ export function textTypedMember(value: TypedMember): TextWork {
   return deferred(value, () => {
     if (value.role === "declaration-name-expression") return textNameExpression(value);
     switch (value.role) {
-      case "value": case "enum-member":
+      case "value": case "enum-member": case "array-extent":
         return record("TypedMember", [
       field("type", numericIdentity("t", value.type)),
       field("convertedType", numericIdentity("t", value.convertedType)),
@@ -498,6 +498,7 @@ export function textTypedMember(value: TypedMember): TextWork {
       field("demand", textTirDemand(value.demand)),
       field("role", text(value.role)),
       value.role === "enum-member" ? field("resolution", textTirResolution(value.resolution))
+        : value.role === "array-extent" ? field("operation", textRuleOutcome(value.operation, textTypedOperation))
         : field("selection", textRuleOutcome(value.selection, textMemberSelection)),
     ]);
       case "assignment-target":

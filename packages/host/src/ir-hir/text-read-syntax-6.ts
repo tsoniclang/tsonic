@@ -163,7 +163,7 @@ export function createSyntaxGroup6(readers: () => HirTextReaders): ReadonlyMap<s
       const field_expression = read("expression", readers().syntax_2);
       const field_questionDotToken = read("questionDotToken", unionReader<Hir.QuestionDotToken<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_17]));
       const field_name = read("name", readers().syntax_63);
-      const field_tsonic = read("tsonic", unionReader<Hir.CheckedMember>(() => [readers().record_240, readers().record_242]));
+      const field_tsonic = read("tsonic", unionReader<Hir.CheckedMember>(() => [readers().record_240, readers().record_242, readers().arrayExtent]));
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_expression, field_questionDotToken, field_name, field_tsonic], value: () => ({ kind: "PropertyAccessExpression", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), expression: field_expression.value(), questionDotToken: field_questionDotToken.value(), name: field_name.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "PropertyAccessExpression", value }), accept)],
     ["PropertyAssignment", accept => syntaxRecord<Hir.PropertyAssignment<Hir.CheckedPhase>>(read => {

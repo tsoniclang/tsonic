@@ -1,6 +1,6 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
-import type { BodyId, DefId, LocalRef, NodeId, NodeRef, RawTypeId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, ItemNodeRef, LocalRef, NodeId, NodeRef, RawTypeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { candidateListId, decodeBodyId, decodeDefId, encodeBodyId, encodeDefId, localId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { binaryOperatorOf, collectInferredStorageSources, iterateChildrenOfSyntax, prefixOperatorOf, readLayoutSelector, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
@@ -788,11 +788,12 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
   readonly origins: Hir.CapturedFact<readonly MemberOrigin[]>;
   readonly accessor: Hir.CapturedFact<Hir.HirApplication | null>;
   readonly place: Hir.CapturedFact<Hir.HirStoragePlace>;
+  readonly extent: ItemNodeRef | null;
 }> {
   const selected = lowering.memberUses.get(node.id);
   const missing: Hir.CapturedFact<never> = readFact.kind === "unavailable" && readFact.reason === "checker-error" ? readFact
     : { kind: "unavailable", reason: "not-provided", causes: [] };
-  if (selected === undefined) return { kind: "complete", value: { key: missing, origins: missing, accessor: missing, place: missing } };
+  if (selected === undefined) return { kind: "complete", value: { key: missing, origins: missing, accessor: missing, place: missing, extent: null } };
   if (selected.kind !== "property") return throwInvariant(invariant("An enum member is not a structural property use."));
   if (selected.receiver.module !== lowering.raw.module || selected.receiver.node !== node.expression.id
     || selected.access !== access || selected.optionalChain || selected.chainContinuation || selected.arms.length !== 1)
@@ -841,6 +842,20 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
   const writeOrigins = actualOrigins("write", selected.write, selected.writeDeclarations, arm.writeDeclarations);
   const key = lowerMemberKey(lowering, member.key);
   if (key.kind !== "complete") return key;
+  let extent: ItemNodeRef | null = null;
+  if (selected.nativeExtent !== null) {
+    const source = selected.nativeExtent;
+    if (access !== "read" || selected.callCallee || readFact.kind !== "available"
+      || key.value.kind !== "text" || key.value.value !== "length"
+      || !sameSource(source, primary) || selected.readDeclarations.length !== 1
+      || !sameSource(selected.readDeclarations[0], source))
+      return throwInvariant(invariant("An array extent retains its actual selected native read declaration."));
+    const representation = typeFactOf(lowering, { kind: "available", value: selected.receiverType });
+    if (representation.kind !== "complete") return representation;
+    if (representation.value.kind !== "available" || readType(lowering.deps.types, representation.value.value).kind !== "array")
+      return throwInvariant(invariant("A native extent read retains its actual array receiver."));
+    extent = { owner: lowering.deps.definitionOf(source), node: source.node };
+  }
   let place: Hir.CapturedFact<Hir.HirStoragePlace> = missing;
   if (access !== "read") {
     const write = selected.write;
@@ -859,7 +874,7 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
     || selected.writeDeclarations.some(declaration => member.setters.some(setter => setter.module === declaration.module && setter.node === declaration.node));
   return { kind: "complete", value: { key: { kind: "available", value: key.value },
     origins: { kind: "available", value: access === "write" ? writeOrigins : readOrigins }, accessor: accessor
-      ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : { kind: "available", value: null }, place } };
+      ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : { kind: "available", value: null }, place, extent } };
 }
 
 function indexedUse(lowering: Lowering, node: Hir.ElementAccessExpression<Syntax>, value: Hir.CheckedValue):
@@ -875,7 +890,7 @@ function indexedUse(lowering: Lowering, node: Hir.ElementAccessExpression<Syntax
     const expected = (node: NodeId): RawNodeRef => ({ module: lowering.raw.module, node });
     const components = lowering.raw.types.components;
     const types = lowering.raw.types.types;
-    if (selected.kind !== "property" || selected.access !== access || selected.optionalChain || selected.chainContinuation
+    if (selected.kind !== "property" || selected.nativeExtent !== null || selected.access !== access || selected.optionalChain || selected.chainContinuation
       || !sameSource(selected.occurrence, expected(node.id)) || !sameSource(selected.receiver, expected(node.expression.id))
       || !sameSource(selected.key, expected(node.argumentExpression.id)) || selected.arms.length !== 1)
       return throwInvariant(invariant("An indexed access requires its actual checked role and operand occurrences."));
@@ -1224,7 +1239,7 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
         questionDotToken: node.questionDotToken === null ? null : token(node.questionDotToken),
         name: { ...headerOf(node.name), kind: "Identifier", text: node.name.text,
           tsonic: { core: coreOf(lowering, node.name.id), role: "property-name", key: selected.key, origins: selected.origins } },
-        tsonic } };
+        tsonic: selected.extent === null ? tsonic : { core: common.core, role: "array-extent", value: value.value, selectedMember: selected.extent } } };
     }
     default: return throwInvariant(invariant("An expression of an unwritten kind passed the written-kinds check."));
   }

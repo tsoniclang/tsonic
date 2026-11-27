@@ -4,7 +4,7 @@ import { localId, placeId } from "../ids/index.js";
 import type { Expression } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ExactRational, LiteralValue, TypeTerm } from "../ir-types/contract.js";
-import { literalCompatibilityOf } from "../ir-types/index.js";
+import { literalCompatibilityOf, nativeArrayExtentOf, nativeArrayHoldingOf } from "../ir-types/index.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { admitWork, chargeWork, densePosition, edgePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
 import type { ControlEdge, ControlFlow, SourceNode, WorkMeter } from "./verify-control.js";
@@ -606,7 +606,8 @@ export function verifyValues(
     const payload = node.node.tsonic;
     return payload !== null && "convertedType" in payload ? payload.type : null;
   };
-  const operationResult = (value: MirRvalue & { readonly kind: "unary" | "binary" | "convert" }, site: MirViolationSite): TyId | null => {
+  const operationResult = (value: MirRvalue & { readonly kind: "unary" | "binary" | "convert" }, source: SourceNode | undefined,
+    site: MirViolationSite): TyId | null => {
     const decision = value.operation.decision;
     const operands = rvalueOperands(value);
     for (let position = 0; position < decision.operands.length; position += 1) {
@@ -622,6 +623,26 @@ export function verifyValues(
       if (expected !== undefined) match(actual, expected, "operation-selected", site);
     }
     if (!reference(decision.result, site)) return null;
+    const identity = decision.operation;
+    if (identity.kind === "array-extent") {
+      if (!admitWork(meter, 1)) return null;
+      const receiver = decision.operands[0];
+      const carrier = receiver === undefined ? null : term(receiver);
+      const result = term(decision.result);
+      const occurrence = source?.node;
+      const expression = occurrence?.kind === "PropertyAccessExpression" ? occurrence.expression : null;
+      const local = expression?.kind === "Identifier" && expression.tsonic.role === "value"
+        && expression.tsonic.resolution.kind === "local" ? expression.tsonic.resolution.local : null;
+      const actual = value.kind === "unary" && value.operand.kind === "place" ? body.places[value.operand.place]?.base : null;
+      const actualLocal = actual?.kind === "local" ? body.locals[actual.local]?.source : null;
+      if (value.kind !== "unary" || decision.execution.kind !== "pure" || decision.operands.length !== 1
+        || (carrier?.kind !== "array" && carrier?.kind !== "fixed-array") || result?.kind !== "primitive"
+        || result.primitive !== nativeArrayExtentOf(context.selectedNativeFacts.arrayExtents, carrier.kind)
+        || identity.holding !== nativeArrayHoldingOf(context.selectedNativeFacts.carrierHolding, carrier.kind)
+        || identity.holding === "in-place" && actual === null
+        || local !== null && (actualLocal?.body !== local.body || actualLocal.local !== local.local))
+        report("operation-selected", site);
+    }
     if (value.kind === "convert") {
       if (!reference(value.to, site)) return null;
       match(decision.result, value.to, "operation-selected", site);
@@ -643,7 +664,7 @@ export function verifyValues(
         }
         return operandType(value.operand, site);
       }
-      case "unary": case "binary": case "convert": return operationResult(value, site);
+      case "unary": case "binary": case "convert": return operationResult(value, node, site);
       case "aggregate": {
         const expected = selectedType(node);
         if (expected !== null) match(value.type, expected, "operation-selected", site);

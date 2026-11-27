@@ -3194,7 +3194,7 @@ function capturedIndexUse(scope: CaptureScope, occurrence: RawNodeRef, info: Res
 
   return { kind: "property", occurrence, receiver, receiverComponent, receiverType, key, access: info.accessMode,
     callCallee: info.callCallee, optionalChain: info.optionalChain, chainContinuation: false, selectedDeclaration: selected,
-    selectedDeclarations: [selected], readDeclarations: read === null ? [] : [selected],
+    selectedDeclarations: [selected], nativeExtent: null, readDeclarations: read === null ? [] : [selected],
     writeDeclarations: write === null ? [] : [selected], read, write,
     arms: [{ kind: "index", receiver: receiverComponent,
       selection: { kind: info.nativeArray === null ? "index-signature" : "array-element", declarations: [selected] },
@@ -3214,6 +3214,24 @@ function selectedMemberOf(scope: CaptureScope, node: Node, occurrence: RawNodeRe
   if (acquired.kind !== "complete" || acquired.value.kind !== "member" || acquired.value.expression !== node)
     throw new TypeError("front: a property access requires its actual selected member answer");
   return acquired.value;
+}
+
+function isNativeArrayExtent(scope: CaptureScope, info: CheckedMember, primary: Node, key: RawMemberKey): boolean {
+  if (key.kind !== "text" || key.value !== "length" || info.accessMode !== "read" || info.callCallee
+    || info.selectedDeclaration !== primary || info.selectedReadDeclaration !== primary || info.sourceReadType === undefined)
+    return false;
+  if (!admit(scope, "edges")) return false;
+  const { ast } = scope.checked;
+  if (ast.kindName(primary) !== "KindPropertySignature" || !scope.shape.isNumberLike(info.sourceReadType)) return false;
+  const parent = ast.parent(primary);
+  if (parent === undefined || ast.kindName(parent) !== "KindInterfaceDeclaration") return false;
+  const receiver = info.receiver.type;
+  const native = scope.shape.acquireNativeArrayType(receiver, nativeCaptureAdmission(scope));
+  if (native.kind !== "complete" || !admit(scope, "edges")) return false;
+  const name = ast.name(parent);
+  if (name === undefined || !scope.shape.isTypeReference(receiver)) return false;
+  const actualOwner = scope.checker.getSymbolAtLocation(name);
+  return actualOwner !== undefined && actualOwner === scope.checker.getTypeSymbol(scope.shape.getTypeReferenceTarget(receiver));
 }
 
 function capturedMemberUse(scope: CaptureScope, occurrence: RawNodeRef, info: CheckedMember,
@@ -3317,9 +3335,11 @@ function capturedMemberUse(scope: CaptureScope, occurrence: RawNodeRef, info: Ch
   if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
   const readDeclarations = readDeclaration === null ? [] : [readDeclaration];
   const writeDeclarations = writeDeclaration === null ? [] : [writeDeclaration];
+  const nativeExtent = selector === undefined && isNativeArrayExtent(scope, info, primary, member.key) ? selected : null;
+  if (scope.meter.refusal !== null) return null;
   return { kind: "property", occurrence, receiver, receiverComponent, receiverType, key: null, access: info.accessMode, callCallee: info.callCallee,
     optionalChain: info.optionalChain, chainContinuation: false, selectedDeclaration: selected,
-    selectedDeclarations: member.declarations, readDeclarations, writeDeclarations, read, write,
+    selectedDeclarations: member.declarations, readDeclarations, writeDeclarations, read, write, nativeExtent,
     arms: [{ kind: "member", receiver: receiverComponent, member,
       readDeclarations, writeDeclarations }] };
 }

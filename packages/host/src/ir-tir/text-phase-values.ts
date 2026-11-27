@@ -533,6 +533,19 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       .finish((type, convertedType, conversion, narrowing, evidenceIndex, demand, role, resolution) => ({
         type, convertedType, conversion, narrowing, evidenceIndex, demand, role, resolution,
       })));
+  const arrayExtent = defineRecord<Extract<TypedMember, { readonly role: "array-extent" }>>("TypedMember@array-extent", "TypedMember",
+    { field: "role", value: "array-extent" }, "TypedMember", null, null, fields => fields
+      .field("type", "t", value => referenceWork("t", value.type), typeReader)
+      .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)
+      .field("conversion", "ConversionDecision", value => read.work_ConversionDecision.write(value.conversion), lazyReader(() => read.work_ConversionDecision.reader))
+      .field("narrowing", "?RefinementDecision", value => nullableWork(value.narrowing, actual => read.work_RefinementDecision.write(actual)), nullableReader(lazyReader(() => read.work_RefinementDecision.reader)))
+      .field("evidenceIndex", "?number", value => nullableWork(value.evidenceIndex, actual => scalarWork("number", actual)), nullableReader(numberReader))
+      .field("demand", "TirDemand", value => read.work_TirDemand.write(value.demand), lazyReader(() => read.work_TirDemand.reader))
+      .field("role", "'array-extent", value => scalarWork("'array-extent", value.role), literalReader<"array-extent">("'array-extent", ["array-extent"]))
+      .field("operation", "O<TypedOperation>", value => read.work_O_TypedOperation_.write(value.operation), lazyReader(() => read.work_O_TypedOperation_.reader))
+      .finish((type, convertedType, conversion, narrowing, evidenceIndex, demand, role, operation) => ({
+        type, convertedType, conversion, narrowing, evidenceIndex, demand, role, operation,
+      })));
   const work_TypedMember_assignment_target: TirRecordCodec<TypedMember & { readonly role: "assignment-target" }> = defineRecord<TypedMember & { readonly role: "assignment-target" }>("TypedMember@assignment-target", "TypedMember", { field: "role", value: "assignment-target" }, "TypedMember", null, null, fields => fields
     .field("role", "'assignment-target", value => scalarWork("'assignment-target", value.role), literalReader<(TypedMember & { readonly role: "assignment-target" })["role"]>("'assignment-target", ["assignment-target"]))
     .field("selection", "O<MemberSelection>", value => read.work_O_MemberSelection_.write(value.selection), lazyReader(() => read.work_O_MemberSelection_.reader))
@@ -744,9 +757,10 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     switch (value.role) {
       case "value": return work_TypedMember_value.write(value);
       case "enum-member": return enumMember.write(value);
+      case "array-extent": return arrayExtent.write(value);
       case "assignment-target": return work_TypedMember_assignment_target.write(value);
     }
-  }, () => [declarationNameExpression.reader, work_TypedMember_value.reader, work_TypedMember_assignment_target.reader, enumMember.reader]);
+  }, () => [declarationNameExpression.reader, work_TypedMember_value.reader, work_TypedMember_assignment_target.reader, enumMember.reader, arrayExtent.reader]);
   const indexDecision = defineRecord<IndexDecision>("IndexDecision", "IndexDecision", null, "IndexDecision", null, null, fields => fields
     .field("carrier", "IndexCarrier", value => scalarWork("IndexCarrier", value.carrier), literalReader<IndexDecision["carrier"]>("IndexCarrier", ["array", "fixed-array"]))
     .field("holding", "ReceiverAccess", value => scalarWork("ReceiverAccess", value.holding), literalReader<IndexDecision["holding"]>("ReceiverAccess", ["in-place", "by-reference"]))

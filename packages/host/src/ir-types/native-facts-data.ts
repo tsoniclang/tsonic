@@ -44,6 +44,11 @@ export interface NativeCarrierHolding {
   readonly holding: ReceiverAccess;
 }
 
+export interface NativeArrayExtent {
+  readonly carrier: NativeArrayCarrier;
+  readonly result: NativeIntegerPrimitive;
+}
+
 export interface NativeIntegerWidth {
   readonly carrier: "native-int" | "native-uint";
   readonly bits: number;
@@ -104,6 +109,7 @@ export interface NativeConversion {
 
 export interface SelectedNativeFacts {
   readonly carrierHolding: readonly NativeCarrierHolding[];
+  readonly arrayExtents: readonly NativeArrayExtent[];
   readonly nativeIntegerWidths: readonly NativeIntegerWidth[];
   readonly floatingFormats: readonly NativeFloatingFormat[];
   readonly integerOverflow: readonly NativeOverflow[];

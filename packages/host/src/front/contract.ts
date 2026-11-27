@@ -560,6 +560,7 @@ export interface RawPropertyUse {
   readonly writeDeclarations: readonly RawNodeRef[];
   readonly read: RawTypeId | null;
   readonly write: RawTypeId | null;
+  readonly nativeExtent: RawNodeRef | null;
   readonly arms: readonly RawMemberArm[];
 }
 

@@ -1062,6 +1062,22 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           return;
         }
       case "PropertyAccessExpression":
+        if (node.tsonic.role === "array-extent") {
+          if (!building) { visit(node.expression); return; }
+          const operation = operations[position] ?? compilerDefect("an array extent has no selected native operation", node.origin);
+          const extent = operation.decision.operation;
+          const name = node.name;
+          if (node.questionDotToken !== null || extent.kind !== "array-extent"
+            || extent.declaration.owner !== node.tsonic.selectedMember.owner || extent.declaration.node !== node.tsonic.selectedMember.node
+            || name.kind !== "Identifier" || name.tsonic.role !== "property-name" || name.tsonic.key.kind !== "available")
+            return callerDefect("an array extent must retain its actual checked declaration and selector", node.origin);
+          read.operations.add(position);
+          expressions[position] = { ...header(node), kind: node.kind, expression: expressionOf(node.expression), questionDotToken: null,
+            name: { ...header(name), kind: "Identifier", text: name.text, tsonic: { role: "property-name", key: name.tsonic.key.value } },
+            tsonic: { ...valueOf(position, operation.decision.result, node.origin), role: "array-extent",
+              operation: { kind: "decided", decision: operation } } };
+          return;
+        }
         if (node.tsonic.role === "enum-member") {
           if (!building) return;
           const qualifier = node.expression;

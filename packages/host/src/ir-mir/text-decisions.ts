@@ -587,6 +587,10 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
 
   const absenceOperation = record<OperationIdentity & { readonly kind: "absence-test" }>("absence-test", () =>
     field("negated", () => booleanWire, value => value.negated, negated => finish(() => ({ kind: "absence-test", negated }))));
+  const arrayExtentOperation = record<Extract<OperationIdentity, { readonly kind: "array-extent" }>>("array-extent", () =>
+    field("declaration", () => itemRef, value => value.declaration, declaration =>
+      field("holding", () => literals(["in-place", "by-reference"]), value => value.holding, holding =>
+        finish(() => ({ kind: "array-extent", declaration, holding })))));
 
   function constructionOperation<Kind extends "object-construction" | "array-construction">(kind: Kind) {
     return record<{ readonly kind: Kind; readonly parts: readonly ConstructionPartDecision[] }>(kind, () =>
@@ -632,7 +636,7 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
   const operationIdentity: Wire<OperationIdentity> = variants([
     choice("native-operator", () => nativeOperation), choice("bigint-operator", () => bigintOperation),
     choice("string-operator", () => stringOperation), choice("boolean-operator", () => booleanOperation),
-    choice("absence-test", () => absenceOperation), choice("object-construction", () => constructionOperation("object-construction")),
+    choice("absence-test", () => absenceOperation), choice("array-extent", () => arrayExtentOperation), choice("object-construction", () => constructionOperation("object-construction")),
     choice("array-construction", () => constructionOperation("array-construction")), choice("protocol", () => protocol),
     choice("conversion", () => conversionOperation), choice("library", () => declaredOperation("library")), choice("core", () => declaredOperation("core")),
     choice("pointer-address", () => pointerAddress), choice("pointer-read", () => pointerRead), choice("pointer-write", () => pointerWrite),
@@ -644,6 +648,7 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
       case "string-operator": return stringOperation.write(value, path, next);
       case "boolean-operator": return booleanOperation.write(value, path, next);
       case "absence-test": return absenceOperation.write(value, path, next);
+      case "array-extent": return arrayExtentOperation.write(value, path, next);
       case "object-construction": case "array-construction": return constructionOperation(value.kind).write(value, path, next);
       case "protocol": return protocol.write(value, path, next);
       case "conversion": return conversionOperation.write(value, path, next);

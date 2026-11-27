@@ -202,6 +202,9 @@ function prepareUpdate(scan: ProjectionInventory, value: TypedUpdate, at: string
 
 function prepareTypedMember(scan: ProjectionInventory, value: TypedMember, at: string): PreparedPhase<TypedMember> {
   if (value.role === "declaration-name-expression") return paidPhase(scan, 1, () => holdPhase(value));
+  if (value.role === "array-extent") return paidPhase(scan, 8, () => withPlan(prepareValue(scan, value, at), common =>
+    withPlan(prepareOutcome(scan, () => value.operation, operation => prepareTypedOperation(scan, operation, at + ".operation"), at + ".operation"),
+      operation => ({ kind: "copied", value: image => ({ ...common(image), role: "array-extent", operation: operation(image) }) }))));
   if (value.role === "enum-member") return paidPhase(scan, 8, () => withPlan(prepareValue(scan, value, at), common =>
     withPlan(prepareEnumResolution(scan, value.resolution), resolution =>
       ({ kind: "copied", value: image => ({ ...common(image), role: "enum-member", resolution: resolution(image) }) }))));

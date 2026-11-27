@@ -220,8 +220,8 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
 
   function member(row: CheckedMember): SyntaxCopyResult<CheckedMember, Stop> {
     return admit(4, 1, () => following(project.core(row.core), core => {
-      if (row.role === "enum-member") return following(valueFields(row.value), value =>
-        copied({ role: "enum-member", core, value, selectedMember: row.selectedMember }));
+      if (row.role === "enum-member" || row.role === "array-extent") return following(valueFields(row.value), value =>
+        copied({ role: row.role, core, value, selectedMember: row.selectedMember }));
       return following(captured(row.accessor, optional(application)), (accessor): SyntaxCopyResult<CheckedMember, Stop> => {
         const origins = row.origins;
         switch (row.role) {

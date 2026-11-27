@@ -445,13 +445,16 @@ function readTypedMemberFields<Root>(cursor: Cursor, fields: RecordFields, finis
           fieldText<RefinementDecision | null, Root>(cursor, fields, "narrowing", (next, done) => nullableText(next, readRefinementDecisionText, done), narrowingValue =>
             fieldText<number | null, Root>(cursor, fields, "evidenceIndex", (next, done) => nullableText(next, (next, done) => atomicText(next, readNumber, done), done), evidenceIndexValue =>
               fieldText<TirDemand, Root>(cursor, fields, "demand", readTirDemandText, demandValue =>
-                fieldText<"value" | "enum-member", Root>(cursor, fields, "role",
-                  (next, done) => atomicText(next, value => readStringChoice(value, ["value", "enum-member"]), done), role => {
+                fieldText<"value" | "enum-member" | "array-extent", Root>(cursor, fields, "role",
+                  (next, done) => atomicText(next, value => readStringChoice(value, ["value", "enum-member", "array-extent"]), done), role => {
                     const value: TypedValue = { type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue,
                       narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue };
                     if (role === "enum-member") return fieldText<TirEnumResolution, Root>(
                       cursor, fields, "resolution", readEnumResolutionText, resolution =>
                         atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ ...value, role, resolution }, finish)));
+                    if (role === "array-extent") return fieldText<RuleOutcome<TypedOperation>, Root>(cursor, fields, "operation",
+                      (next, done) => readRuleOutcomeText(next, readTypedOperationText, done), operation =>
+                        atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ ...value, role, operation }, finish)));
                     return fieldText<RuleOutcome<MemberSelection>, Root>(cursor, fields, "selection",
                       (next, done) => readRuleOutcomeText(next, readMemberSelectionText, done), selection =>
                         atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ ...value, role, selection }, finish)));

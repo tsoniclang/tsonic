@@ -189,6 +189,7 @@ export async function nativeFactsCases(suite, product) {
     }
     const changes = {
       carrierHolding: row => { row.holding = row.holding === "by-reference" ? "in-place" : "by-reference"; },
+      arrayExtents: row => { row.result = "int32"; },
       nativeIntegerWidths: row => { row.bits = 64; },
       floatingFormats: row => { row.nanPayloadObservable = false; },
       integerOverflow: row => { row.result = "int128"; },
@@ -202,6 +203,28 @@ export async function nativeFactsCases(suite, product) {
       change(changed[field][0]);
       assert.deepEqual(product.verifyNativeFacts(changed), []);
       assert.notEqual(product.nativeFactsKey(changed), originalKey, field);
+    }
+  });
+
+  await suite.test("native extent laws are ordered and independent of holding and index failure", () => {
+    const facts = nativeFactsFixture({ arrayHolding: "in-place", arrayExtent: "int32", fixedArrayExtent: "uint64" });
+    const rows = facts.arrayExtents;
+    assert.deepEqual(product.verifyNativeFacts(facts), []);
+    assert.equal(product.nativeArrayExtentOf(rows, "array"), "int32");
+    assert.equal(product.nativeArrayExtentOf(rows, "fixed-array"), "uint64");
+    assert.equal(product.nativeArrayExtentOf([rows[0]], "fixed-array"), null);
+    assert.equal(product.nativeArrayExtentOf(null, "array"), null);
+    assert.equal(product.nativeArrayExtentOf([rows[0], rows[1], rows[0]], "array"), null);
+    assert.equal(product.nativeArrayExtentOf([rows[0], rows[0]], "array"), null);
+    assert.equal(product.nativeArrayExtentOf([{ carrier: "array", result: "float64" }], "array"), null);
+    for (const [arrayExtents, rule] of [
+      [[rows[1], rows[0]], "native-fact-order"],
+      [[rows[0], rows[0]], "native-fact-unique"],
+      [[{ carrier: "array", result: "float64" }], "native-fact-value"],
+      [[{ carrier: "unknown", result: "int64" }], "native-fact-value"],
+    ]) {
+      assert.deepEqual(product.verifyNativeFacts({ ...facts, arrayExtents }).map(finding => [finding.rule, finding.site.field]),
+        [[rule, "arrayExtents"]]);
     }
   });
 

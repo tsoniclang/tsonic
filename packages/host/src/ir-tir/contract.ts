@@ -206,6 +206,7 @@ export type TypedMember =
   | DeclarationNameExpression
   | (TypedValue & { readonly role: "value"; readonly selection: RuleOutcome<MemberSelection> })
   | (TypedValue & { readonly role: "enum-member"; readonly resolution: TirEnumResolution })
+  | (TypedValue & { readonly role: "array-extent"; readonly operation: RuleOutcome<TypedOperation> })
   | { readonly role: "assignment-target"; readonly selection: RuleOutcome<MemberSelection>; readonly access: TargetAccess };
 
 export type TypedIndex =

@@ -118,6 +118,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypeEvidence: lazyRecord(() => type_values.work_TypeEvidence)
   });
   const rule_inputs = createRuleInputsText(kernel, {
+    work_ItemNodeRef: lazyRecord(() => type_values.work_ItemNodeRef),
     work_LocalRef: lazyRecord(() => type_values.work_LocalRef),
     work_BindingVector: lazyRecord(() => type_values.work_BindingVector),
     work_ConstructionPartDecision: lazyRecord(() => rule_decisions.work_ConstructionPartDecision),

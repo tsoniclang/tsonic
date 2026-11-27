@@ -298,6 +298,7 @@ export function createHirSchema(): HirSchema {
     CheckedApplication: hirRecord("CheckedApplication", [...checkedValue, ...core, ["application", captured("HirApplication")]]),
     CheckedMember: variants("CheckedMember", "role", [["value", [["value", "CheckedValue"], ["origins", captured(hirArray("MemberOrigin"))], ["accessor", captured(hirNullable("HirApplication"))]]],
       ["enum-member", [["value", "CheckedValue"], ["selectedMember", "ItemNodeRef"]]],
+      ["array-extent", [["value", "CheckedValue"], ["selectedMember", "ItemNodeRef"]]],
       ["assignment-target", [["views", "HirCheckerViews"], ["place", captured("HirStoragePlace")], ["access", hirLiteral("write", "read-write")],
         ["origins", captured(hirArray("MemberOrigin"))], ["accessor", captured(hirNullable("HirApplication"))]]]], core),
     CheckedProtocol: hirRecord("CheckedProtocol", [...checkedValue, ...core, ["protocol", captured("HirProtocolFact")]]),

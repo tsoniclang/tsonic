@@ -193,7 +193,7 @@ export const partition: GroupsOf = (deps, bodies) => {
         }
       } else if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression") {
         const member = node.tsonic;
-        if (member.role === "enum-member") {
+        if (member.role === "enum-member" || member.role === "array-extent") {
           if (!take(1)) return stop();
           const target = definitions.get(member.selectedMember.owner);
           if (target !== undefined && !edge(position, target)) return stop();
