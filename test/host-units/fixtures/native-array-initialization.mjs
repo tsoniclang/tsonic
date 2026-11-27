@@ -182,6 +182,17 @@ export async function checkPlacedArrayReturn() {
   assert.ok(initializer);
   const stage = initializer.mir.blocks.find(block => block.terminator.kind === "array-start");
   assert.ok(stage);
+  assert.equal(initializer.mir.blocks.filter(block => block.terminator.kind === "array-start").length, 1);
+  const [prefix, range, tail] = initializer.tir.root.elements.nodes;
+  assert.equal(range.kind, "SpreadElement");
+  assert.equal(stage.terminator.range.kind, "place");
+  const steps = initializer.mir.blocks[stage.terminator.next].statements.filter(statement => "start" in statement);
+  assert.deepEqual(steps.map(statement => [statement.kind, "part" in statement ? statement.part : null, statement.tir.node, statement.start]), [
+    ["array-element", 0, prefix.id, stage.id], ["array-range", 1, range.expression.id, stage.id],
+    ["array-element", 2, tail.id, stage.id], ["array-finish", null, initializer.tir.root.id, stage.id],
+  ]);
+  assert.equal(steps[0].operand.kind, "constant");
+  assert.equal(steps[2].operand.kind, "place");
   const inside = initializer.facts.flatMap(row => row.arena.producers).filter(row => row.kind === "allocation");
   assert.equal(inside.length, 1);
   assert.deepEqual(inside[0].at.node.value, stage.terminator.tir);
