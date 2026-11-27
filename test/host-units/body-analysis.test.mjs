@@ -4922,6 +4922,43 @@ test("selected reference-call helpers keep genuine unsupported inputs explicit a
       value: { kind: "convert", operand: operation.arguments[0].operand } }, null), /reference operation value producer/);
 });
 
+test("a direct reference throw carries its original value through cleanup unless the finalizer returns", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const result = await analyzeOptionalSource(`
+    export function escape(value: string, replacement: string): string {
+      try { throw value; } finally { value = replacement; }
+    }
+    export function override(value: string, replacement: string): string {
+      try { throw value; } finally { return replacement; }
+    }
+  `);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  for (const [name, overridden] of [["escape", false], ["override", true]]) {
+    const body = result.value.modules.flatMap(module => module.bodies).find(row =>
+      row.kind === "selected" && row.instance.body.includes(`;${name}];function;0]`));
+    assert.ok(body);
+    const [facts] = body.facts;
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+      && executionKey(row.key.execution) === executionKey(facts.execution));
+    assert.ok(summary);
+    const operations = body.mir.blocks.map(block => block.terminator);
+    const thrown = operations.find(operation => operation.kind === "throw");
+    assert.equal(thrown.unwind.kind, "carry");
+    assert.equal(body.mir.blocks[thrown.unwind.target].terminator.kind, "cleanup-enter");
+    assert.equal(summary.returns, overridden);
+    assert.equal(summary.unwinds, !overridden);
+    const observed = summary.arena.origins[overridden ? summary.result : summary.thrown];
+    const suppressed = summary.arena.origins[overridden ? summary.thrown : summary.result];
+    assert.equal(observed.kind, "complete");
+    assert.equal(observed.includesAbsence, false);
+    assert.deepEqual(observed.producers.map(bound => {
+      const producer = summary.arena.producers[summary.arena.boundProducers[bound].producer];
+      return [producer.kind, producer.index, producer.path];
+    }), [["parameter", overridden ? 1 : 0, null]]);
+    assert.deepEqual(suppressed.producers, []);
+  }
+});
+
 test("canonical Origins unions retain strict supersets and deduplicate genuine overlapping alternatives", () => {
   const { current, pair } = referenceRound("body-round.reference-overlap");
   const rows = [...pair.facts.arena.origins];
