@@ -26,6 +26,118 @@ test("S-1: a placed native array initializer returns its backing without a new c
 test("a native array result preserves independent borrowed and created producer alternatives", checkNativeArrayAlternatives);
 test("a wholly borrowed native array result creates no new caller backing", checkBorrowedNativeArrayReturn);
 
+test("a joined nested reference preserves both actual input subjects across a presence edge", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const fixture = await loadFrontFixture();
+  for (const writes of [false, true]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Holder = { child: { flag: boolean } | null };
+      export function read(left: Holder, right: Holder, choose: boolean): boolean {
+        let current: Holder = left;
+        if (choose) current = right;
+        if (current.child !== null) {
+          ${writes ? "current.child.flag = false;" : ""}
+          return current.child.flag;
+        }
+        return false;
+      }
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === body.instance.body);
+    const fields = arena => {
+      const child = arena.projections.find(row => row.parent === null && row.projection.kind === "field"
+        && row.projection.member.decision.key.value === "child");
+      const flag = arena.projections.find(row => row.parent === child.id && row.projection.kind === "field"
+        && row.projection.member.decision.key.value === "flag");
+      return [child.id, flag.id];
+    };
+    const [child, flag] = fields(summary.arena);
+    const [left, right, choose] = summary.parameters;
+    for (const subject of [left, right]) {
+      assert.deepEqual(subject.reads, { kind: "complete", paths: [child, flag] });
+      assert.deepEqual(subject.writes, { kind: "complete", paths: writes ? [flag] : [] });
+    }
+    assert.deepEqual(choose.writes, { kind: "complete", paths: [] });
+    const [facts] = body.facts;
+    const [childPath] = fields(facts.arena);
+    const joined = facts.arena.origins.filter(row => row.kind === "complete" && row.producers.length === 2 && row.producers.every(id => {
+      const producer = facts.arena.producers[facts.arena.boundProducers[id].producer];
+      return producer.kind === "parameter" && producer.path === childPath;
+    }));
+    assert.deepEqual(joined.map(row => [row.includesAbsence, row.producers.map(id =>
+      facts.arena.producers[facts.arena.boundProducers[id].producer].index)]), [[true, [0, 1]], [false, [0, 1]]]);
+    assert.equal(body.mir.blocks.some(block => block.terminator.kind === "check"), true);
+  }
+});
+
+test("the application kernel remaps a projected return onto the actual caller field", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { projectionEffects } = await import("../../packages/host/dist/analyses/body/projection-effects.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+    type Holder = { child: { flag: boolean }; other: boolean };
+    function child(formal: Holder) { return formal.child; }
+    export function forward(holder: { other: boolean; child: { flag: boolean } }): boolean {
+      child(holder);
+      return true;
+    }
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const caller = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";forward];function;0]"));
+  const call = caller.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+  assert.equal(call.callee.kind, "direct");
+  assert.equal(call.destination, null, "the authored call discards the result; this assertion does not claim end-to-end result storage");
+  const { activation, decision } = call.callee.resolution;
+  const mapping = decision.parameters[0];
+  assert.equal(mapping.kind, "reference-argument");
+  const [correspondence] = mapping.view.fields;
+  assert.notEqual(correspondence.formal, correspondence.caller);
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === activation.body);
+  const returned = summary.arena.origins[summary.result];
+  assert.equal(returned.producers.length, 1);
+  const formal = summary.arena.producers[summary.arena.boundProducers[returned.producers[0]].producer];
+  assert.equal(formal.kind, "parameter");
+  assert.equal(formal.index, 0);
+  assert.equal(summary.arena.projections[formal.path].projection.member.decision.primary, correspondence.formal);
+
+  const [facts] = caller.facts;
+  const invocation = facts.origins.invocations.find(row => row.node === call.tir.node);
+  const [alternative] = invocation.alternatives;
+  const held = facts.arena.contexts[alternative.context].arguments[0].origins;
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok");
+  const account = createAccount(limits);
+  const deps = { account };
+  const origins = valueOrigins(deps, [...facts.arena.origins]);
+  assert.equal(origins.kind, "complete");
+  const producers = [...facts.arena.producers];
+  const bound = [...facts.arena.boundProducers];
+  const projections = [];
+  const effects = projectionEffects(deps, new Map([[0, "field"]]), projections, () => null, () => null, {
+    lexical: caller.tir.lexicalBindings, scopeOf: definition => source.value.descriptions.get(definition)?.generics ?? null,
+  });
+  const apply = () => effects.appliedValue(call, summary, formal.index, formal.path, held, origins.value, bound, producers, () => null);
+  const image = apply();
+  assert.equal(typeof image, "number");
+  assert.equal(apply(), image);
+  assert.equal(projections.length, 1);
+  assert.equal(projections[0].projection.member.decision.primary, correspondence.caller);
+  const row = origins.value.rows[image];
+  assert.equal(row.includesAbsence, false);
+  assert.equal(row.producers.length, 1);
+  const projected = producers[bound[row.producers[0]].producer];
+  assert.deepEqual([projected.kind, projected.index, projected.path], ["parameter", 0, projections[0].id]);
+});
+
 const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
 const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 128, maximumConditionAlternatives: 128,
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
