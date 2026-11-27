@@ -11,6 +11,8 @@ import type { TirApplication, TirArgument, TirSyntaxOccurrence } from "../../ir-
 import { sameInstance } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } from "./contract.js";
 import type { CallError, ReadCallApplication } from "./calls.js";
+import type { ArrayReturn } from "./array-results.js";
+import { arrayReturnSource, isCreatedProducer } from "./array-results.js";
 import { applyScalarCall, bindCallInitialization, callCaptureBindings, callCellIndex, callInstance, isCallError, isLeastCall, scalarArgument } from "./calls.js";
 import { orderedRows, selectedSourceApplication, sourceOccurrences } from "./source.js";
 import { arrayDestination, assignedEntry, selectedCallAt, solveAssigned, statementOperands, terminatorOperands, transferAssigned, unwrittenCause } from "./storage.js";
@@ -138,6 +140,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     hasOptional = true;
   }
   let referenceFormals: Map<number, "field" | "array"> | null = null;
+  let arrayLocals: Set<LocalId> | null = null;
   let objectValues: Set<LocalId> | null = null;
   let inlineRoots: Set<LocalId> | null = null;
   for (const local of mir.locals) {
@@ -193,6 +196,12 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (retained !== null) return retained;
       referenceFormals ??= new Map();
       referenceFormals.set(local.role.index, "array");
+    }
+    if (kind === "array-reference" && local.role.kind !== "parameter") {
+      const retained = chargeResultEntries(account, arrayLocals === null ? 2 : 1);
+      if (retained !== null) return retained;
+      arrayLocals ??= new Set();
+      arrayLocals.add(local.id);
     }
     if (kind === null) return bodyFrontier("BodyAnalysis requires the actual Origins reference/cell producer for this selected local.");
     if (kind === "origin-free-product" && inlinePlaces !== null) {
@@ -495,6 +504,34 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       arrays.set(block, origins);
     }
   }
+  let arrayReturns: Map<BlockId, ArrayReturn> | null = null;
+  if (arrayLocals !== null && solved.value.calls !== null && buildFacts) {
+    for (const [block, selected] of solved.value.calls) {
+      const work = chargeWork(account, 1);
+      if (work !== null) return work;
+      if (isCallError(selected) || isLeastCall(selected)) continue;
+      const call = mir.blocks[block]?.terminator;
+      if (call?.kind !== "call" || call.destination === null) continue;
+      const destination = mir.places[call.destination]?.base;
+      if (destination?.kind !== "local" || !arrayLocals.has(destination.local)) continue;
+      const ready = arrayReturnSource(deps, call, selected);
+      if (ready.kind !== "complete") return ready;
+      if (ready.value === null) continue;
+      const growth = admitRelations(2, 2) ?? chargeResultEntries(account, arrayReturns === null ? 6 : 5);
+      if (growth !== null) return growth;
+      const producer = producerId(producers.length);
+      const bound = boundProducerId(boundProducers.length);
+      producers.push({ id: producer, path: null, kind: "call-result", at: call.tir,
+        callee: { kind: "direct", definition: ready.value.declaration } });
+      boundProducers.push({ id: bound, producer, bindings: tir.lexicalBindings, context: valueContextId(0) });
+      arrayReturns ??= new Map();
+      arrayReturns.set(block, { ...ready.value, producer: bound });
+    }
+  }
+  const nativeArrayProof = arrays === null && arrayReturns === null ? null : chargeResultEntries(account, 1);
+  if (nativeArrayProof !== null) return nativeArrayProof;
+  const nativeArrayFlow = arrays === null && arrayReturns === null ? null
+    : { stages: arrays, returns: arrayReturns };
   const summaryProducerCount = producers.length;
   const summaryBoundCount = boundProducers.length;
   let projectionEffects = referenceFormals === null && (arrays === null || projections === null) ? null
@@ -547,7 +584,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const originsOf = (operand: MirOperand): OriginsId => operandOrigins(input, constantOrigins, currentOrigins, operand, storageSlots, projections);
   const flow = buildFacts && (hasReference || hasOptional || cellLocals.length !== 0) ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
     localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals, solved.value.calls,
-    storageSlots, staticCallees, projections, objectValues, transport, arrays) : null;
+    storageSlots, staticCallees, projections, objectValues, transport, nativeArrayFlow) : null;
   if (flow !== null && flow.kind !== "complete") return flow;
   let causalNeed: CallError | null = null;
   let directFailures: Map<NodeId, UninitializedRead> | null = null;
@@ -863,6 +900,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const work = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
         if (work !== null) return work;
         const producer = summary.arena.producers[bound.producer];
+        if (isCreatedProducer(summary, producer)) continue;
         const capture = producer?.kind === "capture" && producer.path === null && terminator.callee.kind === "body"
           ? callCaptures[producer.index] : undefined;
         if (capture !== undefined) entryBindings.push({ formal: bound.id, actual: originsOf({ kind: "place", place: capture.place }) });
@@ -938,12 +976,13 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         continue;
       }
       const context = valueContextId(contexts.length);
+      const arrayReturn = arrayReturns?.get(block.id) ?? null;
       const environment = callCaptureBindings(deps, terminator, callCaptures, originsOf);
       if (environment.kind !== "complete") return environment;
       contexts.push({ id: context, receiver: null, arguments: arguments_, captures: environment.value });
       const applied = applyScalarCall(deps, input, terminator, point, summary, arena, context, entryBindings, cellBindings,
         (access, parameter) => projectionEffects === null ? bodyFrontier("An applied field access has no verified caller reference producer.")
-          : projectionEffects.call(access, parameter, summary, arena));
+          : projectionEffects.call(access, parameter, summary, arena), arrayReturn);
       if (applied.kind !== "complete") return applied;
       const boundary = transport?.forCall(terminator, summary) ?? noCallBoundary;
       if (typeof boundary !== "function") return boundary;
@@ -956,7 +995,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (captureRetention !== null) return captureRetention;
       let callThrown = empty;
       if (summary.unwinds) {
-        const value = appliedOrigins(deps, values.value, applied.value.thrown, admitUnion, boundary);
+        const value = appliedOrigins(deps, values.value, applied.value.thrown, admitUnion, boundary, null);
         if (typeof value !== "number") return value;
         callThrown = value;
       }
@@ -970,7 +1009,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         if (initialized.kind !== "complete") return initialized;
         unwindAssigned = initialized.value;
         if (flow !== null && cellLocals.length !== 0) {
-          const contents = applyExitContents(deps, terminator, applied.value, cellLocals, "unwind", flow.value.exit[block.id], values.value, admitUnion, null, boundary);
+          const contents = applyExitContents(deps, terminator, applied.value, cellLocals, "unwind", flow.value.exit[block.id], values.value,
+            admitUnion, null, boundary, null);
           if (contents.kind !== "complete") return contents;
           const collected = collectExitContents(deps, contents.value.origins, localOrigins, contents.value.contents,
             cellLocals, unwindContents, values.value, admitUnion);
@@ -983,7 +1023,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const read = chargeWork(account, 1);
         if (read !== null) return read;
         const target = write.target.targets[0];
-        const value = appliedOrigins(deps, values.value, write.value, admitUnion, boundary);
+        const value = appliedOrigins(deps, values.value, write.value, admitUnion, boundary, null);
         if (typeof value !== "number") return value;
         const previous = cellWrites.get(target.cell);
         const joined = previous === undefined ? value : joinOrigins(deps, values.value, previous, value, admitUnion);
@@ -994,7 +1034,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       }
       let callResult = empty;
       if (hasReference || hasOptional || applied.value.result.includesAbsence) {
-        const result = appliedOrigins(deps, values.value, applied.value.result, admitUnion, boundary);
+        const result = appliedOrigins(deps, values.value, applied.value.result, admitUnion, boundary, arrayReturn?.producer ?? null);
         if (typeof result !== "number") return result;
         callResult = result;
       }
@@ -1003,7 +1043,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         if (descriptor !== null) return descriptor;
         const destination = terminator.destination === null ? null : rootSlot(mir, terminator.destination, storageSlots);
         const next = applyExitContents(deps, terminator, applied.value, cellLocals, "return", flow.value.exit[block.id], values.value,
-          admitUnion, destination === null ? null : { local: destination, tracked: false }, boundary);
+          admitUnion, destination === null ? null : { local: destination, tracked: false }, boundary, arrayReturn?.producer ?? null);
         if (next.kind !== "complete") return next;
         currentOrigins = next.value.origins;
       }

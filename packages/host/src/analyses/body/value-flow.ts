@@ -1,7 +1,7 @@
 import type { DataflowResult, DataflowStop, FlowSolution, ForwardProblem } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../dataflow/index.js";
 import { requirePresent } from "../../diag/index.js";
-import type { BlockId, LocalId, OriginsId } from "../../ids/contract.js";
+import type { BlockId, BoundProducerId, LocalId, OriginsId } from "../../ids/contract.js";
 import { originsId } from "../../ids/index.js";
 import type { AppliedSummary, RelationalArena } from "../../ir-facts/contract.js";
 import type { CallCaptureTransport } from "./calls.js";
@@ -19,6 +19,7 @@ import { appliedOrigins, joinOrigins, valueKind } from "./values.js";
 import type { OpenCallTransport, ReadCallBoundary } from "./open-calls.js";
 import { noCallBoundary } from "./open-calls.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
+import type { ArrayReturns } from "./array-results.js";
 
 export interface CurrentValues {
   readonly origins: readonly OriginsId[];
@@ -28,6 +29,11 @@ export interface CurrentValues {
 export type ValueState = CurrentValues | null;
 
 export type ArrayOrigins = ReadonlyMap<BlockId, OriginsId> | null;
+
+export interface NativeArrayValueFlow {
+  readonly stages: ArrayOrigins;
+  readonly returns: ArrayReturns;
+}
 
 function withValues(state: ValueState | undefined, origins: readonly OriginsId[], contents: ReadonlySet<number>): CurrentValues {
   const completion = state?.completion;
@@ -135,7 +141,8 @@ export function mergeContents(deps: BodyRoundDeps, state: ReadonlySet<number>, l
 export function applyExitContents(deps: BodyRoundDeps,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, application: AppliedSummary, cellSlots: readonly number[],
   kind: "return" | "unwind", state: ValueState | undefined, values: ValueOrigins, admit: AdmitOrigins,
-  destination: { readonly local: number; readonly tracked: boolean } | null, readBoundary: ReadCallBoundary): DataflowResult<CurrentValues> {
+  destination: { readonly local: number; readonly tracked: boolean } | null, readBoundary: ReadCallBoundary,
+  createdReturn: BoundProducerId | null): DataflowResult<CurrentValues> {
   const setup = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 2);
   if (setup !== null) return setup;
   const origins = requirePresent(state?.origins, { owner: "analyses/body", query: null, origin: operation.origin,
@@ -166,7 +173,7 @@ export function applyExitContents(deps: BodyRoundDeps,
       message: "An applied finite content retains its actual value." });
     const local = requirePresent(cellSlots[row.target.targets[0].cell], { owner: "analyses/body", query: null, origin: operation.origin,
       message: "An applied finite content retains its actual caller slot." });
-    const value = appliedOrigins(deps, values, row.value, admit, readBoundary);
+    const value = appliedOrigins(deps, values, row.value, admit, readBoundary, null);
     if (typeof value !== "number") return value;
     const stored = store(local, value);
     if (stored !== null) return stored;
@@ -175,7 +182,7 @@ export function applyExitContents(deps: BodyRoundDeps,
     locals.push(local);
   }
   if (destination !== null) {
-    const value = appliedOrigins(deps, values, kind === "return" ? application.result : application.thrown, admit, readBoundary);
+    const value = appliedOrigins(deps, values, kind === "return" ? application.result : application.thrown, admit, readBoundary, createdReturn);
     if (typeof value !== "number") return value;
     const stored = store(destination.local, value);
     if (stored !== null) return stored;
@@ -296,7 +303,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: CurrentValues,
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  transport: OpenCallTransport | null, arrays: ArrayOrigins,
+  transport: OpenCallTransport | null, arrays: NativeArrayValueFlow | null,
   slots: StorageSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldProjections | null = null,
   objectValues: ReadonlySet<LocalId> | null = null): ForwardProblem<ValueState> {
   return {
@@ -340,7 +347,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
     },
     statement: (statement, state) => {
       if (state === null) return state;
-      const next = transferValue(deps, input, constants, initial, state.origins, statement, arrays, slots, fields);
+      const next = transferValue(deps, input, constants, initial, state.origins, statement, arrays?.stages ?? null, slots, fields);
       if (next.kind !== "complete") return state;
       const admission = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
       if (admission !== null) return state;
@@ -423,9 +430,10 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         const unwind = selected.unwinds && (terminator.unwind.kind === "handler" || terminator.unwind.kind === "carry") ? terminator.unwind : null;
         if (!selected.returns && unwind === null) return outgoing;
         const destination = terminator.destination === null ? null : rootSlot(input.mir, terminator.destination, slots);
+        const arrayReturn = arrays?.returns?.get(block) ?? null;
         const result = callValueEffects(deps, input, terminator, { block, statement: null }, selected,
           arena, state.origins, constants, terminator.callee.kind !== "body" ? [] : requirePresent(captures.get(block), { owner: "analyses/body", query: null,
-            origin: terminator.origin, message: "A selected body call retains its actual slot-location inventory." }), staticCallees, objectValues);
+            origin: terminator.origin, message: "A selected body call retains its actual slot-location inventory." }), staticCallees, objectValues, arrayReturn);
         if (result.kind !== "complete") return outgoing;
         if (result.value.kind === "applied") {
           const returned = selected.returns && destination !== null ? chargeResultEntries(account, 1) : null;
@@ -434,7 +442,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
           if (typeof boundary !== "function") return outgoing;
           if (selected.returns) {
             const applied = applyExitContents(deps, terminator, result.value.value, cellSlots, "return", state, values, admit,
-              destination === null ? null : { local: destination, tracked: tracked.has(destination) }, boundary);
+              destination === null ? null : { local: destination, tracked: tracked.has(destination) }, boundary, arrayReturn?.producer ?? null);
             if (applied.kind !== "complete" || !edge(terminator.next, applied.value)) return outgoing;
           }
           if (unwind !== null) {
@@ -443,10 +451,10 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
             if (descriptor !== null) return outgoing;
             const exception = place === null ? null : rootSlot(input.mir, place, slots);
             const applied = applyExitContents(deps, terminator, result.value.value, cellSlots, "unwind", state, values, admit,
-              exception === null ? null : { local: exception, tracked: tracked.has(exception) }, boundary);
+              exception === null ? null : { local: exception, tracked: tracked.has(exception) }, boundary, null);
             if (applied.kind !== "complete") return outgoing;
             if (unwind.kind === "carry") {
-              const origins = appliedOrigins(deps, values, result.value.value.thrown, admit, boundary);
+              const origins = appliedOrigins(deps, values, result.value.value.thrown, admit, boundary, null);
               if (typeof origins === "number") carry(unwind.target, origins, applied.value);
             } else edge(unwind.target, applied.value);
           }
@@ -488,7 +496,7 @@ export function solveValueOrigins(deps: BodyRoundDeps, input: BodyRoundInput, ar
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
   slots: StorageSlots, staticCallees: StaticCalleeCells | null, fields: HeldProjections | null, objectValues: ReadonlySet<LocalId> | null,
-  transport: OpenCallTransport | null, arrays: ArrayOrigins): DataflowResult<FlowSolution<ValueState>> {
+  transport: OpenCallTransport | null, arrays: NativeArrayValueFlow | null): DataflowResult<FlowSolution<ValueState>> {
   const work = chargeWork(deps.account, 1 + cells.length) ?? chargeResultEntries(deps.account, 4 + cells.length);
   if (work !== null) return work;
   const tracked = new Set(cells);

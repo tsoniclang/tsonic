@@ -88,6 +88,105 @@ export async function checkNativeArrayFacts() {
   assert.equal(summary.unwinds, true);
 }
 
+export async function checkPlacedArrayReturn() {
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const input = await selectedArrayInput(await loadFrontFixture(), `
+    function pair(): [Native, Native] { return [1, 2]; }
+    export function s1(record: { a: Native; b?: Native }, xs: Native[]): Native {
+      const [p, q] = pair();
+      const { a, b = 3 } = record;
+      const all = [0, ...xs, p];
+      return a + b + p + q + all.length;
+    }
+  `);
+  const before = input.snapshot.nativeFacts;
+  const nativeFacts = { ...before, integerOverflow: [
+    { carrier: "int32", operation: "add", result: "int32", law: "wrap" }, ...before.integerOverflow,
+  ] };
+  const answer = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts } });
+  assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
+  const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const selected = chapter.bodies.filter(row => row.kind === "selected");
+  const initializer = selected.find(row => row.tir.root.kind === "ArrayLiteralExpression" && row.tir.root.elements.nodes.length === 3);
+  assert.ok(initializer);
+  const stage = initializer.mir.blocks.find(block => block.terminator.kind === "array-start");
+  assert.ok(stage);
+  const inside = initializer.facts.flatMap(row => row.arena.producers).filter(row => row.kind === "allocation");
+  assert.equal(inside.length, 1);
+  assert.deepEqual(inside[0].at.node.value, stage.terminator.tir);
+  const application = selected.flatMap(row => row.mir.blocks.map(block => ({ row, block }))).find(({ block }) =>
+    block.terminator.kind === "call" && block.terminator.callee.kind === "body"
+    && block.terminator.callee.instance.body === initializer.tir.body);
+  assert.ok(application);
+  const [caller] = application.row.facts;
+  assert.equal(caller.arena.producers.some(row => row.kind === "allocation"), false);
+  const returned = caller.arena.producers.find(row => row.kind === "call-result" && row.at.node === application.block.terminator.tir.node);
+  assert.ok(returned);
+  assert.deepEqual(returned.at, application.block.terminator.tir);
+  assert.deepEqual(returned.callee, { kind: "direct", definition: initializer.tir.owner });
+  const bound = caller.arena.boundProducers.find(row => row.producer === returned.id);
+  const store = caller.origins.writes.find(row => row.point.block === application.block.id && row.point.statement === null);
+  assert.ok(store);
+  assert.deepEqual(caller.arena.origins[store.values[0].origins].producers, [bound.id]);
+}
+
+export async function checkNativeArrayAlternatives() {
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { arrayReturnSource } = await import("../../../packages/host/dist/analyses/body/array-results.js");
+  const { accountFailure, createAccount } = await import("../../../packages/host/dist/dataflow/index.js");
+  const input = await selectedArrayInput(await loadFrontFixture(), `
+    function make(xs: Native[], value: Native, borrow: boolean): Native[] {
+      if (borrow) return xs;
+      const fresh: Native[] = [...xs, value];
+      return fresh;
+    }
+    export function mixed(xs: Native[], value: Native, borrow: boolean): Native {
+      const result = make(xs, value, borrow);
+      return result.length;
+    }
+  `);
+  const answer = analyzeHostProgram(input);
+  assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
+  const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const selected = chapter.bodies.filter(row => row.kind === "selected");
+  const initializer = selected.find(row => row.tir.root.kind === "CallExpression");
+  assert.ok(initializer);
+  const call = initializer.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+  const signature = call.callee.resolution.decision.api.declaration;
+  const chosen = selected.find(row => row.tir.owner === signature);
+  assert.ok(chosen);
+  const summary = answer.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === chosen.tir.body);
+  const [facts] = initializer.facts;
+  const outcome = answer.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === initializer.tir.body);
+  const result = outcome.arena.origins[outcome.result];
+  assert.equal(result.producers.length, 2);
+  const kinds = result.producers.map(bound => {
+    const producer = facts.arena.producers[facts.arena.boundProducers[bound].producer];
+    return producer.kind;
+  });
+  assert.deepEqual(kinds, ["capture", "call-result"]);
+  assert.equal(result.includesAbsence, false);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let exact = null;
+    for (let cap = 0; cap < 1000; cap += 1) {
+      const account = createAccount({ ...input.limits.dataflow, [dimension]: cap });
+      const result = arrayReturnSource({ account }, call, summary);
+      if (result.kind !== "complete") {
+        assert.equal(result === accountFailure(account), true);
+        continue;
+      }
+      assert.equal(result.value.summary === summary, true);
+      assert.equal(result.value.declaration, signature);
+      const [created] = result.value.origins;
+      assert.equal(result.value.origins.size, 1);
+      assert.equal(summary.arena.producers[summary.arena.boundProducers[created].producer].kind, "call-result");
+      exact = cap;
+      break;
+    }
+    assert.ok(exact > 0);
+  }
+}
+
 export async function checkNativeArrayLowering() {
   const { ranged, plain, empty, lower, verify } = await nativeArrayInitialization();
   for (const tir of [ranged, plain, empty]) {

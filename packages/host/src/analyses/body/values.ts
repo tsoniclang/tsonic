@@ -186,17 +186,27 @@ export function joinOrigins(deps: BodyRoundDeps, values: ValueOrigins, left: Ori
 }
 
 export function appliedOrigins(deps: BodyRoundDeps, values: ValueOrigins, value: AppliedOriginsValue,
-  admit: AdmitOrigins, readBoundary: ReadCallBoundary): OriginsId | DataflowStop {
+  admit: AdmitOrigins, readBoundary: ReadCallBoundary, createdReturn: BoundProducerId | null): OriginsId | DataflowStop {
   const read = chargeWork(deps.account, 1);
   if (read !== null) return read;
-  if (value.callee.length !== 0)
+  const created = value.callee.length === 0 ? null : createdReturn;
+  if (value.callee.length !== 0 && created === null)
     return bodyFrontier("BodyAnalysis requires the actual created or open call-result Origins producer.");
   const alternatives = admit(value.caller.length, false);
   if (alternatives !== null) return alternatives;
   const growth = chargeWork(deps.account, value.caller.length) ?? chargeResultEntries(deps.account, value.caller.length);
   if (growth !== null) return growth;
   const producers: BoundProducerId[] = [];
-  for (const reference of value.caller) producers.push(reference.producer);
+  let includesCreated = false;
+  for (const reference of value.caller) {
+    producers.push(reference.producer);
+    includesCreated ||= reference.producer === created;
+  }
+  if (created !== null && !includesCreated) {
+    const retained = admit(producers.length + 1, false) ?? chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
+    if (retained !== null) return retained;
+    producers.push(created);
+  }
   const sorted = orderedRows(producers, (left, right) => left - right, deps.account);
   if (sorted.kind !== "complete") return sorted;
   if (value.boundaries.length === 0) return internValue(deps, values, sorted.value, value.includesAbsence, noBoundaries, admit);

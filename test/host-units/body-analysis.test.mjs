@@ -17,16 +17,18 @@ import { accountFailure, createAccount, refuseAccount, remainingWork } from "../
 import { verifyFacts, verifySummary, printFacts, parseFacts, printSummary, parseSummary, escapeTargetKey, countedLoopsOf } from "../../packages/host/dist/ir-facts/index.js";
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { checkRepeatedStaticInitialization } from "./fixtures/program-static-exposure.mjs";
-import { checkNativeArrayFacts } from "./fixtures/native-array-initialization.mjs";
+import { checkNativeArrayAlternatives, checkNativeArrayFacts, checkPlacedArrayReturn } from "./fixtures/native-array-initialization.mjs";
 
 test("staged native array facts publish one completed backing and the actual unwind", checkNativeArrayFacts);
+test("S-1: a placed native array initializer returns its backing without a new caller allocation", checkPlacedArrayReturn);
+test("a native array result preserves independent borrowed and created producer alternatives", checkNativeArrayAlternatives);
 
 const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
 const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 128, maximumConditionAlternatives: 128,
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "open-calls", "values", "value-flow", "places", "projection-effects", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "open-calls", "values", "value-flow", "places", "projection-effects", "static-calls", "captures", "initialization", "writes", "exits", "array-results"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -95,7 +97,7 @@ before(async () => {
   ({ noCallBoundary } = await import("../../packages/host/dist/analyses/body/open-calls.js"));
   const originValues = await import("../../packages/host/dist/analyses/body/values.js");
   ({ joinOrigins, valueOrigins } = originValues);
-  appliedOrigins = (deps, values, value, admit) => originValues.appliedOrigins(deps, values, value, admit, noCallBoundary);
+  appliedOrigins = (deps, values, value, admit) => originValues.appliedOrigins(deps, values, value, admit, noCallBoundary, null);
   ({ valueProblem, transferValue, collectExitContents, removeUnchangedContents } = await import("../../packages/host/dist/analyses/body/value-flow.js"));
   ({ prepareCallCaptures } = await import("../../packages/host/dist/analyses/body/captures.js"));
   ({ cellMustAtExit, callExitAssigned, sourceNeedAssigned, callSlotAt, recordUninitializedRead } =
@@ -1603,7 +1605,7 @@ test("an omitted reference formal is initialized by its real body, with no ficti
     ...result.summary.arena.boundProducers, { id: 1, producer: 1, context: 0, bindings: EMPTY_BINDINGS },
   ] } };
   const state = current.input.mir.locals.map(() => supplied.origins);
-  assert.throws(() => callValueEffects(deps, current.input, operation, invocation.point, invented, pair.facts.arena, state, [], [], null, null),
+  assert.throws(() => callValueEffects(deps, current.input, operation, invocation.point, invented, pair.facts.arena, state, [], [], null, null, null),
     /actual provided argument/);
 });
 
@@ -1684,7 +1686,7 @@ test("call identity, selected storage and missing effect relations are checked b
   const arena = analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input).value.value.facts.arena;
   const apply = (answer, overrides = {}) => applyScalarCall({ ...current.deps, account: createAccount(limits), ...overrides },
     current.input, operation, point, answer, arena, 1, [], [],
-    () => assert.fail("These scalar argument fixtures have no selected parameter field read."));
+    () => assert.fail("These scalar argument fixtures have no selected parameter field read."), null);
   assert.throws(() => apply({ ...summary, arena: { ...summary.arena, cells: [{}] } }), /actual caller-cell bindings/);
   const absent = { ...summary.arena.origins[0], id: 1, includesAbsence: true };
   const absentArena = { ...summary.arena, origins: [...summary.arena.origins, absent] };
@@ -4798,7 +4800,7 @@ test("unsupported projections, parameter writes and external retention remain ex
     const deps = { ...current.deps, account: createAccount(limits) };
     const fields = projectionEffects(deps, new Map(), [], () => assert.fail("An unsupported read must not retain a projection."));
     return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
-      (access, parameter) => fields.call(access, parameter, value, arena));
+      (access, parameter) => fields.call(access, parameter, value, arena), null);
   };
   for (const field of ["reads", "writes"]) assert.throws(() => apply({ ...summary,
     arena: { ...summary.arena, projections: [{ id: 0, parent: null, projection: { kind: "element" } }] },
@@ -4875,7 +4877,7 @@ test("one held field joins its independently selected arms at paid cuts without 
 test("selected reference-call helpers keep genuine unsupported inputs explicit and stop before reader payloads", () => {
   const { current, pair, operation, point, summary, state, initial } = referenceRound("body-round.reference-boundaries");
   const invoke = (changed = operation, answer = summary, overrides = {}) => callValueEffects({ ...current.deps,
-    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [], [], null, null);
+    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [], [], null, null, null);
   assert.throws(() => invoke({ ...operation, callee: { kind: "body", instance: current.execution.instance, captures: [] } }),
     /non-formal reference binding/);
   assert.throws(() => invoke({ ...operation, arguments: [{ kind: "place", place: 0 }] }), /actual operand/);
@@ -5018,7 +5020,7 @@ test("Origins rows are interned by complete payload within their actual arena, n
   const actual = indexedOrigins(current, [...rows]);
   const count = actual.rows.length;
   const repeated = callValueEffects({ ...current.deps, account: createAccount(limits) }, current.input, operation,
-    point, summary, pair.facts.arena, state, [], [], null, null);
+    point, summary, pair.facts.arena, state, [], [], null, null, null);
   assert.equal(repeated.kind, "complete");
   assert.equal(repeated.value.kind, "applied");
   const result = appliedOrigins({ ...current.deps, account: createAccount(limits) }, actual, repeated.value.value.result, (_count, retain) => {

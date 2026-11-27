@@ -541,7 +541,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "verify-bound.ts", "provider-catalogue.ts"].map(name => `${host}/libraries/${name}`),
     ...["index.ts", "bind-declared.ts", "declared-work.ts", "translate-native.ts", "unknown-declared.ts", "components.ts", "dependencies.ts", "converge.ts"].map(name => `${host}/summaries/${name}`),
     ...["index.ts", "round.ts", "storage.ts", "source.ts", "proof.ts", "calls.ts", "captures.ts", "exits.ts",
-      "initialization.ts", "open-calls.ts", "places.ts", "projection-effects.ts", "static-calls.ts", "value-flow.ts", "values.ts", "writes.ts"].map(name => `${host}/analyses/body/${name}`),
+      "array-results.ts", "initialization.ts", "open-calls.ts", "places.ts", "projection-effects.ts", "static-calls.ts", "value-flow.ts", "values.ts", "writes.ts"].map(name => `${host}/analyses/body/${name}`),
     ...["index.ts", "model.ts", "storage-use.ts"].map(name => `${host}/analyses/liveness/${name}`),
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
     ...["index.ts"].map(name => `${host}/step/${name}`),

@@ -15,6 +15,8 @@ import { valueKind } from "./values.js";
 import { readLocal } from "./places.js";
 import { callWrites, primitiveExitLocals } from "./writes.js";
 import type { StaticCalleeCells } from "./static-calls.js";
+import type { ArrayReturn } from "./array-results.js";
+import { admitArrayReturn, isCreatedProducer } from "./array-results.js";
 
 export type CallCaptureTransport = { readonly place: PlaceId } & (
   | { readonly kind: "value" }
@@ -274,12 +276,14 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint,
   summary: Summary, arena: RelationalArena, context: ValueContextId,
   entries: readonly ValueEntryBinding[], cells: SummaryApplicationInput["cells"],
-  onParameterEffect: (access: "read" | "write", parameter: AppliedSummary["parameters"][number]) => DataflowStop | null): DataflowResult<AppliedSummary> {
+  onParameterEffect: (access: "read" | "write", parameter: AppliedSummary["parameters"][number]) => DataflowStop | null,
+  arrayReturn: ArrayReturn | null): DataflowResult<AppliedSummary> {
   const admission = chargeWork(deps.account, 2) ?? chargeResultEntries(deps.account, 24);
   if (admission !== null) return admission;
   if (summary.arena.cells.length !== cells.length)
     return frontier(operation, "BodyAnalysis requires the actual caller-cell bindings of this selected callee.");
-  const applied = applySummary({ summary, callee: summary.key, at: { execution: input.execution, point }, context,
+  const at = { execution: input.execution, point };
+  const applied = applySummary({ summary, callee: summary.key, at, context,
     caller: arena, entries, cells, events: [], eventBindings: [] }, {
     account: deps.account, maximumOriginAlternatives: deps.limits.maximumOriginAlternatives,
     maximumConditionAlternatives: deps.limits.maximumConditionAlternatives,
@@ -290,8 +294,13 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   const value = applied.value;
   const inspection = chargeWork(deps.account, 16);
   if (inspection !== null) return inspection;
-  if (value.result.callee.length !== 0 || value.thrown.callee.length !== 0)
+  if ((value.result.callee.length !== 0 && arrayReturn === null) || value.thrown.callee.length !== 0)
     return frontier(operation, "BodyAnalysis requires the actual Origins result and thrown-value binding of this call.");
+  if (arrayReturn !== null) for (const created of value.result.callee) {
+    const accepted = admitArrayReturn(deps, arrayReturn, summary, created, at, context);
+    if (typeof accepted !== "boolean") return accepted;
+    if (!accepted) return frontier(operation, "A native array result must retain its actual completed caller application.");
+  }
   const effects = value.events.length + value.concurrentWrites.length
     + value.callbacks.length + value.resultCells.length + value.backing.length;
   if (effects !== 0)
@@ -306,6 +315,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
     const bound = requirePresent(summary.arena.boundProducers[index], { owner: "analyses/body", query: null, origin: operation.origin,
       message: "Canonical application retains every actual source bound subject." });
     const producer = summary.arena.producers[bound.producer];
+    if (isCreatedProducer(summary, producer) && value.subjects[index]?.kind === "callee") continue;
     if (producer === undefined || producer.path !== null || producer.kind !== "capture" && producer.kind !== "parameter"
       || value.subjects[index]?.kind !== "caller")
       return frontier(operation, "BodyAnalysis requires the actual caller cell, event, callback or backing producer for these applied effects.");
@@ -327,6 +337,11 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const retained of value.retention) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
+    if (retained.into.kind === "return" && arrayReturn !== null && retained.value.kind === "callee") {
+      const accepted = admitArrayReturn(deps, arrayReturn, summary, retained.value.value, at, context);
+      if (typeof accepted !== "boolean") return accepted;
+      if (accepted) continue;
+    }
     if (retained.into.kind !== "return" && retained.into.kind !== "throw" && retained.into.kind !== "external"
       && (retained.into.kind !== "capture" || retained.into.path !== null || operation.callee.kind !== "body")
       || retained.value.kind !== "caller")
@@ -389,7 +404,8 @@ export function callCaptureBindings(deps: BodyRoundDeps, operation: Extract<MirT
 export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: Summary,
   arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[],
-  captures: readonly CallCaptureTransport[], statics: StaticCalleeCells | null, objectValues: ReadonlySet<LocalId> | null): DataflowResult<CallValueEffects> {
+  captures: readonly CallCaptureTransport[], statics: StaticCalleeCells | null, objectValues: ReadonlySet<LocalId> | null,
+  arrayReturn: ArrayReturn | null): DataflowResult<CallValueEffects> {
   let usePrimitiveContents = true;
   if (operation.destination !== null) {
     const read = chargeWork(deps.account, 1);
@@ -444,6 +460,7 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     const work = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
     if (work !== null) return work;
     const producer = summary.arena.producers[bound.producer];
+    if (isCreatedProducer(summary, producer)) continue;
     const captured = producer?.kind === "capture" && producer.path === null && operation.callee.kind === "body"
       ? captures[producer.index] : undefined;
     if (captured !== undefined) {
@@ -469,7 +486,7 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     owner: "analyses/body", query: null, origin: operation.origin, message: "A copied capture retains its value at invocation." }));
   if (environment.kind !== "complete") return environment;
   const caller = { ...arena, contexts: [...arena.contexts, { id: context, receiver: null, arguments: arguments_, captures: environment.value }] };
-  const applied = applyScalarCall(deps, input, operation, point, summary, caller, context, entries, cells, () => null);
+  const applied = applyScalarCall(deps, input, operation, point, summary, caller, context, entries, cells, () => null, arrayReturn);
   if (applied.kind !== "complete") return applied;
   const output = chargeResultEntries(deps.account, 1);
   if (output !== null) return output;
