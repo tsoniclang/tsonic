@@ -4,7 +4,7 @@ import { checkedLayoutRoleOf, compoundAssignmentOperatorOf, prefixOperatorOf, sh
 import type { Origin } from "../ids/contract.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BindingScope, BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
-import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeCarrierOf, readLexicalTypeSupport } from "../ir-types/index.js";
+import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeAbsenceComparisonOf, nativeCarrierOf, readLexicalTypeSupport } from "../ir-types/index.js";
 import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirReadyReadAdmission, TirRule, TirTypedSyntax, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
 import { enterTirInline, roleSyntaxReference, tirPathText } from "./text-layouts.js";
@@ -577,6 +577,19 @@ export const verifyOccurrenceOperation = (node: TirNode, table: TypeTable, emit:
   if (decision.operation.kind === "array-extent"
     && (node.kind !== "PropertyAccessExpression" || node.tsonic.role !== "array-extent"))
     emit("operation-type", node, "an array extent may only select its actual checked property read");
+  if (decision.operation.kind === "absence-test" && node.kind === "BinaryExpression") {
+    const operator = node.operatorToken.kind;
+    const left = decision.operands[0];
+    const right = decision.operands[1];
+    const result = table.terms[decision.result];
+    if (node.tsonic.role !== "comparison" || decision.execution.kind !== "pure"
+      || (operator !== "EqualsEqualsToken" && operator !== "EqualsEqualsEqualsToken"
+        && operator !== "ExclamationEqualsToken" && operator !== "ExclamationEqualsEqualsToken")
+      || decision.operation.negated !== (operator === "ExclamationEqualsToken" || operator === "ExclamationEqualsEqualsToken")
+      || left === undefined || right === undefined || result?.kind !== "primitive" || result.primitive !== "bool"
+      || nativeAbsenceComparisonOf(table.terms[left], table.terms[right], type => table.terms[type] ?? null) !== "native-absence")
+      emit("operation-type", node, "a binary absence test must preserve its authored equality and its actual native presence endpoints");
+  }
   if (node.kind === "VoidExpression") {
     const result = table.terms[decision.result];
     if (decision.operation.kind !== "discard" || decision.execution.kind !== "pure"

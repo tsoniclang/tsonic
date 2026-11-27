@@ -18,7 +18,8 @@ import { admitTypePublicationStep as publicationStep, createTypePublicationWork 
 import { verifyBindings as verifyBindingVectors } from "./verify-bindings.js";
 import type { LiteralTypeValuesEqual, VerifyBindings } from "./contract.js";
 import { nativeFactsKey as nativeKey, nativeArrayExtentOf as arrayExtent, nativeArrayHoldingOf as arrayHolding, isNativeBinaryFloatPrimitive as binaryFloatPrimitive, isNativeIntegerPrimitive as integerPrimitive, isNativeSignedIntegerPrimitive as signedIntegerPrimitive, nativeIntegerGeometryOf as integerGeometry, floatingBitsFit as floatingFit, floatingFormatWidth as floatingWidth, platformDeclarationKey as platformKey, verifyNativeFacts as verifyNative } from "./native-facts.js";
-import { literalTypeValuesEqual as equalLiterals, nativeCarrierOf as carrier, optionalValueDomainOf as optionalValueDomain } from "./native-carrier.js";
+import type { NativeAbsenceComparisonOf } from "./contract.js";
+import { literalTypeValuesEqual as equalLiterals, nativeAbsenceComparisonOf as absenceComparison, nativeCarrierOf as carrier, optionalValueDomainOf as optionalValueDomain } from "./native-carrier.js";
 import { exactFloat64LiteralFit as exactFloat64, literalCompatibilityOf as literalCompatibility } from "./literal-compatibility.js";
 import { selectorPathKey, typeProductionRequestData as projectTypeProductionRequest } from "./selector-path.js";
 import { compareMemberKeys as compareMembers } from "./canonical.js";
@@ -44,6 +45,7 @@ export const floatingBitsFit: FloatingBitsFit = floatingFit;
 export const floatingFormatWidth: FloatingFormatWidth = floatingWidth;
 export const nativeCarrierOf: NativeCarrierOf = carrier;
 export const optionalValueDomainOf: OptionalValueDomainOf = optionalValueDomain;
+export const nativeAbsenceComparisonOf: NativeAbsenceComparisonOf = absenceComparison;
 export const literalCompatibilityOf: LiteralCompatibilityOf = literalCompatibility;
 export const exactFloat64LiteralFit: ExactFloat64LiteralFit = exactFloat64;
 export const nativeIntegerGeometryOf: NativeIntegerGeometryOf = integerGeometry;

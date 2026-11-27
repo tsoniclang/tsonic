@@ -4,7 +4,7 @@ import { localId, placeId } from "../ids/index.js";
 import type { Expression } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ExactRational, LiteralValue, TypeTerm } from "../ir-types/contract.js";
-import { literalCompatibilityOf, nativeArrayExtentOf, nativeArrayHoldingOf } from "../ir-types/index.js";
+import { literalCompatibilityOf, nativeAbsenceComparisonOf, nativeArrayExtentOf, nativeArrayHoldingOf } from "../ir-types/index.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { admitWork, chargeWork, densePosition, edgePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
 import type { ControlEdge, ControlFlow, SourceNode, WorkMeter } from "./verify-control.js";
@@ -624,6 +624,17 @@ export function verifyValues(
     }
     if (!reference(decision.result, site)) return null;
     const identity = decision.operation;
+    if (identity.kind === "absence-test" && value.kind === "binary") {
+      if (!admitWork(meter, 1)) return null;
+      const left = decision.operands[0];
+      const right = decision.operands[1];
+      const result = term(decision.result);
+      const comparison = nativeAbsenceComparisonOf(left === undefined ? undefined : term(left) ?? undefined,
+        right === undefined ? undefined : term(right) ?? undefined, term);
+      if (meter.exhausted) return null;
+      if (comparison !== "native-absence" || decision.execution.kind !== "pure" || result?.kind !== "primitive" || result.primitive !== "bool")
+        report("operation-selected", site);
+    }
     if (identity.kind === "array-extent") {
       if (!admitWork(meter, 1)) return null;
       const receiver = decision.operands[0];

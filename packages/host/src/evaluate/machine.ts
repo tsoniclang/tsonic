@@ -442,7 +442,13 @@ function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply
   if (machine.deps.limits.maximumIntermediateBits < 1) { limit(machine, "maximumIntermediateBits", site.origin); return; }
   if (!arithmetic(machine, current(machine).values.length, site.origin)) return;
   let value: boolean;
-  if (operation.kind === "absence-test") value = operation.negated ? first.kind !== "absence" : first.kind === "absence";
+  if (operation.kind === "absence-test") {
+    const compared = current(machine).values[1];
+    if (current(machine).values.length > 2 || compared !== undefined && first.kind !== "absence" && compared.kind !== "absence")
+      return fail("A selected presence comparison requires its actual native absence operand.", site.origin);
+    const absent = first.kind === "absence" && (compared === undefined || compared.kind === "absence");
+    value = operation.negated ? !absent : absent;
+  }
   else {
     if (first.kind !== "boolean") return fail("A selected boolean operation must receive its verified boolean value.", site.origin);
     if (nativeBoolean && (!nativeBooleanCarrier(machine, selected.decision.result, site) || !nativeBooleanCarrier(machine, first.type, site))) return;

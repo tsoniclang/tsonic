@@ -2,7 +2,7 @@ import type { NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { HirBinaryOperator, HirUnaryOperator } from "../ir-hir/contract.js";
 import type { OperationDecision } from "../ir-infer/contract.js";
 import type { NativeIntegerOperation, NativePrimitive, TypeEvidence } from "../ir-types/contract.js";
-import { internType, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, isNativeSignedIntegerPrimitive, nativeCarrierOf, readType, viewTypes } from "../ir-types/index.js";
+import { internType, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, isNativeSignedIntegerPrimitive, nativeAbsenceComparisonOf, nativeCarrierOf, readType, viewTypes } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { at, callerDefect, notDecidedYet, termName } from "./frontier.js";
 
@@ -70,6 +70,10 @@ export function decideOperator(deps: RulesDeps, operator: HirUnaryOperator | Hir
   if (terms.length !== 2 || !form.binary || left === undefined || right === undefined || carrier === undefined)
     return callerDefect(`the operator ${operator} with ${terms.length} operands at ${at(occurrence)}`, origin);
   const equality = operator === "==" || operator === "===" || operator === "!=" || operator === "!==";
+  if (equality && nativeAbsenceComparisonOf(carrier, terms[1], type => readType(deps.types, type)) === "native-absence") {
+    return { kind: "selected", operation: { kind: "absence-test", negated: operator === "!=" || operator === "!==" },
+      operands: [left.type, right.type], result: internType(deps.types, { kind: "primitive", primitive: "bool" }), execution: { kind: "pure" } };
+  }
   if (equality || operator === "<" || operator === ">" || operator === "<=" || operator === ">=") {
     const table = viewTypes(deps.types);
     const leftCarrier = nativeCarrierOf(table, left.type, type => table.terms[type]);

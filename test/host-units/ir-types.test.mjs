@@ -380,6 +380,30 @@ test("member-key comparison agrees with canonical shape order, including encoded
   });
   assert.deepEqual(readType(arena, shape).members.map(member => member.key), expected);
 });
+test("native presence comparison borrows only the actual optional payload", async () => {
+  const { nativeAbsenceComparisonOf } = await import("../../packages/host/dist/ir-types/index.js");
+  const arena = createTypeInterner();
+  const boolean = { kind: "primitive", primitive: "bool" };
+  const payload = insertFixtureType(product, arena, boolean);
+  const optional = { kind: "optional", value: payload };
+  const absence = { kind: "intrinsic", intrinsic: "absence" };
+  const unread = () => assert.fail("no optional payload is needed");
+  assert.equal(nativeAbsenceComparisonOf(absence, absence, unread), "native-absence");
+  assert.equal(nativeAbsenceComparisonOf(undefined, absence, unread), "unavailable");
+  assert.equal(nativeAbsenceComparisonOf(optional, optional, unread), "unavailable");
+  assert.equal(nativeAbsenceComparisonOf(absence, boolean, unread), "unavailable");
+  for (const [left, right] of [[absence, optional], [optional, absence]]) {
+    assert.equal(nativeAbsenceComparisonOf(left, right, type => {
+      assert.equal(type, payload);
+      return readType(arena, type);
+    }), "native-absence");
+    assert.equal(nativeAbsenceComparisonOf(left, right, type => {
+      assert.equal(type, payload);
+      return null;
+    }), "resource-stop");
+  }
+});
+
 test("optional domain evidence keeps the selected float64 or string base and complementary Boolean members", async () => {
   const { optionalValueDomainOf } = await import("../../packages/host/dist/ir-types/index.js");
   const arena = createTypeInterner();

@@ -1,5 +1,5 @@
 import type { TyId } from "../ids/contract.js";
-import type { LiteralCompatibilityReader, LiteralTypeValuesEqual, NativeCarrierOf, OptionalValueDomainOf } from "./contract.js";
+import type { LiteralCompatibilityReader, LiteralTypeValuesEqual, NativeAbsenceComparisonOf, NativeCarrierOf, OptionalValueDomainOf } from "./contract.js";
 import type { CategoryEvidence, LiteralTypeValue, TypeTable, TypeTerm } from "./data.js";
 
 type BaseResult =
@@ -91,4 +91,14 @@ export const optionalValueDomainOf: OptionalValueDomainOf = (term, typeOf) => {
   return base.kind === "primitive" && base.primitive === "bool"
     ? { kind: "optional-value", payload: "boolean", present: left.base, category: booleanOrAbsence }
     : { kind: "not-optional-value" };
+};
+
+export const nativeAbsenceComparisonOf: NativeAbsenceComparisonOf = (left, right, typeOf) => {
+  if (left === undefined || right === undefined) return "unavailable";
+  const leftIsAbsence = left.kind === "intrinsic" && left.intrinsic === "absence";
+  const rightIsAbsence = right.kind === "intrinsic" && right.intrinsic === "absence";
+  if (leftIsAbsence && rightIsAbsence) return "native-absence";
+  if (!leftIsAbsence && !rightIsAbsence) return "unavailable";
+  const domain = optionalValueDomainOf(leftIsAbsence ? right : left, typeOf);
+  return domain.kind === "optional-value" ? "native-absence" : domain.kind === "resource-stop" ? "resource-stop" : "unavailable";
 };

@@ -34,6 +34,8 @@ export type OptionalValueDomain =
   | { readonly kind: "not-optional-value" }
   | { readonly kind: "resource-stop" };
 export type OptionalValueDomainOf = (term: TypeTerm, typeOf: (type: TyId) => TypeTerm | null) => OptionalValueDomain;
+export type NativeAbsenceComparisonOf = (left: TypeTerm | undefined, right: TypeTerm | undefined,
+  typeOf: (type: TyId) => TypeTerm | null) => "native-absence" | "unavailable" | "resource-stop";
 export interface LiteralCompatibilityReader {
   readonly numericRepresentation: "literal-operand" | "preserve-payload";
   readonly typeOf: (type: TyId) => TypeTerm | null | undefined;

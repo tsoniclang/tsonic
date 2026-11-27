@@ -208,6 +208,35 @@ export function shadow(undefined: undefined): undefined { return choose(undefine
   checkLinkedOpposites(inputs, checked.value, hir, supplied.instance, shadow.instance, authored, shadowed);
 });
 
+test("authored equality and inequality select native presence in either operand order", async () => {
+  const fixture = await loadFrontFixture();
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `
+export function present(value: boolean | undefined): boolean { return value !== undefined; }
+export function absent(value: boolean | undefined): boolean { return null === value; }` },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const result = analyzeHostProgram({ snapshot, extensions: fixture.front.createCheckerExtensions([]), limits });
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
+  const bodies = chapter.bodies.filter(row => row.kind === "selected" && row.tir.params.length === 1);
+  assert.equal(bodies.length, 2);
+  const operators = [];
+  for (const body of bodies) {
+    const node = body.tir.root.statements.nodes[0].expression;
+    const inequality = node.operatorToken.kind === "ExclamationEqualsEqualsToken";
+    operators.push(node.operatorToken.kind);
+    const operation = node.tsonic.operation.decision.decision;
+    assert.deepEqual(operation.operation, { kind: "absence-test", negated: inequality });
+    assert.deepEqual(operation.operands, [node.left.tsonic.convertedType, node.right.tsonic.convertedType]);
+    const terms = result.value.index.types.terms;
+    assert.equal(terms[operation.operands[inequality ? 0 : 1]].kind, "optional");
+    assert.equal(terms[operation.operands[inequality ? 1 : 0]].intrinsic, "absence");
+    const instruction = body.mir.blocks.flatMap(block => block.statements)
+      .find(statement => statement.kind === "assign" && statement.tir.node === node.id && statement.value.kind === "binary");
+    assert.deepEqual(instruction.value.operation.decision, operation);
+  }
+  assert.deepEqual(operators.sort(), ["EqualsEqualsEqualsToken", "ExclamationEqualsEqualsToken"]);
+});
+
 test("capture only reads a paid incomplete reference and requires its exact SDK symbol", async () => {
   const fixture = await loadFrontFixture();
   const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": `

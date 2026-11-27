@@ -2192,6 +2192,25 @@ test("every closed boolean relation and absence relation uses its selected law a
   }
 });
 
+test("a binary native presence comparison treats false as present in either operand order", () => {
+  const optionalBool = declareType("evaluate.presence.bool", { kind: "optional", value: T.bool });
+  for (const reversed of [false, true]) for (const negated of [false, true]) {
+    const endpoints = reversed ? [T.absence, optionalBool] : [optionalBool, T.absence];
+    const decision = selected({ kind: "absence-test", negated }, endpoints, T.bool);
+    const value = fixture(`evaluate.presence-${reversed}-${negated}`, T.bool, builder => {
+      const input = builder.id("value", 0, optionalBool);
+      const absent = builder.keyword("NullKeyword", T.absence);
+      return builder.block(builder.returns(builder.comparison(reversed ? absent : input,
+        negated ? "ExclamationEqualsEqualsToken" : "EqualsEqualsEqualsToken", reversed ? input : absent, decision)));
+    }, [["value", "required", optionalBool]]);
+    for (const argument of [{ kind: "boolean", value: false, type: optionalBool }, { kind: "absence", type: optionalBool }]) {
+      const answer = product.evaluate(value.deps, value.entry, value.body, [argument], "compile-time", value.unit);
+      same(answer.value.value, { kind: "value", value: { kind: "boolean", type: T.bool,
+        value: (argument.kind === "absence") !== negated } }, "presence is independent of truthiness and operand order");
+    }
+  }
+});
+
 function requestFixture(name, constant, type = T.bool) {
   const value = fixture(name, type, b => b.block(b.returns(type === T.bool ? b.keyword("TrueKeyword", T.bool) : b.num("1", type))));
   const body = { ...value.body, constants: value.body.constants.map(record => ({ ...record, value: constant })) };
