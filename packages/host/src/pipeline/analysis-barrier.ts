@@ -11,7 +11,7 @@ import type { MirBody } from "../ir-mir/contract.js";
 import type { TirBody } from "../ir-tir/contract.js";
 import { verifyMir } from "../ir-mir/index.js";
 import type { BindingScope, BodyInstance, Execution } from "../ir-types/contract.js";
-import { executionKey, instanceKey, internType, nativeArrayHoldingOf, readSignature, readType, viewTypes } from "../ir-types/index.js";
+import { executionKey, instanceKey, internType, nativeCarrierHoldingOf, readSignature, readType, viewTypes } from "../ir-types/index.js";
 import type { Query } from "../query/contract.js";
 import type { ConvergenceMember, DeclaredSummaryInput } from "../summaries/contract.js";
 import type { ConstantRecord, ProgramInitialization } from "../ir-program/contract.js";
@@ -344,12 +344,12 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
           signatureOf: signature => readSignature(source.types, signature),
           staticModuleBindingsOf: module => moduleExecutions.get(module)?.instance.bindings ?? null,
           staticTypeOf: reference => reference.kind === "item" ? typed.staticStorageOf(reference.value) : null,
-          arrayHoldingOf: (meter, carrier) => {
+          carrierHoldingOf: (meter, carrier) => {
             const setup = chargeWork(meter, 1);
             if (setup !== null) return setup;
             const rows = inputs.snapshot.nativeFacts.carrierHolding;
             const read = chargeWork(meter, rows.length);
-            return read ?? { kind: "complete", value: nativeArrayHoldingOf(rows, carrier) };
+            return read ?? { kind: "complete", value: nativeCarrierHoldingOf(rows, carrier) };
           },
           enumValueOf: staticValues.value.enumValueOf,
           observationOf: (meter, instance, at) => {

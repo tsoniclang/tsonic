@@ -4,7 +4,7 @@ import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/
 import type { DefId, ItemNodeRef, LocalId, NodeId, PlaceId, TyId } from "../../ids/contract.js";
 import { decodeDefId } from "../../ids/index.js";
 import type { LogicalCellRow } from "../../ir-facts/contract.js";
-import type { MirBody, MirOperand } from "../../ir-mir/contract.js";
+import type { MirBody, MirOperand, MirPlace } from "../../ir-mir/contract.js";
 import type { TirNode, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
 import type { ArtifactBindings } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
@@ -14,7 +14,7 @@ export function bodyFrontier(message: string): never {
   return throwInvariant({ owner: "analyses/body", query: null, origin: null, message });
 }
 
-export type StaticSlots = ReadonlyMap<PlaceId, number> | null;
+export type StorageSlots = ReadonlyMap<PlaceId, number> | null;
 
 export interface StaticCells {
   readonly slots: ReadonlyMap<PlaceId, number>;
@@ -22,23 +22,71 @@ export interface StaticCells {
   readonly external: ReadonlySet<PlaceId>;
 }
 
-export function rootSlot(body: MirBody, place: PlaceId, statics: StaticSlots): number {
+export function rootSlot(body: MirBody, place: PlaceId, slots: StorageSlots): number {
   const base = body.places[place]?.base;
   if (base?.kind === "local") return base.local;
   if (base?.kind === "checked" && base.projection.kind === "refined") {
     const parent = body.places[base.place]?.base;
     if (parent?.kind === "local") return parent.local;
   }
-  const slot = base?.kind === "static" ? statics?.get(place) : undefined;
+  const slot = base?.kind === "static" ? slots?.get(place) : undefined;
   if (slot === undefined) return bodyFrontier("A root place requires its actual selected logical-cell binding.");
   return slot;
 }
 
-export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirSyntaxOccurrence>, locationCaptureCount: number):
+export function readSlot(body: MirBody, place: PlaceId, slots: StorageSlots): number {
+  const base = body.places[place]?.base;
+  if (base?.kind === "place" && base.projection.kind === "element") {
+    const root = slots?.get(place);
+    if (root === undefined) return bodyFrontier("A tuple projection requires its actual proven inline parent and local root.");
+    return root;
+  }
+  return rootSlot(body, place, slots);
+}
+
+export function inlineTupleSlots(deps: BodyRoundDeps, input: BodyRoundInput, projections: readonly MirPlace[],
+  roots: ReadonlySet<LocalId>): DataflowResult<Map<PlaceId, number>> {
+  const { account } = deps;
+  const { mir, tir } = input;
+  const start = chargeResultEntries(account, 1);
+  if (start !== null) return start;
+  const slots = new Map<PlaceId, number>();
+  for (let position = 0; position < projections.length; position += 1) {
+    const work = chargeWork(account, 3);
+    if (work !== null) return work;
+    const place = projections[position];
+    const base = place?.base;
+    if (place === undefined || base?.kind !== "place" || base.projection.kind !== "element" || base.tir.body !== tir.body
+      || base.place >= place.id || slots.has(place.id))
+      return bodyFrontier("A tuple projection retains its own occurrence and preceding typed parent.");
+    const parent = mir.places[base.place];
+    const root = parent?.base.kind === "local" && roots.has(parent.base.local) ? parent.base.local : slots.get(base.place);
+    if (parent?.id !== base.place || root === undefined)
+      return bodyFrontier("A tuple projection requires its actual proven inline parent and local root.");
+    const type = deps.typeOf(parent.storage);
+    const stopped = accountFailure(account);
+    if (stopped !== null) return stopped;
+    const index = base.projection.index;
+    if (type.kind !== "tuple" || !Number.isSafeInteger(index) || Object.is(index, -0) || index < 0 || index >= type.elements.length)
+      return bodyFrontier("A tuple projection requires its actual required native slot.");
+    const reached = chargeWork(account, 1);
+    if (reached !== null) return reached;
+    const slot = type.elements[index];
+    if (slot?.kind !== "required" || slot.type !== place.storage)
+      return bodyFrontier("A tuple projection requires its actual required native slot.");
+    const retain = chargeResultEntries(account, 1);
+    if (retain !== null) return retain;
+    slots.set(place.id, root);
+  }
+  return { kind: "complete", value: slots };
+}
+
+export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirSyntaxOccurrence>, locationCaptureCount: number,
+  preparedSlots: Map<PlaceId, number> | null):
   DataflowResult<StaticCells> {
   const { mir, tir } = input;
   const { account } = deps;
-  const start = chargeWork(account, 1) ?? chargeResultEntries(account, 8);
+  const start = chargeWork(account, 1) ?? chargeResultEntries(account, preparedSlots === null ? 8 : 7);
   if (start !== null) return start;
   if (mir.bindings.kind !== "instantiated")
     return bodyFrontier("BodyAnalysis requires the actual selected projection or static-cell producer for this place.");
@@ -129,7 +177,7 @@ export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: 
     return left.declaration.owner < right.declaration.owner ? -1 : 1;
   }, account);
   if (ordered.kind !== "complete") return ordered;
-  const slots = new Map<PlaceId, number>();
+  const slots = preparedSlots ?? new Map<PlaceId, number>();
   const cells: LogicalCellRow[] = [];
   for (const row of ordered.value) {
     const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 6);

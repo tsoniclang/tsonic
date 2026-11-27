@@ -281,21 +281,30 @@ export async function nativeFactsCases(suite, product) {
     assert.deepEqual(product.verifyNativeFacts(identity), []);
   });
 
-  await suite.test("array holding is an explicit, unique selected carrier fact", () => {
+  await suite.test("array and tuple holding are explicit, unique selected carrier facts", () => {
     const facts = nativeFactsFixture({ arrayHolding: "in-place", fixedArrayHolding: "by-reference" });
     const rows = facts.carrierHolding;
     assert.deepEqual(product.verifyNativeFacts(facts), []);
-    assert.equal(product.nativeArrayHoldingOf(rows, "array"), "in-place");
-    assert.equal(product.nativeArrayHoldingOf(rows, "fixed-array"), "by-reference");
+    assert.equal(product.nativeCarrierHoldingOf(rows, "array"), "in-place");
+    assert.equal(product.nativeCarrierHoldingOf(rows, "fixed-array"), "by-reference");
     assert.notEqual(product.nativeFactsKey(facts), product.nativeFactsKey(nativeFactsFixture()));
-    assert.equal(product.nativeArrayHoldingOf(rows.filter(row => row.carrier !== "fixed-array"), "fixed-array"), null);
+    assert.equal(product.nativeCarrierHoldingOf(rows.filter(row => row.carrier !== "fixed-array"), "fixed-array"), null);
     const array = rows[0];
     const duplicate = [array, ...rows];
     assert.deepEqual(product.verifyNativeFacts({ ...facts, carrierHolding: duplicate }), [issue("native-fact-unique", "carrierHolding", 1)]);
-    assert.equal(product.nativeArrayHoldingOf(duplicate, "array"), null);
-    assert.equal(product.nativeArrayHoldingOf([{ carrier: "fixed-array", holding: "invalid" }], "fixed-array"), null);
-    assert.equal(product.nativeArrayHoldingOf(Array(21).fill(array), "array"), null);
-    assert.equal(product.nativeArrayHoldingOf(null, "array"), null);
+    assert.equal(product.nativeCarrierHoldingOf(duplicate, "array"), null);
+    assert.equal(product.nativeCarrierHoldingOf([{ carrier: "fixed-array", holding: "invalid" }], "fixed-array"), null);
+    assert.equal(product.nativeCarrierHoldingOf(Array(22).fill(array), "array"), null);
+    assert.equal(product.nativeCarrierHoldingOf(null, "array"), null);
+    assert.equal(product.nativeCarrierHoldingOf(rows, "tuple"), null);
+    const tuple = { carrier: "tuple", holding: "in-place" };
+    const selected = { ...facts, carrierHolding: [...rows, tuple] };
+    assert.deepEqual(product.verifyNativeFacts(selected), []);
+    assert.equal(product.nativeCarrierHoldingOf(selected.carrierHolding, "tuple"), "in-place");
+    assert.notEqual(product.nativeFactsKey(selected), product.nativeFactsKey(facts));
+    const ambiguous = [...selected.carrierHolding, { ...tuple, holding: "by-reference" }];
+    assert.equal(product.nativeCarrierHoldingOf(ambiguous, "tuple"), null);
+    assert.deepEqual(product.verifyNativeFacts({ ...selected, carrierHolding: ambiguous }), [issue("native-fact-unique", "carrierHolding", rows.length + 1)]);
   });
 
   await suite.test("closed native facts reject missing fields, unknown laws and malformed rows without fallback", () => {

@@ -1,4 +1,4 @@
-import type { NativeFactsKey, NativeArrayExtentOf, NativeArrayHoldingOf, IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, FloatingBitsFit, ExactFloat64LiteralFit, FloatingFormatWidth, NativeCarrierOf, OptionalValueDomainOf, LiteralCompatibilityOf, NativeIntegerGeometryOf, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, AdmitTypeTable, InternType, ReadType, ReadSignature, ViewTypes,
+import type { NativeFactsKey, NativeArrayExtentOf, NativeCarrierHoldingOf, IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, FloatingBitsFit, ExactFloat64LiteralFit, FloatingFormatWidth, NativeCarrierOf, OptionalValueDomainOf, LiteralCompatibilityOf, NativeIntegerGeometryOf, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, AdmitTypeTable, InternType, ReadType, ReadSignature, ViewTypes,
   ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, CompareIndexSignatures, CompareMemberKeys, InstanceKey, SameInstance, ExecutionKey,
   DeclaredExecutionKey, BindingVectorKey, ReadBindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
   SignatureRequestData, SignatureRequestKey, MemberTypeRequestData, TypeProductionRequestData, ConstantReferenceKey, ProjectBindingValues, HasLexicalTypeDependency, ReadLexicalTypeSupport, RigidBindings,
@@ -17,7 +17,7 @@ import { admitTypePublicationStep as publicationStep, createTypePublicationWork 
   refuseTypeConstruction as constructionRefusal } from "./work.js";
 import { verifyBindings as verifyBindingVectors } from "./verify-bindings.js";
 import type { LiteralTypeValuesEqual, VerifyBindings } from "./contract.js";
-import { nativeFactsKey as nativeKey, nativeArrayExtentOf as arrayExtent, nativeArrayHoldingOf as arrayHolding, isNativeBinaryFloatPrimitive as binaryFloatPrimitive, isNativeIntegerPrimitive as integerPrimitive, isNativeSignedIntegerPrimitive as signedIntegerPrimitive, nativeIntegerGeometryOf as integerGeometry, floatingBitsFit as floatingFit, floatingFormatWidth as floatingWidth, platformDeclarationKey as platformKey, verifyNativeFacts as verifyNative } from "./native-facts.js";
+import { nativeFactsKey as nativeKey, nativeArrayExtentOf as arrayExtent, nativeCarrierHoldingOf as carrierHolding, isNativeBinaryFloatPrimitive as binaryFloatPrimitive, isNativeIntegerPrimitive as integerPrimitive, isNativeSignedIntegerPrimitive as signedIntegerPrimitive, nativeIntegerGeometryOf as integerGeometry, floatingBitsFit as floatingFit, floatingFormatWidth as floatingWidth, platformDeclarationKey as platformKey, verifyNativeFacts as verifyNative } from "./native-facts.js";
 import type { NativeAbsenceComparisonOf } from "./contract.js";
 import { literalTypeValuesEqual as equalLiterals, nativeAbsenceComparisonOf as absenceComparison, nativeCarrierOf as carrier, optionalValueDomainOf as optionalValueDomain } from "./native-carrier.js";
 import { exactFloat64LiteralFit as exactFloat64, literalCompatibilityOf as literalCompatibility } from "./literal-compatibility.js";
@@ -36,7 +36,7 @@ export const typePublicationRefusalOf: TypePublicationRefusalOf = publicationRef
 export const internTypeGraph: InternTypeGraph = graph;
 export const joinSourceChoice: JoinSourceChoice = joinChoice;
 export const nativeFactsKey: NativeFactsKey = nativeKey;
-export const nativeArrayHoldingOf: NativeArrayHoldingOf = arrayHolding;
+export const nativeCarrierHoldingOf: NativeCarrierHoldingOf = carrierHolding;
 export const nativeArrayExtentOf: NativeArrayExtentOf = arrayExtent;
 export const isNativeBinaryFloatPrimitive: IsNativeBinaryFloatPrimitive = binaryFloatPrimitive;
 export const isNativeIntegerPrimitive: IsNativeIntegerPrimitive = integerPrimitive;

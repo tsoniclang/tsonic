@@ -6,12 +6,12 @@ import type { MirBody, MirOperand, MirStatement, MirTerminator, MirUnwind } from
 import type { LogicalCellLifetime, Summary } from "../../ir-facts/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput, RoundCallRead } from "./contract.js";
-import type { CallError, SelectedCall } from "./calls.js";
+import type { CallError, ReadCallApplication, SelectedCall } from "./calls.js";
 import { callSummary, isCallError, isLeastCall } from "./calls.js";
 import { callExitAssigned } from "./initialization.js";
 import type { StaticCalleeCells } from "./static-calls.js";
 import { bodyFrontier, rootSlot } from "./places.js";
-import type { StaticSlots } from "./places.js";
+import type { StorageSlots } from "./places.js";
 import { valueKind } from "./values.js";
 
 interface CellTaint {
@@ -189,13 +189,13 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
 }
 
 export function transferAssigned(body: MirBody, statement: MirStatement, state: AssignedState,
-  account: DataflowAccount, statics?: StaticSlots): AssignedState;
+  account: DataflowAccount, slots?: StorageSlots): AssignedState;
 export function transferAssigned(body: MirBody, statement: MirStatement, state: Assigned,
-  account: DataflowAccount, statics?: StaticSlots): Assigned;
+  account: DataflowAccount, slots?: StorageSlots): Assigned;
 export function transferAssigned(body: MirBody, statement: MirStatement, state: Assigned,
-  account: DataflowAccount, statics: StaticSlots = null): Assigned {
+  account: DataflowAccount, slots: StorageSlots = null): Assigned {
   if (state === null || accountFailure(account) !== null) return state;
-  if (statement.kind === "assign") return assignDestination(body, statement.place, state, account, statics, true);
+  if (statement.kind === "assign") return assignDestination(body, statement.place, state, account, slots, true);
   if (chargeWork(account, 1 + state.written.size) !== null || chargeResultEntries(account, state.written.size + 2) !== null) return state;
   const written = new Set(state.written);
   written.delete(statement.local);
@@ -203,13 +203,13 @@ export function transferAssigned(body: MirBody, statement: MirStatement, state: 
 }
 
 function assignDestination(body: MirBody, place: PlaceId, state: AssignedState, account: DataflowAccount,
-  statics: StaticSlots, clearsTaint: boolean): AssignedState {
+  slots: StorageSlots, clearsTaint: boolean): AssignedState {
   if (chargeWork(account, 1) !== null) return state;
   const target = body.places[place]?.base;
   if (target?.kind === "place" && target.projection.kind === "field"
     || target?.kind === "checked" && target.projection.kind === "index") return state;
   if (chargeWork(account, state.written.size) !== null || chargeResultEntries(account, state.written.size + 2) !== null) return state;
-  const local = rootSlot(body, place, statics);
+  const local = rootSlot(body, place, slots);
   const written = new Set(state.written);
   written.add(local);
   let taint = state.taint;
@@ -249,9 +249,9 @@ function nativePrimitiveDestination(deps: BodyRoundDeps, body: MirBody,
 }
 
 function assignedHandler(body: MirBody, unwind: Extract<MirUnwind, { readonly kind: "handler" | "carry" }>,
-  state: AssignedState, account: DataflowAccount, statics: StaticSlots): { readonly target: BlockId; readonly state: AssignedState } | null {
+  state: AssignedState, account: DataflowAccount, slots: StorageSlots): { readonly target: BlockId; readonly state: AssignedState } | null {
   if (chargeWork(account, 1) !== null || chargeResultEntries(account, 1) !== null) return null;
-  const assigned = unwind.kind === "carry" || unwind.exception === null ? state : assignDestination(body, unwind.exception, state, account, statics, false);
+  const assigned = unwind.kind === "carry" || unwind.exception === null ? state : assignDestination(body, unwind.exception, state, account, slots, false);
   return accountFailure(account) === null ? { target: unwind.target, state: assigned } : null;
 }
 
@@ -370,8 +370,8 @@ export function assignedLattice(stateBound: number): Lattice<Assigned> {
   };
 }
 
-export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "execution" | "mir">, statics: StaticSlots = null,
-  observeCall: ((summary: Summary) => DataflowStop | null) | null = null, staticSlot: StaticCalleeCells | null = null):
+export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "execution" | "mir">, source: ReadCallApplication, slots: StorageSlots = null,
+  staticCellCount = 0, observeCall: ((summary: Summary) => DataflowStop | null) | null = null, staticSlot: StaticCalleeCells | null = null):
   DataflowResult<{ readonly entry: readonly Assigned[]; readonly reachable: readonly boolean[]; readonly error: CallError | null;
     readonly calls: ReadonlyMap<BlockId, SelectedCall> | null }> {
   const { account } = deps;
@@ -391,8 +391,8 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
   let answers: Map<string, RoundCallRead> | null = null;
   const problem: ForwardProblem<Assigned> = {
     direction: "forward", boundary: { written: boundary, taint: null },
-    lattice: assignedLattice(body.locals.length + (statics?.size ?? 0) + 1),
-    statement: (statement, state, borrowed) => transferAssigned(body, statement, state, borrowed, statics),
+    lattice: assignedLattice(body.locals.length + staticCellCount + 1),
+    statement: (statement, state, borrowed) => transferAssigned(body, statement, state, borrowed, slots),
     terminator: (terminator, state, borrowed, block, resumed) => {
       if (terminator.kind === "call" || terminator.kind === "invoke" || terminator.kind === "check") {
         if (state === null) return [];
@@ -402,10 +402,10 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
           if (terminator.kind === "invoke") {
             const destination = nativePrimitiveDestination(deps, body, terminator);
             if (destination.kind !== "complete") return [];
-            next = assignDestination(body, destination.value, state, borrowed, statics, false);
+            next = assignDestination(body, destination.value, state, borrowed, slots, false);
           }
           if (terminator.unwind.kind === "handler" || terminator.unwind.kind === "carry") {
-            failure = assignedHandler(body, terminator.unwind, state, borrowed, statics);
+            failure = assignedHandler(body, terminator.unwind, state, borrowed, slots);
             if (failure === null) return [];
           }
         } else {
@@ -418,7 +418,7 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
           let selected = calls.get(block);
           if (selected === undefined) {
             if (chargeResultEntries(borrowed, 1) !== null) return [];
-            const answer = callSummary(deps, body, terminator, answers);
+            const answer = callSummary(deps, body, terminator, source, answers);
             if (answer.kind !== "complete") return [];
             selected = answer.value;
             calls.set(block, selected);
@@ -436,7 +436,7 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
               if (chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 2) !== null) return [];
               const incoming = { written: initialized.value, taint: state.taint };
               failure = { target: unwind.target, state: unwind.kind === "carry" || unwind.exception === null ? incoming
-                : assignDestination(body, unwind.exception, incoming, borrowed, statics, false) };
+                : assignDestination(body, unwind.exception, incoming, borrowed, slots, false) };
             }
             if (!selected.returns) return failure === null ? [] : [failure];
             const initialized = callExitAssigned(deps, body, terminator, selected, state.written, "return", staticSlot);
@@ -446,7 +446,7 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
               next = { written: initialized.value, taint: state.taint };
             }
           }
-          if (terminator.destination !== null) next = assignDestination(body, terminator.destination, next, borrowed, statics, false);
+          if (terminator.destination !== null) next = assignDestination(body, terminator.destination, next, borrowed, slots, false);
         }
         if (chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 1) !== null) return [];
         const normal = { target: terminator.next, state: next };
@@ -454,7 +454,7 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
       }
       if ((terminator.kind === "throw" || terminator.kind === "unwind-propagate")
         && (terminator.unwind.kind === "handler" || terminator.unwind.kind === "carry")) {
-        const handled = state === null ? null : assignedHandler(body, terminator.unwind, state, borrowed, statics);
+        const handled = state === null ? null : assignedHandler(body, terminator.unwind, state, borrowed, slots);
         return handled === null ? [] : [handled];
       }
       const target = cleanupTarget(terminator, resumed);

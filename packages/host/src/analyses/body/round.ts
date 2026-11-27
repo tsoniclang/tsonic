@@ -3,21 +3,21 @@ import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "
 import { requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
 import type { BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, ProjectionPathId } from "../../ids/contract.js";
 import { boundProducerId, originsId, producerId, valueContextId } from "../../ids/index.js";
-import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundProducer, CaptureBinding, CaptureLocation, CountedLoopProofs, EffectPaths, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, OpenBoundary, Origins, Producer, ReadOriginsFact, RefinementFact, SubjectOriginsFact, Summary, ValueArgument, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
+import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundProducer, CaptureBinding, CaptureLocation, CountedLoopProofs, EffectPaths, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, OpenBoundary, Origins, Producer, ProjectionPath, ReadOriginsFact, RefinementFact, SubjectOriginsFact, Summary, ValueArgument, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, countedLoopsOf, fieldRefinementsOf } from "../../ir-facts/index.js";
 import type { MirLocal, MirOperand, MirPlace, MirTerminator } from "../../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
-import type { TirArgument, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
+import type { TirApplication, TirArgument, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
 import { sameInstance } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } from "./contract.js";
-import type { CallError } from "./calls.js";
+import type { CallError, ReadCallApplication } from "./calls.js";
 import { applyScalarCall, bindCallInitialization, callCaptureBindings, callCellIndex, callInstance, isCallError, isLeastCall, scalarArgument } from "./calls.js";
-import { orderedRows, sourceOccurrences } from "./source.js";
+import { orderedRows, selectedSourceApplication, sourceOccurrences } from "./source.js";
 import { assignedEntry, selectedCallAt, solveAssigned, statementOperands, terminatorOperands, transferAssigned, unwrittenCause } from "./storage.js";
 import type { AssignedState } from "./storage.js";
 import { prepareCallCaptures } from "./captures.js";
 import { noCallBoundaries, noCallBoundary, openCallTransport } from "./open-calls.js";
-import { bodyFrontier, staticCells, readLocal, rootSlot } from "./places.js";
+import { bodyFrontier, inlineTupleSlots, staticCells, readLocal, readSlot, rootSlot } from "./places.js";
 import { projectionEffects as createProjectionEffects, heldProjections } from "./projection-effects.js";
 import type { StaticCells } from "./places.js";
 import { staticCallInventory } from "./static-calls.js";
@@ -99,6 +99,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   let valueCaptureCount = 0;
   let staticPlaces: MirPlace[] | null = null;
   let projectedPlaces: MirPlace[] | null = null;
+  let inlinePlaces: MirPlace[] | null = null;
   for (const place of mir.places) {
     if (place.base.kind === "static") {
       const growth = chargeResultEntries(account, staticPlaces === null ? 2 : 1);
@@ -111,6 +112,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (growth !== null) return growth;
       projectedPlaces ??= [];
       projectedPlaces.push(place);
+    } else if (place.base.kind === "place" && place.base.projection.kind === "element") {
+      const growth = chargeResultEntries(account, inlinePlaces === null ? 2 : 1);
+      if (growth !== null) return growth;
+      inlinePlaces ??= [];
+      inlinePlaces.push(place);
     } else if (place.base.kind === "checked" && place.base.projection.kind === "refined"
       && mir.places[place.base.place]?.base.kind === "local") {
       const storage = valueKind(deps, place.storage);
@@ -132,6 +138,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   }
   let referenceFormals: Map<number, "field" | "array"> | null = null;
   let objectValues: Set<LocalId> | null = null;
+  let inlineRoots: Set<LocalId> | null = null;
   for (const local of mir.locals) {
     if (local.role.kind === "capture") {
       const captureWork = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
@@ -187,6 +194,12 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       referenceFormals.set(local.role.index, "array");
     }
     if (kind === null) return bodyFrontier("BodyAnalysis requires the actual Origins reference/cell producer for this selected local.");
+    if (kind === "origin-free-product" && inlinePlaces !== null) {
+      const retained = chargeResultEntries(account, inlineRoots === null ? 2 : 1);
+      if (retained !== null) return retained;
+      inlineRoots ??= new Set();
+      inlineRoots.add(local.id);
+    }
     if (kind === "primitive-optional" || kind === "reference-optional") {
       if (local.role.kind === "receiver")
         return bodyFrontier("BodyAnalysis requires the actual optional receiver value binding.");
@@ -212,12 +225,19 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       parameterOrigins[local.role.index] = origins;
     } else if (local.role.kind === "receiver") receiverOrigins = origins;
   }
+  let localViewSlots: Map<PlaceId, number> | null = null;
+  if (inlinePlaces !== null) {
+    if (inlineRoots === null) return bodyFrontier("A tuple projection requires its actual proven inline parent and local root.");
+    const slots = inlineTupleSlots(deps, input, inlinePlaces, inlineRoots);
+    if (slots.kind !== "complete") return slots;
+    localViewSlots = slots.value;
+  }
   let statics: StaticCells | null = null;
   let staticAbsence: Set<number> | null = null;
   if (staticPlaces !== null) {
     const source = requirePresent(preparedSource ?? undefined, { owner: "analyses/body", query: null, origin: tir.root.origin,
       message: "Selected static places require their actual source occurrences." });
-    const prepared = staticCells(deps, input, source.value, locationCaptureCount);
+    const prepared = staticCells(deps, input, source.value, locationCaptureCount, localViewSlots);
     if (prepared.kind !== "complete") return prepared;
     statics = prepared.value;
     for (const place of staticPlaces) {
@@ -241,7 +261,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       }
     }
   }
-  const staticSlots = statics?.slots ?? null;
+  const storageSlots = statics?.slots ?? localViewSlots;
   if (capturesChecked !== tir.captures.length || capturedEntries.length !== capturesChecked)
     return bodyFrontier("BodyAnalysis requires the actual association for every selected captured execution slot.");
   for (const constant of mir.constants) {
@@ -305,10 +325,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   if (bound !== null) return bound;
   const source = preparedSource ?? sourceOccurrences(tir, account);
   if (source.kind !== "complete") return source;
+  const selectedApplication: ReadCallApplication = at => at.body === tir.body ? selectedSourceApplication(source.value.get(at.node)) : null;
   const imported: { value: StaticCallInventory | null } = { value: null };
   const calledSlot: StaticCalleeCells = (summary, sourceCell) => imported.value?.slotOf(summary, sourceCell);
   let hasOpenCalls = false;
-  const solved = solveAssigned(deps, input, staticSlots, summary => {
+  const solved = solveAssigned(deps, input, selectedApplication, storageSlots, directStatics.length, summary => {
     hasOpenCalls ||= summary.arena.boundaries.length !== 0;
     if (summary.arena.cells.length === 0) return null;
     if (imported.value === null) {
@@ -427,27 +448,22 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     return bodyFrontier("A held projection needs its independently verified reference formal.");
   const projectionSetup = referenceFormals === null ? null : chargeResultEntries(account, 3);
   if (projectionSetup !== null) return projectionSetup;
-  const projectionEffects = referenceFormals === null ? null : createProjectionEffects(deps, referenceFormals, (records, references): DataflowStop | null => {
+  const boundaries: OpenBoundary[] = [];
+  const projectionPaths: ProjectionPath[] = [];
+  const arena = { cells, projections: projectionPaths, producers, boundProducers, boundaries, contexts,
+    origins: originRows } satisfies BodyRoundValue["facts"]["arena"];
+  const admitRelations = (records: number, references: number): DataflowStop | null => {
     const stop = bounded("maximumRelationalRecordsPerBody", records, arena.cells.length + arena.boundProducers.length
       + arena.producers.length + arena.contexts.length + arena.origins.length + arena.boundaries.length + arena.projections.length + lifetimeRecords)
       ?? bounded("maximumRelationalReferencesPerBody", references, contextReferences);
     if (stop !== null) return stop;
     contextReferences += references;
     return null;
-  });
-  const boundaries: OpenBoundary[] = [];
-  const arena = { cells, projections: projectionEffects?.projections ?? [], producers, boundProducers, boundaries, contexts,
-    origins: originRows } satisfies BodyRoundValue["facts"]["arena"];
+  };
+  let projectionEffects = referenceFormals === null ? null : createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations);
   const boundarySetup = hasOpenCalls ? chargeResultEntries(account, 3) : null;
   if (boundarySetup !== null) return boundarySetup;
-  const transport = hasOpenCalls ? openCallTransport(deps, input, producers, boundaries, (records, references) => {
-    const stop = bounded("maximumRelationalRecordsPerBody", records, arena.cells.length + arena.boundProducers.length
-      + arena.producers.length + arena.contexts.length + arena.origins.length + arena.boundaries.length + arena.projections.length + lifetimeRecords)
-      ?? bounded("maximumRelationalReferencesPerBody", references, contextReferences);
-    if (stop !== null) return stop;
-    contextReferences += references;
-    return null;
-  }) : null;
+  const transport = hasOpenCalls ? openCallTransport(deps, input, producers, boundaries, admitRelations) : null;
   const values = valueOrigins(deps, originRows);
   if (values.kind !== "complete") return values;
   const callLocations = prepareCallCaptures(deps, input, arena, source.value, solved.value.entry, solved.value.reachable,
@@ -490,10 +506,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     assigned: ReadonlySet<number>): DataflowStop | null => recordInitializationPoint(deps, initializationPoints, initializationState,
       { kind: "need", at: { kind: "body", execution, point, edge: null }, cell, witness }, boundarySlots, assigned);
   let currentOrigins: readonly OriginsId[] = localOrigins;
-  const originsOf = (operand: MirOperand): OriginsId => operandOrigins(input, constantOrigins, currentOrigins, operand, staticSlots, projections);
+  const originsOf = (operand: MirOperand): OriginsId => operandOrigins(input, constantOrigins, currentOrigins, operand, storageSlots, projections);
   const flow = buildFacts && (hasReference || hasOptional || cellLocals.length !== 0) ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
     localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals, solved.value.calls,
-    staticSlots, staticCallees, projections, objectValues, transport) : null;
+    storageSlots, staticCallees, projections, objectValues, transport) : null;
   if (flow !== null && flow.kind !== "complete") return flow;
   let causalNeed: CallError | null = null;
   let directFailures: Map<NodeId, UninitializedRead> | null = null;
@@ -525,7 +541,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     }
     const node = witness.id;
     const projection = projections?.places.get(operand.place);
-    const local = projection?.holder ?? rootSlot(mir, operand.place, staticSlots);
+    const local = projection?.holder ?? readSlot(mir, operand.place, storageSlots);
     const present = assigned.written.has(local);
     const unavailable = !present && !absorbTaint(assigned, local);
     const cell = unavailable ? capturedLocals.get(local)?.cell ?? staticCell(local) : null;
@@ -579,23 +595,21 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     return cell !== null && buildFacts ? need(cell, point, { read: { kind: "body", value: { body: tir.body, node } }, via: [] },
       assigned.written) : null;
   };
-  const sourceArguments = (operation: MirTerminator): readonly TirArgument[] => {
-    const syntax = source.value.get(operation.tir.node);
-    const phase = syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression" ? syntax.tsonic : null;
-    const application = phase != null && "application" in phase ? phase.application : null;
-    if (application?.kind !== "decided")
+  const sourceApplication = (operation: MirTerminator): TirApplication => {
+    const application = selectedApplication(operation.tir);
+    if (application === null)
       return bodyFrontier("A selected direct call retains its actual source application and argument occurrences.");
-    return application.decision.arguments;
+    return application;
   };
   const readCallArgument = (operation: Extract<MirTerminator, { readonly kind: "call" }>, argument: TirArgument | undefined,
-    index: number, assigned: AssignedState, point: MirPoint, retain?: (operand: MirOperand) => void): DataflowStop | null => {
+    index: number, assigned: AssignedState, point: MirPoint, retain?: (operand: MirOperand) => DataflowStop | null): DataflowStop | null => {
     const selected = scalarArgument(deps, operation, index);
     if (selected.kind !== "complete") return selected;
     if (argument?.kind !== "provided" || argument.parameter !== index)
       return bodyFrontier("A selected fixed argument retains its actual provided occurrence and formal declaration.");
     const stopped = read(selected.value, argument.expression, assigned, point);
-    if (stopped === null && buildFacts) retain?.(selected.value);
-    return stopped;
+    if (stopped !== null) return stopped;
+    return buildFacts ? retain?.(selected.value) ?? null : null;
   };
   const callNeeds = (summary: Summary, rows: readonly BoundInitializationRow[], operation: Extract<MirTerminator, { readonly kind: "call" }>,
     bindings: readonly { readonly kind: "cell"; readonly index: number }[], assigned: AssignedState, point: MirPoint): DataflowStop | null => {
@@ -703,9 +717,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           || value.operation.decision.kind !== "selected" || value.operation.decision.execution.kind !== "pure"))
           return bodyFrontier("BodyAnalysis requires the actual selected operation effect and Origins transport.");
         const place: Extract<MirOperand, { readonly kind: "place" }> = { kind: "place", place: statement.place };
-        const local = rootSlot(mir, statement.place, staticSlots);
+        const local = rootSlot(mir, statement.place, storageSlots);
         const capture = capturedLocals.get(local);
-        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, staticSlots, projections);
+        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, storageSlots, projections);
         if (transferred.kind !== "complete") return transferred;
         currentOrigins = transferred.value;
         const storeWork = chargeResultEntries(account, 3);
@@ -732,11 +746,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           values: [{ source: statement.tir, origins: storedOrigins, reason: null }], boundaries: [] });
       }
       if (buildFacts && statement.kind !== "assign" && (hasReference || hasOptional)) {
-        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, staticSlots, projections);
+        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, storageSlots, projections);
         if (transferred.kind !== "complete") return transferred;
         currentOrigins = transferred.value;
       }
-      const next = transferAssigned(mir, statement, assigned, account, staticSlots);
+      const next = transferAssigned(mir, statement, assigned, account, storageSlots);
       const transferStop = accountFailure(account);
       if (transferStop !== null) return transferStop;
       assigned = next;
@@ -754,7 +768,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       const summary = least || isCallError(selected) ? null : selected;
       if ((!buildFacts || least) && terminator.callee.kind === "direct") {
         const provided = least ? selected.execution.provided : isCallError(selected) ? selected.provided : selected.key.execution.provided;
-        const source = sourceArguments(terminator);
+        const source = sourceApplication(terminator).arguments;
         for (let index = 0; index < provided; index += 1) {
           const stopped = readCallArgument(terminator, source[index], index, assigned, point);
           if (stopped !== null) return stopped;
@@ -822,7 +836,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           if (row !== null) return row;
           formals.set(producer.index, producer.id);
         }
-        const actual = sourceArguments(terminator);
+        const actual = sourceApplication(terminator);
         const signatureRead = chargeWork(account, 1);
         if (signatureRead !== null) return signatureRead;
         const signature = deps.signatureOf(terminator.callee.resolution.decision.completion.signature);
@@ -831,7 +845,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         for (let index = 0; index < signature.parameters.length; index += 1) {
           const argumentWork = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
           if (argumentWork !== null) return argumentWork;
-          const sourceArgument = actual[index];
+          const sourceArgument = actual.arguments[index];
           const parameter = requirePresent(signature.parameters[index], { owner: "analyses/body", query: null, origin: terminator.origin,
             message: "An actual fixed call retains every selected signature parameter." });
           const formal: ArgumentTransport["formal"] = { owner: { kind: "summary", key: summary.key },
@@ -845,10 +859,27 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
             continue;
           }
           const readResult = readCallArgument(terminator, sourceArgument, index, assigned, point, argument => {
+            const paid = chargeWork(account, 1);
+            if (paid !== null) return paid;
+            const mapping = actual.callee.decision.parameters[index];
+            if (mapping?.kind !== "argument" || mapping.parameter !== index || mapping.passing !== "by-value")
+              return bodyFrontier("A provided formal retains its actual authored argument and selected component.");
+            let projection: ProjectionPathId | null = null;
+            if (mapping.component !== null) {
+              if (projectionEffects === null) {
+                const growth = chargeResultEntries(account, 2);
+                if (growth !== null) return growth;
+                projectionEffects = createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations);
+              }
+              const retained = projectionEffects.remember({ kind: "index", constant: BigInt(mapping.component) });
+              if (typeof retained !== "number") return retained;
+              projection = retained;
+            }
             const origins = originsOf(argument);
             arguments_.push({ kind: "provided", origins });
-            transports.push({ kind: "provided", authoredIndex: index, parameter: parameter.declaration, parameterIndex: index,
-              repeated: false, passing: "by-value", actual: origins, formal, projection: null });
+            transports.push({ kind: "provided", authoredIndex: mapping.argument, parameter: parameter.declaration, parameterIndex: index,
+              repeated: false, passing: "by-value", actual: origins, formal, projection });
+            return null;
           });
           if (readResult !== null) return readResult;
         }
@@ -922,7 +953,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (summary.returns && flow !== null) {
         const descriptor = chargeResultEntries(account, terminator.destination === null ? 0 : 1);
         if (descriptor !== null) return descriptor;
-        const destination = terminator.destination === null ? null : rootSlot(mir, terminator.destination, staticSlots);
+        const destination = terminator.destination === null ? null : rootSlot(mir, terminator.destination, storageSlots);
         const next = applyExitContents(deps, terminator, applied.value, cellLocals, "return", flow.value.exit[block.id], values.value,
           admitUnion, destination === null ? null : { local: destination, tracked: false }, boundary);
         if (next.kind !== "complete") return next;
@@ -942,7 +973,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           thrown: callThrown, summary: summary.key }], boundaries: transport?.at(terminator) ?? noCallBoundaries });
       }
       if (summary.returns && terminator.destination !== null) {
-        const local = rootSlot(mir, terminator.destination, staticSlots);
+        const local = rootSlot(mir, terminator.destination, storageSlots);
         const capture = capturedLocals.get(local);
         if (capture !== undefined) {
           const retained = recordCaptureWrite(deps, input, readLocal(mir, { kind: "place", place: terminator.destination }),

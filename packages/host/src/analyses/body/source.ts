@@ -2,7 +2,13 @@ import type { DataflowAccount, DataflowResult } from "../../dataflow/contract.js
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { BodyId, NodeId } from "../../ids/contract.js";
 import { bodyOccurrenceSlots, readChapterSyntaxSlot, tirBodySyntaxOf } from "../../ir-tir/index.js";
-import type { TirBody, TirSyntaxOccurrence, TirTypedSyntax } from "../../ir-tir/contract.js";
+import type { TirApplication, TirBody, TirSyntaxOccurrence, TirTypedSyntax } from "../../ir-tir/contract.js";
+
+export function selectedSourceApplication(syntax: TirSyntaxOccurrence | undefined): TirApplication | null {
+  const phase = syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression" ? syntax.tsonic : null;
+  const application = phase != null && "application" in phase ? phase.application : null;
+  return application?.kind === "decided" ? application.decision : null;
+}
 
 export function sourceOccurrences(tir: TirBody, account: DataflowAccount): DataflowResult<ReadonlyMap<NodeId, TirSyntaxOccurrence>> {
   const entry = chargeWork(account, 1);

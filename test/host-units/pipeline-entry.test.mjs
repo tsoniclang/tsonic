@@ -24,6 +24,82 @@ test(`public Host analysis source barrier captures the complete actual ${library
   assert.equal(result.value.modules.some(module => module.module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts")), true);
 });
 
+test("an explicitly selected inline tuple initializes the authored binding destinations through verified Program", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function produce(pair: [boolean, boolean]): [boolean, boolean] { return pair; }
+    export function start(pair: [boolean, boolean]): boolean {
+      const [first, second] = produce(pair);
+      return first;
+    }
+  `);
+  const native = input.snapshot.nativeFacts;
+  const withHolding = (holding, source = input) => ({ ...source, snapshot: { ...source.snapshot,
+    nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding }] } } });
+  const completed = analyzeHostProgram(withHolding("in-place"));
+  assert.equal(completed.kind, "ok", JSON.stringify(completed.diagnostics));
+  const chapter = completed.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const body = chapter?.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0]?.kind === "VariableStatement");
+  assert.ok(body);
+  const declaration = body.tir.root.statements.nodes[0].declarationList.declarations.nodes[0];
+  const elements = declaration.name.elements.nodes;
+  const producer = body.mir.blocks.filter(row => row.terminator.tir.node === declaration.initializer.id && row.terminator.kind === "call");
+  assert.equal(producer.length, 1);
+  const places = body.mir.places.filter(place => place.base.kind === "place" && place.base.projection.kind === "element");
+  assert.deepEqual(places.map(place => [place.base.tir.node, place.base.place, place.base.projection.index]),
+    elements.map((element, index) => [element.id, producer[0].terminator.destination, index]));
+  const facts = body.facts.find(row => row.execution.provided === 1);
+  assert.ok(facts);
+  for (const [position, place] of places.entries()) {
+    const read = facts.origins.reads.find(row => row.node === elements[position].id && row.place === place.id);
+    assert.ok(read);
+    const origins = facts.arena.origins[read.origins];
+    assert.equal(origins.kind, "complete");
+    assert.deepEqual(origins.producers, []);
+    assert.equal(origins.includesAbsence, false);
+  }
+  assert.deepEqual(facts.arena.projections, [], "inline tuple reads do not create shared-reference paths");
+  assert.throws(() => analyzeHostProgram(input), /actual Origins reference\/cell producer/);
+  assert.throws(() => analyzeHostProgram(withHolding("by-reference")), /actual Origins reference\/cell producer/);
+  const containsReference = analysisInput(fixture, "sdk-minimal",
+    "export function start(pair: [boolean, string]): boolean { const [first, second] = pair; return first; }");
+  assert.throws(() => analyzeHostProgram(withHolding("in-place", containsReference)), /actual Origins reference\/cell producer/);
+});
+
+test("fixed and empty call spreads keep their authored component and later-value transport through Facts", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const [tuple, formals, count] of [["[boolean, boolean]", "first: boolean, second: boolean, ", 2], ["[]", "", 0]]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      function consume(${formals}tail: boolean): boolean { return tail; }
+      function produce(pair: ${tuple}): ${tuple} { return pair; }
+      function later(): boolean { return true; }
+      export function start(pair: ${tuple}): boolean { return consume(...produce(pair), later()); }
+    `);
+    const native = input.snapshot.nativeFacts;
+    const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
+      nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter?.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+      && row.tir.root.statements.nodes[0]?.expression?.arguments?.nodes?.[0]?.kind === "SpreadElement");
+    assert.ok(body);
+    const call = body.tir.root.statements.nodes[0].expression;
+    const [spread, later] = call.arguments.nodes;
+    const operations = body.mir.blocks.map(row => row.terminator).filter(terminator => terminator.kind === "call");
+    assert.deepEqual(operations.map(row => row.tir.node), [spread.expression.id, later.id, call.id]);
+    const facts = body.facts.find(row => row.execution.provided === 1);
+    assert.ok(facts);
+    const transport = facts.origins.invocations.find(row => row.node === call.id).alternatives[0].arguments;
+    assert.deepEqual(transport.map(row => [row.parameterIndex, row.authoredIndex]), count === 0 ? [[0, 1]] : [[0, 0], [1, 0], [2, 1]]);
+    assert.deepEqual(transport.map(row => row.projection === null ? null : facts.arena.projections[row.projection].projection),
+      [...Array.from({ length: count }, (_, index) => ({ kind: "index", constant: BigInt(index) })), null]);
+    assert.equal((operations[0].destination === null), count === 0, "an empty spread evaluates without reserving an unused tuple result");
+  }
+});
+
 test("installed ES2024 publishes a qualified scalar indexed write and read within its original allowance", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

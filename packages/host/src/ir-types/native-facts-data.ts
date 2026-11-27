@@ -38,9 +38,10 @@ export type NativeConversionResult =
   | { readonly kind: "fail"; readonly failure: CheckFailure };
 
 export type NativeArrayCarrier = "array" | "fixed-array";
+export type NativeHoldingCarrier = NativePrimitive | NativeArrayCarrier | "tuple";
 
 export interface NativeCarrierHolding {
-  readonly carrier: NativePrimitive | NativeArrayCarrier;
+  readonly carrier: NativeHoldingCarrier;
   readonly holding: ReceiverAccess;
 }
 

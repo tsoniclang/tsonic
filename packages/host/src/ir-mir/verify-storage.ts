@@ -4,7 +4,7 @@ import { localId, placeId } from "../ids/index.js";
 import type { Expression } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ExactRational, LiteralValue, TypeTerm } from "../ir-types/contract.js";
-import { literalCompatibilityOf, nativeAbsenceComparisonOf, nativeArrayExtentOf, nativeArrayHoldingOf } from "../ir-types/index.js";
+import { literalCompatibilityOf, nativeAbsenceComparisonOf, nativeArrayExtentOf, nativeCarrierHoldingOf } from "../ir-types/index.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { admitWork, chargeWork, densePosition, edgePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
 import type { ControlEdge, ControlFlow, SourceNode, WorkMeter } from "./verify-control.js";
@@ -649,7 +649,7 @@ export function verifyValues(
       if (value.kind !== "unary" || decision.execution.kind !== "pure" || decision.operands.length !== 1
         || (carrier?.kind !== "array" && carrier?.kind !== "fixed-array") || result?.kind !== "primitive"
         || result.primitive !== nativeArrayExtentOf(context.selectedNativeFacts.arrayExtents, carrier.kind)
-        || identity.holding !== nativeArrayHoldingOf(context.selectedNativeFacts.carrierHolding, carrier.kind)
+        || identity.holding !== nativeCarrierHoldingOf(context.selectedNativeFacts.carrierHolding, carrier.kind)
         || identity.holding === "in-place" && actual === null
         || local !== null && (actualLocal?.body !== local.body || actualLocal.local !== local.local))
         report("operation-selected", site);

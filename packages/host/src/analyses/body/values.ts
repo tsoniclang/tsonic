@@ -4,6 +4,7 @@ import { requirePresent } from "../../diag/index.js";
 import type { BoundProducerId, OpenBoundaryId, OriginsId, TyId } from "../../ids/contract.js";
 import { originsId } from "../../ids/index.js";
 import type { AppliedOriginsValue, Origins } from "../../ir-facts/contract.js";
+import type { TypeTerm } from "../../ir-types/contract.js";
 import { nativeCarrierOf, optionalValueDomainOf } from "../../ir-types/index.js";
 import type { BodyRoundDeps } from "./contract.js";
 import { orderedRows } from "./source.js";
@@ -100,7 +101,39 @@ function mergeReferences<Reference extends number>(left: readonly Reference[], r
   return output;
 }
 
-export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absence" | "reference" | "array-reference" | "primitive-optional" | "reference-optional" | null {
+type Tuple = Extract<TypeTerm, { readonly kind: "tuple" }>;
+
+function originFreeTuple(deps: BodyRoundDeps, type: TyId, tuple: Tuple, read: (type: TyId) => TypeTerm | null): boolean {
+  const { account } = deps;
+  const holding = deps.carrierHoldingOf(account, "tuple");
+  if (holding.kind !== "complete" || holding.value !== "in-place") return false;
+  if (chargeWork(account, 1) !== null || chargeResultEntries(account, 4) !== null) return false;
+  const seen = new Map<TyId, "open" | "closed">([[type, "open"]]);
+  const stack = [{ type, tuple, slot: 0 }];
+  for (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {
+    if (chargeWork(account, 1) !== null) return false;
+    if (frame.slot === frame.tuple.elements.length) {
+      seen.set(frame.type, "closed");
+      stack.pop();
+      continue;
+    }
+    const element = frame.tuple.elements[frame.slot++];
+    if (element?.kind !== "required") return false;
+    const selected = nativeCarrierOf(deps.types, element.type, read);
+    if (selected.kind === "resource-stop") return false;
+    if (selected.kind === "primitive") continue;
+    const prior = seen.get(selected.type);
+    if (prior === "open") return false;
+    if (prior === "closed") continue;
+    const child = read(selected.type);
+    if (child?.kind !== "tuple" || chargeResultEntries(account, 2) !== null) return false;
+    seen.set(selected.type, "open");
+    stack.push({ type: selected.type, tuple: child, slot: 0 });
+  }
+  return true;
+}
+
+export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "origin-free-product" | "absence" | "reference" | "array-reference" | "primitive-optional" | "reference-optional" | null {
   const read = (current: TyId) => {
     if (chargeWork(deps.account, 1) !== null) return null;
     const term = deps.typeOf(current);
@@ -116,9 +149,10 @@ export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absen
     if (domain.kind === "optional-value") return domain.payload === "string" ? "reference-optional" : "primitive-optional";
   }
   if (term.kind === "array" || term.kind === "fixed-array") {
-    const holding = deps.arrayHoldingOf(deps.account, term.kind);
+    const holding = deps.carrierHoldingOf(deps.account, term.kind);
     return holding.kind === "complete" && holding.value === "by-reference" ? "array-reference" : null;
   }
+  if (term.kind === "tuple") return originFreeTuple(deps, selected.type, term, read) ? "origin-free-product" : null;
   return term.kind === "string" ? "reference"
     : term.kind === "intrinsic" && term.intrinsic === "absence" ? "absence" : null;
 }

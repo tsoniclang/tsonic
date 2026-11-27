@@ -31,6 +31,7 @@ let analyzeBodyRound;
 let proveInitialization;
 let solveAssigned;
 let sourceOccurrences;
+let selectedSourceApplication;
 let orderedRows;
 let transferAssigned;
 let statementOperands;
@@ -69,6 +70,7 @@ let recordCaptureWrite;
 let retainValue;
 let retainCallCaptures;
 let collectRetainedValues;
+const unexpectedExpandedApplication = () => assert.fail("An ordinary fixed argument does not request an expanded application.");
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the aggregate owner guard admitted this process");
@@ -77,13 +79,16 @@ before(async () => {
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   ({ analyzeBodyRound, proveInitialization } = await import("../../packages/host/dist/analyses/body/index.js"));
-  ({ solveAssigned, transferAssigned, statementOperands, terminatorOperands, assignedLattice, assignedEntry,
-    localSlotLifetimes, solveStorageLive, storageLiveLattice, taintUnwritten, unwrittenCause } =
-    await import("../../packages/host/dist/analyses/body/storage.js"));
+  const storage = await import("../../packages/host/dist/analyses/body/storage.js");
+  ({ transferAssigned, statementOperands, terminatorOperands, assignedLattice, assignedEntry,
+    localSlotLifetimes, solveStorageLive, storageLiveLattice, taintUnwritten, unwrittenCause } = storage);
+  solveAssigned = (deps, input) => storage.solveAssigned(deps, input, unexpectedExpandedApplication);
   ({ readLocal } = await import("../../packages/host/dist/analyses/body/places.js"));
-  ({ sourceOccurrences, orderedRows } = await import("../../packages/host/dist/analyses/body/source.js"));
+  ({ sourceOccurrences, selectedSourceApplication, orderedRows } = await import("../../packages/host/dist/analyses/body/source.js"));
   ({ bodyNodes } = await import("../../packages/host/dist/ir-facts/verify-body-nodes.js"));
-  ({ callSummary, scalarArgument, applyScalarCall, callValueEffects } = await import("../../packages/host/dist/analyses/body/calls.js"));
+  const calls = await import("../../packages/host/dist/analyses/body/calls.js");
+  ({ scalarArgument, applyScalarCall, callValueEffects } = calls);
+  callSummary = (deps, mir, operation, source = unexpectedExpandedApplication) => calls.callSummary(deps, mir, operation, source);
   ({ noCallBoundary } = await import("../../packages/host/dist/analyses/body/open-calls.js"));
   const originValues = await import("../../packages/host/dist/analyses/body/values.js");
   ({ joinOrigins, valueOrigins } = originValues);
@@ -137,7 +142,7 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
   const deps = { types: TABLE, typeOf, signatureOf, sourceObjectHolding: () => ({ kind: "complete", value: false }),
-    arrayHoldingOf: (_account, carrier) => ({ kind: "complete", value: carrier === "array" ? "by-reference" : "in-place" }),
+    carrierHoldingOf: (_account, carrier) => ({ kind: "complete", value: carrier === "array" ? "by-reference" : "in-place" }),
     enumValueOf: meter => accountFailure(meter) ?? { kind: "complete", value: null },
     summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
     declaredAt: () => null,
@@ -1418,11 +1423,13 @@ test("real fixed by-value scalar arguments retain selected formals, source reads
   const operation = current.input.mir.blocks[invocation.point.block].terminator;
   for (const argument of [{ kind: "omitted" }, { ...operation.arguments[0], passing: "move" }])
     assert.throws(() => callSummary(current.deps, current.input.mir, { ...operation, arguments: [argument] }), /actual selected argument/);
+  const nodes = sourceOccurrences(current.input.tir, createAccount(limits)).value;
+  const actualApplication = at => at.body === current.input.tir.body ? selectedSourceApplication(nodes.get(at.node)) : null;
   for (const mapping of [{ ...selected.decision.parameters[0], parameter: 1 },
     { ...selected.decision.parameters[0], argument: 1 }, { ...selected.decision.parameters[0], component: 0 },
     { ...selected.decision.parameters[0], passing: "move" }, { kind: "default", parameter: 0, initializer: DEFAULT_BODY }])
     assert.throws(() => callSummary(current.deps, current.input.mir, { ...operation, callee: { ...operation.callee,
-      resolution: { ...selected, decision: { ...selected.decision, parameters: [mapping] } } } }), /actual fixed by-value mapping/);
+      resolution: { ...selected, decision: { ...selected.decision, parameters: [mapping] } } } }, actualApplication), /actual fixed by-value mapping/);
   assert.throws(() => callSummary({ ...current.deps, signatureOf: () => ({ ...TABLE.signatures[child.tir.signature],
     parameters: [{ ...TABLE.signatures[child.tir.signature].parameters[0], passing: "move" }] }) }, current.input.mir, operation),
   /actual fixed by-value mapping/);
@@ -3225,7 +3232,7 @@ test("module static reads use one actual cell per declaration and preserve the d
     assert.ok(read);
     const changedReference = declaration => ({ ...read, tsonic: { ...read.tsonic, resolution: { ...read.tsonic.resolution, declaration } } });
     const invoke = (input, source = nodes) => staticCells({ ...deps.environment, account: createAccount(limits) },
-      input, source, input.tir.captures.filter(capture => capture.capture === "captured-location").length);
+      input, source, input.tir.captures.filter(capture => capture.capture === "captured-location").length, null);
     assert.throws(() => invoke({ ...members, mir: { ...member.mir, bindings: { kind: "parametric" } } }), /projection or static-cell producer/);
     assert.throws(() => invoke(members, new Map(nodes).set(read.id,
       changedReference({ ...read.tsonic.resolution.declaration, node: read.id }))), /actual declaration node and storage/);
@@ -4786,7 +4793,7 @@ test("unsupported projections, parameter writes and external retention remain ex
   const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0].origins }];
   const apply = value => {
     const deps = { ...current.deps, account: createAccount(limits) };
-    const fields = projectionEffects(deps, new Map(), () => assert.fail("An unsupported read must not retain a projection."));
+    const fields = projectionEffects(deps, new Map(), [], () => assert.fail("An unsupported read must not retain a projection."));
     return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
       (access, parameter) => fields.call(access, parameter, value, arena));
   };
@@ -4829,7 +4836,7 @@ test("one held field joins its independently selected arms at paid cuts without 
   for (const [first, next] of [["read", "write"], ["write", "read"]]) {
     const run = maxima => {
       const account = createAccount(maxima);
-      const fields = projectionEffects({ account }, new Map([[0, "field"], [1, "field"]]), () => null);
+      const fields = projectionEffects({ account }, new Map([[0, "field"], [1, "field"]]), [], () => null);
       const observe = role => fields.observe(role, { kind: "field", member: selections[role] }, subjects[role], arena.boundProducers, arena.producers);
       assert.equal(observe(first), null);
       const prefix = { ...InvocationAccount.stateOf(account) };
@@ -5771,6 +5778,53 @@ test("unwritten statement operands emit only their genuine initialization error 
       else assert.equal(partial, accountFailure(account));
     }
   }
+});
+
+test("inline tuple views borrow their actual initialized root and pay each reached place before reading it", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { inlineTupleSlots } = await import("../../packages/host/dist/analyses/body/places.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal",
+    "export function start(pair: [boolean, boolean]): boolean { const [first, second] = pair; return second; }");
+  const native = input.snapshot.nativeFacts;
+  const completed = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
+    nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
+  assert.equal(completed.kind, "ok", JSON.stringify(completed.diagnostics));
+  const chapter = completed.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+  const projected = body.mir.places.filter(place => place.base.kind === "place" && place.base.projection.kind === "element");
+  assert.equal(projected.length, 2);
+  const parent = body.mir.places[projected[0].base.place];
+  assert.equal(parent.base.kind, "local");
+  const roots = new Set([parent.base.local]);
+  const run = (maximumWork, maximumResultEntries, rows = projected, admitted = roots) => {
+    const account = createAccount({ maximumWork, maximumResultEntries });
+    const reads = [];
+    const lazy = new Array(rows.length);
+    for (let index = 0; index < rows.length; index += 1)
+      Object.defineProperty(lazy, index, { get() { reads.push(index); return rows[index]; } });
+    const deps = { account, typeOf: type => completed.value.index.types.terms[type] };
+    const result = inlineTupleSlots(deps, { tir: body.tir, mir: body.mir }, lazy, admitted);
+    return { account, result, reads };
+  };
+  const exact = run(8, 3);
+  assert.equal(exact.result.kind, "complete");
+  assert.deepEqual([...exact.result.value], projected.map(place => [place.id, parent.base.local]));
+  assert.deepEqual(exact.reads, [0, 1]);
+  const paid = InvocationAccount.stateOf(exact.account);
+  assert.deepEqual([paid.work, paid.entries], [8, 3]);
+  for (const [work, entries, prefix] of [[2, 3, []], [3, 3, [0]], [6, 3, [0]], [7, 3, [0, 1]],
+    [8, 0, []], [8, 1, [0]], [8, 2, [0, 1]]]) {
+    const stopped = run(work, entries);
+    assert.equal(stopped.result, accountFailure(stopped.account));
+    assert.deepEqual(stopped.reads, prefix);
+    assert.equal("value" in stopped.result, false);
+  }
+  assert.throws(() => run(8, 3, projected, new Set()), /actual proven inline parent/);
+  const crossed = { ...projected[0], base: { ...projected[0].base, projection: { kind: "element", index: 2 } } };
+  assert.throws(() => run(8, 3, [crossed, projected[1]]), /actual required native slot/);
 });
 
 test("ready relation frontiers never fabricate projection, capture, absence or guard evidence", () => {

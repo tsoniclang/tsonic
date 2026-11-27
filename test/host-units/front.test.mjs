@@ -1425,14 +1425,15 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
     return { value: opaque.value.value, unit };
   } };
   const cut = createAccount({ ...callInput.limits.dataflow, maximumWork: 1 });
-  assert.equal(callSummary({ ...deps, account: cut }, mir.value, call), accountFailure(cut));
+  const expandedSource = () => assert.fail("The exact ordinary call has no expanded application to read.");
+  assert.equal(callSummary({ ...deps, account: cut }, mir.value, call, expandedSource), accountFailure(cut));
   assert.deepEqual(reads, []);
-  const accepted = callSummary(deps, mir.value, call);
+  const accepted = callSummary(deps, mir.value, call, expandedSource);
   assert.equal(accepted.kind, "complete");
   assert.equal(accepted.value, opaque.value.value);
   assert.deepEqual(reads, [edge.at.node, "summary"]);
   assert.throws(() => callSummary({ ...deps, declaredAt: () => ({ ...edge.target, execution: { ...ready.execution, provided: 0 } }),
-    summaryOf: () => assert.fail("A crossed provided entry must not read a Summary.") }, mir.value, call), /actual selected binding environment and provided entry/u);
+    summaryOf: () => assert.fail("A crossed provided entry must not read a Summary.") }, mir.value, call, expandedSource), /actual selected binding environment and provided entry/u);
 
   const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
   const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");

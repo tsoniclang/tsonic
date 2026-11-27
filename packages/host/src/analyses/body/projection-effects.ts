@@ -151,14 +151,12 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
   return { kind: "complete", value: { references, places, includesAbsence } };
 }
 
-export function projectionEffects(deps: BodyRoundDeps, referenceFormals: ReadonlyMap<number, "field" | "array">,
-  grow: (records: number, references: number) => DataflowStop | null) {
+export function projectionEffects(deps: BodyRoundDeps, referenceFormals: ReadonlyMap<number, "field" | "array"> | null,
+  projections: ProjectionPath[], grow: (records: number, references: number) => DataflowStop | null) {
   const paths = new Map<string | bigint, ProjectionPathId>();
-  const projections: ProjectionPath[] = [];
   const reads = new Map<number, Set<ProjectionPathId>>();
   let writes: Map<number, Set<ProjectionPathId>> | null = null;
-  function observe(access: "read" | "write", projection: ScalarProjection, origins: Origins, bound: readonly BoundProducer[],
-    producers: readonly Producer[]): DataflowStop | null {
+  function remember(projection: ScalarProjection): ProjectionPathId | DataflowStop {
     const { account } = deps;
     const admission = projection.kind === "field" ? admitSelectionIdentity(projection.member, account) : chargeWork(account, 1)
       ?? (projection.kind === "index" ? admitIntegerKey(projection.constant, count => chargeWork(account, count)) : null);
@@ -201,6 +199,13 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
         }
       }
     }
+    return id;
+  }
+  function observe(access: "read" | "write", projection: ScalarProjection, origins: Origins, bound: readonly BoundProducer[],
+    producers: readonly Producer[]): DataflowStop | null {
+    const id = remember(projection);
+    if (typeof id !== "number") return id;
+    const { account } = deps;
     if (origins.kind !== "complete" || origins.includesAbsence || origins.producers.length === 0)
       return bodyFrontier("A held field access requires the complete actual receiver bindings at the occurrence.");
     if (access === "write" && writes === null) {
@@ -217,7 +222,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       const subject = identity === undefined ? undefined : bound[identity];
       const producer = subject === undefined ? undefined : producers[subject.producer];
       if (producer?.kind !== "parameter" || producer.path !== null
-        || referenceFormals.get(producer.index) !== (projection.kind === "field" ? "field" : "array"))
+        || referenceFormals?.get(producer.index) !== (projection.kind === "field" ? "field" : "array"))
         return bodyFrontier("A held projection requires its actual incoming reference producer and storage family.");
       let effect = byParameter.get(producer.index);
       if (effect === undefined) {
@@ -286,5 +291,5 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     }
     return null;
   }
-  return { paths: (access: "read" | "write", index: number) => (access === "read" ? reads : writes)?.get(index), projections, observe, call };
+  return { paths: (access: "read" | "write", index: number) => (access === "read" ? reads : writes)?.get(index), projections, remember, observe, call };
 }

@@ -1,7 +1,7 @@
 import { encodeKey } from "../ids/index.js";
 import type { KeyData } from "../ids/contract.js";
 import type { Violation } from "../diag/contract.js";
-import type { IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, NativeArrayExtentOf, NativeArrayHoldingOf, NativeIntegerGeometryOf } from "./contract.js";
+import type { IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, NativeArrayExtentOf, NativeCarrierHoldingOf, NativeIntegerGeometryOf } from "./contract.js";
 import type { NativeBinaryFloatPrimitive, NativeIntegerPrimitive, NativeSignedIntegerPrimitive, NativePrimitive } from "./data.js";
 import type { CheckFailure, NativeArithmeticCarrier, NativeConversionResult, NativeFactsRule, NativeFactsSite,
   NativeFloatingFormat, NativeRounding, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
@@ -146,9 +146,9 @@ function conversion(value: NativeConversionResult): boolean {
   }
 }
 
-const MAX_CARRIER_HOLDINGS = 20;
+const MAX_CARRIER_HOLDINGS = 21;
 
-export const nativeArrayHoldingOf: NativeArrayHoldingOf = (facts, carrier) => {
+export const nativeCarrierHoldingOf: NativeCarrierHoldingOf = (facts, carrier) => {
   if (!Array.isArray(facts) || facts.length > MAX_CARRIER_HOLDINGS) return null;
   let holding: "in-place" | "by-reference" | null = null;
   for (const row of facts) {
@@ -198,7 +198,7 @@ export function verifyNativeFacts(value: SelectedNativeFacts): readonly Violatio
     }
   };
   rows(value.carrierHolding, "carrierHolding", MAX_CARRIER_HOLDINGS, row => row.carrier,
-    row => (row.carrier === "array" || row.carrier === "fixed-array" || isNativePrimitive(row.carrier))
+    row => (row.carrier === "array" || row.carrier === "fixed-array" || row.carrier === "tuple" || isNativePrimitive(row.carrier))
       && (row.holding === "in-place" || row.holding === "by-reference"));
   rows(value.arrayExtents, "arrayExtents", 2, row => row.carrier,
     row => (row.carrier === "array" || row.carrier === "fixed-array") && isNativeIntegerPrimitive(row.result));

@@ -8,7 +8,7 @@ import type {
 } from "./contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
-import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeArrayHoldingOf, optionalValueDomainOf } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf } from "../ir-types/index.js";
 import { requiresLocation, sameSource } from "./capture-law.js";
 import { printDocument } from "./print.js";
 import { candidateKey, compareContribution, compareNumber, compareText, constraintKey, contributionKey, emit, nodeKey, ordinal } from "./verify-contributions.js";
@@ -398,7 +398,7 @@ function operationTypes(input: InferVerificationInput, finals: ReadonlyMap<numbe
       || operation.operands.length !== 1 || operation.execution.kind !== "pure"
       || (native?.kind !== "array" && native?.kind !== "fixed-array") || result?.kind !== "primitive"
       || result.primitive !== nativeArrayExtentOf(input.selectedNativeFacts.arrayExtents, native.kind)
-      || selected.holding !== nativeArrayHoldingOf(input.selectedNativeFacts.carrierHolding, native.kind))
+      || selected.holding !== nativeCarrierHoldingOf(input.selectedNativeFacts.carrierHolding, native.kind))
       emit(output, "operation-types", site, "array-extent");
   } else if (operation.operation.kind === "array-extent") {
     emit(output, "operation-types", site, "array-extent");
@@ -442,7 +442,7 @@ function indexTypes(input: InferVerificationInput, finals: ReadonlyMap<number, T
   const receiver = input.types.terms[selected.receiver];
   const key = input.types.terms[selected.key];
   const { access, result } = constraint;
-  const holding = nativeArrayHoldingOf(input.selectedNativeFacts.carrierHolding, selected.carrier);
+  const holding = nativeCarrierHoldingOf(input.selectedNativeFacts.carrierHolding, selected.carrier);
   if ((receiver?.kind !== "array" && receiver?.kind !== "fixed-array") || receiver.kind !== selected.carrier
     || holding === null || selected.holding !== holding
     || key?.kind !== "primitive" || !isNativeIntegerPrimitive(key.primitive)

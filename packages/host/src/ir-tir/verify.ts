@@ -6,7 +6,7 @@ import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayo
   checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
   readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
-import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeArrayHoldingOf, optionalValueDomainOf, sameInstance, verifyTypes } from "../ir-types/index.js";
+import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
@@ -38,7 +38,7 @@ function verifyIndex(input: TirVerifierInput, node: ElementAccessExpression<Type
   const key = typedValueOf(node.argumentExpression);
   const storage = input.types.terms[selected.receiver];
   const nativeKey = input.types.terms[selected.key];
-  const holding = nativeArrayHoldingOf(input.selectedNativeFacts.carrierHolding, selected.carrier);
+  const holding = nativeCarrierHoldingOf(input.selectedNativeFacts.carrierHolding, selected.carrier);
   if (original?.kind !== "ElementAccessExpression" || original.questionDotToken !== null || node.questionDotToken !== null
     || receiver?.convertedType !== selected.receiver || key?.convertedType !== selected.key
     || nativeKey?.kind !== "primitive" || !isNativeIntegerPrimitive(nativeKey.primitive)
@@ -80,7 +80,7 @@ function verifyArrayExtent(input: TirVerifierInput, node: PropertyAccessExpressi
     || typedValueOf(node.expression)?.convertedType !== operand || value.type !== operation.decision.result
     || (carrier?.kind !== "array" && carrier?.kind !== "fixed-array") || result?.kind !== "primitive"
     || result.primitive !== nativeArrayExtentOf(input.selectedNativeFacts.arrayExtents, carrier.kind)
-    || selected.holding !== nativeArrayHoldingOf(input.selectedNativeFacts.carrierHolding, carrier.kind))
+    || selected.holding !== nativeCarrierHoldingOf(input.selectedNativeFacts.carrierHolding, carrier.kind))
     emit("access-location", node, "an array extent must retain its checked declaration, actual receiver and selected native result");
 }
 

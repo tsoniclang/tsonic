@@ -5,9 +5,10 @@ import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../d
 import type { AppliedSummary, BoundInitializationRow, CaptureBinding, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
 import { admitArtifactIdentity, admitSummaryIdentity, applySummary, bindInitialization, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
-import type { LocalId, OriginsId, PlaceId, ValueContextId } from "../../ids/contract.js";
+import type { LocalId, NodeRef, OriginsId, PlaceId, ValueContextId } from "../../ids/contract.js";
 import { valueContextId } from "../../ids/index.js";
 import type { BodyInstance, Signature } from "../../ir-types/contract.js";
+import type { TirApplication } from "../../ir-tir/contract.js";
 import { bindingVectorKey } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, RoundCallRead, RoundLeast } from "./contract.js";
 import { valueKind } from "./values.js";
@@ -27,6 +28,7 @@ export interface CallError {
 }
 
 export type SelectedCall = Summary | CallError | RoundLeast;
+export type ReadCallApplication = (at: NodeRef) => TirApplication | null;
 
 function isAdmittedLeast(selected: Summary | RoundLeast, least: RoundLeast | null): selected is RoundLeast {
   return selected === least;
@@ -63,7 +65,8 @@ export function scalarArgument(deps: BodyRoundDeps, operation: Extract<MirTermin
 }
 
 export function callSummary(deps: BodyRoundDeps, body: MirBody,
-  operation: Extract<MirTerminator, { readonly kind: "call" }>, answers?: Map<string, RoundCallRead>): DataflowResult<SelectedCall> {
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, source: ReadCallApplication,
+  answers?: Map<string, RoundCallRead>): DataflowResult<SelectedCall> {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
   const admission = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 3);
@@ -201,14 +204,35 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
     || operation.callee.resolution.decision.completion.signature !== signatureId
     || operation.callee.resolution.decision.result !== signature.result))
     return frontier(operation, "A direct call retains its actual selected completion and result association.");
-  if (operation.callee.kind === "direct") for (let index = 0; index < provided; index += 1) {
-    const read = chargeWork(deps.account, 1);
-    if (read !== null) return read;
-    const mapping = operation.callee.resolution.decision.parameters[index];
-    const formal = signature.parameters[index];
-    if (formal?.passing !== "by-value" || mapping?.kind !== "argument" || mapping.parameter !== index
-      || mapping.argument !== index || mapping.component !== null || mapping.passing !== "by-value")
-      return frontier(operation, "BodyAnalysis requires the actual fixed by-value mapping for each selected argument.");
+  if (operation.callee.kind === "direct") {
+    let authored = -1;
+    let component: number | null = null;
+    let application: TirApplication | null = null;
+    for (let index = 0; index < provided; index += 1) {
+      const read = chargeWork(deps.account, 1);
+      if (read !== null) return read;
+      const mapping = operation.callee.resolution.decision.parameters[index];
+      const formal = signature.parameters[index];
+      if (formal?.passing !== "by-value" || mapping?.kind !== "argument" || mapping.parameter !== index || mapping.passing !== "by-value"
+        || !Number.isSafeInteger(mapping.argument) || Object.is(mapping.argument, -0) || mapping.argument < 0
+        || (mapping.argument === authored
+          ? component === null || mapping.component !== component + 1
+          : mapping.argument < authored || mapping.component !== null && !Object.is(mapping.component, 0)))
+        return frontier(operation, "BodyAnalysis requires the actual fixed by-value mapping for each selected argument.");
+      if (mapping.argument !== index || mapping.component !== null) {
+        const use = chargeWork(deps.account, application === null ? 2 : 1);
+        if (use !== null) return use;
+        application ??= source(operation.tir);
+        const stopped = accountFailure(deps.account);
+        if (stopped !== null) return stopped;
+        const selected = application?.callee.decision.parameters[index];
+        if (selected?.kind !== "argument" || selected.parameter !== index || selected.argument !== mapping.argument
+          || selected.component !== mapping.component || selected.passing !== mapping.passing)
+          return frontier(operation, "BodyAnalysis requires the actual fixed by-value mapping for each selected argument.");
+      }
+      authored = mapping.argument;
+      component = mapping.component;
+    }
   }
   if (least) return { kind: "complete", value: selected };
   if (operation.destination !== null && body.places[operation.destination]?.storage !== signature.result)

@@ -6,7 +6,7 @@ import type {
   NarrowedRefinement, OperationDecision, OperatorConstraint, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
-import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayExtentOf, nativeArrayHoldingOf, optionalValueDomainOf, readType } from "../ir-types/index.js";
+import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, readType } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
 import { at as where, callerDefect, notDecidedYet } from "./frontier.js";
@@ -72,7 +72,7 @@ export function decideIndex(deps: RulesDeps, input: IndexInput): IndexDecision {
     return notDecidedYet("an array index without a selected native integer", input.context.origin);
   if (receiver.element !== input.result || (input.access !== "read" && receiver.kind === "array" && receiver.readonly))
     return notDecidedYet("an indexed view other than its selected array storage", input.context.origin);
-  const holding = nativeArrayHoldingOf(deps.selectedNativeFacts.carrierHolding, receiver.kind);
+  const holding = nativeCarrierHoldingOf(deps.selectedNativeFacts.carrierHolding, receiver.kind);
   if (holding === null) return notDecidedYet("an index without its actual selected receiver holding", input.context.origin);
   return { carrier: receiver.kind, holding, receiver: input.receiver.type, key: input.key.type,
     read: input.access === "write" ? null : input.result, write: input.access === "read" ? null : input.result,
@@ -120,7 +120,7 @@ function selectArrayExtent(deps: RulesDeps, constraint: ArrayExtentConstraint, o
   if (receiver.kind !== "array" && receiver.kind !== "fixed-array")
     return notDecidedYet("an extent without its actual native array receiver", null);
   const result = nativeArrayExtentOf(deps.selectedNativeFacts.arrayExtents, receiver.kind);
-  const holding = nativeArrayHoldingOf(deps.selectedNativeFacts.carrierHolding, receiver.kind);
+  const holding = nativeCarrierHoldingOf(deps.selectedNativeFacts.carrierHolding, receiver.kind);
   if (result === null || holding === null) return notDecidedYet("the actual selected native array extent and holding laws", null);
   return { kind: "selected", operation: { kind: "array-extent", declaration: constraint.declaration, holding },
     operands: [selected.type], result: internType(deps.types, { kind: "primitive", primitive: result }), execution: { kind: "pure" } };
