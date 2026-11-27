@@ -5,7 +5,7 @@ import type { BindingPattern, CallExpression, CapturedFact, EnumMember, Expressi
 import type { ArrayExtentConstraint, CallConstraint, DefaultConstraint, FlowConstraint, IndexConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, WrittenOperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
-import { admitTypePublicationStep, compareMemberKeys, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
+import { admitTypePublicationStep, compareMemberKeys, internType, internTypeGraph, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { binaryOperatorOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
@@ -1472,7 +1472,7 @@ function evidenceOf(deps: InferenceInputs, group: InferenceGroup, type: TyId, no
     return { value: { type, component, category: { kind: "known", category: term.kind === "string"
       || term.kind === "literal" && term.value.kind === "string" ? "string" : "boolean" },
       numeric: null, sum: null, nominal: null, pointer: null }, error: null };
-  if (term.kind !== "primitive" || term.primitive !== "float64" && term.primitive !== "int64")
+  if (term.kind !== "primitive" || !isNativeBinaryFloatPrimitive(term.primitive) && !isNativeIntegerPrimitive(term.primitive))
     return notInferredYet(PORT, `evidence of a ${term.kind} type in group ${group.id}`, node.origin);
   const category: CategoryEvidence = { kind: "known", category: "number" };
   return { value: { type, component, category, numeric: component.kind === "body"

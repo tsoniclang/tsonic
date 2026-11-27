@@ -55,9 +55,11 @@ export function chargeWork(work: TypePublicationWork, count: number): boolean {
   return true;
 }
 
-export function admitTypePublicationStep(work: TypePublicationWork, count = 1): TypePublicationStop | null {
-  if (!Number.isSafeInteger(count) || count < 0) throw new TypeError("Types work admission expects a nonnegative safe count.");
-  return chargeWork(work, count) ? null : workLimit(work);
+export function admitTypePublicationStep(work: TypePublicationWork, count = 1, retained = 0): TypePublicationStop | null {
+  if (!Number.isSafeInteger(count) || count < 0 || !Number.isSafeInteger(retained) || retained < 0)
+    throw new TypeError("Types work admission expects nonnegative safe counts.");
+  if (!chargeWork(work, count)) return workLimit(work);
+  return retained === 0 || chargeCreated(work, retained) ? null : createdLimit(work);
 }
 
 export function publicationAdmission(work: TypePublicationWork): {

@@ -34,7 +34,7 @@ function fail(message: string): never {
 }
 
 export function candidateReplayOf<State>(deps: ElaborateDeps<State>, account: DataflowAccount, checked: HirBody, instance: BodyInstance,
-  declaredSignature: (request: SignatureRequest) => Result<Signature>): ReplayTirCandidate {
+  declaredSignature: (request: SignatureRequest) => Result<Signature>, unit: UnitRequest): ReplayTirCandidate {
   return (input, result) => {
     const header = chargeWork(account, 1);
     if (header !== null) return header;
@@ -104,7 +104,8 @@ export function candidateReplayOf<State>(deps: ElaborateDeps<State>, account: Da
     const { id } = selected.value;
     if (selected.value.declaration !== candidate.declaration || selected.value.result !== result)
       return fail("A replayed candidate must retain the independently selected result and declaration.");
-    const settled = deps.rules.candidate({ ...input, candidates: [{ ...candidate, advertisedSignature: id, apiSignature: id }] });
+    const settled = deps.rules.candidate({ ...input, candidates: [{ ...candidate, advertisedSignature: id, apiSignature: id }] },
+      { typeWork: deps.typeWork, unit });
     if (settled.kind === "refused") return settled;
     if (settled.value.kind !== "decided" || settled.value.decision.result !== result)
       return fail("A bound candidate must produce a completed selected application.");

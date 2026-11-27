@@ -649,6 +649,7 @@ export interface FinalizationInput {
 }
 
 export interface BoundCheckInput {
+  readonly origin: Origin;
   readonly variable: InferenceVariable;
   readonly final: InferenceValue;
   readonly bound: VariableBound;
@@ -659,9 +660,14 @@ export type BoundCheckOutcome =
   | { readonly kind: "satisfied"; readonly embedding: EmbeddingDecision }
   | { readonly kind: "refused"; readonly reason: "signature-use-demand" | "conflicting-destinations" | "accumulator-widening" | "binder-constraint" | "literal-inexact" };
 
+export interface RuleWork {
+  readonly typeWork: TypePublicationWork;
+  readonly unit: UnitRequest;
+}
+
 export interface VariableRule {
   readonly finalize: (input: FinalizationInput) => Result<InferenceValue>;
-  readonly check: (input: BoundCheckInput) => Result<BoundCheckOutcome>;
+  readonly check: (input: BoundCheckInput, work: RuleWork) => Result<BoundCheckOutcome>;
 }
 
 export interface EnumerationInput<ConstraintKind extends Constraint> {
@@ -760,6 +766,11 @@ export interface ConstraintScheme<ConstraintKind extends Constraint> {
   readonly evaluate: (input: ContributionEvaluation<ConstraintKind>) => Result<ContributionOutcome>;
 }
 
+export interface PaidConstraintScheme<ConstraintKind extends Constraint> {
+  readonly enumerate: (input: EnumerationInput<ConstraintKind>) => Result<readonly AtomicContribution[]>;
+  readonly evaluate: (input: ContributionEvaluation<ConstraintKind> & { readonly origin: Origin }, work: RuleWork) => Result<ContributionOutcome>;
+}
+
 export interface IndexContributionScheme {
   readonly enumerate: (input: EnumerationInput<IndexConstraint>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<IndexConstraint> & { readonly origin: Origin }) => Result<ContributionOutcome>;
@@ -767,21 +778,21 @@ export interface IndexContributionScheme {
 
 export interface ConstructionContributionScheme {
   readonly enumerate: (input: EnumerationInput<LiteralConstructionConstraint>) => Result<readonly AtomicContribution[]>;
-  readonly evaluate: (input: ContributionEvaluation<LiteralConstructionConstraint> & {
-    readonly origin: Origin; readonly bindings: BindingVector; readonly typeWork: TypePublicationWork; readonly unit: UnitRequest;
+  readonly evaluate: (input: ContributionEvaluation<LiteralConstructionConstraint> & RuleWork & {
+    readonly origin: Origin; readonly bindings: BindingVector;
   }) => Result<ContributionOutcome>;
 }
 
 export interface CallContributionScheme {
   readonly enumerate: (input: EnumerationInput<CallConstraint>) => Result<readonly AtomicContribution[]>;
-  readonly evaluate: (input: ContributionEvaluation<CallConstraint> & { readonly origin: Origin;
-    readonly scope: BindingScope; readonly typeWork: TypePublicationWork; readonly unit: UnitRequest }) => Result<ContributionOutcome>;
+  readonly evaluate: (input: ContributionEvaluation<CallConstraint> & RuleWork & { readonly origin: Origin;
+    readonly scope: BindingScope }) => Result<ContributionOutcome>;
 }
 
 export interface ConstraintSchemes<State> {
   readonly eq: ConstraintScheme<EqualityConstraint>;
-  readonly flow: ConstraintScheme<FlowConstraint>;
-  readonly literal: ConstraintScheme<LiteralConstraint>;
+  readonly flow: PaidConstraintScheme<FlowConstraint>;
+  readonly literal: PaidConstraintScheme<LiteralConstraint>;
   readonly op: ConstraintScheme<OperatorConstraint>;
   readonly member: MemberContributionScheme<State>;
   readonly index: IndexContributionScheme;
@@ -804,16 +815,16 @@ export interface VariableRules {
 export interface RuleTable<State> {
   readonly decideCaptureModes: (input: readonly CaptureModeEvidence[]) => Result<readonly CaptureRow[]>;
   readonly checkThrowOperandUse: (input: ThrowOperandUseInput) => Result<null>;
-  readonly embed: (input: EmbedInput) => Result<RuleOutcome<EmbeddingDecision>>;
+  readonly embed: (input: EmbedInput, work: RuleWork) => Result<RuleOutcome<EmbeddingDecision>>;
   readonly domainFit: (input: DomainFitInput) => Result<RuleOutcome<boolean>>;
   readonly memoryEquivalent: (input: MemoryEquivalentInput) => Result<RuleOutcome<boolean>>;
   readonly member: (input: MemberInput, storage: SourceObjectField | null) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly resumeMember: (state: State, answers: readonly MemberRuleAnswer[]) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly index: (input: IndexInput) => Result<RuleOutcome<IndexDecision>>;
-  readonly constructLiteral: (input: LiteralConstructionInput, typeWork: TypePublicationWork, unit: UnitRequest) => Result<RuleOutcome<OperationDecision>>;
-  readonly candidate: (input: CandidateInput) => Result<RuleOutcome<ApplicationDecision>>;
+  readonly constructLiteral: (input: LiteralConstructionInput, work: RuleWork) => Result<RuleOutcome<OperationDecision>>;
+  readonly candidate: (input: CandidateInput, work: RuleWork) => Result<RuleOutcome<ApplicationDecision>>;
   readonly operator: (input: OperatorInput) => Result<RuleOutcome<OperationDecision>>;
-  readonly literalFit: (input: LiteralFitInput) => Result<RuleOutcome<EmbeddingDecision>>;
+  readonly literalFit: (input: LiteralFitInput, work: RuleWork) => Result<RuleOutcome<EmbeddingDecision>>;
   readonly protocol: (input: ProtocolInput) => Result<RuleOutcome<OperationDecision>>;
   readonly refinement: (input: RefinementInput) => Result<RuleOutcome<RefinementDecision>>;
   readonly library: (input: LibraryInput) => Result<RuleOutcome<OperationDecision>>;

@@ -1280,11 +1280,12 @@ test("a native callable value cannot substitute the checked endpoint signature f
     callee: callee.value, receiver: null, typeArguments: [], arguments: [], candidates: [{ ordinal: candidate.ordinal,
       declaration: candidate.declaration, ...actual, bindings: candidate.bindings.value, conditionalFailure: null }] };
   const rules = program.inputs.inference.rules;
-  const chosen = rules.candidate(input);
+  const work = { typeWork: program.inputs.inference.typeWork, unit: { query: "solutionOf", key: group.id } };
+  const chosen = rules.candidate(input, work);
   assert.equal(chosen.kind, "ok");
   assert.equal(chosen.value.decision.completion.signature, actual.apiSignature);
   const checkedOnly = insertFixtureType(fixture.types, program.interner, { kind: "callable", calls: [actual.api.signature], constructs: [] });
-  assert.throws(() => rules.candidate({ ...input, callee: { ...input.callee, type: checkedOnly } }),
+  assert.throws(() => rules.candidate({ ...input, callee: { ...input.callee, type: checkedOnly } }, work),
     error => error.cause?.owner === "rules" && error.message.includes("actual callable value signature"));
 });
 
@@ -2382,10 +2383,28 @@ test("an empty source object has a checked zero-part construction, not an empty 
   assert.deepEqual(irInfer.parseConstraints(irInfer.printConstraints(set)), { kind: "parsed", value: set });
 });
 
-test("checked primitive annotations retain their selected provider carrier, not the shared checker number", async () => {
+async function nativeInt32Input(sourceText, selected) {
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const source = 'import type { int32 as Native } from "native-fixture";\n' + sourceText;
+  const root = "/project/node_modules/native-fixture";
+  const reference = { package: fixture.packageOf("/semantics"), version: "1", moduleSpecifier: "./plugin.js", exportId: "semantics" };
+  const semantics = { moduleSpecifier: "native-fixture", packageName: "native-fixture", packageVersion: "1.0.0",
+    capabilities: ["primitive"], exports: [fixture.sdk.sourcePrimitive("int32", "int32", "number", true, 32)] };
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    providerPackages: [{ root: "/semantics", name: "semantics" }], semanticModules: selected ? [reference] : [],
+    otherPackages: [{ root, name: "native-fixture", modules: { "index.d.ts": ["declaration", "export type int32 = number;", true] } }],
+    extraFiles: { [root + "/package.json"]: '{"name":"native-fixture","version":"1.0.0","types":"index.d.ts"}' } });
+  const extensions = fixture.front.createCheckerExtensions(selected ? [{ reference, value: { kind: "semantics-module", value: semantics } }] : []);
+  const carrierHolding = [...snapshot.nativeFacts.carrierHolding, { carrier: "int32", holding: "in-place" },
+    { carrier: "tuple", holding: "in-place" }].sort((left, right) => left.carrier < right.carrier ? -1 : 1);
+  return { ...analysisInput(fixture, "sdk-minimal", source), extensions,
+    snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts, carrierHolding } } };
+}
+
+test("checked primitive annotations retain their selected provider carrier, not the shared checker number", async () => {
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
-  const sourceText = `import type { int32 as Native } from "native-fixture";
+  const sourceText = `
 type int32 = number;
 export type Qualified = Native;
 export type Shadowed = int32;
@@ -2394,21 +2413,11 @@ export type Bracketed = Native[];
 export type Named = Array<Native>;
 export type Optional = Native | undefined;
 export function identity(value: Native): Native { return value; }`;
-  const root = "/project/node_modules/native-fixture";
-  const reference = { package: fixture.packageOf("/semantics"), version: "1", moduleSpecifier: "./plugin.js", exportId: "semantics" };
-  const semantics = { moduleSpecifier: "native-fixture", packageName: "native-fixture", packageVersion: "1.0.0",
-    capabilities: ["primitive"], exports: [fixture.sdk.sourcePrimitive("int32", "int32", "number", true, 32)] };
-  const inputs = analysisInput(fixture, "sdk-minimal", sourceText);
   for (const selected of [true, false]) {
-    const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": sourceText },
-      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
-      providerPackages: [{ root: "/semantics", name: "semantics" }], semanticModules: selected ? [reference] : [],
-      otherPackages: [{ root, name: "native-fixture", modules: { "index.d.ts": ["declaration", "export type int32 = number;", true] } }],
-      extraFiles: { [root + "/package.json"]: '{"name":"native-fixture","version":"1.0.0","types":"index.d.ts"}' } });
-    const extensions = fixture.front.createCheckerExtensions(selected ? [{ reference, value: { kind: "semantics-module", value: semantics } }] : []);
-    const captured = captureSourceBarrier({ ...inputs, snapshot, extensions });
+    const inputs = await nativeInt32Input(sourceText, selected);
+    const captured = captureSourceBarrier(inputs);
     assert.equal(captured.kind, "ok");
-    const checked = captured.value.modules.find(row => row.module.module === snapshot.entryPoint).module;
+    const checked = captured.value.modules.find(row => row.module.module === inputs.snapshot.entryPoint).module;
     assert.deepEqual(checked.checkerDiagnostics, []);
     const [, qualified, shadowed, ordinary, bracketed, named, optional] = checked.tree.statements.nodes.filter(node => node.kind === "TypeAliasDeclaration");
     const carrier = declaration => {
@@ -2430,6 +2439,37 @@ export function identity(value: Native): Native { return value; }`;
     assert.equal(signature.result, identity.type.tsonic.type.value);
     assert.equal(signature.parameters[0].type, identity.parameters.nodes[0].type.tsonic.type.value);
     assert.deepEqual(fixture.types.readType(captured.value.types, signature.result), carrier(qualified));
+  }
+});
+
+test("native tuple construction materializes exact integer constants without a floating conversion", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const pair = value => `export function pair(): [Native, Native] { return [${value}, 2]; }`;
+  const input = await nativeInt32Input(pair("2147483647"), true);
+  const program = analyzeHostProgram(input);
+  assert.equal(program.kind, "ok");
+  const chapter = program.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0]?.expression?.kind === "ArrayLiteralExpression");
+  assert.ok(body);
+  const statements = body.mir.blocks.flatMap(block => block.statements);
+  assert.equal(statements.some(row => row.kind === "assign" && row.value.kind === "convert"), false);
+  const aggregate = statements.find(row => row.kind === "assign" && row.value.kind === "aggregate");
+  assert.equal(aggregate.value.aggregate.kind, "tuple");
+  const integers = aggregate.value.aggregate.elements.map(operand => {
+    assert.equal(operand.kind, "constant");
+    const { type, value } = body.mir.constants[operand.constant];
+    assert.deepEqual(program.value.index.types.terms[type], { kind: "primitive", primitive: "int32" });
+    assert.equal(value.kind, "literal");
+    assert.equal(value.value.kind, "number");
+    assert.equal(value.value.value.denominator, 1n);
+    return value.value.value.numerator;
+  });
+  assert.deepEqual(integers, [2147483647n, 2n]);
+  for (const value of ["2147483648", "1.5"]) {
+    const refused = analyzeHostProgram(await nativeInt32Input(pair(value), true));
+    assert.equal(refused.kind, "refused", value);
+    assert.deepEqual(refused.diagnostics.map(row => row.code.rendered), ["TSONIC_CONSTRUCTION_PART_FIT"]);
   }
 });
 

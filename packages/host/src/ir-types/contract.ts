@@ -146,7 +146,7 @@ export interface TypePublication {
   readonly signatures: readonly SigId[];
 }
 export type CreateTypePublicationWork = (limits: TypePublicationLimits) => TypePublicationWork;
-export type AdmitTypePublicationStep = (work: TypePublicationWork, count?: number) => TypePublicationStop | null;
+export type AdmitTypePublicationStep = (work: TypePublicationWork, count?: number, retained?: number) => TypePublicationStop | null;
 export type RefuseTypeConstruction = (work: TypePublicationWork, stop: TypePublicationStop, origin: Origin, request: UnitRequest) =>
   Extract<Result<never>, { readonly kind: "refused" }>;
 export type TypePublicationRefusalOf = (work: TypePublicationWork) =>

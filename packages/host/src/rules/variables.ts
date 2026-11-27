@@ -22,7 +22,7 @@ export function localVariableRule(deps: RulesDeps): VariableRule {
       validateValue(deps, final);
       return { kind: "ok", value: final, diagnostics: [] };
     },
-    check: input => {
+    check: (input, work) => {
       validateValue(deps, input.final);
       validateValue(deps, input.bound);
       const error = mergeErrors([input.final, input.bound]);
@@ -30,9 +30,10 @@ export function localVariableRule(deps: RulesDeps): VariableRule {
       const value = input.bound.value;
       const final = input.final.value;
       const embedding = input.bound.kind === "producer"
-        ? decideEmbedding(deps, value, final, "bound", input.variable.occurrence, null)
-        : decideEmbedding(deps, final, value, "bound", input.variable.occurrence, null);
-      const outcome: BoundCheckOutcome = { kind: "satisfied", embedding };
+        ? decideEmbedding(deps, value, final, "bound", input.variable.occurrence, input.origin, work)
+        : decideEmbedding(deps, final, value, "bound", input.variable.occurrence, input.origin, work);
+      if (embedding.kind === "refused") return embedding;
+      const outcome: BoundCheckOutcome = { kind: "satisfied", embedding: embedding.value };
       return { kind: "ok", value: outcome, diagnostics: [] };
     },
   };
@@ -87,7 +88,7 @@ export function signatureVariableRule(deps: RulesDeps): VariableRule {
       validateValue(deps, value);
       return { kind: "ok", value, diagnostics: [] };
     },
-    check: input => {
+    check: (input, work) => {
       validateValue(deps, input.final);
       validateValue(deps, input.bound);
       const error = mergeErrors([input.final, input.bound]);
@@ -95,9 +96,10 @@ export function signatureVariableRule(deps: RulesDeps): VariableRule {
       if (input.bound.kind === "demand" && input.bound.value.type !== input.final.value.type)
         return { kind: "ok", value: { kind: "refused", reason: "signature-use-demand" }, diagnostics: [] };
       const embedding = input.bound.kind === "producer"
-        ? decideEmbedding(deps, input.bound.value, input.final.value, "bound", input.variable.occurrence, null)
-        : decideEmbedding(deps, input.final.value, input.bound.value, "bound", input.variable.occurrence, null);
-      return { kind: "ok", value: { kind: "satisfied", embedding }, diagnostics: [] };
+        ? decideEmbedding(deps, input.bound.value, input.final.value, "bound", input.variable.occurrence, input.origin, work)
+        : decideEmbedding(deps, input.final.value, input.bound.value, "bound", input.variable.occurrence, input.origin, work);
+      return embedding.kind === "refused" ? embedding
+        : { kind: "ok", value: { kind: "satisfied", embedding: embedding.value }, diagnostics: [] };
     },
   };
 }

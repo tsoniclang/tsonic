@@ -1,5 +1,6 @@
-import type { ApplicationDecision, CandidateInput, CallConstraint, CallContributionScheme, ConstraintDecision, InferenceCandidateList, InferenceValue, ParameterMapping } from "../ir-infer/contract.js";
-import { admitTypePublicationStep, hasLexicalTypeDependency, internType, optionalValueDomainOf, readSignature, readType, refuseTypeConstruction, rigidBindings } from "../ir-types/index.js";
+import type { ApplicationDecision, CandidateInput, CallConstraint, CallContributionScheme, ConstraintDecision, InferenceCandidateList, InferenceValue, ParameterMapping, RuleWork } from "../ir-infer/contract.js";
+import { admitTypePublicationStep, hasLexicalTypeDependency, internType, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf,
+  readSignature, readType, refuseTypeConstruction, rigidBindings } from "../ir-types/index.js";
 import type { Origin } from "../ids/contract.js";
 import type { Result } from "../diag/contract.js";
 import type { Signature } from "../ir-types/contract.js";
@@ -11,9 +12,11 @@ import { mergeErrors } from "./errors.js";
 import { variableOf } from "./schemes.js";
 import { embeddingForm } from "./embed.js";
 
-export function decideCandidate(deps: RulesDeps, input: CandidateInput): Result<ApplicationDecision> {
+export function decideCandidate(deps: RulesDeps, input: CandidateInput, work: RuleWork): Result<ApplicationDecision> {
   const { origin } = input.context;
-  return completeCandidate(deps, input, originalCandidate(deps, input, origin), origin, null);
+  const stopped = admitTypePublicationStep(work.typeWork, 0);
+  if (stopped !== null) return refuseTypeConstruction(work.typeWork, stopped, origin, work.unit);
+  return completeCandidate(deps, input, originalCandidate(deps, input, origin), origin, null, work);
 }
 
 interface PreparedCandidate {
@@ -69,7 +72,7 @@ function* fixedOperands(deps: RulesDeps, input: Omit<CandidateInput, "context">,
 }
 
 function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context">, ready: PreparedCandidate, origin: Origin,
-  checkedArguments: CallConstraint["application"]["arguments"] | null): Result<ApplicationDecision> {
+  checkedArguments: CallConstraint["application"]["arguments"] | null, work: RuleWork): Result<ApplicationDecision> {
   const { candidate, signature, original } = ready;
   const parameters: ParameterMapping[] = [];
   const supplied = fixedOperands(deps, input, origin);
@@ -103,12 +106,15 @@ function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
       if (checked === undefined || readType(deps.types, checked.type).kind === "open")
         return notDecidedYet("the actual inferred argument embedding contribution", origin);
     }
-    const form = embeddingForm(deps, argument.value.type, parameter.type);
-    if (form === "incompatible-domain") {
+    const form = embeddingForm(deps, argument.value.type, parameter.type, work);
+    if (form !== null && typeof form !== "string") return refuseTypeConstruction(work.typeWork, form, origin, work.unit);
+    if (form === "incompatible-domain" || form === "lossy-numeric") {
       const code = hostDiagnosticCode("TSONIC_NO_APPLICABLE_NATIVE_CANDIDATE");
       return { kind: "refused", diagnostics: [{
         code: { kind: "host", name: code, rendered: code }, severity: "error", site: { kind: "source", origin },
-        source: "rules", evidence: [], message: "No native call candidate accepts supplied absence for this Boolean parameter.",
+        source: "rules", evidence: [], message: form === "incompatible-domain"
+          ? "No native call candidate accepts supplied absence for this Boolean parameter."
+          : "The supplied literal does not fit the selected native integer parameter.",
         arguments: [], related: [], fix: null,
       }] };
     }
@@ -233,7 +239,8 @@ export function callScheme(deps: RulesDeps): CallContributionScheme {
       const evidence: InferenceValue = { value: { type, component: { kind: "body", value: constraint.occurrence },
         category: optional?.kind === "optional-value" ? optional.category
           : term.kind === "primitive" && term.primitive === "bool" ? { kind: "known", category: "boolean" }
-          : term.kind === "primitive" && term.primitive === "float64" ? { kind: "known", category: "number" }
+          : term.kind === "primitive" && (isNativeIntegerPrimitive(term.primitive) || isNativeBinaryFloatPrimitive(term.primitive))
+            ? { kind: "known", category: "number" }
           : term.kind === "string" ? { kind: "known", category: "string" }
           : term.kind === "intrinsic" && term.intrinsic === "absence" ? { kind: "known", category: "absence" }
           : { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error: null };
@@ -261,7 +268,7 @@ export function callScheme(deps: RulesDeps): CallContributionScheme {
         input: { ...operands, context: { occurrence: constraint.occurrence, origin: input.origin, bindings: rigidBindings(scope) } },
       } } };
       else {
-        const selected = completeCandidate(deps, operands, prepared, input.origin, constraint.application.arguments);
+        const selected = completeCandidate(deps, operands, prepared, input.origin, constraint.application.arguments, input);
         if (selected.kind === "refused") return selected;
         outcome = { kind: "call", application: selected.value, operation: null };
       }

@@ -52,19 +52,25 @@ export const createRuleTable: CreateRuleTable = deps => {
   return {
     decideCaptureModes: input => decideCaptureModes(deps, input),
     checkThrowOperandUse: input => checkThrowOperandUse(deps, input),
-    embed: input => decided(decideEmbedding(deps, input.from, input.to, input.role, input.context.occurrence, input.context.origin)),
+    embed: (input, work) => {
+      const selected = decideEmbedding(deps, input.from, input.to, input.role, input.context.occurrence, input.context.origin, work);
+      return selected.kind === "refused" ? selected : decided(selected.value);
+    },
     domainFit: atContext("domain-fit"),
     memoryEquivalent: atContext("memory-equivalent"),
     member,
     resumeMember,
     index: input => decided(decideIndex(deps, input)),
-    constructLiteral: (input, work, unit) => constructLiteral(deps, input, work, unit),
-    candidate: input => {
-      const selected = decideCandidate(deps, input);
+    constructLiteral: (input, work) => constructLiteral(deps, input, work),
+    candidate: (input, work) => {
+      const selected = decideCandidate(deps, input, work);
       return selected.kind === "refused" ? selected : decided(selected.value);
     },
     operator: input => decided(decideOperator(deps, input.operator, input.operands, input.context.occurrence, input.context.origin)),
-    literalFit: input => decided(decideLiteralFit(deps, input.literal, input.destination.type, input.context.origin)),
+    literalFit: (input, work) => {
+      const selected = decideLiteralFit(deps, input.literal, input.destination.type, input.context.origin, work);
+      return selected.kind === "refused" ? selected : decided(selected.value);
+    },
     protocol: atContext("protocol"),
     refinement: input => {
       if (input.source.type === input.checked.type) return decided({ kind: "identity", type: input.source.type });

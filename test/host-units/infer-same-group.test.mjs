@@ -309,9 +309,11 @@ test("an actual numeric assignment selects against ready native storage without 
   const program = ready("export let value = 1; value = (9_007_199_254_740_993);");
   const scheme = program.deps.rules.constraints.literal;
   let evaluation;
-  const literal = { ...scheme, evaluate: input => {
+  let admission;
+  const literal = { ...scheme, evaluate: (input, work) => {
     evaluation = input;
-    return scheme.evaluate(input);
+    admission = work;
+    return scheme.evaluate(input, work);
   } };
   const traced = { ...program, deps: { ...program.deps, rules: { ...program.deps.rules,
     constraints: { ...program.deps.rules.constraints, literal } } } };
@@ -328,11 +330,29 @@ test("an actual numeric assignment selects against ready native storage without 
   assert.deepEqual(contribution.bounds, []);
   assert.deepEqual(record.solution.constraints.find(row => row.decision.kind === "literal").decision,
     { kind: "literal", embedding: { kind: "identity" } });
-  assert.throws(() => scheme.evaluate({ ...evaluation, evidence: [] }), /one actual destination evidence/);
-  const selected = program.deps.rules.literalFit({ context: { occurrence: constraint.occurrence, origin: authored.origin,
+  assert.throws(() => scheme.evaluate({ ...evaluation, evidence: [] }, admission), /one actual destination evidence/);
+  const input = { context: { occurrence: constraint.occurrence, origin: authored.origin,
     bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
-  literal: constraint.value, destination: destination.value });
+    literal: constraint.value, destination: destination.value };
+  const selected = program.deps.rules.literalFit(input, admission);
   assert.deepEqual(selected.value, { kind: "decided", decision: { kind: "identity" } });
+  const exactFitWork = 4 + 3 * 64;
+  const exactFitEntries = 3 + 3 * 64;
+  for (const dimension of ["work", "created-records"]) {
+    const limited = { unit: admission.unit, typeWork: fixture.types.createTypePublicationWork({
+      maximumWork: dimension === "work" ? exactFitWork - 1 : exactFitWork,
+      maximumCreatedRecords: dimension === "created-records" ? exactFitEntries - 1 : exactFitEntries,
+    }) };
+    const stopped = program.deps.rules.literalFit(input, limited);
+    assert.equal(stopped.kind, "refused");
+    assert.equal(stopped, fixture.types.typePublicationRefusalOf(limited.typeWork));
+    assert.equal(program.deps.rules.literalFit(input, limited), stopped);
+    assert.equal(stopped.diagnostics[0].site.origin, authored.origin);
+  }
+  const exact = { unit: admission.unit, typeWork: fixture.types.createTypePublicationWork({
+    maximumWork: exactFitWork, maximumCreatedRecords: exactFitEntries,
+  }) };
+  assert.deepEqual(program.deps.rules.literalFit(input, exact), selected);
 });
 
 test("native index Rules use the solved key, reached access and carrier's own bounds failure", () => {
@@ -734,7 +754,9 @@ test("constructed call result categories retain the selected native carrier with
     [{ kind: "primitive", primitive: "float64" }, { kind: "known", category: "number" }],
     [{ kind: "string" }, { kind: "known", category: "string" }],
     [{ kind: "intrinsic", intrinsic: "absence" }, { kind: "known", category: "absence" }],
-    ...["char", "int32", "float32", "decimal"].map(primitive =>
+    ...["int32", "float32"].map(primitive =>
+      [{ kind: "primitive", primitive }, { kind: "known", category: "number" }]),
+    ...["char", "decimal"].map(primitive =>
       [{ kind: "primitive", primitive }, { kind: "dynamic" }]),
   ];
   for (const [term, category] of cases) {

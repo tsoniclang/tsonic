@@ -233,7 +233,8 @@ function finishVariable<State>(frame: Frame<State>, index: number): Step<State> 
   variables[variable.id] = { variable: variable.id, ...finalized.value };
   positions.push({ position: { kind: "inference-variable", group: group.id, variable: variable.id }, error: finalized.value.error });
   for (const { bound, flow } of own) {
-    const checked = rule.check({ variable, final: finalized.value, bound });
+    const source = present(deps.checkedNodeOf({ kind: "body", value: bound.contribution.node }) ?? undefined, "the actual bound source");
+    const checked = rule.check({ origin: source.origin, variable, final: finalized.value, bound }, { typeWork: deps.typeWork, unit: frame.unit });
     if (checked.kind === "refused") return refused(...checked.diagnostics);
     diagnostics.push(...checked.diagnostics);
     checks.push({ variable: variable.id, contribution: bound.contribution, bound, outcome: checked.value });
@@ -490,8 +491,14 @@ function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
     }
     case "index": return deps.rules.constraints.index.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin });
     case "op": return deps.rules.constraints.op.evaluate({ ...common, constraint: item.reached.constraint });
-    case "flow": return deps.rules.constraints.flow.evaluate({ ...common, constraint: item.reached.constraint });
-    case "literal": return deps.rules.constraints.literal.evaluate({ ...common, constraint: item.reached.constraint });
+    case "flow": case "literal": {
+      const reached = item.reached;
+      const source = present(deps.checkedNodeOf({ kind: "body", value: reached.constraint.occurrence }) ?? undefined, "the actual selected operand source");
+      const input = { ...common, origin: source.origin };
+      const work = { typeWork: deps.typeWork, unit };
+      return reached.kind === "flow" ? deps.rules.constraints.flow.evaluate({ ...input, constraint: reached.constraint }, work)
+        : deps.rules.constraints.literal.evaluate({ ...input, constraint: reached.constraint }, work);
+    }
     case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin,
       scope: item.reached.scope, typeWork: deps.typeWork, unit });
     case "construct-literal": return deps.rules.constraints.constructLiteral.evaluate({ ...common, constraint: item.reached.constraint,

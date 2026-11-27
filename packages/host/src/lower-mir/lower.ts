@@ -9,6 +9,7 @@ import type { TirBody, TirEnumResolution, TirLocal, TypedBinary, TypedOperation,
 import { layoutObservationOf, rawValueTypeOf as rawType } from "../ir-tir/index.js";
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { CheckFailure } from "../ir-types/contract.js";
+import { isNativeIntegerPrimitive } from "../ir-types/index.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { CheckedWrite, ControlScope, Discard, Evaluated, FieldReceiver, Lowering, Work } from "./model.js";
 import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf, workNode } from "./model.js";
@@ -330,6 +331,10 @@ function value(lowering: Lowering, payload: TypedValue, node: NodeHeader): void 
     case "deferred": return callerDefect("a deferred conversion", node.origin);
   }
   if (payload.narrowing !== null && payload.narrowing.kind === "narrowed") lowering.work.push({ kind: "narrow", node, narrowing: payload.narrowing });
+  checkDemand(lowering, payload, node);
+}
+
+function checkDemand(lowering: Lowering, payload: TypedValue, node: NodeHeader): void {
   if (payload.demand.kind !== "always" && (payload.demand.kind === "never"
     || lowering.selections.get(payload.demand.control) !== payload.demand.when))
     return notLoweredYet("a value demanded under a selection", node.origin);
@@ -356,12 +361,28 @@ function layoutOperand(lowering: Lowering, node: NodeHeader, payload: TypedValue
 }
 
 function literal(lowering: Lowering, node: NodeHeader, payload: TypedValue, selected: LiteralValue): boolean {
-  value(lowering, payload, node);
+  let storage = rawType(payload);
+  const conversion = payload.conversion;
+  const plan = conversion.kind === "convert" ? conversion.operation : null;
+  const operation = plan?.decision.operation;
+  if ((selected.kind === "number" || selected.kind === "bigint") && payload.narrowing === null && plan !== null
+    && operation?.kind === "conversion" && operation.embedding.kind === "conversion" && operation.embedding.conversion === "literal-fit") {
+    const target = lowering.typeOf(payload.convertedType);
+    if (target.kind === "primitive" && isNativeIntegerPrimitive(target.primitive)) {
+      const { decision, permissionScope } = plan;
+      if (decision.execution.kind !== "pure" || operation.embedding.check.kind !== "none" || permissionScope !== null
+        || operation.from !== storage || operation.to !== payload.convertedType
+        || decision.result !== payload.convertedType || decision.operands.length !== 1 || decision.operands[0] !== storage)
+        return callerDefect("an integer literal must retain its actual pure materialization", node.origin);
+      checkDemand(lowering, payload, node);
+      storage = payload.convertedType;
+    } else value(lowering, payload, node);
+  } else value(lowering, payload, node);
   if (lowering.work.at(-1)?.kind === "discard") {
     lowering.work.pop();
     return true;
   }
-  return pushLiteral(lowering, node, rawType(payload), selected);
+  return pushLiteral(lowering, node, storage, selected);
 }
 
 function pushLiteral(lowering: Lowering, node: NodeHeader, storage: TyId, selected: LiteralValue): boolean {

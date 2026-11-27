@@ -4,7 +4,7 @@ import type {
   ApplicationDecision, CandidateInput, CaptureModeEvidence, CaptureRow, ClosureDecision, ClosureInput, CoreInput, DomainFitInput, EmbedInput,
   EmbeddingDecision, IndexDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralFitInput,
   MemoryEquivalentInput, OperationDecision, OperatorInput,
-  ProtocolInput, RefinementDecision, RefinementInput, RuleOutcome, RuleTable, TypePatternMatchOutcome,
+  ProtocolInput, RefinementDecision, RefinementInput, RuleOutcome, RuleTable, RuleWork, TypePatternMatchOutcome,
 } from "../ir-infer/contract.js";
 import type { Libraries } from "../libraries/contract.js";
 import type { MemberSuspension } from "./member-pause.js";
@@ -21,6 +21,7 @@ export interface RulesDeps {
 export type Embed = (
   deps: RulesDeps,
   input: EmbedInput,
+  work: RuleWork,
 ) => Result<RuleOutcome<EmbeddingDecision>>;
 
 export type DomainFit = (
@@ -44,11 +45,13 @@ export type LookupIndex = (
 export type ConstructLiteral = (
   deps: RulesDeps,
   input: LiteralConstructionInput,
+  work: RuleWork,
 ) => Result<RuleOutcome<OperationDecision>>;
 
 export type DecideCandidate = (
   deps: RulesDeps,
   input: CandidateInput,
+  work: RuleWork,
 ) => Result<RuleOutcome<ApplicationDecision>>;
 
 export type Operators = (
@@ -59,6 +62,7 @@ export type Operators = (
 export type LiteralFit = (
   deps: RulesDeps,
   input: LiteralFitInput,
+  work: RuleWork,
 ) => Result<RuleOutcome<EmbeddingDecision>>;
 
 export type Protocols = (

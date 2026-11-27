@@ -3,7 +3,7 @@ import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
   AtomicContribution, ConstraintScheme, ContributionKey, ContributionOutcome, FlowConstraint, InferenceValue,
   ArrayExtentConstraint, IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
-  NarrowedRefinement, OperationDecision, OperatorConstraint, RuleTable, VariableBound,
+  NarrowedRefinement, OperationDecision, OperatorConstraint, PaidConstraintScheme, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
 import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, readType } from "../ir-types/index.js";
@@ -322,7 +322,7 @@ function memberScheme(deps: RulesDeps, owner: MemberOwner): MemberContributionSc
   };
 }
 
-export function flowScheme(deps: RulesDeps): ConstraintScheme<FlowConstraint> {
+export function flowScheme(deps: RulesDeps): PaidConstraintScheme<FlowConstraint> {
   return {
     enumerate: input => {
       const value = input.constraint;
@@ -338,7 +338,7 @@ export function flowScheme(deps: RulesDeps): ConstraintScheme<FlowConstraint> {
       return one({ node: value.occurrence, candidate: null, role: { kind: "flow" } },
         from === null ? [] : [from], to === null || from === to ? [] : [to], input.reference);
     },
-    evaluate: input => {
+    evaluate: (input, work) => {
       const value = input.constraint;
       const [fromEvidence, toEvidence] = positions(deps, input.evidence, [value.from, value.to], value.occurrence);
       const from = variableOf(deps, value.from, value.occurrence, null);
@@ -357,8 +357,9 @@ export function flowScheme(deps: RulesDeps): ConstraintScheme<FlowConstraint> {
       const error = mergeErrors([source, toEvidence]);
       if (error !== null) return ok({ bounds: [], decision: { kind: "error", error }, selectedCandidate: null });
       const embedding = decideEmbedding(deps, { ...source.value, component: fromEvidence.value.component }, toEvidence.value,
-        value.role, value.occurrence, null);
-      return ok({ bounds: [], decision: { kind: "flow", embedding }, selectedCandidate: null });
+        value.role, value.occurrence, input.origin, work);
+      return embedding.kind === "refused" ? embedding
+        : ok({ bounds: [], decision: { kind: "flow", embedding: embedding.value }, selectedCandidate: null });
     },
   };
 }
