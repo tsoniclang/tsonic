@@ -337,6 +337,61 @@ test("a finite spread of a checked tuple literal constructs its one product befo
   }
 });
 
+test("a conditional finite spread evaluates only its selected tuple before the following argument", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = `
+    function first(flag: boolean): [boolean, boolean] { return [flag, true]; }
+    function second(flag: boolean): [boolean, boolean] { return [flag, false]; }
+    function later(): boolean { return false; }
+    function consume(left: boolean, right: boolean, tail: boolean): boolean { return right; }
+    export function start(flag: boolean): boolean { return consume(...(flag ? first(flag) : second(flag)), later()); }
+  `;
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const nativeFacts = input.snapshot.nativeFacts;
+  const program = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
+    ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } });
+  assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
+  const chapter = program.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const declaration = readyModuleStatements(readyModuleRoot(chapter.tree)).find(row => row.kind === "FunctionDeclaration" && row.name.text === "start");
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+  const outer = body.tir.root.statements.nodes[0].expression;
+  const [spread, later] = outer.arguments.nodes;
+  const conditional = spread.expression.expression;
+  assert.equal(conditional.kind, "ConditionalExpression");
+  assert.equal(conditional.whenTrue.tsonic.type, conditional.tsonic.type);
+  assert.equal(conditional.whenFalse.tsonic.type, conditional.tsonic.type);
+  assert.equal(program.value.index.types.terms[conditional.tsonic.type].kind, "tuple");
+  const { blocks, places } = body.mir;
+  const split = blocks.find(row => row.terminator.kind === "switch" && row.terminator.tir.node === conditional.id).terminator;
+  const [first, second] = [split.targets[0].target, split.otherwise].map(target => blocks[target].terminator);
+  assert.deepEqual([first, second].map(row => [row.kind, row.tir.node]), [
+    ["call", conditional.whenTrue.id], ["call", conditional.whenFalse.id],
+  ]);
+  const [left, right] = [first, second].map(row => blocks[row.next]);
+  assert.equal(left.terminator.kind, "goto");
+  assert.equal(right.terminator.kind, "goto");
+  assert.equal(left.terminator.target, right.terminator.target);
+  const transfers = [left, right].map(block => block.statements.find(row => row.kind === "assign" && row.tir.node === conditional.id));
+  assert.deepEqual(transfers.map(row => row.value.operand), [first, second].map(row => ({ kind: "place", place: row.destination })));
+  assert.equal(transfers[0].place, transfers[1].place);
+  const join = blocks[left.terminator.target];
+  assert.equal(join.terminator.kind, "call");
+  assert.equal(join.terminator.tir.node, later.id);
+  const projected = join.statements.filter(row => row.kind === "assign" && row.tir.node === spread.id);
+  assert.deepEqual(projected.map(row => {
+    const { place, projection } = places[row.value.operand.place].base;
+    return [place, projection.index];
+  }), [[transfers[0].place, 0], [transfers[0].place, 1]]);
+  const call = blocks[join.terminator.next].terminator;
+  assert.equal(call.tir.node, outer.id);
+  assert.deepEqual(call.arguments.map(row => row.operand), [...projected.map(row => row.place), join.terminator.destination]
+    .map(place => ({ kind: "place", place })));
+  const transport = body.facts[0].origins.invocations.find(row => row.node === outer.id).alternatives[0].arguments;
+  assert.deepEqual(transport.map(row => [row.parameterIndex, row.authoredIndex]), [[0, 0], [1, 0], [2, 1]]);
+});
+
 test("a finite tuple spread uses the actual instantiated slots of a generic literal", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

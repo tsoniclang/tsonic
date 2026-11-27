@@ -1197,7 +1197,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         const type = readType(deps.types, result.value);
         const optional = optionalValueDomainOf(type, value => readType(deps.types, value));
         const booleanControl = control?.kind === "primitive" && control.primitive === "bool" || control?.kind === "literal" && control.value.kind === "boolean";
-        const selectedResult = type.kind === "primitive" || type.kind === "string" || optional.kind === "optional-value";
+        const selectedResult = type.kind === "primitive" || type.kind === "string" || type.kind === "tuple" || optional.kind === "optional-value";
         if (!booleanControl || !selectedResult || values[nodePosition(node.whenTrue.id)]?.convertedType !== result.value
           || values[nodePosition(node.whenFalse.id)]?.convertedType !== result.value)
           return notElaboratedYet("a conditional expression without its Boolean control and same-carrier arms", node.origin);

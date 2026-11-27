@@ -4055,8 +4055,22 @@ function isDeclaredTupleRead(scope: CaptureScope, node: Node | undefined, answer
 
 function valueTupleRead(scope: CaptureScope, node: Node | undefined, answer: ResolvedSourceTypeInfo | undefined): TupleValueRead | null {
   if (node === undefined || answer === undefined || answer.causes.length !== 0) return null;
+  const ast = scope.checked.ast;
   if (scope.shape.isTuple(answer.type)) {
-    if (scope.checked.ast.kindName(node) === "KindCallExpression") return callTupleRead(scope, node, answer.type);
+    while (ast.kindName(node) === "KindConditionalExpression") {
+      if (!admit(scope, "edges")) return null;
+      const conditional = ast.as.AsConditionalExpression(node);
+      if (conditional === undefined) return null;
+      const whenTrue = conditional.WhenTrue;
+      if (whenTrue === undefined) return null;
+      const first = sourceType(scope, { kind: "expression", node: whenTrue });
+      if (first?.type !== answer.type || first.causes.length !== 0 || !admit(scope, "edges")) return null;
+      const second = sourceType(scope, { kind: "expression", node: conditional.WhenFalse });
+      if (second?.type !== answer.type || second.causes.length !== 0) return null;
+      node = unparenthesizedTupleValue(scope, whenTrue);
+      if (node === undefined) return null;
+    }
+    if (ast.kindName(node) === "KindCallExpression") return callTupleRead(scope, node, answer.type);
     const assertion = tupleAssertion(scope, node);
     if (assertion !== undefined) return tupleAnnotationOf(scope, answer.type, assertion.Type) ?? null;
   }
@@ -6056,7 +6070,8 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       } else if (kind === "KindCallExpression" && !failedSelection && scope.shape.isTuple(answer.type))
         sourceRead = callTupleRead(scope, node, answer.type);
       else if (tupleValue === null && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
-        && (kind === "KindAsExpression" || kind === "KindTypeAssertionExpression" || kind === "KindParenthesizedExpression"))
+        && (kind === "KindAsExpression" || kind === "KindTypeAssertionExpression" || kind === "KindParenthesizedExpression"
+          || kind === "KindConditionalExpression"))
         sourceRead = valueTupleRead(scope, unparenthesizedTupleValue(scope, node), answer);
       else if (declarationSymbol !== undefined && admit(scope, "edges"))
         sourceRead = declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol));
