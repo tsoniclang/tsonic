@@ -4934,7 +4934,7 @@ test("canonical Origins unions retain strict supersets and deduplicate genuine o
   assert.deepEqual(rows[all].producers, [0, 1, 2]);
 });
 
-test("an opaque native reference call retains open value, referent effects and unwind through its caller", async () => {
+test("opaque native reference calls retain ordered referent effects and the actual returned value through their caller", async () => {
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
@@ -4950,24 +4950,61 @@ test("an opaque native reference call retains open value, referent effects and u
         parameters: [{ name: "value", type: { kind: "string" } }], returnType: { kind: "string" } }] },
     ] }) };
   const snapshot = projectSnapshot({
-    sourceFiles: { "main.ts": 'import { resolve } from "native:text"; function forward(value:string):string {return resolve(value);}'
-      + 'export function call(value:string):string{return forward(value);}' },
+    sourceFiles: { "main.ts": 'import { resolve } from "native:text"; function forward(value:string):string {resolve(value); return resolve(value);}'
+      + 'export function call(value:string):string{return forward(value);}'
+      + 'function choose(value:string,flag:boolean):string {if(flag) return resolve(value); return resolve(value);}'
+      + 'export function branch(value:string,flag:boolean):string {return choose(value,flag);}' },
     libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }],
     providerPackages: [{ root: "/text-provider", name: "text-provider" }], declarationProviders: [reference],
   });
   const opened = openAndCapture(snapshot, [{ reference, value: { kind: "declaration-provider", value: provider } }]);
   const result = analyzeHostProgram({ ...analysisInput(fixture, "sdk-minimal"), snapshot, extensions: opened.deps.extensions });
   assert.equal(result.kind, "ok");
+  const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
   const executing = result.value.index.summaries.filter(summary => summary.key.kind === "body" && summary.parameters.length === 1);
   assert.equal(executing.length, 2);
+  let discardedCalls = 0;
   for (const summary of executing) {
     const value = summary.arena.origins[summary.result];
+    const reads = summary.parameters[0].reads;
+    const writes = summary.parameters[0].writes;
     assert.equal(value.kind, "open");
-    assert.equal(summary.parameters[0].reads.kind, "open");
-    assert.equal(summary.parameters[0].writes.kind, "open");
-    assert.equal(summary.arena.boundaries[value.boundaries[0]].kind, "opaque-invocation");
-    assert.equal(summary.arena.boundaries[value.boundaries[0]].at.node.value.body, summary.key.execution.instance.body);
+    assert.equal(reads.kind, "open");
+    assert.equal(writes.kind, "open");
+    assert.equal(reads.boundaries.length, 2);
+    assert.equal(reads.boundaries[0] < reads.boundaries[1], true);
+    assert.deepEqual(writes.boundaries, reads.boundaries);
+    assert.equal(value.boundaries.length, 1);
+    assert.equal(reads.boundaries.includes(value.boundaries[0]), true);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && sameInstance(row.instance, summary.key.execution.instance));
+    const calls = selected.mir.blocks.map(row => row.terminator).filter(terminator => terminator.kind === "call");
+    const returned = calls.find(call => call.destination !== null);
+    const discarded = calls.find(call => call.destination === null);
+    const actual = summary.arena.boundaries[value.boundaries[0]];
+    assert.equal(actual.kind, "opaque-invocation");
+    assert.deepEqual(actual.at, { kind: "node", node: { kind: "body", value: returned.tir } });
+    if (discarded !== undefined) {
+      discardedCalls += 1;
+      assert.deepEqual(reads.boundaries.map(id => summary.arena.boundaries[id].at.node.value.node).sort((left, right) => left - right),
+        [discarded.tir.node, returned.tir.node]);
+    } else assert.deepEqual(reads.boundaries.map(id => summary.arena.boundaries[id].at.node.value.node), [returned.tir.node, returned.tir.node]);
     assert.equal(summary.retention.some(row => row.into.kind === "external"), true);
+    assert.equal(summary.returns && summary.unwinds, true);
+  }
+  assert.equal(discardedCalls, 1);
+  const alternatives = result.value.index.summaries.filter(summary => summary.key.kind === "body" && summary.parameters.length === 2);
+  assert.equal(alternatives.length, 2);
+  for (const summary of alternatives) {
+    const value = summary.arena.origins[summary.result];
+    const { reads, writes } = summary.parameters[0];
+    assert.equal(value.kind, "open");
+    assert.equal(reads.kind, "open");
+    assert.equal(writes.kind, "open");
+    assert.equal(value.boundaries.length, 2);
+    assert.equal(value.boundaries[0] < value.boundaries[1], true);
+    assert.deepEqual(reads.boundaries, value.boundaries);
+    assert.deepEqual(writes.boundaries, value.boundaries);
+    assert.deepEqual(summary.parameters[1].writes, { kind: "complete", paths: [] });
     assert.equal(summary.returns && summary.unwinds, true);
   }
 });
