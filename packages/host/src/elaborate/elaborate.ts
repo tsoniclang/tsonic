@@ -593,7 +593,8 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       bindings: { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }, aliases } };
   };
 
-  const admitName = (node: Identifier<CheckedPhase>, position: number): void => {
+  const admitName = (node: Identifier<CheckedPhase>, position: number, parent: NodeId | null):
+    void | Extract<Result<never>, { readonly kind: "refused" }> => {
     const checked = node.tsonic;
     if (checked.role !== "value" && checked.role !== "assignment-target") return notElaboratedYet(`a name of role ${checked.role}`, node.origin);
     const alias = input.layoutAlias;
@@ -614,15 +615,30 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       return;
     }
     if (resolution.kind === "declarations") {
-      const definition = resolution.definitions[0];
-      if (resolution.definitions.length !== 1 || definition === undefined)
-        return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
       const aliases = binding?.aliases ?? [];
       const callee = calleeTypes.get(node.id);
+      let definition = resolution.definitions.length === 1 ? resolution.definitions[0] : undefined;
       if (callee !== undefined && checked.role === "value") {
+        if (definition === undefined) {
+          const owner = parent === null ? -1 : nodePosition(parent);
+          const held = nodes[owner];
+          const application = applications[owner];
+          if (held?.kind !== "CallExpression" || held.expression !== node || application?.kind !== "decided"
+            || application.decision.api.body !== null)
+            return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
+          const selected = application.decision.advertised.declaration;
+          for (let index = 0; index < resolution.definitions.length; index += 1) {
+            const stop = admitTypePublicationStep(deps.typeWork);
+            if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, node.origin, { query: "elaborateBody", key: body.body });
+            if (resolution.definitions[index] === selected) { definition = selected; break; }
+          }
+          if (definition === undefined)
+            return callerDefect("a selected declared callee must belong to its actual checked declaration group", node.origin);
+        }
         names[position] = { resolution: { kind: "definition", definition, aliases }, storage: callee, role: checked.role };
         return;
       }
+      if (definition === undefined) return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
       const item = deps.itemOf(definition);
       if (item.kind === "EnumMember" && checked.role === "value") {
         names[position] = { ...enumConstant(node, { owner: definition, node: item.id }, aliases), role: checked.role };
@@ -1476,7 +1492,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       }
       case "Identifier":
         if (building) expressions[position] = identifier(node, position);
-        else admitName(node, position);
+        else return admitName(node, position, frame.parent);
         return;
       case "ArrayLiteralExpression": {
         if (!building) {

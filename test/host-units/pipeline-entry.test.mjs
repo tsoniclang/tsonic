@@ -10387,6 +10387,51 @@ test("actual checker session declarations survive all Host barriers without runn
   assert.notDeepEqual(nativeCall.tsonic.core.provider, { kind: "available", value: null });
 });
 
+test("two imported overloads select their own bodyless endpoints in either declaration order", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const source = `import { pick as choose } from "./native.js";
+    export function readBoolean(value: boolean): boolean { return choose(value); }
+    export function readText(value: string): boolean { return choose(value); }`;
+  for (const order of [["boolean", "string"], ["string", "boolean"]]) {
+    const declarations = order.map(type => `export declare function pick(value: ${type}): boolean;`).join("\n");
+    const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source, "native.d.ts": declarations },
+      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+    snapshot.source.input.packages.modules.find(row => row.path === "/project/src/native.d.ts").role = "declaration";
+    const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
+    const checked = captureSourceBarrier(input);
+    assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+    const supplier = fixture.moduleOf(fixture.packageOf("/project"), "src/native.d.ts");
+    const module = checked.value.modules.find(row => row.module.module === supplier).module;
+    const definitions = module.tree.statements.nodes.map(node => node.tsonic.definition);
+    assert.equal(new Set(definitions).size, 2);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index, modules } = result.value;
+    const chapter = modules.find(row => row.module === snapshot.entryPoint);
+    const emitted = definitions.map(definition => index.types.signatures.find(row => row.declaration === definition).id);
+    for (const [name, type] of [["readBoolean", "boolean"], ["readText", "string"]]) {
+      const expected = definitions[order.indexOf(type)];
+      const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(`;${name}];function;0]`));
+      const call = body.tir.root.statements.nodes[0].expression;
+      assert.equal(call.expression.tsonic.resolution.definition, expected);
+      assert.equal(call.expression.tsonic.resolution.aliases.length > 0, true);
+      const callable = index.types.terms[call.expression.tsonic.type];
+      assert.equal(callable.kind, "callable");
+      assert.deepEqual(new Set(callable.calls), new Set(emitted));
+      const term = body.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+      assert.equal(term.callee.kind, "direct");
+      const { resolution } = term.callee;
+      assert.equal(resolution.activation, null);
+      assert.deepEqual(resolution.decision.advertised, resolution.decision.api);
+      assert.deepEqual(resolution.decision.api, { declaration: expected, role: "api-signature",
+        signature: emitted[order.indexOf(type)], body: null });
+      assert.equal(resolution.decision.completion.signature, resolution.decision.api.signature);
+    }
+  }
+});
+
 test("a wrong-arity overload call returns the original checker diagnostic without selecting a candidate", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

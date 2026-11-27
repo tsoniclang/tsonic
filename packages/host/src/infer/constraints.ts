@@ -1378,7 +1378,7 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
       const endpointStop = admitTypePublicationStep(deps.typeWork, endpoints.length);
       if (endpointStop !== null) return refuseTypeConstruction(deps.typeWork, endpointStop, node.origin, unit);
       for (const endpoint of endpoints) {
-        if (readSignature(walk.generation.deps.types, endpoint.signature).typeParameters.length !== 0) {
+        if (endpoint.body === null || readSignature(deps.types, endpoint.signature).typeParameters.length !== 0) {
           signatures.push(endpoint.signature);
           continue;
         }
