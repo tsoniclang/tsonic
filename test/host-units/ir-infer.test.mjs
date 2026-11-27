@@ -268,6 +268,39 @@ test("group ownership, stable variable namespaces and final record totality have
   [violation("solution-order", variableSite(0), "variables")]);
 });
 
+test("closed and variable storage equality operands must agree with the final literal carrier and recorded demand", () => {
+  const variable = { id: 0, kind: "literal", occurrence,
+    value: { kind: "number", token: "0", value: { numerator: 0n, denominator: 1n, negativeZero: false } } };
+  const other = { ...localVariable(1), occurrence: { body, node: 1 } };
+  const types = { terms: [{ kind: "primitive", primitive: "int32" }, { kind: "open", group, variable: 0 },
+    { kind: "open", group, variable: 1 }, { kind: "primitive", primitive: "int64" }], signatures: [signature] };
+  const final = { variable: 0, ...inferenceValue() };
+  const otherFinal = { variable: 1, ...inferenceValue() };
+  const key = { node: occurrence, candidate: null, role: { kind: "equality", direction: "left-to-right" } };
+  const constraint = { body, index: 0 };
+  const bound = { ...inferenceValue(), contribution: key, variable: 0, kind: "demand" };
+  const check = { variable: 0, contribution: key, bound, outcome: { kind: "satisfied", embedding: { kind: "identity" } } };
+  const solved = { constraint, decision: { kind: "eq", equivalent: true } };
+  for (const [left, reads] of [[0, []], [2, [1]]]) {
+    const original = { types, nodes: [{ owner: source, ids: [0, 1] }],
+      constraints: [constraintSet([{ kind: "eq", occurrence, left, right: 1 }], [variable, other])],
+      contributions: [{ key, reads, bounds: [0], constraint }],
+      solution: { ...completeSolution(), variables: [final, otherFinal], constraints: [solved], checks: [check] } };
+    fullEqual(product.verifyInference(verificationInput(original)), [], "the actual agreed carrier");
+    const apply = changed => product.verifyInference(verificationInput({ ...original, solution: { ...original.solution, ...changed } }));
+    assert.ok(apply({ constraints: [{ ...solved, decision: { ...solved.decision, equivalent: false } }] })
+      .some(row => row.rule === "operation-types"));
+    assert.ok(apply({ variables: [{ ...final, value: evidence(3) }, otherFinal] }).some(row => row.rule === "operation-types"));
+    assert.ok(apply({ variables: [otherFinal] }).some(row => row.rule === "operation-types"));
+    assert.ok(apply({ checks: [{ ...check, bound: { ...bound, kind: "producer" } }] }).some(row => row.rule === "check-recorded"));
+    assert.ok(apply({ checks: [{ ...check, bound: { ...bound, value: evidence(3) } }] }).some(row => row.rule === "check-recorded"));
+    const misdirected = product.verifyInference(verificationInput({ ...original,
+      contributions: [{ ...original.contributions[0], constraint: { body, index: 1 } }] }));
+    assert.equal(misdirected.some(row => row.rule === "constraint-reference"), true);
+    assert.equal(misdirected.some(row => row.rule === "check-recorded"), true);
+  }
+});
+
 test("duplicate inventories and each stable group ordering retain their complete positional findings", () => {
   const equality = { kind: "eq", occurrence, left: 0, right: 0 };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
@@ -742,6 +775,12 @@ test("type and signature closure follows every actual arena edge without travers
     { kind: "projection", source: 0, projection: { kind: "indexed", index: 19 } },
     ...["extends", "whenTrue", "whenFalse"].map((edge) => ({ kind: "projection", source: 0,
       projection: { kind: "conditional", extends: 0, whenTrue: 0, whenFalse: 0, distributive: false, inferParameters: [], [edge]: 19 } })),
+    { kind: "template-literal", head: "item:", spans: [{ type: 19, tail: "" }] },
+    { kind: "projection", source: 0, projection: { kind: "substitution", constraint: 19 } },
+    { kind: "projection", source: 0, projection: { kind: "mapped", parameter: parameterDeclaration,
+      remap: 19, value: 1, readonly: "preserve", optional: "preserve" } },
+    { kind: "projection", source: 0, projection: { kind: "mapped", parameter: parameterDeclaration,
+      remap: null, value: 19, readonly: "preserve", optional: "preserve" } },
   ];
   const extra = { ...signature, id: 1, declaration: null, owner: null, kind: "construct",
     typeParameters: [{ declaration: parameterDeclaration, constraint: 0, default: 1 }],
@@ -759,7 +798,8 @@ test("type and signature closure follows every actual arena edge without travers
   ruleCase("contribution-footprint-complete", input, bad,
     [violation("contribution-footprint-complete", { kind: "contribution", key: contributions[10].key }, "bounds")],
     "open result reached through a shape's construct signature");
-  const projectionEdges = ["indexed key", "conditional extends", "conditional true branch", "conditional false branch"];
+  const projectionEdges = ["indexed key", "conditional extends", "conditional true branch", "conditional false branch",
+    "template literal span", "substitution constraint", "mapped remap", "mapped value"];
   for (const [offset, edge] of projectionEdges.entries()) {
     const selected = contributions.length - projectionEdges.length + offset;
     const missingBound = { ...input, contributions: contributions.map((contribution, index) =>
@@ -974,6 +1014,8 @@ test("native array inference verifies its exact result producer and independent 
   fullEqual(product.verifyInference(input()), [], "the inferred result may differ from the checked backing array");
   fullEqual(product.verifyInference(input({ ...original, destination: 3, inferredResult: null },
     selected, native, { ...atomic, bounds: [] })), [], "the actual destination does not produce an open result");
+  for (const constraint of [{ ...original, destination: 3, inferredResult: null }, { ...original, inferredResult: 0 }])
+    assert.ok(product.verifyInference(input(constraint)).some(row => row.rule === "contribution-footprint-complete"));
   for (const change of [
     { extent: "int64" }, { holding: "in-place" }, { extentFailure: "unwind" }, { allocationFailure: "abort" },
     { parts: construction.parts.slice(0, 1) },
@@ -1627,6 +1669,53 @@ test("all four formal mapping dispositions use the real signature and authored a
       Array.from({ length: errors }, () => violation("parameter-mapping-total", constraintSite(0), "arguments")),
       "rest order retains every independent invalid ordinal and successor finding");
   }
+});
+
+test("a closed fixed spread binds each required tuple slot and the following authored value", () => {
+  const formal = (name, kind) => ({ declaration: `D[${moduleIdentity};run/${name}]`, kind, type: 0,
+    passing: "by-value", initializer: null, acceptsOmission: kind === "optional" });
+  const parameters = [formal("first", "required"), formal("second", "required"), formal("tail", "required"), formal("optional", "optional")];
+  const tuple = { kind: "tuple", readonly: true, elements: [
+    { kind: "required", type: 0, declaration: null }, { kind: "required", type: 0, declaration: null },
+  ] };
+  const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
+    bindings: { kind: "available", value: emptyBindings }, conditionalFailure: { kind: "available", value: null }, contributions: [],
+    endpoints: { kind: "available", value: selectedEndpoints(declarationFacts.endpoints[0], declarationFacts.endpoints[1]) } };
+  const spread = { occurrence: { body, node: 1 }, kind: "spread", type: 1, tuple: [0, 0], closure: null };
+  const tail = { occurrence: { body, node: 2 }, kind: "value", type: 0, tuple: null, closure: null };
+  const mappings = [0, 1, null].map((component, parameter) => ({
+    kind: "argument", parameter, argument: component === null ? 1 : 0, component, passing: "by-value",
+  })).concat({ kind: "omitted", parameter: 3, type: 0 });
+  const assemble = (arguments_ = [spread, tail], transport = mappings, terms = [
+    { kind: "primitive", primitive: "int32" }, tuple, { kind: "primitive", primitive: "int64" },
+  ], open = false) => {
+    const application = { captured: captureGolden.value, permissionScope: null,
+      callee: 0, receiver: null, typeArguments: [], arguments: arguments_, candidates: 0, result: 0 };
+    const constraint = { kind: "call", occurrence, application };
+    const set = { ...constraintSet([constraint], open ? [{ ...localVariable(0), occurrence: spread.occurrence }] : []),
+      candidates: [{ id: 0, candidates: [candidate] }] };
+    return verificationInput({ constraints: [set], bindingScopes: [emptyScope, emptyScope, emptyScope],
+      declarations: [[definition, { ...declarationFacts, parameterCount: 4 }]], nodes: [{ owner: source, ids: [0, 1, 2] }],
+      types: { terms, signatures: [{ ...signature, parameters }] },
+      solution: { ...completeSolution(), variables: open ? [{ variable: 0, ...inferenceValue(1) }] : [],
+        constraints: [{ constraint: { body, index: 0 }, decision: { kind: "call",
+          application: { ...applicationGolden().value, parameters: transport }, operation: null } }],
+      } });
+  };
+  fullEqual(product.verifyInference(assemble()), [], "fixed tuple slots precede the later authored argument");
+  const defaults = assemble().types.terms;
+  fullEqual(product.verifyInference(assemble([{ ...spread, type: 3 }, tail], mappings,
+    [...defaults, { kind: "open", group, variable: 0 }], true)), [], "the actual finalized tuple supplies its fixed slots");
+  for (const invalid of [
+    assemble([{ ...spread, type: 0 }, tail]),
+    assemble([{ ...spread, tuple: [0] }, tail]),
+    assemble([{ ...spread, tuple: [0, 2] }, tail]),
+    assemble([spread, { ...tail, tuple: [0] }]),
+    assemble([spread, tail], mappings, [defaults[0], { ...tuple,
+      elements: [tuple.elements[0], { ...tuple.elements[1], kind: "optional" }] }, defaults[2]]),
+    assemble([spread, tail], [{ ...mappings[0], component: 1 }, ...mappings.slice(1)]),
+    assemble([spread, tail], [...mappings.slice(0, 3), { ...mappings[2], parameter: 3 }]),
+  ]) assert.ok(product.verifyInference(invalid).some(row => row.detail.some(detail => detail.value === "authored-spread-slots")));
 });
 
 test("inferred signature parts preserve every actual owner and indexed initializer slot", () => {

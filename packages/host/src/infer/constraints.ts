@@ -2,7 +2,7 @@ import type { Diagnostic, Result } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingScope, BindingVector, CategoryEvidence, MemberKey, Signature, TypeTerm } from "../ir-types/contract.js";
 import type { BindingPattern, CallExpression, CapturedFact, EnumMember, Expression, HirApplication, HirBody, HirCandidateList, HirLocal, HirNode, HirParam, HirResolution, CheckedPhase, VariableDeclaration } from "../ir-hir/contract.js";
-import type { ArrayExtentConstraint, CallConstraint, DefaultConstraint, FlowConstraint, IndexConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, WrittenOperatorConstraint } from "../ir-infer/contract.js";
+import type { ArrayExtentConstraint, CallConstraint, DefaultConstraint, EqualityConstraint, FlowConstraint, IndexConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, WrittenOperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, compareMemberKeys, internType, internTypeGraph, isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, optionalValueDomainOf, readSignature, readType, rigidBindings,
@@ -12,6 +12,8 @@ import { binaryOperatorOf, checkedLayoutConstructionOf, checkedLayoutRoleOf, che
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { bindingDefaultOf, checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
+import { compoundStorageInitializer } from "./storage-carrier.js";
+import type { StorageInitializer } from "./storage-carrier.js";
 
 const PORT = "ConstraintsOf";
 const RESUME = "ResumeConstraintsOf";
@@ -43,6 +45,7 @@ type DraftCall = Omit<CallConstraint, "application"> & {
 };
 type DraftConstraint =
   | Omit<FlowConstraint, "from" | "to"> & { readonly from: Slot; readonly to: Slot }
+  | Omit<EqualityConstraint, "left"> & { readonly left: Slot }
   | Omit<WrittenOperatorConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot }
   | Omit<ArrayExtentConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot }
   | Omit<MemberConstraint, "receiver" | "result"> & { readonly receiver: Slot; readonly result: Slot }
@@ -61,6 +64,14 @@ interface Draft {
   readonly evidence: { readonly type: Slot; readonly node: Expression<CheckedPhase> | HirNode; readonly component: SourceNodeRef }[];
 }
 
+interface CarrierDemand {
+  readonly draft: Draft;
+  readonly occurrence: NodeRef;
+  readonly initializer: StorageInitializer;
+  readonly operand: Expression<CheckedPhase>;
+  readonly type: Slot;
+}
+
 interface Generation {
   readonly deps: InferenceInputs;
   readonly group: InferenceGroup;
@@ -72,6 +83,8 @@ interface Generation {
   readonly parameters: ParameterIndex;
   readonly outsideParts: ReadonlyMap<string, InferredPartType>;
   readonly selectionContexts: SelectionConstraintContext[];
+  readonly directLiterals: Map<BodyId, { readonly node: NodeId; readonly type: TyId }>;
+  readonly carrierDemands: CarrierDemand[];
   nextVariable: number;
 }
 
@@ -272,7 +285,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
   eligibleCandidates: readonly (readonly HirCandidateList[])[]): Output {
   const generation: Generation = { deps, group, parts: ownedParts(deps, group), partTypes: new Map(), nextVariable: 0, selectionContexts: [],
     ownParts: new Set(group.signatures.map(inferredPartKey)), ownDefinitions: new Set(group.signatures.map(part => part.definition)), signatures, parameters: new Map(),
-    outsideParts: new Map(outsideParts.map(part => [inferredPartKey(part.part), part])) };
+    outsideParts: new Map(outsideParts.map(part => [inferredPartKey(part.part), part])), directLiterals: new Map(), carrierDemands: [] };
   const drafts: Draft[] = group.bodies.map((reference, position) => {
     const body = deps.hirBody(reference);
     const candidates = readyCandidates(generation, present(eligibleCandidates[position], "the body's eligible candidate rows"));
@@ -309,7 +322,14 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
           const diagnostic = allocate(walk, { kind: "literal", value: node.tsonic.literal, occurrence });
           if (diagnostic !== null) return refused(diagnostic);
           draft.constraints.push({ kind: "default", occurrence, variable, rule: "literal-native-default", type: null });
-          walk.typeOf.set(node.id, internType(deps.types, { kind: "open", group: group.id, variable }));
+          const type = internType(deps.types, { kind: "open", group: group.id, variable });
+          walk.typeOf.set(node.id, type);
+          if (frame.nativeDefault === "owned" && group.bodies.length > 1 && owned.some(part => part.part.kind === "variable")) {
+            const stopped = admitTypePublicationStep(deps.typeWork, 1, 2);
+            if (stopped !== null) return { kind: "done", value: refuseTypeConstruction(deps.typeWork, stopped, node.origin,
+              { query: "constraintsOf", key: group.id }) };
+            generation.directLiterals.set(reference, { node: node.id, type });
+          }
         }
         const compound = node.kind === "BinaryExpression" && compoundAssignmentOperatorOf(node.operatorToken.kind) !== null;
         const logical = node.kind === "BinaryExpression" && shortCircuitOperatorOf(node.operatorToken.kind, "assignment") !== null;
@@ -393,11 +413,24 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
       } else flow(walk, body.root, typeAt(walk, body.root), { part }, "initialization", { kind: "body", value: refOf(walk, body.root) });
     }
   }
+  for (const demand of generation.carrierDemands) {
+    const stopped = admitTypePublicationStep(deps.typeWork, 1, 3);
+    if (stopped !== null) return { kind: "done", value: refuseTypeConstruction(deps.typeWork, stopped, demand.operand.origin,
+      { query: "constraintsOf", key: group.id }) };
+    const literal = generation.directLiterals.get(demand.initializer.body);
+    if (literal?.node !== demand.initializer.literal.id)
+      return callerDefect(PORT, "a carrier equality must join its actual owned literal variable");
+    demand.draft.constraints.push({ kind: "eq", occurrence: demand.occurrence, left: demand.type, right: literal.type });
+    demand.draft.evidence.push({ type: demand.type, node: demand.operand,
+      component: { kind: "body", value: { body: demand.occurrence.body, node: demand.operand.id } } },
+    { type: literal.type, node: demand.initializer.literal, component: { kind: "body", value: { body: demand.initializer.body, node: literal.node } } });
+  }
   const typeOf = (slot: Slot): TyId => present(readySlotType(generation, slot), "the actual owned or ready outside type slot");
   return { kind: "done", value: { kind: "ok", value: { outsideParts, selectionContexts: generation.selectionContexts, constraints: drafts.map(draft => ({
     group: group.id, body: draft.body.body, variables: draft.variables, candidates: [...draft.candidates.values()],
     constraints: draft.constraints.map(constraint => constraint.kind === "flow"
       ? { ...constraint, from: typeOf(constraint.from), to: typeOf(constraint.to) }
+      : constraint.kind === "eq" ? { ...constraint, left: typeOf(constraint.left) }
       : constraint.kind === "op" ? { ...constraint, operands: constraint.operands.map(typeOf), result: typeOf(constraint.result) }
       : constraint.kind === "member" ? { ...constraint, receiver: typeOf(constraint.receiver), result: typeOf(constraint.result) }
       : constraint.kind === "index" ? { ...constraint, receiver: typeOf(constraint.receiver), key: typeOf(constraint.key) }
@@ -1009,6 +1042,17 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
         walk.draft.evidence.push({ type: storage, node: leaf, component: targetComponent },
           { type: right, node: node.right, component: { kind: "body", value: refOf(walk, node.right) } },
           { type: result, node, component: { kind: "body", value: occurrence } });
+        const { deps, group } = walk.generation;
+        let stopped: ReturnType<typeof admitTypePublicationStep> = null;
+        const target = compoundStorageInitializer(deps, node, () => (stopped ??= admitTypePublicationStep(deps.typeWork)) === null);
+        if (stopped !== null) return refuseTypeConstruction(deps.typeWork, stopped, node.origin, { query: "constraintsOf", key: group.id });
+        if (target !== null) {
+          if (!walk.generation.ownParts.has(inferredPartKey({ definition: target.definition, part: { kind: "variable" } })))
+            return callerDefect(PORT, "a compound storage write belongs to its own initializer component");
+          const keep = admitTypePublicationStep(deps.typeWork, 1, 2);
+          if (keep !== null) return refuseTypeConstruction(deps.typeWork, keep, node.origin, { query: "constraintsOf", key: group.id });
+          walk.generation.carrierDemands.push({ draft: walk.draft, occurrence, initializer: target, operand: node.right, type: right });
+        }
         walk.typeOf.set(node.id, result);
       } else {
         flow(walk, node.right, right, storage, "assignment", targetComponent);

@@ -307,6 +307,12 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         flows[slot] = { embedding: part.embedding, source: from, destination, role: "initialization" };
       }
       operations[position] = { decision: decision.operation, permissionScope: null };
+    } else if (constraint.kind === "eq") {
+      const node = nodes[position];
+      if (node?.kind !== "BinaryExpression" || node.tsonic.role !== "assignment"
+        || compoundAssignmentOperatorOf(node.operatorToken.kind) === null || decision.kind !== "eq" || !decision.equivalent
+        || finalType(constraint.left, origin) !== finalType(constraint.right, origin))
+        return callerDefect("a compound storage equality must keep both actual positions on the same selected carrier", origin);
     } else if (constraint.kind === "flow") {
       if (flows[position] !== undefined) callerDefect("two flow decisions at one occurrence", origin);
       if (decision.kind === "deferred") notElaboratedYet("a deferred conversion", origin);

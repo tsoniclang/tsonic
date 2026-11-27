@@ -10,6 +10,7 @@ import { checkedGroupingFrontierOf, iterateChildrenOfSyntax } from "../ir-hir/in
 import { inferredPartsOf } from "../ir-infer/index.js";
 import { chargeResultEntries, chargeWork, createAccount, stronglyConnectedComponents } from "../dataflow/index.js";
 import { callerDefect, notInferredYet, validateGraphLimits } from "./frontier.js";
+import { compoundStorageInitializer } from "./storage-carrier.js";
 
 const PORT = "GroupsOf";
 
@@ -190,6 +191,17 @@ export const partition: GroupsOf = (deps, bodies) => {
         const name = node.tsonic;
         if (name.role === "value" || name.role === "shorthand-value" || name.role === "type-name" || name.role === "assignment-target") {
           if (!useResolution(position, name.resolution, node.origin)) return stop();
+        }
+      } else if (node.kind === "BinaryExpression") {
+        const initializer = compoundStorageInitializer(deps, node, () => take(1));
+        if (stopped !== undefined) return stop();
+        if (initializer !== null) {
+          const target = index.get(initializer.body);
+          const part = definitions.get(initializer.definition);
+          if (target === undefined || part === undefined || roles[target] !== "initializer"
+            || ready[target]?.owner !== initializer.definition)
+            return callerDefect(PORT, "compound storage requires its actual inferred initializer part");
+          if (!edge(target, position) || !edge(position, part)) return stop();
         }
       } else if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression") {
         const member = node.tsonic;

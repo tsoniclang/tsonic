@@ -5527,6 +5527,89 @@ test("unannotated integral initializers select native int64 before materializing
   }
 });
 
+test("the actual selected compound writes infer one exact native storage carrier before literal defaulting", async () => {
+  const fixture = await loadFrontFixture();
+  const { nativeInt32Input } = await import("./fixtures/native-int32-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const analyze = async source => {
+    const input = await nativeInt32Input(fixture, source, true);
+    const native = input.snapshot.nativeFacts;
+    return { entry: input.snapshot.entryPoint, result: analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
+      nativeFacts: { ...native, integerOverflow: [
+        { carrier: "int32", operation: "add", result: "int32", law: "wrap" },
+        { carrier: "int64", operation: "add", result: "int64", law: "wrap" },
+        { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
+      ] },
+    } }) };
+  };
+  for (const [carrier, source] of [
+    ["int32", `function pure(): void {} export function read(o: { x: { v: Native } | null }, a: Native[]): Native {
+      let sum = 0;
+      for (let i = 0; i < a.length; i++) sum += a[i];
+      if (o.x !== null) { pure(); sum += o.x.v; }
+      return sum;
+    }`],
+    ["int32", "export function read(value: Native): Native { let sum = (0); sum += sum; sum += sum + value; sum += value; return sum; }"],
+    ["int32", `export function read(value: Native): Native {
+      let first = 0; let second = 0;
+      first += second; second += first; first += value;
+      return second;
+    }`],
+    ["float64", `export function read(): number {
+      let first = 0; let second = 0; let upstream = 0.5;
+      upstream += upstream; first += second; second += first; first += upstream;
+      return second;
+    }`],
+    ["int64", "export function read(): void { let sum = 0; sum += sum; sum += sum + sum; }"],
+  ]) {
+    const { entry, result } = await analyze(source);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === entry);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+      && row.tir.root.statements.nodes[0]?.kind === "VariableStatement");
+    const declaration = selected.tir.root.statements.nodes[0].declarationList.declarations.nodes[0];
+    assert.equal(declaration.type, null);
+    const { storage, initializer } = declaration.tsonic;
+    assert.deepEqual(result.value.index.types.terms[storage], { kind: "primitive", primitive: carrier });
+    for (const statement of selected.tir.root.statements.nodes) {
+      if (statement.kind !== "VariableStatement") continue;
+      for (const local of statement.declarationList.declarations.nodes) assert.equal(local.tsonic.storage, storage);
+    }
+    const placed = chapter.bodies.find(row => row.kind === "selected" && row.instance.body === initializer);
+    assert.equal(placed.tir.completion, storage);
+    assert.ok(placed.mir.constants.some(row => row.type === storage && row.value.kind === "literal"
+      && row.value.value.kind === "number" && row.value.value.value.numerator === 0n));
+    const compounds = selected.mir.blocks.flatMap(row => row.statements).filter(row => row.kind === "assign" && row.value.kind === "binary"
+      && row.value.operation.decision.kind === "selected" && row.value.operation.decision.operation.kind === "native-operator"
+      && row.value.operation.decision.operation.operator === "+");
+    assert.ok(compounds.length >= 2);
+    for (const row of compounds) {
+      assert.equal(row.value.operation.decision.operation.carrier, carrier);
+      assert.deepEqual(row.value.operation.decision.operands, [storage, storage]);
+      assert.equal(row.value.operation.decision.result, storage);
+    }
+    if (selected.tir.params.length === 2) {
+      const facts = selected.facts.find(row => row.execution.provided === 2);
+      assert.equal(facts.refinements.countedLoops.length, 1);
+      const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
+      assert.deepEqual(checks.map(row => selected.mir.places[row.place].base.projection.kind), ["index", "refined"]);
+      assert.deepEqual(facts.refinements.refinements.map(row => [row.kind, row.node]),
+        checks.map(row => ["proven", row.tir.node]));
+    }
+  }
+  for (const [source, expected] of [
+    ["export function read(value: Native): void { let sum = 0; let wide = 0; sum += value; sum += wide; }",
+      "TSONIC_NATIVE_STORAGE_CARRIER_CONFLICT"],
+    ["export function read(value: Native): Native { let sum = 2147483648; sum += value; return sum; }",
+      "TSONIC_NATIVE_STORAGE_LITERAL_INEXACT"],
+  ]) {
+    const { result } = await analyze(source);
+    assert.equal(result.kind, "refused");
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.diagnostics[0].code.name, expected);
+  }
+});
+
 test("numeric assignment fits the authored literal into finalized native static and local storage", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

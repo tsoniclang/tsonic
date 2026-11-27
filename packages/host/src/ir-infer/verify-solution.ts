@@ -552,6 +552,10 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
   }
   for (const variable of inventory.variables.keys()) if (!published.has(variable))
     emit(output, "solution-total", { kind: "variable", group: input.group.id, variable }, "variables");
+  const finalizedType = (type: TyId): TyId | undefined => {
+    const term = input.types.terms[type];
+    return term?.kind === "open" && term.group === input.group.id ? finals.get(term.variable)?.type : type;
+  };
   const solved = new Set<string>();
   let previous: SolvedConstraint | null = null;
   for (const record of solution.constraints) {
@@ -564,6 +568,14 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
       compareNumber(previous.constraint.index, record.constraint.index)) >= 0) emit(output, "solution-order", site, "constraints");
     solved.add(key); previous = record;
     decisionRecords(context, record, target, output);
+    if (target?.value.kind === "eq" && record.decision.kind === "eq") {
+      const destination = input.types.terms[target.value.right];
+      if (destination?.kind === "open" && destination.group === input.group.id && inventory.variables.get(destination.variable)?.kind === "literal") {
+        const final = finals.get(destination.variable)?.type;
+        if (!record.decision.equivalent || final === undefined || finalizedType(target.value.left) !== final)
+          emit(output, "operation-types", site, "storage carrier equality");
+      }
+    }
     if (target !== undefined && target.value.kind === "op" && record.decision.kind === "op") operationTypes(input, finals, target.value, record.decision.operation, site, output);
     if (target !== undefined && target.value.kind === "construct-literal" && record.decision.kind === "construct-literal")
       constructionTypes(input, finals, target.value, record.decision.operation, site, output);
@@ -600,6 +612,14 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
       emit(output, "check-recorded", site, "bound");
     if (contribution !== undefined && check.outcome.kind === "satisfied" && check.outcome.embedding.kind === "conversion")
       proofReferences(check.outcome.embedding.proof, contribution.value.constraint, output);
+    if (contribution?.value.key.role.kind === "equality" && inventory.variables.get(check.variable)?.kind === "literal") {
+      const target = inventory.constraints.get(constraintKey(contribution.value.constraint))?.value;
+      const destination = target?.kind === "eq" ? input.types.terms[target.right] : undefined;
+      if (target?.kind !== "eq" || destination?.kind !== "open" || destination.group !== input.group.id || destination.variable !== check.variable
+        || check.bound.kind !== "demand" || check.bound.value.type !== finalizedType(target.left)
+        || check.bound.value.type !== finalizedType(target.right) || contribution.value.key.role.direction !== "left-to-right")
+        emit(output, "check-recorded", site, "storage carrier");
+    }
     if (previousCheck !== null && (compareNumber(previousCheck.variable, check.variable) ||
       compareContribution(previousCheck.contribution, check.contribution)) >= 0) emit(output, "solution-order", site, "checks");
     previousCheck = check;

@@ -788,7 +788,7 @@ export interface PaidConstraintScheme<ConstraintKind extends Constraint> {
 }
 
 export interface FlowContributionScheme {
-  readonly enumerate: PaidConstraintScheme<FlowConstraint>["enumerate"];
+  readonly enumerate: (input: EnumerationInput<FlowConstraint>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<FlowConstraint> & { readonly origin: Origin;
     readonly optionalField: SourceObjectField | null }, work: RuleWork) => Result<ContributionOutcome>;
 }
@@ -799,7 +799,7 @@ export interface QualifiedOperatorField {
 }
 
 export interface OperatorContributionScheme {
-  readonly enumerate: ConstraintScheme<OperatorConstraint>["enumerate"];
+  readonly enumerate: (input: EnumerationInput<OperatorConstraint>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<OperatorConstraint> & {
     readonly reference: QualifiedOperatorField | null;
   }) => Result<ContributionOutcome>;

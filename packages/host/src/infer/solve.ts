@@ -16,7 +16,8 @@ import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontie
 import { bindingDefaultOf, checkedVoidCompletion, isLayoutOperand, layoutOperandCompletion, ownSignatureRequest } from "./own-signature.js";
 import { bodyCaptureModes } from "./captures.js";
 import { issueMemberSolve, takeMemberSolve } from "./member-pause.js";
-import type { Enumerated, Reached, SolveFrame } from "./member-pause.js";
+import type { Enumerated, Reached, SolveFrame, StorageDependencies } from "./member-pause.js";
+import { planStorageDependencies, retireStorageVertex, updateStorageWait } from "./storage-dependencies.js";
 
 const PORT = "SolveGroup";
 const RESUME = "ResumeSolveGroup";
@@ -73,6 +74,7 @@ function solve<State>(deps: InferDeps<State>, group: InferenceGroup, generated: 
   const enumerated: Enumerated[] = [];
   let defaults: Map<number, DefaultConstraint> | null = null;
   let selectionPosition = 0;
+  let hasStorageEquality = false;
   for (const set of sets) {
     let offset = 0;
     for (const [index, constraint] of set.constraints.entries()) {
@@ -89,6 +91,7 @@ function solve<State>(deps: InferDeps<State>, group: InferenceGroup, generated: 
       const source = constraint.kind === "member" || constraint.kind === "index" || constraint.kind === "call" || constraint.kind === "construct-literal"
         ? generated.selectionContexts[selectionPosition++] : undefined;
       const reached = reach(constraint, set.evidence, offset, source);
+      hasStorageEquality ||= reached.kind === "eq";
       offset += reached.evidence.length;
       const listed = enumerate(deps, group, set, reached, index, owned, limits.maximumAtomicContributionsPerGroup - enumerated.length);
       if (listed.kind === "refused") return refused(...listed.diagnostics);
@@ -104,10 +107,18 @@ function solve<State>(deps: InferDeps<State>, group: InferenceGroup, generated: 
     return callerDefect(PORT, "the checked selection origins must name only the actual selection constraints");
   enumerated.sort((left, right) => compareContributionKeys(left.contribution.key, right.contribution.key));
 
-  const work = owned.length + enumerated.length + (defaults?.size ?? 0);
+  let work = owned.length + enumerated.length + (defaults?.size ?? 0);
   if (work > deps.graph.maximumWork)
     return refused(...diagnostics, limitDiagnostic(group, "inference dependency work", deps.graph.maximumWork));
-  const frame: Frame<State> = { deps, group, generated, unit, owned, defaults, enumerated, diagnostics, positions, work, completed: 0,
+  let storage: StorageDependencies | null = null;
+  if (hasStorageEquality) {
+    const oriented = planStorageDependencies(enumerated, owned.length, work, deps.graph);
+    if (oriented.kind !== "complete") return refused(...diagnostics, limitDiagnostic(group,
+      oriented.kind === "resource-limit" && oriented.dimension === "result-entries" ? "inference dependency result entries" : "inference dependency work",
+      oriented.kind === "resource-limit" && oriented.dimension === "result-entries" ? deps.graph.maximumResultEntries : deps.graph.maximumWork));
+    ({ storage, work } = oriented.value);
+  }
+  const frame: Frame<State> = { deps, group, generated, unit, owned, defaults, enumerated, storage, diagnostics, positions, work, completed: 0,
     bounds: owned.map(() => []), decisions: new Map(), sourceErrors: new Map(), remainingBounds: owned.map(() => 0),
     readers: owned.map(() => []), remainingReads: [], contributionBounds: [], ready: [],
     variables: owned.map(() => undefined), checks: [], memberInventories: [] };
@@ -127,7 +138,8 @@ function solve<State>(deps: InferDeps<State>, group: InferenceGroup, generated: 
     for (const variable of contribution.bounds) {
       if (seenBounds.has(variable)) return ruleDefect("a contribution bounds a variable twice");
       seenBounds.add(variable);
-      remainingBounds[variable] = present(remainingBounds[variable], "a contribution's actual bounded variable") + 1;
+      if (storage?.conditional.has(index) !== true)
+        remainingBounds[variable] = present(remainingBounds[variable], "a contribution's actual bounded variable") + 1;
     }
     remainingReads.push(contribution.reads.length);
     contributionBounds.push(seenBounds);
@@ -192,10 +204,16 @@ function finishContribution<State>(frame: Frame<State>, index: number, item: Enu
     if (!decide(frame, item.set, item.index, outcome.decision)) return exhausted(frame);
   }
   for (const variable of item.contribution.bounds) {
+    if (frame.storage?.conditional.has(index) === true) {
+      if (outcome.bounds.length !== 0 && remainingBounds[variable] === 0 && updateStorageWait(frame.storage, variable, false))
+        ready.push({ kind: "variable", index: variable });
+      continue;
+    }
     remainingBounds[variable] = present(remainingBounds[variable], "the remaining variable contributors") - 1;
     if (remainingBounds[variable] === 0) ready.push({ kind: "variable", index: variable });
   }
-  return null;
+  return frame.storage !== null && !retireStorageVertex(frame.storage, frame.owned.length + index, work => take(frame, work))
+    ? exhausted(frame) : null;
 }
 
 function finishVariable<State>(frame: Frame<State>, index: number): Step<State> | null {
@@ -276,17 +294,42 @@ function resumeMember<State>(deps: InferDeps<State>, paused: Extract<InferPaused
 }
 
 function continueSolve<State>(frame: Frame<State>, start: number): Step<State> {
-  const { ready, enumerated, variables, unit, group } = frame;
-  for (let position = start; position < ready.length; position += 1) {
+  const { ready, enumerated, variables, unit, group, storage } = frame;
+  for (let position = start; position < ready.length || (storage?.defaultable.size ?? 0) !== 0; position += 1) {
+    if (position === ready.length && storage !== null) {
+      for (const component of storage.defaultable) {
+        const waiting = present(storage.waiting.get(component), "the actual waiting storage literals");
+        if (!take(frame, 1 + waiting.size)) return exhausted(frame);
+        for (const index of waiting) ready.push({ kind: "storage-default", index });
+        waiting.clear();
+      }
+      storage.defaultable.clear();
+    }
     const task = present(ready[position], "the next inference dependency task");
     if (!take(frame, 1)) return exhausted(frame);
-    frame.completed += 1;
-    if (task.kind === "variable") {
-      const stop = finishVariable(frame, task.index);
-      if (stop !== null) return stop;
+    if (task.kind === "variable" && storage?.targets.has(task.index) === true
+      && present(frame.bounds[task.index], "the potential storage carrier's actual bounds").length === 0) {
+      updateStorageWait(storage, task.index, true);
       continue;
     }
-    const item = present(enumerated[task.index], "the actual atomic contribution");
+    frame.completed += 1;
+    if (task.kind !== "contribution") {
+      const stop = finishVariable(frame, task.index);
+      if (stop !== null) return stop;
+      if (storage !== null && !retireStorageVertex(storage, task.index, work => take(frame, work))) return exhausted(frame);
+      continue;
+    }
+    let item = present(enumerated[task.index], "the actual atomic contribution");
+    const target = storage?.conditional.get(task.index);
+    if (target !== undefined && variables[target] !== undefined) {
+      if (!take(frame, 1)) return exhausted(frame);
+      const source = item.contribution.reads[0];
+      if (storage?.reserve(source === target ? 4 : 5) !== true)
+        return refused(...frame.diagnostics, limitDiagnostic(group, "inference dependency result entries", frame.deps.graph.maximumResultEntries));
+      const reads = source === undefined || source === target ? [target] : source < target ? [source, target] : [target, source];
+      item = { ...item, contribution: { ...item.contribution, reads, bounds: [] } };
+      enumerated[task.index] = item;
+    }
     const reads = item.contribution.reads.map(variable => {
       const final = present(variables[variable], "a completed variable read");
       return final.error === null ? final : { ...final, error: absorbed(unit, group.id, variable) };
@@ -431,6 +474,7 @@ function reach(constraint: Constraint, evidence: readonly InferenceValue[], offs
     return callerDefect(PORT, "a selection context must have the same role as its constraint");
   }
   if (constraint.kind === "op") return { kind: "op", constraint, evidence: evidence.slice(offset, offset + constraint.operands.length + 1) };
+  if (constraint.kind === "eq") return { kind: "eq", constraint, evidence: evidence.slice(offset, offset + 2) };
   if (constraint.kind === "flow") return { kind: "flow", constraint, evidence: evidence.slice(offset, offset + 2) };
   if (constraint.kind === "literal") return { kind: "literal", constraint, evidence: evidence.slice(offset, offset + 1) };
   if (constraint.kind === "default") return { kind: "default", constraint, evidence: [] };
@@ -454,6 +498,7 @@ function enumerate<State>(deps: InferDeps<State>, group: InferenceGroup, set: Co
       : deps.rules.constraints.constructLiteral.enumerate({ ...common, constraint: reached.constraint });
     case "index": return deps.rules.constraints.index.enumerate({ ...common, constraint: reached.constraint });
     case "op": return deps.rules.constraints.op.enumerate({ ...common, constraint: reached.constraint });
+    case "eq": return deps.rules.constraints.eq.enumerate({ ...common, constraint: reached.constraint });
     case "flow": return deps.rules.constraints.flow.enumerate({ ...common, constraint: reached.constraint });
     case "literal": return deps.rules.constraints.literal.enumerate({ ...common, constraint: reached.constraint });
     case "call": return deps.rules.constraints.call.enumerate({ ...common, constraint: reached.constraint });
@@ -494,6 +539,7 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
       return deps.rules.constraints.member.evaluate({ ...common, constraint, origin, storage, checkedRead });
     }
     case "index": return deps.rules.constraints.index.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin });
+    case "eq": return deps.rules.constraints.eq.evaluate({ ...common, constraint: item.reached.constraint });
     case "op": {
       const { constraint } = item.reached;
       const { operator } = constraint;

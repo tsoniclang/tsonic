@@ -13,6 +13,7 @@ export type Reached =
   | { readonly kind: "index"; readonly constraint: Extract<Constraint, { readonly kind: "index" }>;
       readonly evidence: readonly InferenceValue[]; readonly origin: Origin }
   | { readonly kind: "op"; readonly constraint: Extract<Constraint, { readonly kind: "op" }>; readonly evidence: readonly InferenceValue[] }
+  | { readonly kind: "eq"; readonly constraint: Extract<Constraint, { readonly kind: "eq" }>; readonly evidence: readonly InferenceValue[] }
   | { readonly kind: "call"; readonly constraint: Extract<Constraint, { readonly kind: "call" }>;
       readonly evidence: readonly InferenceValue[]; readonly origin: Origin; readonly scope: BindingScope }
   | { readonly kind: "construct-literal"; readonly constraint: Extract<Constraint, { readonly kind: "construct-literal" }>;
@@ -38,6 +39,18 @@ export interface ReadyMemberInventory {
   readonly inventory: MemberInventory;
 }
 
+export interface StorageDependencies {
+  readonly conditional: Map<number, number>;
+  readonly targets: Set<number>;
+  readonly componentOf: readonly number[];
+  readonly successors: readonly (readonly number[])[];
+  readonly unresolved: number[];
+  readonly remaining: number[];
+  readonly waiting: ReadonlyMap<number, Set<number>>;
+  readonly defaultable: Set<number>;
+  readonly reserve: (entries: number) => boolean;
+}
+
 export interface SolveFrame<Deps, Generated> {
   readonly deps: Deps;
   readonly group: InferenceGroup;
@@ -45,7 +58,8 @@ export interface SolveFrame<Deps, Generated> {
   readonly unit: UnitRequest;
   readonly owned: readonly InferenceVariable[];
   readonly defaults: ReadonlyMap<number, DefaultConstraint> | null;
-  readonly enumerated: readonly Enumerated[];
+  readonly enumerated: Enumerated[];
+  readonly storage: StorageDependencies | null;
   readonly positions: UnitAnswerPosition[];
   readonly bounds: FiledBound[][];
   readonly decisions: Map<ConstraintSet["body"], Map<number, ConstraintDecision>>;
@@ -54,7 +68,7 @@ export interface SolveFrame<Deps, Generated> {
   readonly remainingReads: number[];
   readonly readers: number[][];
   readonly contributionBounds: ReadonlySet<number>[];
-  readonly ready: { readonly kind: "contribution" | "variable"; readonly index: number }[];
+  readonly ready: { readonly kind: "contribution" | "variable" | "storage-default"; readonly index: number }[];
   readonly variables: (FinalVariable | undefined)[];
   readonly checks: RecordedCheck[];
   readonly memberInventories: ReadyMemberInventory[];

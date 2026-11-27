@@ -523,6 +523,46 @@ test("native default reads the finalized exact literal rather than writing a sec
   assert.equal(stopped.value.diagnostics[0].code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
 });
 
+test("the native storage carrier publishes only actual independent demands and verifies cyclic checks", () => {
+  const program = ready("export function total(value: number): number { let sum = 0; sum += sum; sum += value; return sum; }");
+  const record = [...drive(program).values()].find(row => row.contributions.some(item => item.key.role.kind === "equality"));
+  assert.ok(record);
+  assert.deepEqual(verifyRecord(program, record), []);
+  const { group, solution } = record;
+  const literal = record.constraints.flatMap(set => set.variables).find(row => row.kind === "literal");
+  const final = solution.variables[literal.id];
+  assert.deepEqual(fixture.types.readType(program.interner, final.value.type), { kind: "primitive", primitive: "float64" });
+  const equalities = record.contributions.filter(row => row.key.role.kind === "equality");
+  const anchored = equalities.find(row => row.bounds.includes(literal.id));
+  assert.deepEqual(anchored.reads, []);
+  const cyclic = equalities.find(row => row !== anchored);
+  assert.deepEqual(cyclic.bounds, []);
+  assert.equal(cyclic.reads.includes(literal.id), true);
+  const check = solution.checks.find(row => row.variable === literal.id);
+  assert.equal(check.bound.kind, "demand");
+  assert.equal(check.bound.value.type, final.value.type);
+  const wrong = insertFixtureType(fixture.types, program.interner, { kind: "primitive", primitive: "int64" });
+  assert.equal(verifyRecord(program, { ...record, solution: { ...solution,
+    variables: solution.variables.map(row => row !== final ? row : { ...row, value: { ...row.value, type: wrong } }),
+  } }).some(row => row.rule === "operation-types"), true);
+  assert.equal(verifyRecord(program, { ...record, solution: { ...solution,
+    checks: solution.checks.map(row => row !== check ? row : { ...row, bound: { ...row.bound, value: { ...row.bound.value, type: wrong } } }),
+  } }).some(row => row.rule === "check-recorded"), true);
+  const work = solution.variables.length + record.contributions.length
+    + record.constraints.flatMap(set => set.constraints).filter(value => value.kind === "default").length;
+  for (const [graph, expected] of [[{ ...GRAPH, maximumWork: work }, "inference dependency work"],
+    [{ ...GRAPH, maximumResultEntries: 0 }, "inference dependency result entries"]]) {
+    const stopped = wiring.infer.solveGroup({ ...program.deps, graph, checkedNodeOf: () => assert.fail("storage solving read a source after its dependency cut") },
+      group, record.generated, { query: "solutionOf", key: group.id });
+    assert.equal(stopped.kind, "done");
+    assert.equal(stopped.value.kind, "refused");
+    assert.equal(stopped.value.diagnostics.length, 1);
+    assert.equal(stopped.value.diagnostics[0].code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
+    assert.deepEqual(stopped.value.diagnostics[0].arguments, [{ kind: "text", value: expected },
+      { kind: "number", value: expected === "inference dependency work" ? work : 0 }]);
+  }
+});
+
 test("native literal defaults follow only the actual unannotated producer positions", () => {
   const program = ready("export function inferred(flag: boolean) { if (flag) return (1); return (2); } "
     + "export function withDefault(value = (3)) { return value; } export const sum = (4) + 5;");
