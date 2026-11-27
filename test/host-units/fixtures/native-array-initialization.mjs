@@ -295,6 +295,40 @@ export async function checkNativeArrayAlternatives() {
   }
 }
 
+export async function checkBorrowedNativeArrayReturn() {
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const input = await selectedArrayInput(await loadFrontFixture(), `
+    function borrow(values: Native[]): Native[] { return values; }
+    export function read(values: Native[]): Native {
+      const returned = borrow(values);
+      return returned.length;
+    }
+  `);
+  const answer = analyzeHostProgram(input);
+  assert.equal(answer.kind, "ok", JSON.stringify(answer.diagnostics));
+  const chapter = answer.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const caller = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "CallExpression");
+  assert.ok(caller);
+  const block = caller.mir.blocks.find(row => row.terminator.kind === "call");
+  assert.equal(block.terminator.callee.kind, "direct");
+  const selected = block.terminator.callee.resolution.activation;
+  const summary = answer.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === selected.body);
+  const result = summary.arena.origins[summary.result];
+  assert.equal(result.includesAbsence, false);
+  assert.deepEqual(result.producers.map(id => {
+    const producer = summary.arena.producers[summary.arena.boundProducers[id].producer];
+    return [producer.kind, producer.index, producer.path];
+  }), [["parameter", 0, null]]);
+  const [facts] = caller.facts;
+  assert.equal(facts.arena.producers.some(row => row.kind === "allocation" || row.kind === "call-result"), false);
+  const stored = facts.origins.writes.find(row => row.point.block === block.id && row.point.statement === null);
+  assert.ok(stored);
+  assert.deepEqual(facts.arena.origins[stored.values[0].origins].producers.map(id => {
+    const producer = facts.arena.producers[facts.arena.boundProducers[id].producer];
+    return [producer.kind, producer.path];
+  }), [["capture", null]]);
+}
+
 export async function checkNativeArrayLowering() {
   const { ranged, plain, empty, lower, verify } = await nativeArrayInitialization();
   for (const tir of [ranged, plain, empty]) {

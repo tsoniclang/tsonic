@@ -1,0 +1,226 @@
+import assert from "node:assert/strict";
+import { accountFailure, createAccount } from "../../../packages/host/dist/dataflow/index.js";
+
+const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
+
+export async function checkNativeCountedLoopProofs() {
+  const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
+  const { countedLoopsOf, parseFacts, printFacts } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { pipelineWiring } = await import("../../../packages/host/dist/pipeline/wiring.js");
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const fixture = await loadFrontFixture();
+  for (const { start, write, minimum, counted, audit, step = "++i", bound = "3", receiver = "values", proven = false } of [
+    { start: 0, write: "", minimum: 0n, counted: true, audit: "integer" },
+    { start: 0, write: "", minimum: 0n, counted: true, step: "i++" },
+    { start: 0, write: "i = 3;", minimum: null, counted: false },
+    { start: 0, write: "values = replacement;", minimum: 0n, counted: true },
+    { start: 1, write: "", minimum: 1n, counted: true },
+    { start: 3, write: "", minimum: null, counted: true },
+    { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", proven: true, audit: "guard", step: "i++" },
+    { start: 0, write: "values = replacement;", minimum: 0n, counted: true, bound: "values.length", audit: "receiver" },
+    { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", receiver: "replacement" },
+  ]) {
+    const source = `export function read(values: boolean[], replacement: boolean[]): boolean {
+      for (let i = ${start}; i < ${bound}; ${step}) { ${write} if (${receiver}[i]) return true; }
+      return false;
+    }`;
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+      libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
+    const operands = { ...input, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts,
+      integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] } } };
+    const result = analyzeHostProgram(operands);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+    assert.equal(selected.mir.blocks.some(block => block.terminator.kind === "check"), true);
+    const [facts] = selected.facts;
+    if (!counted) {
+      assert.deepEqual(facts.refinements.refinements, []);
+      assert.deepEqual(facts.refinements.countedLoops, []);
+      assert.equal(facts.refinements.integers.some(row => row.range !== null), false);
+      continue;
+    }
+    const [loop] = selected.tir.root.statements.nodes;
+    const [counter] = loop.initializer.declarations.nodes;
+    const initializer = chapter.bodies.find(row => row.kind === "selected" && row.tir.body === counter.tsonic.initializer);
+    assert.notEqual(initializer.tir.body, selected.tir.body);
+    assert.deepEqual(facts.refinements.countedLoops, [{
+      statement: loop.id, counterDeclaration: counter.id, start: { body: initializer.tir.body, node: initializer.tir.root.id },
+      bound: loop.condition.right.id, body: loop.statement.id, direction: "ascending", comparison: "exclusive-upper-bound", step: 1,
+    }]);
+    const printed = printFacts(facts);
+    const decoded = parseFacts(printed);
+    assert.equal(decoded.kind, "parsed");
+    assert.deepEqual(decoded.value.refinements.countedLoops, facts.refinements.countedLoops);
+    const indexed = sourceOccurrences(selected.tir, createAccount(limits));
+    assert.equal(indexed.kind, "complete");
+    const check = selected.mir.blocks.find(block => block.terminator.kind === "check").terminator;
+    const access = indexed.value.get(check.tir.node);
+    const range = minimum === null ? null : { minimum, maximum: bound === "3" ? 2n : (1n << 63n) - 2n };
+    assert.equal(access.kind, "ElementAccessExpression");
+    const expectedRefinements = proven ? [{ kind: "proven", node: access.id, guards: [loop.condition.id] }] : [];
+    assert.deepEqual(facts.refinements.refinements, expectedRefinements);
+    assert.deepEqual(decoded.value.refinements.refinements, expectedRefinements);
+    assert.deepEqual(facts.refinements.integers.filter(row => row.range !== null),
+      range === null ? [] : [{ node: access.argumentExpression.id, range, nonnegative: true }]);
+    assert.deepEqual(decoded.value.refinements.integers, facts.refinements.integers);
+    if (!audit) continue;
+    const proofInput = { nativeFacts: operands.snapshot.nativeFacts, sourceOf: node => indexed.value.get(node), mirBody: instance => {
+      assert.deepEqual(instance, initializer.instance);
+      return initializer.mir;
+    } };
+    const probe = createAccount(limits);
+    const replay = countedLoopsOf(probe, selected.mir, facts.execution.provided, proofInput);
+    assert.equal(replay.kind, "complete");
+    assert.deepEqual(replay.value, {
+      loops: facts.refinements.countedLoops, ranges: [{ node: access.argumentExpression.id, range }], refinements: expectedRefinements,
+    });
+    for (const unavailable of [null, selected.mir]) {
+      const unbacked = countedLoopsOf(createAccount(limits), selected.mir, facts.execution.provided, {
+        ...proofInput, mirBody: () => unavailable,
+      });
+      assert.equal(unbacked.kind, "complete");
+      assert.deepEqual(unbacked.value, { loops: facts.refinements.countedLoops, ranges: [], refinements: [] });
+    }
+    const round = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+    let submittedMaximum = 3n;
+    try {
+      pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, input) => {
+        const outcome = round(deps, input);
+        if (outcome.kind !== "complete" || outcome.value.kind !== "ok" || !("facts" in outcome.value.value)) return outcome;
+        const pair = outcome.value.value;
+        if (!pair.facts.refinements.integers.some(row => row.range !== null)) return outcome;
+        const integers = audit !== "integer" ? pair.facts.refinements.integers
+          : pair.facts.refinements.integers.map(row => row.range === null ? row
+            : { ...row, range: { ...row.range, maximum: submittedMaximum } });
+        const refinements = audit === "integer" ? pair.facts.refinements.refinements
+          : [{ kind: "proven", node: access.id, guards: [audit === "guard" ? loop.condition.right.id : loop.condition.id] }];
+        return { ...outcome, value: { ...outcome.value, value: { ...pair, facts: { ...pair.facts,
+          refinements: { ...pair.facts.refinements, integers, refinements } } } } };
+      };
+      if (audit === "integer") {
+        assert.throws(() => analyzeHostProgram(operands), /Facts handoff: integer-proof-exact/);
+        submittedMaximum = 3;
+        assert.throws(() => analyzeHostProgram(operands), /Facts handoff: integer-range-valid/);
+      } else {
+        assert.throws(() => analyzeHostProgram(operands), /Facts handoff: index-bound-proof-exact/);
+      }
+    } finally {
+      pipelineWiring.bodyAnalysis.analyzeBodyRound = round;
+    }
+    const { work, entries } = InvocationAccount.stateOf(probe);
+    const exact = countedLoopsOf(createAccount({ maximumWork: work, maximumResultEntries: entries }), selected.mir, facts.execution.provided, proofInput);
+    assert.equal(exact.kind, "complete");
+    const unreadInput = new Proxy({}, { get() { throw new Error("a stopped proof must not read another body"); } });
+    const zero = createAccount({ ...limits, maximumWork: 0 });
+    assert.equal(countedLoopsOf(zero, unreadInput, facts.execution.provided, proofInput) === accountFailure(zero), true);
+    if (audit === "receiver") continue;
+    for (const [dimension, total, key] of [["work", work, "maximumWork"], ["result-entries", entries, "maximumResultEntries"]]) {
+      for (let cap = 0; cap < total; cap += 1) {
+        const account = createAccount({ ...limits, [key]: cap });
+        const stopped = countedLoopsOf(account, selected.mir, facts.execution.provided, proofInput);
+        assert.equal(stopped.kind, "resource-limit");
+        assert.equal(stopped.dimension, dimension);
+        assert.equal(stopped === accountFailure(account), true);
+        assert.equal(countedLoopsOf(account, unreadInput, facts.execution.provided, proofInput) === stopped, true);
+      }
+    }
+  }
+}
+
+export async function checkNativeFieldRefinement() {
+  const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
+  const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
+  const { fieldRefinementsOf, parseFacts, printFacts } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
+  const { pipelineWiring } = await import("../../../packages/host/dist/pipeline/wiring.js");
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const fixture = await loadFrontFixture();
+  for (const writtenField of [null, "other", "flag"]) {
+    const writes = writtenField === "flag";
+    const branch = writtenField === "other"
+      ? "if (undefined === box.flag) return false; else { inspect(box); return box.flag; }"
+      : "if (box.flag !== undefined) { inspect(box); return box.flag; } return false;";
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Box = { flag: boolean | undefined; other: boolean | undefined };
+      function inspect(box: Box): void { ${writtenField === null ? "" : `box.${writtenField} = undefined;`} }
+      export function read(box: Box): boolean {
+        ${branch}
+      }
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+      && row.tir.root.statements.nodes[0]?.kind === "IfStatement");
+    const conditional = selected.tir.root.statements.nodes[0];
+    const iteration = writtenField === "other" ? conditional.elseStatement : conditional.thenStatement;
+    const [call, returned] = iteration.statements.nodes;
+    const access = returned.expression;
+    const check = selected.mir.blocks.find(block => block.terminator.kind === "check" && block.terminator.tir.node === access.id)?.terminator;
+    assert.equal(check?.kind, "check");
+    assert.equal(selected.mir.places[check.place].base.projection.kind, "refined");
+    const positions = { node: access.id, guards: [conditional.expression.id] };
+    const expected = writes ? {
+      ...positions, kind: "unproven", reason: {
+        kind: "invalidated", sites: [{ kind: "call", at: { body: selected.tir.body, node: call.expression.id } }],
+      },
+    } : { ...positions, kind: "proven" };
+    const [facts] = selected.facts;
+    assert.deepEqual(facts.refinements.refinements, [expected]);
+    const printed = parseFacts(printFacts(facts));
+    assert.equal(printed.kind, "parsed");
+    assert.deepEqual(printed.value.refinements.refinements, [expected], "the published check proof retains the exact qualified cause");
+    if (!writes) continue;
+    const round = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+    try {
+      pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, roundInput) => {
+        const result = round(deps, roundInput);
+        if (result.kind !== "complete" || result.value.kind !== "ok" || !("facts" in result.value.value)) return result;
+        const pair = result.value.value;
+        if (!pair.facts.refinements.refinements.some(row => row.kind === "unproven" && row.reason.kind === "invalidated")) return result;
+        const refinements = pair.facts.refinements.refinements.map(row => ({ kind: "proven", node: row.node, guards: row.guards }));
+        return { ...result, value: { ...result.value, value: { ...pair, facts: { ...pair.facts,
+          refinements: { ...pair.facts.refinements, refinements } } } } };
+      };
+      assert.throws(() => analyzeHostProgram(input), /Facts handoff: field-refinement-proof-exact/);
+    } finally {
+      pipelineWiring.bodyAnalysis.analyzeBodyRound = round;
+    }
+    const source = sourceOccurrences(selected.tir, createAccount(limits));
+    assert.equal(source.kind, "complete");
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const proofInput = { sourceOf: node => source.value.get(node),
+      callBindings: { lexical: selected.tir.lexicalBindings,
+        scopeOf: definition => captured.value.descriptions.get(definition)?.generics ?? null }, summaryAt: (_block, operation) => {
+      assert.equal(operation.callee.kind, "direct");
+      const activation = operation.callee.resolution.activation;
+      const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+        && row.key.execution.instance.body === activation.body && row.key.execution.provided === 1);
+      assert.ok(summary);
+      return { kind: "complete", value: summary };
+    } };
+    const run = account => fieldRefinementsOf(account, selected.mir, facts.execution.provided, proofInput);
+    const probe = createAccount(limits);
+    assert.deepEqual(run(probe), { kind: "complete", value: [expected] });
+    const { work, entries } = InvocationAccount.stateOf(probe);
+    assert.deepEqual(run(createAccount({ maximumWork: work, maximumResultEntries: entries })), { kind: "complete", value: [expected] });
+    for (const [dimension, caps] of [["work", { maximumWork: work - 1, maximumResultEntries: entries }],
+      ["result-entries", { maximumWork: work, maximumResultEntries: entries - 1 }]]) {
+      const account = createAccount(caps);
+      const stopped = run(account);
+      assert.equal(stopped.kind, "resource-limit");
+      assert.equal(stopped.dimension, dimension);
+      assert.equal(stopped === accountFailure(account), true);
+      const unreadInput = new Proxy({}, { get() { throw new Error("a stopped field proof must not read MIR"); } });
+      assert.equal(fieldRefinementsOf(account, unreadInput, facts.execution.provided, proofInput) === stopped, true);
+    }
+  }
+}
