@@ -15,7 +15,7 @@ import { childSourceBody, enterSourceBody, layoutSourceRoles } from "./source-bo
 import type { LayoutSelectorRole, LayoutSourceRoles } from "./source-bodies.js";
 import type { SourceBodyScope, SourceBodyTransition } from "./source-bodies.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
-import { lowerCall, verifyFiniteCallTransport } from "./lower-calls.js";
+import { lowerCall, lowerRejectedCall, verifyFiniteCallTransport } from "./lower-calls.js";
 import { lowerLayoutApplication } from "./lower-layout.js";
 import { lowerObjectProperties } from "./lower-members.js";
 import { convertRawType, createTypeConversion, signatureOf } from "./type-conversion.js";
@@ -1288,17 +1288,11 @@ function applicationOf(lowering: Lowering, node: Hir.CallExpression<Syntax>,
     typeArguments = selected.value.typeArguments;
     resolvedSignature = candidate.appliedSignature;
   } else {
-    const group = lowering.raw.types.candidates[call.candidates];
-    const diagnostic = call.diagnostics[0];
-    if (call.invocation.module !== lowering.raw.module || call.invocation.node !== node.id
-      || group?.id !== call.candidates || group.candidates.length !== 0
-      || call.diagnostics.length !== 1 || diagnostic?.module !== lowering.raw.module
-      || lowering.raw.checkerDiagnostics[diagnostic.index]?.severity !== "error")
-      return throwInvariant(invariant("A rejected call must retain its actual empty candidate group and original checker cause."));
-    candidates = [];
+    const rejected = lowerRejectedCall(lowering, node, call, contextual);
+    if (rejected.kind !== "complete") return rejected;
+    candidates = rejected.value.candidates;
     typeArguments = [];
-    resolvedSignature = { kind: "unavailable", reason: "checker-error",
-      causes: [{ kind: "diagnostic", diagnostic: { kind: "checker", diagnostic } }] };
+    resolvedSignature = rejected.value.failure;
   }
   const arguments_: Hir.HirArgument[] = [];
   let hasSpread = false;

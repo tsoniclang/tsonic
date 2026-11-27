@@ -2,7 +2,7 @@ import type { RawSignatureId, RawTypeId, TyId } from "../ids/contract.js";
 import type * as Hir from "../ir-hir/contract.js";
 import type { ComponentSelector, TypeBinding } from "../ir-types/contract.js";
 import { admitTypePublicationStep, readSignature, readType } from "../ir-types/index.js";
-import type { RawCallSelection, RawComponent, RawNodeRef } from "./contract.js";
+import type { RawCallCandidate, RawCallSelection, RawComponent, RawConstraint, RawDiagnosticReference, RawNodeRef } from "./contract.js";
 import { sameSource, sourceOccurrence } from "./bindings.js";
 import { convertRawType, rawSignatureParameter, signatureOf } from "./type-conversion.js";
 import type { ConversionResult, TypeConversion } from "./type-conversion.js";
@@ -18,7 +18,31 @@ function typeOf(conversion: TypeConversion, id: RawTypeId): ConversionResult<TyI
 }
 
 type RawCall = Extract<RawCallSelection, { readonly kind: "applicable" }>;
+type RejectedCall = Extract<RawCallSelection, { readonly kind: "conditional-candidates" }>;
 type Call = Hir.CallExpression<Hir.SyntaxPhase>;
+
+function verifyAuthoredSlots(conversion: TypeConversion, node: Call, candidate: RawCallCandidate): ConversionResult<void> {
+  const { deps, raw } = conversion;
+  const invocation = { module: raw.module, node: node.id };
+  if (!sameSource(candidate.application.invocation, invocation)
+    || !sameSource(candidate.application.callee, { module: raw.module, node: node.expression.id }))
+    return fail("a call candidate must retain its actual invocation and callee");
+  if (candidate.sourceArguments.length !== node.arguments.nodes.length)
+    return fail("a call candidate must retain every actual authored argument");
+  for (let index = 0; index < node.arguments.nodes.length; index += 1) {
+    const stop = admitTypePublicationStep(deps.typeWork);
+    if (stop !== null) return stop;
+    const syntax = node.arguments.nodes[index];
+    if (syntax === undefined) return fail("a call candidate must retain every actual authored argument");
+    const authored = candidate.sourceArguments[index];
+    const operand = syntax.kind === "SpreadElement" ? syntax.expression : syntax;
+    if (authored?.kind !== (syntax.kind === "SpreadElement" ? "spread" : "value")
+      || !sameSource(authored.occurrence, { module: raw.module, node: syntax.id })
+      || !sameSource(authored.expression, { module: raw.module, node: operand.id }))
+      return fail("a call candidate must retain the actual authored slot and operand");
+  }
+  return { kind: "complete", value: undefined };
+}
 
 function contextualTuplePath(conversion: TypeConversion, source: RawComponent, formal: RawComponent,
   signature: RawSignatureId): ConversionResult<readonly Extract<ComponentSelector, { readonly kind: "tuple-element" }>[]> {
@@ -105,12 +129,14 @@ export function verifyFiniteCallTransport(conversion: TypeConversion, call: RawC
   return { kind: "complete", value: undefined };
 }
 
-export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall,
-  contextual: Hir.CapturedFact<TyId | null>): ConversionResult<{
+interface LoweredCandidate {
   readonly candidate: Hir.HirCandidate;
   readonly typeArguments: readonly TyId[];
-}> {
-  const { deps, raw } = conversion;
+}
+
+export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall,
+  contextual: Hir.CapturedFact<TyId | null>): ConversionResult<LoweredCandidate> {
+  const { raw } = conversion;
   const list = raw.types.candidates[call.candidates];
   const order = call.declarationOrder;
   if (order.kind !== "available" || order.value.length === 0 || list?.id !== call.candidates || list.candidates.length !== 1)
@@ -120,29 +146,22 @@ export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall,
     ? order.value[declarationOrdinal] : undefined;
   const [candidate] = list.candidates;
   const invocation = { module: raw.module, node: node.id };
-  if (candidate === undefined || originalId === undefined || candidate.ordinal !== 0
-    || !sameSource(call.invocation, invocation) || !sameSource(candidate.application.invocation, invocation)
-    || !sameSource(candidate.application.callee, { module: raw.module, node: node.expression.id }))
+  if (candidate === undefined || originalId === undefined || candidate.ordinal !== 0 || !sameSource(call.invocation, invocation))
     return fail("an applicable candidate must retain its actual selected invocation and callee");
-  if (candidate.sourceArguments.length !== node.arguments.nodes.length)
-    return fail("an applicable candidate must retain every actual authored argument");
-  for (let index = 0; index < node.arguments.nodes.length; index += 1) {
-    const stop = admitTypePublicationStep(deps.typeWork);
-    if (stop !== null) return stop;
-    const syntax = node.arguments.nodes[index];
-    if (syntax === undefined) return fail("an applicable candidate must retain every actual authored argument");
-    const authored = candidate.sourceArguments[index];
-    const operand = syntax.kind === "SpreadElement" ? syntax.expression : syntax;
-    if (authored?.kind !== (syntax.kind === "SpreadElement" ? "spread" : "value")
-      || !sameSource(authored.occurrence, { module: raw.module, node: syntax.id })
-      || !sameSource(authored.expression, { module: raw.module, node: operand.id }))
-      return fail("an applicable candidate must retain the actual authored slot and operand");
-  }
+  if (candidate.constraints.length !== 0 || candidate.diagnostics.length !== 0 || candidate.diagnosticCoverage.length !== 0)
+    return fail("an applicable candidate cannot carry conditional failure evidence");
+  return lowerCandidate(conversion, node, candidate, originalId, contextual);
+}
+
+function lowerCandidate(conversion: TypeConversion, node: Call, candidate: RawCallCandidate, originalId: RawSignatureId,
+  contextual: Hir.CapturedFact<TyId | null>): ConversionResult<LoweredCandidate> {
+  const { deps, raw } = conversion;
+  const invocation = { module: raw.module, node: node.id };
+  const slots = verifyAuthoredSlots(conversion, node, candidate);
+  if (slots.kind !== "complete") return slots;
   const application = candidate.application;
   if (application.classArguments.length !== 0 || application.receiver !== null)
     return fail("nonempty call candidate binding conversion is not implemented");
-  if (candidate.constraints.length !== 0 || candidate.diagnostics.length !== 0 || candidate.diagnosticCoverage.length !== 0)
-    return fail("call candidate conditional failure conversion is not implemented");
   if (candidate.inferenceContributions.kind !== "available") return fail("call inference contributions require their actual selected inventory");
   const declared = raw.types.signatures[originalId];
   const applied = raw.types.signatures[application.signature];
@@ -281,4 +300,113 @@ export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall,
     appliedSignature: { kind: "available", value: selected.value },
     bindings: { kind: "available", value: { classBindings: [], methodBindings: bindings, capturedBindings: [], selfBindings: [] } },
     conditionalFailure: { kind: "available", value: null }, contributions } } };
+}
+
+export function lowerRejectedCall(conversion: TypeConversion, node: Call, call: RejectedCall,
+  contextual: Hir.CapturedFact<TyId | null>): ConversionResult<{
+    readonly candidates: readonly Hir.HirCandidate[];
+    readonly failure: Extract<Hir.CapturedFact<never>, { readonly kind: "unavailable" }>;
+  }> {
+  const { raw, typeWork } = conversion;
+  const list = raw.types.candidates[call.candidates];
+  const order = call.declarationOrder;
+  const invocation = { module: raw.module, node: node.id };
+  if (!sameSource(call.invocation, invocation) || list?.id !== call.candidates || order.kind !== "available"
+    || order.value.length === 0 || call.diagnostics.length === 0)
+    return fail("a rejected call must retain its actual candidate inventory and checker causes");
+  const causes: Extract<Hir.CapturedFact<never>, { readonly kind: "unavailable" }>["causes"][number][] = [];
+  const roots = new Set<number>();
+  for (let index = 0; index < call.diagnostics.length; index += 1) {
+    const stop = admitTypePublicationStep(typeWork);
+    if (stop !== null) return stop;
+    const diagnostic = call.diagnostics[index];
+    if (diagnostic?.module !== raw.module || raw.checkerDiagnostics[diagnostic.index]?.severity !== "error")
+      return fail("a rejected call must retain its original checker cause");
+    roots.add(diagnostic.index);
+    causes.push({ kind: "diagnostic", diagnostic: { kind: "checker", diagnostic } });
+  }
+  const originals = new Set<RawSignatureId>();
+  if (list.candidates.length !== 0) for (let index = 0; index < order.value.length; index += 1) {
+    const stop = admitTypePublicationStep(typeWork, 1, 1);
+    if (stop !== null) return stop;
+    const signature = order.value[index];
+    if (signature === undefined || raw.types.signatures[signature]?.id !== signature)
+      return fail("a rejected call must retain its actual declaration order");
+    originals.add(signature);
+  }
+  const candidates: Hir.HirCandidate[] = [];
+  for (let ordinal = 0; ordinal < list.candidates.length; ordinal += 1) {
+    const stop = admitTypePublicationStep(typeWork);
+    if (stop !== null) return stop;
+    const candidate = list.candidates[ordinal];
+    if (candidate?.ordinal !== ordinal) return fail("a rejected call must retain its actual dense candidate order");
+    const signature = raw.types.signatures[candidate.application.signature];
+    const original = signature?.target ?? signature?.id;
+    if (original === undefined || !originals.has(original))
+      return fail("a rejected candidate must retain its actual original signature");
+    const candidateCauses: typeof causes = [];
+    const candidateRoots = new Set<number>();
+    for (let index = 0; index < candidate.diagnostics.length; index += 1) {
+      const stopped = admitTypePublicationStep(typeWork, 1, 2);
+      if (stopped !== null) return stopped;
+      const diagnostic = candidate.diagnostics[index];
+      if (diagnostic?.module !== raw.module || !roots.has(diagnostic.index))
+        return fail("a rejected candidate must retain a checker cause of its actual invocation");
+      candidateRoots.add(diagnostic.index);
+      candidateCauses.push({ kind: "diagnostic", diagnostic: { kind: "checker", diagnostic } });
+    }
+    const evidence = verifyRejectedEvidence(conversion, candidate, invocation, candidateRoots);
+    if (evidence.kind !== "complete") return evidence;
+    const selected = lowerCandidate(conversion, node, candidate, original, contextual);
+    if (selected.kind !== "complete") return selected;
+    const diagnostic = candidate.diagnostics[0];
+    const originalDiagnostic = diagnostic === undefined ? undefined : raw.checkerDiagnostics[diagnostic.index];
+    const conditionalFailure: Hir.HirCandidate["conditionalFailure"] = candidateCauses.length === 0
+      ? { kind: "unavailable", reason: "not-provided", causes: [] }
+      : candidateCauses.length === 1 && originalDiagnostic !== undefined ? { kind: "available", value: originalDiagnostic }
+      : { kind: "unavailable", reason: "checker-error", causes: candidateCauses };
+    candidates.push({ ...selected.value.candidate, conditionalFailure });
+  }
+  return { kind: "complete", value: { candidates, failure: { kind: "unavailable", reason: "checker-error", causes } } };
+}
+
+function verifyRejectedEvidence(conversion: TypeConversion, candidate: RawCallCandidate, invocation: RawNodeRef,
+  roots: ReadonlySet<number>): ConversionResult<void> {
+  const { raw, typeWork } = conversion;
+  const actualRoot = (diagnostic: RawDiagnosticReference): boolean => diagnostic.module === invocation.module && roots.has(diagnostic.index);
+  const constraints = new Set<RawConstraint>();
+  for (let index = 0; index < candidate.constraints.length; index += 1) {
+    const stop = admitTypePublicationStep(typeWork, 3, 1);
+    if (stop !== null) return stop;
+    const edge = candidate.constraints[index];
+    if (edge?.kind !== "write-fit" || !sameSource(edge.application ?? undefined, invocation)
+      || !actualRoot(edge.root) || edge.diagnostic.module !== edge.root.module || edge.diagnostic.index !== edge.root.index)
+      return fail("a rejected candidate must retain its actual write-fit obligation");
+    const source = raw.types.components[edge.source];
+    const destination = raw.types.components[edge.destination];
+    if (source?.id !== edge.source || !sameSource(source.root, invocation) || source.path?.prefix !== null
+      || source.path.step.kind !== "argument-place" || destination?.id !== edge.destination || !sameSource(destination.root, invocation)
+      || destination.path?.prefix !== null || destination.path.step.kind !== "parameter"
+      || destination.path.step.signature !== candidate.application.signature)
+      return fail("a rejected write-fit obligation must retain its candidate argument and formal components");
+    constraints.add(edge);
+  }
+  for (let index = 0; index < candidate.diagnosticCoverage.length; index += 1) {
+    const stop = admitTypePublicationStep(typeWork);
+    if (stop !== null) return stop;
+    const coverage = candidate.diagnosticCoverage[index];
+    if (coverage === undefined || !actualRoot(coverage.root))
+      return fail("rejected candidate coverage must name an actual original diagnostic");
+    if (coverage.kind === "unavailable") continue;
+    if (coverage.purpose.kind !== "alternative-applicability" || !sameSource(coverage.purpose.invocation, invocation))
+      return fail("complete rejection coverage must retain its actual invocation");
+    for (let index = 0; index < coverage.obligations.length; index += 1) {
+      const stopped = admitTypePublicationStep(typeWork);
+      if (stopped !== null) return stopped;
+      const edge = coverage.obligations[index];
+      if (edge === undefined || !constraints.has(edge) || edge.root.index !== coverage.root.index)
+        return fail("complete rejection coverage must retain its actual candidate obligation");
+    }
+  }
+  return { kind: "complete", value: undefined };
 }

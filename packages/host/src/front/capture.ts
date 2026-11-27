@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceCallInfo, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedCallCandidateEvidence, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, hasDeclaredIndexReadEvidence, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, sourcePrimitiveFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -11,7 +11,7 @@ import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../
 import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
-import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember,
+import type { RawApplication, RawCallCandidate, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember,
   RawFieldMarker, RawInterfaceDescription, RawInterfaceGroup, RawInterfaceGroupEvidence, RawLayoutConstruction, RawLayoutOperand, RawLayoutQuery, RawLayoutSelector,
   RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
@@ -3982,6 +3982,15 @@ function tupleLiteralRead(scope: CaptureScope, source: Node, original: Type, par
   return inherited;
 }
 
+function authoredSpreadTupleUse(scope: CaptureScope, source: Node, original: Type, parent: Node | undefined): LiteralTupleUse | null {
+  if (parent === undefined) return null;
+  const ast = scope.checked.ast;
+  if (ast.kindName(parent) !== "KindSpreadElement" || !admit(scope, "edges")
+    || ast.as.AsSpreadElement(parent)?.Expression !== source) return null;
+  const expression = tupleLiteralExpression(scope, source);
+  return expression === undefined ? null : retainTupleLiteral(scope, source, expression, original);
+}
+
 function contextualNativeArrayAnnotation(scope: CaptureScope, node: Node, parent: Node, contextual: ResolvedSourceTypeInfo): Node | null {
   const annotation = contextualLiteralAnnotation(scope, node, parent, "native-array");
   if (annotation === undefined) return null;
@@ -5034,7 +5043,7 @@ function requiredCallReference(scope: CaptureScope, node: Node): RawNodeRef | nu
 
 type SelectedCall = Extract<ResolvedCallSelectionEvidence, { readonly kind: "applicable" }>["selection"];
 
-function contributedFormalType(scope: CaptureScope, application: SelectedCall["application"],
+function contributedFormalType(scope: CaptureScope, application: ResolvedCheckedCallCandidateEvidence["application"],
   contribution: ResolvedCallInferenceContribution): Type | undefined {
   if (contribution.sourcePath.length !== 0) return undefined;
   const { origin, formalPath, formalRootType } = contribution;
@@ -5091,7 +5100,7 @@ function contextualTupleContribution(scope: CaptureScope, contribution: Resolved
   return from === null || to === null ? null : { source: from, formal: to };
 }
 
-function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, invocation: RawNodeRef, original: RawSignatureId,
+function captureSelectedBindings(scope: CaptureScope, selected: ResolvedCheckedCallCandidateEvidence, invocation: RawNodeRef, original: RawSignatureId,
   contextual: ResolvedSourceTypeInfo | undefined, tuple: AppliedTupleResult | null): {
   readonly arguments: readonly RawTypeArgument[];
   readonly contributions: RawFact<readonly RawInferenceContribution[]>;
@@ -5145,7 +5154,7 @@ function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, in
     if (parameter === undefined || declared === undefined)
       return throwInvariant(invariant("A selected inference contribution must name an actual original signature parameter."));
     if (origin.kind === "argument") {
-      const argument = selected.arguments.values[origin.effectiveArgumentIndex];
+      const argument = selected.arguments.kind === "available" ? selected.arguments.values[origin.effectiveArgumentIndex] : undefined;
       if (argument?.sourceArgument !== origin.subject || argument.parameterIndex !== origin.parameterIndex)
         return throwInvariant(invariant("An inference contribution must retain its actual selected argument association."));
     } else if (origin.subject !== application.invocation)
@@ -5197,6 +5206,159 @@ function captureCallOrder(scope: CaptureScope, invocation: RawNodeRef, signature
     order.push(captured);
   }
   return { order, position };
+}
+
+function captureRejectedEndpoint(scope: CaptureScope, candidate: ResolvedCheckedCallCandidateEvidence,
+  invocation: RawNodeRef, signature: RawSignatureId, endpoint: ResolvedCheckedComponentEvidence): RawComponentId | null {
+  if (!admit(scope, "edges")) return null;
+  const { application } = candidate;
+  const root = endpoint.root;
+  if (endpoint.application !== application || root.node !== application.invocation || endpoint.path.length !== 0
+    || endpoint.type !== root.type || root.kind !== "call-argument" && root.kind !== "call-parameter"
+    || !Number.isSafeInteger(root.index) || root.index < 0 || Object.is(root.index, -0))
+    throw new TypeError("front: a rejected application requires actual direct call endpoint evidence");
+  let annotation: Node | null = null;
+  if (root.kind === "call-parameter") {
+    if (!admit(scope, "edges")) return null;
+    const selected = application.signatureShape.parameters[root.index];
+    if (selected?.index !== root.index)
+      return throwInvariant(invariant("A rejected application must retain its actual original formal."));
+    const written = selected.declaration === undefined ? undefined : scope.checked.ast.typeNode(selected.declaration);
+    const checked = written === undefined ? undefined : sourceType(scope, { kind: "annotation", node: written });
+    if (checked?.type === endpoint.type && checked.causes.length === 0) annotation = written ?? null;
+    if (scope.meter.refusal !== null) return null;
+  }
+  const position = component(scope, invocation, root.kind === "call-argument" ? { kind: "argument-place", index: root.index }
+    : { kind: "parameter", signature, index: root.index });
+  return rawType(scope, () => withoutTypeCause(endpoint.type), position, annotation) === null ? null : position;
+}
+
+function captureRejectedCall(scope: CaptureScope, invocation: RawNodeRef,
+  call: Extract<ResolvedSourceCallInfo, { readonly kind: "conditional-candidates" }>): RawCallSelection | null {
+  if (call.declarationOrder.kind !== "available" || call.declarationOrder.signatures.length === 0 || call.diagnostics.length === 0)
+    throw new TypeError("front: a rejected call requires its declaration order and actual checker causes");
+  const diagnostics: CheckerDiagnosticRef[] = [];
+  const hasCandidates = call.candidates.length !== 0;
+  if (hasCandidates && !admit(scope, "facts")) return null;
+  const known = hasCandidates ? new Map<CheckerDiagnostic, CheckerDiagnosticRef>() : null;
+  for (let index = 0; index < call.diagnostics.length; index += 1) {
+    if (!admit(scope, "edges")) return null;
+    const diagnostic = call.diagnostics[index];
+    if (diagnostic === undefined || diagnostic.file !== scope.file)
+      return throwInvariant(invariant("A rejected call must retain its actual published checker diagnostic run."));
+    const captured = scope.diagnosticRoots.get(diagnostic);
+    if (captured === undefined || captured.module !== invocation.module)
+      return throwInvariant(invariant("A rejected call must retain its actual published checker diagnostic run."));
+    diagnostics.push(captured);
+    if (known !== null) {
+      if (!admit(scope, "facts")) return null;
+      known.set(diagnostic, captured);
+    }
+  }
+  const declared = captureCallOrder(scope, invocation, call.declarationOrder.signatures, "call", null);
+  if (declared === null) return null;
+  const candidates: RawCallCandidate[] = [];
+  for (let ordinal = 0; ordinal < call.candidates.length; ordinal += 1) {
+    if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+    const candidate = call.candidates[ordinal];
+    if (candidate === undefined) return throwInvariant(invariant("Rejected call candidates must be dense."));
+    const application = candidate.application;
+    const applied = application.instantiatedSignature;
+    const original = scope.tables.signatureIds.get(application.signature);
+    if (applied === undefined || application.invocation !== call.call || application.kind !== "call" || original === undefined
+      || application.class !== undefined || application.receiver !== undefined || application.signatureShape.composite !== undefined
+      || applied !== application.signature && applied.target !== application.signature || candidate.arguments.kind !== "unavailable")
+      throw new TypeError("front: rejected call candidate lacks a supported actual applied signature or argument association");
+    const signature = rawSignature(scope, applied, invocation, application.kind);
+    if (signature === null) return null;
+    const callee = requiredCallReference(scope, application.callee.expression);
+    if (callee === null) return null;
+    const binding = captureSelectedBindings(scope, candidate, invocation, original, undefined, null);
+    if (binding === null) return null;
+    const sourceArguments: RawAuthoredArgument[] = [];
+    for (let index = 0; index < candidate.sourceArguments.length; index += 1) {
+      if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+      const argument = candidate.sourceArguments[index];
+      if (argument === undefined) return throwInvariant(invariant("A rejected call requires its actual authored argument."));
+      const spread = scope.checked.ast.kindName(argument) === "KindSpreadElement";
+      const operand = spread ? scope.checked.ast.as.AsSpreadElement(argument)?.Expression : argument;
+      if (operand === undefined) return throwInvariant(invariant("A rejected spread requires its actual authored operand."));
+      const occurrence = requiredCallReference(scope, argument);
+      if (occurrence === null) return null;
+      const expression = spread ? requiredCallReference(scope, operand) : occurrence;
+      if (expression === null) return null;
+      sourceArguments.push({ occurrence, expression, kind: spread ? "spread" : "value", component: notProvided() });
+    }
+    const constraints: RawConstraint[] = [];
+    if (candidate.constraints.length !== 0 && !admit(scope, "facts")) return null;
+    const obligationOf = candidate.constraints.length === 0 ? null : new Map<CheckerDiagnostic, RawConstraint>();
+    for (let index = 0; index < candidate.constraints.length; index += 1) {
+      if (!admit(scope, "edges") || !admit(scope, "facts", 2)) return null;
+      const edge = candidate.constraints[index];
+      if (edge?.kind !== "write-fit" || edge.application !== application || edge.diagnostic.candidate !== application.signature)
+        throw new TypeError("front: rejected call obligations require their actual candidate write-fit relation");
+      const root = known?.get(edge.diagnostic.root);
+      if (root === undefined || obligationOf === null || obligationOf.has(edge.diagnostic.diagnostic))
+        return throwInvariant(invariant("A rejected call obligation must own one actual published cause."));
+      const diagnostic = originalDiagnosticReference(scope, edge.diagnostic.diagnostic);
+      if (diagnostic === null) return null;
+      if (diagnostic !== root) return throwInvariant(invariant("A rejected call obligation belongs to its original diagnostic run."));
+      const site = requiredCallReference(scope, edge.site);
+      if (site === null) return null;
+      const source = captureRejectedEndpoint(scope, candidate, invocation, signature, edge.source);
+      if (source === null) return null;
+      const destination = captureRejectedEndpoint(scope, candidate, invocation, signature, edge.destination);
+      if (destination === null) return null;
+      const captured: RawConstraint = { kind: "write-fit", site, diagnostic, root, application: invocation, source, destination };
+      constraints.push(captured);
+      obligationOf.set(edge.diagnostic.diagnostic, captured);
+    }
+    const causes: CheckerDiagnosticRef[] = [];
+    const coverage: RawDiagnosticCoverage[] = [];
+    if (candidate.diagnostics.length !== candidate.diagnosticCoverage.length)
+      return throwInvariant(invariant("A rejected call requires its actual diagnostic coverage inventory."));
+    for (let index = 0; index < candidate.diagnostics.length; index += 1) {
+      if (!admit(scope, "edges", 2) || !admit(scope, "facts")) return null;
+      const originalDiagnostic = candidate.diagnostics[index];
+      const receipt = candidate.diagnosticCoverage[index];
+      const root = originalDiagnostic === undefined ? undefined : known?.get(originalDiagnostic);
+      if (root === undefined || receipt === undefined || receipt.root !== originalDiagnostic)
+        return throwInvariant(invariant("Rejected call coverage must retain its actual candidate diagnostic."));
+      causes.push(root);
+      if (receipt.kind === "unavailable") {
+        coverage.push({ kind: "unavailable", root });
+        continue;
+      }
+      if (receipt.purpose.kind !== "alternative-applicability" || receipt.purpose.invocation !== call.call)
+        throw new TypeError("front: complete rejected call coverage requires its actual alternative applicability receipt");
+      const obligations: RawConstraint[] = [];
+      for (let index = 0; index < receipt.obligations.length; index += 1) {
+        if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+        const obligation = receipt.obligations[index];
+        const related = obligation === undefined ? undefined : obligationOf?.get(obligation.diagnostic);
+        if (obligation?.application !== application || obligation.kind !== "applicability" || related === undefined || related.root !== root)
+          throw new TypeError("front: rejected call coverage has no matching candidate obligation");
+        obligations.push(related);
+      }
+      const notes: CheckerDiagnosticRef[] = [];
+      for (let index = 0; index < receipt.purpose.notes.length; index += 1) {
+        if (!admit(scope, "edges")) return null;
+        const note = receipt.purpose.notes[index];
+        if (note === undefined) return throwInvariant(invariant("Rejected call notes must be dense."));
+        const reference = originalDiagnosticReference(scope, note);
+        if (reference === null) return null;
+        notes.push(reference);
+      }
+      coverage.push({ kind: "complete", root, obligations, purpose: { kind: "alternative-applicability", invocation, notes } });
+    }
+    candidates.push({ ordinal, application: { invocation, kind: application.kind, callee, receiver: null, signature,
+      classArguments: [], signatureArguments: binding.arguments }, sourceArguments, arguments: notProvided(),
+      inferenceContributions: binding.contributions, constraints, diagnostics: causes, diagnosticCoverage: coverage });
+  }
+  if (!admit(scope, "facts")) return null;
+  const list = rawCandidateListId(scope.tables.candidates.length);
+  scope.tables.candidates.push({ id: list, candidates });
+  return { kind: "conditional-candidates", invocation, declarationOrder: available(declared.order), candidates: list, diagnostics };
 }
 
 function layoutSyntaxFault(scope: CaptureScope, at: Hir.SyntaxNode<Hir.SyntaxPhase>, detail: string): null {
@@ -5382,20 +5544,8 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef, co
       if (captureLayoutSyntax(scope, input, role.construction, () => null) === null) return null;
     }
   }
-  if (info.kind === "conditional-candidates" && !info.optionalChain && info.candidates.length === 0
-    && info.declarationOrder.kind === "available" && info.declarationOrder.signatures.length !== 0 && info.diagnostics.length === 1) {
-    if (!admit(scope, "edges")) return null;
-    const diagnostic = info.diagnostics[0];
-    const original = diagnostic?.file === scope.file ? scope.diagnosticRoots.get(diagnostic) : undefined;
-    if (original === undefined || original.module !== invocation.module)
-      return throwInvariant(invariant("A rejected call must retain its actual published checker diagnostic run."));
-    const declared = captureCallOrder(scope, invocation, info.declarationOrder.signatures, "call", null);
-    if (declared === null) return null;
-    if (!admit(scope, "facts")) return null;
-    const candidates = rawCandidateListId(scope.tables.candidates.length);
-    scope.tables.candidates.push({ id: candidates, candidates: [] });
-    return { kind: "conditional-candidates", invocation, declarationOrder: available(declared.order), candidates, diagnostics: [original] };
-  }
+  if (info.kind === "conditional-candidates" && !info.optionalChain)
+    return captureRejectedCall(scope, invocation, info);
   if (info.kind !== "applicable") throw new TypeError("front: conditional or untyped call capture is not implemented");
   const selected = info.selection;
   const application = selected.application;
@@ -5846,7 +5996,8 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       const tupleValue = (kind === "KindArrayLiteralExpression" || kind === "KindParenthesizedExpression")
         && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
         ? tupleLiteralRead(scope, node, answer.type, parent) ?? (tupleContext === null
-          ? null : retainTupleLiteral(scope, node, tupleContext.expression, answer.type)) : null;
+          ? authoredSpreadTupleUse(scope, node, answer.type, parent)
+          : retainTupleLiteral(scope, node, tupleContext.expression, answer.type)) : null;
       if (scope.meter.refusal !== null) break;
       const declaredRead = isDeclaredTupleRead(scope, node, answer);
       const declarationSymbol = declaredRead ? scope.checker.getSymbolAtLocation(node) : undefined;

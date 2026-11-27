@@ -578,8 +578,8 @@ function collectOriginalDiagnostics(deps: InferenceInputs, body: HirBody, node: 
       const { candidates, resolvedSignature } = application.value;
       if (resolvedSignature.kind === "unavailable" && resolvedSignature.reason === "checker-error") {
         const group = candidates.kind === "available" ? body.candidateLists[candidates.value] : undefined;
-        if (group === undefined || candidates.kind !== "available" || group.id !== candidates.value || group.candidates.length !== 0)
-          return callerDefect(PORT, "an original rejected call retains its actual empty candidate list");
+        if (group === undefined || candidates.kind !== "available" || group.id !== candidates.value)
+          return callerDefect(PORT, "an original rejected call retains its actual candidate list");
         fact = resolvedSignature;
       }
     }

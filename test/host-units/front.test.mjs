@@ -2792,7 +2792,7 @@ test("an applicable SDK receipt retains its actual overload position without fab
   }
   const obligations = { ...raw, types: { ...raw.types, candidates: raw.types.candidates.map(list => ({ ...list,
     candidates: list.candidates.map(candidate => ({ ...candidate, constraints: [{}] })) })) } };
-  assert.throws(() => convert(obligations), { name: "TypeError", message: "front: call candidate conditional failure conversion is not implemented" });
+  assert.throws(() => convert(obligations), { name: "TypeError", message: "front: an applicable candidate cannot carry conditional failure evidence" });
 });
 
 test("the checker's boolean is scalar while a union retains its actual separate member forms", () => {
@@ -3517,6 +3517,61 @@ test("selected generic tuple results retain the original binder and actual conte
   const published = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: { ...facts,
     carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
   assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
+});
+
+test("a rejected nested spread retains its actual candidate and original checker obligation", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { createTypeInterner } = await import("../../packages/host/dist/ir-types/index.js");
+  const source = "function take(first:[boolean],second:[boolean],later:boolean):boolean{return later;} "
+    + "export function start(value:boolean):boolean{return take(...[[value],[true]],value);}";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const opened = fixture.openAndCapture(input.snapshot);
+  const module = input.snapshot.entryPoint;
+  const captured = captureSingleModule(front, opened.deps, opened.program, module);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const [call] = raw.calls;
+  const [reference] = call.diagnostics;
+  const invocation = raw.tree.statements.nodes[1].body.statements.nodes[0].expression;
+  const spread = invocation.arguments.nodes[0];
+  assert.equal(call.kind, "conditional-candidates");
+  assert.deepEqual(call.invocation, { module, node: invocation.id });
+  assert.equal(raw.checkerDiagnostics[reference.index].code.rendered, "TS4104");
+  const [candidate] = raw.types.candidates[call.candidates].candidates;
+  const [obligation] = candidate.constraints;
+  assert.equal(candidate.arguments.kind, "unavailable");
+  assert.deepEqual(candidate.sourceArguments.map(row => [row.kind, row.occurrence.node, row.expression.node]),
+    [["spread", spread.id, spread.expression.id], ["value", invocation.arguments.nodes[1].id, invocation.arguments.nodes[1].id]]);
+  assert.deepEqual(obligation.site, { module, node: spread.id });
+  assert.equal(obligation.root === reference, true);
+  assert.equal(obligation.diagnostic === reference, true);
+  assert.equal(candidate.diagnosticCoverage[0].obligations[0] === obligation, true);
+  assert.deepEqual(raw.types.components[obligation.source].path, { prefix: null, step: { kind: "argument-place", index: 0 } });
+  const destination = raw.types.components[obligation.destination];
+  assert.deepEqual(destination.path, { prefix: null, step: { kind: "parameter", signature: candidate.application.signature, index: 0 } });
+  assert.deepEqual(destination.root, call.invocation);
+  const defined = identifySingleModule(front, { module: raw, componentRoots: raw.types.components.map(row => row.root) });
+  assert.equal(defined.kind, "ok");
+  const crossed = { ...raw, types: { ...raw.types, components: raw.types.components.map(row => row !== destination ? row
+    : { ...row, root: { module, node: spread.id } }) } };
+  assert.throws(() => lowerWithReadyExports(lowerDepsFor(defined.value, createTypeInterner(), source), crossed), { name: "TypeError",
+    message: "front: a rejected write-fit obligation must retain its candidate argument and formal components" });
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const main = checked.value.modules.find(row => row.module.module === module).module;
+  const body = main.bodies.find(row => row.candidateLists.length === 1);
+  const [retained] = body.candidateLists[0].candidates;
+  const original = main.checkerDiagnostics[reference.index];
+  assert.equal(retained.conditionalFailure.value === original, true);
+  const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "refused");
+  assert.equal("value" in typed, false);
+  assert.equal(typed.diagnostics.length, 1);
+  assert.equal(typed.diagnostics[0] === original, true);
 });
 
 test("nested contextual tuple contributions retain both paid selector edges", async () => {
