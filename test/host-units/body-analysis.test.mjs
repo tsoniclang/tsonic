@@ -1994,27 +1994,35 @@ test("counted-loop facts bind the actual placed initializer and refuse a reachin
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const fixture = await loadFrontFixture();
-  for (const write of ["", "i = 3;"]) {
-    const source = `export function read(values: boolean[]): boolean {
-      for (let i = 0; i < 3; ++i) { ${write} if (values[i]) return true; }
+  for (const { start, write, minimum, counted, audit } of [
+    { start: 0, write: "", minimum: 0n, counted: true, audit: true },
+    { start: 0, write: "i = 3;", minimum: null, counted: false, audit: false },
+    { start: 0, write: "values = replacement;", minimum: 0n, counted: true, audit: false },
+    { start: 1, write: "", minimum: 1n, counted: true, audit: false },
+    { start: 3, write: "", minimum: null, counted: true, audit: false },
+  ]) {
+    const source = `export function read(values: boolean[], replacement: boolean[]): boolean {
+      for (let i = ${start}; i < 3; ++i) { ${write} if (values[i]) return true; }
       return false;
     }`;
     const input = analysisInput(fixture, "sdk-minimal", source);
     const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
       libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) });
-    const result = analyzeHostProgram({ ...input, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts,
-      integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] } } });
+    const operands = { ...input, snapshot: { ...snapshot, nativeFacts: { ...snapshot.nativeFacts,
+      integerOverflow: [{ carrier: "int64", operation: "increment", result: "int64", law: "wrap" }] } } };
+    const result = analyzeHostProgram(operands);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
     const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
     assert.equal(selected.mir.blocks.some(block => block.terminator.kind === "check"), true);
     const [facts] = selected.facts;
     assert.deepEqual(facts.refinements.refinements, [], "the receiver's extent has not been proved");
-    assert.equal(facts.refinements.integers.some(row => row.range !== null), false);
-    if (write !== "") {
+    if (!counted) {
       assert.deepEqual(facts.refinements.countedLoops, []);
+      assert.equal(facts.refinements.integers.some(row => row.range !== null), false);
       continue;
     }
     const [loop] = selected.tir.root.statements.nodes;
@@ -2031,25 +2039,59 @@ test("counted-loop facts bind the actual placed initializer and refuse a reachin
     assert.deepEqual(decoded.value.refinements.countedLoops, facts.refinements.countedLoops);
     const indexed = sourceOccurrences(selected.tir, createAccount(limits));
     assert.equal(indexed.kind, "complete");
-    const sourceOf = node => indexed.value.get(node);
+    const check = selected.mir.blocks.find(block => block.terminator.kind === "check").terminator;
+    const access = indexed.value.get(check.tir.node);
+    const range = minimum === null ? null : { minimum, maximum: 2n };
+    assert.equal(access.kind, "ElementAccessExpression");
+    assert.deepEqual(facts.refinements.integers.filter(row => row.range !== null),
+      range === null ? [] : [{ node: access.argumentExpression.id, range, nonnegative: true }]);
+    assert.deepEqual(decoded.value.refinements.integers, facts.refinements.integers);
+    if (!audit) continue;
+    const proofInput = { sourceOf: node => indexed.value.get(node), mirBody: instance => {
+      assert.deepEqual(instance, initializer.instance);
+      return initializer.mir;
+    } };
     const probe = createAccount(limits);
-    const replay = countedLoopsOf(probe, selected.mir, facts.execution.provided, sourceOf);
+    const replay = countedLoopsOf(probe, selected.mir, facts.execution.provided, proofInput);
     assert.equal(replay.kind, "complete");
-    assert.deepEqual(replay.value, facts.refinements.countedLoops);
+    assert.deepEqual(replay.value, { loops: facts.refinements.countedLoops, ranges: [{ node: access.argumentExpression.id, range }] });
+    for (const unavailable of [null, selected.mir]) {
+      const unbacked = countedLoopsOf(createAccount(limits), selected.mir, facts.execution.provided, {
+        ...proofInput, mirBody: () => unavailable,
+      });
+      assert.equal(unbacked.kind, "complete");
+      assert.deepEqual(unbacked.value, { loops: facts.refinements.countedLoops, ranges: [] });
+    }
+    const round = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+    try {
+      pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, input) => {
+        const outcome = round(deps, input);
+        if (outcome.kind !== "complete" || outcome.value.kind !== "ok" || !("facts" in outcome.value.value)) return outcome;
+        const pair = outcome.value.value;
+        if (!pair.facts.refinements.integers.some(row => row.range !== null)) return outcome;
+        const integers = pair.facts.refinements.integers.map(row => row.range === null ? row
+          : { ...row, range: { ...row.range, maximum: row.range.maximum + 1n } });
+        return { ...outcome, value: { ...outcome.value, value: { ...pair, facts: { ...pair.facts,
+          refinements: { ...pair.facts.refinements, integers } } } } };
+      };
+      assert.throws(() => analyzeHostProgram(operands), /Facts handoff: integer-proof-exact/);
+    } finally {
+      pipelineWiring.bodyAnalysis.analyzeBodyRound = round;
+    }
     const { work, entries } = InvocationAccount.stateOf(probe);
-    const exact = countedLoopsOf(createAccount({ maximumWork: work, maximumResultEntries: entries }), selected.mir, facts.execution.provided, sourceOf);
+    const exact = countedLoopsOf(createAccount({ maximumWork: work, maximumResultEntries: entries }), selected.mir, facts.execution.provided, proofInput);
     assert.equal(exact.kind, "complete");
     const unreadInput = new Proxy({}, { get() { throw new Error("a stopped proof must not read another body"); } });
     const zero = createAccount({ ...limits, maximumWork: 0 });
-    assert.equal(countedLoopsOf(zero, unreadInput, facts.execution.provided, sourceOf) === accountFailure(zero), true);
+    assert.equal(countedLoopsOf(zero, unreadInput, facts.execution.provided, proofInput) === accountFailure(zero), true);
     for (const [dimension, total, key] of [["work", work, "maximumWork"], ["result-entries", entries, "maximumResultEntries"]]) {
       for (let cap = 0; cap < total; cap += 1) {
         const account = createAccount({ ...limits, [key]: cap });
-        const stopped = countedLoopsOf(account, selected.mir, facts.execution.provided, sourceOf);
+        const stopped = countedLoopsOf(account, selected.mir, facts.execution.provided, proofInput);
         assert.equal(stopped.kind, "resource-limit");
         assert.equal(stopped.dimension, dimension);
         assert.equal(stopped === accountFailure(account), true);
-        assert.equal(countedLoopsOf(account, unreadInput, facts.execution.provided, sourceOf) === stopped, true);
+        assert.equal(countedLoopsOf(account, unreadInput, facts.execution.provided, proofInput) === stopped, true);
       }
     }
   }

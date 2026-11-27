@@ -3,7 +3,7 @@ import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "
 import { requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
 import type { BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, ProjectionPathId } from "../../ids/contract.js";
 import { boundProducerId, originsId, producerId, valueContextId } from "../../ids/index.js";
-import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundProducer, CaptureBinding, CaptureLocation, EffectPaths, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, OpenBoundary, Origins, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, ValueArgument, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
+import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundProducer, CaptureBinding, CaptureLocation, CountedLoopProofs, EffectPaths, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, OpenBoundary, Origins, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, ValueArgument, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, countedLoopsOf } from "../../ir-facts/index.js";
 import type { MirLocal, MirOperand, MirPlace, MirTerminator } from "../../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
@@ -29,6 +29,8 @@ import type { PlacedInitializationRead, UninitializedRead } from "./initializati
 import { collectCellWrites, recordCaptureWrite, recordCellWrite } from "./writes.js";
 import { collectRetainedValues, retainCallCaptures, retainValue } from "./exits.js";
 import type { ValueEscape, ValueRetention } from "./exits.js";
+
+const noCountedProofs: DataflowResult<CountedLoopProofs> = { kind: "complete", value: { loops: [], ranges: [] } };
 
 function operandSite(node: TirSyntaxOccurrence | undefined, position: number, dispatch: boolean): TirSyntaxOccurrence | undefined {
   if (dispatch) {
@@ -1046,10 +1048,32 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       integers.push({ node: node.id, range: null, nonnegative: false });
     }
   }
+  const counted = hasFor ? countedLoopsOf(account, mir, execution.provided, { sourceOf: node => source.value.get(node), mirBody: deps.mirBody })
+    : noCountedProofs;
+  if (counted.kind !== "complete") return counted;
+  if (counted.value.ranges.length !== 0) {
+    const retained = chargeResultEntries(account, counted.value.ranges.length + 1);
+    if (retained !== null) return retained;
+    const byNode = new Map<NodeId, CountedLoopProofs["ranges"][number]["range"]>();
+    for (const range of counted.value.ranges) {
+      const read = chargeWork(account, 1);
+      if (read !== null) return read;
+      byNode.set(range.node, range.range);
+    }
+    for (let position = 0; position < integers.length; position += 1) {
+      const read = chargeWork(account, 1);
+      if (read !== null) return read;
+      const row = integers[position];
+      if (row === undefined) return bodyFrontier("Integer facts retain their actual dense value occurrences.");
+      const range = byNode.get(row.node);
+      if (range === undefined) continue;
+      const updated = chargeResultEntries(account, 1);
+      if (updated !== null) return updated;
+      integers[position] = { node: row.node, range, nonnegative: range.minimum >= 0n };
+    }
+  }
   const integerRows = orderedRows(integers, (left, right) => left.node - right.node, account);
   if (integerRows.kind !== "complete") return integerRows;
-  const counted = hasFor ? countedLoopsOf(account, mir, execution.provided, node => source.value.get(node)) : { kind: "complete" as const, value: [] };
-  if (counted.kind !== "complete") return counted;
   const completion = chargeWork(account, boundarySlots.length + boundProducers.length)
     ?? chargeResultEntries(account, capturedEntries.length * 6 + staticCount + 5);
   if (completion !== null) return completion;
@@ -1110,7 +1134,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     captureEffects.push({ index, reads: read.value, writes: write.value });
   }
   const value: BodyRoundValue = { facts: { execution, arena, liveness, initialization: { reads: initialization.value },
-    refinements: { refinements: [], integers: integerRows.value, countedLoops: counted.value }, origins: { points: [], reads: readRows.value,
+    refinements: { refinements: [], integers: integerRows.value, countedLoops: counted.value.loops }, origins: { points: [], reads: readRows.value,
       subjects: subjectRows.value, writes, escapes: retained.value.escapes, invocations, callbacks: [], activations, frontiers: [],
       constructions: [], instanceRegions: [], exitContents: { onReturn: normal.value.body, onUnwind: unwound.value.body } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] }, rawLocations: [],

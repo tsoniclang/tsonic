@@ -152,8 +152,18 @@ export interface CountedLoopFact {
   readonly step: 1;
 }
 
+export interface CountedLoopInputs {
+  readonly sourceOf: (node: NodeId) => TirSyntaxOccurrence | undefined;
+  readonly mirBody: (instance: BodyInstance) => MirBody | null;
+}
+
+export interface CountedLoopProofs {
+  readonly loops: readonly CountedLoopFact[];
+  readonly ranges: readonly { readonly node: NodeId; readonly range: IntegerRange }[];
+}
+
 export type CountedLoopsOf = (account: DataflowAccount, mir: MirBody, provided: number,
-  source: (node: NodeId) => TirSyntaxOccurrence | undefined) => DataflowResult<readonly CountedLoopFact[]>;
+  inputs: CountedLoopInputs) => DataflowResult<CountedLoopProofs>;
 
 export interface RefinementFacts {
   readonly refinements: readonly RefinementFact[];
@@ -553,7 +563,7 @@ export type FactsRule =
   | "mir-point-resolves" | "stores-order" | "locals-order" | "captures-order" | "initialization-order"
   | "live-segments-order" | "live-segments-bounds" | "points-order" | "point-refs-resolve"
   | "refinements-order" | "reads-order" | "subjects-order" | "writes-order" | "escapes-order"
-  | "integer-facts-order" | "integer-facts-domain-exact" | "integer-range-valid" | "integer-proofs-consistent"
+  | "integer-facts-order" | "integer-facts-domain-exact" | "integer-range-valid" | "integer-proofs-consistent" | "integer-proof-exact"
   | "counted-loops-order" | "counted-loop-endpoints-resolve" | "counted-loop-conditions-exact"
   | "invocations-order" | "callbacks-order" | "activations-order" | "frontiers-order" | "constructions-order"
   | "regions-order" | "suspensions-order" | "errors-order" | "error-invalidations-order"

@@ -7,7 +7,7 @@ import { escapeTargetKey } from "./escape-key.js";
 import { summaryBindings, summaryDefinition, summaryKey } from "./summary-key.js";
 import type { Violation } from "../diag/contract.js";
 import type { NodeId, NodeRef } from "../ids/contract.js";
-import { encodeKey } from "../ids/index.js";
+import { admitIntegerKey, encodeKey } from "../ids/index.js";
 import type { DeclarationTarget } from "../ir-hir/contract.js";
 import type { TirNode } from "../ir-tir/contract.js";
 import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
@@ -15,7 +15,7 @@ import { instanceKey } from "../ir-types/index.js";
 import { verifyCells } from "./verify-cells.js";
 import type {
   ArgumentTransport, ArgumentTransportKey, BoundActivation, CompareBoundActivations, CompareConstructionAlternatives, ConstructionAlternative, EscapeFact, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
-  CountedLoopFact, RetentionFact, VerifyFacts,
+  CountedLoopFact, CountedLoopProofs, RetentionFact, VerifyFacts,
 } from "./contract.js";
 import { collectSelectionChecks, compareNumbers, ownerKey, relationalUsage, sameBindings, validIndex, verifyRelationalArena } from "./verify-relations.js";
 import { factBindingInputs } from "./binding-inputs.js";
@@ -306,6 +306,9 @@ for (const violation of rows) {
  const stop = nodeRef(invalidation.at, at(refinement.node)); if (stop !== null) return stop; }
   }
   { const stop = nodeOrder(facts.refinements.integers, "integer-facts-order"); if (stop !== null) return stop; }
+  let loopProofs: DataflowResult<CountedLoopProofs> | null = null;
+  const provedLoops = (): DataflowResult<CountedLoopProofs> =>
+    loopProofs ??= countedLoops(account, mir, provided, { sourceOf: node => nodes.get(node), mirBody: context.mirBody });
   const integerNodes = new Set<NodeId>();
   for (const integer of facts.refinements.integers) {
     const step = chargeWork(account, 1);
@@ -314,9 +317,41 @@ for (const violation of rows) {
     const output = chargeResultEntries(account, 1);
     if (output !== null) return output;
     integerNodes.add(integer.node); { const stop = node(integer.node); if (stop !== null) return stop; }
-    if (integer.range !== null && integer.range.minimum > integer.range.maximum) { const stop = report("integer-range-valid", at(integer.node), "An exact integer interval has ordered bigint endpoints."); if (stop !== null) return stop; }
-    if (integer.range !== null && integer.nonnegative && integer.range.maximum < 0n) {
+    const range = integer.range;
+    if (range !== null) {
+      const width = admitIntegerKey(range.minimum, work => chargeWork(account, work)) ?? admitIntegerKey(range.maximum, work => chargeWork(account, work));
+      if (width !== null) return width;
+    }
+    if (range !== null && range.minimum > range.maximum) {
+      const stop = report("integer-range-valid", at(integer.node), "An exact integer interval has ordered bigint endpoints.");
+      if (stop !== null) return stop;
+    } else if (range !== null && integer.nonnegative && range.maximum < 0n) {
       { const stop = report("integer-proofs-consistent", at(integer.node), "A published interval and nonnegative proof cannot contradict one another."); if (stop !== null) return stop; }
+    } else if ((range !== null || integer.nonnegative) && valueNodes.has(integer.node)) {
+      const proved = provedLoops();
+      if (proved.kind !== "complete") return proved;
+      const rows = proved.value.ranges;
+      let lower = 0;
+      let upper = rows.length;
+      let matching = false;
+      while (lower < upper) {
+        const work = chargeWork(account, 1);
+        if (work !== null) return work;
+        const middle = lower + Math.floor((upper - lower) / 2);
+        const row = rows[middle];
+        if (row === undefined) break;
+        if (row.node < integer.node) lower = middle + 1;
+        else if (row.node > integer.node) upper = middle;
+        else {
+          matching = (!integer.nonnegative || row.range.minimum >= 0n)
+            && (range === null || row.range.minimum === range.minimum && row.range.maximum === range.maximum);
+          break;
+        }
+      }
+      if (!matching) {
+        const stop = report("integer-proof-exact", at(integer.node), "A claimed integer interval or nonnegative index must be proved at its reached MIR value occurrence.");
+        if (stop !== null) return stop;
+      }
     }
   }
   let sameIntegerDomain = integerNodes.size === valueNodes.size;
@@ -339,7 +374,6 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
       ? resolution.local.body === declaration.local.body && resolution.local.local === declaration.local.local
       : resolution.kind === "definition" && declaration.kind === "definition" && resolution.definition === declaration.definition;
   };
-  let provedLoops: readonly CountedLoopFact[] | null = null;
   for (const loop of facts.refinements.countedLoops) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
@@ -372,19 +406,17 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
       { const stop = report("counted-loop-conditions-exact", site, "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment."); if (stop !== null) return stop; }
       continue;
     }
-    if (provedLoops === null) {
-      const derived = countedLoops(account, mir, provided, node => nodes.get(node));
-      if (derived.kind !== "complete") return derived;
-      provedLoops = derived.value;
-    }
+    const proved = provedLoops();
+    if (proved.kind !== "complete") return proved;
+    const rows = proved.value.loops;
     let lower = 0;
-    let upper: number = provedLoops.length;
+    let upper: number = rows.length;
     let matching = false;
     while (lower < upper) {
       const work = chargeWork(account, 1);
       if (work !== null) return work;
       const middle = lower + Math.floor((upper - lower) / 2);
-      const proof: CountedLoopFact | undefined = provedLoops[middle];
+      const proof: CountedLoopFact | undefined = rows[middle];
       if (proof === undefined) break;
       if (proof.statement < loop.statement) lower = middle + 1;
       else if (proof.statement > loop.statement) upper = middle;

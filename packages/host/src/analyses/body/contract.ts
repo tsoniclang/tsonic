@@ -10,6 +10,7 @@ export type ReadyEnumValueOf = (account: DataflowAccount, reference: Extract<Con
 
 export interface BodyRoundEnvironment {
   readonly types: TypeTable;
+  readonly mirBody: (instance: BodyInstance) => MirBody | null;
   readonly typeOf: TypeOf;
   readonly signatureOf: SignatureOf;
   readonly staticModuleBindingsOf: (module: ModuleId) => ArtifactBindings | null;

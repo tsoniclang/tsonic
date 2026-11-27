@@ -1,12 +1,15 @@
 import type { DataflowAccount, DataflowResult, NaturalLoop } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork, graphOfMir, naturalLoops, orderRows, predecessors } from "../dataflow/index.js";
-import type { BlockId, LocalId, PlaceId } from "../ids/contract.js";
-import type { ForStatement } from "../ir-hir/contract.js";
-import type { MirBody, MirOperand, MirStatement } from "../ir-mir/contract.js";
+import type { BlockId, LocalId, NodeId, NodeRef, PlaceId, TyId } from "../ids/contract.js";
+import { admitIntegerKey } from "../ids/index.js";
+import type { ForStatement, Identifier } from "../ir-hir/contract.js";
+import type { MirBlock, MirBody, MirOperand, MirStatement, MirTerminator } from "../ir-mir/contract.js";
 import { visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import { isNativeIntegerPrimitive } from "../ir-types/index.js";
-import type { CountedLoopFact, CountedLoopsOf } from "./contract.js";
+import type { BodyInstance } from "../ir-types/contract.js";
+import type { CountedLoopFact, CountedLoopInputs, CountedLoopProofs, CountedLoopsOf, IntegerRange } from "./contract.js";
+import { selectedMirBody } from "./verification.js";
 
 interface LoopBinding {
   readonly local: LocalId;
@@ -21,8 +24,146 @@ interface CounterStorage {
   readonly exposedSources: ReadonlySet<LocalId>;
 }
 
-const empty: readonly CountedLoopFact[] = [];
+const empty: CountedLoopProofs = { loops: [], ranges: [] };
 const absent: { readonly kind: "complete"; readonly value: null } = { kind: "complete", value: null };
+
+type LoopStart =
+  | { readonly kind: "inline"; readonly operand: MirOperand | null }
+  | { readonly kind: "placed"; readonly instance: BodyInstance };
+
+interface IndexSite {
+  readonly block: MirBlock;
+  readonly check: Extract<MirTerminator, { readonly kind: "check" }>;
+  readonly key: Identifier<TypedPhase>;
+}
+
+interface IndexSites {
+  readonly byBlock: ReadonlyMap<BlockId, IndexSite>;
+  readonly unique: ReadonlyMap<NodeId, BlockId | null>;
+}
+
+function indexSites(mir: MirBody, sourceOf: CountedLoopInputs["sourceOf"], account: DataflowAccount): DataflowResult<IndexSites> {
+  const setup = chargeResultEntries(account, 3);
+  if (setup !== null) return setup;
+  const byBlock = new Map<BlockId, IndexSite>();
+  const unique = new Map<NodeId, BlockId | null>();
+  for (let position = 0; position < mir.blocks.length; position += 1) {
+    const paid = chargeWork(account, 1);
+    if (paid !== null) return paid;
+    const block = mir.blocks[position];
+    const check = block?.terminator;
+    if (block === undefined || check?.kind !== "check" || check.tir.body !== mir.body) continue;
+    const sourceRead = chargeWork(account, 1);
+    if (sourceRead !== null) return sourceRead;
+    const node = sourceOf(check.tir.node);
+    const key = node?.kind === "ElementAccessExpression" ? node.argumentExpression : null;
+    if (key?.kind !== "Identifier") continue;
+    if (unique.has(key.id)) {
+      unique.set(key.id, null);
+      continue;
+    }
+    const retained = chargeResultEntries(account, 3);
+    if (retained !== null) return retained;
+    unique.set(key.id, block.id);
+    byBlock.set(block.id, { block, check, key });
+  }
+  return { kind: "complete", value: { byBlock, unique } };
+}
+
+function integerConstant(mir: MirBody, operand: MirOperand | null, type: TyId, account: DataflowAccount): DataflowResult<bigint | null> {
+  const before = chargeWork(account, 1);
+  if (before !== null) return before;
+  if (operand?.kind !== "constant") return absent;
+  const rowWork = chargeWork(account, 2);
+  if (rowWork !== null) return rowWork;
+  const row = mir.constants[operand.constant];
+  if (row?.type !== type) return absent;
+  const constant = row.value;
+  if (constant.kind !== "literal") return absent;
+  const literalWork = chargeWork(account, 1);
+  if (literalWork !== null) return literalWork;
+  const literal = constant.value;
+  if (literal.kind !== "number") return absent;
+  const rationalWork = chargeWork(account, 3);
+  if (rationalWork !== null) return rationalWork;
+  const { numerator, denominator, negativeZero } = literal.value;
+  const paid = admitIntegerKey(denominator, work => chargeWork(account, work));
+  if (paid !== null) return paid;
+  if (denominator !== 1n || negativeZero) return absent;
+  return admitIntegerKey(numerator, work => chargeWork(account, work)) ?? { kind: "complete", value: numerator };
+}
+
+function startingInteger(mir: MirBody, start: LoopStart, at: NodeRef, type: TyId,
+  inputs: CountedLoopInputs, account: DataflowAccount): DataflowResult<bigint | null> {
+  if (start.kind === "inline") return integerConstant(mir, start.operand, type, account);
+  const read = chargeWork(account, 1 + start.instance.body.length);
+  if (read !== null) return read;
+  const chosen = selectedMirBody({ instance: start.instance, provided: 0 }, inputs, account);
+  if (chosen.kind !== "complete") return chosen;
+  const selected = chosen.value;
+  if (selected === null) return absent;
+  const header = chargeWork(account, 3);
+  if (header !== null) return header;
+  const entries = selected.entries;
+  const entry = entries.length === 1 ? entries[0] : undefined;
+  const block = entry?.provided === 0 ? selected.blocks[entry.block] : undefined;
+  if (block === undefined || block.statements.length !== 0) return absent;
+  const end = block.terminator;
+  return end.kind === "return" && end.tir.body === at.body && end.tir.node === at.node
+    ? integerConstant(selected, end.value, type, account) : absent;
+}
+
+function indexRead(mir: MirBody, site: IndexSite, counter: PlaceId, counterSource: LocalId, storage: CounterStorage,
+  account: DataflowAccount): DataflowResult<NodeId | null> {
+  const beforePlace = chargeWork(account, 2);
+  if (beforePlace !== null) return beforePlace;
+  const { block, check, key } = site;
+  const checked = mir.places[check.place]?.base;
+  if (checked?.kind !== "checked" || checked.projection.kind !== "index" || checked.projection.operand.kind !== "place"
+    || checked.tir.body !== mir.body || checked.tir.node !== check.tir.node) return absent;
+  const index = checked.projection.operand.place;
+  if (index === counter) return absent;
+  const projected = mir.places[index];
+  const local = projected?.base.kind === "local" ? mir.locals[projected.base.local] : undefined;
+  if (local?.role.kind !== "temporary" || local.mode !== "local" || storage.exposedLocals.has(local.id)) return absent;
+  const annotation = key.tsonic;
+  if (!("resolution" in annotation) || annotation.resolution.kind !== "local"
+    || annotation.resolution.local.body !== mir.body || annotation.resolution.local.local !== counterSource) return absent;
+  for (let position = block.statements.length - 1; position >= 0; position -= 1) {
+    const paid = chargeWork(account, 1);
+    if (paid !== null) return paid;
+    const row = block.statements[position];
+    if (row === undefined) return absent;
+    if (row.kind !== "assign") {
+      if (row.local === local.id) return absent;
+      continue;
+    }
+    if (storage.roots[row.place] !== local.id) continue;
+    return row.place === index && row.tir.body === mir.body && row.tir.node === key.id && row.value.kind === "use"
+      && row.value.operand.kind === "place" && row.value.operand.place === counter ? { kind: "complete", value: key.id } : absent;
+  }
+  return absent;
+}
+
+function collectRanges(mir: MirBody, loop: NaturalLoop, range: IntegerRange, counter: PlaceId,
+  source: LocalId, storage: CounterStorage, sites: IndexSites, ranges: Map<NodeId, IntegerRange>,
+  account: DataflowAccount): DataflowResult<null> {
+  for (let position = 0; position < loop.members.length; position += 1) {
+    const paid = chargeWork(account, 1);
+    if (paid !== null) return paid;
+    const member = loop.members[position];
+    const block = member === undefined || member === loop.header ? undefined : mir.blocks[member];
+    const site = block === undefined ? undefined : sites.byBlock.get(block.id);
+    if (site === undefined || sites.unique.get(site.key.id) !== site.block.id) continue;
+    const known = indexRead(mir, site, counter, source, storage, account);
+    if (known.kind !== "complete") return known;
+    if (known.value === null || ranges.has(known.value)) continue;
+    const retained = chargeResultEntries(account, 1);
+    if (retained !== null) return retained;
+    ranges.set(known.value, range);
+  }
+  return absent;
+}
 
 function counterStorage(mir: MirBody, account: DataflowAccount): DataflowResult<CounterStorage> {
   const capacity = chargeResultEntries(account, 4 + mir.places.length);
@@ -91,7 +232,8 @@ function validateBindings(
 
 function loopFact(
   account: DataflowAccount, mir: MirBody, storage: CounterStorage, loop: NaturalLoop, node: ForStatement<TypedPhase>,
-  incoming: readonly (readonly number[])[],
+  incoming: readonly (readonly number[])[], inputs: CountedLoopInputs, checkedIndices: () => DataflowResult<IndexSites>,
+  ranges: Map<NodeId, IntegerRange>,
 ): DataflowResult<CountedLoopFact | null> {
   const admission = chargeWork(account, 5);
   if (admission !== null) return admission;
@@ -167,10 +309,12 @@ function loopFact(
   if (preheader === undefined || preheader.terminator.kind !== "goto" || preheader.terminator.target !== loop.header
     || mir.entries.some(row => row.block === loop.header)) return absent;
   const initializerBody = variable.tsonic.initializer;
+  let initialValue: LoopStart;
   if (initializerBody === null) {
     const initial = preheader.statements.at(-1);
     if (initial?.kind !== "assign" || initial.place !== left.place || initial.tir.body !== mir.body
       || initial.tir.node !== variable.id && initial.tir.node !== start.id) return absent;
+    initialValue = { kind: "inline", operand: initial.value.kind === "use" ? initial.value.operand : null };
   } else {
     const preheaderIncoming = incoming[preheader.id];
     const origin = preheaderIncoming?.length === 1 ? preheaderIncoming[0] : undefined;
@@ -179,17 +323,33 @@ function loopFact(
       || call.callee.instance.body !== initializerBody || call.tir.node !== variable.id || call.destination !== left.place
       || call.next !== preheader.id || (call.unwind.kind === "handler" || call.unwind.kind === "carry") && call.unwind.target === preheader.id
       || mir.entries.some(row => row.block === preheader.id)) return absent;
+    initialValue = { kind: "placed", instance: call.callee.instance };
   }
   const verified = validateBindings(mir, loop, { local: local.id, start: preheader.id, latch: latch.id, commit }, storage.roots, account);
   if (verified.kind !== "complete") return verified;
   if (!verified.value) return absent;
   const retained = chargeResultEntries(account, 2);
   if (retained !== null) return retained;
-  return { kind: "complete", value: { statement: node.id, counterDeclaration: variable.id, start: { body: initializerBody ?? mir.body, node: start.id },
-    bound: condition.right.id, body: node.statement.id, direction: "ascending", comparison: "exclusive-upper-bound", step: 1 } };
+  const fact: CountedLoopFact = { statement: node.id, counterDeclaration: variable.id,
+    start: { body: initializerBody ?? mir.body, node: start.id },
+    bound: condition.right.id, body: node.statement.id, direction: "ascending", comparison: "exclusive-upper-bound", step: 1 };
+  const upper = integerConstant(mir, right, counter.storage, account);
+  if (upper.kind !== "complete") return upper;
+  if (upper.value === null) return { kind: "complete", value: fact };
+  const lower = startingInteger(mir, initialValue, fact.start, counter.storage, inputs, account);
+  if (lower.kind !== "complete") return lower;
+  if (lower.value === null || lower.value >= upper.value) return { kind: "complete", value: fact };
+  const sites = checkedIndices();
+  if (sites.kind !== "complete") return sites;
+  const rangeWork = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+  if (rangeWork !== null) return rangeWork;
+  const range = { minimum: lower.value, maximum: upper.value - 1n };
+  const collected = collectRanges(mir, loop, range, counter.id, binding.local.local, storage, sites.value, ranges, account);
+  if (collected.kind !== "complete") return collected;
+  return { kind: "complete", value: fact };
 }
 
-export const countedLoops: CountedLoopsOf = (account, mir, provided, source) => {
+export const countedLoops: CountedLoopsOf = (account, mir, provided, inputs) => {
   const admission = chargeWork(account, 1);
   if (admission !== null) return admission;
   const graph = graphOfMir(mir, account);
@@ -206,20 +366,34 @@ export const countedLoops: CountedLoopsOf = (account, mir, provided, source) => 
   if (incoming.kind !== "complete") return incoming;
   const storage = counterStorage(mir, account);
   if (storage.kind !== "complete") return storage;
-  const retained = chargeResultEntries(account, 1);
+  const retained = chargeResultEntries(account, 2);
   if (retained !== null) return retained;
   const rows: CountedLoopFact[] = [];
+  const ranges = new Map<NodeId, IntegerRange>();
+  let sites: DataflowResult<IndexSites> | null = null;
+  const checkedIndices = () => sites ??= indexSites(mir, inputs.sourceOf, account);
   for (let position = 0; position < loops.value.length; position += 1) {
     const admission = chargeWork(account, 2);
     if (admission !== null) return admission;
     const loop = loops.value[position];
     const header = loop === undefined ? undefined : mir.blocks[loop.header];
     if (loop === undefined || header === undefined) continue;
-    const node = source(header.terminator.tir.node);
+    const node = inputs.sourceOf(header.terminator.tir.node);
     if (node?.kind !== "ForStatement") continue;
-    const result = loopFact(account, mir, storage.value, loop, node, incoming.value);
+    const result = loopFact(account, mir, storage.value, loop, node, incoming.value, inputs, checkedIndices, ranges);
     if (result.kind !== "complete") return result;
     if (result.value !== null) rows.push(result.value);
   }
-  return orderRows(rows, (left, right) => left.statement - right.statement, account);
+  const ordered = orderRows(rows, (left, right) => left.statement - right.statement, account);
+  if (ordered.kind !== "complete") return ordered;
+  const output = chargeResultEntries(account, 2 + ranges.size * 2);
+  if (output !== null) return output;
+  const integerRows: CountedLoopProofs["ranges"][number][] = [];
+  for (const [node, range] of ranges) {
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    integerRows.push({ node, range });
+  }
+  const orderedRanges = orderRows(integerRows, (left, right) => left.node - right.node, account);
+  return orderedRanges.kind === "complete" ? { kind: "complete", value: { loops: ordered.value, ranges: orderedRanges.value } } : orderedRanges;
 };

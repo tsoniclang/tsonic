@@ -157,7 +157,7 @@ export function admitSelectionIdentity(selection: MemberSelection, account: Data
   return admitCalleeIdentity(selection.getter, account) ?? admitCalleeIdentity(selection.setter, account);
 }
 
-export function selectedMirBody(execution: Execution, context: FactsVerificationContext,
+export function selectedMirBody(execution: Execution, context: Pick<FactsVerificationContext, "mirBody">,
   account: DataflowAccount): DataflowResult<MirBody | null> {
   const initial = chargeWork(account, 1) ?? admitArtifactIdentity(execution.instance.bindings, account);
   if (initial !== null) return initial;

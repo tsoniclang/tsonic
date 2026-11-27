@@ -1438,13 +1438,13 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await factOpposite("integer-facts-order", (input, supplied) => checkedValues(input, supplied, 2), input => { input.refinements.integers.reverse(); },
     [violation("integer-facts-order", nodeSite(2), orderMessage)]);
   await factOpposite("integer-range-valid", (input, supplied) => {
-    checkedValues(input, supplied); input.refinements.integers[0].range = { minimum: -9007199254740993n, maximum: 9007199254740993n };
+    checkedValues(input, supplied);
   }, input => { input.refinements.integers[0].range = { minimum: -1n, maximum: -2n }; },
     [violation("integer-range-valid", nodeSite(2), "An exact integer interval has ordered bigint endpoints.")]);
   await factOpposite("integer-proofs-consistent", (input, supplied) => {
-    checkedValues(input, supplied); input.refinements.integers[0].range = { minimum: -5n, maximum: 4n };
-    input.refinements.integers[0].nonnegative = true;
-  }, input => { input.refinements.integers[0].range = { minimum: -5n, maximum: -1n }; }, [violation("integer-proofs-consistent", nodeSite(2),
+    checkedValues(input, supplied);
+  }, input => { input.refinements.integers[0].range = { minimum: -5n, maximum: -1n };
+    input.refinements.integers[0].nonnegative = true; }, [violation("integer-proofs-consistent", nodeSite(2),
     "A published interval and nonnegative proof cannot contradict one another.")]);
   for (const [name, range, nonnegative] of [
     ["zero without an independent guard", { minimum: 0n, maximum: 0n }, false],
@@ -1454,19 +1454,23 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     ["negative interval without a guard", { minimum: -5n, maximum: -1n }, false],
     ["zero with a guard", { minimum: 0n, maximum: 0n }, true],
     ["guard without an interval", null, true],
-  ]) await suite.test(`independent integer proofs retain ${name}`, () => {
+  ]) await suite.test(`integer claims without a reached MIR witness refuse ${name}`, () => {
     const input = bodyFacts(); const supplied = setup(input); checkedValues(input, supplied);
     input.refinements.integers[0] = { node: 2, range, nonnegative };
-    equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())), [], "complete independently valid proof vector");
+    equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())),
+      [violation("integer-proof-exact", nodeSite(2), "A claimed integer interval or nonnegative index must be proved at its reached MIR value occurrence.")],
+      "well-formed claims do not supply their own authority");
   });
-  await suite.test("the approved occurrence96 zero interval does not manufacture an independent guard proof", () => {
+  await suite.test("a qualified literal occurrence without a reached MIR read does not certify an interval", () => {
     const input = bodyFacts(); const supplied = setup(input);
     supplied.tir.root.statements.nodes = [{ ...header(1), kind: "ExpressionStatement", tsonic: null,
       expression: { ...header(96, 1), kind: "NumericLiteral", text: "0", tokenFlags: [], tsonic: { ...typedValue(), role: "value",
         value: { numerator: 0n, denominator: 1n, negativeZero: false } } } }];
     supplied.context.nodeExists = selected => selected.kind === "body" && selected.value.body === body && [0, 1, 96].includes(selected.value.node);
     input.refinements.integers = [{ node: 96, range: { minimum: 0n, maximum: 0n }, nonnegative: false }];
-    equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())), [], "complete literal retained zero/false proof vector");
+    equal(completeVerification(product.verifyFacts(input, supplied.mir, supplied.context, verificationAccount())),
+      [violation("integer-proof-exact", nodeSite(96), "A claimed integer interval or nonnegative index must be proved at its reached MIR value occurrence.")],
+      "a typed literal alone is not a reaching proof");
   });
   await factOpposite("nested callable and default initializer values belong only to their actual bodies", (input, supplied) => {
     const callableBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });

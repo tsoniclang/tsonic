@@ -339,7 +339,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       }
       const result = pipelineWiring.summaries.convergeComponent({
         analyzeStorageUse: pipelineWiring.liveness.analyzeStorageUse, analyzeBodyRound: pipelineWiring.bodyAnalysis.analyzeBodyRound,
-        environment: { types: table, typeOf: type => readType(source.types, type),
+        environment: { types: table, typeOf: type => readType(source.types, type), mirBody: instance => mir.get(instanceKey(instance)) ?? null,
           signatureOf: signature => readSignature(source.types, signature),
           staticModuleBindingsOf: module => moduleExecutions.get(module)?.instance.bindings ?? null,
           staticTypeOf: reference => reference.kind === "item" ? typed.staticStorageOf(reference.value) : null,
