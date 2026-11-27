@@ -6098,7 +6098,7 @@ test("WT-10 retains the counted range, exact call invalidation and both kinds of
   const fixture = await loadFrontFixture();
   const { nativeInt32Input } = await import("./fixtures/native-int32-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
-  for (const replace of [false, true]) {
+  for (const [replace, work, records] of [[false, 115332, 20011], [true, 116231, 20272]]) {
     const input = await nativeInt32Input(fixture, `
       function pure(): void {}
       function clear(p: { x: { v: Native } | null }): void { p.x = null; }
@@ -6110,11 +6110,12 @@ test("WT-10 retains the counted range, exact call invalidation and both kinds of
       }
     `, true);
     const native = input.snapshot.nativeFacts;
-    const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: { ...native, integerOverflow: [
+    const prepared = { ...input, snapshot: { ...input.snapshot, nativeFacts: { ...native, integerOverflow: [
       { carrier: "int32", operation: "add", result: "int32", law: "wrap" },
       { carrier: "int64", operation: "add", result: "int64", law: "wrap" },
       { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
-    ] } } });
+    ] } } };
+    const result = analyzeHostProgram(prepared);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const { index, modules } = result.value;
     const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
@@ -6144,6 +6145,22 @@ test("WT-10 retains the counted range, exact call invalidation and both kinds of
       { kind: "unproven", node: fieldChecks[1].tir.node, guards: [guard.expression.id],
         reason: { kind: "invalidated", sites: [{ kind: "call", at: clear.tir }] } },
     ]);
+    const bounded = (maximumWork, maximumResultEntries) => analyzeHostProgram({ ...prepared, limits: { ...prepared.limits,
+      dataflow: { maximumWork, maximumResultEntries },
+    } });
+    assert.equal(bounded(work, records).kind, "ok");
+    for (const [limit, maximumWork, maximumResultEntries, maximum] of [
+      ["work", work - 1, records, work - 1],
+      ["result-entries", work, records - 1, records - 1],
+    ]) {
+      const refused = bounded(maximumWork, maximumResultEntries);
+      assert.equal(refused.kind, "refused");
+      assert.equal("value" in refused, false);
+      assert.deepEqual(refused.diagnostics.map(row => [row.source, row.code.rendered, row.site, row.arguments]), [
+        ["pipeline", "TSONIC_COMPILER_RESOURCE_LIMIT", { kind: "none" },
+          [{ kind: "text", value: limit }, { kind: "number", value: maximum }]],
+      ]);
+    }
   }
 });
 
