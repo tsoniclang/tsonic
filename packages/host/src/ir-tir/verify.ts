@@ -31,7 +31,9 @@ export interface TirSourceInventory {
   readonly nestedRoots: ReadonlySet<NodeId>;
 }
 
-function sourceFieldsOf<Stop extends object>(input: TirVerifierInput, body: HirBody | undefined, admit: TirReadyReadAdmission<Stop>) {
+function sourceFieldsOf<Stop extends object>(input: TirVerifierInput, boundary: TirSourceBoundary, admit: TirReadyReadAdmission<Stop>) {
+  const body = boundary.original;
+  const bodyOf = (id: BodyId) => boundary.bodies.get(id) ?? null;
   let stopped: Stop | null = null;
   let missing = false;
   let reader: CheckedSourceObjectFieldReader | null = null;
@@ -60,12 +62,12 @@ function sourceFieldsOf<Stop extends object>(input: TirVerifierInput, body: HirB
     if (body === undefined) return null;
     if (reader === null) {
       if (!work(1, 3)) return null;
-      reader = checkedSourceObjectFieldsOf(body, read, item, type => input.types.terms[type], work).field;
+      reader = checkedSourceObjectFieldsOf(body, { bodyOf, nodeOf: read, itemOf: item, typeOf: type => input.types.terms[type], admit: work }).field;
     }
     return reader(access);
   };
   const referenceArgument = (request: ReferenceArgumentRequest) => body === undefined ? null
-    : checkedReferenceArgumentViewOf({ ...request, body }, { nodeOf: read, itemOf: item, typeOf: type => input.types.terms[type], admit: work });
+    : checkedReferenceArgumentViewOf({ ...request, body }, { bodyOf, nodeOf: read, itemOf: item, typeOf: type => input.types.terms[type], admit: work });
   return { field, referenceArgument, work, stop: () => stopped, missing: () => missing };
 }
 
@@ -920,7 +922,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   const boundary = readSourceBoundary(body.body, input.source, input.nodeOf);
   const structure = inspectTirStructure(body, createTirLayouts(), boundary.nestedRoots);
   const inventory = verifySourcePreservation(body, input.source, input.module, boundary, emit);
-  const fields = sourceFieldsOf(input, inventory.original, admit);
+  const fields = sourceFieldsOf(input, boundary, admit);
   for (const node of structure.excluded)
     emit("kind-children-shape", node, "An excluded source expression cannot occupy a Typed syntax slot.");
   verifyBodylessParameters(input, structure.nodes, inventory.sourceNodes, emit);
@@ -1292,14 +1294,17 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       const read = (reference: SourceNodeRef) => input.nodeOf(reference);
       const holding = member.occurrence.kind === "selection" && original?.kind === "BindingElement"
         && inventory.original !== undefined && primary !== null
-        ? checkedSourceBindingFieldOf(inventory.original, original, key, primary, read, definition => {
-          stopped ??= admit({ kind: "source-declaration", definition });
-          if (stopped !== null) return null;
-          const reference = input.declarationSourceOf(definition);
-          return reference?.kind === "item" && reference.value.owner === definition ? read(reference) : null;
-        }, type => input.types.terms[type], (work, records) => {
-          stopped ??= admit({ kind: "source-field-proof", work, records });
-          return stopped === null;
+        ? checkedSourceBindingFieldOf(inventory.original, original, key, primary, {
+          bodyOf: id => boundary.bodies.get(id) ?? null, nodeOf: read,
+          itemOf: definition => {
+            stopped ??= admit({ kind: "source-declaration", definition });
+            if (stopped !== null) return null;
+            const reference = input.declarationSourceOf(definition);
+            return reference?.kind === "item" && reference.value.owner === definition ? read(reference) : null;
+          }, typeOf: type => input.types.terms[type], admit: (work, records) => {
+            stopped ??= admit({ kind: "source-field-proof", work, records });
+            return stopped === null;
+          },
         }) : null;
       if (stopped !== null) return { kind: "resource-stop", stop: stopped };
       if (holding === null || holding.receiver !== table?.receiver || primary !== holding.field

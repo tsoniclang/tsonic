@@ -4044,7 +4044,10 @@ test("an inline object annotation earns the same source holding as an authored a
       owner: definition, node: checked.items.find(item => item.definition === definition).node,
     } });
     const actual = callable.body.statements.nodes[0].expression;
-    const fields = items => hir.checkedSourceObjectFieldsOf(body, domain.nodeOf, items, type => readType(interner, type), () => true);
+    const fields = items => hir.checkedSourceObjectFieldsOf(body, {
+      bodyOf: id => domain.bodies.get(id) ?? null, nodeOf: domain.nodeOf, itemOf: items,
+      typeOf: type => readType(interner, type), admit: () => true,
+    });
     const selected = fields(itemOf).field(actual);
     assert.ok(selected);
     assert.deepEqual(selected.local, { body: body.body, local: body.locals[0].id });

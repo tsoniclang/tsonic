@@ -3,7 +3,7 @@ import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { BlockId, LocalId, PlaceId, ProjectionPathId } from "../ids/contract.js";
 import type { MirBlock, MirBody, MirPlaceBase, MirProjection, MirStatement, MirTerminator } from "../ir-mir/contract.js";
 import { localOwnershipOfMir, visitMirControlEdges } from "../ir-mir/index.js";
-import type { PlacedCopies } from "./apply-summary.js";
+import type { PlacedCaptures } from "./apply-summary.js";
 import { refinementMayWrite } from "./apply-summary.js";
 import type { Projection, ProjectionPath, RefinementSources, Summary } from "./contract.js";
 
@@ -214,7 +214,7 @@ interface ReceiverPathInputs {
   readonly roots: readonly (LocalId | null)[];
   readonly exposedLocals: ReadonlySet<LocalId>;
   readonly exposedSources: ReadonlySet<LocalId>;
-  readonly copies: PlacedCopies | null;
+  readonly captures: PlacedCaptures | null;
   readonly predecessors: readonly (readonly number[])[];
 }
 
@@ -315,8 +315,8 @@ export function sameMeasuredArray(mir: MirBody, check: MirBlock, indexed: LocalI
             if (role !== "normal" || term.kind !== "call") { failed = true; return; }
             const paid = chargeWork(account, 1);
             if (paid !== null) { stopped = paid; return; }
-            const capture = inputs.copies?.get(term);
-            if (capture == null) { failed = true; return; }
+            const capture = inputs.captures?.get(term);
+            if (capture == null || "kind" in capture) { failed = true; return; }
             const copied = stableCopy(destination, capture.place);
             if (copied.kind !== "complete") { stopped = copied; return; }
             if (copied.value === null) { failed = true; return; }

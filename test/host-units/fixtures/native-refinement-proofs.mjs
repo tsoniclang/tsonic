@@ -447,6 +447,107 @@ export async function checkSavedExtentReceivers() {
   }
 }
 
+export async function checkCapturedFieldRefinement() {
+  const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
+  const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");
+  const { fieldRefinementsOf } = await import("../../../packages/host/dist/ir-facts/index.js");
+  const { checkedSourceObjectFieldsOf } = await import("../../../packages/host/dist/ir-hir/index.js");
+  const { readType, sameInstance } = await import("../../../packages/host/dist/ir-types/index.js");
+  const { analyzeHostProgram } = await import("../../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../../packages/host/dist/pipeline/source-barrier.js");
+  const { analysisInput } = await import("./front/analysis-input.mjs");
+  const { loadFrontFixture } = await import("./front/checked-module.mjs");
+  const fixture = await loadFrontFixture();
+  for (const [initializer, writtenField] of [["box.other = undefined", "other"], ["clearOther(box)", "other"], ["clearFlag(box)", "flag"]]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      type Box = { flag: boolean | undefined; other: boolean | undefined };
+      function clearOther(box: Box): void { box.other = undefined; }
+      function clearFlag(box: Box): void { box.flag = undefined; }
+      export function read(box: Box): boolean {
+        if (box.flag !== undefined) { const effect: boolean = (${initializer}, false); return box.flag; }
+        return false;
+      }
+    `);
+    const published = analyzeHostProgram(input);
+    assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
+    const chapter = published.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.statements?.nodes[0]?.kind === "IfStatement");
+    const [condition] = body.tir.root.statements.nodes;
+    const [declaration, returned] = condition.thenStatement.statements.nodes;
+    const placement = declaration.declarationList.declarations.nodes[0];
+    const call = body.mir.blocks.find(block => block.terminator.kind === "call" && block.terminator.tir.node === placement.id).terminator;
+    assert.equal(call.callee.kind, "body");
+    const source = body.tir.params[0].tsonic.local;
+    assert.equal(call.callee.captures.length, 1);
+    const [capture] = call.callee.captures;
+    assert.deepEqual([capture.capture, capture.local], ["captured-location", source]);
+    assert.equal(body.mir.locals[body.mir.places[capture.place].base.local].source.local, source.local);
+    const effect = published.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.provided === 0
+      && sameInstance(row.key.execution.instance, call.callee.instance));
+    const [capturedEffect] = effect.captures;
+    assert.deepEqual([effect.writes.length, capturedEffect.index, capturedEffect.writes],
+      [0, 0, { kind: "complete", paths: [0] }]);
+    const [path] = effect.arena.projections;
+    assert.deepEqual([path.parent, path.projection.kind, path.projection.member.decision.key], [null, "field", { kind: "text", value: writtenField }]);
+    const checked = body.mir.blocks.find(block => block.terminator.kind === "check" && block.terminator.tir.node === returned.expression.id).terminator;
+    assert.equal(body.mir.places[checked.place].base.projection.kind, "refined");
+    const positions = { node: checked.tir.node, guards: [condition.expression.id] };
+    const expected = writtenField === "flag" ? { ...positions, kind: "unproven",
+      reason: { kind: "invalidated", sites: [{ kind: "call", at: call.tir }] } } : { ...positions, kind: "proven" };
+    assert.deepEqual(body.facts[0].refinements.refinements, [expected]);
+
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const domain = captured.value.checked;
+    if (initializer.startsWith("box.")) {
+      const owned = domain.bodies.get(call.callee.instance.body);
+      const access = owned.root.expression.left.left;
+      const reads = { nodeOf: domain.nodeOf, itemOf: definition => domain.nodeOf(domain.declarationSourceOf(definition)),
+        typeOf: type => readType(captured.value.types, type) };
+      let work = 0;
+      let lookup = null;
+      const holding = checkedSourceObjectFieldsOf(owned, { ...reads, admit: units => { work += units; return true; }, bodyOf: id => {
+        assert.equal(id, source.body);
+        assert.equal(lookup, null);
+        lookup = work;
+        return domain.bodies.get(id) ?? null;
+      } }).field(access);
+      assert.deepEqual(holding.local, source);
+      assert.deepEqual(holding.occurrence, { body: owned.body, node: access.id });
+      assert.ok(lookup > 0);
+      const cut = lookup - 1;
+      work = 0;
+      assert.equal(checkedSourceObjectFieldsOf(owned, {
+        ...reads, admit: units => { work += units; return work <= cut; }, bodyOf: () => assert.fail("unadmitted owning body"),
+      }).field(access), null);
+      const foreign = [...domain.bodies.values()].find(row => row.owner.endsWith(";clearOther]"));
+      assert.equal(foreign.locals[0].checkerSlot.value, domain.bodies.get(source.body).locals[source.local].checkerSlot.value);
+      assert.equal(checkedSourceObjectFieldsOf(owned, { ...reads, admit: () => true, bodyOf: id => {
+        assert.equal(id, source.body);
+        return foreign;
+      } }).field(access), null);
+    }
+    const indexed = sourceOccurrences(body.tir, createAccount(limits));
+    assert.equal(indexed.kind, "complete");
+    const run = (account, offered = effect) => fieldRefinementsOf(account, body.mir, body.facts[0].execution.provided, {
+      sourceOf: node => indexed.value.get(node), callBindings: { lexical: body.tir.lexicalBindings,
+        scopeOf: definition => captured.value.descriptions.get(definition)?.generics ?? null }, summaryAt: (block, term) => {
+        assert.equal(term === call && body.mir.blocks[block].terminator === term, true);
+        return { kind: "complete", value: offered };
+      },
+    });
+    checkReachedProofCuts(InvocationAccount.stateOf, run, [expected], initializer);
+    if (initializer.startsWith("box.")) {
+      const crossed = published.value.index.summaries.find(row => row.key.kind === "body"
+        && sameInstance(row.key.execution.instance, body.instance));
+      assert.ok(crossed);
+      const unqualified = run(createAccount(limits), crossed);
+      assert.equal(unqualified.kind, "complete");
+      assert.equal(unqualified.value[0].kind, "unproven");
+    }
+  }
+}
+
 export async function checkNativeFieldRefinement() {
   const { sourceOccurrences } = await import("../../../packages/host/dist/analyses/body/source.js");
   const { InvocationAccount } = await import("../../../packages/host/dist/dataflow/account.js");

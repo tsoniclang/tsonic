@@ -19,7 +19,7 @@ import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js"
 import { checkRepeatedStaticInitialization } from "./fixtures/program-static-exposure.mjs";
 import { checkBorrowedNativeArrayReturn, checkNativeArrayAlternatives, checkNativeArrayFacts, checkPlacedArrayReturn } from "./fixtures/native-array-initialization.mjs";
 import { nativeInt32Input } from "./fixtures/native-int32-input.mjs";
-import { checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkNativeRefinementWalkthrough, checkSavedExtentReceivers } from "./fixtures/native-refinement-proofs.mjs";
+import { checkCapturedFieldRefinement, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkNativeRefinementWalkthrough, checkSavedExtentReceivers } from "./fixtures/native-refinement-proofs.mjs";
 
 test("staged native array facts publish one completed backing and the actual unwind", checkNativeArrayFacts);
 test("S-1: a placed native array initializer returns its backing without a new caller allocation", checkPlacedArrayReturn);
@@ -2188,6 +2188,7 @@ test("native indexed places produce the selected element and the actual counted-
 test("counted-loop facts bind the actual placed initializer, counter and checked array receiver", checkNativeCountedLoopProofs);
 test("counted-loop facts use the actual saved array, not the source slot or a previous iteration", checkSavedExtentReceivers);
 test("a selected field proof survives a read-only call and records the actual interfering write call", checkNativeFieldRefinement);
+test("a placed captured field write preserves only the independently guarded cell", checkCapturedFieldRefinement);
 test("the WT-10 walkthrough combines the counted range and ordered field checks", checkNativeRefinementWalkthrough);
 
 test("the actual optional field write transfers its selected absence at the original round limits", async () => {

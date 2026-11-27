@@ -4,7 +4,7 @@ import { createAccount as createDataflowAccount } from "../../packages/host/dist
 import { test } from "node:test";
 import { captureSingleModule, loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
-import { checkNativeRefinementWalkthrough } from "./fixtures/native-refinement-proofs.mjs";
+import { checkCapturedFieldRefinement, checkNativeRefinementWalkthrough } from "./fixtures/native-refinement-proofs.mjs";
 import { captureCheckedMarkers } from "./fixtures/front/checked-markers.mjs";
 import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
 import { checkInterruptedModuleInitialization, checkSelectedStaticExposure } from "./fixtures/program-static-exposure.mjs";
@@ -2934,13 +2934,15 @@ test("an immutable ordinary object alias reads the field of the original referen
   for (const [cap, reads, complete] of [[0, 0, false], [1, 1, false], [2, 2, false], [3, 3, false], [6, 3, true]]) {
     let remaining = cap;
     let read = 0;
-    const proof = checkedSourceObjectFieldsOf(body, reference => {
-      read += 1;
-      return checked.nodeOf(reference);
-    }, itemOf, scalar, work => {
-      if (work > remaining) return false;
-      remaining -= work;
-      return true;
+    const proof = checkedSourceObjectFieldsOf(body, {
+      bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: reference => {
+        read += 1;
+        return checked.nodeOf(reference);
+      }, itemOf, typeOf: scalar, admit: work => {
+        if (work > remaining) return false;
+        remaining -= work;
+        return true;
+      },
     }).field(access);
     assert.equal(read, reads);
     assert.equal(proof !== null, complete);
@@ -2954,8 +2956,10 @@ test("an immutable ordinary object alias reads the field of the original referen
   assert.equal(openCapture.kind, "ok");
   const openChecked = openCapture.value.checked;
   const openBody = openChecked.bodies.get(caller.instance.body);
-  assert.equal(checkedSourceObjectFieldsOf(openBody, openChecked.nodeOf,
-    definition => openChecked.nodeOf(openChecked.declarationSourceOf(definition)), scalar, () => true).field(openBody.root.statements.nodes.at(-1).expression), null);
+  assert.equal(checkedSourceObjectFieldsOf(openBody, {
+    bodyOf: id => openChecked.bodies.get(id) ?? null, nodeOf: openChecked.nodeOf,
+    itemOf: definition => openChecked.nodeOf(openChecked.declarationSourceOf(definition)), typeOf: scalar, admit: () => true,
+  }).field(openBody.root.statements.nodes.at(-1).expression), null);
 });
 
 test("a copied reference captured by a detached initializer preserves its value without creating a caller cell", async () => {
@@ -6158,6 +6162,7 @@ test("unannotated integral initializers select native int64 before materializing
 });
 
 test("WT-10 retains the counted range, exact call invalidation and both kinds of explicit checks", checkNativeRefinementWalkthrough);
+test("WT-10 distinguishes sibling and guarded writes through a placed capture", checkCapturedFieldRefinement);
 
 test("the actual selected compound writes infer one exact native storage carrier before literal defaulting", async () => {
   const fixture = await loadFrontFixture();

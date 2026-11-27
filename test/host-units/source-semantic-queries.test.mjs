@@ -2790,8 +2790,10 @@ test("object binding reads the actual ordered members and keeps optional absence
     assert.equal(fit.from, input);
     assert.equal(fit.to, element.tsonic.declaredType.value);
   }
-  const check = (element, key, field, admit = () => true) => checkedSourceBindingFieldOf(body, element, key, field,
-    program.domain.nodeOf, program.inputs.inference.itemOf, type => fixture.types.readType(program.interner, type), admit);
+  const check = (element, key, field, admit = () => true) => checkedSourceBindingFieldOf(body, element, key, field, {
+    bodyOf: program.inputs.inference.hirBody, nodeOf: program.domain.nodeOf, itemOf: program.inputs.inference.itemOf,
+    typeOf: type => fixture.types.readType(program.interner, type), admit,
+  });
   const right = decl.name.elements.nodes[1];
   assert.equal(check(right, second.constraint.key, second.constraint.origins[0].declaration)?.field, second.constraint.origins[0].declaration);
   assert.equal(check(right, second.constraint.key, first.constraint.origins[0].declaration), null);
@@ -2808,7 +2810,7 @@ test("an absence write uses its actual checked ordinary reference field", () => 
   const input = program.inputs.inference;
   const readType = type => fixture.types.readType(program.interner, type);
   const prove = (access, typeOf = readType, admit = () => true, nodeOf = program.domain.nodeOf) =>
-    fixture.hir.checkedSourceObjectFieldsOf(body, nodeOf, input.itemOf, typeOf, admit).field(access);
+    fixture.hir.checkedSourceObjectFieldsOf(body, { bodyOf: input.hirBody, nodeOf, itemOf: input.itemOf, typeOf, admit }).field(access);
   const proof = prove(target);
   assert.ok(proof);
   const occurrence = node => ({ kind: "body", value: { body: body.body, node: node.id } });
@@ -2854,13 +2856,16 @@ test("nested field selection borrows its actual checked predecessor and never cr
   const requests = [];
   const paid = [];
   let beforeLeaf = -1;
-  const fields = fixture.hir.checkedSourceObjectFieldsOf(body, program.domain.nodeOf, definition => {
-    if (definition === expectedField) beforeLeaf = paid.length - 1;
-    requests.push(definition);
-    return itemOf(definition);
-  }, typeOf, (work, records) => {
-    paid.push([work, records]);
-    return true;
+  const readers = { bodyOf: program.inputs.inference.hirBody, nodeOf: program.domain.nodeOf, typeOf };
+  const fields = fixture.hir.checkedSourceObjectFieldsOf(body, {
+    ...readers, itemOf: definition => {
+      if (definition === expectedField) beforeLeaf = paid.length - 1;
+      requests.push(definition);
+      return itemOf(definition);
+    }, admit: (work, records) => {
+      paid.push([work, records]);
+      return true;
+    },
   });
   assert.equal(fields.ready(receiver.id), null);
   const parent = fields.field(receiver);
@@ -2879,17 +2884,19 @@ test("nested field selection borrows its actual checked predecessor and never cr
   assert.deepEqual(requests, [expectedField]);
   assert.ok(beforeLeaf > 0);
   let remaining = beforeLeaf;
-  const cut = fixture.hir.checkedSourceObjectFieldsOf(body, program.domain.nodeOf,
-    definition => {
+  const cut = fixture.hir.checkedSourceObjectFieldsOf(body, {
+    ...readers, itemOf: definition => {
       assert.notEqual(definition, expectedField, "the unadmitted child declaration is unread");
       return itemOf(definition);
-    }, typeOf, () => remaining-- > 0);
+    }, admit: () => remaining-- > 0,
+  });
   assert.ok(cut.field(receiver));
   assert.equal(cut.field(access), null);
   assert.equal(cut.ready(access.id), null);
   const other = program.checked.tree.statements.nodes[0].parameters.nodes[1].type.members.nodes[0].type.members.nodes[0];
-  const crossed = fixture.hir.checkedSourceObjectFieldsOf(body, program.domain.nodeOf,
-    definition => definition === expectedField ? other : itemOf(definition), typeOf, () => true);
+  const crossed = fixture.hir.checkedSourceObjectFieldsOf(body, {
+    ...readers, itemOf: definition => definition === expectedField ? other : itemOf(definition), admit: () => true,
+  });
   assert.equal(crossed.field(access), null);
 
   const group = program.inputs.groups.find(candidate => candidate.bodies.includes(body.body));
@@ -2967,8 +2974,10 @@ test("actual selected member constraints retain their checked origins and distin
   assert.deepEqual(solveRefusal.value.diagnostics[0].arguments,
     [{ kind: "text", value: "atomic contributions per group" }, { kind: "number", value: 0 }]);
   const { checkedSourceObjectFieldsOf } = await import("../../packages/host/dist/ir-hir/index.js");
-  const storage = checkedSourceObjectFieldsOf(source, program.domain.nodeOf, program.inputs.inference.itemOf,
-    () => assert.fail("a scalar field has no object domain to open"), () => true).field(access);
+  const storage = checkedSourceObjectFieldsOf(source, {
+    bodyOf: program.inputs.inference.hirBody, nodeOf: program.domain.nodeOf, itemOf: program.inputs.inference.itemOf,
+    typeOf: () => assert.fail("a scalar field has no object domain to open"), admit: () => true,
+  }).field(access);
   assert.equal(storage?.receiver, member.receiver);
   const scoped = fixture.types.projectBindingScope(member.bindings, program.descriptions.get(storage.field).generics, () => null);
   assert.equal(scoped.kind === "complete" && scoped.value !== null, true);

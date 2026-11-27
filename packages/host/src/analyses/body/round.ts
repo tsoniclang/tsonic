@@ -150,6 +150,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     hasOptional = true;
   }
   let referenceFormals: Map<number, "field" | "array"> | null = null;
+  let referenceCaptures: Set<number> | null = null;
   let arrayLocals: Set<LocalId> | null = null;
   let objectValues: Set<LocalId> | null = null;
   let inlineRoots: Set<LocalId> | null = null;
@@ -199,6 +200,12 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           if (retained !== null) return retained;
           objectValues ??= new Set();
           objectValues.add(local.id);
+          if (local.role.kind === "capture") {
+            const retained = chargeResultEntries(account, referenceCaptures === null ? 2 : 1);
+            if (retained !== null) return retained;
+            referenceCaptures ??= new Set();
+            referenceCaptures.add(local.role.index);
+          }
         }
         kind = "reference";
       }
@@ -465,9 +472,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     arguments: signature.parameters.map((_, index) => index >= execution.provided ? { kind: "omitted" }
       : { kind: "provided", origins: requirePresent(parameterOrigins[index],
         { owner: "analyses/body", query: null, origin: null, message: "Every supplied formal retains its entry origins." }) }), captures: entryCaptures }];
-  if (projections !== null && referenceFormals === null)
-    return bodyFrontier("A held projection needs its independently verified reference formal.");
-  const projectionSetup = referenceFormals === null ? null : chargeResultEntries(account, 3);
+  const referenceInput = referenceFormals !== null || referenceCaptures !== null;
+  if (projections !== null && !referenceInput)
+    return bodyFrontier("A held projection needs its independently verified incoming reference.");
+  const projectionSetup = referenceInput ? chargeResultEntries(account, 3) : null;
   if (projectionSetup !== null) return projectionSetup;
   const boundaries: OpenBoundary[] = [];
   const projectionPaths: ProjectionPath[] = [];
@@ -546,8 +554,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     : { stages: arrays, returns: arrayReturns };
   const admitDepth = (depth: number) => bounded("maximumProjectionDepth", depth);
   const callBindings = { lexical: tir.lexicalBindings, scopeOf: deps.bindingScopeOf };
-  let projectionEffects = referenceFormals === null && (arrays === null || projections === null) ? null
-    : createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations, admitDepth, callBindings);
+  let projectionEffects = !referenceInput && (arrays === null || projections === null) ? null
+    : createProjectionEffects(deps, referenceFormals, referenceCaptures, arena.projections, admitRelations, admitDepth, callBindings);
   const boundarySetup = hasOpenCalls ? chargeResultEntries(account, 3) : null;
   if (boundarySetup !== null) return boundarySetup;
   const transport = hasOpenCalls ? openCallTransport(deps, input, producers, boundaries, admitRelations) : null;
@@ -1012,7 +1020,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
               if (projectionEffects === null) {
                 const growth = chargeResultEntries(account, 2);
                 if (growth !== null) return growth;
-                projectionEffects = createProjectionEffects(deps, referenceFormals, arena.projections, admitRelations, admitDepth, callBindings);
+                projectionEffects = createProjectionEffects(deps, referenceFormals, referenceCaptures, arena.projections, admitRelations, admitDepth, callBindings);
               }
               const retained = projectionEffects.remember({ kind: "index", constant: BigInt(mapping.component) }, null);
               if (typeof retained !== "number") return retained;
@@ -1391,7 +1399,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   return { kind: "complete", value: { kind: "ok", value, diagnostics: [], emissions: [], positions: [{ position: { kind: "result" }, error: null }] } };
 
   function effectPaths(access: "read" | "write", kind: "parameter" | "receiver" | "capture", index: number): DataflowResult<EffectPaths> {
-    const selected = kind === "parameter" ? projectionEffects?.paths(access, index) : undefined;
+    const selected = kind === "receiver" ? undefined : projectionEffects?.paths(access, kind, index);
     let paths: readonly ProjectionPathId[] = [];
     if (selected !== undefined) {
       const stopped = chargeWork(account, selected.size) ?? chargeResultEntries(account, selected.size + 1);

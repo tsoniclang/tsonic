@@ -4056,8 +4056,19 @@ export type CheckedMemberStorageOf = (access: PropertyAccessExpression<CheckedPh
   { readonly read: TyId | null; readonly write: TyId } | null;
 export type CheckedVariableStorageOf = (declaration: VariableDeclaration<CheckedPhase>) => TyId | null;
 
+export interface CheckedSourceStorageRead {
+  readonly bodyOf: (body: BodyId) => HirBody | null;
+  readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
+  readonly itemOf: (definition: DefId) => HirNode | null;
+  readonly admit: (work: number, records: number) => boolean;
+}
+
+export interface CheckedSourceObjectRead extends CheckedSourceStorageRead {
+  readonly typeOf: (type: TyId) => TypeTerm | undefined;
+}
+
 export type CheckedSourceObjectHoldingOf = (body: HirBody, local: LocalRef,
-  nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null, admitAlias: () => boolean,
+  read: CheckedSourceStorageRead,
 ) => SourceObjectHolding | null;
 
 export interface ReferenceArgumentRequest {
@@ -4072,28 +4083,17 @@ export interface CheckedReferenceArgumentSite extends ReferenceArgumentRequest {
   readonly body: HirBody;
 }
 
-export interface CheckedReferenceArgumentRead {
-  readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
-  readonly itemOf: (definition: DefId) => HirNode | null;
-  readonly typeOf: (type: TyId) => TypeTerm | undefined;
-  readonly admit: (work: number, records: number) => boolean;
-}
-
-export type CheckedReferenceArgumentViewOf = (site: CheckedReferenceArgumentSite, read: CheckedReferenceArgumentRead) => ReferenceArgumentView | null;
+export type CheckedReferenceArgumentViewOf = (site: CheckedReferenceArgumentSite, read: CheckedSourceObjectRead) => ReferenceArgumentView | null;
 
 export type CheckedSourceObjectFieldReader = (access: PropertyAccessExpression<CheckedPhase>) => SourceObjectField | null;
 export interface CheckedSourceObjectFields {
   readonly field: CheckedSourceObjectFieldReader;
   readonly ready: (node: NodeId) => SourceObjectField | null;
 }
-export type CheckedSourceObjectFieldsOf = (body: HirBody,
-  nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null,
-  typeOf: (type: TyId) => TypeTerm | undefined, admit: (work: number, records: number) => boolean,
-) => CheckedSourceObjectFields;
+export type CheckedSourceObjectFieldsOf = (body: HirBody, read: CheckedSourceObjectRead) => CheckedSourceObjectFields;
 
 export type CheckedSourceBindingFieldOf = (body: HirBody, element: BindingElement<CheckedPhase>, key: MemberKey, field: DefId,
-  nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null,
-  typeOf: (type: TyId) => TypeTerm | undefined, admit: (work: number, records: number) => boolean,
+  read: CheckedSourceObjectRead,
 ) => SourceObjectField | null;
 
 export interface HirMemoryGeometryCapture {

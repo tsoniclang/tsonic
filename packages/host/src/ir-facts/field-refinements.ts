@@ -2,12 +2,12 @@ import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/
 import { chargeResultEntries, chargeWork, graphOfMir, orderGraph, orderRows, predecessors } from "../dataflow/index.js";
 import type { BlockId, LocalId, NodeId, NodeRef, PlaceId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { MirBlock, MirBody, MirClosureCapture, MirOperand, MirTerminator } from "../ir-mir/contract.js";
+import type { MirBlock, MirBody, MirOperand, MirTerminator } from "../ir-mir/contract.js";
 import { visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { FieldRefinementInputs, FieldRefinementsOf, RefinementFact, RefinementInvalidation, Summary } from "./contract.js";
-import type { PlacedCopies } from "./apply-summary.js";
-import { admitPlacedCopy, projectCallFields, refinementMayWrite } from "./apply-summary.js";
+import type { PlacedCapture, PlacedCaptures } from "./apply-summary.js";
+import { admitPlacedCapture, projectCallFields, refinementMayWrite } from "./apply-summary.js";
 import { admitSelectionIdentity } from "./verification.js";
 import { fieldProjectionIdentityData } from "./verify-relations.js";
 
@@ -116,7 +116,7 @@ function receiverCurrent(mir: MirBody, local: LocalId, path: Field["path"] | nul
           if (path !== null && term.kind === "call") {
             const lookup = chargeWork(account, 1);
             if (lookup !== null) return lookup;
-            const summary = flow.summaryAt(block.id, term);
+            const summary = effectSummary(flow, block.id, term);
             if (summary.kind !== "complete") return summary;
             const interference = resolution === "sample" ? appliedWrite(mir, block, term, summary.value, local, path, flow, account)
               : refinementMayWrite(account, summary.value, () => available);
@@ -203,8 +203,8 @@ function reachesCopy(mir: MirBody, block: MirBlock, position: number, local: Loc
     const destinations = "destination" in term && term.destination !== null && mir.places[term.destination]?.base;
     if (destinations && destinations.kind === "local" && destinations.local === local) {
       if (term.kind !== "call") return missing;
-      const result = flow.copies?.get(term);
-      if (result == null || known !== null && (known.block !== prior || known.position !== prior.statements.length)) return missing;
+      const result = flow.captures?.get(term);
+      if (result == null || "kind" in result || known !== null && (known.block !== prior || known.position !== prior.statements.length)) return missing;
       const retained = chargeResultEntries(account, 2);
       if (retained !== null) return retained;
       known = { block: prior, operand: { kind: "place", place: result.place }, position: prior.statements.length };
@@ -402,13 +402,25 @@ function writesProjectedField(mir: MirBody, block: MirBlock, before: number, pla
 function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summary | null, receiver: LocalId, path: Field["path"],
   flow: Flow, account: DataflowAccount): DataflowResult<boolean> {
   return refinementMayWrite(account, summary, (subject, paths, selected) => {
-    if (!("slot" in subject) || subject.slot.kind !== "parameter" || call.callee.kind !== "direct") return available;
-    const { slot } = subject;
-    const supplied = call.arguments[slot.index];
-    const mapping = call.callee.resolution.decision.parameters[slot.index];
-    if (supplied?.kind !== "value" || supplied.passing !== "by-value"
-      || mapping?.kind !== "reference-argument" && mapping?.kind !== "argument") return available;
-    const root = fieldOf(mir, block, supplied.operand, block.statements.length, "effect-address", flow, account);
+    let root: ReturnType<typeof fieldOf>;
+    let view = null;
+    if ("slot" in subject) {
+      if (subject.slot.kind !== "parameter" || call.callee.kind !== "direct") return available;
+      const { slot } = subject;
+      const supplied = call.arguments[slot.index];
+      const mapping = call.callee.resolution.decision.parameters[slot.index];
+      if (supplied?.kind !== "value" || supplied.passing !== "by-value"
+        || mapping?.kind !== "reference-argument" && mapping?.kind !== "argument") return available;
+      view = mapping.kind === "reference-argument" ? mapping.view : null;
+      root = fieldOf(mir, block, supplied.operand, block.statements.length, "effect-address", flow, account);
+    } else {
+      if (call.callee.kind !== "body") return available;
+      const paid = chargeWork(account, 1);
+      if (paid !== null) return paid;
+      const supplied = call.callee.captures[subject.index];
+      if (supplied === undefined || supplied.capture === null) return available;
+      root = fieldOf(mir, block, { kind: "place", place: supplied.place }, block.statements.length, "effect-address", flow, account);
+    }
     if (root.kind !== "complete") return root;
     if (root.value === null || root.value.receiver !== receiver) return available;
     const actual = root.value;
@@ -425,7 +437,7 @@ function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summar
         compare.field(field.identity);
       }
       const transported = projectCallFields(account, selected.arena.projections, writePath,
-        mapping.kind === "reference-argument" ? mapping.view : null, flow.callBindings, field => {
+        view, flow.callBindings, field => {
           const selected = identity(field, account);
           if (selected.kind !== "complete") return selected;
           compare.field(selected.value);
@@ -446,9 +458,14 @@ interface Flow {
   readonly predecessor: readonly (readonly number[])[];
   readonly reachable: readonly boolean[];
   readonly locations: ReadonlyMap<LocalId, "exposed" | "reassigned">;
-  readonly copies: PlacedCopies | null;
+  readonly captures: PlacedCaptures | null;
   readonly summaryAt: FieldRefinementInputs["summaryAt"];
   readonly callBindings: FieldRefinementInputs["callBindings"];
+}
+
+function effectSummary(flow: Flow, block: BlockId, call: Call): DataflowResult<Summary | null> {
+  const placement = flow.captures?.get(call);
+  return placement != null && "kind" in placement ? { kind: "complete", value: placement.summary } : flow.summaryAt(block, call);
 }
 
 function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
@@ -527,7 +544,7 @@ function fieldProof(mir: MirBody, block: MirBlock, check: Check, flow: Flow,
       const term = predecessor.terminator;
       let effectWrites = false;
       if (term.kind === "call") {
-        const summary = inputs.summaryAt(predecessor.id, term);
+        const summary = effectSummary(flow, predecessor.id, term);
         if (summary.kind !== "complete") return summary;
         const effect = appliedWrite(mir, predecessor, term, summary.value, field.receiver, field.path, flow, account);
         if (effect.kind !== "complete") return effect;
@@ -604,15 +621,15 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
       place = base.place;
     }
   };
-  let copies: Map<Call, MirClosureCapture | null> | null = null;
+  let captures: Map<Call, PlacedCapture | null> | null = null;
   const exposure = visitMirStorageExposures(mir, {
     admit: () => chargeWork(account, 1), address: expose,
     capture: (capture, block, placed) => {
       if (placed !== null && "destination" in placed && placed.destination !== null && order.value.reachable[block.id] === true) {
-        const admitted = admitPlacedCopy(copies, block.id, placed, inputs.summaryAt, account);
+        const admitted = admitPlacedCapture(captures, block.id, placed, inputs.summaryAt, account);
         if (admitted.kind !== "complete") return admitted;
-        copies = admitted.value;
-        if (copies.get(placed) != null) return null;
+        captures = admitted.value;
+        if (captures.get(placed) != null) return null;
       }
       return capture.capture === "captured-value" ? null : expose(capture.place);
     },
@@ -645,7 +662,7 @@ export const fieldRefinements: FieldRefinementsOf = (account, mir, provided, inp
     const cut = edge ?? stopped;
     if (cut !== null) return cut;
   }
-  const flow = { entry: entry.block, predecessor: predecessor.value, reachable: order.value.reachable, locations, copies,
+  const flow = { entry: entry.block, predecessor: predecessor.value, reachable: order.value.reachable, locations, captures,
     summaryAt: inputs.summaryAt, callBindings: inputs.callBindings };
   const rows: RefinementFact[] = [];
   for (let position = 0; position < blocks.length; position += 1) {

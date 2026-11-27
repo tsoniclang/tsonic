@@ -451,7 +451,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         }
         replayResources ??= createProgramVerificationWork(inputs.limits.instantiation, account);
         const specialized = specializeTir(source.body, instance, placement, elaboration.types, replayResources,
-          candidateReplayOf(elaboration, account, checked, instance, declaredSignature, unit));
+          candidateReplayOf(elaboration, account, checked, instance, declaredSignature, unit, body => sources.bodies.get(body) ?? null));
         if (specialized.kind === "refused") return refusal(specialized);
         if (specialized.kind === "resource-limit") return refusal({ kind: "refused", diagnostics: [resourceLimitDiagnostic({
           owner: "ir-program", limit: specialized.dimension, maximum: specialized.maximum,

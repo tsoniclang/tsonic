@@ -285,7 +285,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint,
   summary: Summary, arena: RelationalArena, context: ValueContextId,
   entries: readonly ValueEntryBinding[], cells: SummaryApplicationInput["cells"],
-  onParameterEffect: (access: "read" | "write", parameter: AppliedSummary["parameters"][number]) => DataflowStop | null,
+  onProjectionEffect: (access: "read" | "write", subject: AppliedSummary["parameters"][number] | AppliedSummary["captures"][number]) => DataflowStop | null,
   arrayReturn: ArrayReturn | null): DataflowResult<AppliedSummary> {
   const admission = chargeWork(deps.account, 2) ?? chargeResultEntries(deps.account, 24);
   if (admission !== null) return admission;
@@ -335,11 +335,11 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
     if ((parameter.source.reads.paths.length !== 0 || parameter.source.writes.paths.length !== 0) && parameter.source.slot.kind !== "parameter")
       return frontier(operation, "BodyAnalysis requires the actual parameter subobject read/write transport for these applied effects.");
     if (parameter.source.reads.paths.length !== 0) {
-      const stopped = onParameterEffect("read", parameter);
+      const stopped = onProjectionEffect("read", parameter);
       if (stopped !== null) return stopped;
     }
     if (parameter.source.writes.paths.length !== 0) {
-      const stopped = onParameterEffect("write", parameter);
+      const stopped = onProjectionEffect("write", parameter);
       if (stopped !== null) return stopped;
     }
   }
@@ -359,9 +359,16 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const capture of value.captures) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    if (capture.source.reads.paths.length !== 0 || capture.source.writes.paths.length !== 0
-      || summary.arena.boundaries.length === 0 && (capture.source.reads.kind === "open" || capture.source.writes.kind === "open"))
+    if (summary.arena.boundaries.length === 0 && (capture.source.reads.kind === "open" || capture.source.writes.kind === "open"))
       return frontier(operation, "BodyAnalysis requires the actual captured subobject read/write transport for these applied effects.");
+    if (capture.source.reads.paths.length !== 0) {
+      const stopped = onProjectionEffect("read", capture);
+      if (stopped !== null) return stopped;
+    }
+    if (capture.source.writes.paths.length !== 0) {
+      const stopped = onProjectionEffect("write", capture);
+      if (stopped !== null) return stopped;
+    }
   }
   for (const row of value.initialization) {
     const read = chargeWork(deps.account, 1);

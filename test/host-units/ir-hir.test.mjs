@@ -78,8 +78,9 @@ test("a mutable reference holds only its actual closed source declarations and s
     assert.equal(reassignment.expression.right.tsonic.resolution.local.local, sources[1]);
     assert.equal(box.tsonic.definition === twin.tsonic.definition, false);
     const scalar = () => assert.fail("A scalar field annotation has no object value to open.");
+    const storage = { bodyOf: id => checked.bodies.get(id) ?? null, nodeOf: checked.nodeOf, itemOf, typeOf: scalar, admit: () => true };
     if (sourceType === "Twin") {
-      assert.equal(product.checkedSourceObjectFieldsOf(body, checked.nodeOf, itemOf, scalar, () => true).field(read), null);
+      assert.equal(product.checkedSourceObjectFieldsOf(body, storage).field(read), null);
       continue;
     }
     assert.equal(bound.kind, "available");
@@ -95,18 +96,17 @@ test("a mutable reference holds only its actual closed source declarations and s
       [8, [access, slot.declaration, second, first]], [9, [access, slot.declaration, second, first]]]) {
       let remaining = cap;
       const reads = [];
-      const proof = product.checkedSourceObjectFieldsOf(body, reference => {
-        reads.push(reference);
-        return checked.nodeOf(reference);
-      }, itemOf, scalar, work => {
-        if (work > remaining) return false;
-        remaining -= work;
-        return true;
+      const proof = product.checkedSourceObjectFieldsOf(body, {
+        ...storage, nodeOf: reference => { reads.push(reference); return checked.nodeOf(reference); }, admit: work => {
+          if (work > remaining) return false;
+          remaining -= work;
+          return true;
+        },
       }).field(place);
       assert.deepEqual(reads, expected, `prefix at ${cap}`);
       assert.deepEqual(proof, cap === 9 ? expectedField : null);
     }
-    assert.deepEqual(product.checkedSourceObjectFieldsOf(body, checked.nodeOf, itemOf, scalar, () => true).field(read),
+    assert.deepEqual(product.checkedSourceObjectFieldsOf(body, storage).field(read),
       { ...expectedField, occurrence: { body: body.body, node: read.id } });
   }
 });
@@ -139,6 +139,7 @@ test("checked by-value reference views pair actual field declarations and native
     const admissions = [];
     const reads = [];
     const reader = (admit, collect) => ({
+      bodyOf: id => checked.bodies.get(id) ?? null,
       nodeOf: reference => { collect("node", reference.value.node); return checked.nodeOf(reference); },
       itemOf: definition => { collect("item", definition); const actual = checked.declarationSourceOf(definition); return actual === null ? null : checked.nodeOf(actual); },
       typeOf: type => { collect("type", type); return readType(types, type); },

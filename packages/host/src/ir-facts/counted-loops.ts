@@ -3,14 +3,14 @@ import { chargeResultEntries, chargeWork, graphOfMir, naturalLoops, orderGraph, 
 import type { BlockId, LocalId, LocalRef, NodeId, NodeRef, PlaceId, TyId } from "../ids/contract.js";
 import { admitIntegerKey } from "../ids/index.js";
 import type { ElementAccessExpression, ForStatement, Identifier } from "../ir-hir/contract.js";
-import type { MirBlock, MirBody, MirClosureCapture, MirOperand, MirStatement, MirTerminator } from "../ir-mir/contract.js";
+import type { MirBlock, MirBody, MirOperand, MirStatement, MirTerminator } from "../ir-mir/contract.js";
 import { localOwnershipOfMir, visitMirControlEdges, visitMirStorageExposures } from "../ir-mir/index.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import { isNativeIntegerPrimitive, nativeIntegerGeometryOf } from "../ir-types/index.js";
 import type { BodyInstance, NativeIntegerPrimitive, ReceiverAccess } from "../ir-types/contract.js";
 import type { CountedLoopFact, CountedLoopInputs, CountedLoopProofs, CountedLoopsOf, IntegerRange } from "./contract.js";
-import type { PlacedCopies } from "./apply-summary.js";
-import { admitPlacedCopy } from "./apply-summary.js";
+import type { PlacedCapture, PlacedCaptures } from "./apply-summary.js";
+import { admitPlacedCapture } from "./apply-summary.js";
 import { countedGuardStates, sameMeasuredArray, unchangedLocalStore } from "./counted-guard.js";
 import { selectedMirBody } from "./verification.js";
 
@@ -26,7 +26,7 @@ interface CounterStorage {
   readonly roots: readonly (LocalId | null)[];
   readonly exposedLocals: ReadonlySet<LocalId>;
   readonly exposedSources: ReadonlySet<LocalId>;
-  readonly copies: PlacedCopies | null;
+  readonly captures: PlacedCaptures | null;
   readonly predecessors: readonly (readonly number[])[];
 }
 
@@ -332,7 +332,7 @@ function counterStorage(mir: MirBody, incoming: readonly (readonly number[])[], 
     return growth;
   };
   const address = (place: PlaceId) => add(exposedLocals, roots[place] ?? null);
-  let copies: Map<Extract<MirTerminator, { readonly kind: "call" }>, MirClosureCapture | null> | null = null;
+  let captures: Map<Extract<MirTerminator, { readonly kind: "call" }>, PlacedCapture | null> | null = null;
   const stopped = visitMirStorageExposures(mir, {
     admit: () => chargeWork(account, 1),
     address,
@@ -341,10 +341,10 @@ function counterStorage(mir: MirBody, incoming: readonly (readonly number[])[], 
         const order = readOrder();
         if (order.kind !== "complete") return order;
         if (order.value.reachable[block.id] === true) {
-          const admitted = admitPlacedCopy(copies, block.id, placed, summaryAt, account);
+          const admitted = admitPlacedCapture(captures, block.id, placed, summaryAt, account);
           if (admitted.kind !== "complete") return admitted;
-          copies = admitted.value;
-          if (copies.get(placed) != null) return null;
+          captures = admitted.value;
+          if (captures.get(placed) != null) return null;
         }
       }
       if (capture.capture === "captured-value") return null;
@@ -352,7 +352,7 @@ function counterStorage(mir: MirBody, incoming: readonly (readonly number[])[], 
       return paid ?? (capture.local.body === mir.body ? add(exposedSources, capture.local.local) : null);
     },
   });
-  return stopped ?? { kind: "complete", value: { roots, exposedLocals, exposedSources, copies, predecessors: incoming } };
+  return stopped ?? { kind: "complete", value: { roots, exposedLocals, exposedSources, captures, predecessors: incoming } };
 }
 
 function validateBindings(

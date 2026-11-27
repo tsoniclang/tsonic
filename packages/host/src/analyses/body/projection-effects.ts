@@ -16,6 +16,8 @@ import { projectOrigins, valueKind } from "./values.js";
 type ScalarProjection = Extract<Projection, { readonly kind: "field" | "element" | "index" }>;
 type Call = Extract<MirTerminator, { readonly kind: "call" }>;
 type Access = "read" | "write";
+type IncomingFamily = "field" | "array";
+type IncomingRole = "parameter" | "capture";
 
 type FieldValue = "scalar" | "scalar-optional" | "reference" | "reference-optional" | "write-only";
 type HeldProjection = { readonly holder: LocalId; readonly value: FieldValue } & ScalarProjection;
@@ -154,7 +156,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       receiver = receiver.expression;
     }
     const resolution = receiver.kind === "Identifier" && receiver.tsonic.role === "value" ? receiver.tsonic.resolution : null;
-    const receiverSource: ReceiverProducer | null = resolution?.kind === "local" && resolution.local.body === tir.body ? resolution.local
+    const receiverSource: ReceiverProducer | null = resolution?.kind === "local" ? resolution.local
       : receiver.kind === "CallExpression" && "application" in receiver.tsonic && receiver.tsonic.application.kind === "decided" ? receiver.id
       : receiver.kind === "PropertyAccessExpression" && receiver.tsonic.role === "value" && receiver.tsonic.selection?.kind === "decided"
         ? receiver : null;
@@ -284,10 +286,20 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
           || statement.tir.body !== tir.body || statement.tir.node !== expected.id || original.storage !== targetPlace.storage
           || (sourcePlace.kind === "place" ? places.get(original.id)?.value !== "reference" : refined?.has(original.id) !== true))
           return bodyFrontier("A held reference retains one actual projected or checked field operand.");
-      } else if (sourceLocal?.source?.body !== expected.body || sourceLocal.source.local !== expected.local
-        || sourceLocal.storage !== targetPlace.storage
-        || !(sourceLocal.role.kind === "parameter" && sourceLocal.mode === "by-value" || sourceLocal.role.kind === "user" && sourceLocal.mode === "local"))
-        return bodyFrontier("A held reference retains one actual copy of its selected local binding.");
+      } else {
+        if (sourceLocal?.source?.body !== expected.body || sourceLocal.source.local !== expected.local || sourceLocal.storage !== targetPlace.storage)
+          return bodyFrontier("A held reference retains one actual copy of its selected local binding.");
+        if (sourceLocal.role.kind === "capture") {
+          const paid = chargeWork(account, 1);
+          if (paid !== null) return paid;
+          const capture = tir.captures[sourceLocal.role.index];
+          if (capture?.local.body !== expected.body || capture.local.local !== expected.local || expected.body === tir.body
+            || capture.capture === null || sourceLocal.mode !== capture.capture)
+            return bodyFrontier("A held reference retains the actual qualified capture of its checked binding.");
+        } else if (expected.body !== tir.body || !(sourceLocal.role.kind === "parameter" && sourceLocal.mode === "by-value"
+          || sourceLocal.role.kind === "user" && sourceLocal.mode === "local"))
+          return bodyFrontier("A held reference retains one actual copy of its selected local binding.");
+      }
       const retained = chargeResultEntries(account, 1);
       if (retained !== null) return retained;
       assigned.add(target.local);
@@ -313,7 +325,8 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
   return { kind: "complete", value: { references, places, includesAbsence, absenceValues, refined, saved } };
 }
 
-export function projectionEffects(deps: BodyRoundDeps, referenceFormals: ReadonlyMap<number, "field" | "array"> | null,
+export function projectionEffects(deps: BodyRoundDeps, referenceFormals: ReadonlyMap<number, IncomingFamily> | null,
+  referenceCaptures: ReadonlySet<number> | null,
   projections: ProjectionPath[], grow: (records: number, references: number) => DataflowStop | null,
   admitDepth: (depth: number) => DataflowStop | null, bindings: CallFieldBindings) {
   const paths = new Map<string | bigint, ProjectionPathId>();
@@ -323,6 +336,12 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
   let roots: Map<BoundProducerId, BoundProducerId> | null = null;
   const reads = new Map<number, Set<ProjectionPathId>>();
   let writes: Map<number, Set<ProjectionPathId>> | null = null;
+  let captureReads: Map<number, Set<ProjectionPathId>> | null = null;
+  let captureWrites: Map<number, Set<ProjectionPathId>> | null = null;
+  const related = (kind: IncomingRole, index: number) => kind === "parameter" ? referenceFormals?.get(index)
+    : referenceCaptures?.has(index) === true ? "field" : undefined;
+  const effectsAt = (kind: IncomingRole, access: Access) => kind === "parameter" ? access === "read" ? reads : writes
+    : access === "read" ? captureReads : captureWrites;
   function remember(projection: ScalarProjection, parent: ProjectionPathId | null): ProjectionPathId | DataflowStop {
     const { account } = deps;
     const admission = projection.kind === "field" ? admitSelectionIdentity(projection.member, account) : chargeWork(account, 1)
@@ -390,13 +409,11 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     const { account } = deps;
     if (origins.kind !== "complete" || origins.includesAbsence || origins.producers.length === 0)
       return bodyFrontier("A held field access requires the complete actual receiver bindings at the occurrence.");
-    if (access === "write" && writes === null) {
+    if (access === "write" && writes === null && (referenceCaptures === null || referenceFormals !== null)) {
       const retained = chargeResultEntries(account, 1);
       if (retained !== null) return retained;
       writes = new Map();
     }
-    const byParameter = access === "read" ? reads : writes;
-    if (byParameter === null) return bodyFrontier("A selected field effect retains its actual access inventory.");
     for (let index = 0; index < origins.producers.length; index += 1) {
       const paid = chargeWork(account, 3);
       if (paid !== null) return paid;
@@ -408,18 +425,27 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
         if (typeof path !== "number") return path;
         continue;
       }
-      if (producer?.kind !== "parameter"
-        || referenceFormals?.get(producer.index) !== family
+      if (producer?.kind !== "parameter" && producer?.kind !== "capture"
+        || related(producer.kind, producer.index) !== family
         || producer.path !== null && family !== "field")
         return bodyFrontier("A held projection requires its actual incoming reference producer and storage family.");
       const id = locate(producer.path);
       if (typeof id !== "number") return id;
-      let effect = byParameter.get(producer.index);
+      let inventory = effectsAt(producer.kind, access);
+      if (inventory === null) {
+        const retained = chargeResultEntries(account, 1);
+        if (retained !== null) return retained;
+        inventory = new Map();
+        if (producer.kind === "parameter") writes = inventory;
+        else if (access === "read") captureReads = inventory;
+        else captureWrites = inventory;
+      }
+      let effect = inventory.get(producer.index);
       if (effect === undefined) {
         const retained = chargeResultEntries(account, 2);
         if (retained !== null) return retained;
         effect = new Set();
-        byParameter.set(producer.index, effect);
+        inventory.set(producer.index, effect);
       }
       if (!effect.has(id)) {
         const retained = grow(0, 1) ?? chargeResultEntries(account, 1);
@@ -447,7 +473,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       if (read !== null) return read;
       const subject = bound[identity];
       const producer = subject === undefined ? undefined : producers[subject.producer];
-      if (subject === undefined || producer?.kind !== "parameter" || referenceFormals?.get(producer.index) !== "field")
+      if (subject === undefined || producer?.kind !== "parameter" && producer?.kind !== "capture" || related(producer.kind, producer.index) !== "field")
         return bodyFrontier("A projected field value needs its actual reference formal producer.");
       const path = locate(producer.path);
       if (typeof path !== "number") return path;
@@ -466,7 +492,7 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       }
       const producerIdentity = producerId(producers.length);
       const boundIdentity = boundProducerId(bound.length);
-      producers.push({ id: producerIdentity, path, kind: "parameter", index: producer.index });
+      producers.push({ id: producerIdentity, path, kind: producer.kind, index: producer.index });
       bound.push({ id: boundIdentity, producer: producerIdentity, bindings: subject.bindings, context: subject.context });
       scoped.set(root, boundIdentity);
       roots.set(boundIdentity, root);
@@ -491,9 +517,10 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     if (transported.kind !== "complete") return transported;
     return transported.value && image !== null ? image : bodyFrontier("An applied data field has no actual selected caller correspondence.");
   }
-  function call(operation: Call, access: Access, parameter: AppliedSummary["parameters"][number], callee: Summary,
+  function call(operation: Call, access: Access, incoming: AppliedSummary["parameters"][number] | AppliedSummary["captures"][number], callee: Summary,
     caller: RelationalArena): DataflowStop | null {
-    const { paths } = access === "read" ? parameter.source.reads : parameter.source.writes;
+    const { source } = incoming;
+    const { paths } = access === "read" ? source.reads : source.writes;
     for (let index = 0; index < paths.length; index += 1) {
       const admitted = chargeWork(deps.account, 2);
       if (admitted !== null) return admitted;
@@ -512,17 +539,23 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
           return bodyFrontier("An applied field access requires the selected unchecked reference access.");
         const paid = chargeWork(deps.account, 1);
         if (paid !== null) return paid;
-        const slot = parameter.source.slot;
-        const mapping = slot.kind === "parameter" && operation.callee.kind === "direct"
-          ? operation.callee.resolution.decision.parameters[slot.index] : undefined;
-        if (mapping?.kind !== "reference-argument" && mapping?.kind !== "argument")
-          return bodyFrontier("An applied field access requires its actual selected by-value argument.");
-        if (mapping.kind === "reference-argument") view = mapping.view;
+        if ("slot" in source) {
+          const { slot } = source;
+          const mapping = slot.kind === "parameter" && operation.callee.kind === "direct"
+            ? operation.callee.resolution.decision.parameters[slot.index] : undefined;
+          if (mapping?.kind !== "reference-argument" && mapping?.kind !== "argument")
+            return bodyFrontier("An applied field access requires its actual selected by-value argument.");
+          if (mapping.kind === "reference-argument") view = mapping.view;
+        } else {
+          const capture = operation.callee.kind === "body" ? operation.callee.captures[source.index] : undefined;
+          if (capture === undefined || capture.capture === null)
+            return bodyFrontier("An applied field access requires its actual selected capture.");
+        }
       } else {
         const admission = chargeWork(deps.account, 3);
         if (admission !== null) return admission;
-        const { slot } = parameter.source;
-        if (slot.kind !== "parameter") return bodyFrontier("An applied element access requires its actual selected array formal.");
+        if (!("slot" in source) || source.slot.kind !== "parameter") return bodyFrontier("An applied element access requires its actual selected array formal.");
+        const { slot } = source;
         const signature = deps.signatureOf(callee.signature);
         const prior = accountFailure(deps.account);
         if (prior !== null) return prior;
@@ -537,11 +570,11 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
         if (cut !== null) return cut;
         if (kind !== "primitive") return bodyFrontier("An applied element access requires its actual incoming scalar storage.");
       }
-      if (parameter.values.length === 0) return bodyFrontier("An applied access requires its actual incoming reference subjects.");
-      for (let subject = 0; subject < parameter.values.length; subject += 1) {
+      if (incoming.values.length === 0) return bodyFrontier("An applied access requires its actual incoming reference subjects.");
+      for (let subject = 0; subject < incoming.values.length; subject += 1) {
         const prepay = chargeWork(deps.account, 2);
         if (prepay !== null) return prepay;
-        const value = parameter.values[subject];
+        const value = incoming.values[subject];
         const origins = value?.kind === "caller" ? caller.origins[value.value.origins] : undefined;
         if (origins === undefined || value?.kind !== "caller" || origins.id !== value.value.origins)
           return bodyFrontier("An applied field access requires its actual caller Origins.");
@@ -564,6 +597,6 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     return projectValue(receiver, false, values, bound, producers, admit,
       parent => callerPath(callee.arena.projections, path, mapping.kind === "reference-argument" ? mapping.view : null, parent));
   }
-  return { paths: (access: "read" | "write", index: number) => (access === "read" ? reads : writes)?.get(index),
+  return { paths: (access: Access, kind: IncomingRole, index: number) => effectsAt(kind, access)?.get(index),
     projections, remember, observe, value, call, appliedValue };
 }

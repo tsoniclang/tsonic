@@ -4,7 +4,7 @@ import type { BlockId, DefId, ProjectionPathId } from "../ids/contract.js";
 import type { MirClosureCapture, MirTerminator } from "../ir-mir/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { BindingVector } from "../ir-types/contract.js";
-import { projectBindingScope } from "../ir-types/index.js";
+import { projectBindingScope, sameInstance } from "../ir-types/index.js";
 import type { BoundProducerRef, CallFieldBindings, CaptureEffect, LogicalCellRef, ParameterEffect, ProjectCallFields, RefinementSources, RelationalOwner, Summary, SummaryWrite } from "./contract.js";
 import type { ProjectionPath } from "./arena-data.js";
 import type { AppliedCell, AppliedContext, AppliedSummary, AppliedSubject, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits } from "./application-data.js";
@@ -13,7 +13,7 @@ import { applyInitialization } from "./apply-initialization.js";
 import { applyValueOrigins } from "./apply-values.js";
 import { checkConditionLimits } from "./conditions.js";
 import { summaryKey } from "./summary-key.js";
-import { admitOwnerIdentity } from "./verification.js";
+import { admitArtifactIdentity, admitOwnerIdentity } from "./verification.js";
 
 function callerFieldBindings(account: DataflowAccount, definition: DefId,
   bindings: CallFieldBindings): DataflowResult<BindingVector | null> {
@@ -97,10 +97,12 @@ const noWrite: { readonly kind: "complete"; readonly value: false } = { kind: "c
 const noCopy: { readonly kind: "complete"; readonly value: null } = { kind: "complete", value: null };
 
 type PlacedCall = Extract<MirTerminator, { readonly kind: "call" }>;
-export type PlacedCopies = ReadonlyMap<PlacedCall, MirClosureCapture | null>;
+type ScopedCapture = { readonly kind: "scoped"; readonly summary: Summary };
+export type PlacedCapture = MirClosureCapture | ScopedCapture;
+export type PlacedCaptures = ReadonlyMap<PlacedCall, PlacedCapture | null>;
 
-function returnedCapture(block: BlockId, call: PlacedCall, summaryAt: RefinementSources["summaryAt"],
-  account: DataflowAccount): DataflowResult<MirClosureCapture | null> {
+function placedCapture(block: BlockId, call: PlacedCall, summaryAt: RefinementSources["summaryAt"],
+  account: DataflowAccount): DataflowResult<PlacedCapture | null> {
   if (call.callee.kind !== "body" || call.receiver !== null || call.arguments.length !== 0) return noCopy;
   const summary = summaryAt(block, call);
   if (summary.kind !== "complete") return summary;
@@ -112,7 +114,20 @@ function returnedCapture(block: BlockId, call: PlacedCall, summaryAt: Refinement
     || actual.contentsOnReturn.length !== 0 || actual.contentsOnUnwind.length !== 0 || actual.resultCells.length !== 0
     || actual.initialization.events.length !== 0 || actual.backing.length !== 0) return noCopy;
   const result = actual.arena.origins[actual.result];
-  if (result?.kind !== "complete" || result.id !== actual.result || result.includesAbsence || result.producers.length !== 1) return noCopy;
+  if (result?.kind !== "complete" || result.id !== actual.result || result.includesAbsence) return noCopy;
+  if (result.producers.length === 0 && actual.retention.length === 0) {
+    const key = actual.key;
+    if (key.kind !== "body" || key.execution.provided !== 0) return noCopy;
+    const selected = key.execution.instance;
+    const requested = call.callee.instance;
+    const paid = chargeWork(account, 1 + selected.body.length + requested.body.length)
+      ?? admitArtifactIdentity(selected.bindings, account) ?? admitArtifactIdentity(requested.bindings, account);
+    if (paid !== null) return paid;
+    if (!sameInstance(selected, requested)) return noCopy;
+    const kept = chargeResultEntries(account, 1);
+    return kept ?? { kind: "complete", value: { kind: "scoped", summary: actual } };
+  }
+  if (result.producers.length !== 1) return noCopy;
   const producerId = result.producers[0];
   const bound = producerId === undefined ? undefined : actual.arena.boundProducers[producerId];
   const producer = bound === undefined || bound.id !== producerId ? undefined : actual.arena.producers[bound.producer];
@@ -136,16 +151,16 @@ function returnedCapture(block: BlockId, call: PlacedCall, summaryAt: Refinement
   return { kind: "complete", value: source };
 }
 
-export function admitPlacedCopy(copies: Map<PlacedCall, MirClosureCapture | null> | null, block: BlockId, call: PlacedCall,
-  summaryAt: RefinementSources["summaryAt"], account: DataflowAccount): DataflowResult<Map<PlacedCall, MirClosureCapture | null>> {
+export function admitPlacedCapture(captures: Map<PlacedCall, PlacedCapture | null> | null, block: BlockId, call: PlacedCall,
+  summaryAt: RefinementSources["summaryAt"], account: DataflowAccount): DataflowResult<Map<PlacedCall, PlacedCapture | null>> {
   const paid = chargeWork(account, 1);
   if (paid !== null) return paid;
-  if (copies?.has(call) === true) return { kind: "complete", value: copies };
-  const actual = returnedCapture(block, call, summaryAt, account);
+  if (captures?.has(call) === true) return { kind: "complete", value: captures };
+  const actual = placedCapture(block, call, summaryAt, account);
   if (actual.kind !== "complete") return actual;
-  const retained = chargeResultEntries(account, copies === null ? 2 : 1);
+  const retained = chargeResultEntries(account, captures === null ? 2 : 1);
   if (retained !== null) return retained;
-  const admitted = copies ?? new Map<PlacedCall, MirClosureCapture | null>();
+  const admitted = captures ?? new Map<PlacedCall, PlacedCapture | null>();
   admitted.set(call, actual.value);
   return { kind: "complete", value: admitted };
 }

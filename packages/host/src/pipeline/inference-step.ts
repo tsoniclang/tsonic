@@ -36,7 +36,8 @@ function fail(message: string): never {
 }
 
 export function candidateReplayOf<State>(deps: ElaborateDeps<State>, account: DataflowAccount, checked: HirBody, instance: BodyInstance,
-  declaredSignature: (request: SignatureRequest) => Result<Signature>, unit: UnitRequest): ReplayTirCandidate {
+  declaredSignature: (request: SignatureRequest) => Result<Signature>, unit: UnitRequest,
+  bodyOf: (body: BodyId) => HirBody | null): ReplayTirCandidate {
   return (input, result) => {
     const header = chargeWork(account, 1);
     if (header !== null) return header;
@@ -108,7 +109,7 @@ export function candidateReplayOf<State>(deps: ElaborateDeps<State>, account: Da
       return fail("A replayed candidate must retain the independently selected result and declaration.");
     const settled = deps.rules.candidate({ ...input, candidates: [{ ...candidate, advertisedSignature: id, apiSignature: id }] },
       request => checkedReferenceArgumentViewOf({ ...request, body: checked }, {
-        nodeOf: deps.nodeOf, itemOf: deps.itemOf, typeOf: deps.typeOf,
+        bodyOf, nodeOf: deps.nodeOf, itemOf: deps.itemOf, typeOf: deps.typeOf,
         admit: (work, records) => admitTypePublicationStep(deps.typeWork, work, records) === null,
       }),
       { typeWork: deps.typeWork, unit });

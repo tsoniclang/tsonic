@@ -373,14 +373,17 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
             if (body === undefined) return fail("An executable source formal belongs to its actual checked body.");
             const localRead = chargeWork(account, 5);
             if (localRead !== null) return localRead;
-            const formal = checkedSourceObjectHoldingOf(body, local, reference => {
-              const owner = reference.kind === "item" ? reference.value.owner : reference.value.body;
-              return chargeWork(account, 18 + owner.length) === null ? sources.nodeOf(reference) : null;
-            }, definition => {
-              if (chargeWork(account, 12 + definition.length) !== null) return null;
-              const reference = sources.declarationSourceOf(definition);
-              return reference === null ? null : sources.nodeOf(reference);
-            }, () => chargeWork(account, 1) === null);
+            const formal = checkedSourceObjectHoldingOf(body, local, {
+              bodyOf: id => sources.bodies.get(id) ?? null,
+              nodeOf: reference => {
+                const owner = reference.kind === "item" ? reference.value.owner : reference.value.body;
+                return chargeWork(account, 18 + owner.length) === null ? sources.nodeOf(reference) : null;
+              }, itemOf: definition => {
+                if (chargeWork(account, 12 + definition.length) !== null) return null;
+                const reference = sources.declarationSourceOf(definition);
+                return reference === null ? null : sources.nodeOf(reference);
+              }, admit: (work, records) => (chargeWork(account, work) ?? chargeResultEntries(account, records)) === null,
+            });
             return accountFailure(account) ?? { kind: "complete", value: formal?.receiver === storage };
           },
           sourceObjectFields: (meter, identity) => {
@@ -392,12 +395,15 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
               const owner = reference.kind === "item" ? reference.value.owner : reference.value.body;
               return chargeWork(meter, 18 + owner.length) === null ? sources.nodeOf(reference) : null;
             };
-            const fields = checkedSourceObjectFieldsOf(body, nodeOf, definition => {
-              if (chargeWork(meter, 12 + definition.length) !== null) return null;
-              const reference = sources.declarationSourceOf(definition);
-              return reference === null ? null : nodeOf(reference);
-            }, type => readType(source.types, type),
-            (work, records) => (chargeWork(meter, work) ?? chargeResultEntries(meter, records)) === null);
+            const fields = checkedSourceObjectFieldsOf(body, {
+              bodyOf: id => sources.bodies.get(id) ?? null, nodeOf,
+              itemOf: definition => {
+                if (chargeWork(meter, 12 + definition.length) !== null) return null;
+                const reference = sources.declarationSourceOf(definition);
+                return reference === null ? null : nodeOf(reference);
+              }, typeOf: type => readType(source.types, type),
+              admit: (work, records) => (chargeWork(meter, work) ?? chargeResultEntries(meter, records)) === null,
+            });
             return { kind: "complete", value: node => {
               const paid = chargeWork(meter, 1);
               if (paid !== null) return paid;
