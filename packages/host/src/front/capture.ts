@@ -75,6 +75,7 @@ interface CaptureTables {
   authoredSourceTypes: Map<Node, ResolvedSourceTypeInfo> | null;
   tupleCalls: Map<Node, TupleCallUse> | null;
   tupleArgumentContexts: Map<Node, TupleAnnotation> | null;
+  tupleLiteralContexts: Map<Node, ContextualTupleUse> | null;
   readonly interfaceGroups: { readonly byTarget: Map<Type, RawInterfaceGroup>; readonly rows: RawInterfaceGroup[] };
   readonly interfaceCapture: InterfaceCaptureSession;
   readonly interfaceDescriptions: Map<Type, RawInterfaceDescription>;
@@ -257,6 +258,7 @@ interface ContextualTupleUse {
   readonly kind: "contextual-tuple";
   readonly syntax: Node;
   readonly original: Type;
+  nextElement: number;
 }
 
 interface LiteralTupleUse {
@@ -265,11 +267,13 @@ interface LiteralTupleUse {
   readonly original: Type;
 }
 
-interface ProjectedOperandUse {
+type ProjectedOperandUse = {
   readonly kind: "projected-operand";
   readonly type: Type;
-  readonly role: "indexed-result" | "indexed-tuple-object" | "declared-tuple-argument" | "receiver-tuple-result";
-}
+} & (
+  | { readonly role: "indexed-result" | "indexed-tuple-object" | "declared-tuple-argument" | "receiver-tuple-result" }
+  | { readonly role: "tuple-element"; readonly parent: RawComponent; readonly ordinal: number }
+);
 
 type ResultBindingUse = ReceiverProjectionUse | UnionResultUse | DirectResultUse;
 interface MergedSlotUse {
@@ -1641,11 +1645,14 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A tuple type requires its actual captured component."));
   const nativeProjection = projection?.role === "indexed-tuple-object" || projection?.role === "declared-tuple-argument"
-    || projection?.role === "receiver-tuple-result";
+    || projection?.role === "receiver-tuple-result" || projection?.role === "tuple-element";
   const prefix = parent.path?.prefix;
   if (nativeProjection && (projection.type !== type || originalUse !== null || binding !== null
     || (projection.role === "receiver-tuple-result" ? parent.path?.step.kind !== "result" || prefix !== null
       : projection.role === "indexed-tuple-object" ? parent.path?.step.kind !== "projection-source"
+      : projection.role === "tuple-element" ? parent.root !== projection.parent.root
+        || prefix !== (projection.parent.path === null ? null : projection.parent.id)
+        || parent.path?.step.kind !== "tuple-element" || parent.path.step.index !== projection.ordinal
       : parent.path?.step.kind !== "argument-place" || prefix === null || prefix === undefined ||
         scope.tables.components[prefix]?.path?.step.kind !== "result")))
     return throwInvariant(invariant("A projected source must retain its exact native tuple and component."));
@@ -1672,7 +1679,8 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
     syntax = source === undefined ? undefined : tupleSyntax(scope, source);
     if (scope.meter.refusal !== null) return null;
   }
-  if (!nativeProjection && syntax === undefined && literalSlots === undefined) {
+  const inferredPattern = !nativeProjection && syntax === undefined && literalSlots === undefined;
+  if (inferredPattern) {
     const occurrence = originalUse === null && binding === null && parent.path === null
       ? admittedTypeUse(scope, parent.root) : undefined;
     if (scope.meter.refusal !== null) return null;
@@ -1764,7 +1772,12 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
       return throwInvariant(invariant("A variadic slot must retain its actual numbered operand."));
     const componentId = appendComponent(scope, parent, { kind: "tuple-element", index });
     if (componentId === null) return null;
-    const captured = rawType(scope, () => withoutTypeCause(slot.type), componentId, qualified, nestedLiteral);
+    let nestedUse: LiteralTupleUse | ProjectedOperandUse | null = nestedLiteral;
+    if (nestedUse === null && qualified === null && (nativeProjection || inferredPattern) && scope.shape.isTuple(slot.type)) {
+      if (!admit(scope, "facts")) return null;
+      nestedUse = { kind: "projected-operand", role: "tuple-element", type: slot.type, parent, ordinal: index };
+    }
+    const captured = rawType(scope, () => withoutTypeCause(slot.type), componentId, qualified, nestedUse);
     if (captured === null) return null;
     elements.push({ declaration: null, symbol: null, kind: slot.elementKind, component: componentId, type: captured,
       acceptsOmission: slot.elementKind === "optional", initializer: null, passing: notProvided() });
@@ -3802,6 +3815,36 @@ function captureDiagnosticCoverage(scope: CaptureScope, diagnostics: readonly Di
   return rows;
 }
 
+function tupleLiteralElementAnnotation(scope: CaptureScope, parent: Node, operand: Node): Node | undefined {
+  const contexts = scope.tables.tupleLiteralContexts;
+  if (contexts === null || !admit(scope, "edges")) return undefined;
+  const context = contexts.get(parent);
+  if (context === undefined) return undefined;
+  const ast = scope.checked.ast;
+  const elements = ast.as.AsArrayLiteralExpression(parent)?.Elements?.Nodes;
+  const written = tupleSyntax(scope, context.syntax);
+  if (scope.meter.refusal !== null || !admit(scope, "edges")) return undefined;
+  const native = scope.shape.getTupleInfo(context.original);
+  if (elements === undefined || written === undefined || native === undefined
+    || elements.length !== written.elements.length || elements.length !== native.elements.length
+    || written.readonly !== native.readonly) return undefined;
+  while (context.nextElement < elements.length) {
+    if (!admit(scope, "edges")) return undefined;
+    const ordinal = context.nextElement;
+    const element = elements[ordinal];
+    const kind = ast.kindName(element);
+    if (element === undefined || kind === "KindSpreadElement" || kind === "KindOmittedExpression") return undefined;
+    context.nextElement += 1;
+    if (element !== operand) continue;
+    const annotation = written.elements[ordinal];
+    const slot = native.elements[ordinal];
+    if (annotation === undefined || slot?.elementKind !== "required") return undefined;
+    const original = sourceType(scope, { kind: "annotation", node: annotation });
+    return original?.type === slot.type && original.causes.length === 0 ? annotation : undefined;
+  }
+  return undefined;
+}
+
 function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: Node, role: "tuple" | "native-array"): Node | undefined {
   const ast = scope.checked.ast;
   let operand = node;
@@ -3812,6 +3855,8 @@ function contextualLiteralAnnotation(scope: CaptureScope, node: Node, parent: No
     owner = ast.parent(owner);
   }
   if (owner === undefined) return undefined;
+  if (role === "tuple" && ast.kindName(owner) === "KindArrayLiteralExpression")
+    return tupleLiteralElementAnnotation(scope, owner, operand);
   if (ast.kindName(owner) === "KindVariableDeclaration" && ast.as.AsVariableDeclaration(owner)?.Initializer === operand)
     return ast.typeNode(owner);
   if (role === "native-array" && scope.rootAssignmentAnnotations !== null && ast.kindName(owner) === "KindBinaryExpression") {
@@ -3838,7 +3883,10 @@ function contextualTupleUse(scope: CaptureScope, node: Node, parent: Node | unde
   contextual: ResolvedSourceTypeInfo | undefined): ContextualTupleUse | null {
   if (parent === undefined || contextual === undefined || contextual.causes.length !== 0 || !scope.shape.isTuple(contextual.type)) return null;
   const syntax = tupleAnnotationOf(scope, contextual.type, contextualLiteralAnnotation(scope, node, parent, "tuple"));
-  return syntax === undefined ? null : { kind: "contextual-tuple", syntax, original: contextual.type };
+  if (syntax === undefined || !admit(scope, "facts", scope.tables.tupleLiteralContexts === null ? 3 : 2)) return null;
+  const selected: ContextualTupleUse = { kind: "contextual-tuple", syntax, original: contextual.type, nextElement: 0 };
+  (scope.tables.tupleLiteralContexts ??= new Map()).set(node, selected);
+  return selected;
 }
 
 function contextualNativeArrayAnnotation(scope: CaptureScope, node: Node, parent: Node, contextual: ResolvedSourceTypeInfo): Node | null {
@@ -5443,7 +5491,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
     shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
     fieldSelectors: null, invalidLayout: null, rootAssignmentAnnotations: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
-      authoredSourceTypes: null, tupleCalls: null, tupleArgumentContexts: null,
+      authoredSourceTypes: null, tupleCalls: null, tupleArgumentContexts: null, tupleLiteralContexts: null,
       interfaceGroups: { byTarget: new Map(), rows: [] }, interfaceCapture,
       interfaceDescriptions: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),

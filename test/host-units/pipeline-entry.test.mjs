@@ -68,6 +68,65 @@ test("an explicitly selected inline tuple initializes the authored binding desti
   assert.throws(() => analyzeHostProgram(withHolding("in-place", containsReference)), /actual Origins reference\/cell producer/);
 });
 
+test("nested tuple bindings retain exact slots without reading the hole or skipping its producer", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function before(value: boolean): boolean { return !value; }
+    function skipped(value: boolean): boolean { return !value; }
+    function after(value: boolean): boolean { return !value; }
+    function produce(first: boolean, ignored: boolean, last: boolean): [[boolean], boolean, [boolean]] {
+      return [[before(first)], skipped(ignored), [after(last)]];
+    }
+    export function start(first: boolean, ignored: boolean, last: boolean): boolean {
+      const [[left], , [right]] = produce(first, ignored, last);
+      return right;
+    }
+    export function fromParameter(pair: [[boolean], boolean, [boolean]]): boolean {
+      const [[left], , [right]] = pair;
+      return right;
+    }
+  `);
+  const native = input.snapshot.nativeFacts;
+  const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: {
+    ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } });
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const declarations = readyModuleStatements(readyModuleRoot(chapter.tree));
+  const body = name => {
+    const declaration = declarations.find(node => node.kind === "FunctionDeclaration" && node.name.text === name);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+    assert.ok(selected, name);
+    return selected;
+  };
+  const calls = ({ mir }) => mir.blocks.map(block => block.terminator).filter(term => term.kind === "call");
+  const producer = body("produce");
+  assert.deepEqual(calls(producer).map(call => call.callee.resolution.activation.body),
+    ["before", "skipped", "after"].map(name => body(name).tir.body));
+  const sourceCalls = calls(body("start"));
+  assert.deepEqual(sourceCalls.map(call => call.callee.resolution.activation.body), [producer.tir.body]);
+  assert.deepEqual(calls(body("fromParameter")), []);
+  for (const [name, saved] of [["start", sourceCalls[0].destination], ["fromParameter", null]]) {
+    const { mir, tir, facts } = body(name);
+    const binding = tir.root.statements.nodes[0].declarationList.declarations.nodes[0].name;
+    const [left, hole, right] = binding.elements.nodes;
+    assert.equal(hole.tsonic.role, "hole");
+    const [leftLeaf] = left.name.elements.nodes;
+    const [rightLeaf] = right.name.elements.nodes;
+    const [outerLeft, innerLeft, outerRight, innerRight, ...extra] = mir.places.filter(place =>
+      place.base.kind === "place" && place.base.projection.kind === "element");
+    assert.deepEqual(extra, []);
+    const root = saved ?? outerLeft.base.place;
+    if (saved === null) assert.deepEqual(mir.locals[mir.places[root].base.local].role, { kind: "parameter", index: 0 });
+    assert.deepEqual([outerLeft, innerLeft, outerRight, innerRight].map(place =>
+      [place.base.tir.node, place.base.place, place.base.projection.index]), [
+      [left.id, root, 0], [leftLeaf.id, outerLeft.id, 0], [right.id, root, 2], [rightLeaf.id, outerRight.id, 0],
+    ]);
+    assert.equal(facts[0].origins.reads.some(row => row.node === hole.id), false);
+  }
+});
+
 test("fixed and empty call spreads keep their authored component and later-value transport through Facts", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

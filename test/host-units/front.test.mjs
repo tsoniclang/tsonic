@@ -3390,11 +3390,14 @@ test("tuple return literals keep the checked slots separate from the actual call
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { readType } = await import("../../packages/host/dist/ir-types/index.js");
-  for (const { annotation, returned, readonly, source, destination } of [
+  for (const { annotation, returned, readonly, source, destination, nestedValues } of [
     { annotation: "readonly [boolean, boolean]", returned: "[flag, false]", readonly: true,
       source: ["primitive:bool", "literal:boolean"], destination: ["primitive:bool", "primitive:bool"] },
     { annotation: "[number, number]", returned: "[-1, 2]", readonly: false,
       source: ["primitive:float64", "primitive:float64"], destination: ["primitive:float64", "primitive:float64"] },
+    { annotation: "[[boolean], [boolean]]", returned: "[[false], [true]]", readonly: false,
+      source: ["tuple:literal:boolean", "tuple:literal:boolean"], destination: ["tuple:primitive:bool", "tuple:primitive:bool"],
+      nestedValues: [false, true] },
     { annotation: "[]", returned: "[]", readonly: false, source: [], destination: [] },
   ]) {
     const input = analysisInput(fixture, "sdk-minimal", `
@@ -3407,6 +3410,7 @@ test("tuple return literals keep the checked slots separate from the actual call
     const [branch, last] = body.root.statements.nodes;
     const read = type => readType(completed.value.types, type);
     const category = term => term.kind === "primitive" ? `primitive:${term.primitive}`
+      : term.kind === "tuple" ? `tuple:${term.elements.map(row => category(read(row.type))).join(",")}`
       : term.kind === "literal" ? `literal:${term.value.kind}` : term.kind;
     for (const literal of [branch.thenStatement.expression, last.expression]) {
       assert.equal(literal.kind, "ArrayLiteralExpression");
@@ -3422,6 +3426,8 @@ test("tuple return literals keep the checked slots separate from the actual call
       assert.equal(context.readonly, readonly);
       assert.deepEqual(selected.elements.map(row => [row.kind, category(read(row.type))]), source.map(type => ["required", type]));
       assert.deepEqual(context.elements.map(row => [row.kind, category(read(row.type))]), destination.map(type => ["required", type]));
+      if (nestedValues !== undefined)
+        assert.deepEqual(selected.elements.map(row => read(read(row.type).elements[0].type).value.value), nestedValues);
       assert.equal(literal.elements.nodes.length, selected.elements.length);
     }
   }
