@@ -167,6 +167,65 @@ test("authored tuple construction consumes ordered operands and emits one select
   }
 });
 
+test("an optional reference store retains the qualified field and the single native absence in Typed IR", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { parseTir, printTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { chargeWork } = await import("../../packages/host/dist/dataflow/index.js");
+  for (const absence of ["null", "undefined"]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      export function clear(record: { field: { value: boolean } | ${absence} }): void {
+        record.field = ${absence};
+      }
+    `);
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const selected = typeSourceBarrier(input, captured.value, createTypedAccount(input));
+    assert.equal(selected.kind, "ok", JSON.stringify(selected.diagnostics));
+    const candidate = [...selected.value.bodies.values()].find(body => body.bindings.kind === "instantiated" && body.root.kind === "Block");
+    assert.ok(candidate);
+    const proof = selected.value.verifierOf(input.snapshot.entryPoint);
+    const verify = body => verifyTir(proof, tirReadyReadAdmission(createTypedAccount(input)))(body);
+    assert.deepEqual(verify(candidate), { kind: "complete", violations: [] });
+    const text = printTir(candidate);
+    const decoded = parseTir(text);
+    assert.equal(decoded.kind, "parsed");
+    assert.equal(printTir(decoded.value), text);
+    const assignment = candidate.root.statements.nodes[0].expression;
+    const operation = assignment.right.tsonic.conversion.operation.decision.operation;
+    assert.equal(operation.embedding.conversion, "absence");
+    assert.deepEqual(proof.types.terms[operation.from], { kind: "intrinsic", intrinsic: "absence" });
+    assert.equal(operation.to, assignment.tsonic.storage);
+    const [step] = operation.embedding.proof.steps;
+    assert.deepEqual(step.to.root, { kind: "body", value: { body: candidate.body, node: assignment.left.id } });
+
+    const damaged = structuredClone(candidate);
+    const crossed = damaged.root.statements.nodes[0].expression;
+    crossed.right.tsonic.conversion.operation.decision.operation.embedding.proof.steps[0].to.root.value.node = crossed.left.expression.id;
+    const rejected = verify(damaged);
+    assert.equal(rejected.kind, "complete");
+    assert.equal(rejected.violations.some(row => row.rule === "operation-type" && row.detail.some(detail => detail.kind === "text"
+      && detail.value.startsWith("an absence write to an optional reference"))), true);
+
+    const account = createTypedAccount(input);
+    const admit = tirReadyReadAdmission(account);
+    let cutoff = null;
+    let refused = false;
+    const stopped = verifyTir(proof, request => {
+      assert.equal(refused, false, "no next admission after the first proof refusal");
+      if (request.kind !== "source-field-proof") return admit(request);
+      cutoff = chargeWork(account, input.limits.dataflow.maximumWork);
+      refused = true;
+      assert.notEqual(cutoff, null);
+      return cutoff;
+    })(candidate);
+    assert.equal(stopped.kind, "resource-stop");
+    assert.equal(stopped.stop === cutoff, true);
+  }
+});
+
 test("verified Typed object bindings retain a native absence split and their separately placed default", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

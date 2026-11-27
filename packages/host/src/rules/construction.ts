@@ -85,7 +85,7 @@ function arrayConstruction(deps: RulesDeps, input: LiteralConstructionInput, sou
     } else {
       const fit = componentEmbedding(deps,
         { type: part.value.type, at: { root: { kind: "body", value: part.occurrence }, path: [] } },
-        { type: element, at: slot }, origin, work);
+        { type: element, at: slot }, origin, work, null);
       if (fit?.kind === "refused") return fit;
       if (fit === null || fit.value.kind === "refused") return reject("An array element does not fit its selected native storage.");
       operands.push(element);
@@ -142,7 +142,7 @@ export function constructLiteral(deps: RulesDeps, input: LiteralConstructionInpu
     const destination: TypeComponent = { root: result.component, path: [{ kind: "tuple-element", index }] };
     const embedding = decideComponentEmbedding(deps,
       { type: part.value.type, at: { root: { kind: "body", value: part.occurrence }, path: [] } },
-      { type: slot.type, at: destination }, "initialization", part.occurrence, origin, work);
+      { type: slot.type, at: destination }, "initialization", part.occurrence, origin, work, null);
     if (embedding.kind === "refused") return embedding;
     if (embedding.value.kind === "refused") {
       const code = hostDiagnosticCode("TSONIC_CONSTRUCTION_PART_FIT");

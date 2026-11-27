@@ -1,5 +1,5 @@
 import type { CheckedMemberStorageOf, CheckedPhase, CheckedSourceBindingFieldOf, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldOf, CheckedVariableStorageOf, HirCoreCapture,
-  HirNode, ReadWriteRootStorageOf, TypeNode, WritableRootStorageOf } from "./contract.js";
+  CheckedSourceOptionalObjectFieldOf, HirNode, ReadWriteRootStorageOf, TypeNode, WritableRootStorageOf } from "./contract.js";
 import type { DefId, LocalId, TyId } from "../ids/contract.js";
 import type { SourceObjectHolding } from "../ir-types/contract.js";
 import { compareMemberKeys } from "../ir-types/index.js";
@@ -107,7 +107,8 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
   return alias === null ? null : { local, declaration: alias, receiver: type };
 };
 
-export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, access, nodeOf, itemOf, admitAlias) => {
+function selectSourceObjectField<Proof>(accept: (holding: SourceObjectHolding, property: Extract<HirNode, { readonly kind: "PropertySignature" }>, field: DefId) => Proof | null,
+  ...[body, access, nodeOf, itemOf, admitAlias]: Parameters<CheckedSourceObjectFieldOf>): Proof | null {
   if (access.questionDotToken !== null || access.tsonic.role === "enum-member" || access.tsonic.role === "array-extent" || access.tsonic.origins.kind !== "available"
     || access.tsonic.origins.value.length !== 1 || access.tsonic.accessor.kind !== "available" || access.tsonic.accessor.value !== null) return null;
   const origin = access.tsonic.origins.value[0];
@@ -122,8 +123,52 @@ export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, acc
   if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local") return null;
   const formal = checkedSourceObjectHoldingOf(body, receiver.tsonic.resolution.local, nodeOf, itemOf, admitAlias);
   if (formal === null) return null;
-  if (qualifiedSourceField(formal, origin.declaration, itemOf) === null) return null;
-  return { ...formal, occurrence: { body: body.body, node: access.id }, field: origin.declaration };
+  const property = qualifiedSourceField(formal, origin.declaration, itemOf);
+  return property === null ? null : accept(formal, property, origin.declaration);
+}
+
+export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, access, nodeOf, itemOf, admit) =>
+  selectSourceObjectField((holding, _property, field) => ({ ...holding, occurrence: { body: body.body, node: access.id }, field }),
+    body, access, nodeOf, itemOf, admit);
+
+export const checkedSourceOptionalObjectFieldOf: CheckedSourceOptionalObjectFieldOf = (body, access, nodeOf, itemOf, typeOf, admit) => {
+  if (!admit(1, 0)) return null;
+  const occurrence = { body: body.body, node: access.id };
+  if (nodeOf({ kind: "body", value: occurrence }) !== access) return null;
+  return selectSourceObjectField((holding, property, field) => {
+    if (!admit(1, 0)) return null;
+    const annotation = property.type;
+    const declared = property.tsonic.declaredType;
+    if (annotation?.kind !== "UnionType" || annotation.parent !== property.id || declared.kind !== "available" || declared.value === null
+      || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== declared.value) return null;
+    const arms = annotation.types.nodes;
+    if (arms.length !== 2 || !admit(1, 0)) return null;
+    const storage = typeOf(declared.value);
+    if (storage?.kind !== "optional") return null;
+    const accessPayload = access.tsonic;
+    if (accessPayload.role === "assignment-target" ? checkedMemberStorageOf(access)?.write !== declared.value
+      : accessPayload.role !== "value" || accessPayload.value.views.read.kind !== "available") return null;
+    let present = false;
+    let absent = false;
+    for (let ordinal = 0; ordinal < 2; ordinal += 1) {
+      if (!admit(1, 0)) return null;
+      const arm = arms[ordinal];
+      if (arm === undefined || arm.parent !== annotation.id || arm.tsonic.type.kind !== "available") return null;
+      if (arm.kind === "TypeLiteral") {
+        if (present || arm.tsonic.type.value !== storage.value || !ordinaryObjectRepresentation(arm.tsonic.core)
+          || !admit(1, 0) || typeOf(storage.value)?.kind !== "shape") return null;
+        present = true;
+      } else {
+        if (absent || (arm.kind !== "UndefinedKeyword" && (arm.kind !== "LiteralType" || arm.literal.kind !== "NullKeyword"))
+          || !admit(1, 0)) return null;
+        const type = typeOf(arm.tsonic.type.value);
+        if (type?.kind !== "intrinsic" || type.intrinsic !== "absence") return null;
+        absent = true;
+      }
+    }
+    if (!admit(1, 1)) return null;
+    return { ...holding, occurrence, field, storage: declared.value, present: storage.value };
+  }, body, access, nodeOf, itemOf, () => admit(1, 0));
 };
 
 function qualifiedSourceField(holding: SourceObjectHolding, definition: DefId, itemOf: (definition: DefId) => HirNode | null) {

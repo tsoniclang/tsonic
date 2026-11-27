@@ -4,10 +4,11 @@ import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, Hi
 import type { Diagnostic, Violation } from "../diag/contract.js";
 import { checkedLayoutConstructionOf, checkedLayoutGeometryOperands, checkedLayoutRoleOf, checkedMemberStorageOf,
   checkedSourceBindingFieldOf, checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree,
-  readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+  checkedSourceOptionalObjectFieldOf, readWriteRootStorageOf, resolveModuleBinding, unparenthesizedExpression, walkSyntaxTree,
+  writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { isNativeIntegerPrimitive, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, sameInstance, verifyTypes } from "../ir-types/index.js";
-import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
+import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { CallExpression, ElementAccessExpression, PropertyAccessExpression } from "../ir-hir/contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
 import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyArrayConstruction, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyPatternBinding, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
@@ -25,8 +26,50 @@ export interface TirSourceInventory {
   readonly original: HirBody | undefined;
   readonly sourceNodes: ReadonlyMap<NodeId, HirNode>;
   readonly typedNodes: ReadonlyMap<NodeId, TirSyntaxOccurrence>;
+  readonly typedOfSource: ReadonlyMap<HirNode, TirSyntaxOccurrence>;
   readonly ownNodes: readonly TirSyntaxOccurrence[];
   readonly nestedRoots: ReadonlySet<NodeId>;
+}
+
+function verifyOptionalReferenceWrite<Stop extends object>(input: TirVerifierInput, inventory: TirSourceInventory,
+  node: TirNode, original: HirNode | undefined, admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  const right = typedValueOf(node);
+  if (right?.conversion.kind !== "convert") return null;
+  const operation = right.conversion.operation.decision.operation;
+  if (operation.kind !== "conversion" || operation.embedding.kind !== "conversion" || operation.embedding.conversion !== "absence") return null;
+  const destination = input.types.terms[operation.to];
+  if (destination?.kind !== "optional" || input.types.terms[destination.value]?.kind !== "shape") return null;
+  const paid = admit({ kind: "row" });
+  if (paid !== null) return paid;
+  const authored = original?.parent == null ? undefined : inventory.sourceNodes.get(original.parent);
+  const parent = authored === undefined ? undefined : inventory.typedOfSource.get(authored);
+  const body = inventory.original;
+  const target = authored?.kind === "BinaryExpression" && authored.right === original
+    ? unparenthesizedExpression<CheckedPhase>(authored.left) : null;
+  let stopped: Stop | null = null;
+  const witness = target?.kind === "PropertyAccessExpression" && target.tsonic.role === "assignment-target" && body !== undefined
+    ? checkedSourceOptionalObjectFieldOf(body, target, input.nodeOf, definition => {
+      stopped ??= admit({ kind: "source-declaration", definition });
+      if (stopped !== null) return null;
+      const reference = input.declarationSourceOf(definition);
+      return reference?.kind === "item" && reference.value.owner === definition ? input.nodeOf(reference) : null;
+    }, type => input.types.terms[type], (work, records) => {
+      stopped ??= admit({ kind: "source-field-proof", work, records });
+      return stopped === null;
+    }) : null;
+  if (stopped !== null) return stopped;
+  const source = input.types.terms[operation.from];
+  const { proof } = operation.embedding;
+  const step = proof.steps[0];
+  if (parent?.kind !== "BinaryExpression" || parent.tsonic.role !== "assignment" || parent.right !== node || parent.id !== authored?.id
+    || witness === null || witness.storage !== operation.to || parent.tsonic.storage !== witness.storage
+    || source?.kind !== "intrinsic" || source.intrinsic !== "absence" || right.conversion.role !== "assignment"
+    || operation.embedding.check.kind !== "none" || proof.conclusion !== 0 || proof.steps.length !== 1
+    || step?.rule !== "absence" || step.premises.length !== 0 || step.from.path.length !== 0 || step.to.path.length !== 0
+    || !sameSourceReference(step.from.root, { kind: "body", value: { body: witness.occurrence.body, node: node.id } })
+    || !sameSourceReference(step.to.root, { kind: "body", value: witness.occurrence }))
+    emit("operation-type", node, "an absence write to an optional reference requires its actual checked field and qualified conversion");
+  return null;
 }
 
 function verifyIndex(input: TirVerifierInput, node: ElementAccessExpression<TypedPhase>, original: HirNode | undefined,
@@ -376,7 +419,7 @@ export const verifySourcePreservation = (
   if (original !== undefined) for (const node of ownNodes) if (!bodyNodes.has(node.id)) {
     emit("node-in-body-range", node, "typed syntax contains a real or invented node outside its actual original body subtree");
   }
-  return { original, sourceNodes, typedNodes, ownNodes, nestedRoots };
+  return { original, sourceNodes, typedNodes, typedOfSource, ownNodes, nestedRoots };
 };
 
 export const verifyBodyRecords = (body: TirBody, original: HirBody | undefined, emit: TirOccurrenceEmit): void => {
@@ -870,6 +913,8 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     }
     verifyValueEndpoints(body, node, emit);
     verifyOccurrenceOperation(node, input.types, emit);
+    const write = verifyOptionalReferenceWrite(input, inventory, node, original, admit, emit);
+    if (write !== null) return { kind: "resource-stop", stop: write };
     if (node.kind === "PropertyAccessExpression" && node.tsonic.role === "value" && node.tsonic.narrowing?.kind === "narrowed") {
       const paid = admit({ kind: "row" });
       if (paid !== null) return { kind: "resource-stop", stop: paid };

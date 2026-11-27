@@ -2,6 +2,7 @@ import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, ItemNode
 import type { Diagnostic, ErrorValue, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NominalDefinition, PassingMode, Signature, SignatureEndpoint, SourceObjectHolding, SourceObjectField, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirBindingResolution } from "./binding-data.js";
+import type { SourceOptionalObjectField, TypeTerm } from "../ir-types/contract.js";
 export type * from "./binding-data.js";
 import type { CapturedFact } from "./capture-data.js";
 export type { CapturedFact } from "./capture-data.js";
@@ -4062,6 +4063,11 @@ export type CheckedSourceObjectHoldingOf = (body: HirBody, local: LocalRef,
 export type CheckedSourceObjectFieldOf = (body: HirBody, access: PropertyAccessExpression<CheckedPhase>,
   nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null, admitAlias: () => boolean,
 ) => SourceObjectField | null;
+
+export type CheckedSourceOptionalObjectFieldOf = (body: HirBody, access: PropertyAccessExpression<CheckedPhase>,
+  nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null,
+  typeOf: (type: TyId) => TypeTerm | undefined, admit: (work: number, records: number) => boolean,
+) => SourceOptionalObjectField | null;
 
 export type CheckedSourceBindingFieldOf = (body: HirBody, element: BindingElement<CheckedPhase>, key: MemberKey, field: DefId,
   nodeOf: (reference: SourceNodeRef) => HirNode | null, itemOf: (definition: DefId) => HirNode | null, admit: (work?: number) => boolean,

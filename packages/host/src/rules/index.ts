@@ -53,7 +53,7 @@ export const createRuleTable: CreateRuleTable = deps => {
     decideCaptureModes: input => decideCaptureModes(deps, input),
     checkThrowOperandUse: input => checkThrowOperandUse(deps, input),
     embed: (input, work) => {
-      const selected = decideEmbedding(deps, input.from, input.to, input.role, input.context.occurrence, input.context.origin, work);
+      const selected = decideEmbedding(deps, input.from, input.to, input.role, input.context.occurrence, input.context.origin, work, null);
       return selected.kind === "refused" ? selected : decided(selected.value);
     },
     domainFit: atContext("domain-fit"),

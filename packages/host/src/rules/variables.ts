@@ -30,8 +30,8 @@ export function localVariableRule(deps: RulesDeps): VariableRule {
       const value = input.bound.value;
       const final = input.final.value;
       const embedding = input.bound.kind === "producer"
-        ? decideEmbedding(deps, value, final, "bound", input.variable.occurrence, input.origin, work)
-        : decideEmbedding(deps, final, value, "bound", input.variable.occurrence, input.origin, work);
+        ? decideEmbedding(deps, value, final, "bound", input.variable.occurrence, input.origin, work, null)
+        : decideEmbedding(deps, final, value, "bound", input.variable.occurrence, input.origin, work, null);
       if (embedding.kind === "refused") return embedding;
       const outcome: BoundCheckOutcome = { kind: "satisfied", embedding: embedding.value };
       return { kind: "ok", value: outcome, diagnostics: [] };
@@ -96,8 +96,8 @@ export function signatureVariableRule(deps: RulesDeps): VariableRule {
       if (input.bound.kind === "demand" && input.bound.value.type !== input.final.value.type)
         return { kind: "ok", value: { kind: "refused", reason: "signature-use-demand" }, diagnostics: [] };
       const embedding = input.bound.kind === "producer"
-        ? decideEmbedding(deps, input.bound.value, input.final.value, "bound", input.variable.occurrence, input.origin, work)
-        : decideEmbedding(deps, input.final.value, input.bound.value, "bound", input.variable.occurrence, input.origin, work);
+        ? decideEmbedding(deps, input.bound.value, input.final.value, "bound", input.variable.occurrence, input.origin, work, null)
+        : decideEmbedding(deps, input.final.value, input.bound.value, "bound", input.variable.occurrence, input.origin, work, null);
       return embedding.kind === "refused" ? embedding
         : { kind: "ok", value: { kind: "satisfied", embedding: embedding.value }, diagnostics: [] };
     },

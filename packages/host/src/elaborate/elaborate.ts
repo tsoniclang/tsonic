@@ -534,10 +534,15 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (flow !== undefined) {
       if (flow.embedding.kind === "identity") {
         if (flow.destination !== type) callerDefect("an identity flow whose destination is not the value's type", origin);
-      } else if (flow.embedding.kind === "conversion" && flow.embedding.check.kind === "none"
-        && (flow.embedding.conversion === "literal-fit"
-          || (flow.embedding.conversion === "absence" || flow.embedding.conversion === "union-injection")
-            && optionalValueDomainOf(readType(deps.types, flow.destination), value => readType(deps.types, value)).kind === "optional-value")) {
+      } else if (flow.embedding.kind === "conversion" && flow.embedding.check.kind === "none") {
+        const destination = readType(deps.types, flow.destination);
+        const source = readType(deps.types, type);
+        const absence = flow.embedding.conversion === "absence" && destination.kind === "optional"
+          && source.kind === "intrinsic" && source.intrinsic === "absence";
+        const injection = flow.embedding.conversion === "union-injection"
+          && optionalValueDomainOf(destination, value => readType(deps.types, value)).kind === "optional-value";
+        if (!absence && !injection && flow.embedding.conversion !== "literal-fit")
+          return notElaboratedYet(`a conversion of kind ${flow.embedding.conversion}`, origin);
         convertedType = flow.destination;
         conversion = { kind: "convert", role: flow.role, operation: { permissionScope: null, decision: {
           kind: "selected", operation: { kind: "conversion", from: type, to: convertedType, embedding: flow.embedding },

@@ -370,6 +370,11 @@ export interface SourceObjectField extends SourceObjectHolding {
   readonly field: DefId;
 }
 
+export interface SourceOptionalObjectField extends SourceObjectField {
+  readonly storage: TyId;
+  readonly present: TyId;
+}
+
 export type MemberUnavailableReason =
   | { readonly kind: "parameter"; readonly parameter: DefId }
   | { readonly kind: "dynamic" }

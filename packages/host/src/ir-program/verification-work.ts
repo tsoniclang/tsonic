@@ -18,7 +18,8 @@ export const tirReadyReadAdmission: CreateTirReadyReadAdmission = account => req
     case "prior": return accountFailure(account);
     case "row": return chargeWork(account, 1);
     case "retain-publication-entry": return chargeResultEntries(account, 1);
-    case "deferred-type-support": return chargeWork(account, request.work) ?? chargeResultEntries(account, request.records);
+    case "deferred-type-support":
+    case "source-field-proof": return chargeWork(account, request.work) ?? chargeResultEntries(account, request.records);
     case "artifact":
       return chargeWork(account, request.instance.body.length) ?? admitArtifactIdentity(request.instance.bindings, account);
     case "bindings": return admitBindingIdentity(request.bindings, account);

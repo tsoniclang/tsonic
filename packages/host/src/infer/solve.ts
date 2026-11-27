@@ -9,7 +9,7 @@ import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { admitTypePublicationStep, internType, readType, refuseTypeConstruction } from "../ir-types/index.js";
-import { checkedSourceBindingFieldOf, checkedSourceObjectFieldOf } from "../ir-hir/index.js";
+import { checkedSourceBindingFieldOf, checkedSourceObjectFieldOf, checkedSourceOptionalObjectFieldOf } from "../ir-hir/index.js";
 import type { BodyInstance, MemberInventory, TypePublicationStop } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
@@ -496,8 +496,34 @@ function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
       const source = present(deps.checkedNodeOf({ kind: "body", value: reached.constraint.occurrence }) ?? undefined, "the actual selected operand source");
       const input = { ...common, origin: source.origin };
       const work = { typeWork: deps.typeWork, unit };
-      return reached.kind === "flow" ? deps.rules.constraints.flow.evaluate({ ...input, constraint: reached.constraint }, work)
-        : deps.rules.constraints.literal.evaluate({ ...input, constraint: reached.constraint }, work);
+      if (reached.kind === "literal") return deps.rules.constraints.literal.evaluate({ ...input, constraint: reached.constraint }, work);
+      const constraint = reached.constraint;
+      const destination = reached.evidence[1]?.value.component;
+      let optionalField = null;
+      if ((constraint.role === "assignment" || constraint.role === "member-write") && destination?.kind === "body"
+        && destination.value.body === item.set.body) {
+        const resolved = (type: TyId) => {
+          const term = readType(deps.types, type);
+          const final = term.kind === "open" ? reads.find(variable => variable.variable === term.variable) : undefined;
+          return final === undefined ? term : readType(deps.types, final.value.type);
+        };
+        const stopped = admitTypePublicationStep(deps.typeWork, 0);
+        if (stopped !== null) return refuseTypeConstruction(deps.typeWork, stopped, source.origin, unit);
+        const incoming = resolved(constraint.from);
+        if (incoming.kind === "intrinsic" && incoming.intrinsic === "absence" && resolved(constraint.to).kind === "optional") {
+          let stop: TypePublicationStop | null = admitTypePublicationStep(deps.typeWork);
+          if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, source.origin, unit);
+          const target = deps.checkedNodeOf(destination);
+          if (target?.kind === "PropertyAccessExpression" && target.tsonic.role === "assignment-target")
+            optionalField = checkedSourceOptionalObjectFieldOf(deps.hirBody(item.set.body), target, deps.checkedNodeOf,
+              deps.itemOf, type => readType(deps.types, type), (steps, records) => {
+                stop ??= admitTypePublicationStep(deps.typeWork, steps, records);
+                return stop === null;
+              });
+          if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, source.origin, unit);
+        }
+      }
+      return deps.rules.constraints.flow.evaluate({ ...input, constraint, optionalField }, work);
     }
     case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin,
       scope: item.reached.scope, typeWork: deps.typeWork, unit });

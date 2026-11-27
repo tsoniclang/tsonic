@@ -2796,6 +2796,41 @@ test("object binding reads the actual ordered members and keeps optional absence
   assert.equal(check(right, second.constraint.key, second.constraint.origins[0].declaration, () => false), null);
 });
 
+test("an absence write uses its actual checked ordinary reference field", () => {
+  const program = ready("export function clear(record: { field: { value: boolean } | null }): void { record.field = null; }");
+  const body = program.checked.bodies.find(candidate => candidate.root.kind === "Block");
+  const assignment = body.root.statements.nodes[0].expression;
+  const target = assignment.left;
+  const group = program.inputs.groups.find(candidate => candidate.bodies.includes(body.body));
+  const input = program.inputs.inference;
+  const readType = type => fixture.types.readType(program.interner, type);
+  const prove = (access, typeOf = readType, admit = () => true, nodeOf = program.domain.nodeOf) =>
+    fixture.hir.checkedSourceOptionalObjectFieldOf(body, access, nodeOf, input.itemOf, typeOf, admit);
+  const proof = prove(target);
+  assert.ok(proof);
+  const occurrence = node => ({ kind: "body", value: { body: body.body, node: node.id } });
+  assert.deepEqual(proof.occurrence, occurrence(target).value);
+  assert.equal(proof.field, target.tsonic.origins.value[0].declaration);
+  assert.equal(proof.storage, target.tsonic.place.value.write.value);
+  assert.equal(readType(proof.storage).value, proof.present);
+  assert.equal(readType(proof.present).kind, "shape");
+  assert.equal(prove({ ...target }), null, "a lookalike occurrence cannot supply the source witness");
+  assert.equal(prove(target, type => type === proof.present ? readType(proof.storage) : readType(type)), null);
+  assert.equal(prove(target, () => assert.fail("an unadmitted field cannot read Types"), () => false,
+    () => assert.fail("an unadmitted field cannot read source")), null);
+  const solved = program.database.run(program.queries.solutionOf, group.id);
+  assert.equal(solved.kind, "completed");
+  assert.deepEqual(solved.diagnostics, []);
+  const set = solved.value.constraints.constraints.find(row => row.body === body.body);
+  const index = set.constraints.findIndex(row => row.kind === "flow" && row.occurrence.node === assignment.right.id);
+  assert.ok(index >= 0);
+  assert.equal(set.constraints[index].to, proof.storage);
+  const decision = solved.value.solution.constraints.find(row => row.constraint.body === body.body && row.constraint.index === index);
+  assert.deepEqual(decision.decision, { kind: "flow", embedding: { kind: "conversion", conversion: "absence", check: { kind: "none" },
+    proof: { conclusion: 0, steps: [{ from: { root: occurrence(assignment.right), path: [] }, to: { root: occurrence(target), path: [] },
+      rule: "absence", premises: [] }] } } });
+});
+
 test("actual selected member constraints retain their checked origins and distinct receiver and open result evidence", async () => {
   const program = ready("export function read(box:Box):boolean{return box.flag;}export type Box={flag:boolean};\n");
   const source = program.checked.bodies.find(body => body.root.kind === "Block");

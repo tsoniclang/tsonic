@@ -1,9 +1,9 @@
 import type { ErrorValue, Result } from "../diag/contract.js";
 import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
-  AtomicContribution, ConstraintScheme, ContributionKey, ContributionOutcome, FlowConstraint, InferenceValue,
+  AtomicContribution, ConstraintScheme, ContributionKey, ContributionOutcome, FlowContributionScheme, InferenceValue,
   ArrayExtentConstraint, IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
-  NarrowedRefinement, OperationDecision, OperatorConstraint, PaidConstraintScheme, RuleTable, VariableBound,
+  NarrowedRefinement, OperationDecision, OperatorConstraint, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, SourceObjectField, TypeEvidence } from "../ir-types/contract.js";
 import { compareMemberKeys, internType, isNativeIntegerPrimitive, memberTypeRequestData, nativeArrayExtentOf, nativeCarrierHoldingOf, optionalValueDomainOf, readType } from "../ir-types/index.js";
@@ -340,7 +340,7 @@ function memberScheme(deps: RulesDeps, owner: MemberOwner): MemberContributionSc
   };
 }
 
-export function flowScheme(deps: RulesDeps): PaidConstraintScheme<FlowConstraint> {
+export function flowScheme(deps: RulesDeps): FlowContributionScheme {
   return {
     enumerate: input => {
       const value = input.constraint;
@@ -385,7 +385,7 @@ export function flowScheme(deps: RulesDeps): PaidConstraintScheme<FlowConstraint
       if (error !== null) return ok({ bounds: [], decision: { kind: "error", error }, selectedCandidate: null });
       const embedding = decideEmbedding(deps, { ...source.value, component: fromEvidence.value.component },
         { ...destination.value, component: toEvidence.value.component },
-        value.role, value.occurrence, input.origin, work);
+        value.role, value.occurrence, input.origin, work, input.optionalField);
       return embedding.kind === "refused" ? embedding
         : ok({ bounds: [], decision: { kind: "flow", embedding: embedding.value }, selectedCandidate: null });
     },

@@ -106,7 +106,7 @@ function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context
       if (checked === undefined || readType(deps.types, checked.type).kind === "open")
         return notDecidedYet("the actual inferred argument embedding contribution", origin);
     }
-    const form = embeddingForm(deps, argument.value.type, parameter.type, work);
+    const form = embeddingForm(deps, argument.value.type, parameter.type, work, null);
     if (form !== null && typeof form !== "string") return refuseTypeConstruction(work.typeWork, form, origin, work.unit);
     if (form === "incompatible-domain" || form === "lossy-numeric") {
       const code = hostDiagnosticCode("TSONIC_NO_APPLICABLE_NATIVE_CANDIDATE");
