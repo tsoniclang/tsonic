@@ -277,7 +277,8 @@ interface AppliedTupleResult {
   readonly original: Type;
 }
 
-type TupleValueRead = Node | AppliedTupleResult;
+type SignatureTupleRead = Node | AppliedTupleResult;
+type TupleValueRead = SignatureTupleRead | LiteralTupleUse;
 
 type ProjectedOperandUse = AppliedTupleResult | ({
   readonly kind: "projected-operand";
@@ -364,7 +365,7 @@ interface CaptureScope extends CaptureAdmission {
 
 interface TupleCallUse {
   readonly call: ResolvedSourceCallInfo;
-  readonly read: TupleValueRead | null;
+  readonly read: SignatureTupleRead | null;
 }
 
 interface TupleAnnotation {
@@ -1684,7 +1685,18 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
   if (binding?.kind === "literal-tuple") {
     if (!admit(scope, "edges")) return null;
     literalSlots = ast.as.AsArrayLiteralExpression(binding.expression)?.Elements?.Nodes;
-    if (literalSlots === undefined || binding.original !== type || originalUse !== null)
+    if (originalUse !== null) {
+      const annotation = admittedTypeUse(scope, originalUse);
+      if (scope.meter.refusal !== null || !admit(scope, "edges")) return null;
+      const assertion = ast.parent(annotation);
+      if (annotation === undefined || assertion === undefined || !ast.isConstAssertion(assertion))
+        return throwInvariant(invariant("A tuple annotation may retain literal evidence only from its actual const assertion."));
+      const view = tupleAssertion(scope, assertion);
+      if (scope.meter.refusal !== null || !admit(scope, "edges")) return null;
+      if (view?.Type !== annotation || scope.tables.tupleLiteralReads?.get(assertion) !== binding)
+        return throwInvariant(invariant("A const tuple annotation must retain its actual checked operand proof."));
+    }
+    if (literalSlots === undefined || binding.original !== type)
       return throwInvariant(invariant("An executing tuple literal requires its actual checked expression and native result."));
   }
   let source = binding?.kind === "literal-tuple" ? undefined
@@ -2125,14 +2137,14 @@ function selectMergedParameter(scope: CaptureScope, symbol: CheckerSymbol, decla
 }
 
 function captureAuthoredAnnotation(scope: CaptureScope, node: Node, source: RawNodeRef,
-  selected?: Type): RawTypeId | null {
+  selected?: Type, literal: LiteralTupleUse | null = null): RawTypeId | null {
   return rawType(scope, () => {
     const authored = sourceType(scope, { kind: "annotation", node });
     if (scope.meter.refusal !== null) return undefined;
-    if (authored === undefined || selected !== undefined && authored.type !== selected)
+    if (authored === undefined || selected !== undefined && authored.type !== selected || literal !== null && authored.type !== literal.original)
       return throwInvariant(invariant("An authored annotation must agree with its actual checked answer."));
     return authored;
-  }, component(scope, source, null), source, null, scope.numericLiterals.has(node) ? node : null);
+  }, component(scope, source, null), source, literal, scope.numericLiterals.has(node) ? node : null);
 }
 
 function authoredOperatorOperand(scope: CaptureScope, child: Node | undefined, selected: Type | undefined): RawTypeId | null {
@@ -3993,9 +4005,10 @@ function tupleLiteralRead(scope: CaptureScope, source: Node, original: Type, par
   const direct = reads.get(source);
   if (direct !== undefined) return direct.original === original ? direct : null;
   const ast = scope.checked.ast;
-  if (parent === undefined || ast.kindName(parent) !== "KindParenthesizedExpression" || !admit(scope, "edges")
-    || ast.as.AsParenthesizedExpression(parent)?.Expression !== source)
-    return null;
+  if (parent === undefined) return null;
+  if (ast.kindName(parent) === "KindParenthesizedExpression") {
+    if (!admit(scope, "edges") || ast.as.AsParenthesizedExpression(parent)?.Expression !== source) return null;
+  } else if (!ast.isConstAssertion(parent) || tupleAssertion(scope, parent)?.Expression !== source) return null;
   const inherited = reads.get(parent);
   if (inherited === undefined || inherited.original !== original || !admit(scope, "facts")) return null;
   reads.set(source, inherited);
@@ -4072,7 +4085,24 @@ function valueTupleRead(scope: CaptureScope, node: Node | undefined, answer: Res
     }
     if (ast.kindName(node) === "KindCallExpression") return callTupleRead(scope, node, answer.type);
     const assertion = tupleAssertion(scope, node);
-    if (assertion !== undefined) return tupleAnnotationOf(scope, answer.type, assertion.Type) ?? null;
+    if (assertion !== undefined) {
+      if (!ast.isConstAssertion(node)) return tupleAnnotationOf(scope, answer.type, assertion.Type) ?? null;
+      const known = tupleLiteralRead(scope, node, answer.type);
+      if (known !== null) return known;
+      if (!admit(scope, "edges")) return null;
+      const expression = assertion.Expression;
+      if (expression === undefined) return null;
+      const literal = tupleLiteralExpression(scope, expression);
+      if (literal === undefined) return null;
+      const operand = sourceType(scope, { kind: "expression", node: expression });
+      if (operand?.type !== answer.type || operand.causes.length !== 0 || !admit(scope, "edges")) return null;
+      const target = assertion.Type;
+      if (target === undefined) return null;
+      const annotation = sourceType(scope, { kind: "annotation", node: target });
+      if (annotation?.type !== answer.type || annotation.causes.length !== 0
+        || !admit(scope, "edges") || scope.shape.getTupleInfo(answer.type)?.readonly !== true) return null;
+      return retainTupleLiteral(scope, node, literal, answer.type);
+    }
   }
   if (!isDeclaredTupleRead(scope, node, answer)) return null;
   const symbol = scope.checker.getSymbolAtLocation(node);
@@ -4080,7 +4110,7 @@ function valueTupleRead(scope: CaptureScope, node: Node | undefined, answer: Res
     ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(symbol)) : null;
 }
 
-function selectedTupleRead(scope: CaptureScope, call: ResolvedSourceCallInfo): TupleValueRead | null {
+function selectedTupleRead(scope: CaptureScope, call: ResolvedSourceCallInfo): SignatureTupleRead | null {
   if (call.kind !== "applicable" || call.optionalChain || call.selection.diagnostics.length !== 0) return null;
   const { application } = call.selection;
   const { signature, instantiatedSignature, signatureShape } = application;
@@ -4105,7 +4135,7 @@ function selectedTupleRead(scope: CaptureScope, call: ResolvedSourceCallInfo): T
     ? { kind: "projected-operand", role: "applied-tuple-result", type: applied.type, original: original.type } : null;
 }
 
-function callTupleRead(scope: CaptureScope, node: Node, type: Type): TupleValueRead | null {
+function callTupleRead(scope: CaptureScope, node: Node, type: Type): SignatureTupleRead | null {
   if (!admit(scope, "edges")) return null;
   const known = scope.tables.tupleCalls?.get(node);
   if (known !== undefined) return known.call.kind === "applicable" && known.call.resultType === type ? known.read : null;
@@ -6076,7 +6106,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       else if (declarationSymbol !== undefined && admit(scope, "edges"))
         sourceRead = declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol));
       const authoredRead = sourceRead !== null && "Kind" in sourceRead ? sourceRead : null;
-      const projectedRead = sourceRead !== null && !("Kind" in sourceRead) ? sourceRead : null;
+      const shapedRead = sourceRead !== null && !("Kind" in sourceRead) ? sourceRead : null;
       if (scope.meter.refusal !== null) break;
       let sharedRead: RawTypeId | null = null;
       if (kind === "KindPropertyAccessExpression" && declarationNameRoot === null && !failedSelection) {
@@ -6113,7 +6143,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
           }
         }
       }
-      const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue ?? projectedRead ?? spreadView,
+      const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue ?? shapedRead ?? spreadView,
         kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);
       let contextualSource: Node | null = null;
       if (tupleContext === null && contextual !== undefined && contextual.causes.length === 0) {
@@ -6155,7 +6185,12 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
     }
     // An authored type annotation (the type child of its declaration): the type the checker gives that type node.
     if (heritage || kind !== "KindTemplateLiteralTypeSpan" && typeNodeKinds.includes(kind.replace(/^Kind/u, ""))) {
-      const type = captureAuthoredAnnotation(scope, node, reference);
+      let literal: LiteralTupleUse | null = null;
+      if (kind === "KindTypeReference" && parent !== undefined && ast.isConstAssertion(parent) && tupleAssertion(scope, parent)?.Type === node) {
+        if (!admit(scope, "edges")) break;
+        literal = scope.tables.tupleLiteralReads?.get(parent) ?? null;
+      }
+      const type = captureAuthoredAnnotation(scope, node, reference, undefined, literal);
       if (type === null || !admit(scope, "facts")) break;
       annotations.push({ node: reference.node, type });
     }

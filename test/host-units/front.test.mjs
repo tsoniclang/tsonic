@@ -3836,6 +3836,39 @@ test("both checked tuple arms qualify the conditional spread at its actual occur
     [[0, 0, 0], [0, 1, 1], [1, null, 2]]);
 });
 
+test("a const tuple assertion keeps the actual annotation root and operand slot evidence", () => {
+  const { deps, program, module } = openedModule(`
+    declare function take(pair: readonly [boolean], exact: true, after: boolean): boolean;
+    declare function keep(value: boolean): boolean;
+    export function start(value: boolean): boolean { return take(...(([[keep(value)], true]) as const), value); }
+  `);
+  const result = captureSingleModule(front, deps, program, module);
+  assert.equal(result.kind, "ok");
+  const raw = result.value;
+  const invoke = raw.tree.statements.nodes[2].body.statements.nodes[0].expression;
+  const [spread, after] = invoke.arguments.nodes;
+  const wrapper = spread.expression.expression;
+  const literal = wrapper.expression.expression;
+  const [child, token] = literal.elements.nodes;
+  const annotation = raw.annotations.find(row => row.node === wrapper.type.id);
+  const saved = raw.types.types[annotation.type];
+  assert.deepEqual(saved.authoredTypeNode, { module, node: wrapper.type.id });
+  assert.deepEqual(raw.types.components[saved.component].root, saved.authoredTypeNode);
+  const readOf = node => raw.types.types[raw.checkerViews.find(row => row.node.node === node.id).read.value];
+  for (const row of [saved, readOf(literal), readOf(wrapper), readOf(spread.expression), readOf(child)]) {
+    assert.equal(row.form.value.kind, "tuple");
+    assert.equal(row.form.value.readonly, true);
+  }
+  const capturedToken = raw.types.types[saved.form.value.elements[1].type];
+  assert.deepEqual(capturedToken.literal.value, readOf(token).literal.value);
+  assert.deepEqual(capturedToken.literal.value, { kind: "boolean", value: true });
+  const candidates = raw.calls.find(row => row.invocation.node === invoke.id).candidates;
+  const [selected] = raw.types.candidates[candidates].candidates;
+  assert.deepEqual(selected.sourceArguments.map(row => [row.kind, row.expression.node]), [["spread", spread.expression.id], ["value", after.id]]);
+  assert.deepEqual(selected.arguments.value.map(row => [row.sourceArgumentIndex, row.spreadElementIndex, row.parameterIndex]),
+    [[0, 0, 0], [0, 1, 1], [1, null, 2]]);
+});
+
 test("inferred array destructuring preserves independent native read and contextual tuple slots", () => {
   const { deps, program, module } = openedModule(
     "declare const a: number; declare const c: number; export const [e, f] = [a + 1, c];");

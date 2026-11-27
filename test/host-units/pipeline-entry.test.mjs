@@ -273,10 +273,13 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     function keep(flag: boolean): boolean { return !flag; }
     function later(): boolean { return false; }
     function consume(first: boolean, second: boolean, tail: boolean): boolean { return tail; }
+    function consumeTrue(first: boolean, second: true, tail: boolean): boolean { return tail; }
     export function bare(flag: boolean): boolean { return consume(...[keep(flag), true], later()); }
     export function grouped(flag: boolean): boolean { return consume(...(([keep(flag), true])), later()); }
     export function asserted(flag: boolean): boolean { return consume(...(([keep(flag), true] as [boolean, boolean])), later()); }
     export function bracketed(flag: boolean): boolean { return consume(...(<[boolean, boolean]>[keep(flag), true]), later()); }
+    export function constant(flag: boolean): boolean { return consumeTrue(...(([keep(flag), true]) as const), later()); }
+    export function constantPrefix(flag: boolean): boolean { return consumeTrue(...(<const>[keep(flag), true]), later()); }
   `;
   const input = analysisInput(fixture, "sdk-minimal", source);
   const nativeFacts = input.snapshot.nativeFacts;
@@ -296,21 +299,32 @@ test("a finite spread of a checked tuple literal constructs its one product befo
     assert.equal(expression.kind, "ArrayLiteralExpression");
     return expression;
   };
-  for (const name of ["bare", "grouped", "asserted", "bracketed"]) {
+  for (const [name, kind, context, readonly] of [
+    ["bare", "ArrayLiteralExpression", false, false], ["grouped", "ArrayLiteralExpression", false, false],
+    ["asserted", "AsExpression", true, false], ["bracketed", "TypeAssertionExpression", true, false],
+    ["constant", "AsExpression", false, true], ["constantPrefix", "TypeAssertionExpression", false, true],
+  ]) {
     const original = sourceModule.tree.statements.nodes.find(row => row.kind === "FunctionDeclaration" && row.name.text === name);
     const operand = original.body.statements.nodes[0].expression.arguments.nodes[0].expression;
     const authored = literalOf(operand);
     let wrapper = operand;
     while (wrapper.kind === "ParenthesizedExpression") wrapper = wrapper.expression;
-    const assertion = name === "asserted" || name === "bracketed";
-    assert.equal(wrapper.kind, name === "asserted" ? "AsExpression" : name === "bracketed" ? "TypeAssertionExpression" : "ArrayLiteralExpression");
-    assert.deepEqual(authored.tsonic.value.views.contextual, assertion ? wrapper.type.tsonic.type : { kind: "available", value: null });
+    assert.equal(wrapper.kind, kind);
+    assert.deepEqual(authored.tsonic.value.views.contextual, context ? wrapper.type.tsonic.type : { kind: "available", value: null });
     const declaration = declarations.find(row => row.kind === "FunctionDeclaration" && row.name.text === name);
     const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
     const call = body.tir.root.statements.nodes[0].expression;
     const [spread, later] = call.arguments.nodes;
     assert.equal(spread.tsonic.role, "finite-call-argument");
     const literal = literalOf(spread.expression);
+    const tuple = result.value.index.types.terms[literal.tsonic.type];
+    assert.equal(tuple.kind, "tuple");
+    assert.equal(tuple.readonly, readonly);
+    if (readonly) {
+      const second = result.value.index.types.terms[tuple.elements[1].type];
+      assert.equal(second.kind, "literal");
+      assert.deepEqual(second.value, { kind: "boolean", value: true });
+    }
     const calls = body.mir.blocks.map(row => row.terminator).filter(row => row.kind === "call");
     const [keep, subsequent, consume] = calls;
     assert.deepEqual(calls.map(row => row.tir.node), [literal.elements.nodes[0].id, later.id, call.id]);
