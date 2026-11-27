@@ -242,7 +242,10 @@ export function operandOrigins(input: BodyRoundInput, constants: readonly Origin
   slots: StorageSlots = null, fields: HeldProjections | null = null): OriginsId {
   if (operand.kind === "place") {
     const projection = fields?.places.get(operand.place);
-    if (projection !== undefined) return originsId(projection.includesAbsence ? 1 : 0);
+    if (projection !== undefined) {
+      if (projection.value === "write-only") return bodyFrontier("A write-only field place cannot supply a value operand.");
+      return originsId(projection.value === "scalar-optional" ? 1 : 0);
+    }
     const base = input.mir.places[operand.place]?.base;
     if (base?.kind === "checked" && base.projection.kind === "refined") return originsId(0);
   }
@@ -265,6 +268,16 @@ export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, consta
   const next = [...state];
   if (statement.kind === "assign") {
     const local = rootSlot(input.mir, statement.place, slots);
+    const absences = fields?.absenceValues;
+    if (absences != null) {
+      const base = input.mir.places[statement.place]?.base;
+      const absence = base?.kind === "local" ? absences.get(base.local) : undefined;
+      if (absence !== undefined) {
+        if (absence.statement !== statement) return bodyFrontier("An absence temporary must keep its actual selected materialization.");
+        next[local] = operandOrigins(input, constants, state, absence.operand, slots, fields);
+        return { kind: "complete", value: next };
+      }
+    }
     let operand = statement.value.kind === "use" ? statement.value.operand : null;
     if (statement.value.kind !== "use") {
       const storage = requirePresent(input.mir.places[statement.place], { owner: "analyses/body", query: null, origin: statement.origin,

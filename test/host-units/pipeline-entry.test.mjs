@@ -226,6 +226,55 @@ test("an optional reference store retains the qualified field and the single nat
   }
 });
 
+test("a write-only optional reference field records absence on the actual receiver without reading the field", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const absence of ["null", "undefined"]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      export function clear(record: { field: { value: boolean } | ${absence} }): void {
+        record.field = ${absence};
+      }
+    `);
+    const published = analyzeHostProgram(input);
+    assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
+    const chapter = published.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+    assert.ok(body);
+    const { mir, tir } = body;
+    const assignment = tir.root.statements.nodes[0].expression;
+    const facts = body.facts.find(row => row.execution.provided === 1);
+    assert.ok(facts);
+    const writes = facts.origins.writes.filter(row => row.destination === "member");
+    assert.equal(writes.length, 1);
+    const [write] = writes;
+    assert.equal(write.node, assignment.id);
+    const statement = mir.blocks[write.point.block].statements[write.point.statement];
+    assert.equal(statement.kind, "assign");
+    assert.equal(statement.tir.node, assignment.id);
+    const place = mir.places[statement.place];
+    assert.equal(place.base.kind, "place");
+    assert.equal(place.base.projection.kind, "field");
+    assert.equal(place.base.projection.member.decision.key.value, "field");
+    assert.equal(place.base.projection.member.decision.read, null);
+    assert.equal(facts.origins.reads.some(row => row.place === place.id), false);
+    assert.equal(write.targets.length, 1);
+    const receiver = facts.arena.boundProducers[write.targets[0]];
+    const producer = facts.arena.producers[receiver.producer];
+    assert.deepEqual({ kind: producer.kind, index: producer.index, path: producer.path },
+      { kind: "parameter", index: 0, path: null });
+    const [stored] = write.values;
+    assert.deepEqual(stored.source, { body: tir.body, node: assignment.right.id });
+    assert.deepEqual(facts.arena.origins[stored.origins], { id: stored.origins, kind: "complete", producers: [], includesAbsence: true });
+    assert.deepEqual(write.boundaries, []);
+    const summary = published.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === tir.body);
+    const parameter = summary.parameters[0];
+    assert.deepEqual(parameter.reads.paths, []);
+    assert.equal(parameter.writes.paths.length, 1);
+    assert.equal(summary.arena.projections[parameter.writes.paths[0]].projection.member.decision.primary,
+      place.base.projection.member.decision.primary);
+  }
+});
+
 test("verified Typed object bindings retain a native absence split and their separately placed default", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

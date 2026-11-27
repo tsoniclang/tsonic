@@ -4,7 +4,7 @@ import type { LocalId, LocalRef, NodeId, PlaceId, ProjectionPathId } from "../..
 import { admitIntegerKey, encodeKey, projectionPathId } from "../../ids/index.js";
 import type { AppliedSummary, BoundProducer, Origins, Producer, Projection, ProjectionPath, RelationalArena, Summary } from "../../ir-facts/contract.js";
 import { admitSelectionIdentity, fieldProjectionIdentityData } from "../../ir-facts/index.js";
-import type { MirPlace } from "../../ir-mir/contract.js";
+import type { MirOperand, MirPlace, MirStatement } from "../../ir-mir/contract.js";
 import type { MemberSelection, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { bodyFrontier } from "./places.js";
@@ -12,13 +12,19 @@ import { valueKind } from "./values.js";
 
 type ScalarProjection = Extract<Projection, { readonly kind: "field" | "element" | "index" }>;
 
-type HeldProjection = { readonly holder: LocalId; readonly includesAbsence: boolean } & ScalarProjection;
+type HeldProjection = { readonly holder: LocalId; readonly value: "scalar" | "scalar-optional" | "write-only" } & ScalarProjection;
 type ReceiverProducer = LocalRef | NodeId;
+
+interface AbsenceValue {
+  readonly statement: MirStatement;
+  readonly operand: MirOperand;
+}
 
 export interface HeldProjections {
   readonly references: ReadonlySet<LocalId>;
   readonly places: ReadonlyMap<PlaceId, HeldProjection>;
   readonly includesAbsence: boolean;
+  readonly absenceValues: ReadonlyMap<LocalId, AbsenceValue> | null;
 }
 
 function fieldSelection(place: MirPlace, node: TirSyntaxOccurrence | undefined): MemberSelection {
@@ -56,6 +62,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
   const holders = new Map<LocalId, ReceiverProducer>();
   const references = new Set<LocalId>();
   let includesAbsence = false;
+  let hasWriteOnly = false;
   for (let position = 0; position < projections.length; position += 1) {
     const admission = chargeWork(account, 4);
     if (admission !== null) return admission;
@@ -85,11 +92,14 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
     if (node?.kind !== "PropertyAccessExpression" && node?.kind !== "ElementAccessExpression" && node?.kind !== "BindingElement")
       return bodyFrontier("A held projection retains its actual selected receiver syntax.");
     const kind = valueKind(deps, place.storage);
+    const stopped = accountFailure(account);
+    if (stopped !== null) return stopped;
     const optional = member !== null && kind === "primitive-optional";
-    if (kind !== "primitive" && !optional) {
-      const cut = accountFailure(account);
-      return cut ?? bodyFrontier("A reference-held non-scalar projection requires its actual projected value Origins and cells.");
-    }
+    const writeOnly = kind !== "primitive" && !optional && member !== null && member.decision.read === null
+      && node.kind === "PropertyAccessExpression" && node.tsonic.role === "assignment-target" && node.tsonic.access.kind === "write";
+    if (kind !== "primitive" && !optional && !writeOnly)
+      return bodyFrontier("A reference-held non-scalar projection requires its actual projected value Origins and cells.");
+    hasWriteOnly ||= writeOnly;
     includesAbsence ||= optional;
     let receiver;
     if (node.kind === "BindingElement") {
@@ -118,13 +128,15 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       return bodyFrontier("A projected receiver must borrow the actual checked reference through its stable held local.");
     const retained = chargeResultEntries(account, 4);
     if (retained !== null) return retained;
-    places.set(place.id, member !== null ? { holder: holder.id, kind: "field", member, includesAbsence: optional }
-      : constant !== null ? { holder: holder.id, kind: "index", constant, includesAbsence: false }
-        : { holder: holder.id, kind: "element", includesAbsence: false });
+    places.set(place.id, member !== null ? { holder: holder.id, kind: "field", member,
+      value: optional ? "scalar-optional" : writeOnly ? "write-only" : "scalar" }
+      : constant !== null ? { holder: holder.id, kind: "index", constant, value: "scalar" }
+        : { holder: holder.id, kind: "element", value: "scalar" });
     holders.set(holder.id, receiverSource);
     references.add(holder.id);
   }
   const assigned = new Set<LocalId>();
+  let absenceValues: Map<LocalId, AbsenceValue> | null = null;
   for (const block of mir.blocks) {
     const blockWork = chargeWork(account, 1);
     if (blockWork !== null) return blockWork;
@@ -136,15 +148,43 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
       if (targetPlace?.base.kind !== "local") continue;
       const target = targetPlace.base;
       const expected = holders.get(target.local);
-      if (expected === undefined) continue;
+      if (expected === undefined) {
+        if (!hasWriteOnly || statement.value.kind !== "convert") continue;
+        const admission = chargeWork(account, 1);
+        if (admission !== null) return admission;
+        const local = mir.locals[target.local];
+        const selected = statement.value.operation.decision;
+        const operation = selected.kind === "selected" && selected.execution.kind === "pure" ? selected.operation : null;
+        if (local?.role.kind !== "temporary" || operation?.kind !== "conversion" || operation.embedding.kind !== "conversion"
+          || operation.embedding.conversion !== "absence" || operation.embedding.check.kind !== "none") continue;
+        const paid = chargeWork(account, 2);
+        if (paid !== null) return paid;
+        const site = source.get(statement.tir.node);
+        const phase = site?.tsonic;
+        const conversion = phase !== undefined && phase !== null && "conversion" in phase ? phase.conversion : null;
+        const checked = conversion?.kind === "convert" ? conversion.operation.decision.operation : null;
+        const from = deps.typeOf(operation.from);
+        const stop = accountFailure(account);
+        if (stop !== null) return stop;
+        if (checked?.kind !== "conversion" || checked.embedding.kind !== "conversion" || checked.embedding.conversion !== "absence"
+          || checked.from !== operation.from || checked.to !== operation.to || checked.to !== local.storage
+          || from.kind !== "intrinsic" || from.intrinsic !== "absence"
+          || absenceValues?.has(local.id) === true)
+          return bodyFrontier("An absence materialization requires its actual selected source and one temporary destination.");
+        const retention = chargeResultEntries(account, absenceValues === null ? 3 : 2);
+        if (retention !== null) return retention;
+        absenceValues ??= new Map();
+        absenceValues.set(local.id, { statement, operand: statement.value.operand });
+        continue;
+      }
       const admission = chargeWork(account, 2);
       if (admission !== null) return admission;
       const operand = statement.value.kind === "use" ? statement.value.operand : null;
       const sourcePlace = operand?.kind === "place" ? mir.places[operand.place]?.base : undefined;
-      const source = sourcePlace?.kind === "local" ? mir.locals[sourcePlace.local] : undefined;
-      if (typeof expected === "number" || assigned.has(target.local) || source?.source?.body !== expected.body || source.source.local !== expected.local
-        || source.storage !== targetPlace.storage
-        || !(source.role.kind === "parameter" && source.mode === "by-value" || source.role.kind === "user" && source.mode === "local"))
+      const sourceLocal = sourcePlace?.kind === "local" ? mir.locals[sourcePlace.local] : undefined;
+      if (typeof expected === "number" || assigned.has(target.local) || sourceLocal?.source?.body !== expected.body || sourceLocal.source.local !== expected.local
+        || sourceLocal.storage !== targetPlace.storage
+        || !(sourceLocal.role.kind === "parameter" && sourceLocal.mode === "by-value" || sourceLocal.role.kind === "user" && sourceLocal.mode === "local"))
         return bodyFrontier("A held reference retains one actual copy of its selected local binding.");
       const retained = chargeResultEntries(account, 1);
       if (retained !== null) return retained;
@@ -165,7 +205,7 @@ export function heldProjections(deps: BodyRoundDeps, input: BodyRoundInput, sour
     assigned.add(destination.local);
   }
   if (assigned.size !== holders.size) return bodyFrontier("Every held reference has its actual producer occurrence.");
-  return { kind: "complete", value: { references, places, includesAbsence } };
+  return { kind: "complete", value: { references, places, includesAbsence, absenceValues } };
 }
 
 export function projectionEffects(deps: BodyRoundDeps, referenceFormals: ReadonlyMap<number, "field" | "array"> | null,

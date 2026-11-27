@@ -10,22 +10,25 @@ function ordinaryObjectRepresentation(core: HirCoreCapture): boolean {
     && core.markers.value.struct === null && core.markers.value.field === null && !core.markers.value.jsString;
 }
 
-function ordinaryObjectDeclaration(owner: DefId, annotation: TypeNode<CheckedPhase> | null, type: TyId,
-  itemOf: (definition: DefId) => HirNode | null): DefId | null {
+type SourceObjectDeclaration = Extract<HirNode, { readonly kind: "TypeAliasDeclaration" | "JSTypeAliasDeclaration" | "Parameter" | "VariableDeclaration" }>;
+
+function ordinaryObjectDeclaration(declaration: SourceObjectDeclaration, annotation: TypeNode<CheckedPhase> | null, type: TyId,
+  itemOf: (definition: DefId) => HirNode | null): SourceObjectDeclaration | null {
   if (annotation === null || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== type) return null;
-  if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? owner : null;
+  if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? declaration : null;
   if (annotation.kind !== "TypeReference" || annotation.typeArguments !== null) return null;
   const owners = annotation.tsonic.referencedDefinitions;
-  const declaration = owners[0];
-  if (owners.length !== 1 || declaration === undefined) return null;
-  const alias = itemOf(declaration);
-  if (alias?.kind !== "TypeAliasDeclaration" || alias.tsonic.definition !== declaration || alias.type.kind !== "TypeLiteral"
+  const definition = owners[0];
+  if (owners.length !== 1 || definition === undefined) return null;
+  const alias = itemOf(definition);
+  if (alias?.kind !== "TypeAliasDeclaration" || alias.tsonic.definition !== definition || alias.type.kind !== "TypeLiteral"
     || alias.typeParameters !== null || alias.tsonic.type.kind !== "available" || alias.tsonic.type.value !== type
     || !ordinaryObjectRepresentation(alias.tsonic.core) || !ordinaryObjectRepresentation(alias.type.tsonic.core)) return null;
-  return declaration;
+  return alias;
 }
 
-export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body, local, nodeOf, itemOf, admitAlias) => {
+function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, declaration: SourceObjectDeclaration) => Proof | null,
+  ...[body, local, nodeOf, itemOf, admitAlias]: Parameters<CheckedSourceObjectHoldingOf>): Proof | null {
   if (local.body !== body.body) return null;
   const initial = body.locals[local.local];
   if (initial?.id !== local.local || initial.checkerSlot.kind !== "available") return null;
@@ -33,23 +36,27 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
   let inputs: LocalId[] | null = null;
   let reached: Set<LocalId> | null = null;
   let alias: DefId | null = null;
+  let objectDeclaration: SourceObjectDeclaration | null = null;
   let current = local.local;
   let localRow = initial;
   for (;;) {
     let actual: DefId | null = null;
+    let actualDeclaration: SourceObjectDeclaration | null = null;
     for (;;) {
       if (reached?.has(current)) break;
       if (localRow.declaration.kind !== "item") return null;
       if (localRow.role === "parameter") {
         const formal = nodeOf(localRow.declaration);
-        if (formal?.kind !== "Parameter" || formal.tsonic.parent !== body.owner || formal.tsonic.declaration.kind !== "local"
+        if (formal?.kind !== "Parameter" || formal.id !== localRow.declaration.value.node || formal.tsonic.parent !== body.owner
+          || formal.tsonic.declaration.kind !== "local"
           || formal.tsonic.declaration.local.body !== local.body || formal.tsonic.declaration.local.local !== current
           || formal.dotDotDotToken !== null || formal.tsonic.declaredType.kind !== "available" || formal.tsonic.declaredType.value !== type) return null;
         const passing = formal.tsonic.core.argumentPassing;
         if (passing.kind !== "available" || passing.value !== null &&
           (passing.value.role !== "declaration" || passing.value.mode !== "by-value")) return null;
-        actual = ordinaryObjectDeclaration(localRow.declaration.value.owner, formal.type, type, itemOf);
-        if (actual === null) return null;
+        actualDeclaration = ordinaryObjectDeclaration(formal, formal.type, type, itemOf);
+        if (actualDeclaration === null) return null;
+        actual = actualDeclaration.kind === "TypeAliasDeclaration" ? actualDeclaration.tsonic.definition : localRow.declaration.value.owner;
         break;
       }
       if (localRow.role !== "binding" || !admitAlias()) return null;
@@ -59,8 +66,9 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
         || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== local.body
         || declaration.tsonic.declaration.local.local !== current || checkedVariableStorageOf(declaration) !== type) return null;
       if (declaration.type !== null) {
-        actual = ordinaryObjectDeclaration(localRow.declaration.value.owner, declaration.type, type, itemOf);
-        if (actual === null) return null;
+        actualDeclaration = ordinaryObjectDeclaration(declaration, declaration.type, type, itemOf);
+        if (actualDeclaration === null) return null;
+        actual = actualDeclaration.kind === "TypeAliasDeclaration" ? actualDeclaration.tsonic.definition : localRow.declaration.value.owner;
         break;
       }
       if (declaration.initializer === null || declaration.tsonic.initializer === null) return null;
@@ -93,6 +101,10 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
     if (actual !== null) {
       alias ??= actual;
       if (alias !== actual) return null;
+      if (actualDeclaration !== null) {
+        objectDeclaration ??= actualDeclaration;
+        if (objectDeclaration !== actualDeclaration) return null;
+      }
       reached?.add(current);
     }
     if (inputs === null || inputs.length === 0) break;
@@ -104,8 +116,11 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
     if (next?.id !== current || next.checkerSlot.kind !== "available" || next.checkerSlot.value !== type) return null;
     localRow = next;
   }
-  return alias === null ? null : { local, declaration: alias, receiver: type };
-};
+  return alias === null || objectDeclaration === null ? null : accept({ local, declaration: alias, receiver: type }, objectDeclaration);
+}
+
+export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body, local, nodeOf, itemOf, admitAlias) =>
+  sourceObjectHolding(holding => holding, body, local, nodeOf, itemOf, admitAlias);
 
 function selectSourceObjectField<Proof>(accept: (holding: SourceObjectHolding, property: Extract<HirNode, { readonly kind: "PropertySignature" }>, field: DefId) => Proof | null,
   ...[body, access, nodeOf, itemOf, admitAlias]: Parameters<CheckedSourceObjectFieldOf>): Proof | null {
@@ -121,10 +136,10 @@ function selectSourceObjectField<Proof>(accept: (holding: SourceObjectHolding, p
   }
   const receiver = unparenthesizedExpression<CheckedPhase>(access.expression);
   if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local") return null;
-  const formal = checkedSourceObjectHoldingOf(body, receiver.tsonic.resolution.local, nodeOf, itemOf, admitAlias);
-  if (formal === null) return null;
-  const property = qualifiedSourceField(formal, origin.declaration, itemOf);
-  return property === null ? null : accept(formal, property, origin.declaration);
+  return sourceObjectHolding((holding, declaration) => {
+    const property = qualifiedSourceField(holding.declaration, declaration, origin.declaration, itemOf);
+    return property === null ? null : accept(holding, property, origin.declaration);
+  }, body, receiver.tsonic.resolution.local, nodeOf, itemOf, admitAlias);
 }
 
 export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, access, nodeOf, itemOf, admit) =>
@@ -171,12 +186,10 @@ export const checkedSourceOptionalObjectFieldOf: CheckedSourceOptionalObjectFiel
   }, body, access, nodeOf, itemOf, () => admit(1, 0));
 };
 
-function qualifiedSourceField(holding: SourceObjectHolding, definition: DefId, itemOf: (definition: DefId) => HirNode | null) {
-  const declaration = itemOf(holding.declaration);
-  if (declaration?.kind !== "TypeAliasDeclaration" && declaration?.kind !== "Parameter" && declaration?.kind !== "VariableDeclaration"
-    || declaration.type?.kind !== "TypeLiteral") return null;
+function qualifiedSourceField(owner: DefId, declaration: SourceObjectDeclaration, definition: DefId, itemOf: (definition: DefId) => HirNode | null) {
+  if (declaration.type?.kind !== "TypeLiteral") return null;
   const field = itemOf(definition);
-  if (field?.kind !== "PropertySignature" || field.postfixToken?.kind === "ExclamationToken" || field.tsonic.parent !== holding.declaration
+  if (field?.kind !== "PropertySignature" || field.postfixToken?.kind === "ExclamationToken" || field.tsonic.parent !== owner
     || field.parent !== declaration.type.id
     || field.tsonic.declaration.kind !== "definition" || field.tsonic.declaration.definition !== definition
     || !ordinaryObjectRepresentation(field.tsonic.core)) return null;
@@ -198,11 +211,12 @@ export const checkedSourceBindingFieldOf: CheckedSourceBindingFieldOf = (body, e
   if (owner?.kind !== "VariableDeclaration" || owner.name !== pattern || owner.initializer === null) return null;
   const receiver = unparenthesizedExpression<CheckedPhase>(owner.initializer);
   if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local") return null;
-  const holding = checkedSourceObjectHoldingOf(body, receiver.tsonic.resolution.local, nodeOf, itemOf, admit);
-  if (holding === null || !admit()) return null;
-  const field = qualifiedSourceField(holding, definition, itemOf);
-  if (field?.name.kind !== "Identifier" || !admit(field.name.text.length + key.value.length) || field.name.text !== key.value) return null;
-  return { ...holding, occurrence, field: definition };
+  return sourceObjectHolding((holding, declaration) => {
+    if (!admit()) return null;
+    const field = qualifiedSourceField(holding.declaration, declaration, definition, itemOf);
+    if (field?.name.kind !== "Identifier" || !admit(field.name.text.length + key.value.length) || field.name.text !== key.value) return null;
+    return { ...holding, occurrence, field: definition };
+  }, body, receiver.tsonic.resolution.local, nodeOf, itemOf, admit);
 };
 
 export const checkedMemberStorageOf: CheckedMemberStorageOf = access => {

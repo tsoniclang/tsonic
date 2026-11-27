@@ -2283,6 +2283,54 @@ test("a selected field proof survives a read-only call and records the actual in
   }
 });
 
+test("the actual optional field write transfers its selected absence at the original round limits", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { pipelineWiring } = await import("../../packages/host/dist/pipeline/wiring.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+    export type Holder = { child: { flag: boolean } | null };
+    export function clear(holder: Holder): void { holder.child = null; }
+  `);
+  const original = pipelineWiring.bodyAnalysis.analyzeBodyRound;
+  let captured;
+  try {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = (deps, subject) => {
+      if (subject.tir.root.kind === "Block" && subject.execution.provided === 1) captured = { deps, subject };
+      return original(deps, subject);
+    };
+    const program = analyzeHostProgram(input);
+    assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
+  } finally {
+    pipelineWiring.bodyAnalysis.analyzeBodyRound = original;
+  }
+  assert.ok(captured);
+  const replay = (account, subject = captured.subject) => original({ ...captured.deps, account }, subject);
+  const ample = createAccount(limits);
+  const expected = replay(ample);
+  assert.equal(expected.kind, "complete");
+  assert.equal(expected.value.kind, "ok");
+  const { facts } = expected.value.value;
+  const write = facts.origins.writes.find(row => row.destination === "member");
+  assert.ok(write);
+  const [stored] = write.values;
+  assert.deepEqual(facts.arena.origins[stored.origins], { id: stored.origins, kind: "complete", producers: [], includesAbsence: true });
+  const { work, entries } = InvocationAccount.stateOf(ample);
+  assert.deepEqual(replay(createAccount({ maximumWork: work, maximumResultEntries: entries })), expected);
+  const unread = new Proxy({}, { get() { assert.fail("No round input read after refusal."); } });
+  for (const [dimension, maximumWork, maximumResultEntries] of [
+    ["work", work - 1, entries], ["result-entries", work, entries - 1],
+  ]) {
+    const account = createAccount({ maximumWork, maximumResultEntries });
+    const stop = replay(account);
+    assert.equal(stop.kind, "resource-limit");
+    assert.equal(stop.dimension, dimension);
+    assert.equal(stop === accountFailure(account), true);
+    assert.equal(replay(account, unread) === stop, true);
+  }
+});
+
 test("zero and every smaller supplied account refuse without partial successful facts or a second allowance", () => {
   const unread = new Proxy({}, { get() { throw new Error("no source input read without entry admission"); } });
   const sourceAccount = createAccount({ ...limits, maximumWork: 0 });

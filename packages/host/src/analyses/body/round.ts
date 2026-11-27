@@ -169,7 +169,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (selected?.role !== "catch" || selected.storage !== local.storage || type.kind !== "intrinsic" || type.intrinsic !== "unknown")
         return bodyFrontier("A caught payload retains its actual typed exception binding and selected storage.");
       kind = "reference";
-    } else kind = projections?.references.has(local.id) === true ? "reference" : valueKind(deps, local.storage);
+    } else kind = projections?.references.has(local.id) === true ? "reference"
+      : projections?.absenceValues?.has(local.id) === true ? "reference-optional" : valueKind(deps, local.storage);
     const afterKind = accountFailure(account);
     if (afterKind !== null) return afterKind;
     if (kind === null && local.source !== null && (local.role.kind === "capture" ||
@@ -616,6 +617,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     }
     const node = witness.id;
     const projection = projections?.places.get(operand.place);
+    if (projection?.value === "write-only") return bodyFrontier("A write-only field place cannot supply a value operand.");
     const local = projection?.holder ?? readSlot(mir, operand.place, storageSlots);
     const present = assigned.written.has(local);
     const unavailable = !present && !absorbTaint(assigned, local);
@@ -777,6 +779,14 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const receiver = currentOrigins[projection.holder];
         const held = receiver === undefined ? undefined : arena.origins[receiver];
         if (held === undefined) return bodyFrontier("A held projection write requires its actual receiver Origins.");
+        const incoming = originsOf(statement.value.operand);
+        if (projection.value === "write-only") {
+          const work = chargeWork(account, 1);
+          if (work !== null) return work;
+          const written = arena.origins[incoming];
+          if (written?.kind !== "complete" || !written.includesAbsence || written.producers.length !== 0)
+            return bodyFrontier("A stored reference requires its actual field retention and projected Origins.");
+        }
         const observed = projectionEffects.observe("write", projection, held, boundProducers, producers);
         if (observed !== null) return observed;
         const growth = chargeResultEntries(account, 3);
@@ -786,7 +796,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           && selection.tsonic.calculation === null ? { body: statement.tir.body, node: selection.right.id } : statement.tir;
         writes.push({ point: { block: block.id, statement: position }, node: statement.tir.node,
           operation: "mutation", destination: projection.kind === "field" ? "member" : "element", targets: held.producers, owner: null,
-          values: [{ source: stored, origins: originsOf(statement.value.operand), reason: null }], boundaries: [] });
+          values: [{ source: stored, origins: incoming, reason: null }], boundaries: [] });
       } else if (buildFacts && statement.kind === "assign") {
         const value = statement.value;
         const tuple = value.kind === "aggregate" && value.aggregate.kind === "tuple";
