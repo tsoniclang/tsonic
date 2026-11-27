@@ -65,6 +65,60 @@ let structureOf;
 const readyStatement = node => ({ kind: "ready-statement", node });
 const readyChapter = root => ({ kind: "ready-root", root });
 
+test("an uncontextualized tuple spread literal verifies its actual checked product, not a same-width alternative", async () => {
+  const fixture = await loadFrontFixture();
+  const { createAccount, chargeWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { verifyArrayConstruction } = await import("../../packages/host/dist/ir-tir/verify-occurrences.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function other(pair: readonly [boolean, boolean]): boolean { return true; }
+    function take(left: boolean, right: boolean): boolean { return left && right; }
+    export function start(flag: boolean): boolean { return take(...[flag, false]); }
+  `);
+  const nativeFacts = input.snapshot.nativeFacts;
+  const configured = { ...input, snapshot: { ...input.snapshot, nativeFacts: {
+    ...nativeFacts, carrierHolding: [...nativeFacts.carrierHolding, { carrier: "tuple", holding: "in-place" }],
+  } } };
+  const checked = captureSourceBarrier(configured);
+  assert.equal(checked.kind, "ok", JSON.stringify(checked.diagnostics));
+  const typed = typeSourceBarrier(configured, checked.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const reader = typed.value.verifierOf(input.snapshot.entryPoint);
+  const [other, , start] = reader.source.tree.statements.nodes;
+  const body = reader.bodyOf({ body: start.tsonic.body, bindings: { kind: "parametric" } });
+  assert.deepEqual(verifyTir(reader, tirReadyReadAdmission(createAccount(input.limits.dataflow)))(body), { kind: "complete", violations: [] });
+  const node = body.root.statements.nodes[0].expression.arguments.nodes[0].expression;
+  assert.equal(node.kind, "ArrayLiteralExpression");
+  const original = reader.nodeOf({ kind: "body", value: { body: body.body, node: node.id } });
+  const views = original.tsonic.value.views;
+  assert.deepEqual(views.contextual, { kind: "available", value: null });
+  assert.deepEqual(views.read, { kind: "available", value: node.tsonic.type });
+  const otherType = other.parameters.nodes[0].tsonic.declaredType.value;
+  const actual = reader.types.terms[node.tsonic.type];
+  const alternative = reader.types.terms[otherType];
+  assert.equal(actual.kind, "tuple");
+  assert.deepEqual(alternative, { ...actual, readonly: true });
+  assert.equal(actual.readonly, false);
+  const { decision } = node.tsonic.construction;
+  const offered = { ...node, tsonic: { ...node.tsonic, type: otherType, construction: {
+    kind: "decided", decision: { ...decision, decision: { ...decision.decision, result: otherType } },
+  } } };
+  const violations = [];
+  assert.equal(verifyArrayConstruction(offered, original, body.body, reader.types, reader.selectedNativeFacts,
+    tirReadyReadAdmission(createAccount(input.limits.dataflow)), (rule, at) => violations.push([rule, at.id])), null);
+  assert.deepEqual(violations, [["operation-type", node.id]]);
+
+  const unready = { ...original, get tsonic() { assert.fail("checked literal read after refusal"); } };
+  const account = createAccount({ maximumWork: 0, maximumResultEntries: 1 });
+  const stop = chargeWork(account, 1);
+  assert.notEqual(stop, null);
+  assert.equal(verifyArrayConstruction(node, unready, body.body, reader.types, reader.selectedNativeFacts,
+    tirReadyReadAdmission(account), () => assert.fail("reported after refusal")) === stop, true);
+});
+
 test("TIR verifies interface header type bindings independently of the candidate's valid type table", async () => {
   const fixture = await loadFrontFixture();
   const { createAccount, chargeWork } = await import("../../packages/host/dist/dataflow/index.js");
