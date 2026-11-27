@@ -156,16 +156,15 @@ test("memberTypeOf reads only the requested declared structural member, without 
 
 test("memberTypeOf does not guess an inference result, unretained association, or missing original error cause", async () => {
   const fixture = await loadFrontFixture();
-  const actual = fixture.checkedModuleOf("export type Box={flag:boolean;get enabled():boolean;};");
+  const actual = fixture.checkedModuleOf("export type Box={flag:boolean;};");
   const alias = actual.checked.tree.statements.nodes[0];
   const receiver = alias.type.tsonic.type.value;
   const shape = types.readType(actual.interner, receiver);
   const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
   const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeWork: fixtureTypeWork(types), typeExpansion: expansion };
   const flag = shape.members.findIndex(member => member.key.value === "flag");
-  const getter = shape.members.findIndex(member => member.key.value === "enabled");
   const declaration = nodes.find(node => node.kind === "PropertySignature");
-  assert.equal(flag >= 0 && getter >= 0 && declaration !== undefined, true);
+  assert.equal(flag >= 0 && declaration !== undefined, true);
   const answerFor = member => {
     const source = insertFixtureType(types, actual.interner, { ...shape,
       members: shape.members.map((row, index) => index === flag ? { ...row, ...member } : row) });
@@ -174,7 +173,6 @@ test("memberTypeOf does not guess an inference result, unretained association, o
   const inferredReceiver = { ...deps, modules: [{ module: actual.checked, nodes: nodes.map(node =>
     node === declaration ? { ...node, type: null } : node) }] };
   assert.throws(() => declarations.memberTypeOf(inferredReceiver, { receiver, member: flag, access: "read" }), /declaration or inferred part/);
-  assert.throws(() => declarations.memberTypeOf(deps, { receiver, member: getter, access: "read" }), /type producer for this member kind/);
   assert.throws(() => answerFor({ origins: [] }), /type producer for this member kind/);
   assert.throws(() => answerFor({ origins: [{ kind: "mapped", owner: source, key: { kind: "text", value: "flag" } }] }),
     /type producer for this member origin/);
@@ -370,6 +368,78 @@ test("membersOf projects real checked accessor origins and construct endpoints w
   const constructor = nodes.find(node => node.kind === "ConstructSignature");
   assert.equal(constructor !== undefined, true);
   assert.deepEqual(inventory.constructors[0], { signature: inventory.constructs[0], declaration: constructor.tsonic.definition, body: null });
+});
+
+test("memberTypeOf opens exactly the original checked getter and setter arms", async () => {
+  const fixture = await loadFrontFixture();
+  const actual = fixture.checkedModuleOf(`export type Fields = {
+    get flag(): boolean; set flag(value: boolean | null);
+    get readable(): boolean;
+    set writable(value: boolean | null);
+  };`);
+  const [alias] = actual.checked.tree.statements.nodes;
+  const receiver = alias.type.tsonic.type.value;
+  const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner,
+    typeWork: fixtureTypeWork(types), typeExpansion: expansion };
+  const inventory = answer(deps, receiver);
+  const member = inventory.members.findIndex(row => row.key.value === "flag");
+  const row = types.readType(actual.interner, receiver).members[member];
+  const [getterOrigin] = inventory.members[member].readOrigins;
+  const [setterOrigin] = inventory.members[member].writeOrigins;
+  const getter = nodes.find(node => node.kind === "GetAccessor" && node.tsonic.definition === getterOrigin.declaration);
+  const setter = nodes.find(node => node.kind === "SetAccessor" && node.tsonic.definition === setterOrigin.declaration);
+  const read = types.readSignature(actual.interner, getter.tsonic.signatures[0].signature).result;
+  const write = types.readSignature(actual.interner, setter.tsonic.signatures[0].signature).parameters[0].type;
+  assert.notEqual(read, write);
+  const reads = [];
+  let retainedRead = read;
+  Object.defineProperties(row, {
+    read: { get() { reads.push("read"); return retainedRead; } },
+    write: { get() { reads.push("write"); return write; } },
+  });
+  const request = { receiver, member, access: "read-write" };
+  for (const [access, expected] of [["read", { read }], ["write", { write }], ["read-write", { read, write }]]) {
+    reads.length = 0;
+    const value = declarations.memberTypeOf(deps, { ...request, access }).value;
+    assert.equal(value.kind, "ok");
+    assert.deepEqual(value.value, { access, ...expected });
+    assert.deepEqual(reads, Object.keys(expected), "only the selected fields are read in order");
+  }
+  for (const [name, expected] of [["readable", { read, write: null }], ["writable", { read: null, write }]]) {
+    const ordinal = inventory.members.findIndex(row => row.key.value === name);
+    const value = declarations.memberTypeOf(deps, { ...request, member: ordinal }).value;
+    assert.deepEqual(value.value, { access: "read-write", ...expected });
+  }
+  const readCost = 1 + getterOrigin.declaration.length;
+  const writeCost = 1 + setterOrigin.declaration.length;
+  for (const [maximumWork, reached, expectedOrigin] of [[readCost - 1, [], getter.origin],
+    [readCost + writeCost - 1, ["read"], setter.origin], [readCost + writeCost, ["read", "write"], null]]) {
+    reads.length = 0;
+    const typeWork = types.createTypePublicationWork({ maximumWork, maximumCreatedRecords: 0 });
+    const limited = { ...deps, typeWork };
+    const value = declarations.memberTypeOf(limited, request).value;
+    assert.deepEqual(reads, reached);
+    if (expectedOrigin === null) assert.equal(value.kind, "ok");
+    else {
+      assert.strictEqual(value, types.typePublicationRefusalOf(typeWork));
+      assert.equal(value.kind, "refused");
+      assert.deepEqual(value.diagnostics[0].site, { kind: "source", origin: expectedOrigin });
+      const unopened = new Proxy({}, { get() { assert.fail("A previous resource stop does not reopen any accessor arm."); } });
+      assert.strictEqual(declarations.memberTypeOf(limited, unopened).value, value);
+    }
+  }
+  Object.defineProperty(row, "readOrigins", { value: [setterOrigin] });
+  assert.throws(() => declarations.memberTypeOf(deps, { ...request, access: "read" }), /declaration of its requested arm/);
+  Object.defineProperty(row, "readOrigins", { value: [{ kind: "intrinsic", symbol: "unqualified" }] });
+  assert.throws(() => declarations.memberTypeOf(deps, { ...request, access: "read" }), /actual declared origin/);
+  Object.defineProperty(row, "readOrigins", { value: [getterOrigin] });
+  for (const type of [null, insertFixtureType(types, actual.interner, { kind: "error" })]) {
+    retainedRead = type;
+    reads.length = 0;
+    assert.throws(() => declarations.memberTypeOf(deps, request), /declared accessor arm requires its actual checked type/);
+    assert.deepEqual(reads, ["read"]);
+  }
 });
 
 test("membersOf consumes construct correspondence metadata but never a constructor parameter or result type", () => {

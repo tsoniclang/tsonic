@@ -1,9 +1,9 @@
 import type { Result, UnitRequest, UnitResult } from "../diag/contract.js";
 import type { DefId, SigId, TyId } from "../ids/contract.js";
 import { admitTypePublicationStep, compareIndexSignatures, internType, memberTypeRequestData, readSignature, readType, refuseTypeConstruction,
-  substitute, substituteSignature } from "../ir-types/index.js";
+  substitute, substituteSignature, typePublicationRefusalOf } from "../ir-types/index.js";
 import type { AccessorCorrespondence, BindingVector, ConstructorCorrespondence, InterfaceDescriptionInventory, InterfaceDescriptionRecipe,
-  MemberInventory, MemberTypeAccess, MemberTypes, MemberUnavailableReason, TypeBinding, TypeTerm } from "../ir-types/contract.js";
+  Member, MemberInventory, MemberInventoryEntry, MemberTypeAccess, MemberTypes, MemberUnavailableReason, TypeBinding, TypeTerm } from "../ir-types/contract.js";
 import type { HirNode } from "../ir-hir/contract.js";
 import type { DeclsDeps, MembersOf, MemberTypeOf } from "./contract.js";
 import { findAscending, finishTypeTransform, moduleOf } from "./signatures.js";
@@ -88,6 +88,33 @@ function declarationNode(deps: DeclsDeps, declaration: DefId, unit: UnitRequest)
   if (entry === undefined || node === undefined || node.id !== entry.node)
     throw new TypeError("decls: a member correspondence requires its actual checked declaration");
   return node;
+}
+
+function accessorValue(deps: DeclsDeps, member: Member, role: "read" | "write", unit: UnitRequest): Result<TyId | null> {
+  const origins = role === "read" ? member.readOrigins : member.writeOrigins;
+  if (origins.length === 0) return ready(null);
+  for (let position = 0; position < origins.length; position += 1) {
+    const origin = origins[position];
+    if (origin?.kind !== "declared")
+      throw new TypeError("decls: an accessor value requires its actual declared origin");
+    const declaration = declarationNode(deps, origin.declaration, unit);
+    const stop = admitTypePublicationStep(deps.typeWork, 1 + origin.declaration.length);
+    if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, declaration.origin, unit);
+    if (declaration.kind !== (role === "read" ? "GetAccessor" : "SetAccessor"))
+      throw new TypeError("decls: an accessor value requires the declaration of its requested arm");
+  }
+  const type = role === "read" ? member.read : member.write;
+  if (type === null || readType(deps.types, type).kind === "error")
+    throw new TypeError("decls: a declared accessor arm requires its actual checked type");
+  return ready(type);
+}
+
+function accessorTypes(deps: DeclsDeps, member: Member, access: MemberTypeAccess, unit: UnitRequest): Result<MemberTypes> {
+  const read = access === "write" ? ready(null) : accessorValue(deps, member, "read", unit);
+  if (read.kind === "refused") return read;
+  const write = access === "read" ? ready(null) : accessorValue(deps, member, "write", unit);
+  if (write.kind === "refused") return write;
+  return ready(selectMemberTypes(access, role => role === "read" ? read.value : write.value));
 }
 
 function constructorOf(deps: DeclsDeps, identity: SigId, unit: UnitRequest): ConstructorCorrespondence {
@@ -177,7 +204,22 @@ export const membersOf: MembersOf = (deps, receiver) => {
     diagnostics: [], emissions: [] } };
 };
 
+function memberAt<Value>(members: readonly Value[], ordinal: number): Value {
+  if (!Number.isSafeInteger(ordinal) || ordinal < 0 || Object.is(ordinal, -0) || ordinal >= members.length)
+    throw new TypeError("decls: memberTypeOf requires an actual member of the receiver inventory");
+  const member = members[ordinal];
+  if (member === undefined) throw new TypeError("decls: the requested member is missing from its canonical inventory");
+  return member;
+}
+
+function requireProperty(member: MemberInventoryEntry): void {
+  if (member.kind !== "property" || member.origins.length === 0)
+    throw new TypeError("decls: memberTypeOf requires the retained type producer for this member kind");
+}
+
 export const memberTypeOf: MemberTypeOf = (deps, request) => {
+  const prior = typePublicationRefusalOf(deps.typeWork);
+  if (prior?.kind === "refused") return settle(prior);
   const unit: UnitRequest = { query: "memberTypeOf", key: memberTypeRequestData(request) };
   const receiver = readType(deps.types, request.receiver);
   if (receiver.kind === "merged-interface") {
@@ -190,14 +232,9 @@ export const memberTypeOf: MemberTypeOf = (deps, request) => {
   }
   if (receiver.kind !== "shape" && receiver.kind !== "source-environment")
     throw new TypeError("decls: memberTypeOf requires an actual retained typed member inventory");
-  const ordinal = request.member;
-  if (!Number.isSafeInteger(ordinal) || ordinal < 0 || Object.is(ordinal, -0) || ordinal >= receiver.members.length)
-    throw new TypeError("decls: memberTypeOf requires an actual member of the receiver inventory");
-  const member = receiver.members[ordinal];
-  if (member === undefined) throw new TypeError("decls: the requested member is missing from its canonical inventory");
-  if (member.kind !== "property" || member.origins.length === 0)
-    throw new TypeError("decls: memberTypeOf requires the retained type producer for this member kind");
   if (receiver.kind === "source-environment") {
+    const member = memberAt(receiver.members, request.member);
+    requireProperty(member);
     return settle(ready(selectMemberTypes(request.access, role => {
       if (role === "write" && member.readonly) return null;
       const origins = role === "read" ? member.readOrigins : member.writeOrigins;
@@ -215,6 +252,9 @@ export const memberTypeOf: MemberTypeOf = (deps, request) => {
       return type;
     })));
   }
+  const member = memberAt(receiver.members, request.member);
+  if (member.kind === "accessor") return settle(accessorTypes(deps, member, request.access, unit));
+  requireProperty(member);
   for (const origin of member.origins) {
     if (origin.kind !== "declared")
       throw new TypeError("decls: memberTypeOf requires the retained type producer for this member origin");
