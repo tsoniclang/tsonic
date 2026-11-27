@@ -768,6 +768,10 @@ test("the standalone TIR wire preserves actual unopened declarations and supplie
       assert.equal(crossed.kind, "invalid-text");
       assert.equal(crossed.offset, offset);
     }
+    const checkedRef = /^c:\d+/u.exec(text.slice(checkedOffset))[0];
+    const absentChecked = "c:1000000";
+    const missing = text.slice(0, checkedOffset) + absentChecked + text.slice(checkedOffset + checkedRef.length);
+    assertInvalidText(missing, checkedOffset, ["declared syntax node"], "c");
     if (output.value.root.kind === "SourceFile") {
       const slot = output.value.root.statements.nodes.find(row => row.node.name?.text === "latent");
       assert.equal(slot.kind, "checked-declaration");
@@ -6621,6 +6625,29 @@ const invalidTextAt = (text, offset, expected, found) => {
   const prefix = text.slice(0, offset).split("\n");
   return { kind: "invalid-text", offset, line: prefix.length, column: prefix[prefix.length - 1].length + 1, expected, found };
 };
+const checkedSectionOffset = completeEmptyWire.indexOf("CheckedDeclarations(");
+const typedSectionOffset = completeEmptyWire.indexOf("TypedDeclarations(");
+const typedOpeningOffset = typedSectionOffset + "TypedDeclarations".length;
+const typedClosingOffset = completeEmptyWire.lastIndexOf(")");
+const typedOrdinalOffset = completeEmptyWire.indexOf("\nn:0=") + "\nn:".length;
+const editWire = (offset, remove, insert) => completeEmptyWire.slice(0, offset) + insert + completeEmptyWire.slice(offset + remove);
+for (const [name, text, offset, expected, found] of [
+  ["newline before Checked", editWire(checkedSectionOffset - 1, 1, " "), checkedSectionOffset, ["newline"], "CheckedDeclarations"],
+  ["Checked section name", editWire(checkedSectionOffset, "CheckedDeclarations".length, "X"), checkedSectionOffset,
+    ["CheckedDeclarations"], "X"],
+  ["newline before Typed", editWire(typedSectionOffset - 1, 1, " "), typedSectionOffset, ["newline"], "TypedDeclarations"],
+  ["Typed section name", editWire(typedSectionOffset, "TypedDeclarations".length, "Other"), typedSectionOffset, ["TypedDeclarations"], "Other"],
+  ["Typed opening", editWire(typedOpeningOffset, 1, "["), typedOpeningOffset, ["("], "["],
+  ["Typed closing", completeEmptyWire.slice(0, typedClosingOffset), typedClosingOffset, [")"], null],
+  ["invalid Typed ordinal", editWire(typedOrdinalOffset, 1, "@"), typedOrdinalOffset, ["record", "string", "number", "["], "@"],
+  ["invalid text after Typed closing", editWire(typedClosingOffset + 1, 0, "@"), typedClosingOffset + 1,
+    ["record", "string", "number", "["], "@"],
+  ["extra value after Typed closing", editWire(typedClosingOffset + 1, 0, " n"), typedClosingOffset + 2, ["end of text"], "n"],
+]) {
+  test(`TIR phase framing rejects ${name} at the actual token`, () => {
+    assertCompleteValue(product.parseTir(text), invalidTextAt(text, offset, expected, found));
+  });
+}
 const blockDeclarationWire = (id, children) => `n:${id}=Block(${syntaxHeaderWire(id, id === 0 ? null : id - 1)}, ` +
   `statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[${children.map(child => `n:${child}`).join(", ")}]), ` +
   "multiLine=false, tsonic=null)\n";
