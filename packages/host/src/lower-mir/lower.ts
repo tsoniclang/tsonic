@@ -12,9 +12,10 @@ import type { CheckFailure } from "../ir-types/contract.js";
 import { isNativeIntegerPrimitive } from "../ir-types/index.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { CheckedWrite, ControlScope, Discard, Evaluated, FieldReceiver, Lowering, Work } from "./model.js";
-import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf, workNode } from "./model.js";
+import { callerDefect, checkDemand, executingValue, failure, localFromSource, notLoweredYet, siteOf, workNode } from "./model.js";
 import { held, holdReceiver, observePendingRead, popOperand, pushOperand, readPlace, saveBeforeControl, saveBeforeStore, saveRead, temporary } from "./operands.js";
-import { breaks, continues, endCleanup, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endHandler, endLabel, endProtected, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterProtected, enterShortCircuit, enterSwitch, enterWhile, finishSwitchTest, loopCondition, nextFor, nextSwitchClause } from "./control.js";
+import { breaks, continues, endCleanup, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endHandler, endLabel, endProtected, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterProtected, enterShortCircuit, enterSwitch, enterWhile, finishCondition, finishSwitchTest, loopCondition, nextFor, nextSwitchClause, scheduleCondition } from "./control.js";
+import { conditionStep, shortCircuitSelection } from "./condition.js";
 import { argumentPlace, enterCall, finishCall, finishCallSpread } from "./calls.js";
 import { beginLocalScope, declareLocal, declarations, endLocalScope, enterLocalBlock, finishPatternValue, initializeAbsence, initializeLocal, leaveProtectedScopes, nextDeclaration, prepareFunctionLocals, unwindToHandler } from "./bindings.js";
 import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, placeOfStatic, terminate } from "./state.js";
@@ -156,6 +157,9 @@ function walk(lowering: Lowering): boolean {
     const done = next.kind === "module" ? moduleStatement(lowering, next)
       : next.kind === "statement" ? statement(lowering, next.node)
       : next.kind === "expression" ? expression(lowering, next.node)
+      : next.kind === "condition-branch" || next.kind === "condition-leaf" || next.kind === "condition-right"
+        || next.kind === "condition-restore" ? conditionStep(lowering, next)
+      : next.kind === "condition-finish" ? finishCondition(lowering, next)
         : next.kind === "conditional" ? enterConditional(lowering, next.node)
           : next.kind === "short-circuit" ? enterShortCircuit(lowering, next.node, null)
             : next.kind === "short-circuit-end" ? endShortCircuit(lowering, next)
@@ -296,9 +300,7 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
       if (initializer !== null) lowering.work.push({ kind: "discard", node, read: null }, { kind: "expression", node: initializer });
       return true;
     }
-    case "IfStatement":
-      lowering.work.push({ kind: "if", node }, { kind: "expression", node: node.expression });
-      return true;
+    case "IfStatement": return scheduleCondition(lowering, node.expression, { kind: "if", node });
     case "SwitchStatement":
       lowering.work.push({ kind: "switch", node }, { kind: "expression", node: node.expression });
       return true;
@@ -334,12 +336,6 @@ function value(lowering: Lowering, payload: TypedValue, node: NodeHeader): void 
   }
   if (payload.narrowing !== null && payload.narrowing.kind === "narrowed") lowering.work.push({ kind: "narrow", node, narrowing: payload.narrowing });
   checkDemand(lowering, payload, node);
-}
-
-function checkDemand(lowering: Lowering, payload: TypedValue, node: NodeHeader): void {
-  if (payload.demand.kind !== "always" && (payload.demand.kind === "never"
-    || lowering.selections.get(payload.demand.control) !== payload.demand.when))
-    return notLoweredYet("a value demanded under a selection", node.origin);
 }
 
 function enumOperand(lowering: Lowering, node: NodeHeader, payload: TypedValue, resolution: TirEnumResolution): boolean {
@@ -421,8 +417,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
         || selection.whenTrue !== node.whenTrue.id || selection.whenFalse !== node.whenFalse.id)
         return callerDefect("a conditional selection differs from its actual operands", node.origin);
       value(lowering, node.tsonic, node);
-      lowering.work.push({ kind: "conditional", node }, { kind: "expression", node: node.condition });
-      return true;
+      return scheduleCondition(lowering, node.condition, { kind: "conditional", node });
     }
     case "ThisKeyword": {
       const payload = node.tsonic;
@@ -553,10 +548,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       const payload = node.tsonic;
       if (payload.role === "assignment") return assignment(lowering, node, payload);
       if (payload.role === "short-circuit") {
-        const selected = payload.selection;
-        const expected = shortCircuitOperatorOf(node.operatorToken.kind, "short-circuit");
-        if (selected.kind === "conditional" || selected.kind !== expected || selected.control !== node.left.id || selected.right !== node.right.id)
-          return callerDefect("a short-circuit selection differs from its actual operands", node.origin);
+        shortCircuitSelection(node);
         value(lowering, payload, node);
         lowering.work.push({ kind: "short-circuit", node }, { kind: "expression", node: node.left });
         return true;

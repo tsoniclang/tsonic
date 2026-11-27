@@ -40,7 +40,7 @@ export function executingValue(value: TypedValueOccurrence, origin: Origin): Typ
 }
 
 export interface DiscardRead {
-  readonly block: BlockId;
+  readonly before: BlockId | ReadAnchor;
   readonly site: MirSite;
   readonly storage: TyId;
   place: PlaceId | null;
@@ -55,6 +55,17 @@ export interface Discard {
 export type ConditionalDestination =
   | { readonly kind: "value"; readonly place: PlaceId }
   | Discard;
+
+export interface ConditionTarget {
+  readonly node: NodeHeader;
+  block: BlockId | null;
+}
+
+export interface ConditionBranches {
+  readonly whenTrue: ConditionTarget;
+  readonly whenFalse: ConditionTarget;
+  readonly resultAnchor: ReadAnchor | null;
+}
 
 export interface SwitchDispatch {
   readonly node: SwitchStatement<TypedPhase>;
@@ -84,7 +95,6 @@ export type Work =
   | { readonly kind: "module"; readonly node: TirModuleRoot; readonly position: number }
   | { readonly kind: "statement"; readonly node: Statement<TypedPhase> }
   | { readonly kind: "expression"; readonly node: Expression<TypedPhase> }
-  | { readonly kind: "conditional"; readonly node: ConditionalExpression<TypedPhase> }
   | { readonly kind: "short-circuit"; readonly node: BinaryExpression<TypedPhase> }
   | { readonly kind: "short-circuit-end"; readonly node: BinaryExpression<TypedPhase>; readonly exit: BlockId;
       readonly result: { readonly place: PlaceId; readonly guard: { readonly block: BlockId; readonly value: Evaluated } | null } | null }
@@ -115,13 +125,11 @@ export type Work =
   | { readonly kind: "narrow"; readonly node: NodeHeader; readonly narrowing: Extract<NonNullable<TypedValue["narrowing"]>, { readonly kind: "narrowed" }> }
   | { readonly kind: "label-end"; readonly node: LabeledStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "label" }> }
   | { readonly kind: "for"; readonly node: ForStatement<TypedPhase>; readonly headerScope: LocalScope | null }
-  | { readonly kind: "for-condition"; readonly node: ForStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "for-end"; readonly node: ForStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "for-next"; readonly node: ForStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | Discard
   | { readonly kind: "store"; readonly node: NodeHeader; readonly local: LocalId | null; readonly place: PlaceId; readonly result: "old" | "new";
       readonly checked: CheckedWrite | null; readonly storageRoot: PlaceId }
-  | { readonly kind: "if"; readonly node: IfStatement<TypedPhase> }
   | { readonly kind: "switch"; readonly node: SwitchStatement<TypedPhase> }
   | ({ readonly kind: "switch-test"; readonly dispatch: SwitchDispatch; readonly subject: Evaluated; readonly fallback: SwitchTarget<DefaultClause<TypedPhase>> | null } & SwitchTarget<CaseClause<TypedPhase>>)
   | ({ readonly kind: "switch-clause"; readonly position: number } & SwitchDispatch)
@@ -130,18 +138,55 @@ export type Work =
   | { readonly kind: "protected-end"; readonly scope: ProtectedScope }
   | { readonly kind: "handler-end"; readonly scope: ProtectedScope }
   | { readonly kind: "cleanup-end"; readonly scope: ProtectedScope; readonly entry: BlockId }
-  | { readonly kind: "while-condition"; readonly node: WhileStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "while-end"; readonly node: WhileStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
   | { readonly kind: "do-end"; readonly node: DoStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined; readonly condition: NonNullable<LoopContinuation["update"]> }
-  | { readonly kind: "do-condition"; readonly node: DoStatement<TypedPhase>; readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined }
+  | ConditionConsumer
+  | ConditionStep
+  | ConditionFinish
   | { readonly kind: "complete"; readonly node: ReturnStatement<TypedPhase> | ThrowStatement<TypedPhase> | Expression<TypedPhase>;
       readonly result: "value" | "void" };
+
+type LoopConditionScope = { readonly scope: Extract<ControlScope, { readonly kind: "loop" }>; readonly previous: ControlScope | undefined };
+
+export type ConditionConsumer =
+  | { readonly kind: "conditional"; readonly node: ConditionalExpression<TypedPhase> }
+  | { readonly kind: "if"; readonly node: IfStatement<TypedPhase> }
+  | ({ readonly kind: "for-condition"; readonly node: ForStatement<TypedPhase> } & LoopConditionScope)
+  | ({ readonly kind: "while-condition"; readonly node: WhileStatement<TypedPhase> } & LoopConditionScope)
+  | ({ readonly kind: "do-condition"; readonly node: DoStatement<TypedPhase> } & LoopConditionScope);
+
+interface ConditionBranchInput {
+  readonly node: Expression<TypedPhase>;
+  readonly whenTrue: ConditionTarget;
+  readonly whenFalse: ConditionTarget;
+}
+
+export type ConditionStep =
+  | (ConditionBranchInput & { readonly kind: "condition-branch" })
+  | (ConditionBranchInput & { readonly kind: "condition-leaf" })
+  | { readonly kind: "condition-right"; readonly node: BinaryExpression<TypedPhase>; readonly reaches: ConditionTarget | null;
+      readonly selected: "true" | "false"; readonly branch: ConditionBranchInput & { readonly kind: "condition-branch" } }
+  | { readonly kind: "condition-restore"; readonly node: NodeHeader;
+      readonly previous: Extract<TirDemand, { readonly kind: "selected" }>["when"] | undefined };
+
+export interface ConditionFinish {
+  readonly kind: "condition-finish";
+  readonly node: NodeHeader;
+  readonly consumer: ConditionConsumer;
+  readonly branches: ConditionBranches;
+}
 
 export function workNode(work: Work): NodeHeader {
   switch (work.kind) {
     case "protected-end": case "handler-end": case "cleanup-end": return work.scope.node;
     default: return work.node;
   }
+}
+
+export function checkDemand(lowering: Lowering, payload: TypedValue, node: NodeHeader): void {
+  if (payload.demand.kind !== "always" && (payload.demand.kind === "never"
+    || lowering.selections.get(payload.demand.control) !== payload.demand.when))
+    return notLoweredYet("a value demanded under a selection", node.origin);
 }
 
 type PlaceOperand = Extract<MirOperand, { readonly kind: "place" }>;

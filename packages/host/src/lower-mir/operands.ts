@@ -100,7 +100,7 @@ export function observePendingRead(lowering: Lowering, value: Evaluated, shared:
   if (!value.pendingRead) return true;
   let saved: PlaceId | null;
   if (shared === null || shared.storage !== value.storage) saved = temporary(lowering, value.storage, value.site);
-  else saved = shared.place ??= temporary(lowering, shared.storage, shared.site, shared.block);
+  else saved = shared.place ??= temporary(lowering, shared.storage, shared.site, shared.before);
   return saved !== null && copyRead(lowering, value.operand, saved, value.site);
 }
 

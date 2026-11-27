@@ -6365,6 +6365,100 @@ test("unannotated integral initializers select native int64 before materializing
 test("WT-10 retains the counted range, exact call invalidation and both kinds of explicit checks", checkNativeRefinementWalkthrough);
 test("WT-10 distinguishes sibling and guarded writes through a placed capture", checkCapturedFieldRefinement);
 
+test("WT-10 follows actual native && and || edges without removing explicit field checks", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    type Box = { flag: boolean | undefined };
+    function pure(): boolean { return true; }
+    function clear(box: Box): boolean { box.flag = undefined; return true; }
+    export function branch(box: Box, choice: boolean): boolean {
+      if (box.flag !== undefined && (choice || pure())) return box.flag;
+      return false;
+    }
+    export function exclusion(box: Box, choice: boolean): boolean {
+      if (box.flag === undefined || choice) return false;
+      return box.flag;
+    }
+    export function mutation(box: Box): boolean {
+      if (box.flag !== undefined && clear(box)) return box.flag;
+      return false;
+    }
+    export function conditional(box: Box, choice: boolean): boolean {
+      return box.flag !== undefined && choice ? box.flag : choice;
+    }
+    export function whileLoop(box: Box, choice: boolean): boolean {
+      while (box.flag !== undefined && choice) { return box.flag; }
+      return false;
+    }
+    export function forLoop(box: Box, choice: boolean): boolean {
+      for (; box.flag !== undefined && choice;) { return box.flag; }
+      return false;
+    }
+  `);
+  const output = analyzeHostProgram(input);
+  assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
+  const chapter = output.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  for (const name of ["branch", "exclusion", "mutation", "conditional", "whileLoop", "forLoop"]) {
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(`;${name}];function;0]`));
+    const checks = body.mir.blocks.map(block => block.terminator).filter(term => term.kind === "check"
+      && body.mir.places[term.place].base.projection.kind === "refined");
+    assert.equal(checks.length, 1, name);
+    const [check] = checks;
+    const facts = body.facts.find(row => row.execution.provided === body.tir.params.length);
+    const [statement] = body.tir.root.statements.nodes;
+    const logic = statement.kind === "ForStatement" ? statement.condition
+      : statement.kind === "ReturnStatement" ? statement.expression.condition : statement.expression;
+    const guard = logic.left;
+    const branch = body.mir.blocks.find(block => block.terminator.tir.node === guard.id && block.terminator.kind === "switch");
+    assert.equal(branch?.statements.at(-1)?.tir.node, guard.id, name);
+    const clear = name === "mutation" ? body.mir.blocks.find(block => block.terminator.kind === "call")?.terminator : null;
+    assert.deepEqual(facts.refinements.refinements.filter(row => row.node === check.tir.node),
+      [clear === null ? { kind: "proven", node: check.tir.node, guards: [guard.id] }
+        : { kind: "unproven", node: check.tir.node, guards: [guard.id],
+          reason: { kind: "invalidated", sites: [{ kind: "call", at: clear.tir }] } }], name);
+  }
+});
+
+test("direct native Boolean branches keep selected effects and do-loop continuation", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export function branch(left: boolean, right: boolean, observed: boolean, next: boolean): boolean {
+      if (left && (right || (observed = next))) {}
+      return observed;
+    }
+    export function repeat(left: boolean, right: boolean, keep: boolean, result: boolean): boolean {
+      do {
+        result = keep;
+        keep = false;
+        if (result) continue;
+      } while (left && (right && result));
+      return result;
+    }
+  `);
+  const output = analyzeHostProgram(input);
+  assert.equal(output.kind, "ok", JSON.stringify(output.diagnostics));
+  const { index: { types }, modules } = output.value;
+  const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+  const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
+    selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
+  for (const [name, expected] of [["branch", (left, right) => left && !right],
+    ["repeat", (left, right) => !(left && right)]]) {
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(`;${name}];function;0]`));
+    const value = choice => ({ kind: "boolean", type: body.tir.completion, value: choice });
+    for (const left of [false, true]) for (const right of [false, true]) {
+      const args = name === "branch" ? [left, right, false, true] : [left, right, true, false];
+      const run = evaluate(deps, body.instance, body.mir, args.map(value), "compile-time",
+        { query: "constValue", key: [body.instance, "compile-time"] });
+      assert.equal(run.kind, "done", name);
+      assert.equal(run.value.kind, "ok", name);
+      assert.deepEqual(run.value.value, { kind: "value", value: value(expected(left, right)) }, name);
+    }
+  }
+});
+
 test("the actual selected compound writes infer one exact native storage carrier before literal defaulting", async () => {
   const fixture = await loadFrontFixture();
   const { nativeInt32Input } = await import("./fixtures/native-int32-input.mjs");

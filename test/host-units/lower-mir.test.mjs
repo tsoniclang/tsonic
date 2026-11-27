@@ -1580,6 +1580,43 @@ test("native boolean and/or and optional absence select exactly their authored s
   }
 });
 
+test("native branch demand never materializes a joined Boolean and does not read a skipped operand", () => {
+  for (const kind of ["and", "or"]) {
+    const onTrue = kind === "and";
+    for (const disposition of ["dynamic", "left", "right"]) {
+      const usesRight = disposition !== "left";
+      const program = shaped(`logical.branch.${kind}.${disposition}`,
+        [["left", "required", T.bool], ["right", "required", T.bool]], T.bool, b => b.block(
+          b.ifElse(shortCircuit(b, kind, b.id("left", 0, T.bool), b.id("right", 1, T.bool), T.bool, disposition),
+            { $: "true", ...b.returns(b.keyword("TrueKeyword", T.bool)) }),
+          { $: "false", ...b.returns(b.keyword("FalseKeyword", T.bool)) }));
+      const condition = program.tir.root.statements.nodes[0].expression;
+      const right = Object.getOwnPropertyDescriptor(condition.right, "tsonic");
+      if (!usesRight) Object.defineProperty(condition.right, "tsonic",
+        { configurable: true, get() { assert.fail("an unselected native branch operand was opened"); } });
+      let mir;
+      try {
+        const output = produced(deps, program.tir, []);
+        assert.equal(output.kind, "ok");
+        mir = output.value;
+      } finally {
+        if (!usesRight) Object.defineProperty(condition.right, "tsonic", right);
+      }
+      assert.deepEqual(verified(mir, program), []);
+      const branches = mir.blocks.filter(block => block.terminator.kind === "switch");
+      assert.deepEqual(branches.map(row => row.terminator.tir.node), disposition === "dynamic"
+        ? [condition.left.id, condition.right.id] : [usesRight ? condition.right.id : condition.left.id]);
+      if (disposition === "dynamic") {
+        const [left, right] = branches;
+        assert.equal(onTrue ? left.terminator.targets[0].target : left.terminator.otherwise, right.id);
+      }
+      assert.equal(mir.blocks.flatMap(block => block.statements).some(row => row.tir.node === condition.id), false);
+      assert.equal(mir.locals.filter(row => row.role.kind === "temporary").length, disposition === "right" ? 1 : 0);
+      exactLowerBudget(program, mir);
+    }
+  }
+});
+
 test("discarded short-circuit values preserve only the guard, demanded reads, and stores", () => {
   for (const kind of ["and", "or", "coalesce"]) for (const effect of ["read", "write", "conditional-write"]) {
     const storage = kind === "coalesce" ? optionalBool : T.bool;
