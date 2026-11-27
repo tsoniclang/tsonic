@@ -3445,6 +3445,80 @@ test("tuple return literals keep the checked slots separate from the actual call
   }
 });
 
+test("selected generic tuple results retain the original binder and actual contextual slot", async () => {
+  const { createTypeInterner, readSignature, readType } = await import("../../packages/host/dist/ir-types/index.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const source = `
+    function pair<T>(value: T): [T, boolean] { return [value, true]; }
+    export function flags(value: boolean): [boolean, boolean] { return pair(value); }
+    export function numbers(value: number): [number, boolean] { return pair(value); }
+  `;
+  const opened = openedModule(source);
+  const captured = captureSingleModule(front, opened.deps, opened.program, opened.module);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const [original, ...callers] = raw.tree.statements.nodes;
+  const binder = { module: raw.module, node: original.typeParameters.nodes[0].id };
+  const selections = callers.map(caller => raw.calls.find(row => row.invocation.node === caller.body.statements.nodes[0].expression.id));
+  let crossedComponent;
+  for (const [index, selection] of selections.entries()) {
+    const originalId = selection.declarationOrder.value[selection.declarationOrdinal];
+    const [candidate] = raw.types.candidates[selection.candidates].candidates;
+    const [argument, context] = candidate.inferenceContributions.value;
+    const sourceRow = raw.types.types[context.source];
+    const formalRow = raw.types.types[context.formal];
+    assert.equal(argument.origin.kind, "argument");
+    assert.deepEqual(context.origin, { kind: "contextual-result", subject: selection.invocation });
+    assert.deepEqual(context.declaration, binder);
+    assert.deepEqual(raw.types.signatures[candidate.application.signature].target, originalId);
+    assert.deepEqual(raw.types.components[sourceRow.component].root, selection.invocation);
+    assert.deepEqual(rawComponentPath(raw.types.components, raw.types.components[sourceRow.component]), [{ kind: "tuple-element", index: 0 }]);
+    assert.deepEqual(rawComponentPath(raw.types.components, raw.types.components[formalRow.component]), [
+      { kind: "result", signature: originalId }, { kind: "tuple-element", index: 0 },
+    ]);
+    assert.deepEqual(formalRow.form.value, { kind: "parameter", parameter: binder, constraint: null, default: null });
+    const scalar = index === 0 ? "boolean" : "number";
+    assert.deepEqual(sourceRow.form.value, { kind: "scalar", scalar });
+    const result = raw.types.types[selection.result].form.value;
+    assert.equal(result.kind, "tuple");
+    assert.deepEqual(result.elements.map(slot => raw.types.types[slot.type].form.value.scalar), [scalar, "boolean"]);
+    crossedComponent ??= raw.types.components[sourceRow.component];
+  }
+  const defined = identifySingleModule(front, { module: raw,
+    componentRoots: raw.types.components.map(row => row.root).filter(root => root.module === raw.module) });
+  assert.equal(defined.kind, "ok");
+  const types = createTypeInterner();
+  const lower = selected => lowerWithReadyExports(lowerDepsFor(defined.value, types, source), selected);
+  const lowered = lower(raw);
+  assert.equal(lowered.kind, "ok");
+  const checked = [...lowered.value.bodies].flatMap(body => body.candidateLists.flatMap(list => list.candidates));
+  assert.equal(checked.length, 2);
+  for (const [index, candidate] of checked.entries()) {
+    const [argument, context] = candidate.contributions;
+    const path = context.component.path;
+    assert.equal(context.parameter, argument.parameter);
+    assert.equal(context.role, "context");
+    assert.equal(context.source.value.node, selections[index].invocation.node);
+    assert.deepEqual(path.map(slot => slot.kind), ["result", "tuple-element"]);
+    assert.equal(path[1].index, 0);
+    const signature = readSignature(types, path[0].signature);
+    const tuple = readType(types, signature.result);
+    assert.deepEqual(readType(types, tuple.elements[0].type), { kind: "param", parameter: context.parameter });
+    assert.equal(readType(types, context.type.value).primitive, index === 0 ? "bool" : "float64");
+  }
+  const crossed = { ...raw, types: { ...raw.types, components: raw.types.components.map(row => row !== crossedComponent ? row
+    : { ...row, path: { ...row.path, step: { kind: "tuple-element", index: 1 } } }) } };
+  assert.throws(() => lower(crossed), { name: "TypeError",
+    message: "front: a contextual tuple contribution must retain matching ordered source and formal slots" });
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const facts = input.snapshot.nativeFacts;
+  const published = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: { ...facts,
+    carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
+  assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
+});
+
 test("a finite spread borrows the actual selected producer's written tuple result once", async () => {
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const { createTypeInterner } = await import("../../packages/host/dist/ir-types/index.js");

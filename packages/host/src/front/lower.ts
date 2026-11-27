@@ -1159,7 +1159,7 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner
         && read.causes.length !== 0 && !lowering.calls.has(node.id) ? read : null;
       if (context === "execution") {
         if (failure === null) {
-          const selected = applicationOf(lowering, node);
+          const selected = applicationOf(lowering, node, value.value.views.contextual);
           if (selected.kind !== "complete") return selected;
           application = selected.value;
         }
@@ -1269,7 +1269,8 @@ function completeExpression(lowering: Lowering, node: Hir.Expression<Syntax>, ow
   return { kind: "complete", value: undefined };
 }
 
-function applicationOf(lowering: Lowering, node: Hir.CallExpression<Syntax>): ConversionResult<Hir.HirApplication> {
+function applicationOf(lowering: Lowering, node: Hir.CallExpression<Syntax>,
+  contextual: Hir.CapturedFact<TyId | null>): ConversionResult<Hir.HirApplication> {
   const call = lowering.calls.get(node.id);
   if (call === undefined || call.kind === "untyped") return throwInvariant(invariant("A lowered call needs its actual captured selection."));
   const body = lowering.bodyOf.get(node.id);
@@ -1280,7 +1281,7 @@ function applicationOf(lowering: Lowering, node: Hir.CallExpression<Syntax>): Co
   let typeArguments: readonly TyId[];
   let resolvedSignature: Hir.HirApplication["resolvedSignature"];
   if (call.kind === "applicable") {
-    const selected = lowerCall(lowering, node, call);
+    const selected = lowerCall(lowering, node, call, contextual);
     if (selected.kind !== "complete") return selected;
     const candidate = selected.value.candidate;
     candidates = [candidate];

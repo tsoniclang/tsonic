@@ -269,13 +269,22 @@ interface LiteralTupleUse {
   readonly original: Type;
 }
 
-type ProjectedOperandUse = {
+interface AppliedTupleResult {
+  readonly kind: "projected-operand";
+  readonly role: "applied-tuple-result";
+  readonly type: Type;
+  readonly original: Type;
+}
+
+type TupleValueRead = Node | AppliedTupleResult;
+
+type ProjectedOperandUse = AppliedTupleResult | ({
   readonly kind: "projected-operand";
   readonly type: Type;
 } & (
   | { readonly role: "indexed-result" | "indexed-tuple-object" | "declared-tuple-argument" | "receiver-tuple-result" }
   | { readonly role: "tuple-element"; readonly parent: RawComponent; readonly ordinal: number }
-);
+));
 
 type ResultBindingUse = ReceiverProjectionUse | UnionResultUse | DirectResultUse;
 interface MergedSlotUse {
@@ -288,7 +297,7 @@ type TypeBindingUse = BindingUse | ResultBindingUse | CallbackInputUse | RestInp
 
 interface SignatureBindingUse {
   readonly formals: ReadonlyMap<number, FormalUse> | null;
-  readonly result: ResultBindingUse | null;
+  readonly result: ResultBindingUse | AppliedTupleResult | null;
 }
 
 type CaptureTask =
@@ -352,7 +361,7 @@ interface CaptureScope extends CaptureAdmission {
 
 interface TupleCallUse {
   readonly call: ResolvedSourceCallInfo;
-  readonly annotation: Node | null;
+  readonly read: TupleValueRead | null;
 }
 
 interface TupleAnnotation {
@@ -866,7 +875,8 @@ function tupleBindingAnnotation(scope: CaptureScope, leaf: Node, enclosing: Node
         : sourceType(scope, { kind: "annotation", node: written });
       if (receiver === undefined || receiver.causes.length !== 0) return null;
       let type = receiver.type;
-      let annotation = written ?? valueTupleAnnotation(scope, variable.Initializer, receiver) ?? undefined;
+      const read = written ?? valueTupleRead(scope, variable.Initializer, receiver);
+      let annotation = read !== null && "Kind" in read ? read : undefined;
       for (let depth = path.length - 1; depth >= 0; depth -= 1) {
         const source = tupleAnnotationOf(scope, type, annotation);
         if (source === undefined || !admit(scope, "edges")) return null;
@@ -1647,10 +1657,12 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A tuple type requires its actual captured component."));
   const nativeProjection = projection?.role === "indexed-tuple-object" || projection?.role === "declared-tuple-argument"
-    || projection?.role === "receiver-tuple-result" || projection?.role === "tuple-element";
+    || projection?.role === "receiver-tuple-result" || projection?.role === "applied-tuple-result" || projection?.role === "tuple-element";
   const prefix = parent.path?.prefix;
   if (nativeProjection && (projection.type !== type || originalUse !== null || binding !== null
     || (projection.role === "receiver-tuple-result" ? parent.path?.step.kind !== "result" || prefix !== null
+      : projection.role === "applied-tuple-result" ? parent.path !== null && (prefix !== null
+        || parent.path.step.kind !== "result" && parent.path.step.kind !== "argument-place")
       : projection.role === "indexed-tuple-object" ? parent.path?.step.kind !== "projection-source"
       : projection.role === "tuple-element" ? parent.root !== projection.parent.root
         || prefix !== (projection.parent.path === null ? null : projection.parent.id)
@@ -4012,10 +4024,10 @@ function isDeclaredTupleRead(scope: CaptureScope, node: Node | undefined, answer
     && (scope.shape.isTuple(answer.type) || scope.shape.isTypeReference(answer.type));
 }
 
-function valueTupleAnnotation(scope: CaptureScope, node: Node | undefined, answer: ResolvedSourceTypeInfo | undefined): Node | null {
+function valueTupleRead(scope: CaptureScope, node: Node | undefined, answer: ResolvedSourceTypeInfo | undefined): TupleValueRead | null {
   if (node === undefined || answer === undefined || answer.causes.length !== 0) return null;
   if (scope.shape.isTuple(answer.type)) {
-    if (scope.checked.ast.kindName(node) === "KindCallExpression") return callTupleAnnotation(scope, node, answer.type);
+    if (scope.checked.ast.kindName(node) === "KindCallExpression") return callTupleRead(scope, node, answer.type);
     const assertion = tupleAssertion(scope, node);
     if (assertion !== undefined) return tupleAnnotationOf(scope, answer.type, assertion.Type) ?? null;
   }
@@ -4025,7 +4037,7 @@ function valueTupleAnnotation(scope: CaptureScope, node: Node | undefined, answe
     ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(symbol)) : null;
 }
 
-function selectedTupleAnnotation(scope: CaptureScope, call: ResolvedSourceCallInfo): Node | null {
+function selectedTupleRead(scope: CaptureScope, call: ResolvedSourceCallInfo): TupleValueRead | null {
   if (call.kind !== "applicable" || call.optionalChain || call.selection.diagnostics.length !== 0) return null;
   const { application } = call.selection;
   const { signature, instantiatedSignature, signatureShape } = application;
@@ -4036,22 +4048,30 @@ function selectedTupleAnnotation(scope: CaptureScope, call: ResolvedSourceCallIn
   const annotation = scope.checked.ast.typeNode(declaration);
   if (annotation === undefined || tupleSyntax(scope, annotation) === undefined) return null;
   const original = sourceType(scope, { kind: "signature-return", signature });
-  if (original?.type !== call.resultType || original.causes.length !== 0 || original.typeSource === undefined
+  if (original === undefined || original.causes.length !== 0 || original.typeSource === undefined
     || original.typeSource !== annotation && original.typeSource !== unparenthesizedType(scope, annotation)) return null;
   const applied = instantiatedSignature === signature ? original : sourceType(scope, { kind: "signature-return", signature: instantiatedSignature });
-  return applied?.type === call.resultType && applied.causes.length === 0 && scope.meter.refusal === null ? annotation : null;
+  if (applied?.type !== call.resultType || applied.causes.length !== 0 || scope.meter.refusal !== null) return null;
+  if (original.type === applied.type) return annotation;
+  if (instantiatedSignature === signature || instantiatedSignature.declaration !== declaration
+    || instantiatedSignature.mapper === undefined || instantiatedSignature.composite !== undefined
+    || application.signatureTypeArguments.length === 0 || !scope.shape.isTuple(original.type)
+    || !scope.shape.isTuple(applied.type) || !admit(scope, "edges", 2)) return null;
+  const target = scope.shape.getTypeReferenceTarget(original.type);
+  return target !== undefined && target === scope.shape.getTypeReferenceTarget(applied.type) && admit(scope, "facts")
+    ? { kind: "projected-operand", role: "applied-tuple-result", type: applied.type, original: original.type } : null;
 }
 
-function callTupleAnnotation(scope: CaptureScope, node: Node, type: Type): Node | null {
+function callTupleRead(scope: CaptureScope, node: Node, type: Type): TupleValueRead | null {
   if (!admit(scope, "edges")) return null;
   const known = scope.tables.tupleCalls?.get(node);
-  if (known !== undefined) return known.call.kind === "applicable" && known.call.resultType === type ? known.annotation : null;
+  if (known !== undefined) return known.call.kind === "applicable" && known.call.resultType === type ? known.read : null;
   const call = acquireCallEvidence(scope, node);
   if (call === null) return null;
-  const annotation = selectedTupleAnnotation(scope, call);
+  const read = selectedTupleRead(scope, call);
   if (!admit(scope, "facts", scope.tables.tupleCalls === null ? 3 : 2)) return null;
-  (scope.tables.tupleCalls ??= new Map()).set(node, { call, annotation });
-  return call.kind === "applicable" && call.resultType === type ? annotation : null;
+  (scope.tables.tupleCalls ??= new Map()).set(node, { call, read });
+  return call.kind === "applicable" && call.resultType === type ? read : null;
 }
 
 function captureNumericToken(scope: CaptureScope, node: Node): RawNumericLiteral {
@@ -4633,7 +4653,7 @@ function appliedFormalUses(scope: CaptureScope, target: AppliedCallableTarget, u
 }
 
 function rawSignature(scope: CaptureScope, signature: Signature, owner: RawNodeRef, kind: "call" | "construct",
-  callable: CallableUse | null = null): RawSignatureId | null {
+  callable: CallableUse | null = null, appliedTuple: AppliedTupleResult | null = null): RawSignatureId | null {
   const target = callable === null ? undefined : appliedCallableTarget(scope, signature, callable);
   if (scope.meter.refusal !== null) return null;
   const receiver = target === undefined ? undefined : callable?.receiver;
@@ -4689,7 +4709,7 @@ function rawSignature(scope: CaptureScope, signature: Signature, owner: RawNodeR
     projections.set(fields, id);
   }
   scope.tables.pending.push({ kind: "signature", id, signature, owner, signatureKind: kind,
-    use: qualifiedUse === undefined ? null : { formals: formalUses, result } });
+    use: qualifiedUse === undefined && appliedTuple === null ? null : { formals: formalUses, result: appliedTuple ?? result } });
   return id;
 }
 
@@ -5039,7 +5059,40 @@ function contributedFormalType(scope: CaptureScope, application: SelectedCall["a
   return arms?.value === projection.member && arms.valueIndex === projection.index ? arms.value : undefined;
 }
 
-function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, invocation: RawNodeRef, original: RawSignatureId): {
+function contextualTupleContribution(scope: CaptureScope, contribution: ResolvedCallInferenceContribution,
+  caller: RawNodeRef, callee: RawNodeRef, signature: RawSignatureId, contextual: ResolvedSourceTypeInfo | undefined,
+  returned: AppliedTupleResult | null): { readonly source: RawTypeId; readonly formal: RawTypeId } | null {
+  const { sourcePath, formalPath, sourceRootType, formalRootType, typeParameter } = contribution;
+  if (returned?.original !== formalRootType || contextual?.type !== sourceRootType || contextual.causes.length !== 0
+    || sourcePath.length === 0 || sourcePath.length !== formalPath.length) return null;
+  let source: RawComponentId | null = null;
+  let formal = component(scope, callee, { kind: "result", signature });
+  let sourceType = sourceRootType;
+  let formalType = formalRootType;
+  for (let position = 0; position < sourcePath.length; position += 1) {
+    if (formal === null || !admit(scope, "edges", 4)) return null;
+    const from = sourcePath[position];
+    const to = formalPath[position];
+    if (from?.kind !== "tuple" || to?.kind !== "tuple" || from.owner !== sourceType || to.owner !== formalType
+      || from.index !== to.index || !Number.isSafeInteger(from.index) || from.index < 0 || Object.is(from.index, -0)) return null;
+    const sourceSlot = scope.shape.getTupleInfo(sourceType)?.elements[from.index];
+    const formalSlot = scope.shape.getTupleInfo(formalType)?.elements[to.index];
+    if (sourceSlot?.elementKind !== "required" || formalSlot?.elementKind !== "required") return null;
+    source = component(scope, caller, { kind: "tuple-element", index: from.index }, source);
+    if (source === null) return null;
+    formal = component(scope, callee, { kind: "tuple-element", index: to.index }, formal);
+    if (formal === null) return null;
+    sourceType = sourceSlot.type;
+    formalType = formalSlot.type;
+  }
+  if (formalType !== typeParameter) return null;
+  const from = rawType(scope, () => withoutTypeCause(sourceType), source, null);
+  const to = rawType(scope, () => withoutTypeCause(formalType), formal, null);
+  return from === null || to === null ? null : { source: from, formal: to };
+}
+
+function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, invocation: RawNodeRef, original: RawSignatureId,
+  contextual: ResolvedSourceTypeInfo | undefined, tuple: AppliedTupleResult | null): {
   readonly arguments: readonly RawTypeArgument[];
   readonly contributions: RawFact<readonly RawInferenceContribution[]>;
 } | null {
@@ -5097,6 +5150,17 @@ function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, in
         return throwInvariant(invariant("An inference contribution must retain its actual selected argument association."));
     } else if (origin.subject !== application.invocation)
       return throwInvariant(invariant("A contextual-result contribution must retain its original invocation."));
+    if (origin.kind === "contextual-result" && contribution.sourcePath.length !== 0) {
+      const declaration = requiredCallReference(scope, declared);
+      if (declaration === null) return null;
+      const projected = contextualTupleContribution(scope, contribution, invocation, declaration, original, contextual, tuple);
+      if (projected === null) {
+        if (scope.meter.refusal !== null) return null;
+        throw new TypeError("front: contextual inference requires its actual matching tuple slots");
+      }
+      contributions.push({ declaration: parameter, origin: { kind: "contextual-result", subject: invocation }, ...projected });
+      continue;
+    }
     const formalType = contributedFormalType(scope, application, contribution);
     if (formalType === undefined) {
       if (scope.meter.refusal !== null) return null;
@@ -5293,7 +5357,7 @@ function selectedFormalTupleAnnotation(scope: CaptureScope, selected: SelectedCa
   return written?.type === type && written.causes.length === 0 ? annotation : null;
 }
 
-function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): RawCallSelection | null {
+function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef, contextual: ResolvedSourceTypeInfo | undefined): RawCallSelection | null {
   if (!admit(scope, "facts") || scope.tables.tupleCalls !== null && !admit(scope, "edges")) return null;
   const tuple = scope.tables.tupleCalls?.get(node);
   const info = tuple?.call ?? acquireCallEvidence(scope, node);
@@ -5335,6 +5399,8 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
   if (info.kind !== "applicable") throw new TypeError("front: conditional or untyped call capture is not implemented");
   const selected = info.selection;
   const application = selected.application;
+  const tupleRead = tuple?.read ?? null;
+  const tupleProjection = tupleRead !== null && !("Kind" in tupleRead) ? tupleRead : null;
   if (application.invocation !== node)
     return throwInvariant(invariant("A selected call must retain its actual invocation."));
   if (info.declarationOrder.kind !== "available" || info.declarationOrder.signatures.length === 0)
@@ -5345,12 +5411,12 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     throw new TypeError("front: class-bound, receiver-bearing or composed call capture is not implemented");
   if (selected.constraints.length !== 0 || selected.diagnostics.length !== 0 || selected.diagnosticCoverage.length !== 0)
     throw new TypeError("front: call diagnostic obligations capture is not implemented");
-  const signature = rawSignature(scope, application.instantiatedSignature, invocation, application.kind);
+  const signature = rawSignature(scope, application.instantiatedSignature, invocation, application.kind, null, tupleProjection);
   if (signature === null) return null;
   const callee = referenceTo(scope, scope.program, application.callee.expression);
   if (callee === null) return scope.meter.refusal !== null ? null : throwInvariant(invariant("The selected callee has no source identity."));
   const sourceArguments: RawAuthoredArgument[] = [];
-  let tupleSources: Map<number, TupleAnnotation> | null = null;
+  let tupleSources: Map<number, { readonly type: Type; readonly read: TupleValueRead }> | null = null;
   for (let index = 0; index < selected.sourceArguments.length; index += 1) {
     if (!admit(scope, "edges")) return null;
     const argument = selected.sourceArguments[index];
@@ -5373,13 +5439,15 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     const literal = tupleLiteral === undefined || answer === undefined ? null : retainTupleLiteral(scope, operand, tupleLiteral, answer.type);
     if (scope.meter.refusal !== null) return null;
     const owned = literal === null && (spread || answer !== undefined && scope.shape.isTuple(answer.type))
-      ? valueTupleAnnotation(scope, tupleOperand ?? operand, answer) : null;
+      ? valueTupleRead(scope, tupleOperand ?? operand, answer) : null;
     if (scope.meter.refusal !== null) return null;
     if (!spread && owned !== null && answer !== undefined) {
       if (!admit(scope, "facts", tupleSources === null ? 3 : 2)) return null;
-      (tupleSources ??= new Map()).set(index, { type: answer.type, annotation: owned });
+      (tupleSources ??= new Map()).set(index, { type: answer.type, read: owned });
     }
-    enqueueRawType(scope, answer, position, owned, literal, ast.kindName(operand) === "KindNumericLiteral" ? operand : null);
+    const annotation = owned !== null && "Kind" in owned ? owned : null;
+    const result = owned !== null && !("Kind" in owned) ? owned : null;
+    enqueueRawType(scope, answer, position, annotation, literal ?? result, ast.kindName(operand) === "KindNumericLiteral" ? operand : null);
     sourceArguments.push({ occurrence, expression, kind: spread ? "spread" : "value", component: available(position) });
   }
   const bindings: RawArgumentBinding[] = [];
@@ -5408,7 +5476,9 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       && argument.effectiveArgument === argument.sourceArgument && scope.checked.ast.kindName(argument.sourceArgument) === "KindNumericLiteral"
       ? argument.sourceArgument : null;
     const tupleSource = argument.sourceForm === "value" ? tupleSources?.get(argument.sourceArgumentIndex) : undefined;
-    const sourceAnnotation = tupleSource?.type === argument.selectedArgumentType ? tupleSource.annotation : null;
+    const sourceRead = tupleSource?.type === argument.selectedArgumentType ? tupleSource.read : null;
+    const sourceAnnotation = sourceRead !== null && "Kind" in sourceRead ? sourceRead : null;
+    const sourceResult = sourceRead !== null && !("Kind" in sourceRead) ? sourceRead : null;
     const sourceLiteral = argument.sourceForm === "value" && scope.shape.isTuple(argument.selectedArgumentType)
       ? tupleLiteralRead(scope, argument.sourceArgument, argument.selectedArgumentType) : null;
     if (scope.meter.refusal !== null) return null;
@@ -5419,7 +5489,7 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       (scope.tables.tupleArgumentContexts ??= new Map()).set(argument.sourceArgument,
         { type: argument.selectedParameterType, annotation: destinationAnnotation });
     }
-    if (rawType(scope, () => withoutTypeCause(argument.selectedArgumentType), source, sourceAnnotation, sourceLiteral, literalNode) === null
+    if (rawType(scope, () => withoutTypeCause(argument.selectedArgumentType), source, sourceAnnotation, sourceLiteral ?? sourceResult, literalNode) === null
       || rawType(scope, () => withoutTypeCause(argument.selectedParameterType), destination, destinationAnnotation) === null) return null;
     bindings.push({ sourceArgument: authored.occurrence, sourceArgumentIndex: argument.sourceArgumentIndex,
       effectiveArgumentIndex: argument.effectiveArgumentIndex, sourceForm: argument.sourceForm, spreadElementIndex: argument.spreadElementIndex ?? null,
@@ -5431,10 +5501,10 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
   const original = declarationOrdinal === null ? undefined : declared.order[declarationOrdinal];
   if (declarationOrdinal === null || original === undefined)
     return throwInvariant(invariant("An applicable call must retain its actual selected position in declaration order."));
-  const capturedBindings = captureSelectedBindings(scope, selected, invocation, original);
+  const capturedBindings = captureSelectedBindings(scope, selected, invocation, original, contextual, tupleProjection);
   if (capturedBindings === null) return null;
   const result = rawType(scope, () => withoutTypeCause(info.resultType), component(scope, invocation, null),
-    tuple?.annotation ?? null);
+    tupleRead !== null && "Kind" in tupleRead ? tupleRead : null, tupleProjection);
   if (result === null) return null;
   const candidates = rawCandidateListId(scope.tables.candidates.length);
   if (!admit(scope, "facts") || !admit(scope, "facts")) return null;
@@ -5684,6 +5754,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       if (captured === null) break;
       enums.push(captured);
     }
+    let callContext: ResolvedSourceTypeInfo | undefined;
     let patternName: Node | undefined;
     if (kind === "KindBindingElement" && parent !== undefined && executingPatterns !== null) {
       if (!admit(scope, "edges")) break;
@@ -5768,6 +5839,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
         && scope.shape.isError(answer.type);
       const contextual = sourceType(scope, { kind: "contextual", node });
       if (scope.meter.refusal !== null) break;
+      if (kind === "KindCallExpression") callContext = contextual;
       const tupleContext = kind === "KindArrayLiteralExpression" || kind === "KindParenthesizedExpression"
         ? contextualTupleUse(scope, node, parent, contextual) : null;
       if (scope.meter.refusal !== null) break;
@@ -5778,15 +5850,17 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       if (scope.meter.refusal !== null) break;
       const declaredRead = isDeclaredTupleRead(scope, node, answer);
       const declarationSymbol = declaredRead ? scope.checker.getSymbolAtLocation(node) : undefined;
-      let authoredRead: Node | null = null;
-      if (kind === "KindSpreadElement") authoredRead = valueTupleAnnotation(scope, ast.as.AsSpreadElement(node)?.Expression, answer);
+      let sourceRead: TupleValueRead | null = null;
+      if (kind === "KindSpreadElement") sourceRead = valueTupleRead(scope, ast.as.AsSpreadElement(node)?.Expression, answer);
       else if (kind === "KindCallExpression" && !failedSelection && scope.shape.isTuple(answer.type))
-        authoredRead = callTupleAnnotation(scope, node, answer.type);
+        sourceRead = callTupleRead(scope, node, answer.type);
       else if (tupleValue === null && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
         && (kind === "KindAsExpression" || kind === "KindTypeAssertionExpression" || kind === "KindParenthesizedExpression"))
-        authoredRead = valueTupleAnnotation(scope, unparenthesizedTupleValue(scope, node), answer);
+        sourceRead = valueTupleRead(scope, unparenthesizedTupleValue(scope, node), answer);
       else if (declarationSymbol !== undefined && admit(scope, "edges"))
-        authoredRead = declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol));
+        sourceRead = declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol));
+      const authoredRead = sourceRead !== null && "Kind" in sourceRead ? sourceRead : null;
+      const projectedRead = sourceRead !== null && !("Kind" in sourceRead) ? sourceRead : null;
       if (scope.meter.refusal !== null) break;
       let sharedRead: RawTypeId | null = null;
       if (kind === "KindPropertyAccessExpression" && declarationNameRoot === null && !failedSelection) {
@@ -5823,7 +5897,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
           }
         }
       }
-      const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue,
+      const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue ?? projectedRead,
         kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);
       let contextualSource: Node | null = null;
       if (tupleContext === null && contextual !== undefined && contextual.causes.length === 0) {
@@ -5915,7 +5989,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       break;
     }
     if (kind === "KindCallExpression" && declarationNameRoot === null && !failedSelection) {
-      const call = captureCall(scope, node, reference);
+      const call = captureCall(scope, node, reference, callContext);
       if (call === null) break;
       calls.push(call);
     }

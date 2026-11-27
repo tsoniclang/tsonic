@@ -1,8 +1,8 @@
-import type { RawTypeId, TyId } from "../ids/contract.js";
+import type { RawSignatureId, RawTypeId, TyId } from "../ids/contract.js";
 import type * as Hir from "../ir-hir/contract.js";
 import type { ComponentSelector, TypeBinding } from "../ir-types/contract.js";
-import { admitTypePublicationStep, readSignature } from "../ir-types/index.js";
-import type { RawCallSelection, RawNodeRef } from "./contract.js";
+import { admitTypePublicationStep, readSignature, readType } from "../ir-types/index.js";
+import type { RawCallSelection, RawComponent, RawNodeRef } from "./contract.js";
 import { sameSource, sourceOccurrence } from "./bindings.js";
 import { convertRawType, rawSignatureParameter, signatureOf } from "./type-conversion.js";
 import type { ConversionResult, TypeConversion } from "./type-conversion.js";
@@ -19,6 +19,40 @@ function typeOf(conversion: TypeConversion, id: RawTypeId): ConversionResult<TyI
 
 type RawCall = Extract<RawCallSelection, { readonly kind: "applicable" }>;
 type Call = Hir.CallExpression<Hir.SyntaxPhase>;
+
+function contextualTuplePath(conversion: TypeConversion, source: RawComponent, formal: RawComponent,
+  signature: RawSignatureId): ConversionResult<readonly Extract<ComponentSelector, { readonly kind: "tuple-element" }>[]> {
+  const { raw, typeWork } = conversion;
+  const slots: Extract<ComponentSelector, { readonly kind: "tuple-element" }>[] = [];
+  let from = source;
+  let to = formal;
+  while (true) {
+    const stop = admitTypePublicationStep(typeWork, 2);
+    if (stop !== null) return stop;
+    const sourcePath = from.path;
+    const formalPath = to.path;
+    if (sourcePath?.step.kind !== "tuple-element" || formalPath?.step.kind !== "tuple-element"
+      || formalPath.step.index !== sourcePath.step.index || !Number.isSafeInteger(sourcePath.step.index)
+      || sourcePath.step.index < 0 || Object.is(sourcePath.step.index, -0)
+      || (sourcePath.prefix !== null && sourcePath.prefix >= from.id) || formalPath.prefix === null || formalPath.prefix >= to.id)
+      return fail("a contextual tuple contribution must retain matching ordered source and formal slots");
+    const retain = admitTypePublicationStep(typeWork, sourcePath.prefix === null ? 1 : 2, 1);
+    if (retain !== null) return retain;
+    slots.push({ kind: "tuple-element", index: sourcePath.step.index });
+    const formalParent = raw.types.components[formalPath.prefix];
+    if (formalParent?.id !== formalPath.prefix || !sameSource(formalParent.root, formal.root))
+      return fail("a contextual tuple contribution must retain its actual source and formal roots");
+    to = formalParent;
+    if (sourcePath.prefix === null) break;
+    const sourceParent = raw.types.components[sourcePath.prefix];
+    if (sourceParent?.id !== sourcePath.prefix || !sameSource(sourceParent.root, source.root))
+      return fail("a contextual tuple contribution must retain its actual source and formal roots");
+    from = sourceParent;
+  }
+  if (to.path?.prefix !== null || to.path.step.kind !== "result" || to.path.step.signature !== signature)
+    return fail("a contextual tuple contribution must retain the actual original result selector");
+  return { kind: "complete", value: slots.reverse() };
+}
 
 export function verifyFiniteCallTransport(conversion: TypeConversion, call: RawCall,
   arguments_: readonly Hir.HirArgument[]): ConversionResult<void> {
@@ -71,7 +105,8 @@ export function verifyFiniteCallTransport(conversion: TypeConversion, call: RawC
   return { kind: "complete", value: undefined };
 }
 
-export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall): ConversionResult<{
+export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall,
+  contextual: Hir.CapturedFact<TyId | null>): ConversionResult<{
   readonly candidate: Hir.HirCandidate;
   readonly typeArguments: readonly TyId[];
 }> {
@@ -157,7 +192,8 @@ export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall)
   if (candidate.inferenceContributions.value.length !== 0) {
     const declaredSignature = signatureOf(conversion, originalId);
     if (declaredSignature.kind !== "complete") return declaredSignature;
-    const qualifiedFormal = readSignature(deps.types, declaredSignature.value)?.owner;
+    const originalSignature = readSignature(deps.types, declaredSignature.value);
+    const qualifiedFormal = originalSignature?.owner;
     if (qualifiedFormal?.kind !== "item" || qualifiedFormal.value.owner !== definition || qualifiedFormal.value.node !== original.node)
       return fail("an inference contribution requires the actual declared signature's source occurrence");
     const parameters = candidate.arguments.kind === "available" ? candidate.arguments.value : [];
@@ -170,11 +206,47 @@ export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall)
       const sourceComponent = source === undefined ? undefined : raw.types.components[source.component];
       const formalComponent = formal === undefined ? undefined : raw.types.components[formal.component];
       const rawSelector = formalComponent?.path?.step;
-      if (parameter === undefined || declaration === null || source?.id !== contribution.source || !sameSource(sourceComponent?.root, origin.subject)
-        || sourceComponent?.path !== null || formal?.id !== contribution.formal || !sameSource(formalComponent?.root, original)
-        || formalComponent?.path?.prefix !== null || formal.form.kind !== "available" || formal.form.value.kind !== "parameter"
+      if (parameter === undefined || declaration === null || source?.id !== contribution.source || sourceComponent === undefined
+        || !sameSource(sourceComponent.root, origin.subject) || formal?.id !== contribution.formal || formalComponent === undefined
+        || !sameSource(formalComponent.root, original) || formal.form.kind !== "available" || formal.form.value.kind !== "parameter"
         || !sameSource(formal.form.value.parameter, declaration))
         return fail("an inference contribution must retain its genuine source and original formal components");
+      const qualifiedSource = sourceOccurrence(deps, origin.subject);
+      if (qualifiedSource === null) return fail("an inference contribution requires its actual qualified source");
+      if (sourceComponent.path !== null) {
+        if (origin.kind !== "contextual-result" || !sameSource(origin.subject, invocation)
+          || contextual.kind !== "available" || contextual.value === null || originalSignature === undefined)
+          return fail("a projected inference contribution requires its actual contextual result");
+        const path = contextualTuplePath(conversion, sourceComponent, formalComponent, originalId);
+        if (path.kind !== "complete") return path;
+        let sourceType = contextual.value;
+        let formalType = originalSignature.result;
+        for (const slot of path.value) {
+          const stop = admitTypePublicationStep(deps.typeWork, 4);
+          if (stop !== null) return stop;
+          const sourceTuple = readType(deps.types, sourceType);
+          const formalTuple = readType(deps.types, formalType);
+          const sourceSlot = sourceTuple?.kind === "tuple" ? sourceTuple.elements[slot.index] : undefined;
+          const formalSlot = formalTuple?.kind === "tuple" ? formalTuple.elements[slot.index] : undefined;
+          if (sourceSlot?.kind !== "required" || formalSlot?.kind !== "required")
+            return fail("a contextual tuple contribution must select actual required slots");
+          sourceType = sourceSlot.type;
+          formalType = formalSlot.type;
+        }
+        const stop = admitTypePublicationStep(deps.typeWork);
+        if (stop !== null) return stop;
+        const binder = readType(deps.types, formalType);
+        const type = typeOf(conversion, contribution.source);
+        if (type.kind !== "complete") return type;
+        if (binder?.kind !== "param" || binder.parameter !== parameter || sourceType !== type.value)
+          return fail("a contextual tuple contribution must name the actual contextual slot and formal binder");
+        contributions.push({ parameter, role: "context", source: qualifiedSource.occurrence,
+          component: { root: qualifiedFormal, path: [{ kind: "result", signature: declaredSignature.value }, ...path.value] },
+          type: { kind: "available", value: sourceType } });
+        continue;
+      }
+      if (formalComponent.path?.prefix !== null)
+        return fail("an unprojected inference contribution must retain its direct original formal selector");
       let selector: ComponentSelector;
       let role: Hir.HirInferenceContribution["role"];
       let declaredFormal: RawTypeId | undefined;
@@ -199,8 +271,6 @@ export function lowerCall(conversion: TypeConversion, node: Call, call: RawCall)
       const actual = declaredFormal === undefined ? undefined : raw.types.types[declaredFormal]?.form;
       if (actual?.kind !== "available" || actual.value.kind !== "parameter" || !sameSource(actual.value.parameter, declaration))
         return fail("an inference contribution must name the actual original signature's formal binder");
-      const qualifiedSource = sourceOccurrence(deps, origin.subject);
-      if (qualifiedSource === null) return fail("an inference contribution requires its actual qualified source");
       const type = typeOf(conversion, contribution.source);
       if (type.kind !== "complete") return type;
       contributions.push({ parameter, role, source: qualifiedSource.occurrence, component: { root: qualifiedFormal, path: [selector] },
