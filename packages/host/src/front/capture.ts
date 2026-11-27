@@ -3425,8 +3425,8 @@ function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope,
     ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module" || entry.kind === "declaration-provider");
   const closedOrdinaryPassing = contributions.safetyProviders.length === 0 && closedCheckerExtensions;
   const semantics = ExtensionTable.semantics(table);
-  const emptySemantics = semantics.every(module => module.exports.length === 0);
-  const closedOrdinaryApplication = noRoles && closedOrdinaryPassing && emptySemantics;
+  const emptyRuntimeSemantics = semantics.every(module => module.exports.every(entry => entry.kind === "source-primitive"));
+  const closedOrdinaryApplication = noRoles && closedOrdinaryPassing && emptyRuntimeSemantics;
   return {
     closedOrdinaryPassing,
     closedOrdinaryApplication,

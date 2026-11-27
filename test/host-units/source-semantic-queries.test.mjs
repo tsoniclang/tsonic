@@ -2473,6 +2473,25 @@ test("native tuple construction materializes exact integer constants without a f
   }
 });
 
+test("a primitive-only registration preserves the ordinary object binding and its default", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = await nativeInt32Input(`
+export function select(o: { flag?: boolean }): boolean {
+  const { flag = false } = o;
+  return flag;
+}`, true);
+  const program = analyzeHostProgram(input);
+  assert.equal(program.kind, "ok");
+  const chapter = program.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+    && row.tir.root.statements.nodes[0]?.kind === "VariableStatement");
+  assert.ok(selected);
+  const { mir } = selected;
+  assert.equal(mir.places.filter(row => row.base.kind === "place" && row.base.projection.kind === "field").length, 1);
+  assert.equal(mir.blocks.filter(row => row.terminator.kind === "switch").length, 1);
+  assert.equal(mir.blocks.filter(row => row.terminator.kind === "call" && row.terminator.callee.kind === "body").length, 1);
+});
+
 test("inferred array construction retains its exact spread operand and authored scalar order", async () => {
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
