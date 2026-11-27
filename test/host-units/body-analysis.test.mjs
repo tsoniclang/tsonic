@@ -122,7 +122,7 @@ test("the application kernel remaps a projected return onto the actual caller fi
   const producers = [...facts.arena.producers];
   const bound = [...facts.arena.boundProducers];
   const projections = [];
-  const effects = projectionEffects(deps, new Map([[0, "field"]]), projections, () => null, () => null, {
+  const effects = projectionEffects(deps, new Map([[0, "field"]]), null, projections, () => null, () => null, {
     lexical: caller.tir.lexicalBindings, scopeOf: definition => source.value.descriptions.get(definition)?.generics ?? null,
   });
   const apply = () => effects.appliedValue(call, summary, formal.index, formal.path, held, origins.value, bound, producers, () => null);
@@ -725,9 +725,12 @@ test("actual captured call bindings refuse growth and retain every unsupported n
     "a known primitive cell history is not an unsupported event or reference effect");
   assert.throws(() => run({ ...pair.summary, concurrentWrites: [{ target: 0, value: 0 }] }),
     /actual caller cell, event, callback or backing producer/);
-  for (const [field, effect] of [["reads", { kind: "open", paths: [], boundaries: [0] }], ["reads", { kind: "complete", paths: [0] }],
-    ["writes", { kind: "open", paths: [], boundaries: [0] }], ["writes", { kind: "complete", paths: [0] }]])
-    assert.throws(() => run({ ...pair.summary, captures: [{ ...pair.summary.captures[0], [field]: effect }] }), /captured subobject read\/write transport/);
+  for (const field of ["reads", "writes"]) {
+    assert.throws(() => run({ ...pair.summary, captures: [{ ...pair.summary.captures[0], [field]: { kind: "open", paths: [], boundaries: [0] } }] }),
+      /captured subobject read\/write transport/);
+    assert.throws(() => run({ ...pair.summary, captures: [{ ...pair.summary.captures[0], [field]: { kind: "complete", paths: [0] } }] }),
+      /no verified caller reference producer/);
+  }
   const self = locationDefaultProgram("body-round.capture-self-read", { selfRead: true });
   const selfCaller = fixture(self.program, self.internal, 1);
   const selfInitializer = fixture(self.child);
@@ -4824,7 +4827,7 @@ test("unsupported projections, parameter writes and external retention remain ex
   const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0].origins }];
   const apply = value => {
     const deps = { ...current.deps, account: createAccount(limits) };
-    const fields = projectionEffects(deps, new Map(), [], () => assert.fail("An unsupported read must not retain a projection."), () => null,
+    const fields = projectionEffects(deps, new Map(), null, [], () => assert.fail("An unsupported read must not retain a projection."), () => null,
       { lexical: current.input.tir.lexicalBindings, scopeOf: () => assert.fail("An unsupported read must not reach a caller field scope.") });
     return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
       (access, parameter) => fields.call(operation, access, parameter, value, arena), null);
@@ -4868,7 +4871,7 @@ test("one held field joins its independently selected arms at paid cuts without 
   for (const [first, next] of [["read", "write"], ["write", "read"]]) {
     const run = maxima => {
       const account = createAccount(maxima);
-      const fields = projectionEffects({ account }, new Map([[0, "field"], [1, "field"]]), [], () => null, () => null,
+      const fields = projectionEffects({ account }, new Map([[0, "field"], [1, "field"]]), null, [], () => null, () => null,
         { lexical: selected.tir.lexicalBindings, scopeOf: () => assert.fail("A direct field is not rebound.") });
       const observe = role => fields.observe(role, { kind: "field", member: selections[role] }, subjects[role], arena.boundProducers, arena.producers);
       assert.equal(observe(first), null);
@@ -4881,10 +4884,10 @@ test("one held field joins its independently selected arms at paid cuts without 
     const merged = complete.fields.projections[0].projection.member.decision;
     assert.equal(merged.read, selections.read.decision.read);
     assert.equal(merged.write, selections.write.decision.write);
-    assert.deepEqual([...complete.fields.paths("read", 0)], [0]);
-    assert.deepEqual([...complete.fields.paths("write", 1)], [0]);
-    assert.equal(complete.fields.paths("read", 1), undefined);
-    assert.equal(complete.fields.paths("write", 0), undefined);
+    assert.deepEqual([...complete.fields.paths("read", "parameter", 0)], [0]);
+    assert.deepEqual([...complete.fields.paths("write", "parameter", 1)], [0]);
+    assert.equal(complete.fields.paths("read", "parameter", 1), undefined);
+    assert.equal(complete.fields.paths("write", "parameter", 0), undefined);
     const identity = createAccount(limits);
     assert.equal(admitSelectionIdentity(selections[next], identity), null);
     const charge = InvocationAccount.stateOf(identity);
