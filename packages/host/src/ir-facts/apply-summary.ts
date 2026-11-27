@@ -3,6 +3,7 @@ import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/ind
 import type { DefId, ProjectionPathId } from "../ids/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { BindingVector } from "../ir-types/contract.js";
+import { projectBindingScope } from "../ir-types/index.js";
 import type { BoundProducerRef, CallFieldBindings, LogicalCellRef, ProjectCallFields, RelationalOwner, SummaryWrite } from "./contract.js";
 import type { ProjectionPath } from "./arena-data.js";
 import type { AppliedCell, AppliedContext, AppliedSummary, AppliedSubject, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits } from "./application-data.js";
@@ -13,42 +14,6 @@ import { checkConditionLimits } from "./conditions.js";
 import { summaryKey } from "./summary-key.js";
 import { admitOwnerIdentity } from "./verification.js";
 
-const emptyOwners: readonly [] = [];
-
-function selectFieldBindings<Value>(account: DataflowAccount, source: readonly Value[],
-  required: readonly DefId[], ownerOf: (binding: Value) => DefId): DataflowResult<readonly Value[] | null> {
-  if (required.length > source.length) return { kind: "complete", value: null };
-  if (required.length === 0) return { kind: "complete", value: source.length === 0 ? source : emptyOwners };
-  const needsCopy = source.length !== required.length;
-  const reserve = needsCopy ? chargeResultEntries(account, 1 + required.length) : null;
-  if (reserve !== null) return reserve;
-  const result: Value[] | null = needsCopy ? [] : null;
-  let position = 0;
-  for (let index = 0; index < required.length; index += 1) {
-    const first = chargeWork(account, 1);
-    if (first !== null) return first;
-    const key = required[index];
-    if (key === undefined) return { kind: "complete", value: null };
-    let found = false;
-    while (position < source.length) {
-      const paid = chargeWork(account, 1);
-      if (paid !== null) return paid;
-      const candidate = source[position];
-      position += 1;
-      if (candidate === undefined) return { kind: "complete", value: null };
-      const owner = ownerOf(candidate);
-      const comparison = chargeWork(account, key.length + owner.length);
-      if (comparison !== null) return comparison;
-      if (key !== owner) continue;
-      result?.push(candidate);
-      found = true;
-      break;
-    }
-    if (!found) return { kind: "complete", value: null };
-  }
-  return { kind: "complete", value: result ?? source };
-}
-
 function callerFieldBindings(account: DataflowAccount, definition: DefId,
   bindings: CallFieldBindings): DataflowResult<BindingVector | null> {
   const paid = chargeWork(account, 1 + definition.length);
@@ -57,24 +22,9 @@ function callerFieldBindings(account: DataflowAccount, definition: DefId,
   const stopped = accountFailure(account);
   if (stopped !== null) return stopped;
   if (scope === null) return { kind: "complete", value: null };
-  const vector = bindings.lexical;
-  const classes = selectFieldBindings(account, vector.classBindings, scope.classParameters, binding => binding.parameter);
-  if (classes.kind !== "complete") return classes;
-  if (classes.value === null) return { kind: "complete", value: null };
-  const methods = selectFieldBindings(account, vector.methodBindings, scope.methodParameters, binding => binding.parameter);
-  if (methods.kind !== "complete") return methods;
-  if (methods.value === null) return { kind: "complete", value: null };
-  const captured = selectFieldBindings(account, vector.capturedBindings, scope.capturedParameters, binding => binding.parameter);
-  if (captured.kind !== "complete") return captured;
-  if (captured.value === null) return { kind: "complete", value: null };
-  const self = selectFieldBindings(account, vector.selfBindings, scope.selfOwners, binding => binding.owner);
-  if (self.kind !== "complete") return self;
-  if (self.value === null) return { kind: "complete", value: null };
-  if (classes.value === vector.classBindings && methods.value === vector.methodBindings && captured.value === vector.capturedBindings
-    && self.value === vector.selfBindings) return { kind: "complete", value: vector };
-  const retained = chargeResultEntries(account, 1);
-  return retained ?? { kind: "complete", value: { classBindings: classes.value, methodBindings: methods.value,
-    capturedBindings: captured.value, selfBindings: self.value } };
+  const projected = projectBindingScope(bindings.lexical, scope,
+    (work, entries) => chargeWork(account, work) ?? chargeResultEntries(account, entries));
+  return projected.kind === "resource-stop" ? projected.stop : projected;
 }
 
 export const projectCallFields: ProjectCallFields = (account, paths, path, view, bindings, apply) => {
@@ -107,8 +57,7 @@ export const projectCallFields: ProjectCallFields = (account, paths, path, view,
         if (decision.read !== null && decision.read !== row.formalType || decision.write !== null && decision.write !== row.formalType)
           return { kind: "complete", value: false };
         if (row.formal !== row.caller || row.formalType !== row.callerType) {
-          const scope: DataflowResult<BindingVector | null> = row.formal === row.caller ? { kind: "complete", value: decision.bindings }
-            : callerFieldBindings(account, row.caller, bindings);
+          const scope = callerFieldBindings(account, row.caller, bindings);
           if (scope.kind !== "complete") return scope;
           if (scope.value === null) return { kind: "complete", value: false };
           const keep = chargeWork(account, 8) ?? chargeResultEntries(account, 5);

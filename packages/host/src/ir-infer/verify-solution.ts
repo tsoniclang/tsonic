@@ -736,7 +736,7 @@ export function visitBindings(input: InferenceBindingInput,
     else if (task.kind === "evidence") {
       visitEvidence(task.value, task.site);
       if (task.value.sum !== null) vector(task.value.sum.bindings);
-    } else if (task.kind === "member") vector(task.value.bindings);
+    } else if (task.kind === "member") vector(task.value.bindings, task.value.primary);
     else if (task.kind === "application") {
       vector(task.value.bindings, task.value.advertised.declaration);
       vector(task.value.implementationBindings, task.value.api.declaration);

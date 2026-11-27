@@ -1,14 +1,14 @@
 import type { Cause, Diagnostic, ErrorValue, Result, UnitAnswerPosition, UnitRequest } from "../diag/contract.js";
 import type { TyId } from "../ids/contract.js";
 import type {
-  AtomicContribution, Constraint, ConstraintDecision, ConstraintSet, ContributionOutcome, DefaultConstraint, FinalVariable, InferenceGroup,
+  AtomicContribution, BoundSourceObjectField, Constraint, ConstraintDecision, ConstraintSet, ContributionOutcome, DefaultConstraint, FinalVariable, InferenceGroup,
   BodyTyping, CaptureRow, InferenceValue, InferenceVariable, InferredPartType, MemberRuleCompletion, MemberRuleStep, QualifiedOperatorField, SolvedConstraint,
 } from "../ir-infer/contract.js";
 import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep,
   PlacementPaused, ResumeSolveGroup, SelectionConstraintContext, SolveAnswer, SolveGroup, SolveRequest } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { admitTypePublicationStep, internType, readType, refuseTypeConstruction } from "../ir-types/index.js";
+import { admitTypePublicationStep, internType, projectBindingScope, readType, refuseTypeConstruction } from "../ir-types/index.js";
 import { checkedReferenceArgumentViewOf, checkedSourceBindingFieldOf } from "../ir-hir/index.js";
 import type { BodyInstance, MemberInventory } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
@@ -529,6 +529,17 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
           : null;
       const stop = admitTypePublicationStep(deps.typeWork, 0);
       if (stop !== null) return refuseTypeConstruction(deps.typeWork, stop, origin, unit);
+      let boundStorage: BoundSourceObjectField | null = null;
+      if (storage !== null) {
+        const declaration = storage.field;
+        const paid = admitTypePublicationStep(deps.typeWork, 1 + declaration.length, 1);
+        if (paid !== null) return refuseTypeConstruction(deps.typeWork, paid, origin, unit);
+        const scoped = projectBindingScope(constraint.bindings, deps.bindingScopeOf(declaration),
+          (work, records) => admitTypePublicationStep(deps.typeWork, work, records));
+        if (scoped.kind === "resource-stop") return refuseTypeConstruction(deps.typeWork, scoped.stop, origin, unit);
+        if (scoped.value === null) return callerDefect(PORT, "a native field needs its actual selected declaration scope");
+        boundStorage = { field: storage, bindings: scoped.value };
+      }
       let checkedRead: TyId | null = null;
       if (storage !== null && constraint.access === "read" && node?.kind === "PropertyAccessExpression" && node.tsonic.role === "value") {
         const stopped = admitTypePublicationStep(deps.typeWork);
@@ -536,7 +547,7 @@ function evaluate<State>(frame: Frame<State>, item: Enumerated,
         const read = node.tsonic.value.views.read;
         if (read.kind === "available") checkedRead = read.value;
       }
-      return deps.rules.constraints.member.evaluate({ ...common, constraint, origin, storage, checkedRead });
+      return deps.rules.constraints.member.evaluate({ ...common, constraint, origin, storage: boundStorage, checkedRead });
     }
     case "index": return deps.rules.constraints.index.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin });
     case "eq": return deps.rules.constraints.eq.evaluate({ ...common, constraint: item.reached.constraint });

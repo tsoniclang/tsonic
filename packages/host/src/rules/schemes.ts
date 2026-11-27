@@ -1,7 +1,7 @@
 import type { ErrorValue, Result } from "../diag/contract.js";
 import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
-  AtomicContribution, ContributionKey, ContributionOutcome, FlowContributionScheme, InferenceValue,
+  AtomicContribution, BoundSourceObjectField, ContributionKey, ContributionOutcome, FlowContributionScheme, InferenceValue,
   ArrayExtentConstraint, IndexContributionScheme, IndexDecision, IndexInput, MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
   NarrowedRefinement, OperationDecision, OperatorContributionScheme, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
@@ -229,7 +229,7 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
         if (phase.access !== "read" && !member.writeOrigins.some(actual => actual.kind === "declared" && actual.declaration === phase.declaration))
           return callerDefect("a member write must retain its original writable declaration", origin);
         return MemberSuspension.pause(owner, { kind: "type", request: { receiver: inventory.receiver, member: middle, access: phase.access },
-          inventory: member, storage: phase.storage, bindings: phase.bindings }, destination, origin);
+          inventory: member, storage: phase.storage }, destination, origin);
       }
     }
     return callerDefect("the original member key is missing from its complete receiver inventory", origin);
@@ -257,14 +257,15 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
   const storage = phase.storage;
   if (storage === null || phase.inventory.optional && (access !== "read" || readType(deps.types, selected).kind !== "optional"))
     return notDecidedYet("the actual selected native receiver representation of this member access", origin);
+  const { field, bindings } = storage;
   const decision: MemberDecision = { key: phase.inventory.key, origins: phase.inventory.origins,
-    selectedDeclarations: [storage.field], primary: storage.field, bindings: phase.bindings,
+    selectedDeclarations: [field.field], primary: field.field, bindings,
     read, write, getter: null, setter: null,
     location: { kind: "data", receiver: "by-reference", check: { kind: "none" } } };
   if (destination.kind === "member") return { kind: "done", value: ok({ kind: "member", value: { kind: "decided", decision } }) };
   const variable = variableOf(deps, destination.result, destination.occurrence, null);
   const refinement = access === "read" && destination.checkedRead !== null
-    ? narrowOptionalRead(deps, destination.occurrence, selected, destination.checkedRead, storage) : null;
+    ? narrowOptionalRead(deps, destination.occurrence, selected, destination.checkedRead, field) : null;
   const value = resultEvidence(deps, refinement === null ? selected : refinement.result, destination.occurrence, []);
   return { kind: "done", value: ok({ kind: "contribution", value: {
     bounds: variable === null ? [] : [bound(destination.key, variable, "producer", { value, error: null })],
@@ -272,7 +273,7 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
   } }) };
 }
 
-function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, storage: SourceObjectField | null,
+function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, storage: BoundSourceObjectField | null,
   destination: MemberDestination): MemberStep {
   const { access, receiver, key, origins, context } = input;
   if (access === "call") return notDecidedYet("a member call decision", context.origin);
@@ -282,11 +283,12 @@ function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, s
   const term = readType(deps.types, receiver.type);
   if (term.kind === "open" || term.kind === "error")
     return callerDefect("member selection requires a finalized receiver whose original errors were handled", context.origin);
-  if (storage !== null && (term.kind !== "shape" || storage.receiver !== receiver.type || storage.field !== origin.declaration
-    || storage.occurrence.body !== context.occurrence.body || storage.occurrence.node !== context.occurrence.node))
+  const field = storage?.field;
+  if (field !== undefined && (term.kind !== "shape" || field.receiver !== receiver.type || field.field !== origin.declaration
+    || field.occurrence.body !== context.occurrence.body || field.occurrence.node !== context.occurrence.node))
     return callerDefect("a compiler-owned object access requires its exact occurrence, receiver and field", context.origin);
   return MemberSuspension.pause(owner, { kind: "inventory", receiver: receiver.type, key, declaration: origin.declaration, access,
-    storage, bindings: context.bindings },
+    storage },
     destination, context.origin);
 }
 

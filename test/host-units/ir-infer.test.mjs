@@ -1972,7 +1972,12 @@ test("member declarations and accessor endpoints use actual independent declarat
   const input = { constraints: [constraintSet([constraint])], bindingScopes: [emptyScope, emptyScope], solution: solved(member) };
   const foreign = `D[${moduleIdentity};foreign]`;
   ruleCase("endpoint-agreement", input, { ...input, solution: solved({ ...member, primary: foreign }) },
-    [violation("endpoint-agreement", constraintSite(0), "primary"), violation("qualified-reference", constraintSite(0), "declarations")], "actual selected primary");
+    [violation("endpoint-agreement", constraintSite(0), "primary"), violation("qualified-reference", constraintSite(0), "declarations"),
+      violation("binding-vector-complete", constraintSite(0), "declarationScope")], "actual selected primary");
+  const wrongScope = { ...emptyScope, methodParameters: [definition] };
+  ruleCase("binding-vector-complete", input, { ...input, bindingScopes: [emptyScope, wrongScope] },
+    [violation("binding-vector-complete", constraintSite(0), "declarationScope"),
+      violation("binding-vector-complete", constraintSite(0), "binding-vector-complete")], "a selected field requires its own scope");
   ruleCase("qualified-reference", input, { ...input, solution: solved({ ...member, selectedDeclarations: [definition, foreign] }) },
     [violation("qualified-reference", constraintSite(0), "declarations")], "unknown selected declaration");
   for (const field of ["getter", "setter"]) ruleCase("endpoint-agreement", input, { ...input,

@@ -55,6 +55,56 @@ const parameterDeclaration = (owner, ordinal) => {
 };
 const owner = definition("Owner");
 const other = definition("Other");
+test("field scopes borrow the selected binding rows in their own families at exact cuts", () => {
+  const own = parameterDeclaration(owner, 0);
+  const outer = parameterDeclaration(other, 0);
+  const method = { kind: "rigid", parameter: parameterDeclaration(owner, 1) };
+  const captured = { kind: "bound", parameter: parameterDeclaration(other, 1), type: 3 };
+  const first = { kind: "bound", parameter: own, type: 1 };
+  const second = { kind: "rigid", parameter: outer };
+  const self = { kind: "bound", owner: other, type: 2 };
+  const vector = { classBindings: [second, first], methodBindings: [method],
+    capturedBindings: [captured], selfBindings: [{ kind: "rigid", owner }, self] };
+  const scope = { classParameters: [own], methodParameters: [method.parameter], capturedParameters: [], selfOwners: [other] };
+  const stop = { origin: "test admission" };
+  const run = (work = Infinity, entries = Infinity) => product.projectBindingScope(vector, scope, (needed, retained) => {
+    if (needed > work || retained > entries) return stop;
+    work -= needed;
+    entries -= retained;
+    return null;
+  });
+  const projected = run();
+  assert.equal(projected.kind, "complete");
+  assert.deepEqual(projected.value, { classBindings: [first], methodBindings: [method], capturedBindings: [], selfBindings: [self] });
+  assert.equal(projected.value.classBindings[0], first);
+  assert.equal(projected.value.methodBindings, vector.methodBindings);
+  assert.equal(projected.value.selfBindings[0], self);
+  assert.deepEqual(product.projectBindingScope(vector, { ...scope, classParameters: [own, outer] }, () => null),
+    { kind: "complete", value: null });
+  const exact = { classParameters: [outer, own], methodParameters: [method.parameter],
+    capturedParameters: [captured.parameter], selfOwners: [owner, other] };
+  assert.equal(product.projectBindingScope(vector, exact, () => null).value, vector);
+  let work = 0;
+  let entries = 0;
+  product.projectBindingScope(vector, scope, (needed, retained) => { work += needed; entries += retained; return null; });
+  for (let maximum = 0; maximum < work; maximum += 1) {
+    const refused = run(maximum);
+    assert.equal(refused.kind, "resource-stop");
+    assert.equal(refused.stop, stop);
+  }
+  for (let maximum = 0; maximum < entries; maximum += 1) {
+    const refused = run(Infinity, maximum);
+    assert.equal(refused.kind, "resource-stop");
+    assert.equal(refused.stop, stop);
+  }
+  const unread = new Proxy({}, { get() { assert.fail("A stopped scope projection must not pull a binding family."); } });
+  assert.equal(product.projectBindingScope(unread, unread, () => stop).stop, stop);
+  const firstFamily = { ...vector, get methodBindings() { assert.fail("A refused class family must not read the method family."); } };
+  assert.deepEqual(product.projectBindingScope(firstFamily, { ...scope, classParameters: [own, outer, own] }, () => null),
+    { kind: "complete", value: null });
+  assert.equal(product.projectBindingScope(firstFamily, scope, (work, retained) => work + retained === 0 ? null : stop).stop, stop);
+});
+
 test("paid table admission rejects foreign aliases, retains the actual nested field, and owns its input", () => {
   const start = (maximumWork = 10000, maximumResultEntries = 10000) => {
     const account = createAccount({ maximumWork, maximumResultEntries });
@@ -4503,7 +4553,7 @@ test("fresh public declarations admit real strict readers and reject the entire 
   write("reader.ts", imports + 'export function read(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: DefId, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): number { return table.terms.length + publication.table.terms.length + publication.types.length + publication.signatures.length + limits.maximumDepth + scope.selfOwners.length + bindings.classBindings.length + signature.parameters.length + evidence.type + parameter.length + definition.length + type + (nominal.kind === "merged-interface" ? nominal.definitions.length + nominal.slots.length : nominal.kind === "alias" ? nominal.parameterCount : nominal.facets.length) + (input.nominalOf(definition) === null ? 0 : 1); }\nexport function publish(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits): TypePublicationResult { return operation(interner, limits); }');
   write("inline-reader.ts", "import type { CategoryEvidence, TypeComponent, ComponentSelector, TypeInterner, TypeTerm, Signature, TypeTable, ReadType, ReadSignature } from \"./declarations/ir-types/contract.js\";\nimport type { SourceNodeRef, TyId, SigId } from \"./declarations/ids/contract.js\";\nexport function checkedBoundary(readType: ReadType, readSignature: ReadSignature, interner: TypeInterner, type: TyId, signature: SigId): void { readType(interner, type); readSignature(interner, signature); }\nexport function sparseTable(): TypeTable {\n  return { terms: new Array<TypeTerm>(1), signatures: new Array<Signature>(1) };\n}\nexport function sparseComponent(root: SourceNodeRef): TypeComponent {\n  return { root, path: new Array<ComponentSelector>(1) };\n}\nexport function categoryCycle(): CategoryEvidence { const alternatives: CategoryEvidence[] = []; const value: CategoryEvidence = { kind: \"choice\", alternatives }; alternatives.push(value); return value; }\nexport function componentCycle(root: SourceNodeRef): TypeComponent { const path: ComponentSelector[] = []; const component: TypeComponent = { root, path }; path.push({ kind: \"sum-arm\", family: { origin: \"authored\", component, parameters: [], roles: [] }, index: 0 }); return component; }\n");
   write("seed-reader.ts", 'import { admitTypeTable, readType, readSignature, projectBindingValues, substitute, substituteSignature } from "./declarations/ir-types/index.js";\nimport type { AdmitTypeTable, TypeTableAdmissionWork, TypePublicationWork, TypePublicationStop, BindingValues, ProjectedBindingValues, TypeInterner, TypeTable, TypeTerm, Signature, Substitute, SubstituteSignature, TypeTransform, BindingVector, TypeExpansionLimits, TypePublicationResult } from "./declarations/ir-types/contract.js";\nimport type { TyId, SigId } from "./declarations/ids/contract.js";\nimport type { DataflowStop } from "./declarations/dataflow/account.js";\nexport const seed: AdmitTypeTable = admitTypeTable;\nexport const signatureRoot: SubstituteSignature = substituteSignature;\nexport const typeRoots: Substitute = substitute;\nexport function seeded(table: TypeTable, type: TyId, signature: SigId, work: TypeTableAdmissionWork<TypePublicationStop>): readonly [TypeInterner, TypeTerm, Signature] | null { const admitted = seed(table, work); if (admitted.kind !== "complete") return null; const interner = admitted.types; return [interner, readType(interner, type), readSignature(interner, signature)]; }\nexport function transform(interner: TypeInterner, signatures: readonly SigId[], bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork): TypeTransform<readonly SigId[]> | TypePublicationStop { return signatureRoot(interner, signatures, bindings, limits, "lexical", work); }\nexport function transformTypes(interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork): TypeTransform<readonly TyId[]> | TypePublicationStop { return typeRoots(interner, types, bindings, limits, work); }\nexport function borrow(interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits, work: TypeTableAdmissionWork<DataflowStop | TypePublicationStop>): TypeTransform<readonly TyId[]> | DataflowStop | TypePublicationStop { return substitute(interner, types, bindings, limits, work); }\nexport function project(interner: TypeInterner, values: BindingValues, bindings: BindingVector, limits: TypeExpansionLimits, work: TypeTableAdmissionWork<DataflowStop>): TypeTransform<ProjectedBindingValues> | DataflowStop { return projectBindingValues(interner, values, bindings, limits, work); }\nexport function usage(result: TypePublicationResult): readonly [number, number] | null { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\n');
-  write("binding-reader.ts", 'import { verifyBindings } from "./declarations/ir-types/index.js";\nimport type { BindingVerificationInput } from "./declarations/ir-types/contract.js";\nexport function check(inputs: readonly BindingVerificationInput[], stop: { readonly kind: "original"; readonly cause: string }): string { const result = verifyBindings(inputs, 1, () => stop); return result.kind === "resource-stop" ? result.stop.cause : String(result.violations.length); }\n');
+  write("binding-reader.ts", 'import { projectBindingScope, verifyBindings } from "./declarations/ir-types/index.js";\nimport type { BindingVerificationInput, ProjectBindingScope } from "./declarations/ir-types/contract.js";\nexport const project: ProjectBindingScope = projectBindingScope;\nexport function check(inputs: readonly BindingVerificationInput[], stop: { readonly kind: "original"; readonly cause: string }): string { const result = verifyBindings(inputs, 1, () => stop); return result.kind === "resource-stop" ? result.stop.cause : String(result.violations.length); }\n');
   write("consumer.json", { extends: resolve(repository, "tsconfig.base.json"), compilerOptions: {
     noEmit: true, types: [], skipLibCheck: false, exactOptionalPropertyTypes: true },
     files: [resolve(stage, "reader.ts"), resolve(stage, "inline-reader.ts"), resolve(stage, "seed-reader.ts"), resolve(stage, "binding-reader.ts")], include: [] });

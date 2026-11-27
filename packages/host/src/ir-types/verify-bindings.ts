@@ -1,9 +1,74 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { BindingVerificationInput, TypeBinding, TypeRule, TypeSite, VerifyBindings } from "./contract.js";
+import type { BindingVerificationInput, ProjectBindingScope, TypeBinding, TypeRule, TypeSite, VerifyBindings } from "./contract.js";
 import type { DefId } from "../ids/contract.js";
 
 type BindingStep = { readonly kind: "work"; readonly units: number }
   | { readonly kind: "violation"; readonly violation: Violation<TypeRule, TypeSite> };
+
+type ScopeResult<Value, Stop> = { readonly kind: "complete"; readonly value: Value | null }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+const emptyBindings: readonly [] = [];
+
+function selectScopeBindings<Value, Stop extends object>(source: readonly Value[], required: readonly DefId[],
+  ownerOf: (binding: Value) => DefId, admit: (work: number, entries: number) => Stop | null): ScopeResult<readonly Value[], Stop> {
+  if (required.length > source.length) return { kind: "complete", value: null };
+  if (required.length === 0) return { kind: "complete", value: source.length === 0 ? source : emptyBindings };
+  const needsCopy = source.length !== required.length;
+  const reserve = needsCopy ? admit(0, 1 + required.length) : null;
+  if (reserve !== null) return { kind: "resource-stop", stop: reserve };
+  const result: Value[] | null = needsCopy ? [] : null;
+  let position = 0;
+  for (let index = 0; index < required.length; index += 1) {
+    const next = admit(1, 0);
+    if (next !== null) return { kind: "resource-stop", stop: next };
+    const key = required[index];
+    if (key === undefined) return { kind: "complete", value: null };
+    let found = false;
+    while (position < source.length) {
+      const paid = admit(1, 0);
+      if (paid !== null) return { kind: "resource-stop", stop: paid };
+      const candidate = source[position];
+      position += 1;
+      if (candidate === undefined) return { kind: "complete", value: null };
+      const owner = ownerOf(candidate);
+      const comparison = admit(key.length + owner.length, 0);
+      if (comparison !== null) return { kind: "resource-stop", stop: comparison };
+      if (key !== owner) continue;
+      result?.push(candidate);
+      found = true;
+      break;
+    }
+    if (!found) return { kind: "complete", value: null };
+  }
+  return { kind: "complete", value: result ?? source };
+}
+
+export const projectBindingScope: ProjectBindingScope = (vector, scope, admit) => {
+  const prior = admit(0, 0);
+  if (prior !== null) return { kind: "resource-stop", stop: prior };
+  const classBindings = vector.classBindings;
+  const classes = selectScopeBindings(classBindings, scope.classParameters, binding => binding.parameter, admit);
+  if (classes.kind !== "complete") return classes;
+  if (classes.value === null) return { kind: "complete", value: null };
+  const methodBindings = vector.methodBindings;
+  const methods = selectScopeBindings(methodBindings, scope.methodParameters, binding => binding.parameter, admit);
+  if (methods.kind !== "complete") return methods;
+  if (methods.value === null) return { kind: "complete", value: null };
+  const capturedBindings = vector.capturedBindings;
+  const captured = selectScopeBindings(capturedBindings, scope.capturedParameters, binding => binding.parameter, admit);
+  if (captured.kind !== "complete") return captured;
+  if (captured.value === null) return { kind: "complete", value: null };
+  const selfBindings = vector.selfBindings;
+  const self = selectScopeBindings(selfBindings, scope.selfOwners, binding => binding.owner, admit);
+  if (self.kind !== "complete") return self;
+  if (self.value === null) return { kind: "complete", value: null };
+  if (classes.value === classBindings && methods.value === methodBindings && captured.value === capturedBindings
+    && self.value === selfBindings) return { kind: "complete", value: vector };
+  const retained = admit(0, 1);
+  return retained !== null ? { kind: "resource-stop", stop: retained }
+    : { kind: "complete", value: { classBindings: classes.value, methodBindings: methods.value,
+      capturedBindings: captured.value, selfBindings: self.value } };
+};
 
 function finding(rule: TypeRule, site: TypeSite, field: string, value: number | null = null): BindingStep {
   const detail: MessageArgument[] = [{ kind: "text", value: field }];

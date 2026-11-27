@@ -2970,7 +2970,10 @@ test("actual selected member constraints retain their checked origins and distin
   const storage = checkedSourceObjectFieldsOf(source, program.domain.nodeOf, program.inputs.inference.itemOf,
     () => assert.fail("a scalar field has no object domain to open"), () => true).field(access);
   assert.equal(storage?.receiver, member.receiver);
-  const evaluation = { constraint: member, contribution, candidates: set.candidates, evidence, reads: [], origin: access.origin, storage };
+  const scoped = fixture.types.projectBindingScope(member.bindings, program.descriptions.get(storage.field).generics, () => null);
+  assert.equal(scoped.kind === "complete" && scoped.value !== null, true);
+  const evaluation = { constraint: member, contribution, candidates: set.candidates, evidence, reads: [], origin: access.origin,
+    storage: { field: storage, bindings: scoped.value } };
   const awaitingInventory = scheme.evaluate(evaluation);
   assert.equal(awaitingInventory.kind, "paused");
   assert.deepEqual(awaitingInventory.requests, [{ kind: "membersOf", receiver: member.receiver }]);

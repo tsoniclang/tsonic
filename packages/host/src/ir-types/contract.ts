@@ -233,6 +233,11 @@ export type ReadLexicalTypeSupport = <Stop extends TypeTableAdmissionStop>(table
 
 export type RigidBindings = (scope: BindingScope) => BindingVector;
 
+export type ProjectBindingScope = <Stop extends object>(vector: BindingVector, scope: BindingScope,
+  admit: (work: number, entries: number) => Stop | null) =>
+  | { readonly kind: "complete"; readonly value: BindingVector | null }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+
 export interface BindingVerificationInput {
   readonly vector: BindingVector;
   readonly scope: BindingScope;

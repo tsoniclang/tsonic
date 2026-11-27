@@ -15,8 +15,8 @@ import type { JoinSourceChoice } from "./contract.js";
 import { joinSourceChoice as joinChoice } from "./source-choice.js";
 import { admitTypePublicationStep as publicationStep, createTypePublicationWork as publicationWork, publicationRefusalOf as publicationRefusal,
   refuseTypeConstruction as constructionRefusal } from "./work.js";
-import { verifyBindings as verifyBindingVectors } from "./verify-bindings.js";
-import type { LiteralTypeValuesEqual, VerifyBindings } from "./contract.js";
+import { projectBindingScope as projectScope, verifyBindings as verifyBindingVectors } from "./verify-bindings.js";
+import type { LiteralTypeValuesEqual, ProjectBindingScope, VerifyBindings } from "./contract.js";
 import { nativeFactsKey as nativeKey, nativeArrayExtentOf as arrayExtent, nativeCarrierHoldingOf as carrierHolding, isNativeBinaryFloatPrimitive as binaryFloatPrimitive, isNativeIntegerPrimitive as integerPrimitive, isNativeSignedIntegerPrimitive as signedIntegerPrimitive, nativeIntegerGeometryOf as integerGeometry, floatingBitsFit as floatingFit, floatingFormatWidth as floatingWidth, platformDeclarationKey as platformKey, verifyNativeFacts as verifyNative } from "./native-facts.js";
 import type { NativeAbsenceComparisonOf } from "./contract.js";
 import { literalTypeValuesEqual as equalLiterals, nativeAbsenceComparisonOf as absenceComparison, nativeCarrierOf as carrier, optionalValueDomainOf as optionalValueDomain } from "./native-carrier.js";
@@ -70,6 +70,7 @@ export const verifyTypes: VerifyTypes = verify;
 export const compareIndexSignatures: CompareIndexSignatures = compareIndexes;
 export const compareMemberKeys: CompareMemberKeys = compareMembers;
 export const verifyBindings: VerifyBindings = verifyBindingVectors;
+export const projectBindingScope: ProjectBindingScope = projectScope;
 export const literalTypeValuesEqual: LiteralTypeValuesEqual = equalLiterals;
 export const encodeSelectorPath: EncodeSelectorPath = selectorPathKey;
 export const typeProductionRequestData: TypeProductionRequestData = projectTypeProductionRequest;

@@ -627,14 +627,16 @@ test("generic reference effects retain the caller field scope, not the selected 
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const shape = "{ child: { flag: boolean } | null }";
-  for (const generic of [false, true]) for (const writes of [false, true]) {
+  for (const [generic, alias] of [[false, false], [true, false], [true, true]]) for (const writes of [false, true]) {
+    const holding = alias ? "Holder" : shape;
     const input = analysisInput(fixture, "sdk-minimal", `
+      ${alias ? `type Holder = ${shape};` : ""}
       function effect<T>(token: T, formal: ${shape}): void { ${writes ? "formal.child = null;" : ""} }
-      ${generic ? "function read<U>" : "export function read"}(holder: ${shape}, token: ${generic ? "U" : "boolean"}): boolean {
+      ${generic ? "function read<U>" : "export function read"}(holder: ${holding}, token: ${generic ? "U" : "boolean"}): boolean {
         if (holder.child !== null) { effect(token, holder); return holder.child.flag; }
         return false;
       }
-      ${generic ? `export function entry(holder: ${shape}, token: boolean): boolean { return read(holder, token); }` : ""}
+      ${generic ? `export function entry(holder: ${holding}, token: boolean): boolean { return read(holder, token); }` : ""}
     `);
     const result = analyzeHostProgram(input);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
@@ -653,7 +655,7 @@ test("generic reference effects retain the caller field scope, not the selected 
     const facts = caller.facts.find(row => row.execution.provided === 2);
     const fields = facts.arena.projections.filter(row => row.projection.kind === "field" && row.projection.member.decision.primary === child.caller);
     assert.equal(fields.length, 1, "the read guard and the applied effect name the same physical field");
-    assert.deepEqual(fields[0].projection.member.decision.bindings, own);
+    assert.deepEqual(fields[0].projection.member.decision.bindings, alias ? { ...own, methodBindings: [] } : own);
     const check = terms.find(term => term.kind === "check");
     const guard = caller.tir.root.statements.nodes[0].expression;
     const expected = { node: check.tir.node, guards: [guard.id] };

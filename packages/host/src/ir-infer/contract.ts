@@ -773,10 +773,15 @@ export type MemberRuleCompletion =
   | { readonly kind: "member"; readonly value: MemberRuleResult }
   | { readonly kind: "contribution"; readonly value: ContributionOutcome };
 
+export interface BoundSourceObjectField {
+  readonly field: SourceObjectField;
+  readonly bindings: BindingVector;
+}
+
 export interface MemberContributionScheme<State> {
   readonly enumerate: (input: EnumerationInput<MemberConstraint>) => Result<readonly AtomicContribution[]>;
   readonly evaluate: (input: ContributionEvaluation<MemberConstraint> & {
-    readonly origin: Origin; readonly storage: SourceObjectField | null; readonly checkedRead: TyId | null;
+    readonly origin: Origin; readonly storage: BoundSourceObjectField | null; readonly checkedRead: TyId | null;
   }) =>
     MemberRuleStep<MemberRuleCompletion, State>;
 }
@@ -856,7 +861,7 @@ export interface RuleTable<State> {
   readonly embed: (input: EmbedInput, work: RuleWork) => Result<RuleOutcome<EmbeddingDecision>>;
   readonly domainFit: (input: DomainFitInput) => Result<RuleOutcome<boolean>>;
   readonly memoryEquivalent: (input: MemoryEquivalentInput) => Result<RuleOutcome<boolean>>;
-  readonly member: (input: MemberInput, storage: SourceObjectField | null) => MemberRuleStep<MemberRuleCompletion, State>;
+  readonly member: (input: MemberInput, storage: BoundSourceObjectField | null) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly resumeMember: (state: State, answers: readonly MemberRuleAnswer[]) => MemberRuleStep<MemberRuleCompletion, State>;
   readonly index: (input: IndexInput) => Result<RuleOutcome<IndexDecision>>;
   readonly constructLiteral: (input: LiteralConstructionInput, work: RuleWork) => Result<RuleOutcome<OperationDecision>>;
