@@ -242,6 +242,30 @@ function projectDeclaration<State>(deps: ElaborateDeps<State>, roots: readonly H
           : { ...node.typeArguments, nodes: node.typeArguments.nodes.map(child) }, tsonic };
         break;
       }
+      case "ImportType": {
+        if (node.attributes !== null) return fail("An import type with resolution attributes requires its actual typed projection.");
+        const qualify = (name: Hir.EntityName<Checked>): Hir.EntityName<TypedPhase> => {
+          const chain: Hir.QualifiedName<Checked>[] = [];
+          let head = name;
+          while (head.kind === "QualifiedName") { chain.push(head); head = head.left; }
+          const identifier = (current: Hir.Identifier<Checked>): Hir.Identifier<TypedPhase> => {
+            if (current.tsonic.role !== "type-name") return fail("An import type requires its actual checked qualifier.");
+            const selected = current.tsonic.resolution;
+            return { ...current, tsonic: { role: "type-name", type: tsonic.type, declarations: selected.kind === "declarations" ? selected.definitions : [] } };
+          };
+          let result: Hir.EntityName<TypedPhase> = identifier(head);
+          for (let tail = chain.pop(); tail !== undefined; tail = chain.pop()) {
+            if (tail.tsonic.role !== "type-name") return fail("An import type requires its actual checked qualifier.");
+            const selected = tail.tsonic.resolution;
+            result = { ...tail, left: result, right: identifier(tail.right),
+              tsonic: { role: "type-name", type: tsonic.type, declarations: selected.kind === "declarations" ? selected.definitions : [] } };
+          }
+          return result;
+        };
+        result = { ...node, argument: child(node.argument), attributes: null, qualifier: node.qualifier === null ? null : qualify(node.qualifier),
+          typeArguments: node.typeArguments === null ? null : { ...node.typeArguments, nodes: node.typeArguments.nodes.map(child) }, tsonic };
+        break;
+      }
       default: return fail(`Declaration annotation ${node.kind} requires its actual typed projection.`);
     }
     completed.set(node.id, result);

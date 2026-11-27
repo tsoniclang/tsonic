@@ -529,6 +529,7 @@ export interface TypedPhase extends Phase {
   readonly SemicolonClassElement: null;
   readonly ClassStaticBlockDeclaration: TypedStaticBlock;
   readonly OmittedExpression: TypedOmission;
+  readonly ExcludedExpression: never;
   readonly KeywordExpression: TypedKeyword;
   readonly StringLiteral: TypedString;
   readonly NumericLiteral: TypedNumber;

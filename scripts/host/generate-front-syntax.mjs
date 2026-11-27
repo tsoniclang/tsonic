@@ -128,6 +128,7 @@ const expanded = members.flatMap(member => {
 });
 for (const member of expanded) {
   const name = text(member).replace(/<.*$/su, "");
+  if (name === "ExcludedExpression") continue;
   const declaration = decls.get(name);
   const kinds = [...new Set(kindsOfType(shape.getTypeFromTypeNode(member)?.type))].sort();
   const props = inheritedProperties(declaration);
@@ -193,7 +194,7 @@ const helpers = [
   "}",
   "",
   "export function captureNode(context: SyntaxCaptureContext, root: SyntaxNodeOf, parent: NodeId | null): CapturedSyntax {",
-  "  const { nodes, ids, parents } = context.numbering;",
+  "  const { nodes, ids, parents, excluded } = context.numbering;",
   "  if (nodes[0] !== root) return defect(\"syntax assembly requires the actual numbered root\");",
   "  const completed: (Hir.SyntaxNode<Hir.SyntaxPhase> | undefined)[] = new Array(nodes.length);",
   "  const next = (node: SyntaxNodeOf): NodeId => {",
@@ -206,7 +207,9 @@ const helpers = [
   "    const id = next(node);",
   "    const owner = node === root ? parent : parents.get(node);",
   "    if (owner === undefined) return defect(\"a syntax node has no admitted parent\");",
-  "    completed[id] = buildNode({ ...context, next, completed, previousChild: id }, node, owner);",
+  "    const form = excluded?.get(node);",
+  "    completed[id] = form === undefined ? buildNode({ ...context, next, completed, previousChild: id }, node, owner)",
+  "      : { kind: \"ExcludedExpression\", ...headerOf(context, node, id, owner), form, tsonic: null };",
   "  }",
   "  const tree = completed[next(root)] ?? defect(\"syntax assembly did not complete its numbered root\");",
   "  return { tree, syntaxOf: id => completed[id] };",
@@ -257,7 +260,7 @@ for (const guard of guards.values()) {
 out.push(`/** The kinds of HIR's expression syntax. */`);
 out.push(`export const expressionKinds: readonly string[] = [${[...new Set(kindsOfType(shape.getTypeFromTypeNode(ast.typeNode(decls.get("Expression")))?.type))].sort().map(kind => `"${kind}"`).join(", ")}];`);
 out.push(`function isSyntax(node: Hir.SyntaxNode<Hir.SyntaxPhase>): node is Hir.SyntaxNode<Hir.SyntaxPhase> { return isSyntaxKinds.includes(node.kind); }`);
-out.push(`const isSyntaxKinds: readonly string[] = [${[...new Set(cases.flatMap(entry => entry.kinds))].sort().map(kind => `"${kind}"`).join(", ")}];`);
+out.push(`const isSyntaxKinds: readonly string[] = [${[...new Set(["ExcludedExpression", ...cases.flatMap(entry => entry.kinds)])].sort().map(kind => `"${kind}"`).join(", ")}];`);
 out.push(``);
 out.push(`/** One node of the checker's tree, converted with everything below it; its identity is the next preorder position. */`);
 out.push(`function buildNode(context: SyntaxBuildContext, node: SyntaxNodeOf, parent: NodeId | null): Hir.SyntaxNode<Hir.SyntaxPhase> {`);

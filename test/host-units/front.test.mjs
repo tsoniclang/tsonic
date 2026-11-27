@@ -3141,7 +3141,7 @@ test("syntax assembly consumes an admitted 20000-expression numbering iterativel
   const ast = { kindName: node => node.kind, as: { AsParenthesizedExpression: node => node },
     authoredRange: () => ({ kind: "authored", start: 0, end: 0 }), sourceRange: () => ({ kind: "source", start: 0, end: 0 }),
     pos: () => 0, end: () => 0 };
-  const context = { ast, file: null, module, sourceText: "", numericLiterals: new Map(), displacement: 0, pragmas: [], checkJsDirective: null, numbering: { nodes, ids: numbers, parents } };
+  const context = { ast, file: null, module, sourceText: "", numericLiterals: new Map(), displacement: 0, pragmas: [], checkJsDirective: null, numbering: { nodes, ids: numbers, parents, excluded: null } };
   const result = captureNode(context, root, null).tree;
   let count = 0;
   for (let node = result; node !== undefined; node = node.expression) {

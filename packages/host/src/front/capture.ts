@@ -363,6 +363,16 @@ type OpenedProgramView = ReturnType<typeof OpenedProgram.checked>;
 const limitRefusal = (module: ModuleId, path: string, limit: string, maximum: number): Diagnostic =>
   resourceLimitDiagnostic({ owner: "front", limit, maximum, site: { kind: "file", path }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } });
 
+function excludedExpressionOf(ast: OpenedProgramView["ast"], node: Node): Hir.ExcludedExpressionForm | null {
+  switch (ast.kindName(node)) {
+    case "KindJsxElement": return "JsxElement";
+    case "KindJsxSelfClosingElement": return "JsxSelfClosingElement";
+    case "KindJsxFragment": return "JsxFragment";
+    case "KindCallExpression": return ast.kindName(ast.as.AsCallExpression(node)?.Expression) === "KindImportKeyword" ? "DynamicImport" : null;
+    default: return null;
+  }
+}
+
 /**
  * The one numbering of a file's nodes (V-1): their preorder, made by one iterative walk. A module's own capture and every
  * reference into another file use it; the syntax capture consumes it and checks, node by node, that it visits the nodes
@@ -389,6 +399,7 @@ function fileNumberingOf(deps: CaptureDeps, program: CheckedProgram, path: strin
   const nodes: Node[] = [];
   const ids = new Map<Node, NodeId>();
   const parents = new Map<Node, NodeId | null>();
+  let excluded: Map<Node, Hir.ExcludedExpressionForm> | null = null;
   type Pending = { readonly node: Node; readonly depth: number; readonly parent: NodeId | null; next: Pending | null };
   let admitted = 0;
   let refusal: Diagnostic | null = null;
@@ -409,6 +420,11 @@ function fileNumberingOf(deps: CaptureDeps, program: CheckedProgram, path: strin
     ids.set(next.node, id);
     parents.set(next.node, next.parent);
     nodes.push(next.node);
+    const form = excludedExpressionOf(ast, next.node);
+    if (form !== null) {
+      (excluded ??= new Map()).set(next.node, form);
+      continue;
+    }
     const depth = next.depth + 1;
     const children: { first: Pending | null; last: Pending | null } = { first: null, last: null };
     ast.forEachChildUntil(next.node, child => {
@@ -426,7 +442,7 @@ function fileNumberingOf(deps: CaptureDeps, program: CheckedProgram, path: strin
       pending = children.first;
     }
   }
-  const numbering: FileNumbering = { nodes, ids, parents };
+  const numbering: FileNumbering = { nodes, ids, parents, excluded };
   return keep({ kind: "numbered", numbering });
 }
 
@@ -502,6 +518,7 @@ function annotationName(ast: OpenedProgramView["ast"], node: Node, parent: Node 
   switch (ast.kindName(parent)) {
     case "KindTypeReference": return ast.as.AsTypeReferenceNode(parent)?.TypeName === node;
     case "KindTypeQuery": return ast.as.AsTypeQueryNode(parent)?.ExprName === node;
+    case "KindImportType": return ast.as.AsImportTypeNode(parent)?.Qualifier === node;
     case "KindQualifiedName": {
       const qualified = ast.as.AsQualifiedName(parent);
       return qualified?.Left === node || qualified?.Right === node;
@@ -5013,6 +5030,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
   const storage: RawStorageCapture[] = [];
   let declarationNameRoot: NodeId | null = null;
   capture: for (const [index, node] of nodes.entries()) {
+    if (own.numbering.excluded?.has(node) === true) continue;
     const reference: RawNodeRef = { module, node: nodeId(index) };
     const kind = ast.kindName(node);
     const parent = ast.parent(node);
@@ -5261,6 +5279,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
   const providerDeclarations: RawProviderDeclaration[] = [];
   const dataLayouts: RawDataLayout[] = [];
   for (const [node, id] of ownNodes) {
+    if (own.numbering.excluded?.has(node) === true) continue;
     if (!admit(scope, "facts")) break;
     const reference = { module, node: id };
     const kind = ast.kindName(node);

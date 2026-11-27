@@ -267,6 +267,7 @@ export type SyntaxKind =
   | "SpreadElement"
   | "ClassExpression"
   | "OmittedExpression"
+  | "ExcludedExpression"
   | "ExpressionWithTypeArguments"
   | "AsExpression"
   | "NonNullExpression"
@@ -543,6 +544,7 @@ export interface Phase {
   readonly SemicolonClassElement: object | null;
   readonly ClassStaticBlockDeclaration: object | null;
   readonly OmittedExpression: object | null;
+  readonly ExcludedExpression: null;
   readonly KeywordExpression: object | null;
   readonly StringLiteral: object | null;
   readonly NumericLiteral: object | null;
@@ -1402,6 +1404,14 @@ export interface ClassStaticBlockDeclaration<P extends Phase> extends NodeHeader
 export interface OmittedExpression<P extends Phase> extends NodeHeader {
   readonly kind: "OmittedExpression";
   readonly tsonic: P["OmittedExpression"];
+}
+
+export type ExcludedExpressionForm = "JsxElement" | "JsxSelfClosingElement" | "JsxFragment" | "DynamicImport";
+
+export interface ExcludedExpression<P extends Phase> extends NodeHeader {
+  readonly kind: "ExcludedExpression";
+  readonly form: ExcludedExpressionForm;
+  readonly tsonic: P["ExcludedExpression"];
 }
 
 export interface KeywordExpression<P extends Phase, K extends KeywordExpressionSyntaxKind = KeywordExpressionSyntaxKind> extends NodeHeader {
@@ -2395,6 +2405,7 @@ export interface JSDocParameterOrPropertyTag<P extends Phase, K extends "JSDocPa
 }
 
 export type Expression<P extends Phase> =
+  | ExcludedExpression<P>
   | Identifier<P>
   | PrivateIdentifier<P>
   | ClassExpression<P>
@@ -2517,6 +2528,7 @@ export type TypeNode<P extends Phase> =
   | JSDocTypeLiteral<P>;
 
 export type BlockOrExpression<P extends Phase> =
+  | ExcludedExpression<P>
   | Block<P>
   | Identifier<P>
   | PrivateIdentifier<P>
@@ -2569,6 +2581,7 @@ export type BlockOrExpression<P extends Phase> =
   | SyntheticReferenceExpression<P>;
 
 export type NodeBody<P extends Phase> =
+  | ExcludedExpression<P>
   | Block<P>
   | Identifier<P>
   | PrivateIdentifier<P>
@@ -2663,6 +2676,7 @@ export type JSDocFullName<P extends Phase> =
   | ModuleDeclaration<P>;
 
 export type ForInitializer<P extends Phase> =
+  | ExcludedExpression<P>
   | Identifier<P>
   | PrivateIdentifier<P>
   | ClassExpression<P>
@@ -2837,6 +2851,7 @@ export type ImportAttributeName<P extends Phase> =
   | StringLiteral<P>;
 
 export type LeftHandSideExpression<P extends Phase> =
+  | ExcludedExpression<P>
   | Identifier<P>
   | PrivateIdentifier<P>
   | ClassExpression<P>
@@ -3321,11 +3336,11 @@ export type ExportSpecifierList<P extends Phase> = NodeList<ExportSpecifier<P>>;
 
 export type TypeArgumentList<P extends Phase> = NodeList<KeywordTypeNode<P> | UnionTypeNode<P> | IntersectionTypeNode<P> | ConditionalTypeNode<P> | TypeOperatorNode<P> | InferTypeNode<P> | ArrayTypeNode<P> | IndexedAccessTypeNode<P> | TypeReferenceNode<P> | LiteralTypeNode<P> | ThisTypeNode<P> | TypePredicateNode<P> | TypeQueryNode<P> | MappedTypeNode<P> | TypeLiteralNode<P> | TupleTypeNode<P> | NamedTupleMember<P> | OptionalTypeNode<P> | RestTypeNode<P> | ParenthesizedTypeNode<P> | FunctionTypeNode<P> | ConstructorTypeNode<P> | TemplateLiteralTypeNode<P> | TemplateLiteralTypeSpan<P> | JSDocTypeExpression<P> | JSDocNonNullableType<P> | JSDocNullableType<P> | JSDocAllType<P> | JSDocVariadicType<P> | JSDocOptionalType<P> | JSDocSignature<P> | JSDocNameReference<P> | ImportTypeNode<P> | JSDocTypeLiteral<P>>;
 
-export type ArgumentList<P extends Phase> = NodeList<Identifier<P> | PrivateIdentifier<P> | ClassExpression<P> | OmittedExpression<P> | KeywordExpression<P> | StringLiteral<P> | NumericLiteral<P> | BigIntLiteral<P> | RegularExpressionLiteral<P> | NoSubstitutionTemplateLiteral<P> | BinaryExpression<P> | PrefixUnaryExpression<P> | PostfixUnaryExpression<P> | YieldExpression<P> | ArrowFunction<P> | FunctionExpression<P> | AsExpression<P> | SatisfiesExpression<P> | ConditionalExpression<P> | PropertyAccessExpression<P> | ElementAccessExpression<P> | CallExpression<P> | NewExpression<P> | MetaProperty<P> | NonNullExpression<P> | SpreadElement<P> | TemplateExpression<P> | TaggedTemplateExpression<P> | ParenthesizedExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P> | DeleteExpression<P> | TypeOfExpression<P> | VoidExpression<P> | AwaitExpression<P> | TypeAssertion<P> | ExpressionWithTypeArguments<P> | PartiallyEmittedExpression<P> | JsxElement<P> | JsxAttributes<P> | JsxNamespacedName<P> | JsxOpeningElement<P> | JsxSelfClosingElement<P> | JsxFragment<P> | JsxOpeningFragment<P> | JsxClosingFragment<P> | JsxExpression<P> | JsxText<P> | SyntheticReferenceExpression<P>>;
+export type ArgumentList<P extends Phase> = NodeList<Expression<P>>;
 
 export type TemplateSpanList<P extends Phase> = NodeList<TemplateSpan<P>>;
 
-export type ElementList<P extends Phase> = NodeList<Identifier<P> | PrivateIdentifier<P> | ClassExpression<P> | OmittedExpression<P> | KeywordExpression<P> | StringLiteral<P> | NumericLiteral<P> | BigIntLiteral<P> | RegularExpressionLiteral<P> | NoSubstitutionTemplateLiteral<P> | BinaryExpression<P> | PrefixUnaryExpression<P> | PostfixUnaryExpression<P> | YieldExpression<P> | ArrowFunction<P> | FunctionExpression<P> | AsExpression<P> | SatisfiesExpression<P> | ConditionalExpression<P> | PropertyAccessExpression<P> | ElementAccessExpression<P> | CallExpression<P> | NewExpression<P> | MetaProperty<P> | NonNullExpression<P> | SpreadElement<P> | TemplateExpression<P> | TaggedTemplateExpression<P> | ParenthesizedExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P> | DeleteExpression<P> | TypeOfExpression<P> | VoidExpression<P> | AwaitExpression<P> | TypeAssertion<P> | ExpressionWithTypeArguments<P> | PartiallyEmittedExpression<P> | JsxElement<P> | JsxAttributes<P> | JsxNamespacedName<P> | JsxOpeningElement<P> | JsxSelfClosingElement<P> | JsxFragment<P> | JsxOpeningFragment<P> | JsxClosingFragment<P> | JsxExpression<P> | JsxText<P> | SyntheticReferenceExpression<P>>;
+export type ElementList<P extends Phase> = NodeList<Expression<P>>;
 
 export type PropertyDefinitionList<P extends Phase> = NodeList<GetAccessorDeclaration<P> | SetAccessorDeclaration<P> | MethodDeclaration<P> | SpreadAssignment<P> | PropertyAssignment<P> | ShorthandPropertyAssignment<P> | JsxSpreadAttribute<P>>;
 
@@ -3722,6 +3737,7 @@ export type JSDocTypeLiteralNode<P extends Phase> = JSDocTypeLiteral<P>;
 export type JSDocParameterOrPropertyTagNode<P extends Phase> = JSDocParameterOrPropertyTag<P>;
 
 export type SyntaxNode<P extends Phase> =
+  | ExcludedExpression<P>
   | Token<P>
   | Identifier<P>
   | PrivateIdentifier<P>

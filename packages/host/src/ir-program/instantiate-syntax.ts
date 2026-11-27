@@ -206,6 +206,8 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "ClassStaticBlockDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
+    case "ExcludedExpression":
+      return throwInvariant({ ...missingImage, message: "An excluded source expression has no Typed syntax image." });
     case "OmittedExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "NullKeyword":     case "TrueKeyword":     case "FalseKeyword":     case "ThisKeyword":     case "SuperKeyword":     case "ImportKeyword":

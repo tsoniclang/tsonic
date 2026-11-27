@@ -1,7 +1,7 @@
 import type * as Hir from "./contract.js";
 import type * as Ids from "../ids/contract.js";
 import type { HirSyntaxConstruction, HirRecordConstruction } from "./text-construction.js";
-import { syntaxRecord, sequenceReader, unionReader } from "./text-construction.js";
+import { literalReader, syntaxRecord, sequenceReader, unionReader } from "./text-construction.js";
 import type { HirTextReaders } from "./text-read-model.js";
 export function createSyntaxGroup6(readers: () => HirTextReaders): ReadonlyMap<string, (accept: (value: HirSyntaxConstruction) => void) => HirRecordConstruction> {
   return new Map([
@@ -45,6 +45,19 @@ export function createSyntaxGroup6(readers: () => HirTextReaders): ReadonlyMap<s
       const field_tsonic = read("tsonic", unionReader<Hir.CheckedAggregate>(() => [readers().record_83, readers().record_177, readers().record_layout_quote]));
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_properties, field_multiLine, field_tsonic], value: () => ({ kind: "ObjectLiteralExpression", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), properties: field_properties.value(), multiLine: field_multiLine.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "ObjectLiteralExpression", value }), accept)],
+    ["ExcludedExpression", accept => syntaxRecord<Hir.ExcludedExpression<Hir.CheckedPhase>>(read => {
+      const id = read("id", readers().identity_n);
+      const origin = read("origin", readers().record_30);
+      const parent = read("parent", unionReader<Ids.NodeId | null>(() => [readers().scalar_null, readers().identity_n]));
+      const flags = read("flags", sequenceReader(readers().literal_35));
+      const loc = read("loc", readers().record_81);
+      const form = read("form", literalReader<Hir.ExcludedExpressionForm>(["JsxElement", "JsxSelfClosingElement", "JsxFragment", "DynamicImport"]));
+      const phase = read("tsonic", readers().scalar_null);
+      return { fields: [id, origin, parent, flags, loc, form, phase], value: () => ({
+        kind: "ExcludedExpression", id: id.value(), origin: origin.value(), parent: parent.value(), flags: flags.value(),
+        loc: loc.value(), form: form.value(), tsonic: phase.value(),
+      }) };
+    }, value => ({ kind: "ExcludedExpression", value }), accept)],
     ["OmittedExpression", accept => syntaxRecord<Hir.OmittedExpression<Hir.CheckedPhase>>(read => {
       const field_id = read("id", readers().identity_n);
       const field_origin = read("origin", readers().record_30);

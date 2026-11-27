@@ -13,7 +13,8 @@ export const indexForms: IndexFormDiagnostics = (deps, module) => {
     const next = frame.children.next();
     if (next.done) { stack.pop(); continue; }
     const { node, fields } = next.value;
-    const unsupported = node.kind === "ModuleDeclaration" || node.kind === "Decorator" || node.kind === "AccessorKeyword" || node.kind === "DebuggerStatement"
+    const unsupported = node.kind === "ModuleDeclaration" || node.kind === "Decorator" || node.kind === "AccessorKeyword"
+      || node.kind === "DebuggerStatement" || node.kind === "ExcludedExpression"
       || deps.role === "source" && (node.kind === "DeclareKeyword" || node.kind === "ImportEqualsDeclaration"
         || node.kind === "ExportAssignment" && node.isExportEquals);
     if (unsupported) {
@@ -43,7 +44,7 @@ export const checkForms: FormDiagnostics = (deps, site, unit) => {
   const diagnostic: Diagnostic = { code: { kind: "host", name: code, rendered: code }, severity: "error",
     site: { kind: "source", origin: report.origin }, source: "validate", evidence: [],
     message: "The canonical source policy does not admit this source form.",
-    arguments: [{ kind: "text", value: report.kind }], related: [], fix: null };
+    arguments: [{ kind: "text", value: report.kind === "ExcludedExpression" ? report.form : report.kind }], related: [], fix: null };
   const diagnostics: readonly [Diagnostic] = [diagnostic];
   return { kind: "ok", value: { module, node: site.cut, report: identity.unit, error, diagnostics }, diagnostics,
     emissions: [{ identity, diagnostic }], positions: [{ position: identity.unit.position, error },

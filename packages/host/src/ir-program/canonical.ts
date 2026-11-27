@@ -325,7 +325,7 @@ function checkedContent<Stop>(scan: ProjectionInventory, rewrite: TypeReferenceR
     structure: node => inventoryRecord(scan, 5) ?? inventoryRecord(scan, node.kind === "Block" ? 2 : 0),
     list: node => node.kind === "BinaryExpression" ? work() : inventoryRecord(scan, 2) }, {
     admit: (units, records) => admitCheckedProjection(scan.meter, units, records),
-    syntaxNode: () => inventoryRecord(scan, 5),
+    syntaxNode: node => inventoryRecord(scan, node.kind === "ExcludedExpression" ? 6 : 5),
     type: type => projectRead(scan, () => copiedProjection(rewrite.type(type))),
     signature: signature => projectRead(scan, () => copiedProjection(rewrite.signature(signature))),
     bindings: bindings => finishProjection(scan, prepareBindingsProjection(scan, bindings), rewrite),

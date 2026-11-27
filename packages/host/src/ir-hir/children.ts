@@ -666,6 +666,7 @@ function ordinarySlots<PhaseType extends Phase>(
     case "NotEmittedTypeElement":
     case "SemicolonClassElement":
     case "OmittedExpression":
+    case "ExcludedExpression":
     case "StringLiteral":
     case "NumericLiteral":
     case "BigIntLiteral":

@@ -32,7 +32,7 @@ import type {
   NamedTupleMember, NamespaceExport, NamespaceExportDeclaration, NamespaceImport, NewExpression,
   NoSubstitutionTemplateLiteral, NodeBody, NodeHeader, NonNullExpression,
   NotEmittedStatement, NotEmittedTypeElement, NumericLiteral, ObjectLiteralElementLike, ObjectLiteralExpression,
-  OmittedExpression, OptionalTypeNode, ParameterDeclaration, ParenthesizedExpression, ParenthesizedTypeNode,
+  OmittedExpression, ExcludedExpression, OptionalTypeNode, ParameterDeclaration, ParenthesizedExpression, ParenthesizedTypeNode,
   PartiallyEmittedExpression, PostfixUnaryExpression, PrefixUnaryExpression, PrivateIdentifier, PropertyAccessExpression,
   PropertyAssignment, PropertyDeclaration, PropertyName, PropertySignatureDeclaration, QualifiedName,
   RegularExpressionLiteral, RestTypeNode, ReturnStatement, SatisfiesExpression, SemicolonClassElement,
@@ -156,6 +156,7 @@ export interface SyntaxCopyPorts<P extends Phase, Stop, Image> {
   readonly SemicolonClassElement: (node: SemicolonClassElement<P>) => SyntaxPlan<SemicolonClassElement<P>, Stop, Image>;
   readonly ClassStaticBlockDeclaration: (node: ClassStaticBlockDeclaration<P>) => SyntaxPlan<ClassStaticBlockDeclaration<P>, Stop, Image>;
   readonly OmittedExpression: (node: OmittedExpression<P>) => SyntaxPlan<OmittedExpression<P>, Stop, Image>;
+  readonly ExcludedExpression: (node: ExcludedExpression<P>) => SyntaxPlan<ExcludedExpression<P>, Stop, Image>;
   readonly KeywordExpression: (node: KeywordExpression<P>) => SyntaxPlan<KeywordExpression<P>, Stop, Image>;
   readonly StringLiteral: (node: StringLiteral<P>) => SyntaxPlan<StringLiteral<P>, Stop, Image>;
   readonly NumericLiteral: (node: NumericLiteral<P>) => SyntaxPlan<NumericLiteral<P>, Stop, Image>;
@@ -438,6 +439,7 @@ export function planSyntaxNode<P extends Phase, Stop, Image>(ports: SyntaxCopyPo
     case "SemicolonClassElement": return ports.SemicolonClassElement(node);
     case "ClassStaticBlockDeclaration": return ports.ClassStaticBlockDeclaration(node);
     case "OmittedExpression": return ports.OmittedExpression(node);
+    case "ExcludedExpression": return ports.ExcludedExpression(node);
     case "NullKeyword": case "TrueKeyword": case "FalseKeyword": case "ThisKeyword": case "SuperKeyword": case "ImportKeyword": return ports.KeywordExpression(node);
     case "StringLiteral": return ports.StringLiteral(node);
     case "NumericLiteral": return ports.NumericLiteral(node);

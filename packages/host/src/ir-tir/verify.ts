@@ -785,6 +785,8 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   const boundary = readSourceBoundary(body.body, input.source, input.nodeOf);
   const structure = inspectTirStructure(body, createTirLayouts(), boundary.nestedRoots);
   const inventory = verifySourcePreservation(body, input.source, input.module, boundary, emit);
+  for (const node of structure.excluded)
+    emit("kind-children-shape", node, "An excluded source expression cannot occupy a Typed syntax slot.");
   verifyBodylessParameters(input, structure.nodes, inventory.sourceNodes, emit);
   verifyDeclarationNames(structure.nodes, inventory.sourceNodes, emit);
   const semantics = collectTirSemantics(structure);
@@ -1176,6 +1178,8 @@ export const verifyTypedModule: VerifyTirModule = (input, module, admit) => {
     stops.add(body.root.id);
   }
   const structure = inspectTirStructure(module, createTirLayouts(), stops);
+  for (const node of structure.excluded)
+    emit("kind-children-shape", node, "An excluded source expression cannot occupy a Typed syntax slot.");
   const moduleNodes = chapterNodes(module, emit);
   verifyCanonicalTemplates(input, module, moduleNodes, emit);
   const sourceNodes = new Map<NodeId, HirNode>();

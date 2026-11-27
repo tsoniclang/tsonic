@@ -2,6 +2,7 @@ import type { CheckedSourceProgram, CompilerExtension, Node, ProviderDeclaration
 import type { Diagnostic } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId, PackageId } from "../ids/contract.js";
+import type { ExcludedExpressionForm } from "../ir-hir/contract.js";
 import type { PlatformLayout } from "../ir-types/contract.js";
 import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, ProjectSnapshot, SourceDeclarationPolicy } from "../snapshot/contract.js";
 import type { ProgramModule, ProgramModuleSet } from "./program-data.js";
@@ -20,6 +21,7 @@ export interface FileNumbering {
   readonly nodes: readonly Node[];
   readonly ids: ReadonlyMap<Node, NodeId>;
   readonly parents: ReadonlyMap<Node, NodeId | null>;
+  readonly excluded: ReadonlyMap<Node, ExcludedExpressionForm> | null;
 }
 
 /** A file's numbering, or the resource refusal that stopped it before any node was captured; the limits it was made under. */

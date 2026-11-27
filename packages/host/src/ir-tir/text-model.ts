@@ -237,6 +237,7 @@ export const createTirLayouts = (): TirLayouts => {
   });
   const nodeWork = (value: TirWireNode): TirTypedRecordWork => {
     switch (value.kind) {
+      case "ExcludedExpression": throw new TypeError("ir-tir: an excluded source expression has no Typed syntax definition");
       case "Unknown":
       case "EndOfFile":
       case "SingleLineCommentTrivia":

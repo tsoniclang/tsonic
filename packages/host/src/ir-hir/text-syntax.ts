@@ -50,6 +50,7 @@ function syntaxFields(node: Hir.HirNode, metadata: (node: Hir.HirNode) => HirDat
   ];
   const tag = (value: TagFields): readonly HirDataField[] => [one("tagName", value.tagName), list("comment", value.comment)];
   switch (node.kind) {
+    case "ExcludedExpression": return [scalar("form", node.form)];
     case "Identifier": case "PrivateIdentifier": return [scalar("text", node.text)];
     case "QualifiedName": return [one("left", node.left), one("right", node.right)];
     case "ComputedPropertyName": case "Decorator": case "ExpressionStatement": case "ThrowStatement":

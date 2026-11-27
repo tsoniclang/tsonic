@@ -44,7 +44,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "SwitchStatement", "CaseBlock", "CaseClause", "DefaultClause", "TryStatement", "CatchClause",
   "EmptyStatement", "DebuggerStatement", "LabeledStatement",
   "BinaryExpression", "ConditionalExpression", "ColonToken", "PrefixUnaryExpression", "PostfixUnaryExpression", "PlusToken", "EqualsToken",
-  "CallExpression", "ExpressionStatement", "ParenthesizedExpression", "VoidExpression",
+  "CallExpression", "ExcludedExpression", "ExpressionStatement", "ParenthesizedExpression", "VoidExpression",
   "AsExpression", "TypeAssertionExpression", "SatisfiesExpression", "NonNullExpression",
   "MinusToken", "AsteriskToken", "SlashToken", "PercentToken", "EqualsEqualsToken", "EqualsEqualsEqualsToken", "ExclamationEqualsToken", "ExclamationEqualsEqualsToken",
   "LessThanToken", "LessThanEqualsToken", "GreaterThanToken", "GreaterThanEqualsToken",
@@ -56,7 +56,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "ModuleDeclaration", "ModuleBlock",
   "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
   "EnumDeclaration", "EnumMember", "ConstKeyword",
-  "CallSignature", "ConstructSignature", "FunctionType", "ConstructorType", "MethodSignature", "IndexSignature", "GetAccessor", "SetAccessor", "TypeReference", "TypeQuery", "UnionType", "IntersectionType",
+  "CallSignature", "ConstructSignature", "FunctionType", "ConstructorType", "MethodSignature", "IndexSignature", "GetAccessor", "SetAccessor", "TypeReference", "TypeQuery", "ImportType", "UnionType", "IntersectionType",
   "ArrayType", "TupleType", "OptionalType", "RestType", "TypeOperator", "IndexedAccessType", "ConditionalType", "InferType", "ThisType", "TypePredicate", "LiteralType", "ParenthesizedType", "MappedType",
   "TemplateLiteralType", "TemplateLiteralTypeSpan", "TemplateHead", "TemplateMiddle", "TemplateTail",
   "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "ElementAccessExpression", "QuestionToken",
@@ -1005,6 +1005,8 @@ function buildFieldSelector(lowering: Lowering, node: Hir.ArrowFunction<Syntax>,
 
 function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>, owner: DefId,
   typeOf: TypeReader, context: ExpressionContext): ConversionResult<Hir.Expression<Checked>> {
+  if (node.kind === "ExcludedExpression")
+    return { kind: "complete", value: { ...headerOf(node), kind: node.kind, form: node.form, tsonic: null } };
   if (node.kind === "ArrowFunction" && typeof context === "object")
     return buildFieldSelector(lowering, node, typeOf, context);
   if (node.kind === "Identifier") {

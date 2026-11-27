@@ -729,7 +729,7 @@ export function hirCheckedData(node: Hir.HirNode): HirDataWork {
     case "WhileStatement": case "ForStatement": case "BreakStatement": case "ContinueStatement":
     case "ReturnStatement": case "WithStatement": case "SwitchStatement": case "CaseBlock":
     case "CaseClause": case "DefaultClause": case "ThrowStatement": case "TryStatement":
-    case "CatchClause": case "DebuggerStatement": case "LabeledStatement": case "ExpressionStatement":
+    case "CatchClause": case "DebuggerStatement": case "ExcludedExpression": case "LabeledStatement": case "ExpressionStatement":
     case "Block": case "VariableStatement": case "MissingDeclaration": case "HeritageClause":
     case "ModuleBlock": case "NotEmittedStatement": case "NotEmittedTypeElement": case "ExternalModuleReference":
     case "NamedImports": case "NamedExports": case "SemicolonClassElement": case "TemplateSpan":

@@ -1,6 +1,6 @@
 import type {
   Identifier, PrivateIdentifier, QualifiedName, ComputedPropertyName, Decorator,
-  OmittedExpression, KeywordExpression, StringLiteral, NumericLiteral, BigIntLiteral,
+  OmittedExpression, ExcludedExpression, KeywordExpression, StringLiteral, NumericLiteral, BigIntLiteral,
   RegularExpressionLiteral, NoSubstitutionTemplateLiteral, BinaryExpression, BinarySyntaxReceipt, PrefixUnaryExpression, PostfixUnaryExpression,
   YieldExpression, ArrowFunction, FunctionExpression, AsExpression, SatisfiesExpression,
   ConditionalExpression, PropertyAccessExpression, ElementAccessExpression, CallExpression, NewExpression,
@@ -24,6 +24,7 @@ export interface ExpressionsPlans<P extends Phase, Stop, Image> {
   readonly ComputedPropertyName: (node: ComputedPropertyName<P>) => SyntaxPlan<ComputedPropertyName<P>, Stop, Image>;
   readonly Decorator: (node: Decorator<P>) => SyntaxPlan<Decorator<P>, Stop, Image>;
   readonly OmittedExpression: (node: OmittedExpression<P>) => SyntaxPlan<OmittedExpression<P>, Stop, Image>;
+  readonly ExcludedExpression: (node: ExcludedExpression<P>) => SyntaxPlan<ExcludedExpression<P>, Stop, Image>;
   readonly KeywordExpression: (node: KeywordExpression<P>) => SyntaxPlan<KeywordExpression<P>, Stop, Image>;
   readonly StringLiteral: (node: StringLiteral<P>) => SyntaxPlan<StringLiteral<P>, Stop, Image>;
   readonly NumericLiteral: (node: NumericLiteral<P>) => SyntaxPlan<NumericLiteral<P>, Stop, Image>;
@@ -92,6 +93,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
   const ComputedPropertyName = new Map<ComputedPropertyName<P>, SyntaxPlan<ComputedPropertyName<P>, Stop, Image>>();
   const Decorator = new Map<Decorator<P>, SyntaxPlan<Decorator<P>, Stop, Image>>();
   const OmittedExpression = new Map<OmittedExpression<P>, SyntaxPlan<OmittedExpression<P>, Stop, Image>>();
+  const ExcludedExpression = new Map<ExcludedExpression<P>, SyntaxPlan<ExcludedExpression<P>, Stop, Image>>();
   const StringLiteral = new Map<StringLiteral<P>, SyntaxPlan<StringLiteral<P>, Stop, Image>>();
   const NumericLiteral = new Map<NumericLiteral<P>, SyntaxPlan<NumericLiteral<P>, Stop, Image>>();
   const BigIntLiteral = new Map<BigIntLiteral<P>, SyntaxPlan<BigIntLiteral<P>, Stop, Image>>();
@@ -203,6 +205,11 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
         expression: ports().LeftHandSideExpression(structure(node, "decorator").expression()),
         tsonic,
       });
+    })),
+    ExcludedExpression: node => memoSyntaxPlan(ExcludedExpression, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
+      const header = syntaxHeader(node);
+      const { kind, form } = node;
+      return tsonic => ({ ...header, kind, form, tsonic });
     })),
     OmittedExpression: node => memoSyntaxPlan(OmittedExpression, node, () => withSyntaxPayload(phase.OmittedExpression, node.tsonic, () => {
       const header = syntaxHeader(node);

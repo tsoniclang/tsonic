@@ -166,6 +166,115 @@ test("authored debugger statements reach Forms at their exact checked occurrence
   assert.deepEqual(control.diagnostics, []);
 });
 
+test("excluded executable expressions report only their authored outer Forms occurrence", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const unsupported = "TSONIC_SOURCE_FORM_UNSUPPORTED";
+  const root = "/project/node_modules/dependency";
+  const independent = "export function independent(): boolean { return missing; }";
+  const libraries = [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }];
+  for (const [file, form, expression] of [
+    ["main.tsx", "JsxElement", "<div><span>{import('dependency')}</span></div>"],
+    ["main.tsx", "JsxSelfClosingElement", "<div callback={() => { debugger; }} />"],
+    ["main.tsx", "JsxFragment", "<><div /></>"],
+    ["main.ts", "DynamicImport", "import('dependency')"],
+    ["main.ts", "DynamicImport", "import('dependency', { with: { type: 'json' } })"],
+    ["main.ts", "DynamicImport", "import(name)"],
+  ]) {
+    for (const earlier of [true, false]) {
+      const containing = `export function choose(name: string): boolean { ${expression}; return true; }`;
+      const authored = (earlier ? [containing, independent] : [independent, containing]).join("\n");
+      const input = { ...analysisInput(fixture, "sdk-minimal", authored), snapshot: fixture.projectSnapshot({
+        sourceFiles: { [file]: authored }, libraries,
+        extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
+        otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source", "export type Item = boolean;", false] } }],
+      }) };
+      const captured = captureSourceBarrier(input);
+      assert.equal(captured.kind, "ok");
+      const main = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint);
+      const cut = main.nodes.find(row => row.kind === "ExcludedExpression");
+      const start = authored.indexOf(expression);
+      assert.deepEqual(cut.origin, { module: main.module.module, start, length: expression.length, derived: [] });
+      assert.deepEqual([cut.form, cut.tsonic], [form, null]);
+      assert.equal(main.nodes.filter(node => node.kind === "ExcludedExpression").length, 1);
+      assert.equal(main.nodes.some(node => node.parent === cut.id), false, "excluded operands were not opened");
+      assert.deepEqual(main.module.moduleLinks, []);
+      const original = main.module.checkerDiagnostics.find(item => item.code.rendered === "TS2304");
+      const typed = typeSourceBarrier(input, captured.value, createAccount(input.limits.dataflow));
+      assert.equal(typed.kind, "refused");
+      assert.equal(Object.hasOwn(typed, "value"), false);
+      assert.deepEqual(typed.diagnostics.map(row => row.code.rendered), earlier ? [unsupported, "TS2304"] : ["TS2304", unsupported]);
+      const reported = typed.diagnostics.find(row => row.code.rendered === unsupported);
+      assert.equal(reported.site.origin === cut.origin, true);
+      assert.deepEqual(reported.arguments, [{ kind: "text", value: form }]);
+      assert.equal(typed.diagnostics.find(row => row.code.rendered === "TS2304") === original, true);
+    }
+  }
+});
+
+test("type-only import retains its actual declaration and leaves an excluded dependency unopened", async () => {
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { parseModuleBodies, printModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
+  const { printHir, parseHir } = await import("../../packages/host/dist/ir-hir/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const root = "/project/node_modules/dependency";
+  const dependency = fixture.moduleOf(fixture.packageOf(root), "index.ts");
+  const make = source => ({
+    ...analysisInput(fixture, "sdk-minimal", source),
+    snapshot: fixture.projectSnapshot({
+      sourceFiles: { "main.ts": source }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+      extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
+      otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source",
+        "export type Item = boolean; export function denied(): boolean { import('dependency'); return true; }", false] } }],
+    }),
+  });
+  const input = make("export type Offered = import('dependency').Item; export function ordinary(): Offered { return true; }");
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok");
+  const [upstream] = captured.value.modules.find(row => row.module.module === dependency).module.tree.statements.nodes;
+  const checked = captured.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+  const annotation = checked.tree.statements.nodes[0].type;
+  assert.equal(annotation.kind, "ImportType");
+  assert.deepEqual(annotation.tsonic.referencedDefinitions, [upstream.tsonic.definition]);
+  const checkedWire = printHir(checked);
+  const decodedHir = parseHir(checkedWire);
+  assert.equal(decodedHir.kind, "parsed");
+  assert.equal(printHir(decodedHir.value), checkedWire);
+  const good = analyzeHostProgram(input);
+  assert.equal(good.kind, "ok", JSON.stringify(good.diagnostics));
+  const { index, modules } = good.value;
+  const chapter = modules.find(row => row.module === dependency);
+  assert.equal(chapter.tree.kind, "checked-root");
+  assert.equal(chapter.bodies.length, 0);
+  assert.equal(index.initialization.modules.some(row => {
+    const body = fixture.ids.decodeBodyId(row.instance.body);
+    assert.equal(body.kind, "decoded");
+    const owner = fixture.ids.decodeDefId(body.value.owner);
+    assert.equal(owner.kind, "decoded");
+    return owner.value.module === dependency;
+  }), false);
+  const wire = printModuleBodies(index, chapter);
+  assert.equal(wire.includes("ExcludedExpression("), true);
+  const decoded = parseModuleBodies(index, wire);
+  assert.equal(decoded.kind, "parsed");
+  assert.equal(printModuleBodies(index, decoded.value), wire);
+  const invalidForm = wire.replace('form="DynamicImport"', 'form="CallExpression"');
+  assert.equal(invalidForm !== wire, true);
+  assert.equal(parseModuleBodies(index, invalidForm).kind, "invalid-text");
+  const readyWire = printModuleBodies(index, modules.find(row => row.module === input.snapshot.entryPoint));
+  const invalidTyped = readyWire.replace(/^(n:\d+=)TrueKeyword\(/m, "$1ExcludedExpression(");
+  assert.equal(invalidTyped !== readyWire, true);
+  assert.equal(parseModuleBodies(index, invalidTyped).kind, "invalid-text");
+  const entered = analyzeHostProgram(make("import {denied} from 'dependency'; export function run(): boolean { return denied(); }"));
+  assert.equal(entered.kind, "refused");
+  assert.deepEqual(entered.diagnostics.map(row => [row.code.rendered, row.site.origin.module]),
+    [["TSONIC_SOURCE_FORM_UNSUPPORTED", dependency]]);
+  assert.equal(Object.hasOwn(entered, "value"), false);
+});
+
 test("selected throw refuses the immediate effect-only operand, keeping independent diagnostics in either source order", async () => {
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

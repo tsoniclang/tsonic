@@ -10,6 +10,7 @@ import { sameJSDoc, sameJSDocAugmentsTag, sameJSDocCallbackTag, sameJSDocDepreca
 export const sameSyntaxFields = (left: Hir.SyntaxNode<TypedPhase>, right: Hir.HirNode): boolean => {
   if (!sameVector(left.flags, right.flags, Object.is)) return false;
   switch (left.kind) {
+    case "ExcludedExpression": return false;
     case "ArrayLiteralExpression": return right.kind === "ArrayLiteralExpression" && sameArrayLiteralExpression(left, right);
     case "ArrayType": return right.kind === "ArrayType" && sameArrayTypeNode(left, right);
     case "ArrowFunction": return right.kind === "ArrowFunction" && sameArrowFunction(left, right);

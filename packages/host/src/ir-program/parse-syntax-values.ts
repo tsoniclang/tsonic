@@ -22,7 +22,7 @@ export interface SyntaxValue<Value> {
   readonly resolve: () => Value;
 }
 
-export type OrdinaryDefinitionKind = Exclude<SyntaxNode<TypedPhase>["kind"], "Parameter">;
+export type OrdinaryDefinitionKind = Exclude<SyntaxNode<TypedPhase>["kind"], "Parameter" | "ExcludedExpression">;
 export type TypedDefinitionKind = OrdinaryDefinitionKind | "TirModuleRoot" | "TirReadyCallable" | "TirFormal";
 export type TypedWireKind = SyntaxKind | "TirModuleRoot" | "TirReadyCallable" | "TirFormal";
 

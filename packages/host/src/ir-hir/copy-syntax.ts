@@ -93,7 +93,7 @@ function entityNameRole<P extends Phase>(_candidate: SyntaxNode<P>, kind: Syntax
 
 function expressionRole<P extends Phase>(_candidate: SyntaxNode<P>, kind: SyntaxKind<P>): _candidate is Expression<P> {
   switch (kind) {
-    case "Identifier": case "PrivateIdentifier": case "ClassExpression": case "OmittedExpression":
+    case "Identifier": case "PrivateIdentifier": case "ClassExpression": case "OmittedExpression": case "ExcludedExpression":
     case "NullKeyword": case "TrueKeyword": case "FalseKeyword": case "ThisKeyword": case "SuperKeyword":
     case "ImportKeyword": case "StringLiteral": case "NumericLiteral": case "BigIntLiteral":
     case "RegularExpressionLiteral": case "NoSubstitutionTemplateLiteral": case "BinaryExpression":
@@ -120,7 +120,7 @@ function leftHandSideExpressionRole<P extends Phase>(_candidate: SyntaxNode<P>, 
     case "NewExpression": case "MetaProperty": case "NonNullExpression": case "TemplateExpression":
     case "TaggedTemplateExpression": case "ParenthesizedExpression": case "ArrayLiteralExpression":
     case "ObjectLiteralExpression": case "ExpressionWithTypeArguments": case "PartiallyEmittedExpression":
-    case "JsxElement": case "JsxAttributes": case "JsxSelfClosingElement": case "JsxFragment": return true;
+    case "JsxElement": case "JsxAttributes": case "JsxSelfClosingElement": case "JsxFragment": case "ExcludedExpression": return true;
     default: return false;
   }
 }

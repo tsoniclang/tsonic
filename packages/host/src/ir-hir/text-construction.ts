@@ -289,6 +289,7 @@ export type HirSyntaxConstruction =
   | { readonly kind: "ObjectLiteralExpression"; readonly value: HirConstruction<Hir.ObjectLiteralExpression<Hir.CheckedPhase>> }
   | { readonly kind: "OfKeyword"; readonly value: HirConstruction<Hir.Token<Hir.CheckedPhase, Hir.PlainTokenKind> & { readonly kind: "OfKeyword" }> }
   | { readonly kind: "OmittedExpression"; readonly value: HirConstruction<Hir.OmittedExpression<Hir.CheckedPhase>> }
+  | { readonly kind: "ExcludedExpression"; readonly value: HirConstruction<Hir.ExcludedExpression<Hir.CheckedPhase>> }
   | { readonly kind: "OpenBraceToken"; readonly value: HirConstruction<Hir.Token<Hir.CheckedPhase, Hir.PlainTokenKind> & { readonly kind: "OpenBraceToken" }> }
   | { readonly kind: "OpenBracketToken"; readonly value: HirConstruction<Hir.Token<Hir.CheckedPhase, Hir.PlainTokenKind> & { readonly kind: "OpenBracketToken" }> }
   | { readonly kind: "OpenParenToken"; readonly value: HirConstruction<Hir.Token<Hir.CheckedPhase, Hir.PlainTokenKind> & { readonly kind: "OpenParenToken" }> }

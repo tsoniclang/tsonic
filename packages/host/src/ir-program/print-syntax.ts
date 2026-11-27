@@ -18,6 +18,7 @@ import { printImportDeclaration, printExternalModuleReference, printNamespaceImp
 
 export function syntaxText(node: SyntaxNode<TypedPhase>, context: SyntaxTextContext): TextWork {
   switch (node.kind) {
+    case "ExcludedExpression": throw new TypeError("ir-program: an excluded source expression has no Typed wire definition");
     case "Unknown":
     case "EndOfFile":
     case "SingleLineCommentTrivia":

@@ -74,7 +74,7 @@ export type HirSyntaxName = PlainTokenKind
   | "NamespaceExportDeclaration" | "NamespaceExport" | "NamedExports" | "ExportSpecifier" | "CallSignature"
   | "ConstructSignature" | "Constructor" | "GetAccessor" | "SetAccessor" | "IndexSignature" | "MethodSignature"
   | "MethodDeclaration" | "PropertySignature" | "PropertyDeclaration" | "SemicolonClassElement"
-  | "ClassStaticBlockDeclaration" | "OmittedExpression" | "StringLiteral" | "NumericLiteral" | "BigIntLiteral"
+  | "ClassStaticBlockDeclaration" | "OmittedExpression" | "ExcludedExpression" | "StringLiteral" | "NumericLiteral" | "BigIntLiteral"
   | "RegularExpressionLiteral" | "NoSubstitutionTemplateLiteral" | "BinaryExpression" | "PrefixUnaryExpression"
   | "PostfixUnaryExpression" | "YieldExpression" | "ArrowFunction" | "FunctionExpression" | "AsExpression"
   | "SatisfiesExpression" | "ConditionalExpression" | "PropertyAccessExpression" | "ElementAccessExpression"
@@ -347,6 +347,7 @@ interface HirSyntaxSchema {
   readonly SemicolonClassElement: HirShapeBody;
   readonly ClassStaticBlockDeclaration: HirShapeBody;
   readonly OmittedExpression: HirShapeBody;
+  readonly ExcludedExpression: HirShapeBody;
   readonly StringLiteral: HirShapeBody;
   readonly NumericLiteral: HirShapeBody;
   readonly BigIntLiteral: HirShapeBody;
@@ -833,6 +834,7 @@ export function createSyntaxSchema(): HirSyntaxSchema {
     SemicolonClassElement: node("SemicolonClassElement", "null"),
     ClassStaticBlockDeclaration: node("ClassStaticBlockDeclaration", "CheckedStaticBlock", [["modifiers", modifiers], ["body", "Block"]]),
     OmittedExpression: node("OmittedExpression", "CheckedExpression"),
+    ExcludedExpression: node("ExcludedExpression", "null", [["form", hirLiteral("JsxElement", "JsxSelfClosingElement", "JsxFragment", "DynamicImport")]]),
     StringLiteral: node("StringLiteral", "CheckedLiteral", literal),
     NumericLiteral: node("NumericLiteral", "CheckedLiteral", literal),
     BigIntLiteral: node("BigIntLiteral", "CheckedLiteral", literal),
@@ -998,7 +1000,7 @@ export function createSyntaxSchema(): HirSyntaxSchema {
     ...punctuation, ...tokenKeywords,
   ]);
   const expressions: readonly HirShape[] = ([
-    "Identifier", "PrivateIdentifier", "ClassExpression", "OmittedExpression", "KeywordExpression", "StringLiteral",
+    "Identifier", "PrivateIdentifier", "ClassExpression", "OmittedExpression", "ExcludedExpression", "KeywordExpression", "StringLiteral",
     "NumericLiteral", "BigIntLiteral", "RegularExpressionLiteral", "NoSubstitutionTemplateLiteral", "BinaryExpression",
     "PrefixUnaryExpression", "PostfixUnaryExpression", "YieldExpression", "ArrowFunction", "FunctionExpression",
     "AsExpression", "SatisfiesExpression", "ConditionalExpression", "PropertyAccessExpression", "ElementAccessExpression",
@@ -1214,7 +1216,7 @@ export function createSyntaxSchema(): HirSyntaxSchema {
       "BigIntLiteral", "RegularExpressionLiteral", "FunctionExpression", "PropertyAccessExpression", "ElementAccessExpression",
       "CallExpression", "NewExpression", "MetaProperty", "NonNullExpression", "TemplateExpression", "TaggedTemplateExpression",
       "ParenthesizedExpression", "ArrayLiteralExpression", "ObjectLiteralExpression", "ExpressionWithTypeArguments",
-      "PartiallyEmittedExpression", "JsxElement", "JsxAttributes", "JsxSelfClosingElement", "JsxFragment"),
+      "PartiallyEmittedExpression", "JsxElement", "JsxAttributes", "JsxSelfClosingElement", "JsxFragment", "ExcludedExpression"),
     LiteralTypeChild: hirChoice("StringLiteral", "NumericLiteral", "BigIntLiteral", "NoSubstitutionTemplateLiteral",
       "TrueKeyword", "FalseKeyword", "NullKeyword", "PrefixUnaryExpression"),
     BinaryOperatorToken: hirChoice("QuestionQuestionToken", "AsteriskAsteriskToken", "AsteriskToken", "SlashToken",
@@ -1522,6 +1524,7 @@ function isHirSyntaxKind(name: string): name is HirSyntaxName {
     case "ObjectLiteralExpression":
     case "OfKeyword":
     case "OmittedExpression":
+    case "ExcludedExpression":
     case "OpenBraceToken":
     case "OpenBracketToken":
     case "OpenParenToken":

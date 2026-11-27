@@ -47,6 +47,7 @@ export interface TirStructure {
   readonly records: readonly TirRecordVisit[];
   readonly scalars: readonly TirScalarVisit[];
   readonly nodes: readonly TirNode[];
+  readonly excluded: readonly TirOccurrenceSite[];
   readonly selectedMembers: readonly TirSelectedMemberVisit[];
 }
 
@@ -82,6 +83,7 @@ export const inspectTirStructure = (
   const records: TirRecordVisit[] = [];
   const scalars: TirScalarVisit[] = [];
   const nodes: TirNode[] = [];
+  const excluded: TirOccurrenceSite[] = [];
   const selectedMembers: TirSelectedMemberVisit[] = [];
   const input = body ? layouts.bodyWork(subject) : subject.tree.kind === "checked-root" || stopBefore.has(root.id) ? null
     : roleSyntaxReference("$TirModuleRoot", { kind: "module-root", node: subject.tree.root });
@@ -106,6 +108,10 @@ export const inspectTirStructure = (
       case "node": {
         const node = value.value;
         if ((node !== root || !body) && stopBefore.has(node.id)) continue;
+        if (node.kind === "ExcludedExpression") {
+          excluded.push(node);
+          continue;
+        }
         if (syntaxActive.has(node)) throw new TypeError(`ir-tir: syntax cycle at ${tirPathText(work.path, rootPath)}`);
         if (syntaxCompleted.has(node)) continue;
         pending.push({ ...work, value: layouts.nodeWork(node), node });
@@ -176,7 +182,7 @@ export const inspectTirStructure = (
       }
     }
   }
-  return { records, scalars, nodes, selectedMembers };
+  return { records, scalars, nodes, excluded, selectedMembers };
 };
 
 export const typedValueOf = (node: TirNode): TypedValue | null =>

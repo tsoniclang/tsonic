@@ -268,6 +268,18 @@ function lowerAnnotations(context: DeclarationLowering, root: Hir.SyntaxNode<Syn
           tsonic: { ...tsonic, referencedDefinitions: resolution.kind === "declarations" ? resolution.definitions : [] } };
         break;
       }
+      case "ImportType": {
+        if (node.attributes !== null) return fail("an import type with resolution attributes");
+        const selected = node.qualifier === null ? null : checkedEntityName(context, node.qualifier);
+        if (selected !== null && selected.kind !== "complete") return selected;
+        const qualifier = selected?.value ?? null;
+        const resolution = qualifier?.tsonic.role === "type-name" ? qualifier.tsonic.resolution : null;
+        result = { ...header(node), kind: node.kind, isTypeOf: node.isTypeOf, argument: child(node.argument),
+          attributes: null, qualifier,
+          typeArguments: node.typeArguments === null ? null : { loc: node.typeArguments.loc, nodes: node.typeArguments.nodes.map(child) },
+          tsonic: { ...tsonic, referencedDefinitions: resolution?.kind === "declarations" ? resolution.definitions : [] } };
+        break;
+      }
       default: return fail(node.kind);
     }
     completed.set(node.id, result);

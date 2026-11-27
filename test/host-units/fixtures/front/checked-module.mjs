@@ -340,7 +340,7 @@ export async function loadFrontFixture() {
     const pragmas = capturePragmas(ranges, () => true);
     assert.ok(pragmas);
     return captureNode({ ...ranges, ...pragmas, module, sourceText, numericLiterals: new Map(),
-      numbering: { nodes, ids: numbers, parents } }, file, null).tree;
+      numbering: { nodes, ids: numbers, parents, excluded: null } }, file, null).tree;
   }
 
   return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, preparedSource, openAndCapture,
