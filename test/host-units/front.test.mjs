@@ -3050,6 +3050,7 @@ test("generic lowering borrows a supplied original cause vector without dropping
   const lowered = lowerWithReadyExports(deps, raw);
   assert.equal(lowered.kind, "ok");
   assert.equal(lowered.value.tree.tsonic.core.provider.causes === causes, true);
+  assert.equal(lowered.value.tree.tsonic.core === lowered.value.tree.statements.nodes[0].tsonic.core, false);
   assert.equal(lowered.value.checkerDiagnostics === raw.checkerDiagnostics, true);
   assert.deepEqual(lowered.diagnostics, []);
 });
@@ -3217,6 +3218,7 @@ test("K-3313.2 proven absence: with an empty closed inventory each captured node
     argumentPassing: absent, flowState: absent });
   const parameters = hir.indexSyntaxTree(checked.tree).filter(node => node.kind === "Parameter");
   assert.deepEqual(parameters.map(node => node.tsonic.core.argumentPassing), [absent, absent]);
+  assert.equal(parameters.every(node => node.tsonic.core === checked.tree.tsonic.core), true);
   assert.deepEqual(checked.bodies.flatMap(body => body.params.map(parameter => parameter.passing)), ["by-value", "by-value"]);
 });
 

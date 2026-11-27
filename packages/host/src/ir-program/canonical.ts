@@ -7,7 +7,7 @@ import type { BodyFacts, BodyObservations, MetadataRecord, Summary, SummaryKey }
 import type { TirBody, TirModule } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { BodyInstance, Execution, MemberInventory } from "../ir-types/contract.js";
-import type { CheckedContentImage, CheckedPhase, SyntaxCopyResult, SyntaxImage, SyntaxRootSlot } from "../ir-hir/contract.js";
+import type { CheckedContentImage, CheckedPhase, HirCoreCapture, SyntaxCopyResult, SyntaxImage, SyntaxRootSlot } from "../ir-hir/contract.js";
 import type { OrderedTextRecord, ProjectionInventory, ProjectionResult } from "./program-values.js";
 import type { InstantiationStop } from "./work.js";
 import type { InvariantFailure } from "../diag/contract.js";
@@ -304,6 +304,22 @@ function checkedContent<Stop>(scan: ProjectionInventory, rewrite: TypeReferenceR
   independent: (candidate: SyntaxImage<CheckedPhase> | null) =>
     SyntaxCopyResult<Iterable<SyntaxRootSlot<CheckedPhase>> | null, InstantiationStop | Stop>) {
   const work = () => chargeInstantiationWork(scan.meter);
+  let cores: Map<HirCoreCapture, HirCoreCapture> | undefined;
+  const core = (source: HirCoreCapture): ProjectionResult<HirCoreCapture> => projectRead(scan, () => {
+    const prior = cores?.get(source);
+    if (prior !== undefined) return copiedProjection(prior);
+    return followingProjection(finishProjection(scan, prepareCoreProjection(scan, source, "CheckedModule.core", inlineCheckedCycle), rewrite), value => {
+      if (cores === undefined) {
+        const setup = inventoryRecord(scan, 0);
+        if (setup !== null) return { kind: "refused", stop: setup };
+        cores = new Map();
+      }
+      const retain = inventoryRecord(scan, 0);
+      if (retain !== null) return { kind: "refused", stop: retain };
+      cores.set(source, value);
+      return copiedProjection(value);
+    });
+  });
   return projectCheckedContent<InstantiationStop, Stop>(candidate, { root: work, edge: work, node: work,
     parameter: () => admitCheckedProjection(scan.meter, 1, 1),
     structure: node => inventoryRecord(scan, 5) ?? inventoryRecord(scan, node.kind === "Block" ? 2 : 0),
@@ -316,7 +332,7 @@ function checkedContent<Stop>(scan: ProjectionInventory, rewrite: TypeReferenceR
     parameter: parameter => finishProjection(scan, prepareParameterProjection(scan, () => parameter), rewrite),
     component: component => finishProjection(scan,
       prepareComponentProjection(scan, component, "CheckedModule.component", inlineCheckedCycle), rewrite),
-    core: capture => finishProjection(scan, prepareCoreProjection(scan, capture, "CheckedModule.core", inlineCheckedCycle), rewrite),
+    core,
   }, independent);
 }
 

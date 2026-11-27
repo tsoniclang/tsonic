@@ -24,6 +24,74 @@ test(`public Host analysis source barrier captures the complete actual ${library
   assert.equal(result.value.modules.some(module => module.module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts")), true);
 });
 
+test("installed ES2024 publishes a qualified scalar indexed write and read within its original allowance", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
+  const { publishHostProgram } = await import("../../packages/host/dist/pipeline/publication.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const source = "export function exchange(values: boolean[], flag: boolean): boolean { values[0] = flag; return values[1]; }";
+  const input = analysisInput(fixture, "es2024", source);
+  const publish = maximumWork => {
+    const bounded = { ...input, limits: { ...input.limits, dataflow: { ...input.limits.dataflow, maximumWork } } };
+    const checked = captureSourceBarrier(bounded);
+    assert.equal(checked.kind, "ok");
+    const account = createTypedAccount(bounded);
+    const typed = typeSourceBarrier(bounded, checked.value, account);
+    assert.equal(typed.kind, "ok");
+    const analyzed = analyzeTypedSource(bounded, typed.value, account);
+    assert.equal(analyzed.kind, "ok");
+    const result = publishHostProgram(bounded, typed.value, analyzed.value, account);
+    return { result, state: InvocationAccount.stateOf(account) };
+  };
+  const installed = publish(input.limits.dataflow.maximumWork);
+  const smaller = { ...input, snapshot: fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    libraries: fixture.sdk.getBundledLibraryClosure(["lib.es5.d.ts"]) }) };
+  const modulesOf = run => run.snapshot.source.input.packages.modules.map(row => row.id).sort();
+  const evidence = (result, run) => {
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    assert.deepEqual(result.value.modules.map(chapter => chapter.module).sort(), modulesOf(run));
+    const chapter = result.value.modules.find(row => row.module === run.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+    const [write, read] = selected.tir.root.statements.nodes;
+    const occurrences = [write.expression.left, read.expression];
+    const decisions = occurrences.map(node => {
+      const { carrier, holding, key, read, write, failure, writeCheck } = node.tsonic.index;
+      const terms = result.value.index.types.terms;
+      return { node: node.id, text: node.argumentExpression.text, carrier, holding, key: terms[key].primitive,
+        read: read === null ? null : terms[read].primitive, write: write === null ? null : terms[write].primitive, failure, writeCheck };
+    });
+    const { body } = selected.instance;
+    const checks = selected.mir.blocks.flatMap(({ terminator }) => terminator.kind === "check" ? [terminator] : []);
+    assert.deepEqual(checks.map(check => check.tir), occurrences.map(node => ({ body, node: node.id })));
+    assert.equal(selected.mir.blocks[checks[0].next].statements.some(row => row.kind === "assign" && row.place === checks[0].place), true);
+    assert.deepEqual(selected.mir.blocks[checks[1].next].terminator.value, { kind: "place", place: checks[1].place });
+    const [facts] = selected.facts;
+    assert.equal(facts.execution.provided, 2);
+    assert.deepEqual(facts.arena.projections.map(row => row.projection), [{ kind: "index", constant: 0n }, { kind: "index", constant: 1n }]);
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === body);
+    const [array] = summary.parameters;
+    assert.deepEqual(array, { slot: { kind: "parameter", index: 0 }, reads: { kind: "complete", paths: [1] }, writes: { kind: "complete", paths: [0] } });
+    return { body, decisions };
+  };
+  const actual = evidence(installed.result, input);
+  assert.deepEqual(actual, evidence(analyzeHostProgram(smaller), smaller));
+  assert.deepEqual(actual.decisions.map(({ node, ...decision }) => decision), [
+    { text: "0", carrier: "array", holding: "by-reference", key: "int64", read: null, write: "bool", failure: "unwind", writeCheck: "before-value" },
+    { text: "1", carrier: "array", holding: "by-reference", key: "int64", read: "bool", write: null, failure: "unwind", writeCheck: null },
+  ]);
+  const maximum = installed.state.work - 1;
+  const stopped = publish(maximum);
+  assert.deepEqual(stopped.state.failure, { kind: "resource-limit", dimension: "work", maximum });
+  assert.equal(stopped.result.kind, "refused");
+  assert.equal(Object.hasOwn(stopped.result, "value"), false);
+  assert.equal(stopped.result.diagnostics.length, 1);
+  assert.equal(stopped.result.diagnostics[0].code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
+  assert.deepEqual(stopped.result.diagnostics[0].arguments, [{ kind: "text", value: "work" }, { kind: "number", value: maximum }]);
+});
+
 test("a written type literal with no members is a complete empty structural type", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

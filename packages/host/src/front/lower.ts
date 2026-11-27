@@ -193,7 +193,15 @@ function markerType(lowering: Lowering, reference: RawNodeRef): { readonly typeN
 function coreOf(lowering: Lowering, node: NodeId): Hir.HirCoreCapture {
   const raw = lowering.core.get(node);
   if (raw === undefined) return throwInvariant(invariant("A node of a lowered module has no captured core facts."));
-  const markers = capturedFact(raw.markers, (value): Hir.HirMarkersCapture => ({
+  const { markers: rawMarkers, provider, pointerType, pointerOperation, fieldBinding, recordBinding,
+    attribute, safety, argumentPassing: rawPassing, flowState } = raw;
+  const marker = rawMarkers.kind === "available" ? rawMarkers.value : null;
+  const absent = marker !== null && marker.struct === null && marker.field === null && marker.defaultValue === null
+    && marker.jsString === false && knownAbsent(marker.application) && knownAbsent(provider) && knownAbsent(pointerType)
+    && knownAbsent(pointerOperation) && knownAbsent(fieldBinding) && knownAbsent(recordBinding)
+    && knownAbsent(attribute) && knownAbsent(safety) && knownAbsent(rawPassing) && knownAbsent(flowState);
+  if (absent && lowering.absentCore !== null) return lowering.absentCore;
+  const markers = capturedFact(rawMarkers, (value): Hir.HirMarkersCapture => ({
     struct: value.struct === null ? null : { valueType: value.struct.valueType, fields: capturedFact(value.struct.fields,
       fields => fields.map(field => ({ name: field.name, readonly: field.readonly, ...markerType(lowering, field.typeNode) }))) },
     field: value.field === null ? null : { name: value.field.name, readonly: value.field.readonly, ...markerType(lowering, value.field.typeNode) },
@@ -206,13 +214,13 @@ function coreOf(lowering: Lowering, node: NodeId): Hir.HirCoreCapture {
       return { role: application.role, occurrence: { body, node }, declaration: lowering.deps.definitionOf(application.declaration) };
     }),
   }));
-  const argumentPassing = capturedFact(raw.argumentPassing, (value): Hir.HirArgumentPassingCapture | null => {
+  const argumentPassing = capturedFact(rawPassing, (value): Hir.HirArgumentPassingCapture | null => {
     if (value === null) return null;
     if (value.role !== "declaration") throw new TypeError("front: the lowering of a present fact (argument passing of an argument) is not implemented");
     return { role: "declaration", mode: value.mode };
   });
-  return {
-    provider: capturedFact(raw.provider, value => {
+  const core: Hir.HirCoreCapture = {
+    provider: capturedFact(provider, value => {
       if (value === null) return null;
       if (value.node.module !== raw.node.module || value.node.node !== raw.node.node) {
         const call = lowering.calls.get(node);
@@ -224,13 +232,19 @@ function coreOf(lowering: Lowering, node: NodeId): Hir.HirCoreCapture {
       }
       return lowering.deps.definitionOf(value.node);
     }), markers,
-    pointerType: capturedFact(raw.pointerType, absenceOnly("pointer type")),
-    pointerOperation: capturedFact(raw.pointerOperation, absenceOnly("pointer operation")),
-    fieldBinding: capturedFact(raw.fieldBinding, absenceOnly("field binding")),
-    recordBinding: capturedFact(raw.recordBinding, absenceOnly("record binding")),
-    attribute: capturedFact(raw.attribute, absenceOnly("attribute")), safety: capturedFact(raw.safety, absenceOnly("safety")),
-    argumentPassing, flowState: capturedFact(raw.flowState, absenceOnly("flow state")),
+    pointerType: capturedFact(pointerType, absenceOnly("pointer type")),
+    pointerOperation: capturedFact(pointerOperation, absenceOnly("pointer operation")),
+    fieldBinding: capturedFact(fieldBinding, absenceOnly("field binding")),
+    recordBinding: capturedFact(recordBinding, absenceOnly("record binding")),
+    attribute: capturedFact(attribute, absenceOnly("attribute")), safety: capturedFact(safety, absenceOnly("safety")),
+    argumentPassing, flowState: capturedFact(flowState, absenceOnly("flow state")),
   };
+  if (absent) lowering.absentCore = core;
+  return core;
+}
+
+function knownAbsent<Value>(fact: RawFact<Value>): boolean {
+  return fact.kind === "available" && fact.value === null;
 }
 
 /** A node's memory fact: its captured memory metadata (K-3340), joined once per node with the core facts. */
@@ -287,6 +301,7 @@ interface Lowering extends TypeConversion {
   readonly captureParent: ReadonlyMap<BodyId, BodyId>;
   readonly captures: Map<BodyId, { readonly ordered: LocalRef[]; readonly members: Map<BodyId, Set<LocalRef["local"]>> }>;
   readonly core: ReadonlyMap<NodeId, RawCoreCapture>;
+  absentCore: Hir.HirCoreCapture | null;
   readonly storage: Map<NodeId, RawStorageCapture>;
   readonly calls: ReadonlyMap<NodeId, RawCallSelection>;
   readonly candidateLists: Map<BodyId, Hir.HirCandidateList[]>;
@@ -1745,7 +1760,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<LoweredM
     labelTargets: structure.labelTargets,
     layoutQuotes: layout?.quotes ?? null,
     layoutSelectors: layout?.selectors ?? null,
-    core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
+    core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])), absentCore: null,
     storage: storageCaptures(raw),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: referenceTargets(raw), links: moduleLinks(raw), ...memberUsesOf(raw),

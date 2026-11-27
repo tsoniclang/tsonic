@@ -3578,6 +3578,68 @@ test("final publication constructs its candidate before requesting independent c
   assert.equal(stopped.atEvidence, null);
 });
 
+test("Checked publication projects a shared Core once without joining equal independent originals", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", "export function negate(flag: boolean): boolean { return !flag; }");
+  const run = ({ maximumWork = input.limits.dataflow.maximumWork, maximumCreatedRecords = input.limits.instantiation.maximumCreatedRecords } = {}) => {
+    const checked = captureSourceBarrier(input).value;
+    const account = createAccount({ ...input.limits.dataflow, maximumWork });
+    const typed = typeSourceBarrier(input, checked, account);
+    assert.equal(typed.kind, "ok");
+    const actual = checked.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
+    const [declaration] = actual.tree.statements.nodes;
+    const shared = actual.tree.tsonic.core;
+    assert.equal(declaration.tsonic.core === shared && declaration.parameters.nodes[0].tsonic.core === shared, true);
+    const independent = { ...shared };
+    declaration.tsonic = { ...declaration.tsonic, core: independent };
+    const resources = product.createProgramVerificationWork({ ...input.limits.instantiation, maximumCreatedRecords }, account);
+    const meter = ProgramWork.state(resources);
+    const reads = [];
+    let supplied = false;
+    for (const [label, subject] of [["shared", shared], ["independent", independent]]) {
+      const markers = subject.markers;
+      Object.defineProperty(subject, "markers", { get() {
+        assert.equal(supplied, false);
+        reads.push({ label, maximumWork: InvocationAccount.stateOf(account).work, maximumCreatedRecords: meter.created });
+        return markers;
+      } });
+    }
+    const publication = typeProduct.exportTypes(checked.types, input.limits.instantiation);
+    assert.equal(publication.kind, "complete");
+    const candidate = { ...programForEvidence(publicationFixture().index), modules: [
+      { module: actual.module, tree: { kind: "checked-root", root: actual.tree }, bodies: [] },
+    ] };
+    const result = product.canonicalizeProgram(candidate, publication.value, resources, { kind: "with-evidence", read: owner => {
+      assert.equal(owner === account, true);
+      supplied = true;
+      return typed.value.programEvidence(owner);
+    } });
+    return { result, reads, supplied, shared, independent, stop: meter.failure ?? accountFailure(account) };
+  };
+  const full = run();
+  assert.equal(full.result.kind, "complete");
+  assert.deepEqual(full.reads.map(row => row.label), ["shared", "independent"]);
+  const tree = full.result.value.modules[0].tree.root;
+  const [declaration] = tree.statements.nodes;
+  assert.equal(declaration.parameters.nodes[0].tsonic.core === tree.tsonic.core, true);
+  assert.equal(tree.tsonic.core === declaration.tsonic.core, false);
+  assert.equal(tree.tsonic.core === full.shared || declaration.tsonic.core === full.independent, false);
+  assert.deepEqual(tree.tsonic.core, declaration.tsonic.core);
+  assert.equal(full.result.evidence.checked.some(row => row.module.tree === tree), true);
+
+  for (const [position, read] of full.reads.entries()) {
+    for (const [dimension, limit] of [["work", "maximumWork"], ["created-records", "maximumCreatedRecords"]]) {
+      const cut = run({ [limit]: read[limit] - 1 });
+      assert.equal(cut.result === cut.stop && cut.stop?.dimension === dimension, true);
+      assert.deepEqual(cut.reads, full.reads.slice(0, position));
+      assert.equal(cut.supplied, false);
+    }
+  }
+});
+
 test("ordinary required expression slots retain their sole paid Typed read across independent publication evidence", async () => {
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
