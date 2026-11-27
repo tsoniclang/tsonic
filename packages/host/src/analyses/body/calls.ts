@@ -2,10 +2,10 @@ import type { CallerRefusal, DataflowResult, DataflowStop } from "../../dataflow
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { UnitRef } from "../../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
-import type { AppliedSummary, BoundInitializationRow, CaptureBinding, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
+import type { AppliedSummary, BoundInitializationRow, CaptureBinding, CaptureLocation, MirPoint, Producer, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
 import { admitArtifactIdentity, admitSummaryIdentity, applySummary, bindInitialization, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
-import type { LocalId, NodeRef, OriginsId, PlaceId, ValueContextId } from "../../ids/contract.js";
+import type { LocalId, NodeRef, OriginsId, PlaceId, ProjectionPathId, ValueContextId } from "../../ids/contract.js";
 import { valueContextId } from "../../ids/index.js";
 import type { BodyInstance, Signature } from "../../ir-types/contract.js";
 import type { TirApplication } from "../../ir-tir/contract.js";
@@ -21,6 +21,14 @@ import { admitArrayReturn, isCreatedProducer } from "./array-results.js";
 export type CallCaptureTransport = { readonly place: PlaceId } & (
   | { readonly kind: "value" }
   | { readonly kind: "location"; readonly binding: CaptureLocation });
+
+type Call = Extract<MirTerminator, { readonly kind: "call" }>;
+export type ReadAppliedValue = (call: Call, summary: Summary, parameter: number, path: ProjectionPathId, actual: OriginsId) => OriginsId | DataflowStop;
+
+export function bindArgumentValue(project: ReadAppliedValue, call: Call, summary: Summary,
+  producer: Extract<Producer, { readonly kind: "parameter" }>, actual: OriginsId): OriginsId | DataflowStop {
+  return producer.path === null ? actual : project(call, summary, producer.index, producer.path, actual);
+}
 
 export interface CallError {
   readonly kind: "error";
@@ -317,7 +325,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
       message: "Canonical application retains every actual source bound subject." });
     const producer = summary.arena.producers[bound.producer];
     if (isCreatedProducer(summary, producer) && value.subjects[index]?.kind === "callee") continue;
-    if (producer === undefined || producer.path !== null || producer.kind !== "capture" && producer.kind !== "parameter"
+    if (producer === undefined || producer.kind !== "parameter" && (producer.kind !== "capture" || producer.path !== null)
       || value.subjects[index]?.kind !== "caller")
       return frontier(operation, "BodyAnalysis requires the actual caller cell, event, callback or backing producer for these applied effects.");
   }
@@ -408,7 +416,7 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: Summary,
   arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[],
   captures: readonly CallCaptureTransport[], statics: StaticCalleeCells | null, objectValues: ReadonlySet<LocalId> | null,
-  arrayReturn: ArrayReturn | null): DataflowResult<CallValueEffects> {
+  arrayReturn: ArrayReturn | null, project: ReadAppliedValue): DataflowResult<CallValueEffects> {
   let usePrimitiveContents = true;
   if (operation.destination !== null) {
     const read = chargeWork(deps.account, 1);
@@ -470,10 +478,12 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
       const local = readLocal(input.mir, { kind: "place", place: captured.place });
       entries.push({ formal: bound.id, actual: requirePresent(state[local], { owner: "analyses/body", query: null,
         origin: operation.origin, message: "A selected capture retains its actual caller slot content at this call." }) });
-    } else if (producer?.kind === "parameter" && producer.path === null && operation.callee.kind === "direct") {
+    } else if (producer?.kind === "parameter" && operation.callee.kind === "direct") {
       const slot = arguments_[producer.index];
       if (slot?.kind !== "provided") return frontier(operation, "An incoming formal value requires an actual provided argument.");
-      entries.push({ formal: bound.id, actual: slot.origins });
+      const actual = bindArgumentValue(project, operation, summary, producer, slot.origins);
+      if (typeof actual !== "number") return actual;
+      entries.push({ formal: bound.id, actual });
     } else return frontier(operation, "BodyAnalysis requires the actual selected non-formal reference binding for this call.");
   }
   const cellWork = chargeWork(deps.account, summary.arena.cells.length) ?? chargeResultEntries(deps.account, summary.arena.cells.length);

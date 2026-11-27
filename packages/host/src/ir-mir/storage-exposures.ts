@@ -1,13 +1,13 @@
-import type { MirBody, MirClosureCapture, MirStorageExposureVisitor } from "./contract.js";
+import type { MirBlock, MirBody, MirClosureCapture, MirStorageExposureVisitor, MirTerminator } from "./contract.js";
 
 export function visitStorageExposures<Stop>(body: MirBody, visitor: MirStorageExposureVisitor<Stop>): Stop | null {
-  const captures = (rows: readonly MirClosureCapture[]): Stop | null => {
+  const captures = (rows: readonly MirClosureCapture[], block: MirBlock, placed: Extract<MirTerminator, { readonly kind: "call" }> | null): Stop | null => {
     for (let index = 0; index < rows.length; index += 1) {
       const stop = visitor.admit();
       if (stop !== null) return stop;
       const capture = rows[index];
       if (capture === undefined) throw new TypeError("ir-mir: a verified storage exposure has a dense capture list");
-      const visited = visitor.capture(capture);
+      const visited = visitor.capture(capture, block, placed);
       if (visited !== null) return visited;
     }
     return null;
@@ -25,7 +25,7 @@ export function visitStorageExposures<Stop>(body: MirBody, visitor: MirStorageEx
       if (statement.kind !== "assign") continue;
       const value = statement.value;
       const visited = value.kind === "address-of" ? visitor.address(value.place)
-        : value.kind === "closure" ? captures(value.captures) : null;
+        : value.kind === "closure" ? captures(value.captures, block, null) : null;
       if (visited !== null) return visited;
     }
     const terminator = block.terminator;
@@ -40,7 +40,7 @@ export function visitStorageExposures<Stop>(body: MirBody, visitor: MirStorageEx
       if (visited !== null) return visited;
     }
     if (terminator.callee.kind === "body") {
-      const visited = captures(terminator.callee.captures);
+      const visited = captures(terminator.callee.captures, block, terminator);
       if (visited !== null) return visited;
     }
   }

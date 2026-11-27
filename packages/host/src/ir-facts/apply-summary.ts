@@ -1,6 +1,9 @@
 import type { DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
-import type { BoundProducerRef, LogicalCellRef, RelationalOwner, SummaryWrite } from "./contract.js";
+import type { ProjectionPathId } from "../ids/contract.js";
+import type { MemberSelection } from "../ir-tir/contract.js";
+import type { BoundProducerRef, LogicalCellRef, ProjectCallFields, RelationalOwner, SummaryWrite } from "./contract.js";
+import type { ProjectionPath } from "./arena-data.js";
 import type { AppliedCell, AppliedContext, AppliedSummary, AppliedSubject, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits } from "./application-data.js";
 import type { BoundInitializationCell } from "./initialization-data.js";
 import { applyInitialization } from "./apply-initialization.js";
@@ -8,6 +11,54 @@ import { applyValueOrigins } from "./apply-values.js";
 import { checkConditionLimits } from "./conditions.js";
 import { summaryKey } from "./summary-key.js";
 import { admitOwnerIdentity } from "./verification.js";
+
+export const projectCallFields: ProjectCallFields = (account, paths, path, view, apply) => {
+  let current: ProjectionPathId | null = path;
+  let admitted: MemberSelection[] | null = null;
+  while (current !== null) {
+    const paid = chargeWork(account, 1) ?? chargeResultEntries(account, admitted === null ? 2 : 1);
+    if (paid !== null) return paid;
+    const row: ProjectionPath | undefined = paths[current];
+    if (row?.id !== current || row.parent !== null && row.parent >= current || row.projection.kind !== "field") return { kind: "complete", value: false };
+    (admitted ??= []).push(row.projection.member);
+    current = row.parent;
+  }
+  let parent: number | null = null;
+  while (admitted !== null && admitted.length !== 0) {
+    const paid = chargeWork(account, 1);
+    if (paid !== null) return paid;
+    let member = admitted.pop();
+    if (member === undefined) return { kind: "complete", value: false };
+    const decision = member.decision;
+    if (decision.location.kind !== "data" || decision.location.receiver !== "by-reference" || decision.location.check.kind !== "none"
+      || member.getter !== null || member.setter !== null || decision.getter !== null || decision.setter !== null) return { kind: "complete", value: false };
+    if (view !== null) {
+      let found = false;
+      for (let position = 0; position < view.fields.length; position += 1) {
+        const slot = chargeWork(account, 1);
+        if (slot !== null) return slot;
+        const row = view.fields[position];
+        if (row === undefined || row.parent !== parent || row.formal !== decision.primary) continue;
+        if (decision.read !== null && decision.read !== row.formalType || decision.write !== null && decision.write !== row.formalType)
+          return { kind: "complete", value: false };
+        if (row.formal !== row.caller || row.formalType !== row.callerType) {
+          const keep = chargeWork(account, 8) ?? chargeResultEntries(account, 5);
+          if (keep !== null) return keep;
+          member = { getter: null, setter: null, decision: { ...decision, primary: row.caller,
+            selectedDeclarations: [row.caller], origins: [{ kind: "declared", declaration: row.caller }],
+            read: decision.read === null ? null : row.callerType, write: decision.write === null ? null : row.callerType } };
+        }
+        parent = position;
+        found = true;
+        break;
+      }
+      if (!found) return { kind: "complete", value: false };
+    }
+    const stopped = apply(member);
+    if (stopped !== null) return stopped;
+  }
+  return { kind: "complete", value: true };
+};
 
 function validIndex(index: number, length: number): boolean {
   return Number.isSafeInteger(index) && index >= 0 && !Object.is(index, -0) && index < length;

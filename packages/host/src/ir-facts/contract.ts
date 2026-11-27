@@ -3,7 +3,7 @@ import type {
   BlockId, BodyId, BoundProducerId, DefId, KeyData, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclarationRequest, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SelectedNativeFacts, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclarationRequest, Execution, MemberStorageSelection, NominalDefinition, PassingMode, ReferenceArgumentView, SelectedNativeFacts, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
 import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TirSyntaxOccurrence } from "../ir-tir/contract.js";
 import type { MirBody, MirTerminator } from "../ir-mir/contract.js";
@@ -19,7 +19,7 @@ export type { AppliedCallback, AppliedCell, AppliedContext, AppliedOriginsValue,
   AppliedSummary, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits, ValueEntryBinding } from "./application-data.js";
 export type { CallbackExchange, CaptureEffect, EffectPaths, EscapeTarget, ParameterEffect, ParameterSlot, PointerBackingOperation,
   Summary, SummaryAnswer, SummaryBacking, SummaryCompletion, SummaryRelations, SummaryResultCell, SummaryRetention, SummaryWrite } from "./summary-data.js";
-import type { ProducerRef, RelationalArena } from "./arena-data.js";
+import type { ProducerRef, ProjectionPath, RelationalArena } from "./arena-data.js";
 export type { BoundProducer, CaptureBinding, CaptureLocation, CapturedValue, OpenBoundary, OpenBoundaryRef, Origins, OriginsRef, Producer, ProducerRef, Projection, ProjectionPath, RelationalArena, ValueArgument, ValueContext } from "./arena-data.js";
 export type { Condition, ConditionLimits } from "./conditions-data.js";
 export type { BoundProducerRef, MirPoint, RelationalOwner, RelationalSite, StoreEdge, SummaryKey } from "./relations-data.js";
@@ -135,6 +135,9 @@ export interface FieldRefinementInputs {
   readonly sourceOf: (node: NodeId) => TirSyntaxOccurrence | undefined;
   readonly summaryAt: (block: BlockId, call: Extract<MirTerminator, { readonly kind: "call" }>) => DataflowResult<Summary | null>;
 }
+
+export type ProjectCallFields = (account: DataflowAccount, paths: readonly ProjectionPath[], path: ProjectionPathId,
+  view: ReferenceArgumentView | null, apply: (field: MemberSelection) => DataflowStop | null) => DataflowResult<boolean>;
 
 export type FieldRefinementsOf = (account: DataflowAccount, mir: MirBody, provided: number,
   inputs: FieldRefinementInputs) => DataflowResult<readonly RefinementFact[]>;

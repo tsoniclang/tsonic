@@ -55,6 +55,80 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   suite.after(async () => { await post("Profiler.stopPreciseCoverage"); inspector.disconnect(); });
   const product = await import("../../packages/host/dist/ir-facts/index.js");
 
+  await suite.test("a reached nested field effect uses only the exact selected caller correspondence", async () => {
+    const { accountFailure, chargeWork, createAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+    const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+    const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+    const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+    const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+      function write(formal: { other: boolean; child: { flag: boolean } | null }): void {
+        if (formal.child !== null) formal.child.flag = false;
+      }
+      export function read(caller: { child: null | { flag: boolean }; other: boolean }): boolean {
+        if (caller.child !== null) { write(caller); return caller.child.flag; }
+        return false;
+      }
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const published = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const call = published.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+    const [mapping] = call.callee.resolution.decision.parameters;
+    assert.equal(mapping.kind, "reference-argument");
+    const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+      && row.key.execution.instance.body === call.callee.resolution.activation.body);
+    const [leaf] = summary.parameters[0].writes.paths;
+    const paths = summary.arena.projections;
+    const ancestor = paths[leaf].parent;
+    const [callerParent, callerLeaf] = mapping.view.fields;
+    const shape = selection => [selection.decision.primary, selection.decision.read, selection.decision.write];
+    const limits = { maximumWork: 1000, maximumResultEntries: 1000 };
+    const account = createAccount(limits);
+    const seen = [];
+    assert.deepEqual(product.projectCallFields(account, paths, leaf, mapping.view, row => { seen.push(shape(row)); return null; }),
+      { kind: "complete", value: true });
+    assert.deepEqual(seen, [[callerParent.caller, callerParent.callerType, null], [callerLeaf.caller, null, callerLeaf.callerType]]);
+    const used = limits.maximumWork - remainingWork(account);
+    for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+      let completed = false;
+      for (let cap = 0; cap <= used; cap += 1) {
+        const guarded = createAccount({ ...limits, [dimension]: cap });
+        const read = [];
+        const checkedPaths = [...paths];
+        for (const key of [leaf, ancestor]) Object.defineProperty(checkedPaths, key, {
+          get() { assert.equal(accountFailure(guarded), null); read.push(key); return paths[key]; },
+        });
+        const emitted = [];
+        const next = product.projectCallFields(guarded, checkedPaths, leaf, mapping.view, row => {
+          assert.equal(accountFailure(guarded), null);
+          emitted.push(shape(row));
+          return null;
+        });
+        assert.deepEqual(read, [leaf, ancestor].slice(0, read.length));
+        assert.deepEqual(emitted, seen.slice(0, emitted.length));
+        if (next.kind === "complete") {
+          assert.deepEqual(next, { kind: "complete", value: true });
+          assert.deepEqual(emitted, seen);
+          completed = true;
+          break;
+        }
+        assert.equal(next, accountFailure(guarded));
+      }
+      assert.equal(completed, true, dimension);
+    }
+    const crossed = { ...mapping.view, fields: mapping.view.fields.map((row, position) => position === 1 ? { ...row, parent: null } : row) };
+    assert.deepEqual(product.projectCallFields(createAccount(limits), paths, leaf, crossed, () => null),
+      { kind: "complete", value: false });
+    const stopped = createAccount(limits);
+    const returned = product.projectCallFields(stopped, paths, leaf, mapping.view, () => chargeWork(stopped, limits.maximumWork));
+    assert.equal(returned, accountFailure(stopped));
+    const text = product.printFacts(published.facts[0]);
+    const decoded = product.parseFacts(text);
+    assert.equal(decoded.kind, "parsed");
+    assert.equal(product.printFacts(decoded.value), text);
+  });
+
   await suite.test("paid formal transport preserves the original first stop before its actual result key", async () => {
     const { argumentTransportKey } = product;
     const { accountFailure, createAccount, refuseAccount, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
@@ -319,7 +393,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   }
   await textCase("one real call component", graph(), graphText, product.printDependencyInventory, product.parseDependencyInventory);
   await suite.test("every exported value is an exact current own-contract port", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["admitArtifactIdentity", "admitBindingIdentity", "admitSelectionIdentity", "admitStorageIdentity", "admitSummaryIdentity", "applySummary", "argumentTransportKey", "bindInitialization", "compareBoundActivations", "compareConstructionAlternatives", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "countedLoopsOf", "escapeTargetKey", "fieldProjectionIdentityData", "fieldRefinementsOf", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "staticDeclarationKey", "staticInitializationCellOf", "staticInitializationOf", "summaryEquals", "summaryKey", "summaryPositionKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
+    assert.deepEqual(Object.keys(product).sort(), ["admitArtifactIdentity", "admitBindingIdentity", "admitSelectionIdentity", "admitStorageIdentity", "admitSummaryIdentity", "applySummary", "argumentTransportKey", "bindInitialization", "compareBoundActivations", "compareConstructionAlternatives", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "countedLoopsOf", "escapeTargetKey", "fieldProjectionIdentityData", "fieldRefinementsOf", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "projectCallFields", "staticDeclarationKey", "staticInitializationCellOf", "staticInitializationOf", "summaryEquals", "summaryKey", "summaryPositionKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
   });
   await suite.test("required verifier accounts retain exact measured path budgets and the original first stop", async () => {
     const flow = await import("../../packages/host/dist/dataflow/index.js");

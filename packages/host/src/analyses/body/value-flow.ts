@@ -4,7 +4,7 @@ import { requirePresent } from "../../diag/index.js";
 import type { BlockId, BoundProducerId, LocalId, OriginsId, PlaceId } from "../../ids/contract.js";
 import { originsId } from "../../ids/index.js";
 import type { AppliedSummary, RelationalArena } from "../../ir-facts/contract.js";
-import type { CallCaptureTransport } from "./calls.js";
+import type { CallCaptureTransport, ReadAppliedValue } from "./calls.js";
 import type { MirCompletionState, MirOperand, MirPendingCompletion, MirStatement, MirTerminator, MirUnwind } from "../../ir-mir/contract.js";
 import { transferMirCompletion } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
@@ -326,7 +326,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: CurrentValues,
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  transport: OpenCallTransport | null, arrays: NativeArrayValueFlow | null,
+  transport: OpenCallTransport | null, arrays: NativeArrayValueFlow | null, project: ReadAppliedValue,
   slots: StorageSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldProjections | null = null,
   objectValues: ReadonlySet<LocalId> | null = null, reference: ReferenceRead | null = null): ForwardProblem<ValueState> {
   return {
@@ -461,7 +461,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         const arrayReturn = arrays?.returns?.get(block) ?? null;
         const result = callValueEffects(deps, input, terminator, { block, statement: null }, selected,
           arena, state.origins, constants, terminator.callee.kind !== "body" ? [] : requirePresent(captures.get(block), { owner: "analyses/body", query: null,
-            origin: terminator.origin, message: "A selected body call retains its actual slot-location inventory." }), staticCallees, objectValues, arrayReturn);
+            origin: terminator.origin, message: "A selected body call retains its actual slot-location inventory." }), staticCallees, objectValues, arrayReturn, project);
         if (result.kind !== "complete") return outgoing;
         if (result.value.kind === "applied") {
           const returned = selected.returns && destination !== null ? chargeResultEntries(account, 1) : null;
@@ -524,11 +524,11 @@ export function solveValueOrigins(deps: BodyRoundDeps, input: BodyRoundInput, ar
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
   slots: StorageSlots, staticCallees: StaticCalleeCells | null, fields: HeldProjections | null, objectValues: ReadonlySet<LocalId> | null,
-  transport: OpenCallTransport | null, arrays: NativeArrayValueFlow | null, reference: ReferenceRead | null): DataflowResult<FlowSolution<ValueState>> {
+  transport: OpenCallTransport | null, arrays: NativeArrayValueFlow | null, reference: ReferenceRead | null, project: ReadAppliedValue): DataflowResult<FlowSolution<ValueState>> {
   const work = chargeWork(deps.account, 1 + cells.length) ?? chargeResultEntries(deps.account, 4 + cells.length);
   if (work !== null) return work;
   const tracked = new Set(cells);
   const problem = valueProblem(deps, input, arena, values, constants, initial, { origins: boundary, contents: new Set() },
-    reachable, admit, captures, tracked, calls, transport, arrays, slots, staticCallees, cells, fields, objectValues, reference);
+    reachable, admit, captures, tracked, calls, transport, arrays, project, slots, staticCallees, cells, fields, objectValues, reference);
   return solve(input.mir, input.execution.provided, problem, deps.account);
 }

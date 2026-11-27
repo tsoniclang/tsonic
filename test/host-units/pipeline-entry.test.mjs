@@ -536,6 +536,93 @@ test("deferred selection acquires the same actual reference view after native bi
   assert.deepEqual(index.types.terms[completion.parameters[1].type], { kind: "primitive", primitive: "bool" });
 });
 
+test("selected reference-call writes distinguish the guarded cell from siblings and descendants", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const [write, cleared, nested] of [
+    ["formal.child = null;", true, false],
+    ["formal.other = null;", false, false],
+    ["if (formal.child !== null) formal.child.flag = false;", false, true],
+  ]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      function change(formal: { other: { flag: boolean } | null; child: { flag: boolean } | null }): void { ${write} }
+      export function read(holder: { child: { flag: boolean } | null; other: { flag: boolean } | null }): boolean {
+        if (holder.child !== null) {
+          const alias = holder;
+          change(alias);
+          return holder.child.flag;
+        }
+        return false;
+      }
+    `);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", write);
+    const { index, modules } = result.value;
+    const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const guard = selected.tir.root.statements.nodes[0].expression;
+    const call = selected.mir.blocks.find(row => row.terminator.kind === "call" && row.terminator.callee.kind === "direct").terminator;
+    const [mapping] = call.callee.resolution.decision.parameters;
+    assert.equal(mapping.kind, "reference-argument");
+    const [child, flag, other] = mapping.view.fields;
+    const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
+    assert.equal(checks.length, 1);
+    const [check] = checks;
+    const facts = selected.facts.find(row => row.execution.provided === 1);
+    assert.deepEqual(facts.refinements.refinements, [cleared ? {
+      kind: "unproven", node: check.tir.node, guards: [guard.id],
+      reason: { kind: "invalidated", sites: [{ kind: "call", at: call.tir }] },
+    } : { kind: "proven", node: check.tir.node, guards: [guard.id] }], write);
+    const summary = index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === selected.instance.body);
+    const [written] = summary.parameters[0].writes.paths;
+    assert.equal(summary.parameters[0].writes.paths.length, 1, write);
+    const projected = summary.arena.projections[written];
+    assert.equal(projected.projection.member.decision.primary, nested ? flag.caller : cleared ? child.caller : other.caller, write);
+    if (nested) assert.equal(summary.arena.projections[projected.parent].projection.member.decision.primary, child.caller);
+    else assert.equal(projected.parent, null);
+  }
+});
+
+test("selected reference-call writes invalidate nested guards and guards on possibly aliased formals", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const leaf = "{ child: { flag: boolean } | null }";
+  const nested = `{ inner: ${leaf} | null }`;
+  for (const [source, provided, answers] of [
+    [`
+      function clear(formal: ${nested}): void { formal.inner = null; }
+      export function read(holder: ${nested}): boolean {
+        if (holder.inner !== null) {
+          if (holder.inner.child !== null) { clear(holder); return holder.inner.child.flag; }
+        }
+        return false;
+      }`, 1, [[0, "proven"], [1, "unproven"], [0, "unproven"]]],
+    [`
+      function clear(formal: ${leaf}): void { formal.child = null; }
+      export function read(holder: ${leaf}, second: ${leaf}): boolean {
+        if (holder.child !== null) { clear(second); return holder.child.flag; }
+        return false;
+      }`, 2, [[0, "unproven"]]],
+  ]) {
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const [outer] = selected.tir.root.statements.nodes;
+    const guards = [outer.expression, outer.thenStatement.statements.nodes[0].expression];
+    const terms = selected.mir.blocks.map(row => row.terminator);
+    const call = terms.find(row => row.kind === "call" && row.callee.kind === "direct");
+    const checks = terms.filter(row => row.kind === "check").map(row => row.tir.node).sort((left, right) => left - right);
+    assert.equal(checks.length, answers.length);
+    const facts = selected.facts.find(row => row.execution.provided === provided);
+    assert.deepEqual(facts.refinements.refinements, answers.map(([guard, kind], index) => {
+      const row = { kind, node: checks[index], guards: [guards[guard].id] };
+      return kind === "proven" ? row : { ...row, reason: { kind: "invalidated", sites: [{ kind: "call", at: call.tir }] } };
+    }));
+  }
+});
+
 test("a write-only optional reference field records absence on the actual receiver without reading the field", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -5621,6 +5708,59 @@ test("unannotated integral initializers select native int64 before materializing
     assert.equal(body.mir.constants.some(constant => index.types.terms[constant.type]?.primitive === "float64"), false);
     assert.equal(body.mir.blocks.some(block => block.statements.some(statement =>
       statement.kind === "assign" && statement.value.kind === "convert")), false);
+  }
+});
+
+test("WT-10 retains the counted range, exact call invalidation and both kinds of explicit checks", async () => {
+  const fixture = await loadFrontFixture();
+  const { nativeInt32Input } = await import("./fixtures/native-int32-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const replace of [false, true]) {
+    const input = await nativeInt32Input(fixture, `
+      function pure(): void {}
+      function clear(p: { x: { v: Native } | null }): void { p.x = null; }
+      export function read(o: { x: { v: Native } | null }, a: Native[], replacement: Native[]): Native {
+        let sum = 0;
+        for (let i = 0; i < a.length; i++) { ${replace ? "a = replacement;" : ""} sum += a[i]; }
+        if (o.x !== null) { pure(); sum += o.x.v; clear(o); sum += o.x.v; }
+        return sum;
+      }
+    `, true);
+    const native = input.snapshot.nativeFacts;
+    const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: { ...native, integerOverflow: [
+      { carrier: "int32", operation: "add", result: "int32", law: "wrap" },
+      { carrier: "int64", operation: "add", result: "int64", law: "wrap" },
+      { carrier: "int64", operation: "increment", result: "int64", law: "wrap" },
+    ] } } });
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index, modules } = result.value;
+    const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+    const [declaration, loop, guard] = selected.tir.root.statements.nodes;
+    const sum = declaration.declarationList.declarations.nodes[0];
+    assert.equal(sum.type, null);
+    assert.deepEqual(index.types.terms[sum.tsonic.storage], { kind: "primitive", primitive: "int32" });
+    const facts = selected.facts.find(row => row.execution.provided === 3);
+    const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
+    const indexCheck = checks.find(row => selected.mir.places[row.place].base.projection.kind === "index");
+    const fieldChecks = checks.filter(row => selected.mir.places[row.place].base.projection.kind === "refined");
+    assert.equal(checks.length, 3);
+    assert.equal(fieldChecks.length, 2);
+    const measured = facts.refinements.countedLoops.find(row => row.statement === loop.id);
+    const indexProof = facts.refinements.refinements.find(row => row.node === indexCheck.tir.node);
+    if (replace) assert.equal(indexProof, undefined);
+    else {
+      assert.equal(indexProof.kind, "proven");
+      assert.ok(measured);
+    }
+    const clear = selected.mir.blocks.map(row => row.terminator).find(row => row.kind === "call"
+      && row.callee.kind === "direct" && row.callee.resolution.decision.api.declaration.includes(";clear]"));
+    assert.ok(clear);
+    assert.deepEqual(fieldChecks.map(check => facts.refinements.refinements.find(row => row.node === check.tir.node)), [
+      { kind: "proven", node: fieldChecks[0].tir.node, guards: [guard.expression.id] },
+      { kind: "unproven", node: fieldChecks[1].tir.node, guards: [guard.expression.id],
+        reason: { kind: "invalidated", sites: [{ kind: "call", at: clear.tir }] } },
+    ]);
   }
 });
 

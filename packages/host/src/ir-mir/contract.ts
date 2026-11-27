@@ -342,7 +342,7 @@ export type VisitMirControlEdges = <Stop>(terminator: MirTerminator, projection:
 export interface MirStorageExposureVisitor<Stop> {
   readonly admit: () => Stop | null;
   readonly address: (place: PlaceId) => Stop | null;
-  readonly capture: (capture: MirClosureCapture) => Stop | null;
+  readonly capture: (capture: MirClosureCapture, block: MirBlock, placed: Extract<MirTerminator, { readonly kind: "call" }> | null) => Stop | null;
 }
 export type VisitMirStorageExposures = <Stop>(body: MirBody, visitor: MirStorageExposureVisitor<Stop>) => Stop | null;
 export type IsMirCompletionControl = (terminator: MirTerminator) => boolean;

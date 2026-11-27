@@ -3,17 +3,19 @@ import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/
 import type { BoundProducerId, LocalId, LocalRef, NodeId, OriginsId, PlaceId, ProjectionPathId } from "../../ids/contract.js";
 import { admitIntegerKey, boundProducerId, encodeKey, producerId, projectionPathId } from "../../ids/index.js";
 import type { AppliedSummary, BoundProducer, Origins, Producer, Projection, ProjectionPath, RelationalArena, Summary } from "../../ir-facts/contract.js";
-import { admitSelectionIdentity, fieldProjectionIdentityData } from "../../ir-facts/index.js";
-import type { MirOperand, MirPlace, MirStatement } from "../../ir-mir/contract.js";
+import { admitSelectionIdentity, fieldProjectionIdentityData, projectCallFields } from "../../ir-facts/index.js";
+import type { MirOperand, MirPlace, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
 import type { PropertyAccessExpression } from "../../ir-hir/contract.js";
 import type { MemberSelection, TirSyntaxOccurrence, TypedPhase } from "../../ir-tir/contract.js";
-import type { SourceObjectField } from "../../ir-types/contract.js";
+import type { ReferenceArgumentView, SourceObjectField } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { bodyFrontier } from "./places.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
 import { projectOrigins, valueKind } from "./values.js";
 
 type ScalarProjection = Extract<Projection, { readonly kind: "field" | "element" | "index" }>;
+type Call = Extract<MirTerminator, { readonly kind: "call" }>;
+type Access = "read" | "write";
 
 type FieldValue = "scalar" | "scalar-optional" | "reference" | "reference-optional" | "write-only";
 type HeldProjection = { readonly holder: LocalId; readonly value: FieldValue } & ScalarProjection;
@@ -369,8 +371,8 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     }
     return id;
   }
-  function observe(access: "read" | "write", projection: ScalarProjection, origins: Origins, bound: readonly BoundProducer[],
-    producers: readonly Producer[]): DataflowStop | null {
+  function observeAt(access: Access, family: "field" | "array", origins: Origins, bound: readonly BoundProducer[],
+    producers: readonly Producer[], locate: (parent: ProjectionPathId | null) => ProjectionPathId | DataflowStop): DataflowStop | null {
     const { account } = deps;
     if (origins.kind !== "complete" || origins.includesAbsence || origins.producers.length === 0)
       return bodyFrontier("A held field access requires the complete actual receiver bindings at the occurrence.");
@@ -387,16 +389,16 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       const identity = origins.producers[index];
       const subject = identity === undefined ? undefined : bound[identity];
       const producer = subject === undefined ? undefined : producers[subject.producer];
-      if (producer?.kind === "allocation" && producer.path === null && projection.kind !== "field") {
-        const path = remember(projection, null);
+      if (producer?.kind === "allocation" && producer.path === null && family === "array") {
+        const path = locate(null);
         if (typeof path !== "number") return path;
         continue;
       }
       if (producer?.kind !== "parameter"
-        || referenceFormals?.get(producer.index) !== (projection.kind === "field" ? "field" : "array")
-        || producer.path !== null && projection.kind !== "field")
+        || referenceFormals?.get(producer.index) !== family
+        || producer.path !== null && family !== "field")
         return bodyFrontier("A held projection requires its actual incoming reference producer and storage family.");
-      const id = remember(projection, producer.path);
+      const id = locate(producer.path);
       if (typeof id !== "number") return id;
       let effect = byParameter.get(producer.index);
       if (effect === undefined) {
@@ -413,21 +415,27 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
     }
     return null;
   }
-  function value(projection: HeldProjection, receiver: OriginsId, values: ValueOrigins, bound: BoundProducer[],
-    producers: Producer[], admit: AdmitOrigins): OriginsId | DataflowStop {
+  function observe(access: Access, projection: ScalarProjection, origins: Origins, bound: readonly BoundProducer[],
+    producers: readonly Producer[]): DataflowStop | null {
+    return observeAt(access, projection.kind === "field" ? "field" : "array", origins, bound,
+      producers, parent => remember(projection, parent));
+  }
+  function projectValue(receiver: OriginsId, absence: boolean, values: ValueOrigins, bound: BoundProducer[],
+    producers: Producer[], admit: AdmitOrigins,
+    locate: (parent: ProjectionPathId | null) => ProjectionPathId | DataflowStop): OriginsId | DataflowStop {
     const paid = chargeWork(deps.account, 1);
     if (paid !== null) return paid;
     const held = values.rows[receiver];
-    if (held?.kind !== "complete" || held.includesAbsence || held.producers.length === 0 || projection.kind !== "field")
+    if (held?.kind !== "complete" || held.includesAbsence || held.producers.length === 0)
       return bodyFrontier("A reference projection needs its actual complete present receiver Origins.");
-    return projectOrigins(deps, values, held, projection.value === "reference-optional", admit, identity => {
+    return projectOrigins(deps, values, held, absence, admit, identity => {
       const read = chargeWork(deps.account, 3);
       if (read !== null) return read;
       const subject = bound[identity];
       const producer = subject === undefined ? undefined : producers[subject.producer];
       if (subject === undefined || producer?.kind !== "parameter" || referenceFormals?.get(producer.index) !== "field")
         return bodyFrontier("A projected field value needs its actual reference formal producer.");
-      const path = remember(projection, producer.path);
+      const path = locate(producer.path);
       if (typeof path !== "number") return path;
       const root = producer.path === null ? identity : roots?.get(identity);
       if (root === undefined) return bodyFrontier("A projected reference retains its actual root binding.");
@@ -451,24 +459,51 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
       return boundIdentity;
     });
   }
-  function call(access: "read" | "write", parameter: AppliedSummary["parameters"][number], callee: Summary, caller: RelationalArena): DataflowStop | null {
+  function value(projection: HeldProjection, receiver: OriginsId, values: ValueOrigins, bound: BoundProducer[],
+    producers: Producer[], admit: AdmitOrigins): OriginsId | DataflowStop {
+    if (projection.kind !== "field") return bodyFrontier("A reference projection needs its actual field.");
+    return projectValue(receiver, projection.value === "reference-optional", values, bound, producers, admit,
+      parent => remember(projection, parent));
+  }
+  function callerPath(rows: readonly ProjectionPath[], id: ProjectionPathId, view: ReferenceArgumentView | null,
+    parent: ProjectionPathId | null): ProjectionPathId | DataflowStop {
+    let image = parent;
+    const transported = projectCallFields(deps.account, rows, id, view, member => {
+      const selected = remember({ kind: "field", member }, image);
+      if (typeof selected !== "number") return selected;
+      image = selected;
+      return null;
+    });
+    if (transported.kind !== "complete") return transported;
+    return transported.value && image !== null ? image : bodyFrontier("An applied data field has no actual selected caller correspondence.");
+  }
+  function call(operation: Call, access: Access, parameter: AppliedSummary["parameters"][number], callee: Summary,
+    caller: RelationalArena): DataflowStop | null {
     const { paths } = access === "read" ? parameter.source.reads : parameter.source.writes;
     for (let index = 0; index < paths.length; index += 1) {
       const admitted = chargeWork(deps.account, 2);
       if (admitted !== null) return admitted;
       const id = paths[index];
       const path = id === undefined ? undefined : callee.arena.projections[id];
-      if (path === undefined || path.id !== id || path.parent !== null
+      if (path === undefined || path.id !== id
         || path.projection.kind !== "field" && path.projection.kind !== "element" && path.projection.kind !== "index")
         return bodyFrontier("An applied access requires its actual direct callee projection.");
       const projection = path.projection;
-      let storage;
+      let view: ReferenceArgumentView | null = null;
       if (projection.kind === "field") {
         const { decision } = projection.member;
         const { location } = decision;
-        storage = access === "read" ? decision.read : decision.write;
+        const storage = access === "read" ? decision.read : decision.write;
         if (location.kind !== "data" || location.receiver !== "by-reference" || location.check.kind !== "none" || storage === null)
-          return bodyFrontier("An applied scalar field access requires the selected unchecked reference access.");
+          return bodyFrontier("An applied field access requires the selected unchecked reference access.");
+        const paid = chargeWork(deps.account, 1);
+        if (paid !== null) return paid;
+        const slot = parameter.source.slot;
+        const mapping = slot.kind === "parameter" && operation.callee.kind === "direct"
+          ? operation.callee.resolution.decision.parameters[slot.index] : undefined;
+        if (mapping?.kind !== "reference-argument" && mapping?.kind !== "argument")
+          return bodyFrontier("An applied field access requires its actual selected by-value argument.");
+        if (mapping.kind === "reference-argument") view = mapping.view;
       } else {
         const admission = chargeWork(deps.account, 3);
         if (admission !== null) return admission;
@@ -481,15 +516,14 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
         const carrier = formal === undefined ? null : deps.typeOf(formal.type);
         const stopped = accountFailure(deps.account);
         if (stopped !== null) return stopped;
-        if (carrier?.kind !== "array" || formal?.passing !== "by-value" || access === "write" && carrier.readonly)
+        if (path.parent !== null || carrier?.kind !== "array" || formal?.passing !== "by-value" || access === "write" && carrier.readonly)
           return bodyFrontier("An applied element access requires its actual selected array formal.");
-        storage = carrier.element;
+        const kind = valueKind(deps, carrier.element);
+        const cut = accountFailure(deps.account);
+        if (cut !== null) return cut;
+        if (kind !== "primitive") return bodyFrontier("An applied element access requires its actual incoming scalar storage.");
       }
-      const kind = valueKind(deps, storage);
-      const stopped = accountFailure(deps.account);
-      if (stopped !== null) return stopped;
-      if ((kind !== "primitive" && !(projection.kind === "field" && kind === "primitive-optional")) || parameter.values.length === 0)
-        return bodyFrontier("An applied scalar field access requires its actual incoming reference subjects.");
+      if (parameter.values.length === 0) return bodyFrontier("An applied access requires its actual incoming reference subjects.");
       for (let subject = 0; subject < parameter.values.length; subject += 1) {
         const prepay = chargeWork(deps.account, 2);
         if (prepay !== null) return prepay;
@@ -497,11 +531,25 @@ export function projectionEffects(deps: BodyRoundDeps, referenceFormals: Readonl
         const origins = value?.kind === "caller" ? caller.origins[value.value.origins] : undefined;
         if (origins === undefined || value?.kind !== "caller" || origins.id !== value.value.origins)
           return bodyFrontier("An applied field access requires its actual caller Origins.");
-        const transported = observe(access, projection, origins, caller.boundProducers, caller.producers);
+        const transported = projection.kind === "field"
+          ? observeAt(access, "field", origins, caller.boundProducers, caller.producers,
+            parent => callerPath(callee.arena.projections, path.id, view, parent))
+          : observe(access, projection, origins, caller.boundProducers, caller.producers);
         if (transported !== null) return transported;
       }
     }
     return null;
   }
-  return { paths: (access: "read" | "write", index: number) => (access === "read" ? reads : writes)?.get(index), projections, remember, observe, value, call };
+  function appliedValue(operation: Call, callee: Summary, index: number, path: ProjectionPathId, receiver: OriginsId,
+    values: ValueOrigins, bound: BoundProducer[], producers: Producer[], admit: AdmitOrigins): OriginsId | DataflowStop {
+    const paid = chargeWork(deps.account, 1);
+    if (paid !== null) return paid;
+    const mapping = operation.callee.kind === "direct" ? operation.callee.resolution.decision.parameters[index] : undefined;
+    if (mapping?.kind !== "reference-argument" && mapping?.kind !== "argument" || mapping.passing !== "by-value")
+      return bodyFrontier("A projected callee producer retains its actual selected incoming argument.");
+    return projectValue(receiver, false, values, bound, producers, admit,
+      parent => callerPath(callee.arena.projections, path, mapping.kind === "reference-argument" ? mapping.view : null, parent));
+  }
+  return { paths: (access: "read" | "write", index: number) => (access === "read" ? reads : writes)?.get(index),
+    projections, remember, observe, value, call, appliedValue };
 }

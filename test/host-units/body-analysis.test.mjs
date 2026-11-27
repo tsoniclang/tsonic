@@ -1607,7 +1607,8 @@ test("an omitted reference formal is initialized by its real body, with no ficti
     ...result.summary.arena.boundProducers, { id: 1, producer: 1, context: 0, bindings: EMPTY_BINDINGS },
   ] } };
   const state = current.input.mir.locals.map(() => supplied.origins);
-  assert.throws(() => callValueEffects(deps, current.input, operation, invocation.point, invented, pair.facts.arena, state, [], [], null, null, null),
+  assert.throws(() => callValueEffects(deps, current.input, operation, invocation.point, invented, pair.facts.arena, state, [], [], null, null, null,
+    () => assert.fail("An omitted formal cannot request a projected value.")),
     /actual provided argument/);
 });
 
@@ -4504,7 +4505,8 @@ test("the direct least round evaluates its supplied argument without applying ei
   const account = createAccount(limits);
   const effects = valueProblem({ ...current.deps, account }, current.input, pair.facts.arena,
     indexedOrigins(current, pair.facts.arena.origins), [], initial, boundary, current.input.mir.blocks.map(() => true),
-    () => null, new Map(), new Set([0, 1]), new Map([[point.block, least]]), null, null);
+    () => null, new Map(), new Set([0, 1]), new Map([[point.block, least]]), null, null,
+    () => assert.fail("A least call does not project any formal."));
   const noContinuation = { ...operation, get destination() { assert.fail("a least value edge cannot apply a selected destination"); },
     get unwind() { assert.fail("a least value edge cannot apply an unwind effect"); } };
   assert.deepEqual(effects.terminator(noContinuation, boundary, account, point.block), []);
@@ -4703,7 +4705,8 @@ test("the canonical reference lattice compares values, pays joins and treats unr
   const boundary = contentState(state);
   const make = (account = createAccount(limits), answer = summary, reachable = current.input.mir.blocks.map(() => true), admit = () => null) =>
     valueProblem({ ...current.deps, account }, current.input, pair.facts.arena, values, [], initial, boundary, reachable, admit, new Map(),
-      new Set([0, 1]), new Map([[point.block, answer]]), null, null);
+      new Set([0, 1]), new Map([[point.block, answer]]), null, null,
+      () => assert.fail("This summary provides only root values."));
   const problem = make();
   const lattice = problem.lattice;
   assert.equal(lattice.equals(boundary, boundary, createAccount(limits)), true);
@@ -4804,7 +4807,8 @@ test("real many-slot joins and immediate callee exit contents use one linear pai
     const activation = pair.facts.origins.activations.find(row => row.point.block === block.id);
     const contexts = new Map([[block.id, pair.facts.arena.contexts[activation.context].captures]]);
     const make = account => valueProblem({ ...current.deps, account }, current.input, pair.facts.arena, values, [], origins, state,
-      current.input.mir.blocks.map(() => true), () => null, contexts, new Set(locals), new Map([[block.id, summary]]), null, null);
+      current.input.mir.blocks.map(() => true), () => null, contexts, new Set(locals), new Map([[block.id, summary]]), null, null,
+      () => assert.fail("A location capture is not a projected parameter."));
     const expected = new Set(locals);
     const length = origins.length;
     const joinWork = 3 * length + count + 1;
@@ -4916,7 +4920,7 @@ test("unsupported projections, parameter writes and external retention remain ex
     const deps = { ...current.deps, account: createAccount(limits) };
     const fields = projectionEffects(deps, new Map(), [], () => assert.fail("An unsupported read must not retain a projection."), () => null);
     return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
-      (access, parameter) => fields.call(access, parameter, value, arena), null);
+      (access, parameter) => fields.call(operation, access, parameter, value, arena), null);
   };
   for (const field of ["reads", "writes"]) assert.throws(() => apply({ ...summary,
     arena: { ...summary.arena, projections: [{ id: 0, parent: null, projection: { kind: "element" } }] },
@@ -4993,7 +4997,8 @@ test("one held field joins its independently selected arms at paid cuts without 
 test("selected reference-call helpers keep genuine unsupported inputs explicit and stop before reader payloads", () => {
   const { current, pair, operation, point, summary, state, initial } = referenceRound("body-round.reference-boundaries");
   const invoke = (changed = operation, answer = summary, overrides = {}) => callValueEffects({ ...current.deps,
-    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [], [], null, null, null);
+    account: createAccount(limits), ...overrides }, current.input, changed, point, answer, pair.facts.arena, state, [], [], null, null, null,
+    () => assert.fail("The selected reference formal has no projected producer."));
   assert.throws(() => invoke({ ...operation, callee: { kind: "body", instance: current.execution.instance, captures: [] } }),
     /non-formal reference binding/);
   assert.throws(() => invoke({ ...operation, arguments: [{ kind: "place", place: 0 }] }), /actual operand/);
@@ -5136,7 +5141,8 @@ test("Origins rows are interned by complete payload within their actual arena, n
   const actual = indexedOrigins(current, [...rows]);
   const count = actual.rows.length;
   const repeated = callValueEffects({ ...current.deps, account: createAccount(limits) }, current.input, operation,
-    point, summary, pair.facts.arena, state, [], [], null, null, null);
+    point, summary, pair.facts.arena, state, [], [], null, null, null,
+    () => assert.fail("The repeated call has only its direct reference argument."));
   assert.equal(repeated.kind, "complete");
   assert.equal(repeated.value.kind, "applied");
   const result = appliedOrigins({ ...current.deps, account: createAccount(limits) }, actual, repeated.value.value.result, (_count, retain) => {

@@ -10,10 +10,10 @@ import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { TirApplication, TirArgument, TirSyntaxOccurrence } from "../../ir-tir/contract.js";
 import { sameInstance } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } from "./contract.js";
-import type { CallError, ReadCallApplication } from "./calls.js";
+import type { CallError, ReadAppliedValue, ReadCallApplication } from "./calls.js";
 import type { ArrayReturn } from "./array-results.js";
 import { arrayReturnSource, isCreatedProducer } from "./array-results.js";
-import { applyScalarCall, bindCallInitialization, callCaptureBindings, callCellIndex, callInstance, isCallError, isLeastCall, scalarArgument } from "./calls.js";
+import { applyScalarCall, bindArgumentValue, bindCallInitialization, callCaptureBindings, callCellIndex, callInstance, isCallError, isLeastCall, scalarArgument } from "./calls.js";
 import { orderedRows, selectedSourceApplication, sourceOccurrences } from "./source.js";
 import { arrayDestination, assignedEntry, selectedCallAt, solveAssigned, statementOperands, terminatorOperands, transferAssigned, unwrittenCause } from "./storage.js";
 import type { AssignedState } from "./storage.js";
@@ -613,9 +613,12 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   };
   const originsOf = (operand: MirOperand): OriginsId | DataflowStop =>
     operandOrigins(input, constantOrigins, currentOrigins, operand, storageSlots, projections, referenceRead);
+  const projectAppliedValue: ReadAppliedValue = (call, summary, parameter, path, actual) => projectionEffects === null
+    ? bodyFrontier("An applied projected formal requires its actual caller reference inventory.")
+    : projectionEffects.appliedValue(call, summary, parameter, path, actual, values.value, boundProducers, producers, admitUnion);
   const flow = buildFacts && (hasReference || hasOptional || cellLocals.length !== 0) ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
     localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals, solved.value.calls,
-    storageSlots, staticCallees, projections, objectValues, transport, nativeArrayFlow, referenceRead) : null;
+    storageSlots, staticCallees, projections, objectValues, transport, nativeArrayFlow, referenceRead, projectAppliedValue) : null;
   if (flow !== null && flow.kind !== "complete") return flow;
   let causalNeed: CallError | null = null;
   let directFailures: Map<NodeId, UninitializedRead> | null = null;
@@ -953,12 +956,14 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           const actual = originsOf({ kind: "place", place: capture.place });
           if (typeof actual !== "number") return actual;
           entryBindings.push({ formal: bound.id, actual });
-        } else if (producer?.kind === "parameter" && producer.path === null && terminator.callee.kind === "direct") {
+        } else if (producer?.kind === "parameter" && terminator.callee.kind === "direct") {
           const argument = scalarArgument(deps, terminator, producer.index);
           if (argument.kind !== "complete") return argument;
           const actual = originsOf(argument.value);
           if (typeof actual !== "number") return actual;
-          entryBindings.push({ formal: bound.id, actual });
+          const entry = bindArgumentValue(projectAppliedValue, terminator, summary, producer, actual);
+          if (typeof entry !== "number") return entry;
+          entryBindings.push({ formal: bound.id, actual: entry });
         } else return bodyFrontier("A selected callee entry value requires its actual root argument or capture transport.");
       }
       if (terminator.callee.kind === "direct") {
@@ -968,7 +973,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         for (const producer of summary.arena.producers) {
           const formalWork = chargeWork(account, 1);
           if (formalWork !== null) return formalWork;
-          if (producer.kind !== "parameter") continue;
+          if (producer.kind !== "parameter" || producer.path !== null) continue;
           const row = chargeResultEntries(account, 1);
           if (row !== null) return row;
           formals.set(producer.index, producer.id);
@@ -1034,7 +1039,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       contexts.push({ id: context, receiver: null, arguments: arguments_, captures: environment.value });
       const applied = applyScalarCall(deps, input, terminator, point, summary, arena, context, entryBindings, cellBindings,
         (access, parameter) => projectionEffects === null ? bodyFrontier("An applied field access has no verified caller reference producer.")
-          : projectionEffects.call(access, parameter, summary, arena), arrayReturn);
+          : projectionEffects.call(terminator, access, parameter, summary, arena), arrayReturn);
       if (applied.kind !== "complete") return applied;
       const boundary = transport?.forCall(terminator, summary) ?? noCallBoundary;
       if (typeof boundary !== "function") return boundary;
