@@ -61,6 +61,72 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await suite.test("counted-loop facts use the actual saved array, not the source slot or a previous iteration", checkSavedExtentReceivers);
   await suite.test("a selected field proof survives a read-only call and records the actual interfering write call", checkNativeFieldRefinement);
   await suite.test("a placed captured field write preserves only the independently guarded cell", checkCapturedFieldRefinement);
+  await suite.test("Facts and Summary transport the actual captured value of a placed string field default", async () => {
+    const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+    const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+    const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+    const { executionKey } = await import("../../packages/host/dist/ir-types/index.js");
+    const fixture = await loadFrontFixture();
+    for (const optional of [true, false]) {
+      const input = analysisInput(fixture, "sdk-minimal", `
+        export function read(input: { seed: string; value${optional ? "?" : ""}: string }): string {
+          const { seed, value = seed } = input;
+          return value;
+        }
+      `);
+      const result = analyzeHostProgram(input);
+      assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+      const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+      const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(";read];function;0]"));
+      const [facts] = body.facts;
+      const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+        && executionKey(row.key.execution) === executionKey(facts.execution));
+      const [activation] = facts.origins.activations;
+      const calls = body.mir.blocks.map(row => row.terminator).filter(row => row.kind === "call");
+      assert.equal(calls.length, optional ? 1 : 0);
+      assert.equal(facts.origins.activations.length, optional ? 1 : 0);
+      const transports = [
+        [facts, product.printFacts, product.parseFacts, optional ? "parameter" : null],
+        [summary, product.printSummary, product.parseSummary, null],
+      ];
+      if (optional) {
+        const [call] = calls;
+        assert.equal(call.callee.kind, "body");
+        assert.equal(call.callee.captures[0].capture, "captured-value");
+        assert.equal(body.mir.blocks[activation.point.block].terminator === call, true);
+        const child = result.value.index.summaries.find(row => row.key.kind === "body"
+          && executionKey(row.key.execution) === executionKey({ instance: call.callee.instance, provided: 0 }));
+        assert.ok(child);
+        transports.push([child, product.printSummary, product.parseSummary, "capture"]);
+      }
+      for (const [value, print, parse, role] of transports) {
+        const contexts = value.arena.contexts.filter(row => row.captures.length !== 0);
+        assert.equal(contexts.length, role === null ? 0 : 1);
+        const printed = print(value);
+        if (role !== null) {
+          const [context] = contexts;
+          if (value === facts) assert.equal(context.id, activation.context);
+          assert.equal(context.captures.length, 1);
+          const [capture] = context.captures;
+          assert.deepEqual(Object.keys(capture).sort(), ["index", "origins"]);
+          assert.equal(capture.index, 0);
+          const origins = value.arena.origins[capture.origins];
+          assert.deepEqual([origins.kind, origins.includesAbsence, origins.producers.length], ["complete", false, 1]);
+          const producer = value.arena.producers[value.arena.boundProducers[origins.producers[0]].producer];
+          assert.deepEqual([producer.kind, producer.index], [role, 0]);
+          if (role === "parameter") {
+            const path = value.arena.projections[producer.path];
+            assert.deepEqual([path.parent, path.projection.kind, path.projection.member.decision.key],
+              [null, "field", { kind: "text", value: "seed" }]);
+          } else assert.equal(producer.path, null);
+          assert.equal(printed.includes(`CapturedValue(index=0, origins=origins:${capture.origins})`), true);
+        } else assert.equal(printed.includes("CapturedValue("), false);
+        const parsed = parse(printed);
+        assert.equal(parsed.kind, "parsed");
+        equal(parsed.value, value, "produced capture context roundtrips in its own exact arena");
+      }
+    }
+  });
   await suite.test("multiple native refinement proofs keep each loop, reaching guard and invalidation in canonical order", checkOrderedRefinementProofs);
   await suite.test("disjunctive native field proof retains each actual guard and the reached invalidation", checkDisjunctiveFieldProofs);
   await suite.test("parenthesized counted operands preserve the actual range and require the same array extent", checkParenthesizedCountedProofs);
