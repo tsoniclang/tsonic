@@ -280,6 +280,31 @@ test("direct backing evidence retains exactly the published roots, operand occur
   assert.deepEqual(key.raw.diagnosticCoverage, [0, 1].map(index => ({ kind: "unavailable", root: { module: key.raw.module, index } })));
 });
 
+test("incompatible tuple assertions borrow actual completed endpoints without replacing the checker reports", async () => {
+  const { raw, lower } = await captured(`
+    export function wrong(input: readonly [boolean, true]): readonly [boolean, true] {
+      return input as readonly [string, true];
+    }
+  `);
+  assert.deepEqual(raw.checkerDiagnostics.map(row => row.code.number), [2322, 2352]);
+  const callable = raw.tree.statements.nodes[0];
+  const assertion = callable.body.statements.nodes[0].expression;
+  const source = raw.checkerViews.find(row => row.node.node === assertion.id).read;
+  assert.equal(source.kind, "available");
+  const destination = raw.annotations.find(row => row.node === callable.type.id).type;
+  const [coverage, assertionFailure] = raw.diagnosticCoverage;
+  assert.equal(coverage.kind, "complete");
+  assert.deepEqual(coverage.root, { module: raw.module, index: 0 });
+  const [proof] = coverage.obligations;
+  assert.equal(proof.kind, "write-fit");
+  assert.deepEqual([proof.source, proof.destination],
+    [raw.types.types[source.value].component, raw.types.types[destination].component]);
+  assert.deepEqual(assertionFailure, { kind: "unavailable", root: { module: raw.module, index: 1 } });
+  const lowered = lower();
+  assert.equal(lowered.kind, "ok");
+  assert.equal(lowered.value.checkerDiagnostics === raw.checkerDiagnostics, true);
+});
+
 test("backing capture pays the SDK read and the complete evidence before publishing any raw group", async () => {
   const { fixture, opened, raw } = await captured("export function f(input:string):boolean { return input; }");
   const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
@@ -287,16 +312,23 @@ test("backing capture pays the SDK read and the complete evidence before publish
   const files = OpenedProgram.modules(opened.program).modules.map(entry =>
     OpenedProgram.file(opened.program, entry.kind === "snapshot" ? entry.module : entry.document.module));
   let reads = 0;
+  let cross = false;
   const checked = { ...original, getSourceFileQueries(file) {
     const queries = original.getSourceFileQueries(file);
     return { ...queries, checker: { ...queries.checker, getBackingConstraints() {
       reads += 1;
-      return queries.checker.getBackingConstraints();
+      const constraints = queries.checker.getBackingConstraints();
+      if (!cross) return constraints;
+      const [fit] = constraints;
+      assert.equal(fit.kind, "write-fit");
+      const type = fit.destination.type;
+      assert.equal(fit.source.type === type, false);
+      return [{ ...fit, source: { ...fit.source, root: { ...fit.source.root, type }, type } }];
     } } };
   } };
   const program = OpenedProgram.create(checked, opened.deps.extensions, files, [], OpenedProgram.contributions(opened.program));
   for (const [dimension, beforeRead, exact] of [
-    ["maximumCapturedFactsPerModule", 40, 46], ["maximumCapturedEdgesPerModule", 26, 32],
+    ["maximumCapturedFactsPerModule", 40, 42], ["maximumCapturedEdgesPerModule", 26, 40],
   ]) for (let maximum = beforeRead; maximum <= exact; maximum += 1) {
     reads = 0;
     const outcome = captureSingleModule(fixture.front, { ...opened.deps,
@@ -311,4 +343,9 @@ test("backing capture pays the SDK read and the complete evidence before publish
     assert.deepEqual(outcome.diagnostics.slice(0, -1), raw.checkerDiagnostics);
     assert.equal(outcome.diagnostics.at(-1).evidence[0], "front." + dimension);
   }
+  cross = true;
+  const crossed = captureSingleModule(fixture.front, opened.deps, program, raw.module);
+  assert.equal(crossed.kind, "ok");
+  assert.deepEqual(crossed.value.checkerDiagnostics, raw.checkerDiagnostics);
+  assert.deepEqual(crossed.value.diagnosticCoverage, [{ kind: "unavailable", root: { module: raw.module, index: 0 } }]);
 });

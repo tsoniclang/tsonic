@@ -3831,30 +3831,47 @@ function directBackingRows(scope: CaptureScope): ReadonlyMap<number, readonly Re
   return joined;
 }
 
-function captureDiagnosticCoverage(scope: CaptureScope, diagnostics: readonly Diagnostic[]): readonly RawDiagnosticCoverage[] | null {
+function capturedSourceAt<Row>(scope: CaptureScope, rows: readonly Row[], node: NodeId, nodeOf: (row: Row) => NodeId): Row | undefined {
+  let first = 0;
+  let end = rows.length;
+  while (first < end) {
+    if (!admit(scope, "edges")) return undefined;
+    const middle = first + Math.floor((end - first) / 2);
+    const row = rows[middle];
+    if (row === undefined) return throwInvariant(invariant("Captured source rows must be dense."));
+    const captured = nodeOf(row);
+    if (captured === node) return row;
+    if (captured < node) first = middle + 1;
+    else end = middle;
+  }
+  return undefined;
+}
+
+function captureDiagnosticCoverage(scope: CaptureScope, diagnostics: readonly Diagnostic[],
+  annotations: RawModule["annotations"], views: readonly RawCheckerViews[]): readonly RawDiagnosticCoverage[] | null {
   if (diagnostics.length === 0) return [];
   const groups = directBackingRows(scope);
   if (groups === null) return null;
-  const components = new Map<Node, Map<Type, RawComponentId>>();
   const source = (node: Node): RawNodeRef => {
     const id = scope.ownNodes.get(node);
     if (id === undefined) return throwInvariant(invariant("A backed obligation must name its authenticated local syntax."));
     return { module: scope.module, node: id };
   };
-  const endpoint = (evidence: ResolvedCheckedComponentEvidence): RawComponentId | null => {
-    if (!admit(scope, "edges")) return null;
-    const { node } = evidence.root;
-    const known = components.get(node);
-    const existing = known?.get(evidence.type);
-    if (existing !== undefined) return existing;
-    const position = component(scope, source(node), null);
-    if (position === null || rawType(scope, () => withoutTypeCause(evidence.type), position,
-      evidence.root.kind === "annotation" ? node : null, null, scope.numericLiterals.has(node) ? node : null) === null) return null;
-    captureFacts(scope);
-    if (scope.meter.refusal !== null) return null;
-    if (known === undefined) components.set(node, new Map([[evidence.type, position]]));
-    else known.set(evidence.type, position);
-    return position;
+  const endpoint = (evidence: ResolvedCheckedComponentEvidence): RawComponentId | undefined => {
+    if (!admit(scope, "edges")) return undefined;
+    const { node, kind } = evidence.root;
+    const occurrence = source(node);
+    let captured: RawTypeId | null | undefined;
+    if (kind === "annotation") captured = capturedSourceAt(scope, annotations, occurrence.node, row => row.node)?.type;
+    else {
+      const read = capturedSourceAt(scope, views, occurrence.node, row => row.node.node)?.read;
+      if (read?.kind === "available") captured = read.value;
+    }
+    if (captured == null || !admit(scope, "edges")) return undefined;
+    const entry = scope.tables.types[captured];
+    if (entry?.form.kind !== "available") return undefined;
+    const actual = sourceType(scope, { kind: kind === "annotation" ? "annotation" : "expression", node });
+    return actual?.type === evidence.type && actual.causes.length === 0 ? entry.component : undefined;
   };
   const rows: RawDiagnosticCoverage[] = [];
   for (let index = 0; index < diagnostics.length; index += 1) {
@@ -3866,9 +3883,9 @@ function captureDiagnosticCoverage(scope: CaptureScope, diagnostics: readonly Di
       if (!admit(scope, "facts")) return null;
       const [leftEvidence, rightEvidence] = backingEndpoints(edge);
       const left = endpoint(leftEvidence);
-      if (left === null) return null;
+      if (left === undefined) break;
       const right = endpoint(rightEvidence);
-      if (right === null) return null;
+      if (right === undefined) break;
       const context = { diagnostic: root, root, site: source(edge.site), application: null };
       switch (edge.kind) {
         case "operator": obligations.push({ ...context, kind: "operator", operation: source(edge.operation), left, right }); break;
@@ -3876,7 +3893,9 @@ function captureDiagnosticCoverage(scope: CaptureScope, diagnostics: readonly Di
         case "write-fit": obligations.push({ ...context, kind: "write-fit", source: left, destination: right }); break;
       }
     }
-    rows.push({ kind: "complete", root, obligations, purpose: { kind: "other" } });
+    if (scope.meter.refusal !== null) return null;
+    rows.push(obligations.length === group.length ? { kind: "complete", root, obligations, purpose: { kind: "other" } }
+      : { kind: "unavailable", root });
   }
   return rows;
 }
@@ -6359,7 +6378,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
   }
   // A capture that met a limit returns its refusal and nothing of what it read.
   if (scope.meter.refusal !== null) return { kind: "refused", diagnostics: captureRefusal(scope.meter.refusal, checkerDiagnostics) };
-  const diagnosticCoverage = captureDiagnosticCoverage(scope, checkerDiagnostics);
+  const diagnosticCoverage = captureDiagnosticCoverage(scope, checkerDiagnostics, annotations, views);
   if (diagnosticCoverage === null) return { kind: "refused", diagnostics: captureRefusal(scope.meter.refusal
     ?? throwInvariant(invariant("Backing evidence capture must retain its first resource refusal.")), checkerDiagnostics) };
   let publicLibraryModule: RawModule["publicLibraryModule"] = null;
