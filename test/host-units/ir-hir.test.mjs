@@ -5644,8 +5644,12 @@ test("HIR catch locals and lexical scopes retain actual declarations, outer owne
     const statement = syntax("TryStatement", 0, { tryBlock: syntax("Block", 0, { statements: nodeList([]), multiLine: false }),
       catchClause: clause, finallyBlock: syntax("Block", 0, { statements: nodeList([]), multiLine: false }) });
     const value = moduleWith([statement]);
-    if (present) value.bodies[0].locals = [{ id: 0, declaration: bodySource(declaration.id), name: "error", role: "catch",
-      checkerSlot: available(0), capturedFrom: null, mutable: true }];
+    if (declaration !== null) {
+      const owner = ids.encodeDefId({ module: moduleIdentity, segments: [{ name: "error", ordinal: 0 }] });
+      value.items = [{ definition: owner, node: declaration.id }];
+      value.bodies[0].locals = [{ id: 0, declaration: { kind: "item", value: { owner, node: declaration.id } }, name: "error", role: "catch",
+        checkerSlot: available(0), capturedFrom: null, mutable: true }];
+    }
     const nodes = [reference, block, clause].slice(0, count);
     if (reversed) nodes.reverse();
     const attributes = nodes.map(node => ({ declaration: definitionIdentity, occurrence: bodySource(node.id),
@@ -5654,6 +5658,12 @@ test("HIR catch locals and lexical scopes retain actual declarations, outer owne
       { node: block.id, parent: clause.id, attributes: [] }];
     const decoded = roundtrip((value), `catch/${present}/${reversed}/${count}`);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+    if (declaration !== null && !reversed && count === 0) {
+      decoded.value.bodies[0].locals[0].declaration = bodySource(declaration.id);
+      assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), [
+        violation("local-reference", nodeSite(declaration.id), "a catch local must retain its actual owned declaration and no initializer"),
+      ]);
+    }
   }
 });
 
