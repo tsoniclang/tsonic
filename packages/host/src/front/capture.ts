@@ -5371,6 +5371,42 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     candidates, declarationOrdinal, result, parameters: completed.parameters };
 }
 
+interface OverloadBody {
+  readonly container: Node;
+  readonly body: RawCallableAssociation["body"];
+  readonly parameters: RawCallableAssociation["bodyParameters"];
+}
+
+function captureOverloadBody(scope: CaptureScope, symbol: CheckerSymbol): OverloadBody | null {
+  if (!admit(scope, "edges")) return null;
+  const { ast } = scope.checked;
+  const declarations = scope.checker.getSymbolDeclarations(symbol);
+  let implementation: { readonly declaration: Node; readonly node: NodeId; readonly container: Node } | null = null;
+  for (let index = 0; index < declarations.length; index += 1) {
+    if (!admit(scope, "edges")) return null;
+    const declaration = declarations[index];
+    if (declaration === undefined || ast.kindName(declaration) !== "KindFunctionDeclaration") continue;
+    const body = ast.body(declaration);
+    if (body === undefined) continue;
+    const node = scope.ownNodes.get(body);
+    const container = ast.parent(declaration);
+    if (implementation !== null || node === undefined || container === undefined) return null;
+    implementation = { declaration, node, container };
+  }
+  if (implementation === null || !admit(scope, "facts")) return null;
+  const source = ast.parameters(implementation.declaration);
+  const parameters: RawNodeRef[] = [];
+  for (let index = 0; index < source.length; index += 1) {
+    if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+    const parameter = source[index];
+    const node = parameter === undefined ? undefined : scope.ownNodes.get(parameter);
+    if (node === undefined) return null;
+    parameters.push({ module: scope.module, node });
+  }
+  return { container: implementation.container,
+    body: available({ module: scope.module, node: implementation.node }), parameters: available(parameters) };
+}
+
 /**
  * The raw capture of one module of the opened program: its syntax tree in HIR's syntax phase and the checker's
  * evidence about it. The categories of evidence written so far are those the checked annotations written so far
@@ -5423,6 +5459,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
   const references: RawReference[] = [];
   const links: RawModuleLink[] = [];
   const associations: RawCallableAssociation[] = [];
+  let implementedOverloads: Map<CheckerSymbol, OverloadBody | null> | null = null;
   const calls: RawCallSelection[] = [];
   const bindings: RawBinding[] = [];
   const propertyNames: RawPropertyName[] = [];
@@ -5695,12 +5732,29 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
         return id === undefined ? [] : [{ module, node: id }];
       });
       const bodyReference = body === undefined ? undefined : ownNodes.get(body);
+      let implementation: OverloadBody | null = null;
+      const declaration = body === undefined && kind === "KindFunctionDeclaration" ? scope.syntaxOf(reference.node) : undefined;
+      if (declaration?.kind === "FunctionDeclaration" && !declaration.flags.includes("Ambient")
+        && declaration.modifiers?.nodes.some(modifier => modifier.kind === "DeclareKeyword") !== true) {
+        if (!admit(scope, "edges")) break;
+        const name = ast.name(node);
+        const symbol = name === undefined ? undefined : scope.checker.getSymbolAtLocation(name);
+        if (symbol !== undefined) {
+          let admitted = implementedOverloads?.get(symbol);
+          if (admitted === undefined) {
+            admitted = captureOverloadBody(scope, symbol);
+            if (scope.meter.refusal !== null || !admit(scope, "facts")) break;
+            (implementedOverloads ??= new Map()).set(symbol, admitted);
+          }
+          if (admitted !== null && admitted.container === parent) implementation = admitted;
+        }
+      }
       if (!admit(scope, "facts")) break;
       associations.push({
         declaration: reference, advertised: [advertised],
-        body: bodyReference === undefined ? notProvided() : available({ module, node: bodyReference }),
+        body: bodyReference === undefined ? implementation?.body ?? notProvided() : available({ module, node: bodyReference }),
         classParameters: available([]), advertisedParameters: [{ signature: advertised, parameters: available(parameters) }],
-        bodyParameters: available(parameters), captures: available([]),
+        bodyParameters: bodyReference === undefined ? implementation?.parameters ?? notProvided() : available(parameters), captures: available([]),
       });
     }
     captureFacts(scope);

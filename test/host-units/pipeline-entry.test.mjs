@@ -10440,6 +10440,55 @@ test("two imported overloads select their own bodyless endpoints in either decla
   }
 });
 
+test("bodyless generic overloads retain each original binder and each selected nonempty application", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const snapshot = fixture.projectSnapshot({ sourceFiles: {
+    "main.ts": `import { choose } from "./native.js";
+      export function first(value: boolean): boolean { return choose(value); }
+      export function second(value: string): string { return choose<string>(value, true); }
+      export function third(value: string): string { return choose(value); }`,
+    "native.d.ts": "export declare function choose<T>(value: T): T; export declare function choose<T>(value: T, other: boolean): T;",
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  snapshot.source.input.packages.modules.find(row => row.path === "/project/src/native.d.ts").role = "declaration";
+  const input = { ...analysisInput(fixture, "sdk-minimal"), snapshot };
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const chapter = modules.find(row => row.module === snapshot.entryPoint);
+  const witnessed = [];
+  for (const [name, count] of [["first", 1], ["second", 2], ["third", 1]]) {
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(`;${name}];function;0]`));
+    const call = body.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+    assert.equal(call.callee.kind, "direct");
+    assert.equal(call.callee.resolution.activation, null);
+    const { advertised, api, bindings, implementationBindings, completion } = call.callee.resolution.decision;
+    assert.deepEqual(api, advertised);
+    assert.equal(api.role, "api-signature");
+    assert.equal(api.body, null);
+    const original = index.types.signatures[api.signature];
+    const applied = index.types.signatures[completion.signature];
+    assert.equal(original.parameters.length, count);
+    assert.equal(original.typeParameters.length, 1);
+    const [binder] = original.typeParameters;
+    const actual = index.types.signatures[body.tir.signature].parameters[0].type;
+    assert.deepEqual(bindings.methodBindings, [{ kind: "bound", parameter: binder.declaration, type: actual }]);
+    assert.deepEqual(implementationBindings, bindings);
+    assert.equal(applied.declaration, api.declaration);
+    assert.deepEqual(applied.typeParameters, []);
+    assert.equal(applied.parameters[0].type, actual);
+    assert.equal(applied.result, actual);
+    assert.equal(completion.completion, actual);
+    witnessed.push({ original: original.id, binder: binder.declaration, applied: applied.id });
+  }
+  const [first, second, third] = witnessed;
+  assert.notEqual(first.original, second.original);
+  assert.notEqual(first.binder, second.binder);
+  assert.equal(first.original, third.original);
+  assert.equal(first.binder, third.binder);
+  assert.equal(new Set(witnessed.map(row => row.applied)).size, 3);
+});
+
 test("parenthesizing a selected ordinary callable preserves the direct call and its sole activation", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

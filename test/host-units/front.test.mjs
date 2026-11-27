@@ -4020,6 +4020,123 @@ test("K-3340: views, storage places, memory and layout observations keep present
   assert.deepEqual(lower(withCore(13, "layoutQuery", unavailable("incomplete-association"))).at(13).value.observation, { kind: "unavailable", reason: "incomplete-association", causes: [] });
 });
 
+test("capture keeps each authored overload signature and its separately owned implementation body", () => {
+  const capture = source => {
+    const { deps, program, module } = openedModule(source);
+    const result = captureSingleModule(front, deps, program, module);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    return result.value;
+  };
+  const raw = capture(`
+    function choose(flag: boolean): boolean;
+    function choose(flag: boolean, other: boolean): boolean;
+    function choose(value: boolean, extra?: boolean): boolean { return value; }
+    export function first(value: boolean): boolean { return choose(value); }
+    export function second(value: boolean): boolean { return choose(value, false); }
+  `);
+  assert.deepEqual(raw.checkerDiagnostics, []);
+  const [first, second, implementation] = raw.tree.statements.nodes;
+  const [firstAssociation, secondAssociation, bodyAssociation] = raw.callableAssociations;
+  const occurrence = node => ({ module: raw.module, node: node.id });
+  const parameters = declaration => ({ kind: "available", value: declaration.parameters.nodes.map(occurrence) });
+  assert.equal(first.body, null);
+  assert.equal(second.body, null);
+  for (const [header, association] of [[first, firstAssociation], [second, secondAssociation], [implementation, bodyAssociation]]) {
+    assert.deepEqual(association.declaration, occurrence(header));
+    assert.deepEqual(association.body, { kind: "available", value: occurrence(implementation.body) });
+    assert.deepEqual(association.bodyParameters, parameters(implementation));
+    const [signature] = association.advertised;
+    assert.deepEqual(raw.types.signatures[signature].declaration, occurrence(header));
+    assert.deepEqual(association.advertisedParameters, [{ signature, parameters: parameters(header) }]);
+  }
+  assert.equal(firstAssociation.body === secondAssociation.body, true);
+  assert.equal(firstAssociation.bodyParameters === secondAssociation.bodyParameters, true);
+  const advertised = [...firstAssociation.advertised, ...secondAssociation.advertised];
+  assert.notEqual(advertised[0], advertised[1]);
+  assert.equal(advertised.includes(bodyAssociation.advertised[0]), false);
+  assert.equal(raw.calls.length, 2);
+  for (const [index, call] of raw.calls.entries()) {
+    assert.equal(call.kind, "applicable");
+    assert.equal(call.declarationOrdinal, index);
+    assert.deepEqual(call.declarationOrder, { kind: "available", value: advertised });
+  }
+
+  for (const [source, diagnostic] of [
+    ["declare function pick(value: boolean): boolean; declare function pick(value: string): boolean;", null],
+    ["function pick(value: boolean): boolean; function another(value: boolean): boolean { return value; }", "TS2389"],
+    ["function pick(value: boolean): boolean; namespace Other { export function pick(value: boolean): boolean { return value; } }", "TS2391"],
+    ["function pick(value: boolean): boolean; function pick(value: boolean): boolean { return value; } function pick(value: boolean): boolean { return false; }", "TS2393"],
+  ]) {
+    const opposite = capture(source);
+    if (diagnostic === null) assert.deepEqual(opposite.checkerDiagnostics, []);
+    else assert.equal(opposite.checkerDiagnostics.some(row => row.code.rendered === diagnostic), true);
+    const [header] = opposite.callableAssociations;
+    const missing = { kind: "unavailable", reason: "not-provided", causes: [] };
+    assert.deepEqual(header.body, missing);
+    assert.deepEqual(header.bodyParameters, missing);
+    assert.equal(header.advertisedParameters[0].parameters.kind, "available");
+  }
+});
+
+test("capture admits each reached native overload declaration row before reading it", async () => {
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const diag = await import("../../packages/host/dist/diag/index.js");
+  const opened = openedModule(`
+    function pick(left: boolean): boolean;
+    function pick(left: boolean, right: boolean): boolean;
+    function pick(left: boolean, right?: boolean): boolean { return left; }
+  `);
+  const checked = OpenedProgram.checked(opened.program);
+  const file = OpenedProgram.file(opened.program, opened.module).file;
+  const queries = checked.getSourceFileQueries(file);
+  let symbol;
+  checked.ast.forEachChild(file, node => {
+    if (symbol === undefined && checked.ast.kindName(node) === "KindFunctionDeclaration")
+      symbol = queries.checker.getSymbolAtLocation(checked.ast.name(node));
+  });
+  assert.notEqual(symbol, undefined);
+  const actual = queries.checker.getSymbolDeclarations(symbol);
+  assert.equal(actual.length, 3);
+  const files = OpenedProgram.modules(opened.program).modules.map(entry => OpenedProgram.file(opened.program,
+    entry.kind === "snapshot" ? entry.module : entry.document.module));
+  const capture = maximum => {
+    const reads = [];
+    const rows = new Array(actual.length);
+    for (let index = 0; index < actual.length; index += 1) Object.defineProperty(rows, index, {
+      get() { reads.push(index); return actual[index]; },
+    });
+    const borrowed = { ...checked, getSourceFileQueries: file => {
+      const original = checked.getSourceFileQueries(file);
+      return { ...original, checker: { ...original.checker, getSymbolDeclarations: target =>
+        target === symbol ? rows : original.checker.getSymbolDeclarations(target) } };
+    } };
+    const program = OpenedProgram.create(borrowed, OpenedProgram.table(opened.program), files,
+      OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
+    const result = captureSingleModule(front, { ...opened.deps, navigationCapture: {
+      ...opened.deps.navigationCapture, maximumCapturedEdgesPerModule: maximum,
+    } }, program, opened.module);
+    return { reads, result };
+  };
+  const full = capture(1000);
+  assert.equal(full.result.kind, "ok");
+  assert.deepEqual(full.reads, [0, 1, 2]);
+  let lower = 0;
+  let upper = 1000;
+  while (upper - lower > 1) {
+    const probe = Math.floor((upper + lower) / 2);
+    if (capture(probe).reads.length === 0) lower = probe;
+    else upper = probe;
+  }
+  for (const [maximum, reads] of [[lower, []], [upper, [0]], [upper + 1, [0, 1]]]) {
+    const guarded = capture(maximum);
+    assert.deepEqual(guarded.reads, reads);
+    assert.deepEqual(guarded.result, { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({
+      owner: "front", limit: "front.maximumCapturedEdgesPerModule", maximum, site: { kind: "file", path: "/project/src/main.ts" },
+      unit: { request: { query: "captureModule", key: opened.module }, position: { kind: "result" } },
+    })] });
+  }
+});
+
 // K-3361: the explicit this receiver and the declaration's type parameters are the checker's and the syntax's. Expectations
 // written before the run.
 test("K-3361: a receiver is captured apart from the ordinary parameters and lowering refuses it by name; add's receiver is the checker's known absence; an unused type parameter is kept", async () => {
