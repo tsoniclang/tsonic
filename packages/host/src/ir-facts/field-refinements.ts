@@ -401,8 +401,9 @@ function writesProjectedField(mir: MirBody, block: MirBlock, before: number, pla
 
 function appliedWrite(mir: MirBody, block: MirBlock, call: Call, summary: Summary | null, receiver: LocalId, path: Field["path"],
   flow: Flow, account: DataflowAccount): DataflowResult<boolean> {
-  return refinementMayWrite(account, summary, (slot, paths, selected) => {
-    if (slot.kind !== "parameter" || call.callee.kind !== "direct") return available;
+  return refinementMayWrite(account, summary, (subject, paths, selected) => {
+    if (!("slot" in subject) || subject.slot.kind !== "parameter" || call.callee.kind !== "direct") return available;
+    const { slot } = subject;
     const supplied = call.arguments[slot.index];
     const mapping = call.callee.resolution.decision.parameters[slot.index];
     if (supplied?.kind !== "value" || supplied.passing !== "by-value"

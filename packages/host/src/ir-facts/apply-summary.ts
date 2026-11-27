@@ -5,7 +5,7 @@ import type { MirClosureCapture, MirTerminator } from "../ir-mir/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { BindingVector } from "../ir-types/contract.js";
 import { projectBindingScope } from "../ir-types/index.js";
-import type { BoundProducerRef, CallFieldBindings, LogicalCellRef, ParameterSlot, ProjectCallFields, RefinementSources, RelationalOwner, Summary, SummaryWrite } from "./contract.js";
+import type { BoundProducerRef, CallFieldBindings, CaptureEffect, LogicalCellRef, ParameterEffect, ProjectCallFields, RefinementSources, RelationalOwner, Summary, SummaryWrite } from "./contract.js";
 import type { ProjectionPath } from "./arena-data.js";
 import type { AppliedCell, AppliedContext, AppliedSummary, AppliedSubject, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits } from "./application-data.js";
 import type { BoundInitializationCell } from "./initialization-data.js";
@@ -151,7 +151,7 @@ export function admitPlacedCopy(copies: Map<PlacedCall, MirClosureCapture | null
 }
 
 export function refinementMayWrite(account: DataflowAccount, summary: Summary | null,
-  parameterMayWrite: (slot: ParameterSlot, paths: readonly ProjectionPathId[], summary: Summary) => DataflowResult<boolean>,
+  subjectMayWrite: (subject: ParameterEffect | CaptureEffect, paths: readonly ProjectionPathId[], summary: Summary) => DataflowResult<boolean>,
 ): DataflowResult<boolean> {
   const paid = chargeWork(account, 1);
   if (paid !== null) return paid;
@@ -162,8 +162,12 @@ export function refinementMayWrite(account: DataflowAccount, summary: Summary | 
   for (let position = 0; position < captures.length; position += 1) {
     const work = chargeWork(account, 1);
     if (work !== null) return work;
-    const writes = pick(captures, position).writes;
-    if (writes.kind === "open" || writes.paths.length !== 0) return mayWrite;
+    const capture = pick(captures, position);
+    const writes = capture.writes;
+    if (writes.kind === "open") return mayWrite;
+    if (writes.paths.length === 0) continue;
+    const observed = subjectMayWrite(capture, writes.paths, summary);
+    if (observed.kind !== "complete" || observed.value) return observed;
   }
   const parameters = summary.parameters;
   for (let position = 0; position < parameters.length; position += 1) {
@@ -174,7 +178,7 @@ export function refinementMayWrite(account: DataflowAccount, summary: Summary | 
     if (writes.kind === "open") return mayWrite;
     const paths = writes.paths;
     if (paths.length === 0) continue;
-    const observed = parameterMayWrite(parameter.slot, paths, summary);
+    const observed = subjectMayWrite(parameter, paths, summary);
     if (observed.kind !== "complete" || observed.value) return observed;
   }
   return noWrite;

@@ -113,7 +113,8 @@ export async function checkNativeCountedLoopProofs() {
   const { loadFrontFixture } = await import("./front/checked-module.mjs");
   const fixture = await loadFrontFixture();
   for (const { start, write, tail = "", minimum, counted, audit, callee = "", declaration = null, nativeInvoke = false,
-    step = "++i", bound = "3", receiver = "values", exit = null, afterLoop = false, proven = false } of [
+    step = "++i", bound = "3", receiver = "values", exit = null, afterLoop = false, proven = false,
+    writeChecks = 0, extraParameter = "", writeProjection = null } of [
     { start: 0, write: "", minimum: 0n, counted: true, audit: "integer" },
     { start: 0, write: "", minimum: 0n, counted: true, step: "i++" },
     { start: 0, write: "i = 3;", minimum: null, counted: false },
@@ -126,6 +127,19 @@ export async function checkNativeCountedLoopProofs() {
     { start: 0, write: "if (i < 1) values = replacement;", minimum: 0n, counted: true, bound: "values.length" },
     { start: 0, write: "if (i < 1) { values = replacement; continue; }", minimum: 0n, counted: true, bound: "values.length", proven: true },
     { start: 0, write: "if (i < 1) values = values;", minimum: 0n, counted: true, bound: "values.length", proven: true, audit: "self-copy" },
+    { start: 0, write: "i = i;", minimum: 0n, counted: true, bound: "values.length", proven: true, audit: "counter-copy" },
+    { start: 0, write: "values[0] = true;", minimum: 0n, counted: true, bound: "values.length", proven: true,
+      writeChecks: 1, audit: "content-store" },
+    { start: 0, write: "replacement[0] = true;", minimum: 0n, counted: true, bound: "values.length", proven: true, writeChecks: 1 },
+    { start: 0, write: "write(values);", callee: "function write(value: boolean[]): void { value[0] = true; }", minimum: 0n,
+      counted: true, bound: "values.length", proven: true, audit: "content-call", writeProjection: "index" },
+    { start: 0, write: "write(replacement);", callee: "function write(value: boolean[]): void { value[0] = true; }", minimum: 0n,
+      counted: true, bound: "values.length", proven: true },
+    { start: 0, write: "box.flag = true;", extraParameter: ", box: { flag: boolean }", minimum: 0n,
+      counted: true, bound: "values.length", proven: true },
+    { start: 0, write: "write(box);", callee: "type Box = { flag: boolean }; function write(value: Box): void { value.flag = true; }",
+      extraParameter: ", box: Box", minimum: 0n, counted: true, bound: "values.length", proven: true,
+      audit: "content-call", writeProjection: "field" },
     { start: 0, write: "observe(values);", callee: "function observe(value: boolean[]): void {}", minimum: 0n,
       counted: true, bound: "values.length", proven: true, audit: "call" },
     { start: 0, write: "observe(values);", callee: 'import { observe } from "./native.js";',
@@ -139,7 +153,7 @@ export async function checkNativeCountedLoopProofs() {
     { start: 0, write: "", minimum: 0n, counted: true, bound: "values.length", receiver: "replacement" },
   ]) {
     const source = `${callee}
-    export function read(values: boolean[], replacement: boolean[]): boolean {
+    export function read(values: boolean[], replacement: boolean[]${extraParameter}): boolean {
       for (${afterLoop ? "var" : "let"} i = ${start}; i < ${bound}; ${step}) { ${write} ${exit ?? `if (${receiver}[i]) return true;`} ${tail} }
       return ${afterLoop ? "values[i]" : "false"};
     }`;
@@ -154,9 +168,10 @@ export async function checkNativeCountedLoopProofs() {
     const result = analyzeHostProgram(operands);
     assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
     const chapter = result.value.modules.find(row => row.module === snapshot.entryPoint);
-    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block" && row.tir.params.length === 2);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block"
+      && row.tir.params.length === (extraParameter === "" ? 2 : 3));
     const checks = selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "check");
-    assert.equal(checks.length, afterLoop ? 2 : 1);
+    assert.equal(checks.length, writeChecks + (afterLoop ? 2 : 1));
     if (nativeInvoke) assert.deepEqual(selected.mir.blocks.map(row => row.terminator).filter(row => row.kind === "invoke")
       .map(row => row.operation.decision.execution), [{ kind: "invocation", writesStorage: false, failure: "abort" }]);
     const [facts] = selected.facts;
@@ -180,7 +195,14 @@ export async function checkNativeCountedLoopProofs() {
     assert.deepEqual(decoded.value.refinements.countedLoops, facts.refinements.countedLoops);
     const indexed = sourceOccurrences(selected.tir, createAccount(limits));
     assert.equal(indexed.kind, "complete");
-    const [check, bypassed] = checks;
+    for (const checkedWrite of checks.slice(0, writeChecks)) {
+      const base = selected.mir.places[checkedWrite.place].base;
+      assert.equal(base.kind, "checked");
+      assert.equal(base.projection.kind, "index");
+      assert.equal(indexed.value.get(checkedWrite.tir.node).tsonic.role, "assignment-target");
+      assert.equal(selected.mir.blocks[checkedWrite.next].statements.some(row => row.kind === "assign" && row.place === checkedWrite.place), true);
+    }
+    const [check, bypassed] = checks.slice(writeChecks);
     const access = indexed.value.get(check.tir.node);
     const range = minimum === null ? null : { minimum, maximum: bound === "3" ? 2n : (1n << 63n) - 2n };
     assert.equal(access.kind, "ElementAccessExpression");
@@ -203,9 +225,17 @@ export async function checkNativeCountedLoopProofs() {
       assert.equal(stores[0].step, null);
       assert.deepEqual(stores[0].value, { kind: "use", operand: { kind: "place", place: stores[0].place } });
     }
+    if (audit === "counter-copy") {
+      const assignment = loop.statement.statements.nodes[0].expression;
+      const store = selected.mir.blocks.flatMap(block => block.statements)
+        .find(row => row.kind === "assign" && row.tir.node === assignment.id);
+      assert.equal(store.step, null);
+      assert.deepEqual(store.value, { kind: "use", operand: { kind: "place", place: store.place } });
+    }
     if (!audit) continue;
+    const callAudit = audit === "call" || audit === "content-call";
     const summaryAt = (block, operation) => {
-      assert.equal(audit, "call");
+      assert.equal(callAudit, true);
       assert.equal(operation === selected.mir.blocks[block].terminator, true);
       assert.equal(operation.callee.kind, "direct");
       const activation = operation.callee.resolution.activation;
@@ -213,6 +243,13 @@ export async function checkNativeCountedLoopProofs() {
         && row.key.execution.provided === 1);
       assert.ok(summary);
       assert.equal(summary.parameters.length, 1);
+      if (writeProjection !== null) {
+        const [effect] = summary.parameters;
+        assert.equal(effect.writes.kind, "complete");
+        assert.equal(effect.writes.paths.length, 1);
+        const row = summary.arena.projections[effect.writes.paths[0]];
+        assert.deepEqual([row.parent, row.projection.kind], [null, writeProjection]);
+      }
       return { kind: "complete", value: summary };
     };
     const proofInput = { nativeFacts: operands.snapshot.nativeFacts, sourceOf: node => indexed.value.get(node), summaryAt, mirBody: instance => {
@@ -225,7 +262,7 @@ export async function checkNativeCountedLoopProofs() {
     assert.deepEqual(replay.value, {
       loops: facts.refinements.countedLoops, ranges: [{ node: access.argumentExpression.id, range }], refinements: expectedRefinements,
     });
-    if (audit === "call") {
+    if (callAudit) {
       const unavailable = countedLoopsOf(createAccount(limits), selected.mir, facts.execution.provided, {
         ...proofInput, summaryAt: () => ({ kind: "complete", value: null }),
       });
@@ -252,6 +289,11 @@ export async function checkNativeCountedLoopProofs() {
         assert.equal(observeLookup(account) === stopped, true);
         assert.equal(lookups, admitted ? 1 : 0);
       }
+    }
+    if (audit === "counter-copy" || audit === "content-store" || audit === "content-call") {
+      checkReachedProofCuts(InvocationAccount.stateOf, account => countedLoopsOf(account, selected.mir, facts.execution.provided, proofInput),
+        replay.value, `${audit}: ${write}`);
+      continue;
     }
     for (const unavailable of [null, selected.mir]) {
       const unbacked = countedLoopsOf(createAccount(limits), selected.mir, facts.execution.provided, {

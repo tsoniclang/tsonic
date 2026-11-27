@@ -1,11 +1,11 @@
 import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
-import type { BlockId, LocalId, PlaceId } from "../ids/contract.js";
-import type { MirBlock, MirBody, MirStatement, MirTerminator } from "../ir-mir/contract.js";
+import type { BlockId, LocalId, PlaceId, ProjectionPathId } from "../ids/contract.js";
+import type { MirBlock, MirBody, MirPlaceBase, MirProjection, MirStatement, MirTerminator } from "../ir-mir/contract.js";
 import { localOwnershipOfMir, visitMirControlEdges } from "../ir-mir/index.js";
 import type { PlacedCopies } from "./apply-summary.js";
 import { refinementMayWrite } from "./apply-summary.js";
-import type { RefinementSources } from "./contract.js";
+import type { Projection, ProjectionPath, RefinementSources, Summary } from "./contract.js";
 
 type Strength = "unproved" | "range" | "extent" | "current-extent";
 
@@ -14,12 +14,74 @@ interface Guard {
   readonly header: MirBlock;
   readonly success: BlockId;
   readonly counter: LocalId;
+  readonly commit: MirStatement;
   readonly receiver: LocalId | null;
 }
 
 const absent: { readonly kind: "complete"; readonly value: null } = { kind: "complete", value: null };
 const unequal: { readonly kind: "complete"; readonly value: false } = { kind: "complete", value: false };
 const equal: { readonly kind: "complete"; readonly value: true } = { kind: "complete", value: true };
+
+export function unchangedLocalStore(row: Extract<MirStatement, { readonly kind: "assign" }>,
+  account: DataflowAccount): DataflowResult<boolean> {
+  const inspect = chargeWork(account, 2);
+  if (inspect !== null) return inspect;
+  const value = row.value;
+  if (row.step !== null || value.kind !== "use") return unequal;
+  const read = chargeWork(account, 1);
+  if (read !== null) return read;
+  return value.operand.kind === "place" && value.operand.place === row.place ? equal : unequal;
+}
+
+function contentsProjection(projection: MirProjection | Projection): boolean {
+  if (projection.kind === "index" || projection.kind === "element") return true;
+  if (projection.kind !== "field") return false;
+  const { member } = projection;
+  return member.decision.location.kind === "data" && member.decision.location.check.kind === "none"
+    && member.getter === null && member.setter === null && member.decision.getter === null && member.decision.setter === null;
+}
+
+function contentsStore(mir: MirBody, destination: PlaceId, base: MirPlaceBase | undefined,
+  account: DataflowAccount): DataflowResult<boolean> {
+  if (base?.kind !== "place" && base?.kind !== "checked" || !contentsProjection(base.projection)) return unequal;
+  let current = destination;
+  let selected: Extract<MirPlaceBase, { readonly kind: "place" | "checked" }> = base;
+  for (;;) {
+    const parent: PlaceId = selected.place;
+    if (parent >= current) return unequal;
+    const paid = chargeWork(account, 1);
+    if (paid !== null) return paid;
+    current = parent;
+    const ancestor: MirPlaceBase | undefined = mir.places[parent]?.base;
+    if (ancestor?.kind === "local" || ancestor?.kind === "static") return equal;
+    if (ancestor === undefined || ancestor.projection.kind !== "refined" && !contentsProjection(ancestor.projection)) return unequal;
+    selected = ancestor;
+  }
+}
+
+function pathsMayChangeExtent(paths: readonly ProjectionPathId[], summary: Summary,
+  account: DataflowAccount): DataflowResult<boolean> {
+  const initial = chargeWork(account, 1);
+  if (initial !== null) return initial;
+  if (summary.backing.length !== 0) return equal;
+  for (let position = 0; position < paths.length; position += 1) {
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    const terminal = paths[position];
+    if (terminal === undefined) return equal;
+    let current: ProjectionPathId = terminal;
+    for (;;) {
+      const paid = chargeWork(account, 1);
+      if (paid !== null) return paid;
+      const row: ProjectionPath | undefined = summary.arena.projections[current];
+      if (row?.id !== current || !contentsProjection(row.projection)) return equal;
+      if (row.parent === null) break;
+      if (row.parent >= current) return equal;
+      current = row.parent;
+    }
+  }
+  return unequal;
+}
 
 function statements(mir: MirBody, block: MirBlock, input: Strength, guard: Guard, roots: readonly (LocalId | null)[],
   account: DataflowAccount): DataflowResult<Strength> {
@@ -31,21 +93,23 @@ function statements(mir: MirBody, block: MirBlock, input: Strength, guard: Guard
     const row = rows[position];
     if (row === undefined) state = "unproved";
     else if (row.kind === "assign") {
-      if (roots[row.place] === guard.counter) state = "unproved";
-      else if (state === "extent" || state === "current-extent") {
+      if (roots[row.place] === guard.counter) {
+        if (row === guard.commit || mir.places[row.place]?.base.kind !== "local") state = "unproved";
+        else {
+          const unchanged = unchangedLocalStore(row, account);
+          if (unchanged.kind !== "complete") return unchanged;
+          if (!unchanged.value) state = "unproved";
+        }
+      } else if (state === "extent" || state === "current-extent") {
         const target = mir.places[row.place]?.base;
-        if (target?.kind !== "local") state = "range";
-        else if (state === "current-extent" && target.local === guard.receiver) {
-          const inspect = chargeWork(account, 2);
-          if (inspect !== null) return inspect;
-          const value = row.value;
-          if (row.step !== null || value.kind !== "use") state = "extent";
-          else {
-            const read = chargeWork(account, 1);
-            if (read !== null) return read;
-            const operand = value.operand;
-            if (operand.kind !== "place" || operand.place !== row.place) state = "extent";
-          }
+        if (target?.kind !== "local") {
+          const preserves = contentsStore(mir, row.place, target, account);
+          if (preserves.kind !== "complete") return preserves;
+          if (!preserves.value) state = "range";
+        } else if (state === "current-extent" && target.local === guard.receiver) {
+          const unchanged = unchangedLocalStore(row, account);
+          if (unchanged.kind !== "complete") return unchanged;
+          if (!unchanged.value) state = "extent";
         }
       }
     } else if (row.kind === "storage-live" || row.kind === "storage-dead") {
@@ -69,7 +133,7 @@ function extentEffect(block: BlockId, terminator: MirTerminator, summaryAt: Refi
       if (lookup !== null) return lookup;
       const summary = summaryAt(block, terminator);
       if (summary.kind !== "complete") return summary;
-      const writes = refinementMayWrite(account, summary.value, () => ({ kind: "complete", value: true }));
+      const writes = refinementMayWrite(account, summary.value, (_subject, paths, selected) => pathsMayChangeExtent(paths, selected, account));
       return writes.kind === "complete" ? { kind: "complete", value: !writes.value } : writes;
     }
     default: return { kind: "complete", value: true };

@@ -11,11 +11,12 @@ import type { BodyInstance, NativeIntegerPrimitive, ReceiverAccess } from "../ir
 import type { CountedLoopFact, CountedLoopInputs, CountedLoopProofs, CountedLoopsOf, IntegerRange } from "./contract.js";
 import type { PlacedCopies } from "./apply-summary.js";
 import { admitPlacedCopy } from "./apply-summary.js";
-import { countedGuardStates, sameMeasuredArray } from "./counted-guard.js";
+import { countedGuardStates, sameMeasuredArray, unchangedLocalStore } from "./counted-guard.js";
 import { selectedMirBody } from "./verification.js";
 
 interface LoopBinding {
   readonly local: LocalId;
+  readonly place: PlaceId;
   readonly start: BlockId;
   readonly latch: BlockId;
   readonly commit: MirStatement;
@@ -264,7 +265,7 @@ function sameReceiver(mir: MirBody, site: IndexSite, extent: ExtentBound, storag
     storage, reachable, account);
 }
 
-function collectRanges(mir: MirBody, range: IntegerRange, counter: PlaceId, counterLocal: LocalId,
+function collectRanges(mir: MirBody, range: IntegerRange, counter: PlaceId, counterLocal: LocalId, commit: MirStatement,
   source: LocalId, storage: CounterStorage, sites: IndexSites, rows: ProofRows,
   extent: ExtentBound | null, entry: BlockId, header: MirBlock, first: BlockId,
   guard: NodeId, inputs: CountedLoopInputs, account: DataflowAccount): DataflowResult<null> {
@@ -284,7 +285,7 @@ function collectRanges(mir: MirBody, range: IntegerRange, counter: PlaceId, coun
       const held = chargeResultEntries(account, 1);
       if (held !== null) return held;
       receiverAtGuard = receiver.value;
-      flow = countedGuardStates(mir, { entry, header, success: first, counter: counterLocal, receiver: receiverAtGuard },
+      flow = countedGuardStates(mir, { entry, header, success: first, counter: counterLocal, commit, receiver: receiverAtGuard },
         storage.roots, inputs.summaryAt, account);
     }
     if (flow.kind !== "complete") return flow;
@@ -368,10 +369,13 @@ function validateBindings(
       const read = chargeWork(account, 1);
       if (read !== null) return read;
       const statement = block.statements[index];
-      if (statement === undefined || (statement.kind === "assign"
-        ? writesCounter(statement.place) && statement !== roles.commit
-        : (statement.kind === "storage-live" || statement.kind === "storage-dead") && statement.local === roles.local))
+      if (statement === undefined || (statement.kind === "storage-live" || statement.kind === "storage-dead") && statement.local === roles.local)
         return { kind: "complete", value: false };
+      if (statement.kind === "assign" && writesCounter(statement.place) && statement !== roles.commit) {
+        if (statement.place !== roles.place) return { kind: "complete", value: false };
+        const unchanged = unchangedLocalStore(statement, account);
+        if (unchanged.kind !== "complete" || !unchanged.value) return unchanged;
+      }
     }
     let crossing = false;
     const edge = visitMirControlEdges(block.terminator, {
@@ -496,7 +500,7 @@ function loopFact(
       || mir.entries.some(row => row.block === preheader.id)) return absent;
     initialValue = { kind: "placed", instance: call.callee.instance };
   }
-  const verified = validateBindings(mir, loop, { local: local.id, start: preheader.id, latch: latch.id, commit }, storage.roots, account);
+  const verified = validateBindings(mir, loop, { local: local.id, place: counter.id, start: preheader.id, latch: latch.id, commit }, storage.roots, account);
   if (verified.kind !== "complete") return verified;
   if (!verified.value) return absent;
   const retained = chargeResultEntries(account, 2);
@@ -518,7 +522,7 @@ function loopFact(
   const rangeWork = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
   if (rangeWork !== null) return rangeWork;
   const range = { minimum: lower.value, maximum: maximum - 1n };
-  const collected = collectRanges(mir, range, counter.id, local.id, binding.local.local, storage, sites.value, proofs,
+  const collected = collectRanges(mir, range, counter.id, local.id, commit, binding.local.local, storage, sites.value, proofs,
     extent.value, entryBlock, header, whenTrue.target, condition.id, inputs, account);
   if (collected.kind !== "complete") return collected;
   return { kind: "complete", value: fact };
