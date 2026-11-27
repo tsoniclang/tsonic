@@ -3914,6 +3914,34 @@ test("a saved tuple keeps its written initializer context across either const as
   }
 });
 
+test("nested tuple construction borrows the actual selected value association of each slot", () => {
+  const { deps, program, module } = openedModule(`
+    function produce(right: readonly [true, boolean]): readonly [true, boolean] { return right; }
+    export function start(left: readonly [boolean, true], right: readonly [true, boolean]):
+      readonly [readonly [boolean, true], readonly [true, boolean]] {
+      return [(left), ((produce(right)))];
+    }
+  `);
+  const result = captureSingleModule(front, deps, program, module);
+  assert.equal(result.kind, "ok");
+  const raw = result.value;
+  const literal = raw.tree.statements.nodes[1].body.statements.nodes[0].expression;
+  const views = raw.checkerViews.find(row => row.node.node === literal.id);
+  const ownType = raw.types.types[views.read.value];
+  for (const [index, types] of [[0, ["boolean", true]], [1, [true, "boolean"]]]) {
+    const child = raw.types.types[ownType.form.value.elements[index].type];
+    assert.equal(child.form.value.kind, "tuple");
+    assert.equal(child.form.value.readonly, true);
+    const component = raw.types.components[child.component];
+    assert.deepEqual(component.root, { module, node: literal.id });
+    assert.deepEqual(rawComponentPath(raw.types.components, component), [{ kind: "tuple-element", index }]);
+    assert.deepEqual(child.form.value.elements.map(element => {
+      const type = raw.types.types[element.type];
+      return type.literal.value?.value ?? type.form.value.scalar;
+    }), types);
+  }
+});
+
 test("a held tuple read keeps the contextual annotation of its actual assertion", () => {
   const { deps, program, module } = openedModule(`
     export function start(slots: readonly [boolean, true]): readonly [boolean, true] {

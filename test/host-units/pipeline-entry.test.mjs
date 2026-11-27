@@ -435,6 +435,66 @@ test("a bound const tuple return forwards its selected type under the actual gen
     [[bodies[1].tir.root.statements.nodes[0].expression.expression.id, "tuple"]]);
 });
 
+test("a nested tuple product keeps the actual held operand and the selected call result in slot order", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    function produce(value: readonly [true, boolean]): readonly [true, boolean] { return value; }
+    export function start(left: readonly [boolean, true], right: readonly [true, boolean]):
+      readonly [readonly [boolean, true], readonly [true, boolean]] {
+      return [(left), ((produce(right)))];
+    }
+  `);
+  const native = input.snapshot.nativeFacts;
+  const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
+    nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const declaration = readyModuleStatements(readyModuleRoot(chapter.tree)).find(row => row.kind === "FunctionDeclaration" && row.name.text === "start");
+  const { tir, mir } = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+  const literal = tir.root.statements.nodes[0].expression;
+  const [left, right] = literal.elements.nodes;
+  const invoked = right.expression.expression;
+  const calls = mir.blocks.map(row => row.terminator).filter(row => row.kind === "call");
+  assert.deepEqual(calls.map(row => row.tir.node), [invoked.id]);
+  const products = mir.blocks.flatMap(row => row.statements).filter(row => row.kind === "assign" && row.value.kind === "aggregate");
+  assert.deepEqual(products.map(row => [row.tir.node, row.value.aggregate.kind]), [[literal.id, "tuple"]]);
+  assert.deepEqual(products[0].value.aggregate.elements[1], { kind: "place", place: calls[0].destination });
+  const product = result.value.index.types.terms[literal.tsonic.type];
+  assert.deepEqual(product.elements.map(row => row.type), [left.tsonic.type, right.tsonic.type]);
+  assert.notEqual(left.tsonic.type, right.tsonic.type);
+});
+
+test("nested const tuple assertions keep the declared slot context across actual wrappers", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const syntax of ["[true, flag] as const", "((<const>([true, flag])))"]) {
+    const input = analysisInput(fixture, "sdk-minimal", `
+      export function start(left: readonly [boolean, true], flag: boolean):
+        readonly [readonly [boolean, true], readonly [true, boolean]] {
+        return [(left), (${syntax})];
+      }
+    `);
+    const native = input.snapshot.nativeFacts;
+    const result = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot,
+      nativeFacts: { ...native, carrierHolding: [...native.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    const declaration = readyModuleStatements(readyModuleRoot(chapter.tree)).find(row => row.kind === "FunctionDeclaration");
+    const { tir, mir } = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === declaration.tsonic.definition);
+    const outer = tir.root.statements.nodes[0].expression;
+    let inner = outer.elements.nodes[1];
+    while (inner.kind !== "ArrayLiteralExpression") inner = inner.expression;
+    const products = mir.blocks.flatMap(row => row.statements).filter(row => row.kind === "assign" && row.value.kind === "aggregate");
+    assert.deepEqual(products.map(row => [row.tir.node, row.value.aggregate.kind]), [[inner.id, "tuple"], [outer.id, "tuple"]]);
+    assert.deepEqual(products[1].value.aggregate.elements[1], { kind: "place", place: products[0].place });
+    const { terms } = result.value.index.types;
+    const innerType = terms[terms[outer.tsonic.type].elements[1].type];
+    assert.equal(innerType.readonly, true);
+    assert.deepEqual(innerType.elements.map(row => terms[row.type].kind), ["literal", "primitive"]);
+  }
+});
+
 test("a conditional finite spread evaluates only its selected tuple before the following argument", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
