@@ -3519,6 +3519,44 @@ test("selected generic tuple results retain the original binder and actual conte
   assert.equal(published.kind, "ok", JSON.stringify(published.diagnostics));
 });
 
+test("an authored nested finite spread retains its own effective tuple slots and later argument", async () => {
+  const fixture = await loadFrontFixture();
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = "function take(first:[boolean],second:[boolean],later:boolean):boolean{return later;} "
+    + "function next():boolean{return false;} "
+    + "export function start(value:boolean):boolean{return take(...([[value],[true]] as [[boolean],[boolean]]),next());}";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const opened = fixture.openAndCapture(input.snapshot);
+  const captured = captureSingleModule(front, opened.deps, opened.program, input.snapshot.entryPoint);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const invoke = raw.tree.statements.nodes[2].body.statements.nodes[0].expression;
+  const [spread, later] = invoke.arguments.nodes;
+  const selected = raw.calls.find(row => row.invocation.node === invoke.id);
+  assert.equal(selected.kind, "applicable");
+  const [candidate] = raw.types.candidates[selected.candidates].candidates;
+  assert.deepEqual(candidate.arguments.value.map(row => [
+    row.sourceArgument.node, row.effectiveArgumentIndex, row.spreadElementIndex, row.parameterIndex,
+  ]), [[spread.id, 0, 0, 0], [spread.id, 1, 1, 1], [later.id, 2, null, 2]]);
+  for (const row of candidate.arguments.value.slice(0, 2)) {
+    const source = raw.types.types.find(type => type.component === row.source.value);
+    assert.equal(source.form.value.kind, "tuple");
+    assert.equal(source.form.value.elements.length, 1);
+    assert.deepEqual(raw.types.components[source.component].path,
+      { prefix: null, step: { kind: "argument-place", index: row.effectiveArgumentIndex } });
+  }
+  const spreadRead = raw.checkerViews.find(row => row.node.node === spread.id).read;
+  const sourceView = raw.types.types[spreadRead.value];
+  assert.equal(sourceView.form.value.kind, "tuple");
+  assert.equal(raw.types.components[sourceView.component].root.node, spread.id);
+  assert.equal(raw.types.components[sourceView.component].path, null);
+  const facts = input.snapshot.nativeFacts;
+  const analyzed = analyzeHostProgram({ ...input, snapshot: { ...input.snapshot, nativeFacts: { ...facts,
+    carrierHolding: [...facts.carrierHolding, { carrier: "tuple", holding: "in-place" }] } } });
+  assert.equal(analyzed.kind, "ok", JSON.stringify(analyzed.diagnostics));
+});
+
 test("a rejected nested spread retains its actual candidate and original checker obligation", async () => {
   const fixture = await loadFrontFixture();
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");

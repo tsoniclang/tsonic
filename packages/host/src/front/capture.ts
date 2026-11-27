@@ -77,6 +77,7 @@ interface CaptureTables {
   tupleArgumentContexts: Map<Node, TupleAnnotation> | null;
   tupleLiteralContexts: Map<Node, ContextualTupleUse> | null;
   tupleLiteralReads: Map<Node, LiteralTupleUse> | null;
+  tupleSpreadViews: Map<Node, Type> | null;
   readonly interfaceGroups: { readonly byTarget: Map<Type, RawInterfaceGroup>; readonly rows: RawInterfaceGroup[] };
   readonly interfaceCapture: InterfaceCaptureSession;
   readonly interfaceDescriptions: Map<Type, RawInterfaceDescription>;
@@ -284,6 +285,8 @@ type ProjectedOperandUse = AppliedTupleResult | ({
 } & (
   | { readonly role: "indexed-result" | "indexed-tuple-object" | "declared-tuple-argument" | "receiver-tuple-result" }
   | { readonly role: "tuple-element"; readonly parent: RawComponent; readonly ordinal: number }
+  | { readonly role: "spread-tuple-element"; readonly invocation: RawNodeRef; readonly ordinal: number }
+  | { readonly role: "spread-element-view"; readonly occurrence: RawNodeRef }
 ));
 
 type ResultBindingUse = ReceiverProjectionUse | UnionResultUse | DirectResultUse;
@@ -1657,7 +1660,8 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A tuple type requires its actual captured component."));
   const nativeProjection = projection?.role === "indexed-tuple-object" || projection?.role === "declared-tuple-argument"
-    || projection?.role === "receiver-tuple-result" || projection?.role === "applied-tuple-result" || projection?.role === "tuple-element";
+    || projection?.role === "receiver-tuple-result" || projection?.role === "applied-tuple-result"
+    || projection?.role === "tuple-element" || projection?.role === "spread-tuple-element" || projection?.role === "spread-element-view";
   const prefix = parent.path?.prefix;
   if (nativeProjection && (projection.type !== type || originalUse !== null || binding !== null
     || (projection.role === "receiver-tuple-result" ? parent.path?.step.kind !== "result" || prefix !== null
@@ -1667,6 +1671,9 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
       : projection.role === "tuple-element" ? parent.root !== projection.parent.root
         || prefix !== (projection.parent.path === null ? null : projection.parent.id)
         || parent.path?.step.kind !== "tuple-element" || parent.path.step.index !== projection.ordinal
+      : projection.role === "spread-tuple-element" ? parent.root !== projection.invocation
+        || prefix !== null || parent.path?.step.kind !== "argument-place" || parent.path.step.index !== projection.ordinal
+      : projection.role === "spread-element-view" ? parent.root !== projection.occurrence || parent.path !== null
       : parent.path?.step.kind !== "argument-place" || prefix === null || prefix === undefined ||
         scope.tables.components[prefix]?.path?.step.kind !== "result")))
     return throwInvariant(invariant("A projected source must retain its exact native tuple and component."));
@@ -5601,6 +5608,15 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef, co
     sourceArguments.push({ occurrence, expression, kind: spread ? "spread" : "value", component: available(position) });
   }
   const bindings: RawArgumentBinding[] = [];
+  let currentSource = -1;
+  let spreadOccurrence: Node | null = null;
+  let spreadType: Type | null = null;
+  const finishSpreadView = (): boolean => {
+    if (spreadOccurrence === null || spreadType === null) return true;
+    if (!admit(scope, "facts", scope.tables.tupleSpreadViews === null ? 2 : 1)) return false;
+    (scope.tables.tupleSpreadViews ??= new Map()).set(spreadOccurrence, spreadType);
+    return true;
+  };
   for (let index = 0; index < selected.arguments.values.length; index += 1) {
     if (!admit(scope, "edges")) return null;
     const argument = selected.arguments.values[index];
@@ -5622,6 +5638,17 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef, co
     if (destination === null) return null;
     if (argument.selectedArgumentType === undefined || argument.selectedParameterType === undefined)
       throw new TypeError("front: incomplete selected call argument types capture is not implemented");
+    const tupleElement = expansion !== undefined && scope.shape.isTuple(argument.selectedArgumentType);
+    if (argument.sourceArgumentIndex < currentSource)
+      return throwInvariant(invariant("Effective call arguments must retain their actual authored source order."));
+    if (argument.sourceArgumentIndex !== currentSource) {
+      if (!finishSpreadView()) return null;
+      currentSource = argument.sourceArgumentIndex;
+      spreadOccurrence = tupleElement ? argument.sourceArgument : null;
+      spreadType = tupleElement ? argument.selectedArgumentType : null;
+    } else if (!tupleElement || argument.selectedArgumentType !== spreadType) {
+      spreadType = null;
+    }
     const literalNode = selected.sourceArguments[argument.sourceArgumentIndex] === argument.sourceArgument
       && argument.effectiveArgument === argument.sourceArgument && scope.checked.ast.kindName(argument.sourceArgument) === "KindNumericLiteral"
       ? argument.sourceArgument : null;
@@ -5632,6 +5659,12 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef, co
     const sourceLiteral = argument.sourceForm === "value" && scope.shape.isTuple(argument.selectedArgumentType)
       ? tupleLiteralRead(scope, argument.sourceArgument, argument.selectedArgumentType) : null;
     if (scope.meter.refusal !== null) return null;
+    let spreadProjection: ProjectedOperandUse | null = null;
+    if (tupleElement) {
+      if (!admit(scope, "facts")) return null;
+      spreadProjection = { kind: "projected-operand", role: "spread-tuple-element", type: argument.selectedArgumentType,
+        invocation, ordinal: argument.effectiveArgumentIndex };
+    }
     const destinationAnnotation = argument.parameterForm === "parameter"
       ? selectedFormalTupleAnnotation(scope, selected, argument.parameterIndex, argument.selectedParameterType) : null;
     if (destinationAnnotation !== null && argument.sourceForm === "value") {
@@ -5639,12 +5672,14 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef, co
       (scope.tables.tupleArgumentContexts ??= new Map()).set(argument.sourceArgument,
         { type: argument.selectedParameterType, annotation: destinationAnnotation });
     }
-    if (rawType(scope, () => withoutTypeCause(argument.selectedArgumentType), source, sourceAnnotation, sourceLiteral ?? sourceResult, literalNode) === null
+    if (rawType(scope, () => withoutTypeCause(argument.selectedArgumentType), source, sourceAnnotation,
+      sourceLiteral ?? sourceResult ?? spreadProjection, literalNode) === null
       || rawType(scope, () => withoutTypeCause(argument.selectedParameterType), destination, destinationAnnotation) === null) return null;
     bindings.push({ sourceArgument: authored.occurrence, sourceArgumentIndex: argument.sourceArgumentIndex,
       effectiveArgumentIndex: argument.effectiveArgumentIndex, sourceForm: argument.sourceForm, spreadElementIndex: argument.spreadElementIndex ?? null,
       parameterIndex: argument.parameterIndex, parameterForm: argument.parameterForm, source: available(source), destination: available(destination) });
   }
+  if (!finishSpreadView()) return null;
   const declared = captureCallOrder(scope, invocation, info.declarationOrder.signatures, application.kind, application.signature);
   if (declared === null) return null;
   const declarationOrdinal = declared.position;
@@ -5804,7 +5839,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
     shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
     fieldSelectors: null, invalidLayout: null, rootAssignmentAnnotations: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
-      authoredSourceTypes: null, tupleCalls: null, tupleArgumentContexts: null, tupleLiteralContexts: null, tupleLiteralReads: null,
+      authoredSourceTypes: null, tupleCalls: null, tupleArgumentContexts: null, tupleLiteralContexts: null, tupleLiteralReads: null, tupleSpreadViews: null,
       interfaceGroups: { byTarget: new Map(), rows: [] }, interfaceCapture,
       interfaceDescriptions: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),
@@ -6002,8 +6037,15 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       const declaredRead = isDeclaredTupleRead(scope, node, answer);
       const declarationSymbol = declaredRead ? scope.checker.getSymbolAtLocation(node) : undefined;
       let sourceRead: TupleValueRead | null = null;
-      if (kind === "KindSpreadElement") sourceRead = valueTupleRead(scope, ast.as.AsSpreadElement(node)?.Expression, answer);
-      else if (kind === "KindCallExpression" && !failedSelection && scope.shape.isTuple(answer.type))
+      let spreadView: ProjectedOperandUse | null = null;
+      if (kind === "KindSpreadElement") {
+        const views = scope.tables.tupleSpreadViews;
+        if (views !== null && !admit(scope, "edges")) break;
+        if (answer.causes.length === 0 && views?.get(node) === answer.type) {
+          if (!admit(scope, "facts")) break;
+          spreadView = { kind: "projected-operand", role: "spread-element-view", type: answer.type, occurrence: reference };
+        } else sourceRead = valueTupleRead(scope, ast.as.AsSpreadElement(node)?.Expression, answer);
+      } else if (kind === "KindCallExpression" && !failedSelection && scope.shape.isTuple(answer.type))
         sourceRead = callTupleRead(scope, node, answer.type);
       else if (tupleValue === null && answer.causes.length === 0 && scope.shape.isTuple(answer.type)
         && (kind === "KindAsExpression" || kind === "KindTypeAssertionExpression" || kind === "KindParenthesizedExpression"))
@@ -6048,7 +6090,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
           }
         }
       }
-      const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue ?? projectedRead,
+      const read = sharedRead ?? enqueueRawType(scope, answer, readPosition, authoredRead, tupleValue ?? projectedRead ?? spreadView,
         kind === "KindNumericLiteral" || kind === "KindBigIntLiteral" ? node : null);
       let contextualSource: Node | null = null;
       if (tupleContext === null && contextual !== undefined && contextual.causes.length === 0) {
