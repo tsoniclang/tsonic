@@ -1,4 +1,4 @@
-import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
+import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceCallInfo, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
 import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo, RetainedTypeAliasApplication, SourceMarkerFact, SourceTypeRequest, TypePropertyHeader, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, hasDeclaredIndexReadEvidence, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
@@ -73,6 +73,7 @@ interface CaptureTables {
   readonly symbols: RawSymbol[];
   readonly completedSourceReferences: Map<Node, RawNodeRef>;
   authoredSourceTypes: Map<Node, ResolvedSourceTypeInfo> | null;
+  tupleCalls: Map<Node, TupleCallUse> | null;
   readonly interfaceGroups: { readonly byTarget: Map<Type, RawInterfaceGroup>; readonly rows: RawInterfaceGroup[] };
   readonly interfaceCapture: InterfaceCaptureSession;
   readonly interfaceDescriptions: Map<Type, RawInterfaceDescription>;
@@ -332,6 +333,11 @@ interface CaptureScope extends CaptureAdmission {
   readonly tables: CaptureTables;
   fieldSelectors: Map<NodeId, RawLayoutSelector> | null;
   invalidLayout: Diagnostic | null;
+}
+
+interface TupleCallUse {
+  readonly call: ResolvedSourceCallInfo;
+  readonly annotation: Node | null;
 }
 
 type CallCore = NonNullable<Extract<RawMarkers["application"], { readonly kind: "available" }>["value"]>
@@ -3638,10 +3644,42 @@ function isDeclaredTupleRead(scope: CaptureScope, node: Node | undefined, answer
 }
 
 function valueTupleAnnotation(scope: CaptureScope, node: Node | undefined, answer: ResolvedSourceTypeInfo | undefined): Node | null {
-  if (answer === undefined || !isDeclaredTupleRead(scope, node, answer)) return null;
+  if (node === undefined || answer === undefined || answer.causes.length !== 0) return null;
+  if (scope.checked.ast.kindName(node) === "KindCallExpression" && scope.shape.isTuple(answer.type))
+    return callTupleAnnotation(scope, node, answer.type);
+  if (!isDeclaredTupleRead(scope, node, answer)) return null;
   const symbol = scope.checker.getSymbolAtLocation(node);
   return symbol !== undefined && admit(scope, "edges")
     ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(symbol)) : null;
+}
+
+function selectedTupleAnnotation(scope: CaptureScope, call: ResolvedSourceCallInfo): Node | null {
+  if (call.kind !== "applicable" || call.optionalChain || call.selection.diagnostics.length !== 0) return null;
+  const { application } = call.selection;
+  const { signature, instantiatedSignature, signatureShape } = application;
+  const declaration = signatureShape.declaration;
+  if (application.invocation !== call.call || application.kind !== "call" || signatureShape.composite !== undefined
+    || declaration === undefined || signature.declaration !== declaration
+    || instantiatedSignature !== signature && instantiatedSignature.target !== signature || !admit(scope, "edges")) return null;
+  const annotation = scope.checked.ast.typeNode(declaration);
+  if (annotation === undefined || tupleSyntax(scope, annotation) === undefined) return null;
+  const original = sourceType(scope, { kind: "signature-return", signature });
+  if (original?.type !== call.resultType || original.causes.length !== 0 || original.typeSource === undefined
+    || original.typeSource !== annotation && original.typeSource !== unparenthesizedType(scope, annotation)) return null;
+  const applied = instantiatedSignature === signature ? original : sourceType(scope, { kind: "signature-return", signature: instantiatedSignature });
+  return applied?.type === call.resultType && applied.causes.length === 0 && scope.meter.refusal === null ? annotation : null;
+}
+
+function callTupleAnnotation(scope: CaptureScope, node: Node, type: Type): Node | null {
+  if (!admit(scope, "edges")) return null;
+  const known = scope.tables.tupleCalls?.get(node);
+  if (known !== undefined) return known.call.kind === "applicable" && known.call.resultType === type ? known.annotation : null;
+  const call = acquireCallEvidence(scope, node);
+  if (call === null) return null;
+  const annotation = selectedTupleAnnotation(scope, call);
+  if (!admit(scope, "facts", scope.tables.tupleCalls === null ? 3 : 2)) return null;
+  (scope.tables.tupleCalls ??= new Map()).set(node, { call, annotation });
+  return call.kind === "applicable" && call.resultType === type ? annotation : null;
 }
 
 function captureNumericToken(scope: CaptureScope, node: Node): RawNumericLiteral {
@@ -4818,8 +4856,7 @@ function capturedLayoutConstruction(scope: CaptureScope, application: RawApplica
     fieldList: { module: scope.module, node: value.fields.id } };
 }
 
-function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): RawCallSelection | null {
-  if (!admit(scope, "facts")) return null;
+function acquireCallEvidence(scope: CaptureScope, node: Node): ResolvedSourceCallInfo | null {
   const captured = scope.checker.acquireResolvedCall(node, nativeCaptureAdmission(scope));
   if (captured.kind === "refused") {
     if (captured.stop !== scope.meter.refusal)
@@ -4829,6 +4866,14 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
   if (captured.kind === "unavailable") return throwInvariant(invariant("The checker gave no completed evidence for a captured call."));
   const info = captured.value;
   if (info.call !== node) return throwInvariant(invariant("Call evidence must retain its actual source invocation."));
+  return info;
+}
+
+function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): RawCallSelection | null {
+  if (!admit(scope, "facts") || scope.tables.tupleCalls !== null && !admit(scope, "edges")) return null;
+  const tuple = scope.tables.tupleCalls?.get(node);
+  const info = tuple?.call ?? acquireCallEvidence(scope, node);
+  if (info === null) return null;
   if (!scope.emptyCoreInventory && info.kind === "conditional-candidates" && !info.optionalChain &&
       info.candidates.length === 1 && info.diagnostics.length !== 0) {
     if (!admit(scope, "edges")) return null;
@@ -4941,7 +4986,8 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     return throwInvariant(invariant("An applicable call must retain its actual selected position in declaration order."));
   const capturedBindings = captureSelectedBindings(scope, selected, invocation, original);
   if (capturedBindings === null) return null;
-  const result = rawType(scope, () => withoutTypeCause(info.resultType), component(scope, invocation, null), null);
+  const result = rawType(scope, () => withoutTypeCause(info.resultType), component(scope, invocation, null),
+    tuple?.annotation ?? null);
   if (result === null) return null;
   const candidates = rawCandidateListId(scope.tables.candidates.length);
   if (!admit(scope, "facts") || !admit(scope, "facts")) return null;
@@ -5055,7 +5101,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
     shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
     fieldSelectors: null, invalidLayout: null,
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], memoryDescriptors: [], completedSourceReferences: new Map(),
-      authoredSourceTypes: null,
+      authoredSourceTypes: null, tupleCalls: null,
       interfaceGroups: { byTarget: new Map(), rows: [] }, interfaceCapture,
       interfaceDescriptions: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),
@@ -5219,6 +5265,7 @@ function captureRawModule(deps: CaptureDeps, program: CheckedProgram, module: Mo
       const declaredRead = isDeclaredTupleRead(scope, node, answer);
       const declarationSymbol = declaredRead ? scope.checker.getSymbolAtLocation(node) : undefined;
       const authoredRead = kind === "KindSpreadElement" ? valueTupleAnnotation(scope, ast.as.AsSpreadElement(node)?.Expression, answer)
+        : kind === "KindCallExpression" && !failedSelection && scope.shape.isTuple(answer.type) ? callTupleAnnotation(scope, node, answer.type)
         : declarationSymbol !== undefined && admit(scope, "edges")
           ? declaredTupleRead(scope, answer.type, scope.checker.getSymbolValueDeclaration(declarationSymbol)) : null;
       if (scope.meter.refusal !== null) break;

@@ -3384,6 +3384,57 @@ test("tuple declaration reads keep the actual authored type, independently of a 
   assert.deepEqual(valueType.form, { kind: "available", value: { kind: "scalar", scalar: "number" } });
 });
 
+test("a finite spread borrows the actual selected producer's written tuple result once", async () => {
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const opened = openedModule(`
+    let pair: [boolean, string];
+    function producer(): [boolean, string] { return pair; }
+    function take(first: boolean, second: string, later: boolean): boolean { return later; }
+    function later(): boolean { return false; }
+    export function start(): boolean { return take(...producer(), later()); }
+  `);
+  const checked = OpenedProgram.checked(opened.program);
+  const acquisitions = new Map();
+  const borrowed = { ...checked, getSourceFileQueries: file => {
+    const queries = checked.getSourceFileQueries(file);
+    return { ...queries, checker: { ...queries.checker, acquireResolvedCall: (node, admit) => {
+      acquisitions.set(node, (acquisitions.get(node) ?? 0) + 1);
+      return queries.checker.acquireResolvedCall(node, admit);
+    } } };
+  } };
+  const files = OpenedProgram.modules(opened.program).modules.map(entry => OpenedProgram.file(opened.program,
+    entry.kind === "snapshot" ? entry.module : entry.document.module));
+  const program = OpenedProgram.create(borrowed, OpenedProgram.table(opened.program), files,
+    OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
+  const result = captureSingleModule(front, opened.deps, program, opened.module);
+  assert.equal(result.kind, "ok");
+  assert.deepEqual([...acquisitions.values()], [1, 1, 1]);
+  const raw = result.value;
+  const invoke = raw.tree.statements.nodes[4].body.statements.nodes[0].expression;
+  const [spread, later] = invoke.arguments.nodes;
+  const producer = spread.expression;
+  const produced = raw.calls.find(row => row.invocation.node === producer.id);
+  assert.deepEqual(raw.types.signatures[produced.declarationOrder.value[produced.declarationOrdinal]].declaration,
+    { module: opened.module, node: raw.tree.statements.nodes[1].id });
+  const applied = raw.calls.find(row => row.invocation.node === invoke.id);
+  const [candidate] = raw.types.candidates[applied.candidates].candidates;
+  const operandComponent = candidate.sourceArguments[0].component.value;
+  const operandRow = raw.types.types.find(row => row.component === operandComponent);
+  const read = raw.checkerViews.find(row => row.node.node === producer.id).read.value;
+  for (const type of [produced.result, read, operandRow.id]) {
+    const saved = raw.types.types[type];
+    assert.deepEqual(raw.types.components[saved.component].root, { module: opened.module, node: producer.id });
+    assert.equal(saved.form.value.kind, "tuple");
+    assert.deepEqual(saved.form.value.elements.map(element => raw.types.types[element.type].form.value.scalar), ["boolean", "string"]);
+  }
+  const spreadRead = raw.checkerViews.find(row => row.node.node === spread.id).read.value;
+  assert.equal(raw.types.types[spreadRead].form.value.kind, "union");
+  assert.deepEqual(candidate.sourceArguments.map(row => [row.kind, row.occurrence.node, row.expression.node]),
+    [["spread", spread.id, producer.id], ["value", later.id, later.id]]);
+  assert.deepEqual(candidate.arguments.value.map(row => [row.sourceArgumentIndex, row.effectiveArgumentIndex, row.spreadElementIndex, row.parameterIndex]),
+    [[0, 0, 0, 0], [0, 1, 1, 1], [1, 2, null, 2]]);
+});
+
 test("inferred array destructuring preserves independent native read and contextual tuple slots", () => {
   const { deps, program, module } = openedModule(
     "declare const a: number; declare const c: number; export const [e, f] = [a + 1, c];");
