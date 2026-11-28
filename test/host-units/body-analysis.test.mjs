@@ -17,12 +17,16 @@ import { accountFailure, createAccount, refuseAccount, remainingWork } from "../
 import { verifyFacts, verifySummary, printFacts, parseFacts, printSummary, parseSummary, escapeTargetKey } from "../../packages/host/dist/ir-facts/index.js";
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { checkRepeatedStaticInitialization } from "./fixtures/program-static-exposure.mjs";
+import { checkActualBodyRoundCuts } from "./fixtures/body-round-cuts.mjs";
 import { checkBorrowedNativeArrayReturn, checkNativeArrayAlternatives, checkNativeArrayFacts, checkPlacedArrayReturn } from "./fixtures/native-array-initialization.mjs";
 import { nativeInt32Input } from "./fixtures/native-int32-input.mjs";
-import { checkCapturedFieldRefinement, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkNativeRefinementRoundCuts, checkNativeRefinementWalkthrough, checkSavedExtentReceivers } from "./fixtures/native-refinement-proofs.mjs";
+import { checkCapturedFieldRefinement, checkNativeCountedLoopProofs, checkNativeFieldRefinement, checkNativeRefinementWalkthrough, checkSavedExtentReceivers, nativeRefinementInput } from "./fixtures/native-refinement-proofs.mjs";
 
 test("staged native array facts publish one completed backing and the actual unwind", checkNativeArrayFacts);
-test("S-1: a placed native array initializer returns its backing without a new caller allocation", checkPlacedArrayReturn);
+test("S-1: placed binding and array executions reproduce their facts at their exact limits", async () => {
+  const reached = await checkActualBodyRoundCuts(checkPlacedArrayReturn, () => true);
+  assert.deepEqual(reached.toSorted(), [["ArrayLiteralExpression", 0], ["Block", 0], ["Block", 2], ["NumericLiteral", 0], ["SourceFile", 0]]);
+});
 test("a native array result preserves independent borrowed and created producer alternatives", checkNativeArrayAlternatives);
 test("a wholly borrowed native array result creates no new caller backing", checkBorrowedNativeArrayReturn);
 
@@ -2193,7 +2197,14 @@ test("counted-loop facts use the actual saved array, not the source slot or a pr
 test("a selected field proof survives a read-only call and records the actual interfering write call", checkNativeFieldRefinement);
 test("a placed captured field write preserves only the independently guarded cell", checkCapturedFieldRefinement);
 test("the WT-10 walkthrough combines the counted range and ordered field checks", checkNativeRefinementWalkthrough);
-test("the actual WT-10 Body round returns its original refusal at every reached limit cut", checkNativeRefinementRoundCuts);
+test("the actual WT-10 Body round returns its original refusal at every reached limit cut", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = await nativeRefinementInput(await loadFrontFixture(), false);
+  const reached = await checkActualBodyRoundCuts(() => assert.equal(analyzeHostProgram(input).kind, "ok"),
+    round => round.tir.body.includes(";read];function;0]") && round.execution.provided === 3);
+  assert.deepEqual(reached, [["Block", 3]]);
+});
 
 test("the actual optional field write transfers its selected absence at the original round limits", async () => {
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
