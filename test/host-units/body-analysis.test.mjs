@@ -2287,6 +2287,61 @@ test("WT-10: a saved field argument keeps its projected Origins across evaluatio
   assert.deepEqual(reached, [["Block", 1]]);
 });
 
+test("WT-10 retains the earlier local or formal argument when a later operand rebinds it", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `
+    type Box = { flag: boolean };
+    function choose(value: Box, enabled: boolean): boolean { return value.flag && enabled; }
+    export function localCopy(first: Box, second: Box, enabled: boolean): boolean {
+      let held: Box = first;
+      return choose(held, (held = second, held.flag));
+    }
+    export function formalCopy(first: Box, second: Box, enabled: boolean): boolean {
+      return choose(first, (first = second, enabled));
+    }
+  `);
+  const reached = await checkActualBodyRoundCuts(() => {
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+    for (const [name, expectedRole, paths] of [["localCopy", "user", [["flag"], ["flag"]]],
+      ["formalCopy", "parameter", [["flag"], []]]]) {
+      const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body.includes(`;${name}];function;0]`));
+      const { mir, facts: [facts] } = selected;
+      const selectedCall = mir.blocks.find(block => block.terminator.kind === "call" && block.terminator.callee.kind === "direct"
+        && block.terminator.callee.resolution.activation.body.includes(";choose];function;0]"));
+      const [earlier] = selectedCall.terminator.arguments;
+      assert.equal(earlier.kind, "value", name);
+      assert.equal(earlier.passing, "by-value", name);
+      assert.equal(earlier.operand.kind, "place", name);
+      const saved = mir.places[earlier.operand.place].base;
+      assert.equal(saved.kind === "local" && mir.locals[saved.local].role.kind === "temporary", true, name);
+      const copyAt = selectedCall.statements.findIndex(row => row.kind === "assign" && row.place === earlier.operand.place);
+      const copy = selectedCall.statements[copyAt];
+      assert.equal(copy?.value.kind, "use", name);
+      assert.equal(copy.value.operand.kind, "place", name);
+      const original = copy.value.operand.place;
+      const base = mir.places[original].base;
+      assert.equal(base.kind === "local" && mir.locals[base.local].role.kind === expectedRole, true, name);
+      assert.equal(selectedCall.statements.findIndex(row => row.kind === "assign" && row.place === original) > copyAt, true, name);
+      const read = facts.origins.reads.find(row => row.place === earlier.operand.place && row.node === copy.tir.node);
+      const origins = facts.arena.origins[read.origins];
+      assert.equal(origins.kind, "complete", name);
+      assert.equal(origins.includesAbsence, false, name);
+      assert.deepEqual(origins.producers.map(id => {
+        const producer = facts.arena.producers[facts.arena.boundProducers[id].producer];
+        return [producer.kind, producer.index, producer.path];
+      }), [["parameter", 0, null]], name);
+      const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === selected.instance.body);
+      assert.deepEqual(summary.parameters.slice(0, 2).map(row => row.reads.paths.map(path =>
+        summary.arena.projections[path].projection.member.decision.key.value)), paths, name);
+    }
+  }, round => /;(localCopy|formalCopy)\];function;0\]/u.test(round.tir.body) && round.execution.provided === 3);
+  assert.deepEqual(reached, [["Block", 3], ["Block", 3]]);
+});
+
 test("the actual optional field write transfers its selected absence at the original round limits", async () => {
   const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");

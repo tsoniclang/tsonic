@@ -20,7 +20,8 @@ import type { AssignedState } from "./storage.js";
 import { prepareCallCaptures } from "./captures.js";
 import { noCallBoundaries, noCallBoundary, openCallTransport } from "./open-calls.js";
 import { bodyFrontier, inlineTupleSlots, staticCells, readLocal, readSlot, rootSlot } from "./places.js";
-import { projectionEffects as createProjectionEffects, heldProjections } from "./projection-effects.js";
+import { projectionEffects as createProjectionEffects, heldProjections, localReferenceCopies, localReferenceCopyKind } from "./projection-effects.js";
+import type { LocalReferenceCopies } from "./projection-effects.js";
 import type { StaticCells } from "./places.js";
 import { staticCallInventory } from "./static-calls.js";
 import type { StaticCalleeCells, StaticCallInventory } from "./static-calls.js";
@@ -140,6 +141,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const requiredSource = projectedPlaces === null && staticPlaces === null && referenceViews === null ? null : sourceOccurrences(tir, account);
   if (requiredSource !== null && requiredSource.kind !== "complete") return requiredSource;
   let preparedSource = requiredSource;
+  const readySource = (): ReturnType<typeof sourceOccurrences> => {
+    const selected = preparedSource ?? sourceOccurrences(tir, account);
+    if (selected.kind === "complete") preparedSource = selected;
+    return selected;
+  };
   const preparedProjections = preparedSource === null || projectedPlaces === null && referenceViews === null ? null
     : heldProjections(deps, input, preparedSource.value, projectedPlaces ?? [], referenceViews);
   if (preparedProjections !== null && preparedProjections.kind !== "complete") return preparedProjections;
@@ -153,6 +159,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   let arrayLocals: Set<LocalId> | null = null;
   let objectValues: Map<LocalId, "reference" | "reference-optional"> | null = null;
   let inlineRoots: Set<LocalId> | null = null;
+  let copiedLocals: LocalReferenceCopies | null = null;
   for (const local of mir.locals) {
     if (local.role.kind === "capture") {
       const captureWork = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
@@ -184,22 +191,31 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         ? "reference-optional" : valueKind(deps, local.storage));
     const afterKind = accountFailure(account);
     if (afterKind !== null) return afterKind;
-    if (kind === null && local.role.kind === "temporary" && projections === null) {
+    if (kind === null && local.role.kind === "temporary") {
       const work = chargeWork(account, 1);
       if (work !== null) return work;
       const storage = deps.typeOf(local.storage);
       const cut = accountFailure(account);
       if (cut !== null) return cut;
-      if (storage.kind === "optional") {
-        const ready: ReturnType<typeof sourceOccurrences> = preparedSource ?? sourceOccurrences(tir, account);
+      if (storage.kind === "optional" && projections === null) {
+        const ready = readySource();
         if (ready.kind !== "complete") return ready;
-        preparedSource = ready;
         const selected = heldProjections(deps, input, ready.value, [], null);
         if (selected.kind !== "complete") return selected;
         projections = selected.value;
         hasAbsence ||= projections.includesAbsence;
         hasOptional ||= projections.includesAbsence;
         if (projections.absenceValues?.has(local.id) === true) kind = "reference-optional";
+      }
+      if (kind === null && (storage.kind === "shape" || storage.kind === "optional")) {
+        if (copiedLocals === null) {
+          const prepared = localReferenceCopies(mir, account);
+          if (prepared.kind !== "complete") return prepared;
+          copiedLocals = prepared.value;
+        }
+        const copy = localReferenceCopyKind(deps, input, readySource, copiedLocals, local);
+        if (copy.kind !== "complete") return copy;
+        kind = copy.value;
       }
     }
     if (kind === null && local.source !== null && (local.role.kind === "capture" ||
@@ -369,7 +385,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     ?? bounded("maximumConditionAlternatives", 1)
     ?? (valueEntries.length + valueCaptureCount === 0 ? null : bounded("maximumOriginAlternatives", 1));
   if (bound !== null) return bound;
-  const source = preparedSource ?? sourceOccurrences(tir, account);
+  const source = readySource();
   if (source.kind !== "complete") return source;
   const selectedApplication: ReadCallApplication = at => at.body === tir.body ? selectedSourceApplication(source.value.get(at.node)) : null;
   const imported: { value: StaticCallInventory | null } = { value: null };

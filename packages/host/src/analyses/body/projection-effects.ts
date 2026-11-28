@@ -4,7 +4,7 @@ import type { BoundProducerId, LocalId, LocalRef, NodeId, OriginsId, PlaceId, Pr
 import { admitIntegerKey, boundProducerId, encodeKey, producerId, projectionPathId } from "../../ids/index.js";
 import type { AppliedSummary, BoundProducer, CallFieldBindings, Origins, Producer, Projection, ProjectionPath, RelationalArena, Summary } from "../../ir-facts/contract.js";
 import { admitSelectionIdentity, fieldProjectionIdentityData, projectCallFields } from "../../ir-facts/index.js";
-import type { MirBody, MirOperand, MirPlace, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
+import type { MirBody, MirLocal, MirOperand, MirPlace, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
 import { visitMirControlEdges, visitMirStorageExposures } from "../../ir-mir/index.js";
 import type { Identifier, PropertyAccessExpression } from "../../ir-hir/contract.js";
 import type { MemberSelection, TirSyntaxOccurrence, TypedPhase } from "../../ir-tir/contract.js";
@@ -55,23 +55,21 @@ export interface HeldProjections {
   readonly copies: ReadonlyMap<LocalId, ReferenceCopy> | null;
 }
 
-function verifyReferenceCopies(body: MirBody, copies: ReadonlyMap<LocalId, ReferenceCopy>, account: DataflowAccount): DataflowStop | null {
-  const copyAt = (initial: PlaceId): DataflowResult<ReferenceCopy | null> => {
+type ReferenceDestination = MirStatement | "control" | "exposure";
+
+function visitReferenceDestinations(body: MirBody, account: DataflowAccount,
+  visit: (local: LocalId, destination: ReferenceDestination) => DataflowStop | null): DataflowStop | null {
+  const observe = (initial: PlaceId, destination: ReferenceDestination): DataflowStop | null => {
     let place = initial;
     for (;;) {
       const base = body.places[place]?.base;
-      if (base?.kind === "local") return { kind: "complete", value: copies.get(base.local) ?? null };
+      if (base?.kind === "local") return visit(base.local, destination);
       if (base?.kind !== "checked" || base.projection.kind !== "refined" || base.place >= place)
-        return { kind: "complete", value: null };
+        return null;
       const read = chargeWork(account, 1);
       if (read !== null) return read;
       place = base.place;
     }
-  };
-  const exposed = (place: PlaceId): DataflowStop | null => {
-    const copy = copyAt(place);
-    if (copy.kind !== "complete") return copy;
-    return copy.value === null ? null : bodyFrontier("A saved projected value cannot lend its temporary storage.");
   };
   for (let position = 0; position < body.blocks.length; position += 1) {
     const enter = chargeWork(account, 1);
@@ -86,28 +84,90 @@ function verifyReferenceCopies(body: MirBody, copies: ReadonlyMap<LocalId, Refer
       const place = statement.kind === "assign" ? statement.place
         : statement.kind === "array-finish" ? arrayDestination(body, statement.start) : null;
       if (place === null) continue;
-      const copy = copyAt(place);
-      if (copy.kind !== "complete") return copy;
-      if (copy.value !== null && copy.value.statement !== statement)
-        return bodyFrontier("A saved projected value has only its actual copy as producer.");
+      const stopped = observe(place, statement);
+      if (stopped !== null) return stopped;
     }
     let stopped: DataflowStop | null = null;
     const edges = visitMirControlEdges(block.terminator, {
       kind: "edges", admit: () => stopped ?? chargeWork(account, 1),
       visit: (_role, _target, destination) => {
-        if (destination === null) return;
-        const copy = copyAt(destination);
-        if (copy.kind !== "complete") stopped = copy;
-        else if (copy.value !== null) bodyFrontier("A control result cannot replace a saved projected value.");
+        if (destination !== null) stopped ??= observe(destination, "control");
       },
     });
     const cut = edges ?? stopped;
     if (cut !== null) return cut;
   }
   return visitMirStorageExposures(body, {
-    admit: () => chargeWork(account, 1), address: exposed,
-    capture: value => value.capture === "captured-value" ? null : exposed(value.place),
+    admit: () => chargeWork(account, 1), address: place => observe(place, "exposure"),
+    capture: value => value.capture === "captured-value" ? null : observe(value.place, "exposure"),
   });
+}
+
+function verifyReferenceCopies(body: MirBody, copies: ReadonlyMap<LocalId, ReferenceCopy>, account: DataflowAccount): DataflowStop | null {
+  return visitReferenceDestinations(body, account, (local, destination) => {
+    const copy = copies.get(local);
+    if (copy === undefined || destination === copy.statement) return null;
+    if (destination === "exposure") return bodyFrontier("A saved projected value cannot lend its temporary storage.");
+    if (destination === "control") return bodyFrontier("A control result cannot replace a saved projected value.");
+    return bodyFrontier("A saved projected value has only its actual copy as producer.");
+  });
+}
+
+export type LocalReferenceCopies = ReadonlyMap<LocalId, ReferenceCopy["statement"] | null>;
+
+export function localReferenceCopies(body: MirBody, account: DataflowAccount): DataflowResult<LocalReferenceCopies> {
+  const setup = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+  if (setup !== null) return setup;
+  const copies = new Map<LocalId, ReferenceCopy["statement"] | null>();
+  const stopped = visitReferenceDestinations(body, account, (id, destination) => {
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    const local = body.locals[id];
+    if (local?.id !== id || local.role.kind !== "temporary" || local.mode !== "local" || local.source !== null) return null;
+    const previous = copies.get(id);
+    if (previous === null) return null;
+    if (previous === undefined) {
+      const growth = chargeResultEntries(account, 1);
+      if (growth !== null) return growth;
+    }
+    const statement = previous === undefined && typeof destination !== "string" && destination.kind === "assign"
+      && destination.value.kind === "use" && destination.value.operand.kind === "place" ? destination : null;
+    copies.set(id, statement);
+    return null;
+  });
+  return stopped ?? { kind: "complete", value: copies };
+}
+
+export function localReferenceCopyKind(deps: BodyRoundDeps, input: BodyRoundInput,
+  source: () => DataflowResult<ReadonlyMap<NodeId, TirSyntaxOccurrence>>,
+  copies: LocalReferenceCopies, local: MirLocal): DataflowResult<ReferenceCopy["value"] | null> {
+  const { account } = deps;
+  const read = chargeWork(account, 1);
+  if (read !== null) return read;
+  const statement = copies.get(local.id);
+  if (statement == null || statement.tir.body !== input.tir.body || statement.value.kind !== "use"
+    || statement.value.operand.kind !== "place") return { kind: "complete", value: null };
+  const fields = chargeWork(account, 4);
+  if (fields !== null) return fields;
+  const place = input.mir.places[statement.place];
+  const operand = input.mir.places[statement.value.operand.place];
+  if (place?.base.kind !== "local" || place.base.local !== local.id || place.storage !== local.storage
+    || operand?.base.kind !== "local" || operand.storage !== local.storage) return { kind: "complete", value: null };
+  const earlier = input.mir.locals[operand.base.local];
+  if (earlier?.id !== operand.base.local || earlier.storage !== local.storage || earlier.source === null
+    || !(earlier.role.kind === "parameter" && earlier.mode === "by-value" || earlier.role.kind === "user" && earlier.mode === "local"
+      || earlier.role.kind === "capture" && (earlier.mode === "captured-value" || earlier.mode === "captured-location")))
+    return { kind: "complete", value: null };
+  const ready = source();
+  if (ready.kind !== "complete") return ready;
+  const occurrence = ready.value.get(statement.tir.node);
+  if (occurrence?.kind !== "Identifier" || occurrence.tsonic.role !== "value" || occurrence.tsonic.type !== local.storage
+    || occurrence.tsonic.narrowing !== null || occurrence.tsonic.resolution.kind !== "local") return { kind: "complete", value: null };
+  const binding = occurrence.tsonic.resolution.local;
+  const identity = chargeWork(account, 1 + binding.body.length + earlier.source.body.length);
+  if (identity !== null) return identity;
+  return binding.body === earlier.source.body && binding.local === earlier.source.local
+    ? deps.sourceObjectHolding(account, earlier.source, local.storage) : { kind: "complete", value: null };
 }
 
 function fieldSelection(place: MirPlace, node: TirSyntaxOccurrence | undefined): MemberSelection {
