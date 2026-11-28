@@ -1135,7 +1135,7 @@ test("a crossed changed target or slot cannot carry the earlier proved tuple int
         ["declared", "tuple"]);
     } else {
       const message = kind === "target" ? "A merged interface must borrow its actual native declaration application."
-        : "front: a tuple requires its actual authored, projected or inferred destructuring association";
+        : "A native array must retain its actual selected element slot.";
       assert.throws(run, { message }, kind);
       assert.equal(elementReads, 0, kind);
     }
