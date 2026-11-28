@@ -111,7 +111,28 @@ export async function checkSavedReferenceQualification() {
   const savedType = checked.locals.find(local => local.name === "saved").checkerSlot.value;
   const present = authored.tsonic.value.views.read.value;
   checkReachedProofCuts(InvocationAccount.stateOf, read, { storage: savedType, present }, "actual saved nullable local");
-  assert.deepEqual(read(createAccount(input.limits.dataflow), { ...authored }), { kind: "complete", value: null });
+  const field = checked.root.statements.nodes[0].declarationList.declarations.nodes[0].initializer;
+  assert.equal(field.kind, "PropertyAccessExpression");
+  for (const operand of [authored, field]) {
+    const payload = Object.getOwnPropertyDescriptor(operand, "tsonic");
+    Object.defineProperty(operand, "tsonic", { configurable: true, enumerable: payload.enumerable,
+      get: () => assert.fail("The actual presence operand is unread before its proof admission.") });
+    try {
+      for (const cut of [{ maximumWork: 1 }, { maximumResultEntries: 2 }]) {
+        const account = createAccount({ ...input.limits.dataflow, ...cut });
+        const stop = read(account, operand);
+        assert.equal(stop, accountFailure(account));
+        assert.notEqual(stop, null);
+        assert.equal(read(account, operand), stop);
+      }
+    } finally {
+      Object.defineProperty(operand, "tsonic", payload);
+    }
+  }
+  for (const operand of [authored, field]) {
+    const copied = { ...operand, get tsonic() { return assert.fail("A crossed source never supplies its payload."); } };
+    assert.deepEqual(read(createAccount(input.limits.dataflow), copied), { kind: "complete", value: null });
+  }
   const verify = () => verifyTir(verified, tirReadyReadAdmission(createAccount(input.limits.dataflow)))(body);
   assert.deepEqual(verify(), { kind: "complete", violations: [] });
   const peer = body.locals.find(local => local.name === "peer");

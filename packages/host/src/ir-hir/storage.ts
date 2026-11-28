@@ -387,7 +387,7 @@ function sourceObjectFields(body: HirBody, read: CheckedSourceObjectRead) {
     (fields ??= new Map()).set(access.id, row);
     return row;
   };
-  const field = (access: Access, before: LocalRef | null): HoldingProof<CheckedField> => {
+  const field = (access: Access, before: LocalRef | null, role: "value" | null): HoldingProof<CheckedField> => {
     let current = access;
     let pending: ReachedField[] | null = null;
     let visited: Set<Access> | null = null;
@@ -409,11 +409,11 @@ function sourceObjectFields(body: HirBody, read: CheckedSourceObjectRead) {
     for (;;) {
       if (!admit(1, 0)) return null;
       const prior = fields?.get(current.id);
-      if (prior !== undefined) {
-        if (prior.access !== current) return null;
-        return finish(prior);
-      }
-      if (visited?.has(current) === true || nodeOf({ kind: "body", value: { body: body.body, node: current.id } }) !== current) return null;
+      if (prior === undefined) {
+        if (visited?.has(current) === true || nodeOf({ kind: "body", value: { body: body.body, node: current.id } }) !== current) return null;
+      } else if (prior.access !== current) return null;
+      if (current === access && role !== null && current.tsonic.role !== role) return null;
+      if (prior !== undefined) return finish(prior);
       const declaration = selectedField(current);
       if (declaration === null) return null;
       const receiver = admittedOperand(current.expression, admit);
@@ -444,14 +444,14 @@ function settleHolding<Proof extends object | "reference" | "reference-optional"
     const active = new Set<HirBody>();
     active.add(result.initializerBody);
     const pending: SavedHolding<CheckedField>[] = [];
-    let field = sourceObjectFields(result.initializerBody, read).field(result.access, result.before);
+    let field = sourceObjectFields(result.initializerBody, read).field(result.access, result.before, null);
     for (;;) {
       if (field === null) return null;
       if ("resumeHolding" in field) {
         if (!read.admit(1, 0) || active.has(field.initializerBody) || !read.admit(1, 3)) return null;
         active.add(field.initializerBody);
         pending.push(field);
-        field = sourceObjectFields(field.initializerBody, read).field(field.access, field.before);
+        field = sourceObjectFields(field.initializerBody, read).field(field.access, field.before, null);
         continue;
       }
       if (pending.length === 0) break;
@@ -468,16 +468,17 @@ function settleHolding<Proof extends object | "reference" | "reference-optional"
 
 export const checkedSourceObjectFieldsOf: CheckedSourceObjectFieldsOf = (body, read) => {
   const source = sourceObjectFields(body, read);
-  const field: CheckedSourceObjectFieldReader = access => settleHolding(source.field(access, null), read)?.proof ?? null;
-  const presence: ReturnType<CheckedSourceObjectFieldsOf>["presence"] = operand => {
-    if (operand.kind === "PropertyAccessExpression" && operand.tsonic.role === "value") return field(operand)?.presence ?? null;
-    if (operand.kind !== "Identifier" || operand.tsonic.role !== "value" || operand.tsonic.resolution.kind !== "local" ||
-      operand.tsonic.value.views.read.kind !== "available" || !read.admit(1, 0) ||
+  const field: CheckedSourceObjectFieldReader = access => settleHolding(source.field(access, null, null), read)?.proof ?? null;
+  const presence = (operand: HirNode): SourceObjectFieldPresence | null => {
+    if (operand.kind === "PropertyAccessExpression") return settleHolding(source.field(operand, null, "value"), read)?.proof.presence ?? null;
+    if (operand.kind !== "Identifier" || !read.admit(1, 0) ||
       read.nodeOf({ kind: "body", value: { body: body.body, node: operand.id } }) !== operand) return null;
-    const actual = operand.tsonic.value.views.read.value;
+    const payload = operand.tsonic;
+    if (payload.role !== "value" || payload.resolution.kind !== "local" || payload.value.views.read.kind !== "available") return null;
+    const actual = payload.value.views.read.value;
     return settleHolding(sourceObjectHolding((_holding, _container, value) =>
       value !== null && (value.storage === actual || value.present === actual) ? value : null,
-    body, operand.tsonic.resolution.local, read), read);
+    body, payload.resolution.local, read), read);
   };
   return { field, presence, ready: source.ready };
 };
@@ -499,7 +500,7 @@ function heldObjectOperand<Proof extends object>(body: HirBody, operand: HirNode
     },
       body, operand.tsonic.resolution.local, read), read);
   if (operand.kind !== "PropertyAccessExpression" || operand.tsonic.role !== "value" || !read.admit(1, 3)) return null;
-  const source = settleHolding(sourceObjectFields(body, read).field(operand, null), read);
+  const source = settleHolding(sourceObjectFields(body, read).field(operand, null, null), read);
   if (source === null || source.value === null) return null;
   const view = operand.tsonic.value.views.read;
   if (view.kind !== "available" || view.value !== source.value.type || !read.admit(0, 1)) return null;
