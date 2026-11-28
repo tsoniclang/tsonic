@@ -405,6 +405,11 @@ test("a saved nullable field read qualifies the actual bound local and preserves
   await checkSavedReferenceQualification();
 });
 
+test("a grouped nullable alias requires its actual declaration before opening the annotation", async () => {
+  const { checkNullableReferenceAliasQualification } = await import("./fixtures/nullable-reference-alias.mjs");
+  await checkNullableReferenceAliasQualification();
+});
+
 test("a static text binding selector retains its original qualified field", async () => {
   const { checkNamedBindingSelectors } = await import("./fixtures/named-binding-selector.mjs");
   await checkNamedBindingSelectors();

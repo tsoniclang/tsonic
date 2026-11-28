@@ -6,6 +6,7 @@ import { captureSingleModule, loadFrontFixture } from "./fixtures/front/checked-
 import { analysisInput } from "./fixtures/front/analysis-input.mjs";
 import { checkCapturedFieldRefinement, checkDocumentedRefinementWalkthrough, checkNativeRefinementWalkthrough } from "./fixtures/native-refinement-proofs.mjs";
 import { checkDeclaredNullableReferenceStorage, checkSavedReferencePresence } from "./fixtures/saved-reference-presence.mjs";
+import { checkNullableReferenceAliases } from "./fixtures/nullable-reference-alias.mjs";
 import { captureCheckedMarkers } from "./fixtures/front/checked-markers.mjs";
 import { checkCompoundStaticAssignment, checkStaticUpdates, checkQualifiedStaticRead } from "./fixtures/typed-static-witnesses.mjs";
 import { checkInterruptedModuleInitialization, checkSelectedStaticExposure } from "./fixtures/program-static-exposure.mjs";
@@ -6413,6 +6414,7 @@ test("WT-10 documents separate guards before the pure and mutating calls", check
 test("WT-10 distinguishes sibling and guarded writes through a placed capture", checkCapturedFieldRefinement);
 test("WT-10 proves the saved nullable local itself before reading or forwarding its reference", checkSavedReferencePresence);
 test("WT-10 retains real assignment paths through explicitly declared nullable reference storage", checkDeclaredNullableReferenceStorage);
+test("WT-10 preserves the actual native holding through local and imported nullable aliases", checkNullableReferenceAliases);
 
 test("WT-10 follows actual native && and || edges without removing explicit field checks", async () => {
   const fixture = await loadFrontFixture();

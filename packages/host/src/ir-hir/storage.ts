@@ -20,9 +20,10 @@ function admittedOperand(node: HirNode, admit: CheckedSourceStorageRead["admit"]
   return current;
 }
 
-type ObjectAlias = TypeAliasDeclaration<CheckedPhase, "TypeAliasDeclaration"> & { readonly type: TypeLiteral };
+type ObjectAlias = TypeAliasDeclaration<CheckedPhase>;
 type ObjectAliasReference = Extract<TypeNode<CheckedPhase>, { readonly kind: "TypeReference" | "ImportType" }>;
-type ObjectContainer = TypeLiteral | ObjectAlias;
+type ObjectUnion = Extract<TypeNode<CheckedPhase>, { readonly kind: "UnionType" }>;
+type CompleteObjectAnnotation<Value> = (syntax: TypeLiteral | ObjectUnion, alias: ObjectAlias | null) => Value | null | undefined;
 
 function isObjectAliasReference(annotation: TypeNode<CheckedPhase>): annotation is ObjectAliasReference {
   return annotation.kind === "TypeReference" || annotation.kind === "ImportType";
@@ -47,11 +48,22 @@ function objectAliasOwner(annotation: ObjectAliasReference, read: CheckedSourceS
     ? target.value.definitions[0] : null;
 }
 
-function hasObjectLiteral(alias: TypeAliasDeclaration<CheckedPhase>): alias is ObjectAlias {
-  return alias.kind === "TypeAliasDeclaration" && alias.type.kind === "TypeLiteral";
+function transparentAnnotation(annotation: TypeNode<CheckedPhase>, type: TyId, read: CheckedSourceStorageRead):
+  TypeNode<CheckedPhase> | null | undefined {
+  let current = annotation;
+  for (;;) {
+    if (current.tsonic.type.kind !== "available" || current.tsonic.type.value !== type) return null;
+    if (current.kind !== "ParenthesizedType") return current;
+    if (!ordinaryObjectRepresentation(current.tsonic.core)) return null;
+    if (!read.admit(1, 0)) return undefined;
+    const operand = current.type;
+    if (operand.parent !== current.id) return null;
+    current = operand;
+  }
 }
 
-function ordinaryObjectAlias(definition: DefId, type: TyId, read: CheckedSourceStorageRead): ObjectAlias | null | undefined {
+function ordinaryObjectAlias<Value>(definition: DefId, type: TyId, read: CheckedSourceStorageRead,
+  complete: CompleteObjectAnnotation<Value>): Value | null | undefined {
   const { itemOf, admit } = read;
   let selected = definition;
   let followed: Set<DefId> | null = null;
@@ -59,10 +71,11 @@ function ordinaryObjectAlias(definition: DefId, type: TyId, read: CheckedSourceS
     const alias = itemOf(selected);
     if (alias?.kind !== "TypeAliasDeclaration" || alias.tsonic.definition !== selected || alias.typeParameters !== null
       || alias.tsonic.type.kind !== "available" || alias.tsonic.type.value !== type || !ordinaryObjectRepresentation(alias.tsonic.core)) return null;
-    const target = alias.type;
-    if (target.parent !== alias.id || target.tsonic.type.kind !== "available" || target.tsonic.type.value !== type
-      || !ordinaryObjectRepresentation(target.tsonic.core)) return null;
-    if (hasObjectLiteral(alias)) return alias;
+    if (alias.type.parent !== alias.id) return null;
+    const target = transparentAnnotation(alias.type, type, read);
+    if (target == null) return target;
+    if (!ordinaryObjectRepresentation(target.tsonic.core)) return null;
+    if (target.kind === "TypeLiteral" || target.kind === "UnionType") return complete(target, alias);
     if (!isObjectAliasReference(target)) return null;
     if (!admit(1, 0)) return undefined;
     const next = objectAliasOwner(target, read);
@@ -75,13 +88,19 @@ function ordinaryObjectAlias(definition: DefId, type: TyId, read: CheckedSourceS
   }
 }
 
-function ordinaryObjectContainer(annotation: TypeNode<CheckedPhase> | null, type: TyId, read: CheckedSourceStorageRead): ObjectContainer | null {
-  if (annotation === null || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== type) return null;
-  if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? annotation : null;
-  if (!isObjectAliasReference(annotation)) return null;
-  const definition = objectAliasOwner(annotation, read);
-  if (definition == null) return null;
-  return ordinaryObjectAlias(definition, type, read) ?? null;
+function objectAnnotation<Value>(annotation: TypeNode<CheckedPhase> | null, type: TyId, read: CheckedSourceStorageRead,
+  use: "storage" | "field", complete: CompleteObjectAnnotation<Value>): Value | null | undefined {
+  if (annotation === null) return null;
+  const target = transparentAnnotation(annotation, type, read);
+  if (target == null) return target;
+  if (target.kind === "TypeLiteral" || target.kind === "UnionType")
+    return ordinaryObjectRepresentation(target.tsonic.core) ? complete(target, null) : null;
+  if (!isObjectAliasReference(target)) return null;
+  if (use === "field" && !read.admit(1, 0)) return undefined;
+  const definition = objectAliasOwner(target, read);
+  if (definition == null) return definition;
+  if (use === "field" && !read.admit(6 + definition.length, 0)) return undefined;
+  return ordinaryObjectAlias(definition, type, read, complete);
 }
 
 function captureStorage(body: HirBody, local: HirLocal, type: TyId, read: CheckedSourceStorageRead):
@@ -118,7 +137,7 @@ interface SavedHolding<Proof> {
 
 type HoldingProof<Proof> = Proof | SavedHolding<Proof> | null;
 
-function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, container: ObjectContainer, presence: SourceObjectFieldPresence | null) => Proof | null,
+function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, container: TypeLiteral, presence: SourceObjectFieldPresence | null) => Proof | null,
   body: HirBody, local: LocalRef, read: CheckedSourceObjectRead, before: LocalRef | null = null): HoldingProof<Proof> {
   let initial: HirLocal | undefined;
   if (local.body === body.body) {
@@ -150,12 +169,12 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, conta
   let reached: Set<HirLocal> | null = null;
   let captured: Set<HirLocal> | null = null;
   let alias: DefId | null = null;
-  let container: ObjectContainer | null = null;
+  let container: TypeLiteral | null = null;
   let presence: SourceObjectFieldPresence | null = null;
   let current = initial.id;
   let currentBody = body;
   let localRow = initial;
-  const retain = (actual: DefId, actualContainer: ObjectContainer | null, optional: SourceObjectFieldPresence | null): boolean => {
+  const retain = (actual: DefId, actualContainer: TypeLiteral | null, optional: SourceObjectFieldPresence | null): boolean => {
     alias ??= actual;
     if (alias !== actual) return false;
     if (actualContainer !== null) {
@@ -172,8 +191,7 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, conta
       const value = saved.value;
       if (value === null) return null;
       const optional = value.presence?.storage === type ? value.presence : null;
-      if (optional === null && value.type !== type || !retain(value.container.kind === "TypeAliasDeclaration"
-        ? value.container.tsonic.definition : saved.proof.field, value.container, optional)) return null;
+      if (optional === null && value.type !== type || !retain(value.alias?.tsonic.definition ?? saved.proof.field, value.container, optional)) return null;
     }
     for (;;) {
       let actual: DefId | null = null;
@@ -256,22 +274,16 @@ function sourceObjectHolding<Proof>(accept: (holding: SourceObjectHolding, conta
         localRow = next;
       }
       if (actual !== null) {
-        let actualContainer: ObjectContainer | null = null;
-        let optional: SourceObjectFieldPresence | null = null;
-        if (annotation !== null) {
-          if (annotation.kind === "UnionType") {
-            if (!admit(1, 0) || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== type) return null;
-            const value = optionalObjectValue(annotation, type, read);
-            if (value == null) return null;
-            actualContainer = value.container;
-            optional = value.presence;
-          } else {
-            actualContainer = ordinaryObjectContainer(annotation, type, read);
-            if (actualContainer === null) return null;
-          }
-          if (actualContainer.kind === "TypeAliasDeclaration") actual = actualContainer.tsonic.definition;
-        }
-        if (!retain(actual, actualContainer, optional)) return null;
+        const owner = actual;
+        const retained = annotation === null ? retain(owner, null, null)
+          : objectAnnotation(annotation, type, read, "storage", (syntax, selectedAlias) => {
+            if (syntax.kind === "TypeLiteral") return retain(selectedAlias?.tsonic.definition ?? owner, syntax, null);
+            if (!admit(1, 0)) return undefined;
+            const value = optionalObjectValue(syntax, selectedAlias, type, read);
+            if (value == null) return value;
+            return retain(value.alias?.tsonic.definition ?? owner, value.container, value.presence);
+          });
+        if (retained !== true) return null;
       }
       saved = null;
       if (inputs === null || inputs.length === 0) break;
@@ -300,18 +312,9 @@ type Access = PropertyAccessExpression<CheckedPhase>;
 
 interface FieldValue {
   readonly type: TyId;
-  readonly container: ObjectContainer;
+  readonly container: TypeLiteral;
+  readonly alias: ObjectAlias | null;
   readonly presence: SourceObjectFieldPresence | null;
-}
-
-function fieldContainer(annotation: TypeNode<CheckedPhase>, type: TyId, read: CheckedSourceObjectRead): FieldValue["container"] | null | undefined {
-  if (annotation.kind === "TypeLiteral") return ordinaryObjectRepresentation(annotation.tsonic.core) ? annotation : null;
-  if (!isObjectAliasReference(annotation)) return null;
-  if (!read.admit(1, 0)) return undefined;
-  const definition = objectAliasOwner(annotation, read);
-  if (definition == null) return definition;
-  if (!read.admit(6 + definition.length, 0)) return undefined;
-  return ordinaryObjectAlias(definition, type, read);
 }
 
 function fieldValue(property: Property, read: CheckedSourceObjectRead): FieldValue | null | undefined {
@@ -321,17 +324,22 @@ function fieldValue(property: Property, read: CheckedSourceObjectRead): FieldVal
   const declared = property.tsonic.declaredType;
   if (annotation === null || annotation.parent !== property.id || declared.kind !== "available" || declared.value === null
     || annotation.tsonic.type.kind !== "available" || annotation.tsonic.type.value !== declared.value) return null;
-  if (annotation.kind === "TypeLiteral" || isObjectAliasReference(annotation)) {
-    if (typeOf(declared.value)?.kind !== "shape") return null;
+  let storage: TypeTerm | undefined;
+  if (annotation.kind !== "UnionType") {
+    if (annotation.kind !== "TypeLiteral" && annotation.kind !== "ParenthesizedType" && !isObjectAliasReference(annotation)) return null;
+    storage = typeOf(declared.value);
+    if (storage?.kind !== "shape" && storage?.kind !== "optional") return null;
     if (!admit(1, 0)) return undefined;
-    const container = fieldContainer(annotation, declared.value, read);
-    if (container === null || container === undefined) return container;
-    return admit(1, 1) ? { type: declared.value, container, presence: null } : undefined;
   }
-  return annotation.kind === "UnionType" ? optionalObjectValue(annotation, declared.value, read) : null;
+  const type = declared.value;
+  return objectAnnotation(annotation, type, read, "field", (syntax, alias) => {
+    if (syntax.kind === "UnionType") return optionalObjectValue(syntax, alias, type, read);
+    if (storage?.kind !== "shape") return null;
+    return admit(1, 1) ? { type, container: syntax, alias, presence: null } : undefined;
+  });
 }
 
-function optionalObjectValue(annotation: Extract<TypeNode<CheckedPhase>, { readonly kind: "UnionType" }>,
+function optionalObjectValue(annotation: ObjectUnion, alias: ObjectAlias | null,
   type: TyId, read: CheckedSourceObjectRead): FieldValue | null | undefined {
   const { typeOf, admit } = read;
   const arms = annotation.types.nodes;
@@ -339,19 +347,27 @@ function optionalObjectValue(annotation: Extract<TypeNode<CheckedPhase>, { reado
   if (!admit(1, 0)) return undefined;
   const storage = typeOf(type);
   if (storage?.kind !== "optional") return null;
-  let present: FieldValue["container"] | null = null;
+  let present: TypeLiteral | null = null;
+  let owner = alias;
   let absent = false;
   for (let ordinal = 0; ordinal < arms.length; ordinal += 1) {
     if (!admit(1, 0)) return undefined;
-    const arm = arms[ordinal];
-    if (arm === undefined || arm.parent !== annotation.id || arm.tsonic.type.kind !== "available") return null;
+    const offered = arms[ordinal];
+    if (offered === undefined || offered.parent !== annotation.id || offered.tsonic.type.kind !== "available") return null;
+    const arm = transparentAnnotation(offered, offered.tsonic.type.value, read);
+    if (arm == null) return arm;
+    if (arm.tsonic.type.kind !== "available") return null;
     if (arm.kind === "TypeLiteral" || isObjectAliasReference(arm)) {
       if (present !== null || arm.tsonic.type.value !== storage.value) return null;
       if (!admit(1, 0)) return undefined;
       if (typeOf(storage.value)?.kind !== "shape") return null;
-      const container = fieldContainer(arm, storage.value, read);
-      if (container === null || container === undefined) return container;
-      present = container;
+      const reached = objectAnnotation(arm, storage.value, read, "field", (syntax, leafAlias) => {
+        if (syntax.kind !== "TypeLiteral") return null;
+        owner = leafAlias ?? alias;
+        return syntax;
+      });
+      if (reached == null) return reached;
+      present = reached;
     } else {
       if (arm.kind !== "UndefinedKeyword" && (arm.kind !== "LiteralType" || arm.literal.kind !== "NullKeyword")) return null;
       if (!admit(1, 0)) return undefined;
@@ -361,7 +377,7 @@ function optionalObjectValue(annotation: Extract<TypeNode<CheckedPhase>, { reado
     }
   }
   if (present === null || !absent) return null;
-  return admit(1, 2) ? { type: storage.value, container: present,
+  return admit(1, 2) ? { type: storage.value, container: present, alias: owner,
     presence: { storage: type, present: storage.value } } : undefined;
 }
 
@@ -425,7 +441,7 @@ function sourceObjectFields(body: HirBody, read: CheckedSourceObjectRead) {
         if (payload.role !== "value" || payload.value.views.read.kind !== "available" || payload.value.views.read.value !== ready.value.type) return null;
         const { local, field } = ready.proof;
         if (!admit(0, 1)) return null;
-        ready = select(next, { local, declaration: field, receiver: ready.value.type }, ready.value.container, ready.proof);
+        ready = select(next, { local, declaration: ready.value.alias?.tsonic.definition ?? field, receiver: ready.value.type }, ready.value.container, ready.proof);
         current = next.access;
       }
       return ready;
@@ -533,14 +549,10 @@ function heldObjectOperand<Proof extends object>(body: HirBody, operand: HirNode
   const view = operand.tsonic.value.views.read;
   if (view.kind !== "available" || view.value !== source.value.type || !read.admit(0, 1)) return null;
   const { local, field } = source.proof;
-  return select({ local, declaration: field, receiver: source.value.type }, source.value.container, source.proof);
+  return select({ local, declaration: source.value.alias?.tsonic.definition ?? field, receiver: source.value.type }, source.value.container, source.proof);
 }
 
 function qualifiedSourceField(owner: DefId, container: FieldValue["container"], definition: DefId, itemOf: (definition: DefId) => HirNode | null) {
-  if (container.kind === "TypeAliasDeclaration") {
-    owner = container.tsonic.definition;
-    container = container.type;
-  }
   const field = itemOf(definition);
   if (field?.kind !== "PropertySignature" || field.postfixToken?.kind === "ExclamationToken" || field.tsonic.parent !== owner
     || field.parent !== container.id
@@ -586,13 +598,12 @@ function matchesStaticTextPropertyName(name: PropertyName<CheckedPhase>, key: st
   return admit(text.length + key.length, 0) && text === key;
 }
 
-function referenceSurface(owner: DefId, container: ObjectContainer, type: TyId, read: CheckedSourceObjectRead): ReferenceSurface | null {
+function referenceSurface(owner: DefId, syntax: TypeLiteral, type: TyId, read: CheckedSourceObjectRead): ReferenceSurface | null {
   if (!read.admit(1, 0)) return null;
-  const syntax = container.kind === "TypeLiteral" ? container : container.type;
   const term = read.typeOf(type);
   if (term?.kind !== "shape" || term.indexes.length !== 0 || term.calls.length !== 0 || term.constructs.length !== 0
     || term.members.length !== syntax.members.nodes.length || !read.admit(0, 1)) return null;
-  return { owner: container.kind === "TypeAliasDeclaration" ? container.tsonic.definition : owner, syntax, members: term.members };
+  return { owner, syntax, members: term.members };
 }
 
 function referenceField(surface: ReferenceSurface, member: Member, read: CheckedSourceObjectRead): ReferenceField | null {
@@ -670,10 +681,9 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
   const passing = parameter.tsonic.core.argumentPassing;
   if (passing.kind !== "available" || passing.value !== null && (passing.value.role !== "declaration" || passing.value.mode !== "by-value")
     || !read.admit(1, 0)) return null;
-  const container = ordinaryObjectContainer(parameter.type, site.formal.type, read);
-  if (container === null) return null;
-  const formal = referenceSurface(site.formal.declaration, container, site.formal.type, read);
-  if (formal === null || !read.admit(1, 4)) return null;
+  const formal = objectAnnotation(parameter.type, site.formal.type, read, "storage", (syntax, alias) =>
+    syntax.kind === "TypeLiteral" ? referenceSurface(alias?.tsonic.definition ?? site.formal.declaration, syntax, site.formal.type, read) : null);
+  if (formal == null || !read.admit(1, 4)) return null;
   const fields: ReferenceArgumentField[] = [];
   const result: ReferenceArgumentView = { caller: site.caller, formal: site.formal.type, fields };
   const pending: ReferenceFrame[] = [{ caller, formal, parent: null, callerAlias: null, formalAlias: null, position: 0 }];
@@ -711,10 +721,8 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
       if (type?.kind === "optional" ? !read.admit(1, 0) || !nativeLeaf(read.typeOf(type.value)) : !nativeLeaf(type)) return null;
     } else {
       if ((source.nested.presence === null) !== (destination.nested.presence === null)) return null;
-      const callerContainer = source.nested.container;
-      const formalContainer = destination.nested.container;
-      const callerAlias = callerContainer.kind === "TypeAliasDeclaration" ? callerContainer : null;
-      const formalAlias = formalContainer.kind === "TypeAliasDeclaration" ? formalContainer : null;
+      const callerAlias = source.nested.alias;
+      const formalAlias = destination.nested.alias;
       if (callerAlias !== null) {
         callerAliases = enterReferenceAlias(callerAlias, callerAliases, read.admit);
         if (callerAliases === null) return null;
@@ -723,11 +731,10 @@ export const checkedReferenceArgumentViewOf: CheckedReferenceArgumentViewOf = (s
         formalAliases = enterReferenceAlias(formalAlias, formalAliases, read.admit);
         if (formalAliases === null) return null;
       }
-      const caller = referenceSurface(callerAlias?.tsonic.definition ?? source.declaration,
-        callerContainer.kind === "TypeLiteral" ? callerContainer : callerContainer.type, source.nested.type, read);
+      const caller = referenceSurface(callerAlias?.tsonic.definition ?? source.declaration, source.nested.container, source.nested.type, read);
       if (caller === null) return null;
       const formal = referenceSurface(formalAlias?.tsonic.definition ?? destination.declaration,
-        formalContainer.kind === "TypeLiteral" ? formalContainer : formalContainer.type, destination.nested.type, read);
+        destination.nested.container, destination.nested.type, read);
       if (formal === null || !read.admit(1, 1)) return null;
       pending.push({ caller, formal, parent: fields.length, callerAlias, formalAlias, position: 0 });
     }
